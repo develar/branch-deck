@@ -70,7 +70,57 @@ pub(crate) const NAVIGATION: Reading<java_syntax::Java, Tree> = Reading {
   name_start: |tree, leaf| tree.range(leaf).start,
   // a text with an error of its parser: what stands where the parser gave up is no name of the tree
   reads_in_part: |tree| tree.errors().len() > 0,
+  is_statement: |tree, node| tree.node_kind(node).is_some_and(is_statement),
+  // a class of any kind, and a constant of an enum, which may have a body of its own
+  is_type: |tree, node| matches!(tree.node_kind(node), Some(NodeKind::CLASS | NodeKind::ENUM_CONSTANT)),
+  is_member: |tree, node| tree.node_kind(node).is_some_and(is_member),
 };
+
+/// A member of a class, which stands in the class itself
+const fn is_member(kind: NodeKind) -> bool {
+  matches!(
+    kind,
+    NodeKind::CLASS | NodeKind::FIELD | NodeKind::ENUM_CONSTANT | NodeKind::METHOD | NodeKind::ANNOTATION_METHOD | NodeKind::CLASS_INITIALIZER
+  )
+}
+
+/// A statement or a member (`navigate`, "The statements of a name")
+const fn is_statement(kind: NodeKind) -> bool {
+  matches!(
+    kind,
+    NodeKind::EMPTY_STATEMENT
+      | NodeKind::BLOCK_STATEMENT
+      | NodeKind::EXPRESSION_STATEMENT
+      | NodeKind::EXPRESSION_LIST_STATEMENT
+      | NodeKind::DECLARATION_STATEMENT
+      | NodeKind::IF_STATEMENT
+      | NodeKind::WHILE_STATEMENT
+      | NodeKind::FOR_STATEMENT
+      | NodeKind::FOREACH_STATEMENT
+      | NodeKind::FOREACH_PATTERN_STATEMENT
+      | NodeKind::DO_WHILE_STATEMENT
+      | NodeKind::SWITCH_STATEMENT
+      | NodeKind::BREAK_STATEMENT
+      | NodeKind::YIELD_STATEMENT
+      | NodeKind::CONTINUE_STATEMENT
+      | NodeKind::RETURN_STATEMENT
+      | NodeKind::THROW_STATEMENT
+      | NodeKind::SYNCHRONIZED_STATEMENT
+      | NodeKind::TRY_STATEMENT
+      | NodeKind::LABELED_STATEMENT
+      | NodeKind::ASSERT_STATEMENT
+      | NodeKind::IMPORT_STATEMENT
+      | NodeKind::IMPORT_STATIC_STATEMENT
+      | NodeKind::IMPORT_MODULE_STATEMENT
+      | NodeKind::PACKAGE_STATEMENT
+      | NodeKind::CLASS
+      | NodeKind::FIELD
+      | NodeKind::ENUM_CONSTANT
+      | NodeKind::METHOD
+      | NodeKind::ANNOTATION_METHOD
+      | NodeKind::CLASS_INITIALIZER
+  )
+}
 
 /// What a local declares, by its declaration and what it is a part of. No call names a parameter; code that reads
 /// annotations may (`is_read_by_annotation`)

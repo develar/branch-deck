@@ -203,8 +203,8 @@ changes no block and is never quiet: where lines stand is behaviour.
   whatever they are: read at once, they cost a file with three moved functions as much as its comparison.
 - **A chain** grows from a pair of the same key in two blocks, line by line both ways along the two blocks, for as
   long as the pairs are not apart. **A move** is the longest row of a chain that starts and ends with an exact pair
-  and whose edited pairs are at most a quarter of its pairs that are not blank (`MAX_EDITED_LINES`; an exact pair
-  counts 1, an edited one -3, and the longest row whose count is not negative is found in one pass), with the blank
+  and whose edited pairs are at most a third of its pairs that are not blank (`MAX_EDITED_LINES`; an exact pair
+  counts 1, an edited one -2, and the longest row whose count is not negative is found in one pass), with the blank
   pairs beside it; then the same of what is left of the chain before it and after it. It counts when its exact lines
   that stand once hold `MIN_MOVE_CHARS` (24) characters that are no whitespace: one long line is a move, a `}` and a
   `return` are not.
@@ -249,13 +249,13 @@ changes no block and is never quiet: where lines stand is behaviour.
   the end of the line; inserted where the old line has none, deleted where the new one has none): the text of a raw
   string indented by eight more columns and a line of Markdown that lost its two last spaces are changes a plain
   block shows as ranges, and the Inline view shows the old lines of a move once. A blank line too. Where the
-  indentation has no meaning, such a line is still an exact line of the search: it counts in no quarter, ends no
+  indentation has no meaning, such a line is still an exact line of the search: it counts in no third, ends no
   move, and its move stays one move. Under `Trim`, `Ignore` and `IgnoreBlankLines` the diff itself leaves that
   whitespace out, and so does a move, where the indentation has a meaning too.
 - **Where the indentation has a meaning** (Python, YAML, a Makefile, Starlark; under the policy that counts every
   character), a chain has the shift of the pair that started it (a pair whose indents are no shift of each other
-  starts none), and a line whose indent did not move by it changed its nesting: an edited line of the quarter, so
-  more than a quarter of such lines are no move. Its indent is its first range when it is another text. A line that
+  starts none), and a line whose indent did not move by it changed its nesting: an edited line of the third, so
+  more than a third of such lines are no move. Its indent is its first range when it is another text. A line that
   stayed at its indent while its move shifted (a statement left at the first column, but also the text of a string
   there) is such a line with no character changed: an edited line without a range. Elsewhere the shift is the one
   most of the exact lines agree on, the first of them among as many.

@@ -382,12 +382,12 @@ fn csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
     Grammar::CSharp,
     CSHARP,
     &[
-      // a local with several uses: an element of a tuple and a member of an anonymous type it names, `nameof`, an interpolation, the argument of a call of a delegate, the right side of an `is` (a constant while no type has the name); not the member an initializer names, not a type
+      // a local with several uses: an element of a tuple and a member of an anonymous type it names, `nameof`, an interpolation, an argument of a call (of a method, of a delegate), whose text what is called may take, the right side of an `is` (a constant while no type has the name); not the member an initializer names, not a type
       (
         "total = 0",
         0,
         Some("sum"),
-        "variable: 3:9 declaration, 5:6 write, 6:23 write, 8:38 write, 9:16 read shorthand, 10:21 read shorthand, 11:32 read, 12:18 read, 13:22 read spelled, 13:34 read, 17:34 read, 19:24 read, 19:52 read namesake, 21:11 read | 15:60 captured",
+        "variable: 3:9 declaration, 5:6 write, 6:23 write, 8:38 write, 9:16 read shorthand, 10:21 read shorthand, 11:32 read, 12:18 read spelled, 13:22 read spelled, 13:34 read, 17:34 read, 19:24 read spelled, 19:52 read namesake, 21:11 read | 15:60 captured",
       ),
       // the field of the same spelling, with what no variable is: the member an initializer names, the named argument, the type
       ("total;", 0, None, "-: 1:7 declaration, 11:24 write, 12:11 read named argument, 12:35 read, 18:4 read"),
@@ -406,12 +406,12 @@ fn csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
       ("i = 0", 0, None, "loop variable: 8:13 declaration, 8:20 read, 8:31 write"),
       // a variable of a deconstruction
       ("first", 0, None, "variable: 14:9 declaration destructured"),
-      // an out variable
-      ("seen", 0, None, "variable: 15:22 declaration"),
-      // the variable of a catch
-      ("e) { Log", 0, None, "catch parameter: 15:48 declaration, 15:57 read"),
-      // the parameter of a lambda
-      ("item =>", 0, None, "lambda parameter: 16:27 declaration, 16:35 read"),
+      // an out variable: declared in an argument
+      ("seen", 0, None, "variable: 15:22 declaration spelled"),
+      // the variable of a catch, given to a call
+      ("e) { Log", 0, None, "catch parameter: 15:48 declaration, 15:57 read spelled"),
+      // the parameter of a lambda whose body is an expression: an expression tree would hold its name
+      ("item =>", 0, None, "lambda parameter: 16:27 declaration spelled, 16:35 read spelled"),
       // the parameter of a local function
       ("size)", 0, None, "parameter named by calls: 17:18 declaration, 17:27 read"),
       // a local of a setter; `value` is bound without a declaration
@@ -643,7 +643,7 @@ fn a_text_with_a_syntax_error_still_answers_the_names_its_tree_holds() {
     (
       Grammar::CSharp,
       "class A { void F(int scale) {\n  var total = 1;\n  var broken = (;\n  Use(total, scale);\n} }\n",
-      "variable read in part: 1:6 declaration, 3:6 read | 3:13 captured",
+      "variable read in part: 1:6 declaration, 3:6 read spelled | 3:13 captured",
     ),
     (
       Grammar::Starlark,
@@ -1408,64 +1408,127 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
     ),
     (
       Grammar::CSharp,
-      "class A { void F() { var total = 1; Use(total, $\"{total}\"); } }\n",
-      "class A { void F() { var sum = 1; Use(sum, $\"{sum}\"); } }\n",
+      "class A { string F() { var total = 1; total += 2; return $\"{total}\"; } }\n",
+      "class A { string F() { var sum = 1; sum += 2; return $\"{sum}\"; } }\n",
       true,
       "a local and its uses",
     ),
     (
       Grammar::CSharp,
-      "class A {\n  int entry, item;\n  void F() {\n    foreach (var entry in xs) { Use(entry); }\n    Log(entry);\n  }\n}\n",
-      "class A {\n  int entry, item;\n  void F() {\n    foreach (var item in xs) { Use(item); }\n    Log(item);\n  }\n}\n",
+      "class A { void F() { var total = Load(); ArgumentNullException.ThrowIfNull(total); } }\n",
+      "class A { void F() { var sum = Load(); ArgumentNullException.ThrowIfNull(sum); } }\n",
       false,
-      "the statement after the loop logs another field now",
+      "what is called may take the text of its argument: the exception names another parameter now",
     ),
     (
       Grammar::CSharp,
-      "class A { void F() { var total = 1; Use(nameof(total)); } }\n",
-      "class A { void F() { var sum = 1; Use(nameof(sum)); } }\n",
+      "class A { void F() { var total = Load(); Debug.Assert(total > 0); } }\n",
+      "class A { void F() { var sum = Load(); Debug.Assert(sum > 0); } }\n",
+      false,
+      "the failed assertion says another text now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { void F() { var total = Load(); total.ShouldBe(1); } }\n",
+      "class A { void F() { var sum = Load(); sum.ShouldBe(1); } }\n",
+      false,
+      "an extension method may take the text of what it is called on",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { void F() { var total = Load(); total?.Items.Check(); } }\n",
+      "class A { void F() { var sum = Load(); sum?.Items.Check(); } }\n",
+      false,
+      "so may one called after `?.`",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { int F(int[] items) { var total = Load(); return items[total]; } }\n",
+      "class A { int F(int[] items) { var sum = Load(); return items[sum]; } }\n",
+      false,
+      "an indexer may take the text of its argument",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { object F() { Expression<Func<Row, bool>> ready = row => row.Ok; return ready; } }\n",
+      "class A { object F() { Expression<Func<Row, bool>> ready = line => line.Ok; return ready; } }\n",
+      false,
+      "the expression tree of the lambda holds the name of its parameter",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { object F() { var limit = Load(); Expression<Func<Row, bool>> ready = row => row.Size < limit; return ready; } }\n",
+      "class A { object F() { var bound = Load(); Expression<Func<Row, bool>> ready = row => row.Size < bound; return ready; } }\n",
+      false,
+      "and the name of a variable around it",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { object F() { Func<int, int> twice = item => { return item * 2; }; return twice; } }\n",
+      "class A { object F() { Func<int, int> twice = part => { return part * 2; }; return twice; } }\n",
+      true,
+      "a lambda with a block is no expression tree",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { int F() { var total = Load(); var count = total.Count; return count; } }\n",
+      "class A { int F() { var sum = Load(); var count = sum.Count; return count; } }\n",
+      true,
+      "a member read of it is no call",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  int entry, item, last;\n  void F() {\n    foreach (var entry in xs) { last = entry; }\n    last = entry;\n  }\n}\n",
+      "class A {\n  int entry, item, last;\n  void F() {\n    foreach (var item in xs) { last = item; }\n    last = item;\n  }\n}\n",
+      false,
+      "the statement after the loop keeps another field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { string F() { var total = 1; return nameof(total); } }\n",
+      "class A { string F() { var sum = 1; return nameof(sum); } }\n",
       false,
       "the text of the name is a value",
     ),
     (
       Grammar::CSharp,
-      "class A { void F() { var total = 1; Use(new { total }); } }\n",
-      "class A { void F() { var sum = 1; Use(new { sum }); } }\n",
+      "class A { object F() { var total = 1; return new { total }; } }\n",
+      "class A { object F() { var sum = 1; return new { sum }; } }\n",
       false,
       "the member of the anonymous type has another name now",
     ),
     (
       Grammar::CSharp,
-      "class A { void F() { var total = 1; Use(new Box { total = total }); } }\n",
-      "class A { void F() { var sum = 1; Use(new Box { total = sum }); } }\n",
+      "class A { object F() { var total = 1; return new Box { total = total }; } }\n",
+      "class A { object F() { var sum = 1; return new Box { total = sum }; } }\n",
       true,
       "the member the initializer names keeps its name",
     ),
     (
       Grammar::CSharp,
-      "var total = 1;\nSystem.Console.WriteLine(total);\nint Twice(int x) => x * total;\n",
-      "var sum = 1;\nSystem.Console.WriteLine(sum);\nint Twice(int x) => x * sum;\n",
+      "var total = 1;\nvar more = total + 1;\nint Twice(int x) => x * total;\n",
+      "var sum = 1;\nvar more = sum + 1;\nint Twice(int x) => x * sum;\n",
       true,
       "a local of the top-level statements and its uses in them",
     ),
     (
       Grammar::CSharp,
-      "class A { int total = 100; int F(int k) { switch (k) {\n  case 1: int total = 1; Use(total); break;\n  case 2: total = 2; return total;\n} return 0; } }\n",
-      "class A { int total = 100; int F(int k) { switch (k) {\n  case 1: int sum = 1; Use(sum); break;\n  case 2: total = 2; return total;\n} return 0; } }\n",
+      "class A { int total = 100; int F(int k) { switch (k) {\n  case 1: int total = 1; k = total; break;\n  case 2: total = 2; return total;\n} return 0; } }\n",
+      "class A { int total = 100; int F(int k) { switch (k) {\n  case 1: int sum = 1; k = sum; break;\n  case 2: total = 2; return total;\n} return 0; } }\n",
       false,
       "the other section writes the field now",
     ),
     (
       Grammar::CSharp,
-      "class A {\n  int x, y;\n  void F() {\n    while (Next(out var x)) { Use(x); }\n    Use(x);\n  }\n}\n",
-      "class A {\n  int x, y;\n  void F() {\n    while (Next(out var y)) { Use(y); }\n    Use(y);\n  }\n}\n",
+      "class A {\n  int x, y, last;\n  void F() {\n    while (Next() is int x) { last = x; }\n    last = x;\n  }\n}\n",
+      "class A {\n  int x, y, last;\n  void F() {\n    while (Next() is int y) { last = y; }\n    last = y;\n  }\n}\n",
       false,
       "the statement after the loop reads another field now",
     ),
     (
       Grammar::CSharp,
-      "class A {\n  int x, y;\n  void F(bool c) {\n    if (c) Use(out var x);\n    Use(x);\n  }\n}\n",
-      "class A {\n  int x, y;\n  void F(bool c) {\n    if (c) Use(out var y);\n    Use(y);\n  }\n}\n",
+      "class A {\n  int x, y, last;\n  void F(bool c) {\n    if (c) last = Next() is int x ? x : 0;\n    last = x;\n  }\n}\n",
+      "class A {\n  int x, y, last;\n  void F(bool c) {\n    if (c) last = Next() is int y ? y : 0;\n    last = y;\n  }\n}\n",
       false,
       "the statement after the if reads another field now",
     ),
@@ -1485,15 +1548,15 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
     ),
     (
       Grammar::CSharp,
-      "class A { string x = \"field\"; string y; string F() {\n  lock (Get(out var x)) { Use(x); }\n  return x;\n} }\n",
-      "class A { string x = \"field\"; string y; string F() {\n  lock (Get(out var y)) { Use(y); }\n  return x;\n} }\n",
+      "class A { string x = \"field\"; string y, last; string F() {\n  lock (Get() is string x ? x : last) { last = x; }\n  return x;\n} }\n",
+      "class A { string x = \"field\"; string y, last; string F() {\n  lock (Get() is string y ? y : last) { last = y; }\n  return x;\n} }\n",
       false,
       "the statement after the lock read the variable, and reads the field now",
     ),
     (
       Grammar::CSharp,
-      "class A { const int Max = 5; bool F(int x) { const int Max = 1; Use(Max); return x is Max; } }\n",
-      "class A { const int Max = 5; bool F(int x) { const int Top = 1; Use(Top); return x is Max; } }\n",
+      "class A { const int Max = 5; bool F(int x) { const int Max = 1; x += Max; return x is Max; } }\n",
+      "class A { const int Max = 5; bool F(int x) { const int Top = 1; x += Top; return x is Max; } }\n",
       false,
       "the pattern reads the constant of the class now",
     ),
@@ -1859,4 +1922,85 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
     }
   }
   assert!(wrong.is_empty(), "{} of {} cases read wrong:\n{}", wrong.len(), cases.len(), wrong.join("\n"));
+}
+
+/// The lines of the statements of the `occurrence`-th `needle` of a text asked with another name, as `from..to`
+/// each (from 0, the end excluded)
+fn statements_at(grammar: Grammar, text: &str, needle: &str, occurrence: usize) -> String {
+  let question = NameQuestion {
+    position: place(text, needle, occurrence),
+    renamed_to: Some("other"),
+  };
+  let found = names_at(grammar, text, &[question]);
+  let rows = found.of(0).and_then(|it| it.statements.clone()).unwrap_or_default();
+  rows.iter().map(|row| format!("{}..{}", row.start, row.end)).collect::<Vec<_>>().join(" ")
+}
+
+/// The statements of a local are the member around it, whole: the function of a class or of a file with its head,
+/// whatever is nested between the two (a lambda, a function of its own, a class declared in it), the property a
+/// lambda is the value of, never the class or the namespace that holds the member. What gives a local its value
+/// stands anywhere in that code. Those of any other name are the statements of its declarations, each with its
+/// bodies but the members of a type
+#[test]
+fn the_statements_of_a_local_are_the_member_around_it_and_those_of_another_name_its_declarations() {
+  let kotlin = "package demo\n\nclass Ledger(val store: Store) {\n  val total = 1\n\n  /** Sends. */\n  fun send(users: List<User>) {\n    users\n      .filter { it.active }\n      .forEach { user ->\n        fun inner(count: Int) = log(count)\n        inner(user.id)\n      }\n  }\n\n  val handler = { event: Event ->\n    log(event)\n  }\n\n  init {\n    val first = 1\n    log(first)\n  }\n}\n\nfun top(scale: Int): Int {\n  val helper = object : Runnable {\n    override fun run() {\n      val inside = scale\n      log(inside)\n    }\n  }\n  return scale\n}\n";
+  let java = "class A {\n  static final int LIMIT =\n      5;\n\n  int pause(\n      int time) {\n    Runnable later = new Runnable() {\n      public void run() {\n        int inside = time;\n        log(inside);\n      }\n    };\n    return time;\n  }\n\n  enum Mode {\n    FAST {\n      int cost(int size) {\n        return size;\n      }\n    }\n  }\n}\n";
+  let csharp = "namespace Demo {\n  class A {\n    int F(int[] items) {\n      var total = 0;\n      foreach (var item in items) {\n        total += item;\n      }\n      return total;\n    }\n  }\n}\n";
+  let starlark = "LIMIT = 5\n\ndef f(items):\n    total = 0\n    for item in items:\n        total += item\n    return total\n";
+  let rust = "mod inner {\n  impl Ledger {\n    /// Sums.\n    fn sum(&self, items: &[u32]) -> u32 {\n      let total = items.iter().map(|item| item + 1).sum();\n      fn twice(count: u32) -> u32 {\n        count * 2\n      }\n      twice(total)\n    }\n  }\n}\n\nconst LIMIT: u32 =\n  5;\n";
+  let typescript = "export class Ledger {\n  total = 0\n\n  sum(items: number[]): number {\n    return items.reduce((acc, item) => {\n      return acc + item\n    }, 0)\n  }\n}\n\nexport function top(scale: number): number {\n  const twice = (count: number) => count * 2\n  return twice(scale)\n}\n\nexport const LIMIT =\n  5\n\nitems.forEach(entry => {\n  log(entry)\n})\n";
+  let rows: &[(Grammar, &str, &str, usize, &str)] = &[
+    // the parameter of a lambda, of a function declared in it and a parameter of the method: the method, from its
+    // name to its last line, without its doc comment
+    (Grammar::Kotlin, kotlin, "user ->", 0, "6..14"),
+    (Grammar::Kotlin, kotlin, "count:", 0, "6..14"),
+    (Grammar::Kotlin, kotlin, "users:", 0, "6..14"),
+    // the parameter of a lambda that is the value of a property: the property; a local of an initializer: the `init`
+    (Grammar::Kotlin, kotlin, "event:", 0, "15..18"),
+    (Grammar::Kotlin, kotlin, "first =", 0, "19..23"),
+    // a local of a method of an object declared in a function is of that function, whose variables it reads
+    (Grammar::Kotlin, kotlin, "inside =", 0, "25..34"),
+    (Grammar::Kotlin, kotlin, "scale:", 0, "25..34"),
+    // a name that is not local: its declaration alone, a function with its block, a class without its members
+    (Grammar::Kotlin, kotlin, "total =", 0, "3..4"),
+    (Grammar::Kotlin, kotlin, "send", 0, "6..14"),
+    (Grammar::Kotlin, kotlin, "Ledger", 0, "2..3"),
+    (Grammar::Kotlin, kotlin, "store:", 0, "2..3"),
+    // Java: a local of a method of an anonymous class is of the method around it; a method of a constant of an enum
+    (Grammar::Java, java, "inside =", 0, "4..14"),
+    (Grammar::Java, java, "time)", 0, "4..14"),
+    (Grammar::Java, java, "size)", 0, "17..20"),
+    (Grammar::Java, java, "LIMIT", 0, "1..3"),
+    (Grammar::Java, java, "pause", 0, "4..14"),
+    // C#: a method of a class of a namespace
+    (Grammar::CSharp, csharp, "total =", 0, "2..9"),
+    (Grammar::CSharp, csharp, "item in", 0, "2..9"),
+    // Starlark: a `def`; a name of the file is no local, and its statement is its own
+    (Grammar::Starlark, starlark, "total =", 0, "2..7"),
+    (Grammar::Starlark, starlark, "LIMIT", 0, "0..1"),
+    // Rust: a function of an `impl` of a module, with a function declared in it; a constant on two lines
+    (Grammar::Rust, rust, "total =", 0, "3..10"),
+    (Grammar::Rust, rust, "item|", 0, "3..10"),
+    (Grammar::Rust, rust, "count:", 0, "3..10"),
+    (Grammar::Rust, rust, "LIMIT", 0, "13..15"),
+    // TypeScript: a method of an exported class, an exported function, a statement of the module
+    (Grammar::TypeScript, typescript, "acc,", 0, "3..8"),
+    (Grammar::TypeScript, typescript, "count:", 0, "10..14"),
+    (Grammar::TypeScript, typescript, "scale:", 0, "10..14"),
+    (Grammar::TypeScript, typescript, "entry =>", 0, "18..21"),
+    (Grammar::TypeScript, typescript, "LIMIT", 0, "15..17"),
+    (Grammar::TypeScript, typescript, "Ledger", 0, "0..1"),
+  ];
+  let found: Vec<_> = rows
+    .iter()
+    .map(|&(grammar, _, needle, occurrence, _)| {
+      (
+        grammar,
+        needle,
+        statements_at(grammar, rows.iter().find(|row| row.0 == grammar && row.2 == needle).unwrap().1, needle, occurrence),
+      )
+    })
+    .collect();
+  let expected: Vec<_> = rows.iter().map(|&(grammar, _, needle, _, lines)| (grammar, needle, lines.to_string())).collect();
+  assert_eq!(found, expected);
 }

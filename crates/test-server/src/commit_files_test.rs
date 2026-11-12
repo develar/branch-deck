@@ -134,20 +134,9 @@ async fn the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_ind
   assert_eq!(answered(&answer), of_both("unavailable", json!([])));
 
   // the index answers the rename of the store whole: its declaration and the two calls of the report, in both trees
-  let used =
-    |file: &str, line: u32, column: u32, end: u32, kind: &str| json!({ "file": file, "line": line, "column": column, "end_column": end, "kind": kind, "resolved": "import" });
-  let uses = |end: u32| {
-    json!({ "total": 3, "uses": [
-      used("src/Report.kt", 5, 16, 12 + end, "call"),
-      used("src/Report.kt", 11, 16, 12 + end, "call"),
-      used("src/Store.kt", 19, 4, end, "declaration"),
-    ] })
-  };
-  let kotlin = json!({ "language": "kotlin" });
-  let renamed = json!({ "same": true, "complete": true, "old": kotlin, "new": kotlin, "base": uses(13), "head": uses(16), "conflicts": [] });
   std::fs::write(
     std::path::Path::new(&repository_path).join(".git/branch-deck-accio.json"),
-    json!({ "renames": { "src/Store.kt:19:5": renamed } }).to_string(),
+    test_utils::repo_template::templates::commit_marks_index().to_string(),
   )
   .unwrap();
   let answer = invoke(&client, addr, "get_rename_proofs", subject).await;

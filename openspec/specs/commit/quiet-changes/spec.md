@@ -117,12 +117,12 @@ and tints, and the row at the top of the view stays where it is
 - **Quiet** is a run that provably changes no behaviour: what the navigation of changes passes and the Inline view
   shows by its new lines alone. Whether a kind is quiet is decided in one function (`is_quiet`); a run that is not
   quiet is a label. **Proven** is a run whose lines are shown to be the same program (`has_proof`: every run of
-  formatting; a run of a renamed name whose places are of values of their bodies alone, with nothing but quiet lines
-  changed from the first place of each to its last); a proven run is quiet when its kind is switched on, as both
+  formatting; a run of a renamed name whose places are of values of their bodies alone, in a function nothing
+  else of which changed but formatting, comments and such names); a proven run is quiet when its kind is switched on, as both
   kinds are; of a kind that is off the pair names it (`PairMarks::proven`), and `PairMarks::as_proven` gives the
   marks as they would be.
 - **A move** is a row of lines one block deletes and another block adds: the same lines by their text without the
-  whitespace at their ends, with at most a quarter of edited lines between exact ones, and the blank lines that left
+  whitespace at their ends, with at most a third of edited lines between exact ones, and the blank lines that left
   with them counted beside them; told by its exact lines that stand once among the changed lines of each side: a
   line that stands twice there says of no row that it is the one that moved. Never quiet: the lines are read where they stand now, and are nothing to read where
   they left. Under the policy that counts every character, whitespace at an end of a line that changed otherwise
@@ -131,8 +131,9 @@ and tints, and the row at the top of the view stays where it is
   what its diff cannot explain alone: the changed lines no mark took and the names it declares none of. **A move
   between files** is a row of exact lines one file of a subject deleted and another added: a label at both ends,
   never quiet, no stop taken. **A name another file declares** is a rename of the file that uses it, by the two
-  spellings; **proven** it is when the index of the repository lists every use of its declaration in both trees and
-  each is a place of the rename or a line read anyway (`confirmed`); else the marks name why not. **A line read
+  spellings; **proven** it is when the code that declares it changed in names alone and the index of the repository
+  lists every use of its declaration in both trees, each a place of the rename or a line read anyway (`confirmed`);
+  else the marks name why not. **A line read
   anyway** is a line of a change that is in no run and that no move took as it is: a line a reader stops at and
   reads as changed. A line that only moved, within its file or to another, reads as the line it was.
 - **A start** is the line the reading of a block starts at: its first line that is in no quiet run and, of its old
@@ -396,9 +397,10 @@ that shares a line with it without holding it, or crosses it, is none.
 ### Requirement: Renames: A run of a renamed name is quiet only for a value of its body alone
 
 A run of the kind `renamed` MUST be proven, and so quiet, only when every place in it is of a name bound inside a
-body that is a value of that body alone on both sides, every name of which the scopes bind, and when from the first
-place of that name to its last every line that changed is quiet: in a run of formatting, in a run of proven renames,
-or blank. Any other rename MUST have runs that are labels.
+body that is a value of that body alone on both sides, every name of which the scopes bind, and when the member
+around that name changed in names alone: each changed line of it is in a run of formatting, of comments or of proven
+renames, changed in the name of its own declaration alone, or holds no token of code. Any other rename MUST have
+runs that are labels.
 
 #### Scenario: A local other code may name
 - **WHEN** a parameter of a named function of Kotlin, C# or Starlark, a Java parameter under an annotation a framework may read, a Rust parameter under an attribute macro, or a function declared in a body is renamed
@@ -419,10 +421,22 @@ or blank. Any other rename MUST have runs that are labels.
   [@test] crates/file-diffs/src/marks_test.rs (`the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
 
 #### Scenario: The lines between the places
-- **WHEN** the declaration of a renamed local got another initializer or another type, on its line or on a later line of it, a use of it stands on a line with another change, or a local it is given to is renamed with it, in Kotlin, Java, TypeScript and Rust
+- **WHEN** the declaration of a renamed local got another initializer or another type, on its line or on a later line of it, a use of it stands on a line with another change, a line of its function changed after its last place, or a local it is given to is renamed with it, in Kotlin, Java, TypeScript and Rust
 - **THEN** the lines that changed in the name alone are labels, each read: the name may hold another value there
-- **AND** a line that changed after the last place of the name, and a blank line put between its places, leave its runs quiet; two locals renamed in the lines of each other are proven together, or labels together
+- **AND** a blank line put between its places leaves its runs quiet; two locals renamed in the lines of each other are proven together, or labels together
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_places`)
+
+#### Scenario: The member around the name
+- **WHEN** a line of the function of a renamed local changed otherwise, before its first place or after its last: what the lambda of a renamed parameter is given to (the value at the start of its chain, the body of a lambda before it), the type in the head of the function, the second line of an assignment in a loop or of a declaration below the function that reads the name, a statement of the loop of its places after the last of them, another parameter of its function, any other statement of it; or a blank line was put into a string of several lines the name is given, in Kotlin, Java, TypeScript and Rust
+- **THEN** the lines that changed in the name alone are labels, each read: nothing says that the line gives the name nothing
+- **AND** a line that changed in another function, a comment of the function worded again, a call of it wrapped otherwise and another local of it renamed too leave the runs quiet; the comment and the other function are read
+- **AND** a function that got another name with a local of its body leaves that local proven, and one that calls itself by its new name does not
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
+
+#### Scenario: A comment beside a renamed name
+- **WHEN** a comment of the function of a renamed local is worded again with the name
+- **THEN** the comment is a run that is a label, read, and the lines of the name are quiet
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_comment_that_changed_beside_a_renamed_name_is_read`)
 
 ### Requirement: Renames: The kind of a renamed name is quiet, switched on by its measurement
 
@@ -445,9 +459,10 @@ a label, and the pair MUST name its proven runs (`PairMarks::proven`): the marks
 ### Requirement: Renames: A place that makes more of its name than its binding is read
 
 A place where the name is more than the name of its binding MUST be a place of the rename and in no run: a shorthand
-property, a pattern that takes a value apart, a name only the types or what runs tell apart, a name whose spelling is
-a value where the code runs (`nameof`, a delegate, the name a function takes), a name among the tokens of a macro or
-captured by a format string. The other places of the rename keep their runs, as labels: a line that is read stands between them.
+property, a pattern that takes a value apart, a name only the types or what runs tell apart, a name whose spelling
+is a value where the code runs (`nameof`, a delegate, the name a function takes, the text C# may hand to what is
+called), a name among the tokens of a macro or captured by a format string. The other places of the rename keep
+their runs, as labels.
 
 #### Scenario: Such places
 - **WHEN** a local declared by a destructuring, a record pattern, an array pattern or a tuple pattern, read by a shorthand property of TypeScript, Rust or C#, passed to a macro, captured by a format string, called as a value or spelled by `nameof` is renamed
@@ -458,6 +473,12 @@ captured by a format string. The other places of the rename keep their runs, as 
 - **WHEN** a Kotlin local declared with a delegate is renamed (`val total by map`, `val integrationTest by registering(…)` of a build script, `by lazy` in an `init`), or a local of TypeScript or JavaScript that is given a function or a class written without a name (`const total = () => 1`, `const Total = class {}`)
 - **THEN** the line of its declaration is in no run and is read: the delegate reads another key, the task is registered under another name, the function has another `name`; the lines of its uses are runs that are labels
 - **AND** a use of a JavaScript local inside the body of a `with` is in no run and is read: there the name may be a property of the object
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
+
+#### Scenario: The text of an argument of C#
+- **WHEN** a local of C# is renamed that is passed to `ArgumentNullException.ThrowIfNull`, checked by `Debug.Assert` and has a method called on it
+- **THEN** the lines of those three places are in no run and are read: the exception, the message of the assertion and what the method reports may name another text
+- **AND** the lines of its declaration and of its `return` are runs that are labels
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
 
 ### Requirement: Renames: A name that is not local is a label, and its declaration is read
@@ -480,6 +501,20 @@ of its subject, with the runs its blocks have were it a rename.
 - **AND** it keeps the run each call would be were the name a rename, which the pass over its subject takes once another file declares it
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_name_the_file_does_not_declare_is_left_to_the_other_files`)
   [@test] crates/file-diffs/src/marks_subject_test.rs (`a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have`)
+
+### Requirement: Renames: A name that is not local says whether other code declares it now
+
+Of a rename that is not local the pair MUST say whether the code that declares the name changed in more than names
+(`redeclared`). It is the same code only when every changed line of the statements of its declarations is in a run
+of formatting or of comments, in a run of the kind `renamed` of this name and of locals the scopes prove, or holds
+no token of code. A declaration that makes more of its name, and a block the work of the file does not pay for, MUST
+count as other code.
+
+#### Scenario: Another value, another body, another type
+- **WHEN** a constant gets another value with its other name, a value goes on over a line that changed, a property gets another getter, a function another body or a parameter a call may name under another name, an object another supertype
+- **THEN** the name is declared by other code
+- **AND** the same value, a value wrapped otherwise, the same body, a body whose local got another name with it, and an object whose member changed are the same code: a type is its head
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it`)
 
 ### Requirement: Moves: Lines deleted in one block and added in another are a move
 
@@ -557,7 +592,7 @@ text MUST be no line of a move.
 `indent` of a move MUST be the columns of its shift, negative for lost ones: the same whitespace added to the indent
 of each of its lines, or taken from it, at one end of the indent. An indent is a text, not a number of columns.
 Where the indentation of the file has a meaning and the policy counts the whitespace at the ends of a line, a line
-whose indent did not move by the shift MUST be an edited line of the quarter of its move; elsewhere `indent` is the
+whose indent did not move by the shift MUST be an edited line of the third of its move; elsewhere `indent` is the
 shift most of its exact lines agree on.
 
 #### Scenario: Lines indented into a block
@@ -571,8 +606,8 @@ shift most of its exact lines agree on.
 #### Scenario: A file whose indentation has a meaning
 - **WHEN** lines move in such a file, all at the same indent or all shifted alike
 - **THEN** the move is the same as in any file, with its shift
-- **AND** a line at another indent than the others is an edited line whose first range is its indent, before the ranges of its text; more than a quarter of such lines, or one at an end, are no lines of the move
-- **AND** a line that stayed at its indent while the others shifted, at the first column or at an indent of its own, is an edited line without a range, never one with a range that is empty or the same text on both sides; two such lines of six end the move
+- **AND** a line at another indent than the others is an edited line whose first range is its indent, before the ranges of its text; a third of the lines of a move may be such lines; more of them, or one at an end, are no lines of the move
+- **AND** a line that stayed at its indent while the others shifted, at the first column or at an indent of its own, is an edited line without a range, never one with a range that is empty or the same text on both sides; three such lines of six end the move
 - **AND** a line of a recipe whose tab became a space is an edited line whose range is its indent; when every line of the recipe did, only its target moved
 - **AND** two lines that gained two columns, one of spaces and one of tabs, did not move alike: the second is an edited line
 - **AND** under a policy that leaves the whitespace at the ends of a line out, no indent is a change of a move
@@ -583,7 +618,7 @@ shift most of its exact lines agree on.
 Under the policy that counts every character, a line of a move whose indent is another text and did not move by the
 shift, or whose whitespace after its text is another, MUST be an edited line of the move with that whitespace as a
 range, a blank line too: a view that shows the old lines of a move once hides no change. Where the indentation has
-no meaning it MUST count in no quarter and end no move. Under a policy that leaves that whitespace out it MUST be no
+no meaning it MUST count in no third and end no move. Under a policy that leaves that whitespace out it MUST be no
 change of a move.
 
 #### Scenario: Under each policy
@@ -593,9 +628,9 @@ change of a move.
 - **AND** under `Trim`, `Ignore` and `IgnoreBlankLines` the move has no such range, where the indentation has a meaning too
   [@test] crates/text-diff/src/moves_test.rs (`the_whitespace_at_the_ends_of_a_line_that_changed_otherwise_than_its_move_is_a_range`)
 
-### Requirement: Moves: A move holds at most a quarter of edited lines between exact ones
+### Requirement: Moves: A move holds at most a third of edited lines between exact ones
 
-A move MUST hold edited lines only between exact ones, at most a quarter of its lines that are not blank: a pair of
+A move MUST hold edited lines only between exact ones, at most a third of its lines that are not blank: a pair of
 lines that is similar by word, the rule of a row of the Inline view. `edited` MUST name the edited lines of a move by
 their place in it; `oldRanges` and `newRanges` MUST give what changed in each as the ranges of a block, each a text
 that is another on the other side. A move none of whose lines has a range has empty lists.
@@ -604,7 +639,7 @@ that is another on the other side. A move none of whose lines has a range has em
 - **WHEN** a function moves with an argument added to one of its five lines, a word changed, or a word removed
 - **THEN** it is one move, and the line has its ranges, typed as those of a block, in the offsets of its own line where the lines were indented too
 - **AND** two edited lines of five, an edited line at an end, and a line that is another line are no lines of the move: the exact lines beside them are asked alone
-  [@test] crates/text-diff/src/moves_test.rs (`a_move_holds_at_most_a_quarter_of_edited_lines_between_exact_ones`)
+  [@test] crates/text-diff/src/moves_test.rs (`a_move_holds_at_most_a_third_of_edited_lines_between_exact_ones`)
 
 ### Requirement: Moves: The longest move is taken first, and a line is in one move
 
@@ -939,10 +974,11 @@ proven MUST be named (`subject.confirmed`).
 
 ### Requirement: Subject: An answer that is no proof leaves the rename a label and names why
 
-Every other answer MUST leave the rename a label and name why: a use outside the change (`usesOutside`), a name
-that means something else (`otherMeaning`), two places that are not one declaration (`otherDeclaration`), an answer
-that does not know every use or names a line the diff has not (`incomplete`), no answer (`unavailable`), `asked`
-until the index answered. No answer MUST fail the diffs or read as "no use"; only a whole and final one is kept.
+Every other answer MUST leave the rename a label and name why: a use outside the change (`usesOutside`), a name that
+means something else (`otherMeaning`), two places that are not one declaration, by the index or by the code that
+declares the name (`otherDeclaration`), an answer that does not know every use or names a line the diff has not
+(`incomplete`), no answer (`unavailable`), `asked` until then. No answer MUST fail the diffs or read as "no use";
+only a whole and final one is kept.
 
 #### Scenario: Each reason
 - **WHEN** the answer has a use the change left behind, a use in a file outside the subject or on a line it left alone; a conflict of a capture, an overload, an override, a hidden or a namesake declaration, a use without its twin, a use of the new name on a line left alone; another signature; an answer that is not complete, a use tied by its name alone, more uses than listed, no uses of a tree, another language; a pair that could not be asked
@@ -962,6 +998,19 @@ until the index answered. No answer MUST fail the diffs or read as "no use"; onl
 - **THEN** the rename is `incomplete`: the comparison counts such a line end and the index does not, so the line the index names is no line of the diff; the same answer of the same file without it confirms the rename
 - **AND** a use the index itself found left behind is still `usesOutside`
   [@test] crates/file-diffs/src/marks_subject_test.rs (`a_use_in_a_text_with_a_lone_carriage_return_proves_nothing`)
+
+### Requirement: Subject: A name declared by other code is another thing, and the index is not asked of it
+
+A rename the pair of its declaration says other code declares (`redeclared`) MUST NOT be asked of the index, and
+its proof MUST be `otherDeclaration` in the file that declares it and in every file of the subject that uses it,
+whatever an index would answer: a line that reads it does something else with the same tokens. No run of it is
+confirmed.
+
+#### Scenario: A constant with another value and its uses in another file
+- **WHEN** `const val TIMEOUT = 5` becomes `const val LIMIT = 10`, a file calls `pause(TIMEOUT)` at two places that became `pause(LIMIT)`, and the index lists the declaration and both calls in both trees, complete and without a conflict
+- **THEN** no declaration is asked, the proof of the name is `otherDeclaration` in both files, and the two calls are runs that are labels, each a stop
+- **AND** the same change with the same value is asked, confirmed by that answer, and its calls are passed; the declaration is read either way
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it`)
 
 ### Requirement: Subject: The marks of a subject enter no cache and are the same whenever they are read
 
@@ -2431,10 +2480,11 @@ has no name there. On any other note the item has no name to go to. The place ha
 
 ### Requirement: Views: The note of a rename says how far the index proved it
 
-The note of a rename that is not local MUST say after its words what the index of the repository answered of its
-uses, where the name is declared and where it is used: "all uses in this change" for a proof, else "uses outside
-this change", "changes what another name means", "more than the name changed" or "uses not all checked". It MUST
-say nothing while the index is still to be asked and where none answers.
+The note of a rename that is not local MUST say after its words what the index answered of its uses, where the name
+is declared and where it is used: "all uses in this change" for a proof, else "uses outside this change", "changes
+what another name means", "more than the name changed" or "uses not all checked". It MUST say nothing while the
+index is still to be asked and where none answers; of a name declared by other code it says "more than the name
+changed" at once, with no index.
 
 #### Scenario: Every use in the change
 - **GIVEN** the template, the index answering that the declaration of the store and its two calls are every use of the name in both trees
@@ -2458,6 +2508,12 @@ say nothing while the index is still to be asked and where none answers.
 - **THEN** each answer has its words, none for a name still to be asked, without an index or that the index is not asked of
 - **AND** in a note of several renames the words name the rename they are about by its new name; a rename the note counts says them in its line of the hover and to a screen reader
   [@test] src/presenters/diff-marks.test.ts (`says how far the index proved a rename: every use in the change, uses outside it, another meaning, more than the name, not all checked`, `tells of which rename of a note of several the subject speaks, by its new name, and of a counted one in its line of the hover`)
+
+#### Scenario: A name declared by other code
+- **WHEN** a constant gets another value with its other name, and no index is asked or none answers
+- **THEN** the proof of the name is `otherDeclaration` in the file that declares it and in the file that uses it, which the note words as "more than the name changed"
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it`)
+  [@test] src/presenters/diff-marks.test.ts (`says how far the index proved a rename: every use in the change, uses outside it, another meaning, more than the name, not all checked`)
 
 ### Requirement: Views: A run the index proved is passed and keeps every line
 
@@ -2537,9 +2593,10 @@ own scroll anchoring MUST be off in that scroller only while it holds such a vie
 ### Requirement: Measurement: A subject is measured as a view reads it
 
 A measurement (`FileDiffs::measure`) MUST read a subject through the stream a view reads and give each file as the
-view gets it, with the time to the first content and to the end, the texts of both sides, whether its tokens were
-read, which runs are proven whatever their kind, the starts once every proven run is passed, and what of the marks
-read again from the texts differs. Diffs made without marks (`FileDiffs::without_marks`) MUST enter no store.
+view gets it, with the times, both texts, whether its tokens were read, the runs proven whatever their kind, the
+starts once they are passed, and what of the marks read again differs. With an index it MUST ask of the renamed
+names, and a run it confirmed is proven and no difference; with other thresholds of a move, the moves under them.
+Diffs without marks MUST enter no store.
 
 #### Scenario: The template of the marks
 - **WHEN** the commit of the `commit_marks` template is measured
@@ -2553,12 +2610,17 @@ read again from the texts differs. Diffs made without marks (`FileDiffs::without
 - **AND** a view that reads the commit next gets its marks
   [@test] crates/file-diffs/src/marks_measure_test.rs (`a_subject_read_without_marks_has_a_stop_at_each_block_and_no_store_keeps_it`)
 
+#### Scenario: A run the index confirmed
+- **WHEN** a commit renames a function its file declares and calls at two places, and is measured without an index and with one that lists the declaration and both calls in both trees
+- **THEN** without the index the two calls are labels, each a stop, and no run is proven; with it they are quiet and proven, the declaration alone is read, and the marks read again from the texts are those of the view
+  [@test] crates/file-diffs/src/marks_measure_test.rs (`a_run_the_index_confirmed_is_proven_and_the_marks_read_again_are_those_of_the_view`)
+
 ### Requirement: Measurement: `brd commits --mark-stats` counts the marks of real commits and prints a sample of each kind
 
-`brd commits --mark-stats` (hidden) MUST measure each commit ahead of the baseline, each commit of `--range
-<base>..<head>`, or that range whole (`--whole`), and print, in all and by grammar, the blocks, the stops, the stops
-with every proven run passed, the runs of each kind, the moves, the renames by their proof and the times; with
-`--mark-sample <N>` N marks of each kind with the lines of both sides, with `--no-marks` the subjects without marks.
+`brd commits --mark-stats` MUST measure each commit ahead of the baseline, each commit of `--range`, or that range
+whole (`--whole`), and print, in all and by grammar, what the marks find and cost; `--mark-sample` adds a sample of
+each kind with its lines, `--no-marks` reads without marks, `--index` asks the index, `--min-move-chars` and
+`--max-edited` count what other thresholds add. `--index` without accio, a commit id and a filter MUST be refused.
 It MUST write the object cache only.
 
 #### Scenario: The counts and the sample
@@ -2570,8 +2632,21 @@ It MUST write the object cache only.
 #### Scenario: A range
 - **WHEN** it runs with `--range origin/master..HEAD`, with `--whole` too, with an empty range, and with a range that is no two revisions
 - **THEN** the commits of the range are the subjects, with the counts of the commits ahead of the baseline; the range whole is one subject named by its two ends; an empty range has none
-- **AND** a range of one revision, or of one that is no commit, is refused as invalid arguments
+- **AND** a range of one revision, or of one that is no commit, is refused as invalid arguments; so are a commit id, `--branch`, `--unassigned` and `--include-generated` beside it
   [@test] crates/bd-rewrite/src/mark_stats_test.rs (`the_subjects_are_the_commits_of_a_range_or_the_range_whole`)
+
+#### Scenario: The index
+- **WHEN** it runs with `--index` on the `commit_marks` template, with no index, and with one that lists the declaration of the renamed function and its two calls
+- **THEN** without an index it is refused as invalid arguments; with one the two names are `confirmed`, the two calls are quiet and proven, two stops fewer are left, the marks read again are those of the view, and the time of the answer is printed
+- **AND** without the flag no index is asked, whatever index there is
+  [@test] crates/bd-rewrite/src/mark_stats_test.rs (`the_index_is_asked_of_the_renamed_names_and_refused_where_the_machine_has_none`)
+
+#### Scenario: Other thresholds of a move
+- **WHEN** it runs with `--min-move-chars 16` and with `--max-edited 1/2` on a commit that moves a line of 17 characters and a function with two of its five lines edited
+- **THEN** it counts and samples what each search adds beside the moves of the views: the short line as a move added, the function as a move that takes the place of the one line of the views; the moves of the views are counted as before
+- **AND** a share that is none (`1`, `3/2`, `1/0`) is refused as invalid arguments
+  [@test] crates/bd-rewrite/src/mark_stats_test.rs (`other_thresholds_of_a_move_count_and_print_the_moves_they_add`)
+  [@test] crates/text-diff/src/moves_test.rs (`a_measurement_reads_the_moves_under_other_thresholds`)
 
 #### Scenario: Without the marks
 - **WHEN** it runs with `--no-marks`
@@ -2690,11 +2765,12 @@ limits and a subject of 200 files through the service, with renamed locals and m
 in
 [Diff View](../../../../docs/design/diff-view.md#marks).
 
-`brd commits --mark-stats --range <base>..<head> [--mark-sample <N>] [--no-marks] [--index]` (hidden) reads real
-commits as a view reads them: what each kind of mark finds, how many stops go, what a read costs with the marks and
-without them, and a sample of each kind for a person to read. What it found on 6,316 commits of a monorepo and on
-1,500 of Branch Deck, and what that decided (the two quiet kinds, the rule of a rename, the lines that tell a
-move), is in [Diff View](../../../../docs/design/diff-view.md#measured-on-real-history).
+`brd commits --mark-stats --range <base>..<head> [--mark-sample <N>] [--no-marks] [--index] [--min-move-chars <N>]
+[--max-edited <N/D>]` (hidden) reads real commits as a view reads them: what each kind of mark finds, how many
+stops go, what a read costs with the marks and without them, what another threshold of a move adds, and a sample
+of each kind for a person to read. What it found on 6,316 commits of a monorepo and on 1,500 of Branch Deck, and
+what that decided (the two quiet kinds, the rule of a rename, the lines that tell a move, its share of edited
+lines), is in [Diff View](../../../../docs/design/diff-view.md#measured-on-real-history).
 
 ## Open Questions / Risks
 
@@ -2702,13 +2778,19 @@ move), is in [Diff View](../../../../docs/design/diff-view.md#measured-on-real-h
   ([Diff View](../../../../docs/design/diff-view.md#measured-on-real-history)): 200 runs of formatting and 145 runs
   of a renamed local of real commits read, none a change of behaviour. The same measurement may switch a kind off:
   `is_quiet` is the one place, and a kind that is off has its proven runs as labels again.
-- A rename of a local is proven by the lines between its places, since the scopes give no extent of a declaration:
-  a statement indented into a new `if` between them, or a use with one more argument, makes its lines labels though
-  the name holds what it held. The lines of the statement that declares the name would say exactly what must read
-  the same. A change after the last place of a name, in a declaration of several lines that ends below it, is
-  passed over: such a name has one place, its declaration, and no line that reads it.
-- A name that is not local is a rename by its places alone, whatever its lines changed in: only the index says
-  whether it is one declaration (`otherDeclaration` in two of five answers of the measurement).
+- A rename of a local is proven by its member whole: one line of its function that changed for another reason makes
+  every rename of that function a label, though the name holds what it held. Two narrower rules were tried, the
+  lines between the places of the name and the statements that hold a place, and a review of what each passed found
+  a value given outside it (the chain a lambda is given to, the type in the head of the function, the statement
+  that writes a variable in the turn of a loop before). No part of a function is known to give a name nothing
+  without the flow of its values, which the scopes do not read.
+- What a function reads from outside it is no part of the proof: a property of its class whose value changed in
+  the same commit, a function another file changed. A renamed line is passed as a line the change left alone is
+  not shown: neither says what changed elsewhere.
+- A name that is not local is the same thing by the code of its declaration and by its uses: the pair says whether
+  that code changed in more than names, the index whether its kind, its owner or its signature did and whether
+  every use is a place of the rename. A function whose body changed in one line with its name is another thing to
+  this reader, and each of its calls is read.
 - The place "declared in Store.kt" has no key: G is the key of the moves, and one key for both would take whichever
   note comes first in view. A click and Go to Declaration of the menu of the code on the note show it; without a
   pointer the declaration is reached by its file in the tree of the files, where its note stands.
@@ -2730,8 +2812,9 @@ move), is in [Diff View](../../../../docs/design/diff-view.md#measured-on-real-h
 - A rename is proven by scopes read without types and without the other files
   ([Name Bindings](../name-bindings/spec.md), Open Questions): a bare read of a member a class inherits that a renamed
   local would take is not seen, and neither is a reader of names outside the file that leaves no trace in it
-  (reflection over the names of the parameters of a Java method under no annotation, a C# method that takes the text
-  of its argument by `[CallerArgumentExpression]`).
+  (reflection over the names of the parameters of a Java method under no annotation, a plugin of a compiler that
+  puts the text of an expression into a message). What C# hands on as text is a rule: a local given to a call is
+  read.
 - The places of a rename are asked to be in one block each and in the order of the texts; only within a run are
   the two tokens of a place proven to stand at one place of the code. A rename with a place on a rewritten line is
   still a rename, and that line is read.
@@ -2792,12 +2875,18 @@ move), is in [Diff View](../../../../docs/design/diff-view.md#measured-on-real-h
 - Where the indentation has a meaning, a block that another file holds whole at another depth (a function that
   became a method) is no move between files: a move between files has no word for the shift a move within a file
   names (`indent`).
-- The 48 characters and the two lines of a move between files stand as measured. The same lines in two files of a
+- The 48 characters and the two lines of a move between files were read at these values alone: the moves they let
+  in are the lines that left, and what lower values add was not measured. The same lines in two files of a
   change (a licence header, generated code) that leave one and enter the other are a move to the first: a label.
 - A line renamed in the last line of its file, with lines added after it, is no run: the last token of a text is
   the same token only as the last ([Equal by Tokens](../equal-by-tokens/spec.md)).
-- The 24 characters of a move and its quarter of edited lines stand as measured, the characters counted over the
-  lines that stand once. A move is a label, so a wrong one costs a reader a look, never a change passed unread.
+- The 24 characters of a move and its third of edited lines are measured from both sides, what they let in and
+  what a lower length or a higher share adds
+  ([Diff View](../../../../docs/design/diff-view.md#measured-on-real-history)), the characters counted over the
+  lines that stand once. A half of edited lines adds moves that are true in a history of Kotlin, Java, Rust and
+  TypeScript; it is not taken, since rows of lines of one shape begin to pair with each other there and no file
+  whose indentation has a meaning was among those read. A move is a label, so a wrong one costs a reader a look,
+  never a change passed unread.
 - A move none of whose lines stands once among the changed lines of both sides is not found: a table of rows that
   repeat, a function that moved while its copy was added, the same statement that left each of several tests for
   another place of it. Nothing says which line moved where; each is read as a deleted and an added line.

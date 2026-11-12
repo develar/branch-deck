@@ -26,7 +26,10 @@
 //!   declaration, a place of the rename with its twin of the other tree listed too, a link of a doc comment, a use
 //!   that writes no word (a positional argument that sets a property), a use by another word (an alias, an accessor)
 //!   that the other tree lists at the same place, or stands on a line that is read anyway (a line of a change, in
-//!   no run and in no move). Every other answer, and no answer, names why not. The places a proven declaration lists
+//!   no run and in no move). Every other answer, and no answer, names why not. A name whose declaration changed in
+//!   more than names (`Declarations::redeclared`: a constant with another value, a function with another body) is
+//!   another thing under another name: it is not asked, and its proof is `OtherDeclaration` in every file that
+//!   names it. The places a proven declaration lists
 //!   are proven, and a run whose every place is proven, by the index or, for a local name, by the scopes of its
 //!   file, is one of `SubjectMarks::confirmed`: quiet, as its kind is (`marks::is_quiet`). The declaration itself
 //!   is in no run and stays a stop.
@@ -158,6 +161,9 @@ pub struct Subject<'a> {
   sites: HashMap<(&'a str, &'a str), Sites>,
   /// The names, by the two of each, that a file of a language the index proves nothing of declares: not asked
   unread: HashSet<(&'a str, &'a str)>,
+  /// The names, by the two of each, that a file declares by other code than before (`Declarations::redeclared`):
+  /// another thing under another name, which no answer of the index makes a rename. Not asked
+  redeclared: HashSet<(&'a str, &'a str)>,
   /// The file of each path of the old tree, and of the new one
   paths: [HashMap<&'a str, u32>; 2],
   /// What the search for the moves between the files cost and left out
@@ -248,6 +254,7 @@ impl<'a> Subject<'a> {
       questions: Vec::new(),
       sites: HashMap::new(),
       unread: HashSet::new(),
+      redeclared: HashSet::new(),
       paths: [HashMap::new(), HashMap::new()],
       work,
     };
@@ -264,6 +271,13 @@ impl<'a> Subject<'a> {
       if !proven {
         self.unread.extend(facts.diff.marks.renames.iter().filter(|rename| !rename.local).map(names_of));
       }
+      // and a name that one of its declarations declares by other code is asked of none of them
+      let redeclared = facts.left.declarations.iter().filter(|declarations| declarations.redeclared);
+      self.redeclared.extend(
+        redeclared
+          .filter_map(|declarations| facts.diff.marks.renames.get(declarations.rename as usize))
+          .map(names_of),
+      );
     }
     for (index, file) in self.files.iter().enumerate() {
       let Some(file) = file else { continue };
@@ -305,7 +319,7 @@ impl<'a> Subject<'a> {
           .marks
           .renames
           .get(declarations.rename as usize)
-          .filter(|rename| !self.unread.contains(&names_of(rename)))
+          .filter(|rename| !self.unread.contains(&names_of(rename)) && !self.redeclared.contains(&names_of(rename)))
         else {
           continue;
         };
@@ -346,6 +360,9 @@ impl<'a> Subject<'a> {
       }
     }
     let proof = |file: u32, name: Name, rename: &Rename| -> RenameProof {
+      if self.redeclared.contains(&names_of(rename)) {
+        return RenameProof::OtherDeclaration;
+      }
       if self.unread.contains(&names_of(rename)) {
         return RenameProof::Incomplete;
       }

@@ -26,7 +26,7 @@
 //!   long as the pairs are not apart. Two lines of other keys are compared by word only where it matters: a chain
 //!   grows through a pair that may be similar, and the pair is read when a row may be a move with it edited. Most
 //!   such pairs (the lines of two functions that are alike) stand in rows that are no move whatever they are.
-//! - **A move** is the longest row of a chain that starts and ends with an exact pair and holds at most a quarter of
+//! - **A move** is the longest row of a chain that starts and ends with an exact pair and holds at most a third of
 //!   edited lines among its lines that are not blank (`MAX_EDITED_LINES`), with the blank pairs beside it; then the
 //!   longest such rows of what is left of the chain. It counts when its exact lines that stand once among the lines
 //!   a move may take, on each side, hold `MIN_MOVE_CHARS` characters that are no whitespace: a line that stands
@@ -75,12 +75,15 @@ use std::ops::Range;
 /// characters that are no whitespace. Measured on 2,111 commits of a monorepo (docs/design/diff-view.md, "Measured on
 /// real history"): counted over every exact line, 37 % of the moves paired one of several equal lines with another
 /// (the same statement of each test of a file, the closing lines of each target of a build file), which says
-/// nothing; and of the moves left, those under 32 characters are what they say as often as the longer ones
+/// nothing; and of the moves left, those under 32 characters are what they say as often as the longer ones. What a
+/// lower value adds was read too (`MoveThresholds`, `brd commits --mark-stats --min-move-chars`)
 pub const MIN_MOVE_CHARS: usize = 24;
 /// At most this share of the lines of a move that are not blank are edited, as `(numerator, denominator)`. Measured
-/// with it: of 100 moves with an edited line read, the lines are the lines that left in all but four, which pair two
-/// tests of one shape
-pub const MAX_EDITED_LINES: (i64, i64) = (1, 4);
+/// (docs/design/diff-view.md, "Measured on real history", `brd commits --mark-stats --max-edited`): a quarter cut
+/// 47 moves of 3,129 short or left them out (three lines with one edited, six with two: a function that moved
+/// with a parameter that became a reference), and all but one of them are the lines that left; between a third
+/// and a half stand 21 more, where rows of alike lines begin to pair lines that are not each other
+pub const MAX_EDITED_LINES: (i64, i64) = (1, 3);
 /// A key that more new lines have than this starts no chain
 pub const MAX_KEY_CANDIDATES: usize = 16;
 /// A side with more lines that a move may take than this has no moves
@@ -119,6 +122,27 @@ pub(crate) struct Limits {
   pub unread: u32,
   /// The pairs of a row that is read again for each of its moves, whatever they hold of it
   pub short_row: usize,
+  /// What a row must hold to be a move
+  pub thresholds: MoveThresholds,
+}
+
+/// What a row of lines must hold to be a move: the constants, but in a measurement of what other values find
+/// (`find_moves_under`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MoveThresholds {
+  /// The characters that are no whitespace of its exact lines that stand once on each side: `MIN_MOVE_CHARS`
+  pub min_chars: usize,
+  /// The share of its lines that are not blank that may be edited, as `(numerator, denominator)`:
+  /// `MAX_EDITED_LINES`
+  pub max_edited: (i64, i64),
+}
+
+impl MoveThresholds {
+  /// Those every view reads its moves under
+  pub const OF_VIEWS: Self = Self {
+    min_chars: MIN_MOVE_CHARS,
+    max_edited: MAX_EDITED_LINES,
+  };
 }
 
 pub(crate) const LIMITS: Limits = Limits {
@@ -129,6 +153,7 @@ pub(crate) const LIMITS: Limits = Limits {
   compared: MAX_COMPARED_PAIRS,
   unread: MAX_UNREAD_PAIRS,
   short_row: SHORT_ROW,
+  thresholds: MoveThresholds::OF_VIEWS,
 };
 
 /// What a search for moves cost
@@ -153,7 +178,7 @@ pub struct MoveWork {
 /// no move. `policy` is the whitespace policy of the diff: under `Default` the whitespace at the ends of a line
 /// counts, so a line of a move whose indent or whose whitespace after its text changed otherwise than the move says
 /// is an edited line. `indentation_matters`: the indent of a line of the file has a meaning (Python, YAML,
-/// Starlark), so such a line is one of the edited lines a move holds a quarter of at most
+/// Starlark), so such a line is one of the edited lines a move holds a third of at most
 pub fn find_moves(old: &str, new: &str, blocks: &[DiffBlock], runs: &[LineRun], policy: WhitespacePolicy, indentation_matters: bool) -> Vec<LineMove> {
   find_moves_counted(old, new, blocks, runs, policy, indentation_matters).0
 }
@@ -161,6 +186,24 @@ pub fn find_moves(old: &str, new: &str, blocks: &[DiffBlock], runs: &[LineRun], 
 /// `find_moves` with what the search cost: for a benchmark and the tests of the limits
 pub fn find_moves_counted(old: &str, new: &str, blocks: &[DiffBlock], runs: &[LineRun], policy: WhitespacePolicy, indentation_matters: bool) -> (Vec<LineMove>, MoveWork) {
   find_moves_within(old, new, blocks, runs, policy, indentation_matters, &LIMITS)
+}
+
+/// `find_moves` under other thresholds than those of the views: what a measurement of the thresholds reads. A share
+/// of edited lines without a positive denominator above its numerator is no share, and has no moves
+pub fn find_moves_under(
+  old: &str,
+  new: &str,
+  blocks: &[DiffBlock],
+  runs: &[LineRun],
+  policy: WhitespacePolicy,
+  indentation_matters: bool,
+  thresholds: MoveThresholds,
+) -> Vec<LineMove> {
+  let (numerator, denominator) = thresholds.max_edited;
+  if numerator < 0 || denominator <= numerator {
+    return Vec::new();
+  }
+  find_moves_within(old, new, blocks, runs, policy, indentation_matters, &Limits { thresholds, ..LIMITS }).0
 }
 
 /// `find_moves_counted` within `limits`
@@ -729,7 +772,9 @@ impl<'t> Finder<'t> {
     let mut rows: Vec<Range<usize>> = Vec::new();
     cut_rows(pairs, 0..pairs.len(), &mut rows);
     while let Some(row) = rows.pop() {
-      let Some((first, last)) = longest(&pairs[row.clone()]) else { continue };
+      let Some((first, last)) = longest(&pairs[row.clone()], self.limits.thresholds.max_edited) else {
+        continue;
+      };
       if row.len() > self.limits.short_row && (last + 1 - first) * 2 < row.len() {
         if !self.many_moves(old, new, pairs, row, shift) {
           return;
@@ -780,7 +825,7 @@ impl<'t> Finder<'t> {
       return false;
     }
     let length = row.len();
-    let reach = Reach::new(&pairs[row.clone()]);
+    let reach = Reach::new(&pairs[row.clone()], self.limits.thresholds.max_edited);
     // the pairs of the moves taken, and where a row ends: at the first pair of a move taken and at a pair found
     // apart, by their places in `row`
     let mut taken = vec![false; length];
@@ -839,7 +884,7 @@ impl<'t> Finder<'t> {
     let of = |kind: Pair| row.clone().filter(move |index| pairs[*index] == kind);
     let lines = of(Pair::Exact).map(|index| &self.old[old + index]);
     let solid: usize = lines.filter(|line| self.once[line.key as usize]).map(|line| line.solid as usize).sum();
-    if solid >= MIN_MOVE_CHARS {
+    if solid >= self.limits.thresholds.min_chars {
       let edited = to_u32(of(Pair::Edited).count());
       self.found.push(Reverse(Candidate {
         len: Reverse(to_u32(row.len())),
@@ -1025,23 +1070,23 @@ fn cut_rows(pairs: &[Pair], row: Range<usize>, rows: &mut Vec<Range<usize>>) {
 }
 
 /// What a pair counts in a row that may be a move, one whose count is not negative: an exact pair the numerator of
-/// `MAX_EDITED_LINES`, an edited one the numerator less the denominator, an unread one as an edited one (what it is
-/// at best), a blank one nothing
-const fn count_of(pair: Pair) -> i64 {
+/// `max_edited` (`MAX_EDITED_LINES`), an edited one the numerator less the denominator, an unread one as an edited
+/// one (what it is at best), a blank one nothing
+const fn count_of(pair: Pair, max_edited: (i64, i64)) -> i64 {
   match pair {
-    Pair::Exact => MAX_EDITED_LINES.0,
-    Pair::Edited | Pair::Unread => MAX_EDITED_LINES.0 - MAX_EDITED_LINES.1,
+    Pair::Exact => max_edited.0,
+    Pair::Edited | Pair::Unread => max_edited.0 - max_edited.1,
     Pair::Blank | Pair::Apart => 0,
   }
 }
 
 /// The count of the pairs before each of `pairs`, and of all of them last
-fn counts_before(pairs: &[Pair]) -> Vec<i64> {
+fn counts_before(pairs: &[Pair], max_edited: (i64, i64)) -> Vec<i64> {
   let mut before: Vec<i64> = Vec::with_capacity(pairs.len() + 1);
   let mut count = 0;
   before.push(count);
   for pair in pairs {
-    count += count_of(*pair);
+    count += count_of(*pair, max_edited);
     before.push(count);
   }
   before
@@ -1062,8 +1107,8 @@ struct Reach {
 }
 
 impl Reach {
-  fn new(pairs: &[Pair]) -> Self {
-    let before = counts_before(pairs);
+  fn new(pairs: &[Pair], max_edited: (i64, i64)) -> Self {
+    let before = counts_before(pairs, max_edited);
     let mut exact = Vec::with_capacity(pairs.len());
     let mut last = 0;
     for (index, pair) in pairs.iter().enumerate() {
@@ -1105,14 +1150,14 @@ impl Reach {
 }
 
 /// The longest row of `pairs`, none of them apart, that starts and ends with an exact pair and whose edited pairs
-/// are at most `MAX_EDITED_LINES` of its pairs that are not blank, as its first and its last place; the first of the
+/// are at most `max_edited` (`MAX_EDITED_LINES`) of its pairs that are not blank, as its first and its last place; the first of the
 /// longest. `None` without an exact pair. An unread pair counts as an edited one: what it is at best.
 ///
 /// A row may be a move when the count of its pairs is not negative (`count_of`). A row may start only at an exact
 /// pair with a lower count before it than every such pair before; from the last pair back, each such start is
 /// paired with the last end it reaches
-fn longest(pairs: &[Pair]) -> Option<(usize, usize)> {
-  let before = counts_before(pairs);
+fn longest(pairs: &[Pair], max_edited: (i64, i64)) -> Option<(usize, usize)> {
+  let before = counts_before(pairs, max_edited);
   let mut starts: Vec<usize> = Vec::new();
   for (index, pair) in pairs.iter().enumerate() {
     if *pair == Pair::Exact && starts.last().is_none_or(|last| before[index] < before[*last]) {

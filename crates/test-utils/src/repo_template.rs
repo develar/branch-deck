@@ -882,6 +882,25 @@ pub mod templates {
       )
   }
 
+  /// The fixture of the index of a repository of `commit_marks` (`<git dir>/branch-deck-accio.json`,
+  /// `file_diffs::accio::FixtureIndex`): the answer of an index that lists the declaration of the function the
+  /// store renamed and its two calls in the report as every use of it in both trees, complete and without a
+  /// conflict
+  pub fn commit_marks_index() -> serde_json::Value {
+    let used = |file: &str, line: u32, column: u32, end: u32, kind: &str| serde_json::json!({ "file": file, "line": line, "column": column, "end_column": end, "kind": kind, "resolved": "import" });
+    // `openStore` in the old tree, `connectStore` in the new one
+    let uses = |end: u32| {
+      serde_json::json!({ "total": 3, "uses": [
+        used("src/Report.kt", 5, 16, 12 + end, "call"),
+        used("src/Report.kt", 11, 16, 12 + end, "call"),
+        used("src/Store.kt", 19, 4, end, "declaration"),
+      ] })
+    };
+    let kotlin = serde_json::json!({ "language": "kotlin" });
+    let renamed = serde_json::json!({ "same": true, "complete": true, "old": kotlin, "new": kotlin, "base": uses(13), "head": uses(16), "conflicts": [] });
+    serde_json::json!({ "renames": { "src/Store.kt:19:5": renamed } })
+  }
+
   /// Two commits with bodies for the whitespace policies in the review of a branch, which tells each commit as a step:
   /// the first adds a blank line apart from a real change in `Format.kt` and changes `Main.kt`, the second adds
   /// `Other.kt`

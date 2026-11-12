@@ -38,7 +38,10 @@
 //! - **Its site** (`site_of`): a label and the name of a `goto`; the name of a named argument; a name `nameof` spells;
 //!   a member of an anonymous type and an element of a tuple named by the expression (`new { total }`, `(total, 1)`);
 //!   a variable of a deconstruction; and a namesake where the name is all of the right side of an `is`, a constant
-//!   only while no type of the name is in sight. `value` and `field` are bound without a declaration, in an accessor.
+//!   only while no type of the name is in sight. A name of a value of a body is spelled too wherever C# may hand
+//!   the text around it to code that keeps it (`is_handed_as_text`): in an argument and in what a method is called
+//!   on (`[CallerArgumentExpression]`), in a lambda whose body is an expression and in a query (an expression
+//!   tree). `value` and `field` are bound without a declaration, in an accessor.
 //! - **A file read in part** (`reads_in_part`): one with an error of its parser, and one with an `#if`, whose locals
 //!   are bound as one build of the file binds them.
 
@@ -70,7 +73,21 @@ pub(crate) const NAVIGATION: Reading<csharp_syntax::CSharp, Tree> = Reading {
   access_of,
   name_start,
   reads_in_part,
+  is_statement: |tree, node| tree.node_kind(node).is_some_and(is_statement),
+  // a type and a namespace hold members
+  is_type: |tree, node| {
+    tree
+      .node_kind(node)
+      .is_some_and(|kind| is_type_declaration(kind) || sg::is_base_namespace_declaration_syntax(kind))
+  },
+  // a member of a type or of a namespace
+  is_member: |tree, node| tree.node_kind(node).is_some_and(sg::is_member_declaration_syntax),
 };
+
+/// A statement or a member (`navigate`, "The statements of a name")
+fn is_statement(kind: NodeKind) -> bool {
+  sg::is_statement_syntax(kind) || sg::is_member_declaration_syntax(kind)
+}
 
 /// Whether the scopes read only a part of the code of a file: the parser reported an error (what stands where it gave
 /// up is no name of the tree), or the file is compiled by conditions. The text of a branch of `#if` that the parser
@@ -125,7 +142,8 @@ fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
 
 /// What the site of a name makes of it beside its binding (`Site`)
 fn site_of(tree: &Tree, leaf: NodeId, _kind: ReferenceKind, local: Option<(NodeId, LocalBinding)>) -> Site {
-  match around(tree, leaf) {
+  let is_value = local.is_some_and(|(_, binding)| binding.kind.is_value());
+  let site = match around(tree, leaf) {
     Some((_, NodeKind::LabeledStatement)) => Site::Label,
     // `var (a, b) = pair`, `(var a, var b) = pair`
     Some((designation, NodeKind::SingleVariableDesignation)) => {
@@ -140,10 +158,57 @@ fn site_of(tree: &Tree, leaf: NodeId, _kind: ReferenceKind, local: Option<(NodeI
       if destructured { Site::Destructured } else { Site::Plain }
     }
     // `x is total`: the constant, unless a type of the name is declared where no file read here shows it
-    Some((name, NodeKind::IdentifierName)) if local.is_some_and(|(_, binding)| binding.kind.is_value()) && is_type_or_constant(tree, name) => Site::Namesake,
+    Some((name, NodeKind::IdentifierName)) if is_value && is_type_or_constant(tree, name) => Site::Namesake,
     Some((name, NodeKind::IdentifierName)) => name_site(tree, name),
     _ => Site::Plain,
+  };
+  if site == Site::Plain && is_value && is_handed_as_text(tree, leaf) {
+    Site::Spelled
+  } else {
+    site
   }
+}
+
+/// Whether C# may hand the text around a name of a value of a body to code that keeps it, so that another name
+/// there is another text where the code runs, and no syntax says whether it does:
+///
+/// - the name stands in an argument of a call, of a `new` or of an indexer: a parameter of what is called may take
+///   the text of the argument (`[CallerArgumentExpression]`: `ArgumentNullException.ThrowIfNull(total)` names
+///   "total" in its exception, `Debug.Assert(total > 0)` in its message);
+/// - it stands in what a method is called on (`total.ShouldBe(1)`, `total?.Check()`): an extension method takes the
+///   text of its receiver the same way;
+/// - it stands in a lambda whose body is an expression, or is its parameter, or in a query: C# makes an expression
+///   tree of such code where the type it is given to asks for one, and the tree holds the names of the parameters
+///   and of the variables around it.
+///
+/// Up to the statement or the member around the name
+fn is_handed_as_text(tree: &Tree, leaf: NodeId) -> bool {
+  let mut part = leaf;
+  for (owner, kind) in std::iter::successors(around(tree, leaf), |it| around(tree, it.0)) {
+    let handed = match kind {
+      NodeKind::Argument => around(tree, owner).is_some_and(|it| sg::is_base_argument_list_syntax(it.1)),
+      NodeKind::InvocationExpression => {
+        // the receiver of `total.F()` is in what the invocation calls; a delegate called by its name is that itself
+        let callee = sg::invocation_expression::expression(tree, owner);
+        callee == Some(part) && tree.node_kind(part) != Some(NodeKind::IdentifierName)
+      }
+      NodeKind::ConditionalAccessExpression => {
+        sg::conditional_access_expression::expression(tree, owner) == Some(part)
+          && sg::conditional_access_expression::when_not_null(tree, owner).is_some_and(|it| tree.node_kind(it) == Some(NodeKind::InvocationExpression))
+      }
+      NodeKind::SimpleLambdaExpression | NodeKind::ParenthesizedLambdaExpression => sg::lambda_expression::block(tree, owner).is_none(),
+      NodeKind::QueryExpression => true,
+      _ => false,
+    };
+    if handed {
+      return true;
+    }
+    if is_statement(kind) {
+      return false;
+    }
+    part = owner;
+  }
+  false
 }
 
 /// Whether a name is all of the right side of an `is` (`x is Max`): C# reads a type there when one of the name is in

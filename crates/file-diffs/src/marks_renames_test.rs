@@ -66,7 +66,7 @@ const LOCALS: [(&str, &str); 9] = [
   ),
   (
     "A.cs",
-    "class A {\n  int F(int[] xs) {\n    int total = 0;\n    foreach (int x in xs) {\n      total += x;\n    }\n    Log(total);\n    Check(total >= 0);\n    return total;\n  }\n}\n",
+    "class A {\n  int F(int[] xs) {\n    int total = 0;\n    foreach (int x in xs) {\n      total += x;\n    }\n    last = total;\n    ready = total >= 0;\n    return total;\n  }\n}\n",
   ),
   (
     "defs.bzl",
@@ -441,12 +441,12 @@ fn a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_plac
       "fun f(project: Project?) {\n  val content = if (project != null) {\n    keep()\n    text(project)\n  } else \"app\"\n  log(1)\n  notify(content)\n}\n",
       "blocks [1..2/1..2, 3..4/3..4, 6..7/6..7] runs [1..2/1..2 renamed, 6..7/6..7 renamed] renames [scope->content local declared [0] at 1:6 6:9 / 1:6 6:9] starts [0, 1, 1, 1, 1, 3, 2, 1, 6]",
     ),
-    // a line that changed after the last place of the name says nothing of it
+    // a line that changed after the last place of the name is a line of its function all the same
     (
       "a.kt",
       "fun f(id: String) {\n  val subscription = subscriptions[id]\n  check(subscription)\n  log(1)\n  add(1)\n}\n",
       "fun f(id: String) {\n  val channel = subscriptions[id]\n  check(channel)\n  log(1)\n  add(2)\n}\n",
-      "blocks [1..3/1..3, 4..5/4..5] runs [1..3/1..3 renamed quiet] renames [subscription->channel local declared [0] at 1:6 2:8 / 1:6 2:8] starts [1, 1, 4]",
+      "blocks [1..3/1..3, 4..5/4..5] runs [1..3/1..3 renamed] renames [subscription->channel local declared [0] at 1:6 2:8 / 1:6 2:8] starts [0, 1, 1, 1, 1, 4]",
     ),
     // a blank line put between the places is no line that changed
     (
@@ -461,6 +461,121 @@ fn a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_plac
       "class A {\n  void f(boolean strict) {\n    log(1);\n    run(strict);\n  }\n}\n",
       "class A {\n  void f(Mode mode) {\n    log(1);\n    run(mode);\n  }\n}\n",
       "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed] renames [strict->mode local declared [0] at 1:17 3:8 / 1:14 3:8] starts [0, 1, 1, 1, 1, 3]",
+    ),
+  ]);
+}
+
+/// The code of a local is the member around it, whole: what a name holds comes from anywhere in its function. A
+/// lambda is given to a call on a value that stands on the lines before its parameter; a value goes on over the
+/// lines after the name it is given to; the type of what a body reads stands in the head of its function; a
+/// statement after the last place of a name gives a value to a variable the name is made of in the next turn of
+/// its loop; and a line no character stands on is a line of a string where a string of several lines holds it.
+/// Where such a line changed, the name may hold another value, and the lines that changed in the name alone are
+/// labels (the first six cases found by a review of the measured runs). A comment that changed, formatting,
+/// another local renamed with it, the name of the function itself and what changed in another function leave the
+/// rename proven
+#[test]
+fn a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone() {
+  check_cases(&[
+    // the parameter of a lambda given to a call on another value: the first line of its statement
+    (
+      "a.kt",
+      "fun f(users: List<User>, admins: List<User>) {\n  users\n    .filter { it.active }\n    .forEach { user ->\n      send(user)\n    }\n}\n",
+      "fun f(users: List<User>, admins: List<User>) {\n  admins\n    .filter { it.active }\n    .forEach { admin ->\n      send(admin)\n    }\n}\n",
+      "blocks [1..2/1..2, 3..5/3..5] runs [3..5/3..5 renamed] renames [user->admin local declared [0] at 3:15 4:11 / 3:15 4:11] starts [0, 1, 1, 1, 1, 3]",
+    ),
+    // and on what another lambda of the chain before it gives (found: `.mapNotNull { it.registry }` became
+    // `.mapNotNull { it.catalogOrNull }` before `.collect { catalog -> sweep(catalog) }`)
+    (
+      "a.kt",
+      "suspend fun f(states: Flow<State>) {\n  states\n    .mapNotNull {\n      it.registry\n    }\n    .collect { registry ->\n      sweep(registry)\n    }\n}\n",
+      "suspend fun f(states: Flow<State>) {\n  states\n    .mapNotNull {\n      it.catalogOrNull\n    }\n    .collect { catalog ->\n      sweep(catalog)\n    }\n}\n",
+      "blocks [3..4/3..4, 5..7/5..7] runs [5..7/5..7 renamed] renames [registry->catalog local declared [0] at 5:15 6:12 / 5:15 6:12] starts [0, 1, 3, 1, 1, 5] undeclared [registry->catalogOrNull declared [] at 3:9 / 3:9]",
+    ),
+    (
+      "a.rs",
+      "fn f(config: &Config) -> Vec<&Host> {\n  config\n    .projects\n    .iter()\n    .filter(|project| project.enabled)\n    .collect()\n}\n",
+      "fn f(config: &Config) -> Vec<&Host> {\n  config\n    .hosts\n    .iter()\n    .filter(|host| host.enabled)\n    .collect()\n}\n",
+      "blocks [2..3/2..3, 4..5/4..5] runs [4..5/4..5 renamed] renames [project->host local declared [0] at 4:13 4:22 / 4:13 4:19] starts [0, 1, 2, 1, 1, 4] undeclared [projects->hosts declared [] at 2:5 / 2:5]",
+    ),
+    // the head of the function gives what the lambda is called on another type (found: `Collection<String>` became
+    // `Collection<AgentSessionId>`, and `.map { sessionId -> Seed(sessionId) }` is given another thing)
+    (
+      "a.kt",
+      "fun Collection<String>.seeds(): Set<Seed> {\n  return asSequence()\n    .map { threadId -> Seed(threadId) }\n    .toSet()\n}\n",
+      "fun Collection<SessionId>.seeds(): Set<Seed> {\n  return asSequence()\n    .map { sessionId -> Seed(sessionId) }\n    .toSet()\n}\n",
+      "blocks [0..1/0..1, 2..3/2..3] runs [2..3/2..3 renamed] renames [threadId->sessionId local declared [0] at 2:11 2:28 / 2:11 2:29] starts [0, 1, 0, 1, 1, 2] undeclared [String->SessionId declared [] at 0:15 / 0:15]",
+    ),
+    // an assignment that goes on over a line after the last place of the name, in a loop: the lines before it read
+    // what it gave the name
+    (
+      "A.java",
+      "class A {\n  void f(List<String> items) {\n    String last = null;\n    for (String item : items) {\n      if (last != null) emit(last);\n      last = describe(item,\n          mode);\n    }\n  }\n}\n",
+      "class A {\n  void f(List<String> items) {\n    String previous = null;\n    for (String item : items) {\n      if (previous != null) emit(previous);\n      previous = describe(item,\n          other);\n    }\n  }\n}\n",
+      "blocks [2..3/2..3, 4..7/4..7] runs [2..3/2..3 renamed, 4..6/4..6 renamed] renames [last->previous local declared [0] at 2:11 4:10 4:29 5:6 / 2:11 4:10 4:33 5:6] starts [0, 1, 2, 1, 1, 4] undeclared [mode->other declared [] at 6:10 / 6:10]",
+    ),
+    // a declaration after the function that reads the name, with a value on two lines
+    (
+      "a.ts",
+      "function f() {\n  const show = () => {\n    console.log(total)\n  }\n  let total = compute(1,\n    2)\n  show()\n}\n",
+      "function f() {\n  const show = () => {\n    console.log(sum)\n  }\n  let sum = compute(1,\n    3)\n  show()\n}\n",
+      "blocks [2..3/2..3, 4..6/4..6] runs [2..3/2..3 renamed, 4..5/4..5 renamed] renames [total->sum local declared [1] at 2:16 4:6 / 2:16 4:6] starts [0, 1, 2, 1, 1, 4]",
+    ),
+    // a blank line put into a string of several lines is a line of the string
+    (
+      "a.kt",
+      "fun f(sink: Sink) {\n  val text = \"\"\"\n    first\n    second\n  \"\"\"\n  sink.write(text)\n}\n",
+      "fun f(sink: Sink) {\n  val body = \"\"\"\n    first\n\n    second\n  \"\"\"\n  sink.write(body)\n}\n",
+      "blocks [1..2/1..2, 3..3/3..4, 5..6/6..7] runs [1..2/1..2 renamed, 5..6/6..7 renamed] renames [text->body local declared [0] at 1:6 5:13 / 1:6 6:13] starts [0, 1, 1, 1, 1, 3, 2, 1, 6]",
+    ),
+    // a statement after the last place of the name, in the loop of its places: the next turn reads what it wrote
+    (
+      "a.kt",
+      "fun f(items: List<Item>) {\n  var current = first()\n  for (item in items) {\n    val label = current.name\n    show(label)\n    current = next(item, 1)\n  }\n}\n",
+      "fun f(items: List<Item>) {\n  var current = first()\n  for (item in items) {\n    val title = current.name\n    show(title)\n    current = next(item, 2)\n  }\n}\n",
+      "blocks [3..6/3..6] runs [3..5/3..5 renamed] renames [label->title local declared [0] at 3:8 4:9 / 3:8 4:9] starts [0, 1, 3]",
+    ),
+    // and any line of the function that changed otherwise: nothing says that it gives the name nothing
+    (
+      "A.java",
+      "class A {\n  void f(int count) {\n    run(count);\n    log(1);\n  }\n}\n",
+      "class A {\n  void f(int size) {\n    run(size);\n    log(2);\n  }\n}\n",
+      "blocks [1..4/1..4] runs [1..3/1..3 renamed] renames [count->size local declared [0] at 1:13 2:8 / 1:13 2:8] starts [0, 1, 1]",
+    ),
+    (
+      "a.ts",
+      "function f(\n  count: number,\n  scale = 1,\n) {\n  run(count)\n}\n",
+      "function f(\n  size: number,\n  scale = 2,\n) {\n  run(size)\n}\n",
+      "blocks [1..3/1..3, 4..5/4..5] runs [1..2/1..2 renamed, 4..5/4..5 renamed] renames [count->size local declared [0] at 1:2 4:6 / 1:2 4:6] starts [0, 1, 1, 1, 1, 4]",
+    ),
+    // what changed in another function says nothing of the name: proven, with that line read
+    (
+      "a.kt",
+      "fun f(users: List<User>) {\n  users.forEach { user ->\n    send(user)\n  }\n}\n\nfun g() {\n  log(1)\n}\n",
+      "fun f(users: List<User>) {\n  users.forEach { admin ->\n    send(admin)\n  }\n}\n\nfun g() {\n  log(2)\n}\n",
+      "blocks [1..3/1..3, 7..8/7..8] runs [1..3/1..3 renamed quiet] renames [user->admin local declared [0] at 1:18 2:9 / 1:18 2:9] starts [1, 1, 7]",
+    ),
+    // a comment of the function worded again, a call wrapped and another local renamed with it: proven; the
+    // comment is read
+    (
+      "a.kt",
+      "fun f(users: List<User>) {\n  // every user\n  val count = users.size\n  users.forEach { user ->\n    send(user, count)\n  }\n  done(1, 2)\n}\n",
+      "fun f(users: List<User>) {\n  // every admin\n  val total = users.size\n  users.forEach { admin ->\n    send(admin, total)\n  }\n  done(\n    1, 2)\n}\n",
+      "blocks [1..5/1..5, 6..7/6..8] runs [1..2/1..2 comments, 2..5/2..5 renamed quiet, 6..7/6..8 formatting quiet] renames [count->total local declared [0] at 2:6 4:15 / 2:6 4:16, user->admin local declared [0] at 3:18 4:9 / 3:18 4:9] starts [0, 1, 1]",
+    ),
+    // the function got another name with its local: the name it is known by gives the local nothing
+    (
+      "a.kt",
+      "fun timeout(): Int {\n  val base = 5\n  return base\n}\n\nfun g() = timeout()\n",
+      "fun limit(): Int {\n  val unit = 5\n  return unit\n}\n\nfun g() = limit()\n",
+      "blocks [0..3/0..3, 5..6/5..6] runs [1..3/1..3 renamed quiet, 5..6/5..6 renamed] renames [timeout->limit declared [0] at 0:4 5:10 / 0:4 5:10, base->unit local declared [0] at 1:6 2:9 / 1:6 2:9] starts [0, 1, 0, 1, 1, 5]",
+    ),
+    // a function that also calls itself by its new name is read by a name whose proof is another's: a label
+    (
+      "a.kt",
+      "fun timeout(depth: Int): Int {\n  val base = 5\n  return if (depth > 0) timeout(depth - 1) else base\n}\n",
+      "fun limit(depth: Int): Int {\n  val unit = 5\n  return if (depth > 0) limit(depth - 1) else unit\n}\n",
+      "blocks [0..3/0..3] runs [1..3/1..3 renamed] renames [timeout->limit declared [0] at 0:4 2:24 / 0:4 2:24, base->unit local declared [0] at 1:6 2:48 / 1:6 2:46] starts [0, 1, 0]",
     ),
   ]);
 }
@@ -525,9 +640,9 @@ fn a_place_that_makes_more_of_its_name_than_its_binding_is_read() {
     ),
     (
       "A.cs",
-      "class A {\n  object F() {\n    int total = 1;\n    Log(total);\n    return new { total };\n  }\n}\n",
-      "class A {\n  object F() {\n    int sum = 1;\n    Log(sum);\n    return new { sum };\n  }\n}\n",
-      "blocks [2..5/2..5] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 2:8 3:8 4:17 / 2:8 3:8 4:17] starts [0, 1, 2]",
+      "class A {\n  object F() {\n    int total = 1;\n    last = total;\n    return new { total };\n  }\n}\n",
+      "class A {\n  object F() {\n    int sum = 1;\n    last = sum;\n    return new { sum };\n  }\n}\n",
+      "blocks [2..5/2..5] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 2:8 3:11 4:17 / 2:8 3:11 4:17] starts [0, 1, 2]",
     ),
     // among the tokens of a macro, and a name a format string captures: no token of its own
     (
@@ -586,9 +701,18 @@ fn a_place_that_makes_more_of_its_name_than_its_binding_is_read() {
     // the spelling of the name is a value
     (
       "A.cs",
-      "class A {\n  string F() {\n    int total = 1;\n    Log(total);\n    return nameof(total);\n  }\n}\n",
-      "class A {\n  string F() {\n    int sum = 1;\n    Log(sum);\n    return nameof(sum);\n  }\n}\n",
-      "blocks [2..5/2..5] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 2:8 3:8 4:18 / 2:8 3:8 4:18] starts [0, 1, 2]",
+      "class A {\n  string F() {\n    int total = 1;\n    last = total;\n    return nameof(total);\n  }\n}\n",
+      "class A {\n  string F() {\n    int sum = 1;\n    last = sum;\n    return nameof(sum);\n  }\n}\n",
+      "blocks [2..5/2..5] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 2:8 3:11 4:18 / 2:8 3:11 4:18] starts [0, 1, 2]",
+    ),
+    // C# may hand the text of an argument, and of what a method is called on, to what is called
+    // (`[CallerArgumentExpression]`): the exception and the failed assertion name another text now
+    (
+      "A.cs",
+      "class A {\n  int F(string path) {\n    var total = Load(path);\n    ArgumentNullException.ThrowIfNull(total);\n    Debug.Assert(total > 0);\n    total.ShouldBe(1);\n    return total;\n  }\n}\n",
+      "class A {\n  int F(string path) {\n    var sum = Load(path);\n    ArgumentNullException.ThrowIfNull(sum);\n    Debug.Assert(sum > 0);\n    sum.ShouldBe(1);\n    return sum;\n  }\n}\n",
+      "blocks [2..7/2..7] runs [2..3/2..3 renamed, 6..7/6..7 renamed] renames [total->sum local declared [0] at 2:8 3:38 4:17 5:4 6:11 / 2:8 3:38 4:17 5:4 6:11] \
+       starts [0, 1, 2]",
     ),
   ]);
 }
@@ -624,9 +748,9 @@ fn a_local_that_code_outside_its_body_may_name_is_a_label() {
     ),
     (
       "A.cs",
-      "class A {\n  int F(int total) {\n    Log(total);\n    return total;\n  }\n}\n",
-      "class A {\n  int F(int sum) {\n    Log(sum);\n    return sum;\n  }\n}\n",
-      "blocks [1..4/1..4] runs [1..4/1..4 renamed] renames [total->sum local declared [0] at 1:12 2:8 3:11 / 1:12 2:8 3:11] starts [0, 1, 1]",
+      "class A {\n  int F(int total) {\n    last = total;\n    return total;\n  }\n}\n",
+      "class A {\n  int F(int sum) {\n    last = sum;\n    return sum;\n  }\n}\n",
+      "blocks [1..4/1..4] runs [1..4/1..4 renamed] renames [total->sum local declared [0] at 1:12 2:11 3:11 / 1:12 2:11 3:11] starts [0, 1, 1]",
     ),
     (
       "defs.bzl",

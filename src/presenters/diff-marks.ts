@@ -127,7 +127,8 @@ export interface ReachWords {
 /**
  * What the index of the repository said of the uses of a renamed name, after the words of its note; empty where there
  * is nothing to tell: it is still to be asked, or no index answers. Only `confirmed` is a proof: a reader passes the
- * uses of such a name; under any other word they are read
+ * uses of such a name; under any other word they are read. `otherDeclaration` is also what the diff of the file that
+ * declares the name says by itself, with no index, where the code of the declaration changed in more than names
  */
 const PROOF_WORDS: Readonly<Record<RenameProof, string>> = {
   asked: "",

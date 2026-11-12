@@ -33,7 +33,7 @@ const LEFTOVERS: &str = concat!(
   r#"{"lines":[[{"start":1,"keys":[7],"solid":[3]}],[{"start":2,"keys":[7],"solid":[3]}]],"#,
   r#""undeclared":[{"old":"a","new":"b","sites":1,"local":false,"declared":[],"oldSites":[1,2,3],"newSites":[1,2,3]}],"#,
   r#""pending":[{"block":0,"runs":[{"run":{"oldStart":1,"oldEnd":2,"newStart":1,"newEnd":2,"kind":"renamed","quiet":false},"names":[0]}]}],"#,
-  r#""declarations":[{"rename":0,"places":[[1,2,3,4]]}],"proven":[0],"lone_returns":[false,true],"rewritten":[[3],[7]]}"#
+  r#""declarations":[{"rename":0,"places":[[1,2,3,4]],"redeclared":true}],"proven":[0],"lone_returns":[false,true],"rewritten":[[3],[7]]}"#
 );
 
 /// A value read from its sample, written again
@@ -47,7 +47,7 @@ fn the_layout_of_a_stored_value_is_pinned_with_the_version_of_its_store() {
   // the diffs and what they left: raise `MODEL_VERSION` with a new sample
   assert_eq!(
     (MODEL_VERSION, written::<TextDiff>(DIFF).as_str(), written::<Leftovers>(LEFTOVERS).as_str()),
-    (15, DIFF, LEFTOVERS),
+    (17, DIFF, LEFTOVERS),
     "the layout of a stored diff or of what it left changed: raise MODEL_VERSION and pin the sample again"
   );
   // a merge of one side holds a diff: raise `MERGE_MODEL_VERSION` whenever the diff is another

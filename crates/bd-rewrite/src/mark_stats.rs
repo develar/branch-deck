@@ -11,8 +11,16 @@
 //!   mark, which is what the marks cost.
 //! - **The sample** (`--mark-sample <N>`): N marks of each kind, spread evenly over the subjects, each with the lines
 //!   of both sides, for a person to read: a quiet kind must hold no change of behaviour, a label must be true.
+//! - **What other thresholds of a move find** (`--min-move-chars <N>`, `--max-edited <N/D>`): each file is searched
+//!   once more under them, and the moves the views have not are counted (`MarkCounts::other_moves`) and sampled
+//!   (`moveAdded`: lines that are in no move of the views; `moveChanged`: a move of the views with other ends).
+//!   What a threshold leaves out is read there, as what it lets in is read in the moves of the views.
+//! - **The index** (`--index`): accio is asked of the names each subject renamed, as the window of the subject
+//!   asks it; without accio on the machine the flag is refused, so no count by proof is read as an answer that was
+//!   never given.
 //!
-//! It writes the object cache only, and nothing with `--no-cache`.
+//! It is a measurement of whole subjects: it takes no commit ids and none of the filters of `brd commits`. It writes
+//! the object cache only, and nothing with `--no-cache`.
 
 use bd_core::branch_view::read_grouping;
 use bd_core::context::RepoContext;
@@ -32,7 +40,7 @@ use std::fmt::Write as _;
 use std::ops::Range;
 use std::time::Duration;
 use text_diff::model::{BlockKind, FileMove, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
-use text_diff::moves::{MAX_EDITED_LINES, MIN_MOVE_CHARS, line_starts, line_text};
+use text_diff::moves::{MAX_EDITED_LINES, MIN_MOVE_CHARS, MoveThresholds, line_starts, line_text};
 use text_diff::moves_across::{MIN_ACROSS_CHARS, MIN_ACROSS_LINES};
 use text_diff::policy::WhitespacePolicy;
 
@@ -49,7 +57,7 @@ const SLOWEST_SUBJECTS: usize = 10;
 #[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]
 pub struct MarkStatsArgs {
   /// What the marks of the diffs find on each commit: the measurement of their quiet kinds and thresholds
-  #[arg(long, hide = true, conflicts_with_all = ["brief", "files", "patch", "symbol_stats"])]
+  #[arg(long, hide = true, conflicts_with_all = ["brief", "files", "patch", "symbol_stats", "ids", "branch", "unassigned", "include_generated"])]
   pub mark_stats: bool,
   /// With --mark-stats: the commits of `<base>..<head>` without its merges, in place of those ahead of the baseline
   #[arg(long, hide = true, value_name = "BASE..HEAD", requires = "mark_stats")]
@@ -66,6 +74,24 @@ pub struct MarkStatsArgs {
   /// With --mark-stats: ask the index of the repository of the names each subject renamed, as its window does
   #[arg(long, hide = true, requires = "mark_stats", conflicts_with = "no_marks")]
   pub index: bool,
+  /// With --mark-stats: search each file for its moves once more, with this many characters in place of the
+  /// threshold of the views, and count what that adds
+  #[arg(long, hide = true, value_name = "N", requires = "mark_stats", conflicts_with = "no_marks")]
+  pub min_move_chars: Option<usize>,
+  /// With --mark-stats: search each file for its moves once more, with this share of edited lines (`1/3`) in place
+  /// of the threshold of the views, and count what that adds
+  #[arg(long, hide = true, value_name = "N/D", requires = "mark_stats", conflicts_with = "no_marks", value_parser = parse_share)]
+  pub max_edited: Option<(i64, i64)>,
+}
+
+/// A share as `<numerator>/<denominator>`: less than one, of a positive denominator
+fn parse_share(value: &str) -> Result<(i64, i64), String> {
+  let share = value
+    .split_once('/')
+    .and_then(|(numerator, denominator)| Some((numerator.parse::<i64>().ok()?, denominator.parse::<i64>().ok()?)));
+  share
+    .filter(|(numerator, denominator)| *numerator >= 0 && numerator < denominator)
+    .ok_or_else(|| format!("a share is <N>/<D> with N below D, not {value:?}"))
 }
 
 #[derive(Debug, Serialize)]
@@ -101,6 +127,10 @@ pub struct MarkLimits {
   pub max_edited_lines: [i64; 2],
   pub min_across_chars: u32,
   pub min_across_lines: u32,
+  /// With --min-move-chars or --max-edited: the thresholds each file was searched under once more
+  /// (`MarkCounts::other_moves`), the length first
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub other_moves: Option<(usize, [i64; 2])>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -125,8 +155,30 @@ pub struct MarkCounts {
   pub comments: RunCounts,
   pub renamed: RunCounts,
   pub moves: MoveCounts,
+  /// With other thresholds asked: what the search under them finds beside the moves of the views
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub other_moves: Option<OtherMoveCounts>,
   pub renames: RenameCounts,
   pub across: AcrossCounts,
+}
+
+/// The moves a search under other thresholds finds that the views have not
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct OtherMoveCounts {
+  /// Every move of that search
+  pub moves: usize,
+  /// Those whose lines are in no move of the views, on either side: what the thresholds of the views leave out
+  pub added: usize,
+  pub added_lines: u64,
+  /// Of those: of one line, with an edited line, and by the characters of their exact lines that stand once among
+  /// the lines a move may take (under 16, under 24, more)
+  pub added_one_line: usize,
+  pub added_edited: usize,
+  pub added_chars: [usize; 3],
+  /// Those that share a line with a move of the views and are not that move: the same lines with other ends
+  pub changed: usize,
+  /// The moves of the views that the search under the other thresholds has not as they are
+  pub lost: usize,
 }
 
 /// The runs of one kind
@@ -155,7 +207,7 @@ pub struct MoveCounts {
   pub one_line: usize,
   /// By the characters of their exact lines that are no whitespace: under 32, under 48, under 96, and more
   pub chars: [usize; 4],
-  /// By the share of their edited lines among their lines: none, up to an eighth, up to a quarter
+  /// By the share of their edited lines among their lines: none, up to an eighth, more
   pub edited_share: [usize; 3],
   /// Those none of whose exact lines stands once among the deleted lines and once among the added ones of its file:
   /// which of the equal lines moved, nothing says. In all, and of one line
@@ -265,16 +317,30 @@ fn subject_name(context: &RepoContext, source: &DiffSource) -> String {
 }
 
 pub fn mark_stats(context: &RepoContext, args: &MarkStatsArgs) -> Result<MarkStatsOutput, CliError> {
+  let never_canceled = || false;
+  let accio = if args.index { AccioCli::discover() } else { None };
+  let search = accio.as_ref().map(|accio| accio.search(&never_canceled));
+  mark_stats_with(context, args, search.as_ref().map(|search| search as &dyn SymbolIndex))
+}
+
+/// `mark_stats` with `index` as the index `--index` asks: accio's, or none where the machine has no accio, which
+/// refuses the flag
+pub fn mark_stats_with(context: &RepoContext, args: &MarkStatsArgs, index: Option<&dyn SymbolIndex>) -> Result<MarkStatsOutput, CliError> {
+  if args.index && index.is_none() {
+    return Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      "--index asks accio of the names each subject renamed, and accio is not installed: without it no rename is proven or refuted",
+    ));
+  }
+  let index = index.filter(|_| args.index);
   let subjects = subjects_of(context, args)?;
   let diffs = if args.no_marks { FileDiffs::without_marks() } else { FileDiffs::default() };
   let cache = context.cache();
-  let never_canceled = || false;
-  let search = if args.index {
-    AccioCli::discover().map(|accio| accio.search(&never_canceled))
-  } else {
-    None
-  };
-  let index = search.as_ref().map(|search| search as &dyn SymbolIndex);
+  // the thresholds each file is searched under once more: those of the views but for what was asked
+  let other_thresholds = (args.min_move_chars.is_some() || args.max_edited.is_some()).then(|| MoveThresholds {
+    min_chars: args.min_move_chars.unwrap_or(MIN_MOVE_CHARS),
+    max_edited: args.max_edited.unwrap_or(MAX_EDITED_LINES),
+  });
 
   let mut languages: BTreeMap<&'static str, MarkCounts> = BTreeMap::new();
   let mut sampler = Sampler::new(args.mark_sample);
@@ -283,14 +349,14 @@ pub fn mark_stats(context: &RepoContext, args: &MarkStatsArgs) -> Result<MarkSta
   let mut subjects_of: BTreeMap<&'static str, usize> = BTreeMap::new();
   let mut differ_in: Vec<String> = Vec::new();
   for source in &subjects {
-    let measured = diffs.measure(&context.git, &context.repository, &cache, index, source, WhitespacePolicy::Default)?;
+    let measured = diffs.measure(&context.git, &context.repository, &cache, index, source, WhitespacePolicy::Default, other_thresholds)?;
     let subject = subject_name(context, source);
     let mut read: BTreeSet<&'static str> = BTreeSet::new();
     for file in &measured.files {
       let DiffContent::Text(diff) = &file.file.content else { continue };
       let language = language_of(file.text.as_ref());
       read.insert(language);
-      count_file(languages.entry(language).or_default(), diff, file.text.as_ref());
+      count_file(languages.entry(language).or_default(), diff, file.text.as_ref(), other_thresholds.is_some());
       if let Some(differs) = file.text.as_ref().and_then(|text| text.differs)
         && differ_in.len() < MAX_DIFFERING_FILES
       {
@@ -339,6 +405,7 @@ pub fn mark_stats(context: &RepoContext, args: &MarkStatsArgs) -> Result<MarkSta
       max_edited_lines: MAX_EDITED_LINES.into(),
       min_across_chars: MIN_ACROSS_CHARS,
       min_across_lines: MIN_ACROSS_LINES,
+      other_moves: other_thresholds.map(|thresholds| (thresholds.min_chars, thresholds.max_edited.into())),
     },
     total,
     differ_in,
@@ -448,6 +515,19 @@ impl MarkCounts {
     }
     moves.unanchored += more.unanchored;
     moves.one_line_unanchored += more.one_line_unanchored;
+    if let Some(more) = &other.other_moves {
+      let moves = self.other_moves.get_or_insert_default();
+      moves.moves += more.moves;
+      moves.added += more.added;
+      moves.added_lines += more.added_lines;
+      moves.added_one_line += more.added_one_line;
+      moves.added_edited += more.added_edited;
+      for (count, more) in moves.added_chars.iter_mut().zip(more.added_chars) {
+        *count += more;
+      }
+      moves.changed += more.changed;
+      moves.lost += more.lost;
+    }
     let (renames, more) = (&mut self.renames, &other.renames);
     renames.local += more.local;
     renames.local_proven += more.local_proven;
@@ -467,8 +547,8 @@ impl MarkCounts {
 }
 
 /// Counts the marks of the diff of a text file; `text` is what the measurement read beside it, `None` for a diff
-/// without marks
-fn count_file(counts: &mut MarkCounts, diff: &TextDiff, text: Option<&MeasuredText>) {
+/// without marks; `other_moves` says that each file was searched under other thresholds too
+fn count_file(counts: &mut MarkCounts, diff: &TextDiff, text: Option<&MeasuredText>, other_moves: bool) {
   let blocks = || diff.blocks.iter().filter(|block| block.kind != BlockKind::Ignored);
   if blocks().next().is_none() {
     return;
@@ -526,6 +606,28 @@ fn count_file(counts: &mut MarkCounts, diff: &TextDiff, text: Option<&MeasuredTe
       2
     }] += 1;
   }
+  if other_moves {
+    let moves = counts.other_moves.get_or_insert_default();
+    moves.moves += text.other_moves.len();
+    for moved in &text.other_moves {
+      match OtherMove::of(moved, &marks.moves) {
+        OtherMove::Same => {}
+        OtherMove::Changed => moves.changed += 1,
+        OtherMove::Added => {
+          moves.added += 1;
+          moves.added_lines += u64::from(moved.len);
+          moves.added_one_line += usize::from(moved.len == 1);
+          moves.added_edited += usize::from(!moved.edited.is_empty());
+          moves.added_chars[match free.anchored_chars(moved, &old) {
+            0..16 => 0,
+            16..24 => 1,
+            _ => 2,
+          }] += 1;
+        }
+      }
+    }
+    moves.lost += marks.moves.iter().filter(|moved| !text.other_moves.contains(moved)).count();
+  }
 
   for (number, rename) in (0u32..).zip(&marks.renames) {
     let renames = &mut counts.renames;
@@ -555,6 +657,33 @@ fn count_file(counts: &mut MarkCounts, diff: &TextDiff, text: Option<&MeasuredTe
         64..96 => 1,
         _ => 2,
       }] += 1;
+    }
+  }
+}
+
+/// What a move found under other thresholds is to the moves of the views
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OtherMove {
+  /// A move of the views
+  Same,
+  /// It shares a line with a move of the views and is not that move
+  Changed,
+  /// Its lines are in no move of the views
+  Added,
+}
+
+impl OtherMove {
+  fn of(moved: &LineMove, shown: &[LineMove]) -> Self {
+    let meets = |lines: Range<u32>, other: Range<u32>| lines.start < other.end && other.start < lines.end;
+    if shown.contains(moved) {
+      Self::Same
+    } else if shown
+      .iter()
+      .any(|other| meets(moved.old_lines(), other.old_lines()) || meets(moved.new_lines(), other.new_lines()))
+    {
+      Self::Changed
+    } else {
+      Self::Added
     }
   }
 }
@@ -613,9 +742,17 @@ impl<'t> FreeLines<'t> {
   /// Whether a line of `moved` that is not edited and not blank stands once among the old lines a move may take and
   /// once among the new ones: only such a line says which of the equal lines moved
   fn anchors(&self, moved: &LineMove, old: &SideLines<'_>) -> bool {
+    self.anchored_chars(moved, old) > 0
+  }
+
+  /// The characters that are no whitespace of the lines of `moved` that are not edited and stand once among the old
+  /// lines a move may take and once among the new ones: what the threshold of a move counts
+  fn anchored_chars(&self, moved: &LineMove, old: &SideLines<'_>) -> usize {
     exact_lines(moved)
       .map(|line| move_key(old.line(line)))
-      .any(|key| !key.is_empty() && self.old.get(key) == Some(&1) && self.new.get(key) == Some(&1))
+      .filter(|key| self.old.get(key) == Some(&1) && self.new.get(key) == Some(&1))
+      .map(solid_chars)
+      .sum()
   }
 }
 
@@ -747,6 +884,20 @@ impl SampleOf<'_> {
       new: self.new.printed(new, mark[1]),
     }
   }
+
+  /// A move of `kind` with its lines on both sides, `~ ` before an edited one
+  fn moved(&self, kind: &'static str, moved: &LineMove, note: String) -> SampleMark {
+    let edited = |start: u32| {
+      move |line: u32| {
+        if line.checked_sub(start).is_some_and(|offset| moved.edited.binary_search(&offset).is_ok()) {
+          "~ "
+        } else {
+          "| "
+        }
+      }
+    };
+    self.mark(kind, moved.old_lines(), moved.new_lines(), note, [&edited(moved.old_start), &edited(moved.new_start)])
+  }
 }
 
 /// Offers the marks of the text file `file` of the subject `measured` to the sample
@@ -795,16 +946,27 @@ fn sample_file(sampler: &mut Sampler, subject: &str, measured: &MeasuredSubject,
         moved.blanks_after
       );
       // the lines of the move, and the blank lines that moved with it before and after them
-      let edited = |start: u32| {
-        move |line: u32| {
-          if line.checked_sub(start).is_some_and(|offset| moved.edited.binary_search(&offset).is_ok()) {
-            "~ "
-          } else {
-            "| "
-          }
-        }
-      };
-      of.mark(kind, moved.old_lines(), moved.new_lines(), note, [&edited(moved.old_start), &edited(moved.new_start)])
+      of.moved(kind, moved, note)
+    });
+  }
+
+  // what the other thresholds find beside the moves of the views
+  for moved in &text.other_moves {
+    let kind = match OtherMove::of(moved, &marks.moves) {
+      OtherMove::Same => continue,
+      OtherMove::Changed => "moveChanged",
+      OtherMove::Added => "moveAdded",
+    };
+    sampler.offer(kind, || {
+      let note = format!(
+        "{} lines, {} edited, indent {}, {} characters in its exact lines, {} in those that stand once",
+        moved.len,
+        moved.edited.len(),
+        moved.indent,
+        exact_chars(moved, &old),
+        free.anchored_chars(moved, &old)
+      );
+      of.moved(kind, moved, note)
     });
   }
 

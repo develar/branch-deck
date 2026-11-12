@@ -9,13 +9,15 @@
 //!   sample of a kind is read for before `marks::is_quiet` switches it on.
 //! - **Whether the file was parsed** for its marks: the share of the files the question before the tokens leaves
 //!   unread.
+//! - **The moves other thresholds find** (`MeasuredText::other_moves`), when asked: what a lower length or a higher
+//!   share of edited lines adds to the moves of the views, for the measurement that says where the thresholds stand.
 //!
 //! The marks of each pair are read once more from its texts for the proofs, by the code that made them; the
 //! measurement says whether both readings agree (`MeasuredText::differs`). `FileDiffs::without_marks` reads the same
 //! subject without any mark, for what the marks cost.
 
 use crate::accio::SymbolIndex;
-use crate::marks::pair_grammar;
+use crate::marks::{pair_grammar, pair_indented};
 use crate::model::{BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, GetFileDiffsParams};
 use crate::service::FileDiffs;
 use anyhow::Result;
@@ -25,7 +27,8 @@ use object_cache::cache::ObjectCache;
 use std::cell::Cell;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use text_diff::model::{LineRun, starts_of};
+use text_diff::model::{LineMove, LineRun, starts_of};
+use text_diff::moves::{MoveThresholds, find_moves_under};
 use text_diff::policy::WhitespacePolicy;
 
 /// A subject as a measurement reads it
@@ -68,9 +71,12 @@ pub struct MeasuredText {
   /// The starts of the file once every kind with a proof is quiet: `DiffMarks::starts` with the proven runs passed
   pub proven_starts: Vec<u32>,
   /// What of the marks of the pair, read again from its texts, is not what the view got: its `moves`, its `renames`,
-  /// or its `runs` (every run of the pair is among those of the view, as quiet as there, and the subject alone adds
-  /// runs to them). `None` when both readings agree, as they must
+  /// or its `runs` (every run of the pair is among those of the view, as quiet as there or quiet by the answer of
+  /// the index, and the subject alone adds runs to them). `None` when both readings agree, as they must
   pub differs: Option<&'static str>,
+  /// The moves of the file under the other thresholds a measurement asked of (`FileDiffs::measure`), from the same
+  /// blocks and runs: those of the views among them, where both searches found the same. Empty when none was asked
+  pub other_moves: Vec<LineMove>,
 }
 
 impl MeasuredText {
@@ -85,7 +91,9 @@ impl MeasuredText {
 
 impl FileDiffs {
   /// The subject `source` of the repository under `policy`, read as a view reads it and measured (module doc).
-  /// `index` is asked of the names the subject renamed after its diffs, as the window that shows it asks
+  /// `index` is asked of the names the subject renamed after its diffs, as the window that shows it asks;
+  /// `thresholds` are other thresholds of a move to search each file under too (`MeasuredText::other_moves`)
+  #[expect(clippy::too_many_arguments, reason = "what a view is read with, and the two things a measurement asks beside")]
   pub fn measure(
     &self,
     git: &GitCommandExecutor,
@@ -94,6 +102,7 @@ impl FileDiffs {
     index: Option<&dyn SymbolIndex>,
     source: &DiffSource,
     policy: WhitespacePolicy,
+    thresholds: Option<MoveThresholds>,
   ) -> Result<MeasuredSubject> {
     let params = GetFileDiffsParams {
       repository_path: repository_path.to_string(),
@@ -134,7 +143,7 @@ impl FileDiffs {
       .map(|file| {
         let side = |id: Option<&str>| id.map_or_else(|| Some(Arc::clone(&empty)), |id| blobs.get(id).cloned());
         let text = match (&file.content, side(file.old_id.as_deref()), side(file.new_id.as_deref())) {
-          (DiffContent::Text(_), Some(old), Some(new)) => Some(self.measured_text(&file, policy, [old, new])),
+          (DiffContent::Text(_), Some(old), Some(new)) => Some(self.measured_text(&file, policy, [old, new], thresholds)),
           _ => None,
         };
         MeasuredFile { file, text }
@@ -149,7 +158,7 @@ impl FileDiffs {
   }
 
   /// What a measurement reads of the text file `file` with the `texts` of its sides
-  fn measured_text(&self, file: &DiffFile, policy: WhitespacePolicy, texts: [Arc<BlobText>; 2]) -> MeasuredText {
+  fn measured_text(&self, file: &DiffFile, policy: WhitespacePolicy, texts: [Arc<BlobText>; 2], thresholds: Option<MoveThresholds>) -> MeasuredText {
     let paths = [file.old_path.as_deref().unwrap_or(&file.path), file.path.as_str()];
     let mut measured = MeasuredText {
       grammar: pair_grammar(paths[0], paths[1]),
@@ -159,6 +168,7 @@ impl FileDiffs {
       proven_renames: Vec::new(),
       proven_starts: Vec::new(),
       differs: None,
+      other_moves: Vec::new(),
     };
     let DiffContent::Text(diff) = &file.content else { return measured };
     let parsed = Cell::new(false);
@@ -174,26 +184,25 @@ impl FileDiffs {
     let shown = &diff.marks;
     let place = |run: &LineRun| (run.old_start, run.old_end, run.new_start, run.new_end, run.kind);
     let find = |run: &LineRun| shown.runs.iter().position(|other| place(other) == place(run));
+    // a run of the view that the index confirmed: a label of the pair, or one the subject added, that is quiet with
+    // the answer
+    let confirmed = |at: usize| shown.subject.as_ref().is_some_and(|subject| subject.confirmed.iter().any(|run| *run as usize == at));
     // a run of the view that holds `run` in its kind: the subject adds labels of the kind `Renamed` to the runs of
     // the pair, and one of them may hold a label of the pair
     let holds = |run: &LineRun| {
-      shown.runs.iter().any(|other| {
+      shown.runs.iter().enumerate().any(|(at, other)| {
         other.kind == run.kind
-          && !other.quiet
+          && (!other.quiet || confirmed(at))
           && other.old_start <= run.old_start
           && run.old_end <= other.old_end
           && other.new_start <= run.new_start
           && run.new_end <= other.new_end
       })
     };
-    // the subject adds runs to those of the pair and takes none, and a quiet run is there as it is; the moves and
-    // the renames are the pair's
-    let same_runs = pair
-      .marks
-      .runs
-      .iter()
-      .all(|run| find(run).is_some_and(|at| shown.runs[at].quiet == run.quiet) || (!run.quiet && holds(run)))
-      && (shown.subject.is_some() || pair.marks.runs.len() == shown.runs.len());
+    // the subject adds runs to those of the pair and takes none; a quiet run is there as it is, and a label is
+    // there as a label, or quiet where the index confirmed it. The moves and the renames are the pair's
+    let same_run = |run: &LineRun| find(run).is_some_and(|at| shown.runs[at].quiet == run.quiet || (shown.runs[at].quiet && confirmed(at))) || (!run.quiet && holds(run));
+    let same_runs = pair.marks.runs.iter().all(same_run) && (shown.subject.is_some() || pair.marks.runs.len() == shown.runs.len());
     measured.differs = if pair.marks.moves != shown.moves {
       Some("moves")
     } else if pair.marks.renames != shown.renames {
@@ -218,6 +227,11 @@ impl FileDiffs {
     measured.proven_starts = starts_of(&diff.blocks, &passed, &shown.moves);
     measured.proven = proven;
     measured.proven_renames = pair.proven_renames;
+    if let Some(thresholds) = thresholds {
+      // from the blocks and the runs the moves of the view were read from, as `marks_of` reads them
+      let indented = pair_indented(paths[0], paths[1]);
+      measured.other_moves = find_moves_under(measured.text(false), measured.text(true), &diff.blocks, &pair.marks.runs, policy, indented, thresholds);
+    }
     measured
   }
 }

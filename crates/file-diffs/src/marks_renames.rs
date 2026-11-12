@@ -39,16 +39,32 @@
 //!    made were such pairs (docs/design/diff-view.md, "Measured on real history").
 //! 6. **A run is proven** (`Renames::prove`) when it holds only places of proven renames: a local value of its body
 //!    alone, every name of which the scopes bind (`LocalBinding::is_of_body_alone`: a value no code outside its body
-//!    may name, in a text the scopes read whole), with nothing but quiet lines changed from its first place to its
-//!    last: runs of formatting, runs of the kind `Renamed` of proven renames, blank lines. So the code that declares
-//!    the name and reads it is the same code but for names that are the same variables, and the new name is the old
-//!    variable. A declaration that changed otherwise, on its line or on a later line of it, binds another value, and
-//!    the lines that read it, the same tokens but for the name, are labels; so are those of a rename with a place on
-//!    a line that changed otherwise. A place that makes more of the name than its binding (a shorthand property, a
+//!    may name, in a text the scopes read whole), in a member nothing else of which changed (`Found::code`: the
+//!    member around the name, `code_symbols::navigate`, "The statements of a name"). No line of that member
+//!    changed in anything that says what a name is: each is in a run of formatting or of comments, in a run of the
+//!    kind `Renamed` of proven renames, on a line that changed in the name its own declaration is known by alone,
+//!    or holds no token of code (a blank line inside a string of several lines is a line of that string, and
+//!    code). So the function that declares the name, gives it its value and reads it is the same code but for names
+//!    that are the same variables, and the new name is the old variable. A declaration that changed otherwise, a
+//!    lambda given to another call, a parameter of another type, a statement that writes a variable the name is
+//!    made of: each may bind another value, and the lines that read the name, the same tokens but for it, are
+//!    labels. What a local holds comes from the code of its function, and no part of that code is known to give it
+//!    nothing: each review of a narrower rule (the lines between the places, the statements of the places) found a
+//!    value given outside it. A place that makes more of the name than its binding (a shorthand property, a
 //!    destructuring, a name only the types tell apart, a macro, a name that is a value where the code runs: any
-//!    `Site` but `Plain`) and the declaration of a name that is not local never get the one text, so their lines are
-//!    in no run and are read, and a rename with such a place is never proven. Whether a proven run is quiet
+//!    `Site` but `Plain`) and the declaration of a name that is not local never get the one text, so their lines
+//!    are in no run and are read, and a rename with such a place is never proven. Whether a proven run is quiet
 //!    `marks::is_quiet` says of its kind, which a measurement switched on (`marks_of`).
+//! 7. **The name a declaration is known by** (`Renames::with_declarations`). The declaration of a name that is not
+//!    local is on no line of a run of the marks. The proofs read the blocks that hold one once more, with the
+//!    names of those declarations as one too: a line that changed in such a name alone says nothing of the locals
+//!    of its member (a function that got another name with a local of its body), and is the same code of its own
+//!    declaration. No run of that reading is a run of the marks.
+//! 8. **A name that is not local is declared by the same code** (`Renames::read_declarations`, `Found::redeclared`)
+//!    when no line of the statements of its declarations, each with its bodies but the members of a type, changed
+//!    in anything but formatting, comments, this name and the locals the scopes prove. Only of such a name may the
+//!    index prove the uses (`marks_subject`): a constant that got another value with its other name is another
+//!    constant, and a line that reads it does something else.
 //!
 //! Nothing here is a rule of characters: a file of no grammar has no rename.
 
@@ -121,6 +137,16 @@ pub(crate) struct Found {
   /// For each place that is the rename and nothing else, its tokens in the two texts (their places in
   /// `Tokens::all`), which are read as one; `None` for a place that is read
   places: Vec<Option<[usize; 2]>>,
+  /// The lines of each side, the old one first, whose code says what the name is: the member around the uses of
+  /// a local, the statements of the declarations of any other name (`NameAt::statements`); every line where the
+  /// scopes gave none. From 0, in order
+  code: [Vec<Range<u32>>; 2],
+  /// Of a name that is not local: the tokens of each of its declarations in the two texts, which
+  /// `read_declarations` reads as one; `None` where a declaration makes more of the name than its binding
+  declarations: Option<Vec<[usize; 2]>>,
+  /// Of a name that is not local: the code that declares it changed in more than names (`read_declarations`).
+  /// Never of a local
+  pub(crate) redeclared: bool,
 }
 
 /// The renames of a pair of texts
@@ -290,6 +316,7 @@ fn confirm(old: &NameAt, new: &NameAt, tokens: [&Tokens; 2], blocks: &[DiffBlock
     ..Rename::default()
   };
   let mut places = Vec::with_capacity(count);
+  let mut declarations = (!local).then(Vec::new);
   // the spelling of the name in each text: every place that is read as one has the same
   let mut spelled: Option<[u64; 2]> = None;
   for (index, (old_use, new_use)) in old.uses.iter().zip(&new.uses).enumerate() {
@@ -303,7 +330,8 @@ fn confirm(old: &NameAt, new: &NameAt, tokens: [&Tokens; 2], blocks: &[DiffBlock
     rename.old_sites.extend([old_use.start.line, old_use.start.column, old_use.end_column]);
     rename.new_sites.extend([new_use.start.line, new_use.start.column, new_use.end_column]);
     // the declaration of a name other files may see is always read; so is a place that makes more of the name
-    let alone = old_use.site == Site::Plain && new_use.site == Site::Plain && (local || !declares);
+    let plain = old_use.site == Site::Plain && new_use.site == Site::Plain;
+    let alone = plain && (local || !declares);
     places.push(if alone {
       let found = [name_token(tokens[0], old_use)?, name_token(tokens[1], new_use)?];
       let texts = [tokens[0].all()[found[0]].text, tokens[1].all()[found[1]].text];
@@ -314,8 +342,25 @@ fn confirm(old: &NameAt, new: &NameAt, tokens: [&Tokens; 2], blocks: &[DiffBlock
     } else {
       None
     });
+    if declares && !local {
+      // what `read_declarations` reads as one; a declaration that cannot be is one that changed otherwise
+      let token = plain.then(|| Some([name_token(tokens[0], old_use)?, name_token(tokens[1], new_use)?])).flatten();
+      declarations = declarations.zip(token).map(|(mut declarations, token)| {
+        declarations.push(token);
+        declarations
+      });
+    }
   }
-  let found = Found { rename, proven, places };
+  // where the scopes gave no statement, nothing says where the code of the name ends
+  let code = |name: &NameAt| name.statements.clone().unwrap_or_else(|| std::iter::once(0..u32::MAX).collect());
+  let found = Found {
+    rename,
+    proven,
+    places,
+    code: [code(old), code(new)],
+    redeclared: !local && declarations.is_none(),
+    declarations,
+  };
   if found.rename.declared.is_empty() {
     return (!local).then_some(Confirmed::Undeclared(found));
   }
@@ -449,93 +494,135 @@ impl Renames {
     self.found.len() != before
   }
 
-  /// Says which renames are proven, and makes the runs of the kind `Renamed` among `runs` (those of each block of
-  /// `blocks` after `cut`) quiet where every place in them is of a proven one; `has_text` says whether lines of a side
-  /// hold a character that is no blank.
-  ///
-  /// A rename is proven when its name is a value of its body alone (`Found::proven` as `confirm` left it) and, from
-  /// its first place to its last one on both sides, every line that changed is quiet: in a run of formatting, or in
-  /// a run of the kind `Renamed` whose places are all of proven renames, or blank on both sides. So the code that
-  /// declares the name and reads it is the same code but for names that are the same variables: the new name is the
-  /// old variable, and a line that changed in it alone is the line it was. A declaration that got another
-  /// initializer or another type, on its line or on a later line of it, binds another value under the new name, and
-  /// a line that reads it does something else though its tokens are the same; a place on a line with another
-  /// change, between the declaration and the last use, may be what gives the name another value. Every run of such
-  /// a rename is a label
-  pub(crate) fn prove(&mut self, blocks: &[DiffBlock], has_text: &dyn Fn(bool, Range<u32>) -> bool, runs: &mut [Vec<LineRun>]) {
-    // the renames with a place in each run of the kind `Renamed`, by the block and the place of the run in it
-    let mut held: Vec<Vec<Vec<usize>>> = runs.iter().map(|runs| vec![Vec::new(); runs.len()]).collect();
-    // the lines of each rename on both sides, from its first place to its last
-    let mut spans: Vec<[Range<u32>; 2]> = Vec::with_capacity(self.found.len());
-    for (number, found) in self.found.iter().enumerate() {
-      spans.push(found.rename.spans());
-      for line in found.rename.old_sites.as_chunks::<3>().0.iter().map(|site| site[0]) {
-        let block = blocks.partition_point(|block| block.old_end <= line);
-        let run = runs
-          .get(block)
-          .and_then(|runs| runs.iter().position(|run| run.kind == RunKind::Renamed && (run.old_start..run.old_end).contains(&line)));
-        if let Some(run) = run
-          && !held[block][run].contains(&number)
-        {
-          held[block][run].push(number);
-        }
-      }
+  /// The blocks that hold the declaration of a name that is not local, read once more with the names of those
+  /// declarations read as one too, beside every other place of a rename (`tokens`, `has_text` and `work` as for
+  /// `cut`). In the runs of the marks such a declaration is on no line of a run: it is read. This reading says
+  /// whether its line changed in the name alone, which the proofs ask (`prove`, `read_declarations`); no run of it
+  /// is a run of the marks
+  pub(crate) fn with_declarations(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64) -> DeclarationsRead {
+    let mut read = DeclarationsRead::default();
+    fn declared(found: &Found) -> impl Iterator<Item = &[usize; 2]> {
+      found.declarations.iter().flatten()
     }
-    let mut proven: Vec<bool> = self.found.iter().map(|found| found.proven).collect();
-    // whether the lines `lines` of a side of the block `block` are quiet with the renames `proven`
-    let quiet = |proven: &[bool], block: usize, new_side: bool, lines: Range<u32>| -> bool {
-      let mut line = lines.start;
-      for (run, renames) in runs[block].iter().zip(&held[block]) {
-        let of_run = if new_side { run.new_start..run.new_end } else { run.old_start..run.old_end };
-        if of_run.end <= line {
-          continue;
-        }
-        if line >= lines.end {
-          break;
-        }
-        // the lines before the run are in none: blank on this side, or read
-        if of_run.start > line && has_text(new_side, line..of_run.start.min(lines.end)) {
-          return false;
-        }
-        let passed = match run.kind {
-          RunKind::Formatting => run.quiet,
-          RunKind::Renamed => !renames.is_empty() && renames.iter().all(|number| proven[*number]),
-          RunKind::Comments => false,
-        };
-        if of_run.start < lines.end && !passed {
-          return false;
-        }
-        line = line.max(of_run.end);
-      }
-      line >= lines.end || !has_text(new_side, line..lines.end)
-    };
-    // a rename leans on those in the lines between its places: taken out one after another until none is left
-    loop {
-      let unproven = (0..proven.len()).find(|number| {
-        proven[*number]
-          && blocks.iter().enumerate().filter(|(_, block)| block.kind != BlockKind::Ignored).any(|(index, block)| {
-            let within = |lines: Range<u32>, span: &Range<u32>| lines.start.max(span.start)..lines.end.min(span.end);
-            let (old, new) = (
-              within(block.old_start..block.old_end, &spans[*number][0]),
-              within(block.new_start..block.new_end, &spans[*number][1]),
-            );
-            (!old.is_empty() && !quiet(&proven, index, false, old)) || (!new.is_empty() && !quiet(&proven, index, true, new))
-          })
+    if !self.found.iter().any(|found| declared(found).next().is_some()) {
+      return read;
+    }
+    // the tokens with every place and every declaration read as one
+    let as_one = |side: usize| {
+      let places = self.found.iter().enumerate().flat_map(|(rename, found)| {
+        let declarations = declared(found).enumerate().map(move |(place, tokens)| (tokens[side], found.places.len() + place));
+        let used = found.places.iter().enumerate().filter_map(move |(place, tokens)| Some(((*tokens)?[side], place)));
+        used.chain(declarations).map(move |(token, place)| (token, text_of_place(rename, place)))
       });
+      tokens[side].with_texts(places)
+    };
+    let [old, new] = [as_one(0), as_one(1)];
+    let line_of = |place: &[usize; 2]| tokens[0].all()[place[0]].line;
+    // the old lines that hold a name read as one, and those of the declarations among them
+    let mut named: Vec<u32> = self
+      .found
+      .iter()
+      .flat_map(|found| found.places.iter().flatten().chain(declared(found)))
+      .map(line_of)
+      .collect();
+    named.sort_unstable();
+    let holds_name = |lines: Range<u32>| named.partition_point(|line| *line < lines.start) < named.partition_point(|line| *line < lines.end);
+    let asked = Asked { has_text, renamed: &holds_name };
+    for line in self.found.iter().flat_map(declared).map(line_of) {
+      let index = blocks.partition_point(|block| block.old_end <= line);
+      let Some(block) = blocks.get(index).filter(|block| block.kind != BlockKind::Ignored && block.old_start <= line) else {
+        continue;
+      };
+      read.blocks.entry(index).or_insert_with(|| {
+        let lines = BlockLines {
+          old: block.old_start..block.old_end,
+          new: block.new_start..block.new_end,
+        };
+        runs_of_block(&old, &new, &lines, &asked, work, &mut |_, _| {})
+      });
+    }
+    read
+  }
+
+  /// The old lines of the places a reading of the marks reads as one, each with the number of its rename, in
+  /// their order: the declaration of a name that is not local is none of them
+  fn place_lines(&self, old: &Tokens) -> Vec<(u32, usize)> {
+    let places = self.found.iter().enumerate();
+    let mut lines: Vec<(u32, usize)> = places
+      .flat_map(|(number, found)| found.places.iter().flatten().map(move |place| (old.all()[place[0]].line, number)))
+      .collect();
+    lines.sort_unstable();
+    lines
+  }
+
+  /// Says which renames are proven, and makes the runs of the kind `Renamed` among `runs` (those of each block of
+  /// `blocks` after `cut`) quiet where every place in them is of a proven one; `tokens` are those of the two texts,
+  /// `declarations` the blocks read with the declared names as one (`with_declarations`).
+  ///
+  /// A rename is proven when its name is a value of its body alone (`Found::proven` as `confirm` left it) and no
+  /// line of its code changed in anything that says what a name is (`Found::code`: the member around it; on both
+  /// sides): each is in a run of formatting or of comments, in a run of the kind `Renamed` whose places are all of
+  /// proven renames, on a line that changed in the name some declaration is known by alone, or holds no token of
+  /// code. So the function that declares the name, gives it its value and reads it is the same code but for names
+  /// that are the same variables: the new name is the old variable, and a line that changed in it alone is the
+  /// line it was. A declaration that got another initializer or another type, a lambda given to another call or
+  /// to a call on another value, a parameter of another type, a statement that gives another value to a variable
+  /// the name is made of: each binds another value under the new name, and a line that reads it does something
+  /// else though its tokens are the same. Every run of such a rename is a label
+  pub(crate) fn prove(&mut self, blocks: &[DiffBlock], tokens: [&Tokens; 2], runs: &mut [Vec<LineRun>], declarations: &DeclarationsRead) {
+    let places = self.place_lines(tokens[0]);
+    let in_run = |run: &LineRun| &places[places.partition_point(|place| place.0 < run.old_start)..places.partition_point(|place| place.0 < run.old_end)];
+    // the lines of each rename that changed, by their block and their side
+    let changed: Vec<Vec<Changed>> = self
+      .found
+      .iter()
+      .map(|found| {
+        let hull = found.rename.spans();
+        let lines = |side: usize| found.code[side].iter().chain(std::iter::once(&hull[side]));
+        changed_lines(blocks, [&mut lines(0), &mut lines(1)])
+      })
+      .collect();
+    let mut proven: Vec<bool> = self.found.iter().map(|found| found.proven).collect();
+    // a rename leans on those in the lines of its code: taken out one after another until none is left
+    loop {
+      // a run of either reading passes when the names read in it are all of proven renames; a name a declaration
+      // is known by gives no value to what is declared
+      let passes = |run: &LineRun| in_run(run).iter().all(|place| proven[place.1]);
+      let quiet = |lines: &Changed| declarations.runs_of(lines.block, runs).is_some_and(|runs| lines.is_quiet(runs, tokens, &passes));
+      let unproven = (0..proven.len()).find(|number| proven[*number] && !changed[*number].iter().all(quiet));
       let Some(unproven) = unproven else { break };
       proven[unproven] = false;
     }
     for (found, proven) in self.found.iter_mut().zip(&proven) {
       found.proven = *proven;
     }
-    let passed: Vec<Vec<bool>> = held
-      .iter()
-      .map(|runs| runs.iter().map(|renames| !renames.is_empty() && renames.iter().all(|number| proven[*number])).collect())
-      .collect();
-    for (runs, passed) in runs.iter_mut().zip(passed) {
-      for (run, passed) in runs.iter_mut().zip(passed).filter(|(run, _)| run.kind == RunKind::Renamed) {
-        run.quiet = passed;
+    for run in runs.iter_mut().flatten().filter(|run| run.kind == RunKind::Renamed) {
+      let held = in_run(run);
+      run.quiet = !held.is_empty() && held.iter().all(|place| proven[place.1]);
+    }
+  }
+
+  /// Says of each rename that is not local whether the code that declares the name changed in more than names
+  /// (`Found::redeclared`): `runs` are the runs of each block of `blocks` after `prove`, `tokens` those of the two
+  /// texts, `declarations` the blocks read with the declared names as one (`with_declarations`).
+  ///
+  /// The name is declared by the same code when no line of the statements of its declarations (`Found::code`)
+  /// changed in anything that says what a name is: each is in a run of formatting or of comments, in a run of the
+  /// kind `Renamed` that holds only places of this rename and of locals the scopes prove, or holds no token of
+  /// code. A block the work did not pay for says nothing, and the name is declared anew
+  pub(crate) fn read_declarations(&mut self, blocks: &[DiffBlock], tokens: [&Tokens; 2], runs: &[Vec<LineRun>], declarations: &DeclarationsRead) {
+    let places = self.place_lines(tokens[0]);
+    let in_run = |run: &LineRun| &places[places.partition_point(|place| place.0 < run.old_start)..places.partition_point(|place| place.0 < run.old_end)];
+    let mut redeclared = Vec::new();
+    for (number, found) in self.found.iter().enumerate().filter(|(_, found)| found.declarations.is_some()) {
+      let passes = |run: &LineRun| in_run(run).iter().all(|place| place.1 == number || self.found[place.1].proven);
+      let quiet = |lines: &Changed| declarations.runs_of(lines.block, runs).is_some_and(|runs| lines.is_quiet(runs, tokens, &passes));
+      if !changed_lines(blocks, [&mut found.code[0].iter(), &mut found.code[1].iter()]).iter().all(quiet) {
+        redeclared.push(number);
       }
+    }
+    for number in redeclared {
+      self.found[number].redeclared = true;
     }
   }
 
@@ -580,6 +667,91 @@ impl Renames {
       read(index, runs, &places);
     }
   }
+}
+
+/// Lines of a side of a block that changed and belong to the code of a rename
+#[derive(Debug, Clone)]
+struct Changed {
+  /// The block, by its number among the blocks of the diff
+  block: usize,
+  new_side: bool,
+  lines: Range<u32>,
+}
+
+impl Changed {
+  /// Whether the lines changed in nothing that says what a name is: each is in a run of `runs`, the runs of its
+  /// block, of formatting, of comments (the same code beside them), or of the kind `Renamed` that `passes`, or is
+  /// a line no token of code stands on: a blank line, a line of a comment. A comment is read where it stands and
+  /// gives no name a value. A line inside a string of several lines has the token of that string, and is code
+  fn is_quiet(&self, runs: &[LineRun], tokens: [&Tokens; 2], passes: &dyn Fn(&LineRun) -> bool) -> bool {
+    let side = tokens[usize::from(self.new_side)];
+    let blank = |lines: Range<u32>| lines.is_empty() || side.in_lines(lines).iter().all(Token::is_comment);
+    let mut line = self.lines.start;
+    for run in runs {
+      let of_run = if self.new_side { run.new_start..run.new_end } else { run.old_start..run.old_end };
+      if of_run.end <= line {
+        continue;
+      }
+      if of_run.start >= self.lines.end {
+        break;
+      }
+      // the lines before the run are in none: without code on this side, or read
+      if !blank(line..of_run.start) {
+        return false;
+      }
+      let passed = match run.kind {
+        RunKind::Formatting => run.quiet,
+        RunKind::Renamed => passes(run),
+        RunKind::Comments => true,
+      };
+      if !passed {
+        return false;
+      }
+      line = line.max(of_run.end);
+    }
+    line >= self.lines.end || blank(line..self.lines.end)
+  }
+}
+
+/// The blocks of a diff read with the names of the declarations that are not local as one too
+/// (`Renames::with_declarations`), by their numbers; `None` for a block the work did not pay for
+#[derive(Debug, Default)]
+pub(crate) struct DeclarationsRead {
+  blocks: HashMap<usize, Option<Vec<LineRun>>>,
+}
+
+impl DeclarationsRead {
+  /// The runs of the block `block` as the proofs read them: those of this reading where it read the block, else
+  /// those of the marks (`runs`, the runs of each block); `None` for a block the work did not pay for
+  fn runs_of<'a>(&'a self, block: usize, runs: &'a [Vec<LineRun>]) -> Option<&'a [LineRun]> {
+    match self.blocks.get(&block) {
+      Some(read) => read.as_deref(),
+      None => runs.get(block).map(Vec::as_slice),
+    }
+  }
+}
+
+/// The lines of `lines` (rows of each side, the old one first, in any order) that stand in a block of `blocks` that
+/// is not cut off: the lines of the code of a rename that changed
+fn changed_lines(blocks: &[DiffBlock], lines: [&mut dyn Iterator<Item = &Range<u32>>; 2]) -> Vec<Changed> {
+  let mut changed = Vec::new();
+  for (new_side, rows) in [false, true].into_iter().zip(lines) {
+    let of_block = |block: &DiffBlock| if new_side { block.new_start..block.new_end } else { block.old_start..block.old_end };
+    for row in rows {
+      let from = blocks.partition_point(|block| of_block(block).end <= row.start);
+      for (index, block) in blocks.iter().enumerate().skip(from).take_while(|(_, block)| of_block(block).start < row.end) {
+        let within = of_block(block).start.max(row.start)..of_block(block).end.min(row.end);
+        if block.kind != BlockKind::Ignored && !within.is_empty() {
+          changed.push(Changed {
+            block: index,
+            new_side,
+            lines: within,
+          });
+        }
+      }
+    }
+  }
+  changed
 }
 
 /// The old lines of the runs of the kind `Renamed` of a diff, in their order

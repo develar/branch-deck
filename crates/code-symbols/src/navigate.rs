@@ -11,6 +11,22 @@
 //! what a body declares it as (`LocalBinding`), what each site makes of the name beside its binding (`Site`), and what
 //! another name for the binding would clash with (`Clash`). `usages_at` is `names_at` of one place.
 //!
+//! **The statements of a name** (`Names::statements_of`, `NameAt::statements`): the code that says what the name is,
+//! for a reader that asks whether a change left that code alone.
+//!
+//! - Of a local it is the member around it, whole: the outermost statement around the name that declares no type
+//!   (a function of a class or of the file with its head and its body, a property with its value, an initializer,
+//!   a statement of a script). What a local holds comes from the code of its function: the value it is given, the
+//!   receiver of the call its lambda is an argument of, a variable that value reads, a parameter of the function
+//!   with its type, the statement that writes such a variable in the turn of a loop before. No part of a function
+//!   is known to give a name nothing, so the whole of it is the code of each of its locals. A function declared
+//!   inside another, and a method of a class declared in a function, are of the function around them: they read
+//!   its variables.
+//! - Of any other name it is the innermost statement or member around its declaration, without the members of the
+//!   type it declares: a type is its head, and what a member does is asked where the member is named. The body of a
+//!   function is what the function does, and the value of a property with its accessors what the property is: they
+//!   are in the statement.
+//!
 //! Kotlin, Java and C# answer from their PSI and Roslyn's tree (`kotlin::navigate`, `java::navigate`,
 //! `csharp::navigate`: one pass over the leaves files each declaration under the scopes that see it, by the language's
 //! own scope rules), TypeScript and JavaScript from oxc's tree (`js::navigate`), Rust from rust-analyzer's
@@ -23,6 +39,7 @@
 
 use crate::highlight::Grammar;
 use std::collections::HashMap;
+use std::ops::Range;
 
 /// The version of the rules of the names: the scopes of each language, what a local is (`LocalBinding`), what a site
 /// makes of a name (`Site`) and what another name clashes with. Bump it on any change of an answer of `names_at`, so
@@ -263,6 +280,12 @@ pub struct NameAt {
   /// What the name asked as `NameQuestion::renamed_to` would clash with, in the order of the text; `None` where none
   /// was asked or the name is no local, empty where the rename changes no binding the scopes show
   pub clashes: Option<Vec<Clash>>,
+  /// For a place asked with another name: the lines (from 0, the end excluded, in order, none next to another) of
+  /// the statements of the names (module doc, "The statements of a name"): the member around the uses of a local,
+  /// the statements of the declarations of any other name. The code that says what the name is and gives it its
+  /// value: where a change left these lines alone, another name there is the same thing. `None` where no other
+  /// name was asked
+  pub statements: Option<Vec<Range<u32>>>,
 }
 
 /// The answers of `names_at`
@@ -434,6 +457,29 @@ pub(crate) trait Names {
   /// (`LocalBinding::read_in_part`): its parser reported an error, it is compiled by conditions or it evaluates text.
   /// Asked once per local answered: an answer that reads the tree for it keeps it
   fn reads_in_part(&self) -> bool;
+
+  /// The statements of each name that starts at a byte of `starts` (in the order of the text), as the bytes of
+  /// their parts in their order (module doc, "The statements of a name"): the member around a name of a local
+  /// with `local`, else the statement of a declaration that is not local without the members of its type. None
+  /// for a byte no name starts at and for a name no statement is around, which a reader takes for the whole text
+  fn statements_of(&self, starts: &[usize], local: bool) -> Vec<Vec<Range<usize>>>;
+}
+
+/// The parts of `whole` that none of `bodies` holds, in their order: a statement without the bodies under it
+pub(crate) fn without_bodies(whole: Range<usize>, mut bodies: Vec<Range<usize>>) -> Vec<Range<usize>> {
+  bodies.sort_unstable_by_key(|body| body.start);
+  let mut parts = Vec::with_capacity(bodies.len() + 1);
+  let mut from = whole.start;
+  for body in bodies {
+    if body.start > from {
+      parts.push(from..body.start.min(whole.end));
+    }
+    from = from.max(body.end);
+  }
+  if from < whole.end {
+    parts.push(from..whole.end);
+  }
+  parts
 }
 
 /// Whether a name is a use of the declaration `local`, else of the text that no local binds: the rule of Find Usages
@@ -444,14 +490,20 @@ fn is_use(name: &Resolved, local: Option<Bound>) -> bool {
   }
 }
 
+/// What an entry of the answers is of: the binding (the byte of its declaration) or a text no local binds, the other
+/// name its clashes were asked for, and whether any other name was asked
+type EntryKey<'a> = (Option<usize>, &'a str, Option<&'a str>, bool);
+
 /// The answers of `names_at_within` from a parse: one resolution per spelling asked, one per binding asked with a
 /// new name, `limit` of them at most. A place whose answer needs one more has none
 fn answer(names: &dyn Names, text: &str, questions: &[NameQuestion<'_>], limit: usize) -> NamesAt {
   let mut resolutions: HashMap<&str, Vec<Resolved>> = HashMap::new();
   // the entry of a binding (the byte of its declaration) or of a text no local binds, asked with a new name or none
-  let mut entries: HashMap<(Option<usize>, &str, Option<&str>), usize> = HashMap::new();
+  let mut entries: HashMap<EntryKey<'_>, usize> = HashMap::new();
   let mut found = NamesAt::default();
   let lines = Lines::of(text);
+  // the entries asked with another name, each with the names whose statements it says and whether it is a local
+  let mut asked_statements: Vec<(usize, Vec<usize>, bool)> = Vec::new();
   for question in questions {
     let entry = lines.byte_offset(question.position).and_then(|offset| names.name_at(offset)).and_then(|(start, name)| {
       if !resolutions.contains_key(name) {
@@ -464,7 +516,8 @@ fn answer(names: &dyn Names, text: &str, questions: &[NameQuestion<'_>], limit: 
       let resolved = &resolutions[name];
       let local = resolved.iter().find(|it| it.start == start)?.binding.filter(|it| it.local.is_some());
       let renamed_to = question.renamed_to.filter(|_| local.is_some());
-      let key = (local.map(|it| it.start), name, renamed_to);
+      // a name no local binds is one entry whatever the other name asked, and another one where none was asked
+      let key = (local.map(|it| it.start), name, renamed_to, question.renamed_to.is_some());
       if let Some(entry) = entries.get(&key) {
         return Some(*entry);
       }
@@ -476,10 +529,36 @@ fn answer(names: &dyn Names, text: &str, questions: &[NameQuestion<'_>], limit: 
         found.resolutions += 1;
       }
       found.names.push(entry_of(names, text, name, resolved, local, renamed_to));
+      if question.renamed_to.is_some() {
+        asked_statements.push((found.names.len() - 1, statement_starts(resolved, local), local.is_some()));
+      }
       entries.insert(key, found.names.len() - 1);
       Some(found.names.len() - 1)
     });
     found.asked.push(entry);
+  }
+  // the statements of all the entries from one reading of the tree for the locals and one for the other names: a
+  // parser without parents walks its tree for them
+  for of_locals in [true, false] {
+    let mut starts: Vec<usize> = asked_statements
+      .iter()
+      .filter(|asked| asked.2 == of_locals)
+      .flat_map(|asked| asked.1.iter().copied())
+      .collect();
+    starts.sort_unstable();
+    starts.dedup();
+    // an entry without a name to ask of (a name the text declares none of) has no statement
+    let mut statements = if starts.is_empty() { Vec::new() } else { names.statements_of(&starts, of_locals) };
+    // a name without a statement of its own is of the whole text: nothing says where its code ends
+    statements.resize(starts.len(), Vec::new());
+    for (entry, of_entry, _) in asked_statements.iter().filter(|asked| asked.2 == of_locals) {
+      let whole = 0..text.len();
+      let parts = of_entry.iter().flat_map(|start| {
+        let found = starts.binary_search(start).ok().map_or_default(|at| statements[at].as_slice());
+        if found.is_empty() { std::slice::from_ref(&whole) } else { found }.iter().cloned()
+      });
+      found.names[*entry].statements = Some(lines.rows_of(parts));
+    }
   }
   found
 }
@@ -507,7 +586,18 @@ fn entry_of(names: &dyn Names, text: &str, name: &str, resolved: &[Resolved], lo
     }),
     uses: uses.collect(),
     clashes: local.zip(renamed_to).map(|(local, new_name)| clashes(names, text, name, resolved, local, new_name)),
+    statements: None,
   }
+}
+
+/// The names whose statements an entry says (`NameAt::statements`), by the bytes they start at, in the order of the
+/// text: every use of the declaration `local`, else the declarations among the names of the text that no local binds
+fn statement_starts(resolved: &[Resolved], local: Option<Bound>) -> Vec<usize> {
+  resolved
+    .iter()
+    .filter(|it| is_use(it, local) && (local.is_some() || it.access == Access::Declaration))
+    .map(|it| it.start)
+    .collect()
 }
 
 /// What the name `new_name` for the declaration `local` of `name` would change the meaning of: the names of the
@@ -671,6 +761,34 @@ impl<'t> Lines<'t> {
     let ends = |&(index, byte): &(usize, &u8)| *byte == b'\n' || (*byte == b'\r' && bytes.get(index + 1) != Some(&b'\n'));
     let starts = std::iter::once(0).chain(bytes.iter().enumerate().filter(ends).map(|(index, _)| index + 1)).collect();
     Self { text, starts }
+  }
+
+  /// The line of the byte `offset`, from 0
+  fn line_of(&self, offset: usize) -> u32 {
+    u32::try_from(self.starts.partition_point(|start| *start <= offset).saturating_sub(1)).unwrap_or(u32::MAX)
+  }
+
+  /// The lines that hold a character that is no whitespace of a part of `parts` (byte ranges of the text), in
+  /// order, none next to another
+  fn rows_of(&self, parts: impl Iterator<Item = Range<usize>>) -> Vec<Range<u32>> {
+    let mut rows: Vec<Range<u32>> = parts
+      .filter_map(|part| {
+        let text = self.text.get(part.clone())?;
+        let trimmed = text.trim_start();
+        let start = part.start + (text.len() - trimmed.len());
+        let end = start + trimmed.trim_end().len();
+        (start < end).then(|| self.line_of(start)..self.line_of(end - 1) + 1)
+      })
+      .collect();
+    rows.sort_unstable_by_key(|row| (row.start, row.end));
+    let mut merged: Vec<Range<u32>> = Vec::with_capacity(rows.len());
+    for row in rows {
+      match merged.last_mut() {
+        Some(last) if row.start <= last.end => last.end = last.end.max(row.end),
+        _ => merged.push(row),
+      }
+    }
+    merged
   }
 
   /// The byte offset of a line and UTF-16 column, as `byte_offset` gives it; `None` past the last line

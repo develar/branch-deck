@@ -40,11 +40,12 @@
 //! no answer.
 
 use super::{CONTEXTUAL_KEYWORDS, PRIMITIVES, is_callee, span};
-use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer};
+use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, without_bodies};
 use rust_syntax::ra_ap_syntax::ast::HasLoopBody;
 use rust_syntax::ra_ap_syntax::{AstNode, NodeOrToken, SyntaxKind as K, SyntaxNode, SyntaxToken, TextRange, TextSize, TokenAtOffset, ast};
 use std::cell::OnceCell;
 use std::collections::HashMap;
+use std::ops::Range;
 
 /// The name at `position` of `text` and what its syntax says; `None` where no name is
 pub(crate) fn reference_at(text: &str, position: Position) -> Option<ReferenceAt> {
@@ -207,6 +208,81 @@ impl Names for TreeNames<'_> {
   fn reads_in_part(&self) -> bool {
     self.broken
   }
+
+  fn statements_of(&self, starts: &[usize], local: bool) -> Vec<Vec<Range<usize>>> {
+    // the token that holds the byte: a name, or the string of a macro that names one
+    let token_at = |start: usize| {
+      let after = self.tokens.partition_point(|token| usize::from(token.text_range().start()) <= start);
+      after
+        .checked_sub(1)
+        .map(|at| &self.tokens[at])
+        .filter(|token| start < usize::from(token.text_range().end()))
+    };
+    let statement = if local { member_of } else { statement_of };
+    starts.iter().map(|&start| token_at(start).map_or_default(statement)).collect()
+  }
+}
+
+/// The statement of the declared name `token`, which is not local (`navigate`, "The statements of a name"): the
+/// innermost node around it that `is_statement` (the file where none is), from its first token that is code to its
+/// last one, without the items of the nodes from the name up to it (those of a module, an `impl` or a trait)
+fn statement_of(token: &SyntaxToken) -> Vec<Range<usize>> {
+  let mut items = Vec::new();
+  let mut statement = None;
+  for node in token.parent_ancestors() {
+    items.extend(
+      node
+        .children()
+        .filter(|child| matches!(child.kind(), K::ITEM_LIST | K::ASSOC_ITEM_LIST))
+        .map(|child| own_range(&child)),
+    );
+    let ends = is_statement(&node);
+    statement = Some(node);
+    if ends {
+      break;
+    }
+  }
+  statement.map_or_default(|statement| without_bodies(own_range(&statement), items))
+}
+
+/// The member around the name `token` of a local (`navigate`, "The statements of a name"): the outermost node
+/// around it that `is_statement` and holds no items of its own (a module, an `impl`, a trait), from its first token
+/// that is code to its last one; none where no such node is around the name
+fn member_of(token: &SyntaxToken) -> Vec<Range<usize>> {
+  let is_type = |node: &SyntaxNode| matches!(node.kind(), K::MODULE | K::IMPL | K::TRAIT | K::EXTERN_BLOCK);
+  let member = token
+    .parent_ancestors()
+    .filter(|node| node.parent().is_some() && is_statement(node) && !is_type(node))
+    .last();
+  member.map_or_default(|member| vec![own_range(&member)])
+}
+
+/// The bytes of a node from its first token that is code to its last one: without the comments and the whitespace
+/// at its ends (the doc comment of an item is a part of its node)
+fn own_range(node: &SyntaxNode) -> Range<usize> {
+  let range = node.text_range();
+  let within = |token: &SyntaxToken| range.contains_range(token.text_range());
+  // a doc comment is a node of its own in this tree
+  let is_code = |token: &SyntaxToken| !token.kind().is_trivia() && token.parent().is_none_or(|parent| parent.kind() != K::DOC_COMMENT);
+  let first = std::iter::successors(node.first_token(), SyntaxToken::next_token).take_while(within).find(is_code);
+  let last = std::iter::successors(node.last_token(), SyntaxToken::prev_token).take_while(within).find(is_code);
+  match (first, last) {
+    (Some(first), Some(last)) => usize::from(first.text_range().start())..usize::from(last.text_range().end()),
+    _ => span(range),
+  }
+}
+
+/// Whether a node is a statement or an item (`navigate`, "The statements of a name"): what stands in a block, in a
+/// file, in a module or in an `impl` or a trait (the value a block ends with too), and the value of an arm of a
+/// `match`, a branch that is no block
+fn is_statement(node: &SyntaxNode) -> bool {
+  let Some(parent) = node.parent() else { return true };
+  matches!(parent.kind(), K::STMT_LIST | K::SOURCE_FILE | K::ITEM_LIST | K::ASSOC_ITEM_LIST) || is_arm_value(node, &parent)
+}
+
+/// Whether `node` is the value of the arm `parent` of a `match`
+fn is_arm_value(node: &SyntaxNode, parent: &SyntaxNode) -> bool {
+  ast::MatchArm::cast(parent.clone()).and_then(|arm| arm.expr()).is_some_and(|value| value.syntax() == node)
 }
 
 /// The name token at `offset`: the character there, else the one before it, as the end of a name is still the name

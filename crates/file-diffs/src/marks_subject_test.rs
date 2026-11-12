@@ -387,6 +387,123 @@ fn a_rename_every_use_of_which_the_index_lists_is_confirmed_and_its_declaration_
   }
 }
 
+/// A case of a name `TIMEOUT` declared as `LIMIT`: what it is, the lines that declare it before and after, and
+/// whether they are the same code
+type Redeclared = (&'static str, &'static [&'static str], &'static [&'static str], bool);
+
+/// A name that is not local is the same thing under another name only where the code that declares it changed in
+/// names alone: a constant that got another value with its other name is another constant, and a line that reads
+/// it does something else, the same tokens but for the name. So such a name is not asked of the index, an answer
+/// that lists every use proves nothing of it, and its uses stay labels and stops (found in the measured runs:
+/// `private val outOfSync = Message(…)` became `private val updateLock = "Update lock"` with six uses the index
+/// confirmed). A function is what its body does; a type is its head, whatever its members do
+#[test]
+fn a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it() {
+  let uses = ["package demo", "", "fun first() {", "  pause(TIMEOUT)", "}", "", "fun second() = pause(TIMEOUT)"];
+  let cases: &[Redeclared] = &[
+    (
+      "a constant with another value",
+      &["package demo", "", "const val TIMEOUT = 5"],
+      &["package demo", "", "const val LIMIT = 10"],
+      false,
+    ),
+    (
+      "a constant with the same value",
+      &["package demo", "", "const val TIMEOUT = 5"],
+      &["package demo", "", "const val LIMIT = 5"],
+      true,
+    ),
+    (
+      "a value that goes on over a line that changed",
+      &["package demo", "", "val TIMEOUT = seconds(", "  5)"],
+      &["package demo", "", "val LIMIT = seconds(", "  10)"],
+      false,
+    ),
+    (
+      "a value wrapped otherwise",
+      &["package demo", "", "val TIMEOUT = seconds(5)"],
+      &["package demo", "", "val LIMIT = seconds(", "  5)"],
+      true,
+    ),
+    (
+      "a property with another getter",
+      &["package demo", "", "val TIMEOUT: Int", "  get() = 5"],
+      &["package demo", "", "val LIMIT: Int", "  get() = 10"],
+      false,
+    ),
+    (
+      "a function with another body",
+      &["package demo", "", "fun TIMEOUT(): Int {", "  return 5", "}"],
+      &["package demo", "", "fun LIMIT(): Int {", "  return 10", "}"],
+      false,
+    ),
+    (
+      "a function with the same body",
+      &["package demo", "", "fun TIMEOUT(): Int {", "  return 5", "}"],
+      &["package demo", "", "fun LIMIT(): Int {", "  return 5", "}"],
+      true,
+    ),
+    (
+      "a function with a parameter a call may name under another name",
+      &["package demo", "", "fun TIMEOUT(scale: Int): Int {", "  return 5 * scale", "}"],
+      &["package demo", "", "fun LIMIT(factor: Int): Int {", "  return 5 * factor", "}"],
+      false,
+    ),
+    (
+      "a function with a local of its body under another name",
+      &["package demo", "", "fun TIMEOUT(): Int {", "  val base = 5", "  return base", "}"],
+      &["package demo", "", "fun LIMIT(): Int {", "  val unit = 5", "  return unit", "}"],
+      true,
+    ),
+    (
+      "an object with another member: a type is its head",
+      &["package demo", "", "object TIMEOUT : Setting {", "  val seconds = 5", "}"],
+      &["package demo", "", "object LIMIT : Setting {", "  val seconds = 10", "}"],
+      true,
+    ),
+    (
+      "an object of another type",
+      &["package demo", "", "object TIMEOUT : Setting {", "  val seconds = 5", "}"],
+      &["package demo", "", "object LIMIT : Bound {", "  val seconds = 5", "}"],
+      false,
+    ),
+  ];
+  let (old_name, new_name) = ("TIMEOUT", "LIMIT");
+  for (name, old, new, same) in cases {
+    let case = Case::of(vec![
+      changed("src/Uses.kt", &text(&uses).replace("TIMEOUT", old_name), &text(&uses).replace("TIMEOUT", new_name)),
+      changed("src/Settings.kt", &text(old), &text(new)),
+    ]);
+    assert_eq!(case.pairs[1].1.declarations.iter().map(|it| it.redeclared).collect::<Vec<_>>(), [!same], "{name}");
+    // the answer of an index that lists every place of the two names
+    let answer = case.answer(old_name, new_name);
+    let (marks, questions) = case.marks(IndexAnswer::Answered(std::slice::from_ref(&answer)));
+    let (uses, settings) = (marks[0].clone().unwrap(), marks[1].clone().unwrap());
+    let proof = (uses.subject.as_ref().unwrap().used[0].proof, settings.subject.as_ref().unwrap().declared[0].proof);
+    let labels = vec![run(3, 3), run(6, 6)];
+    if *same {
+      assert_eq!((questions.len(), proof), (1, (RenameProof::Confirmed, RenameProof::Confirmed)), "{name}");
+      assert_eq!(
+        (uses.runs, uses.starts),
+        (labels.into_iter().map(|run| LineRun { quiet: true, ..run }).collect(), vec![]),
+        "{name}"
+      );
+    } else {
+      assert_eq!((questions.len(), proof), (0, (RenameProof::OtherDeclaration, RenameProof::OtherDeclaration)), "{name}");
+      assert_eq!((uses.runs, uses.starts), (labels, vec![0, 1, 3, 1, 1, 6]), "{name}: the uses are labels, and read");
+      assert_eq!(uses.subject.unwrap().confirmed, [] as [u32; 0], "{name}");
+      // the diff of the file says so itself: before an index is asked, and where there is none
+      for answer in [IndexAnswer::Asked, IndexAnswer::Unavailable] {
+        let (marks, _) = case.marks(answer);
+        let proofs = [0, 1].map(|file| marks[file].clone().unwrap().subject.unwrap());
+        assert_eq!((proofs[0].used[0].proof, proofs[1].declared[0].proof), proof, "{name}");
+      }
+    }
+    // the declaration is read either way
+    assert!(!settings.starts.is_empty(), "{name}");
+  }
+}
+
 /// The proof of the use in the report and of the declaration in the store, with `answer` of the index
 fn proofs(case: &Case, answer: &RenameAnswer) -> (RenameProof, RenameProof, Vec<u32>) {
   let (marks, _) = case.marks(IndexAnswer::Answered(std::slice::from_ref(answer)));
@@ -782,36 +899,34 @@ fn a_name_no_file_of_the_subject_declares_and_a_line_that_needs_one_have_no_run(
   assert_eq!(report.subject.unwrap().used.iter().map(|used| used.rename.old.as_str()).collect::<Vec<_>>(), ["openStore"]);
 }
 
-/// A quiet run of the pair stays the run it is when the subject adds its runs: the lines of a renamed local went out
-/// with the rows of the file, shown once, and a run of the other reading that holds them beside the call of a name
-/// another file declares would make them a label again, after the rows were drawn. That run is none, and the line of
-/// the call is read as any changed line
+/// A quiet run of the pair stays the run it is when the subject adds its runs: the line of a renamed local went out
+/// with the rows of the file, shown once, and a run of the other reading that holds it beside the call of a name
+/// another file declares, in the member above it, would make it a label again, after the rows were drawn. That run
+/// is none, and the line of the call is read as any changed line
 #[test]
 fn a_run_the_subject_adds_takes_no_line_of_a_quiet_run_of_the_pair() {
+  // a property that calls the function another file declares, and below it one whose lambda has a parameter
   let lines = |open: &str, total: &str| {
     text(&[
       "package demo",
       "",
-      "fun load(path: String): Int {",
-      &format!("  val store = {open}(path)"),
-      &format!("  val {total} = 1"),
-      &format!("  return use(store, {total})"),
-      "}",
+      &format!("val opened = {open}(\"primary\")"),
+      &format!("val twice = {{ {total}: Int -> {total} * 2 }}"),
     ])
   };
   let loader = || changed("src/Loader.kt", &lines("openStore", "total"), &lines("connectStore", "sum"));
   let quiet = LineRun {
-    old_start: 4,
-    old_end: 6,
-    new_start: 4,
-    new_end: 6,
+    old_start: 3,
+    old_end: 4,
+    new_start: 3,
+    new_end: 4,
     kind: RunKind::Renamed,
     quiet: true,
   };
-  // alone: the two lines of the local are a quiet run, the call is read
+  // alone: the line of the parameter is a quiet run, the call is read
   let alone = Case::of(vec![loader()]);
-  assert_eq!((&alone.pairs[0].0.marks.runs, &alone.pairs[0].0.marks.starts), (&vec![quiet.clone()], &vec![0, 1, 3]));
-  // the pair kept the run the three lines are with the name of the call read as one
+  assert_eq!((&alone.pairs[0].0.marks.runs, &alone.pairs[0].0.marks.starts), (&vec![quiet.clone()], &vec![0, 1, 2]));
+  // the pair kept the run the two lines are with the name of the call read as one
   let pending: Vec<(u32, u32)> = alone.pairs[0]
     .1
     .pending
@@ -819,14 +934,14 @@ fn a_run_the_subject_adds_takes_no_line_of_a_quiet_run_of_the_pair() {
     .flat_map(|block| &block.runs)
     .map(|run| (run.run.old_start, run.run.old_end))
     .collect();
-  assert_eq!(pending, [(3, 6)]);
+  assert_eq!(pending, [(2, 4)]);
 
   // beside the file that declares the name: the call is a place of its rename, the quiet run and the stop are the
   // pair's
   let case = Case::of(vec![loader(), changed("src/Store.kt", &text(&STORE), &renamed(&STORE))]);
   let (marks, _) = case.marks(IndexAnswer::Unavailable);
   let loader = marks[0].clone().unwrap();
-  assert_eq!((&loader.runs, &loader.starts), (&vec![quiet], &vec![0, 1, 3]));
+  assert_eq!((&loader.runs, &loader.starts), (&vec![quiet], &vec![0, 1, 2]));
   assert_eq!(loader.subject.unwrap().used.len(), 1);
 }
 

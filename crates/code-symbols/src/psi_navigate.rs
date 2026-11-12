@@ -6,10 +6,11 @@
 //! such a walk (`Frame`, `declaration_in`). What a name is and which scopes a language has are the language's
 //! (`java::navigate`, `csharp::navigate`, `starlark::navigate`).
 
-use crate::navigate::{Access, Bound, Leaves, LocalBinding, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer};
+use crate::navigate::{Access, Bound, Leaves, LocalBinding, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, without_bodies};
 use psi_builder::language::TreeLanguage;
 use psi_builder::{NodeId, Tree};
 use std::cell::OnceCell;
+use std::ops::Range;
 
 /// A name of a language's walk: its leaf, its kind and the name of the declaration it is bound to
 pub(crate) struct Named {
@@ -109,6 +110,46 @@ pub(crate) struct Reading<L: TreeLanguage, T> {
   /// Whether the scopes read only a part of the code of the tree (`navigate::Names::reads_in_part`): its parser
   /// reported an error, or the language compiles the text by conditions
   pub(crate) reads_in_part: fn(&T) -> bool,
+  /// Whether a node is a statement or a member (`statement_of`, `member_of`)
+  pub(crate) is_statement: fn(&T, NodeId) -> bool,
+  /// Whether a statement or a member declares a type, which holds members: a class, an interface, a namespace
+  pub(crate) is_type: fn(&T, NodeId) -> bool,
+  /// Whether a node is a member of a type, or the body that holds its members: what the statement of the name of
+  /// the type is without
+  pub(crate) is_member: fn(&T, NodeId) -> bool,
+}
+
+/// The statement of the declared name `leaf`, which is not local (`navigate`, "The statements of a name"): the
+/// innermost node around it that `is_statement` (the root where none is), from its first token to its last one,
+/// without the children of the nodes from the name up to it that stand after the name and are members of a type
+/// (`is_member`)
+pub(crate) fn statement_of<L: TreeLanguage>(tree: &Tree<L>, leaf: NodeId, is_statement: impl Fn(NodeId) -> bool, is_member: impl Fn(NodeId) -> bool) -> Vec<Range<usize>> {
+  let after = tree.range(leaf).end;
+  let mut members = Vec::new();
+  let mut statement = leaf;
+  while let Some(parent) = tree.parent(statement) {
+    statement = parent;
+    members.extend(
+      tree
+        .children(parent)
+        .filter(|&child| tree.range(child).start >= after && !tree.is_leaf(child) && is_member(child))
+        .map(|child| tree.declaration_range(child)),
+    );
+    if is_statement(parent) {
+      break;
+    }
+  }
+  without_bodies(tree.declaration_range(statement), members)
+}
+
+/// The member around the name `leaf` of a local (`navigate`, "The statements of a name"): the outermost node around
+/// it that `is_statement` and declares no type (`is_type`), from its first token to its last one; none where no
+/// such node is around the name
+pub(crate) fn member_of<L: TreeLanguage>(tree: &Tree<L>, leaf: NodeId, is_statement: impl Fn(NodeId) -> bool, is_type: impl Fn(NodeId) -> bool) -> Vec<Range<usize>> {
+  let member = std::iter::successors(tree.parent(leaf), |&node| tree.parent(node))
+    .filter(|&node| is_statement(node) && !is_type(node))
+    .last();
+  member.map_or_default(|member| vec![tree.declaration_range(member)])
 }
 
 /// A language's scopes for `resolve_names`: the walk asks them what a node is to the name it resolves
@@ -321,6 +362,21 @@ impl<L: TreeLanguage, T> Names for TreeNames<'_, L, T> {
 
   fn reads_in_part(&self) -> bool {
     *self.in_part.get_or_init(|| (self.reading.reads_in_part)(&self.tree))
+  }
+
+  fn statements_of(&self, starts: &[usize], local: bool) -> Vec<Vec<Range<usize>>> {
+    let (reading, tree) = (self.reading, &self.tree);
+    let (psi, is_statement) = ((reading.psi)(tree), |node: NodeId| (reading.is_statement)(tree, node));
+    let statement = |&start: &usize| {
+      name_leaf_at(reading, tree, &self.leaves, start).map_or_default(|leaf| {
+        if local {
+          member_of(psi, leaf, is_statement, |node| (reading.is_type)(tree, node))
+        } else {
+          statement_of(psi, leaf, is_statement, |node| (reading.is_member)(tree, node))
+        }
+      })
+    };
+    starts.iter().map(statement).collect()
   }
 }
 

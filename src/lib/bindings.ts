@@ -3388,8 +3388,8 @@ export type FileLink = {
 /**
  *  The marks of the text of a file of a subject, by its path, with what the index of the repository answered of its
  *  renamed names (`get_rename_proofs`): in place of those its diff has. They differ from them in the proofs
- *  (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`) and, once the kind of those
- *  runs is quiet, in what a reader may pass (`starts`); never in a row of the file
+ *  (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`), which are quiet, and so in
+ *  what a reader may pass (`starts`); never in a row of the file
  */
 export type FileMarks = {
 	path: string,
@@ -7039,7 +7039,11 @@ export type RenameProof =
  *  declaration it hides or that hides it, a namesake
  */
 "otherMeaning" | 
-/**  The two names are not one declaration: its kind, its owner or its signature changed with the name */
+/**
+ *  The two names are not one declaration: its kind, its owner or its signature changed with the name, as the
+ *  index says; or the code that declares the name changed in more than names (a constant with another value, a
+ *  function with another body), which the diff of its file says, and no index is asked then
+ */
 "otherDeclaration" | 
 /**
  *  The index did not list every use, or tied one by its name alone, or reads the language of the declaration

@@ -32,10 +32,11 @@ pub(crate) const ANY_TEXT: Asked<'static> = Asked {
 };
 
 /// The diff of two texts of a file at `path` with its marks as they are proven (`PairMarks::as_proven`: a run of a kind
-/// that is not switched on yet is quiet where its proof holds, so the tests ask the proof), the names it leaves to
-/// the other files of its change, and how often the tokens of each side were read. The marks a view gets
-/// (`marks_of`) must be these with the runs of a kind that is not switched on as labels, and the starts that follow.
-/// The runs and the renames are also read without the question before the tokens: it must change no answer
+/// that is not switched on is quiet here where its proof holds, so the tests ask the proof whatever is on), the
+/// names it leaves to the other files of its change, and how often the tokens of each side were read. The marks a
+/// view gets (`marks_of`) must be these with the runs of a kind that is not switched on as labels, and the starts
+/// that follow. The runs and the renames are also read without the question before the tokens: it must change no
+/// answer
 pub(crate) fn read_pair(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (TextDiff, Vec<Rename>, [u32; 2]) {
   let mut diff = diff_texts(old, new, policy, &DiffBudget::NONE);
   let grammar = pair_grammar(path, path);

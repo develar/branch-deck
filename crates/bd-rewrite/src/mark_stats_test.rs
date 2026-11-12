@@ -1,7 +1,12 @@
 //! `brd commits --mark-stats` on the `commit_marks` template: the counts of each kind, the stops, the sample, the
-//! subjects of a range, the same subject without its marks.
+//! subjects of a range, the same subject without its marks, the answer of the index, and the moves other thresholds
+//! find.
 
+use crate::mark_stats::{MarkStatsArgs, mark_stats_with};
 use bd_cli::fixture_test::{assert_error, environment, run_json};
+use bd_core::context::{RepoContext, RepoOptions};
+use domain_types::error::ErrorCode;
+use file_diffs::accio::FixtureIndex;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -50,7 +55,7 @@ fn the_mark_stats_of_a_commit_count_each_kind_and_print_a_sample_of_their_lines(
   assert_eq!(output["quiet_kinds"], json!(["formatting", "renamed"]));
   assert_eq!(
     output["limits"],
-    json!({ "min_move_chars": 24, "max_edited_lines": [1, 4], "min_across_chars": 48, "min_across_lines": 2 })
+    json!({ "min_move_chars": 24, "max_edited_lines": [1, 3], "min_across_chars": 48, "min_across_lines": 2 })
   );
 
   let total = &output["total"];
@@ -149,6 +154,137 @@ fn the_subjects_are_the_commits_of_a_range_or_the_range_whole() {
   // a range is two revisions
   for range in ["HEAD", "no-such-commit..HEAD"] {
     let (exit_code, output) = mark_stats(&directory, &["--range", range]);
+    assert_error(&output, exit_code, (2, "invalid_arguments"));
+  }
+  // the subjects are whole commits: a commit id and a filter of `brd commits` are refused, not left unread
+  let head = ahead["head"].as_str().unwrap();
+  for filter in [&[head][..], &["--branch", "ledger"], &["--unassigned"], &["--include-generated"]] {
+    let (exit_code, output) = mark_stats(&directory, filter);
+    assert_error(&output, exit_code, (2, "invalid_arguments"));
+  }
+}
+
+/// `--index` asks the index of the repository of the names each subject renamed, as the window of the subject does:
+/// the calls of the report that the index confirms are passed, their two stops are gone, and the marks read again
+/// are those of the view. Without an index on the machine the flag is refused: the counts by proof of such a run
+/// would read as an answer no index gave
+#[test_log::test]
+fn the_index_is_asked_of_the_renamed_names_and_refused_where_the_machine_has_none() {
+  let directory = template();
+  let options = RepoOptions {
+    repo: None,
+    prefix: None,
+    full_ids: false,
+    no_cache: true,
+  };
+  let context = RepoContext::resolve(&environment(directory.path()), &options).unwrap();
+  let args = |index: bool| MarkStatsArgs {
+    mark_stats: true,
+    range: None,
+    whole: false,
+    mark_sample: 0,
+    no_marks: false,
+    index,
+    min_move_chars: None,
+    max_edited: None,
+  };
+  let refused = mark_stats_with(&context, &args(true), None).unwrap_err();
+  assert_eq!(refused.code, ErrorCode::InvalidArguments, "{refused:?}");
+
+  // the fixture of the repository answers the rename of the store whole: its declaration and the two calls
+  let fixture = test_utils::repo_template::templates::commit_marks_index();
+  std::fs::write(directory.path().join(".git/branch-deck-accio.json"), fixture.to_string()).unwrap();
+  let without = serde_json::to_value(mark_stats_with(&context, &args(false), Some(&FixtureIndex)).unwrap()).unwrap();
+  let with = serde_json::to_value(mark_stats_with(&context, &args(true), Some(&FixtureIndex)).unwrap()).unwrap();
+  // not asked without the flag, whatever index there is
+  assert_eq!(
+    (&without["total"]["renames"]["proofs"], without["time"].get("index_ms")),
+    (&json!({ "unavailable": 2 }), None)
+  );
+  assert_eq!(with["total"]["renames"]["proofs"], json!({ "confirmed": 2 }));
+  assert!(with["time"]["index_ms"]["max"].is_number(), "{with}");
+  // the two calls are quiet and proven, the marks read again are those of the view, and two stops are gone
+  assert_eq!(with["total"]["renamed"], json!({ "runs": 5, "quiet": 5, "proven": 5, "old_lines": 5, "new_lines": 5 }));
+  let counts = |output: &Value| ["differ", "stops", "stops_proven"].map(|count| output["total"][count].as_u64().unwrap());
+  assert_eq!((counts(&without), counts(&with)), ([0, 9, 9], [0, 7, 7]));
+}
+
+/// With another threshold of a move each file is searched once more under it, and what that search finds beside
+/// the moves of the views is counted and sampled: the lines a lower length or a higher share of edited lines makes
+/// a move of, for a person to read what the thresholds of the views leave out
+#[test_log::test]
+fn other_thresholds_of_a_move_count_and_print_the_moves_they_add() {
+  let repo = test_utils::git_test_utils::TestRepo::new();
+  repo.set_config("branchdeck.branchPrefix", "test-user").unwrap();
+  let stay: Vec<String> = (0..8).map(|index| format!("stay_{index}();")).collect();
+  // a line of 17 characters that are no whitespace, and five lines with two of them edited
+  let short = "let size = 12345678;";
+  let rows = [
+    "fn alpha(items: &[Item]) -> u64 {",
+    "  let total = compute_total(items);",
+    "  report(total);",
+    "  total",
+    "}",
+  ];
+  let edited = [rows[0], "  let total = compute_total(rows);", "  report(total, verbose);", rows[3], rows[4]];
+  let text = |parts: &[&[&str]]| format!("{}\n", parts.concat().join("\n"));
+  let stay: Vec<&str> = stay.iter().map(String::as_str).collect();
+  repo.create_commit("Initial", "src/a.txt", &text(&[&[short], &stay]));
+  repo.create_commit("Initial", "src/b.txt", &text(&[&rows, &stay]));
+  let base = repo.head();
+  repo.create_commit("Move", "src/a.txt", &text(&[&stay, &[short]]));
+  repo.create_commit("Move", "src/b.txt", &text(&[&stay, &edited]));
+  let stats = |args: &[&str]| {
+    let range = format!("{base}..HEAD");
+    let (exit_code, output) = run_json(&environment(repo.path()), &[&["commits", "--mark-stats", "--no-cache", "--range", &range], args].concat());
+    assert_eq!(exit_code, 0, "{output}");
+    output
+  };
+  // the views: no move in the first file, the first line of the function alone in the second
+  let views = stats(&[]);
+  assert_eq!(
+    (&views["total"]["moves"]["moves"], views["total"].get("other_moves"), views["limits"].get("other_moves")),
+    (&json!(1), None, None)
+  );
+
+  // a length of 16: the short line is a move too
+  let shorter = stats(&["--min-move-chars", "16", "--mark-sample", "5"]);
+  assert_eq!(shorter["limits"]["other_moves"], json!([16, [1, 3]]));
+  assert_eq!(
+    shorter["total"]["other_moves"],
+    json!({ "moves": 2, "added": 1, "added_lines": 1, "added_one_line": 1, "added_edited": 0, "added_chars": [0, 1, 0], "changed": 0, "lost": 0 })
+  );
+  let added = sampled(&shorter, "moveAdded");
+  assert_eq!(
+    (&added["path"], marked(added, "old"), marked(added, "new")),
+    (&json!("src/a.txt"), vec![short.to_string()], vec![short.to_string()])
+  );
+  assert_eq!(
+    added["note"],
+    json!("1 lines, 0 edited, indent 0, 17 characters in its exact lines, 17 in those that stand once")
+  );
+  // the moves of the views are what they were
+  assert_eq!(shorter["total"]["moves"], views["total"]["moves"]);
+
+  // half of the lines edited: the function is one move, which takes the place of the one line of the views
+  let more = stats(&["--max-edited", "1/2", "--mark-sample", "5"]);
+  assert_eq!(more["limits"]["other_moves"], json!([24, [1, 2]]));
+  assert_eq!(
+    more["total"]["other_moves"],
+    json!({ "moves": 1, "added": 0, "added_lines": 0, "added_one_line": 0, "added_edited": 0, "added_chars": [0, 0, 0], "changed": 1, "lost": 1 })
+  );
+  let changed = sampled(&more, "moveChanged");
+  assert_eq!(
+    (
+      marked(changed, "old").len(),
+      changed["old"].as_array().unwrap().iter().filter(|line| line.as_str().unwrap().starts_with("~ ")).count()
+    ),
+    (5, 2)
+  );
+
+  // a share is a part of the lines
+  for share in ["1", "3/2", "1/0", "a/b"] {
+    let (exit_code, output) = run_json(&environment(repo.path()), &["commits", "--mark-stats", "--max-edited", share]);
     assert_error(&output, exit_code, (2, "invalid_arguments"));
   }
 }

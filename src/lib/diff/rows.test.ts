@@ -925,7 +925,7 @@ describe("what the other files of a subject say of a file, in its rows", () => {
     runs: calls(false),
     subject: subjectMarks({ movedIn: [fileMove(17, 4, 0, 54)], used: [{ rename: open, file: 2, line: 18, proof: "asked" }] }),
   })
-  // with the answer of the index, once the kind of such a run is switched on: the two runs quiet, their blocks no stop
+  // with the answer of the index: the two runs it confirmed quiet, their blocks no stop
   const proven: typeof told = {
     ...told,
     marks: {

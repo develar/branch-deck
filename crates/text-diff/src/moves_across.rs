@@ -37,7 +37,9 @@ use std::collections::BinaryHeap;
 use std::ops::Range;
 
 /// A move between files holds at least this many characters that are no whitespace: twice what a move within a file
-/// needs; to be tuned on real commits
+/// needs. Read at this value on real commits (docs/design/diff-view.md, "Measured on real history"): the moves it
+/// lets in are the lines that left, the short ones mostly what an edit cut off a larger move between the same two
+/// files; what a lower value would add was not measured
 pub const MIN_ACROSS_CHARS: u32 = 48;
 /// A move between files holds at least this many lines that are not blank
 pub const MIN_ACROSS_LINES: u32 = 2;

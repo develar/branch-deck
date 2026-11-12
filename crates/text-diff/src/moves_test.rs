@@ -3,8 +3,8 @@
 
 use crate::model::{BlockKind, DiffBlock, DiffBudget, LineMove, LineRun, RangeKind, TextDiff, diff_texts, starts_of};
 use crate::moves::{
-  LIMITS, Limits, MAX_COMPARED_PAIRS, MAX_KEY_CANDIDATES, MAX_MOVE_LINES, MAX_MOVE_WORK, MAX_UNREAD_PAIRS, MIN_MOVE_CHARS, MoveWork, find_moves, find_moves_counted,
-  find_moves_within, rewritten_lines,
+  LIMITS, Limits, MAX_COMPARED_PAIRS, MAX_EDITED_LINES, MAX_KEY_CANDIDATES, MAX_MOVE_LINES, MAX_MOVE_WORK, MAX_UNREAD_PAIRS, MIN_MOVE_CHARS, MoveThresholds, MoveWork, find_moves,
+  find_moves_counted, find_moves_under, find_moves_within, rewritten_lines,
 };
 use crate::policy::WhitespacePolicy;
 use crate::test_support::{between, proptest_config, run, text};
@@ -71,7 +71,7 @@ fn counted_lines(lines: &[String]) -> u32 {
 /// their text counts (never its empty last line), the blank lines beside it blank; a line that is not edited the same on both sides but for the indent of the move; each range of a
 /// line a text that is another on the other side, of the kind its sides say, with the same text between the ranges;
 /// under the policy that counts every character no whitespace at the ends of a line changed without a range, but by
-/// the indent of the move; the ends exact or blank, at most a quarter of the lines that are not blank edited in
+/// the indent of the move; the ends exact or blank, at most a third of the lines that are not blank edited in
 /// their text or their nesting, and the exact lines that stand once among the lines a move may take long enough
 fn check(old: &str, new: &str, blocks: &TextDiff, runs: &[LineRun], moves: &[LineMove], policy: WhitespacePolicy, indentation_matters: bool) {
   let (old_lines, new_lines) = (lines_of(old), lines_of(new));
@@ -233,7 +233,12 @@ fn check(old: &str, new: &str, blocks: &TextDiff, runs: &[LineRun], moves: &[Lin
       }
     }
     assert!(ends.first() == Some(&false) && ends.last() == Some(&false), "{context}: an edited line at an end");
-    assert!(counted * 4 <= counted + exact, "{context}: {counted} edited of {}", counted + exact);
+    let (share, of) = MAX_EDITED_LINES;
+    assert!(
+      i64::from(counted) * of <= i64::from(counted + exact) * share,
+      "{context}: {counted} edited of {}",
+      counted + exact
+    );
     assert!(solid >= MIN_MOVE_CHARS, "{context}: {solid} characters in the exact lines that stand once");
     // the indent of the move: the shift of every exact line where the indentation has a meaning, and of no line
     // edited in its nesting; of one of the exact lines else
@@ -421,7 +426,7 @@ fn the_whitespace_at_the_ends_of_a_line_that_changed_otherwise_than_its_move_is_
     }
   };
   // two lines of five indented by two more columns than the others, which stayed: their indents are ranges, and
-  // they are over a quarter of the lines, which they do not count in
+  // they are over a third of the lines, which they do not count in
   let halves = [ALPHA[0], ALPHA[1], "    report(total);", "    total", ALPHA[4]];
   found(&halves, "6..12 -> 12..18 edited 2: [0, 2, 2]/[0, 4, 2] edited 3: [0, 2, 2]/[0, 4, 2]", "6..12 -> 12..18");
   // a line of a raw string indented by eight more columns: the text of the string changed
@@ -465,7 +470,7 @@ fn the_whitespace_at_the_ends_of_a_line_that_changed_otherwise_than_its_move_is_
 }
 
 #[test]
-fn a_move_holds_at_most_a_quarter_of_edited_lines_between_exact_ones() {
+fn a_move_holds_at_most_a_third_of_edited_lines_between_exact_ones() {
   let old = four();
   // one line of five edited: an argument added
   let one = [ALPHA[0], ALPHA[1], "  report(total, verbose);", ALPHA[3], ALPHA[4]];
@@ -489,7 +494,7 @@ fn a_move_holds_at_most_a_quarter_of_edited_lines_between_exact_ones() {
     "  }",
   ];
   assert_eq!(show(&moves(&old, &four_with(&inner))), "6..12 -> 12..18 indent +2 edited 2: [14, 14, 0]/[16, 25, 0]");
-  // two lines of five edited are over a quarter: the lines before them and after them are asked alone, and only the
+  // two lines of five edited are over a third: the lines before them and after them are asked alone, and only the
   // first is long enough
   let two = [ALPHA[0], "  let total = compute_total(rows);", "  report(total, verbose);", ALPHA[3], ALPHA[4]];
   assert_eq!(show(&moves(&old, &four_with(&two))), "6..7 -> 12..13");
@@ -673,6 +678,36 @@ fn one_long_line_is_a_move_and_short_lines_are_none() {
   assert_eq!(show(&moves(&old, &new)), "");
   let (old, new) = below(&long, &long);
   assert_eq!(show(&moves(&old, &new)), "0..4 -> 8..12");
+}
+
+/// A measurement reads the moves under other thresholds than those of the views (`find_moves_under`): a shorter
+/// row is a move under a lower length, a row with more edited lines under a higher share, and under the thresholds
+/// of the views the search is the one of the views
+#[test]
+fn a_measurement_reads_the_moves_under_other_thresholds() {
+  let under = |old: &str, new: &str, thresholds: MoveThresholds| {
+    let blocks = diff(old, new).blocks;
+    show(&find_moves_under(old, new, &blocks, &[], WhitespacePolicy::Default, false, thresholds))
+  };
+  let views = MoveThresholds::OF_VIEWS;
+  assert_eq!((views.min_chars, views.max_edited), (MIN_MOVE_CHARS, MAX_EDITED_LINES));
+  // a line of 16 characters: no move of the views, one under a length of 16
+  let moved = format!("let x = {};", "1".repeat(16 - "letx=;".len()));
+  let (old, new) = below(&[&moved], &[&moved]);
+  assert_eq!(under(&old, &new, views), show(&moves(&old, &new)));
+  assert_eq!(under(&old, &new, views), "");
+  assert_eq!(under(&old, &new, MoveThresholds { min_chars: 16, ..views }), "0..1 -> 8..9");
+  assert_eq!(under(&old, &new, MoveThresholds { min_chars: 17, ..views }), "");
+  // two lines of five edited: over a third, within a half
+  let two = [ALPHA[0], "  let total = compute_total(rows);", "  report(total, verbose);", ALPHA[3], ALPHA[4]];
+  let (old, new) = (four(), four_with(&two));
+  assert_eq!(under(&old, &new, views), "6..7 -> 12..13");
+  let half = MoveThresholds { max_edited: (1, 2), ..views };
+  assert!(under(&old, &new, half).starts_with("6..12 -> 12..18 edited 1"), "{}", under(&old, &new, half));
+  // a share that is none has no moves
+  for max_edited in [(1, 1), (2, 1), (1, 0), (-1, 4)] {
+    assert_eq!(under(&old, &new, MoveThresholds { max_edited, ..views }), "", "{max_edited:?}");
+  }
 }
 
 #[test]
@@ -870,10 +905,17 @@ fn where_the_indentation_has_a_meaning_a_line_at_another_indent_is_edited() {
   assert_eq!(found(&outdented, true), "0..6 -> 8..14 edited 3: [0, 8, 1]/[0, 0, 1]");
   let (old, new) = below(&outdented, &RULE);
   assert_eq!(show(&moves_where(&old, &new, true)), "0..6 -> 8..14 edited 3: [0, 0, 0]/[0, 8, 0]");
-  // more than a quarter of the lines at another indent: the lines before them alone, the first of as many
-  let half = [RULE[0], RULE[1], "    name = name,", "    srcs = sources,", RULE[4], RULE[5]];
-  assert_eq!(found(&half, true), "0..2 -> 8..10");
-  assert_eq!(found(&half, false), "0..6 -> 8..14 edited 2: [0, 8, 2]/[0, 4, 2] edited 3: [0, 8, 2]/[0, 4, 2]");
+  // a third of the lines at another indent are edited lines of the move
+  let third = [RULE[0], RULE[1], "    name = name,", "    srcs = sources,", RULE[4], RULE[5]];
+  assert_eq!(found(&third, true), "0..6 -> 8..14 edited 2: [0, 8, 2]/[0, 4, 2] edited 3: [0, 8, 2]/[0, 4, 2]");
+  // more than a third of them: the lines before them, the first of as many, and those lines a move of their own
+  // at their indent
+  let half = [RULE[0], RULE[1], "    name = name,", "    srcs = sources,", "    visibility = visibility,", RULE[5]];
+  assert_eq!(found(&half, true), "0..2 -> 8..10; 2..5 -> 10..13 indent -4");
+  assert_eq!(
+    found(&half, false),
+    "0..6 -> 8..14 edited 2: [0, 8, 2]/[0, 4, 2] edited 3: [0, 8, 2]/[0, 4, 2] edited 4: [0, 8, 2]/[0, 4, 2]"
+  );
   // the last line at another indent: an edited line ends no move
   let last = [RULE[0], RULE[1], RULE[2], RULE[3], RULE[4], ")"];
   assert_eq!(found(&last, true), "0..5 -> 8..13");
@@ -898,9 +940,9 @@ fn where_the_indentation_has_a_meaning_a_line_at_another_indent_is_edited() {
   // where the indentation has no meaning such a line is the same line
   assert_eq!(show(&moves_where(&old, &new, false)), "0..6 -> 8..14 indent +4");
   assert_eq!(found(&refs(&shifted_but(&RULE, &[3])), false), "0..6 -> 8..14 indent +4");
-  // two such lines of six are over a quarter
-  assert_eq!(found(&refs(&shifted_but(&RULE, &[2, 3])), true), "0..2 -> 8..10 indent +4");
-  assert_eq!(found(&refs(&shifted_but(&RULE, &[2, 3])), false), "0..6 -> 8..14 indent +4");
+  // three such lines of six are over a third: the lines before them moved by the indent, and they as they are
+  assert_eq!(found(&refs(&shifted_but(&RULE, &[2, 3, 4])), true), "0..2 -> 8..10 indent +4; 2..5 -> 10..13");
+  assert_eq!(found(&refs(&shifted_but(&RULE, &[2, 3, 4])), false), "0..6 -> 8..14 indent +4");
 
   // the indent is a text, not a number of columns: a tab that became a space is another indent, an edited line
   // whose range is its indent
@@ -1183,24 +1225,23 @@ fn a_chain_of_many_short_moves_is_read_once_for_all_of_them() {
   assert_eq!((found.len(), found[0].len as usize), (1, 5 * ITEMS));
   assert!(work.search < 2 * 5 * ITEMS as u64 + 100, "{work:?}");
 
-  // every second line of a file whose indentation has a meaning under another parent, the lines between them at
-  // their indent: no two lines in a row moved alike, each line is a move of its own
+  // the lines of a file whose indentation has a meaning, by threes: one under another parent, one at its indent,
+  // one two levels deeper. No two lines in a row moved alike, and of the lines between two that did, more than a
+  // third stand at another nesting: each line is a move of its own
   const LINES: usize = 6_000;
   let side = |indent: &str| -> Vec<String> {
     (0..LINES)
-      .map(|index| {
-        if index % 2 == 0 {
-          format!("{indent}key_number_{index}_of_the_block: value")
-        } else {
-          format!("  nested_key_number_{index}: value")
-        }
+      .map(|index| match index % 3 {
+        0 => format!("{indent}key_number_{index}_of_the_block: value"),
+        1 => format!("  nested_key_number_{index}: value"),
+        _ => format!("{indent}{indent}    deeper_key_number_{index}: value"),
       })
       .collect()
   };
   let (found, work) = found_within(&side(""), &side("  "), true, &LIMITS);
   assert_eq!(found.len(), LINES);
   assert!(found.iter().all(|line_move| line_move.len == 1 && line_move.edited.is_empty()));
-  assert!(work.search <= 6 * LINES as u64, "{work:?}");
+  assert!(work.search <= 9 * LINES as u64, "{work:?}");
   let (found_again, work_again) = found_within(&side(""), &side("  "), true, &again);
   assert!(
     work_again.search >= MAX_MOVE_WORK && found_again.len() < LINES / 20,
@@ -1208,9 +1249,9 @@ fn a_chain_of_many_short_moves_is_read_once_for_all_of_them() {
     found_again.len()
   );
 
-  // a line of its own, a line with another number, which a chain grows through unread, and two blank lines, again
-  // and again: a move is the line of its own with the blank lines before it, and the line with the number is not
-  // compared at all
+  // a line of its own, two lines with another number, which a chain grows through unread, and two blank lines,
+  // again and again: a move is the line of its own with the blank lines before it (two of four lines edited are
+  // over a third), and the lines with the number are not compared at all
   const GROUPS: usize = 2_500;
   let side = |number: usize| -> Vec<String> {
     (0..GROUPS)
@@ -1218,6 +1259,7 @@ fn a_chain_of_many_short_moves_is_read_once_for_all_of_them() {
         [
           format!("  open_section_number_{index}_of_the_file();"),
           format!("  let total_{index} = compute_total_of(items, {number});"),
+          format!("  let count_{index} = compute_count_of(items, {number});"),
           String::new(),
           String::new(),
         ]
@@ -1225,9 +1267,9 @@ fn a_chain_of_many_short_moves_is_read_once_for_all_of_them() {
       .collect()
   };
   let (found, work) = found_within(&side(1), &side(2), false, &LIMITS);
-  assert_eq!(show(&found[..2]), "0..1 -> 10..11; 2..5 -> 12..15");
-  assert_eq!((found.len(), work.compared, work.unread as usize), (GROUPS, 0, GROUPS));
-  assert!(work.search < 4 * 4 * GROUPS as u64, "{work:?}");
+  assert_eq!(show(&found[..2]), "0..1 -> 10..11; 3..6 -> 13..16");
+  assert_eq!((found.len(), work.compared, work.unread as usize), (GROUPS, 0, 2 * GROUPS));
+  assert!(work.search < 4 * 5 * GROUPS as u64, "{work:?}");
   let (found_again, work_again) = found_within(&side(1), &side(2), false, &again);
   assert!(
     work_again.search >= MAX_MOVE_WORK && found_again.len() < GROUPS / 10,
@@ -1236,7 +1278,7 @@ fn a_chain_of_many_short_moves_is_read_once_for_all_of_them() {
   );
 
   // at the limit of its work the search ends with the moves found until then
-  let limits = Limits { search: 24_000, ..LIMITS };
+  let limits = Limits { search: 31_000, ..LIMITS };
   let (found, work) = found_within(&side(1), &side(2), false, &limits);
   assert_eq!(work.search, limits.search, "{work:?}");
   assert!(!found.is_empty() && found.len() < GROUPS, "{}", found.len());

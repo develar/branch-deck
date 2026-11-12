@@ -12,7 +12,8 @@
 //!   on is a rename of the subject, and no text is read for it then. No other run of that reading is kept: a run of
 //!   formatting is quiet, and the files of a subject are put together after the rows of the file were drawn.
 //! - **The declarations of the names that are not local** (`declarations`): the places the index of the repository
-//!   is asked by, in its lines and columns, made here where the texts are.
+//!   is asked by, in its lines and columns, made here where the texts are, and whether the code that declares the
+//!   name changed in more than names (`Declarations::redeclared`): the index is asked of no such name.
 //! - **The renames the scopes of the file prove** (`proven`): what a run that holds a local name beside a name that
 //!   is not local still needs to be proven whole.
 //! - **The lines a move of the file rewrote** (`rewritten`, `text_diff::moves::rewritten_lines`): the edited lines of
@@ -85,6 +86,9 @@ pub struct Declarations {
   /// For each place of `Rename::declared`, in their order: the line and the column of the name in the old text,
   /// then in the new one, both from 1, the column in characters (`Columns::Characters`)
   pub places: Vec<[u32; 4]>,
+  /// The code that declares the name changed in more than names (`PairMarks::redeclared`): what the new name
+  /// declares is another thing than what the old one did, and the index is not asked of it
+  pub redeclared: bool,
 }
 
 impl Leftovers {
@@ -97,12 +101,13 @@ impl Leftovers {
       undeclared,
       pending,
       proven_renames,
+      redeclared,
       proven: _,
     } = pair;
     let lone_returns = [has_lone_carriage_return(old), has_lone_carriage_return(new)];
     let left = Self {
       lines: left_rows(old, new, blocks, &marks.runs, &marks.moves, indented),
-      declarations: declarations_of(&marks.renames, [old, new], lone_returns),
+      declarations: declarations_of(&marks.renames, [old, new], lone_returns, &redeclared),
       undeclared,
       pending,
       proven: proven_renames,
@@ -135,7 +140,7 @@ impl Leftovers {
 /// `new`. A rename a place of which the index cannot be given is left out: its uses are never proven. So is every
 /// rename of a text with a lone carriage return (`lone_returns`), where the lines of a view are not the lines of the
 /// index
-fn declarations_of(renames: &[Rename], [old, new]: [&str; 2], lone_returns: [bool; 2]) -> Vec<Declarations> {
+fn declarations_of(renames: &[Rename], [old, new]: [&str; 2], lone_returns: [bool; 2], redeclared: &[u32]) -> Vec<Declarations> {
   if !renames.iter().any(|rename| !rename.local) || lone_returns != [false; 2] {
     return Vec::new();
   }
@@ -156,7 +161,11 @@ fn declarations_of(renames: &[Rename], [old, new]: [&str; 2], lone_returns: [boo
           Some([old_line, old_column, new_line, new_column])
         })
         .collect();
-      Some(Declarations { rename: number, places: places? })
+      Some(Declarations {
+        rename: number,
+        places: places?,
+        redeclared: redeclared.contains(&number),
+      })
     })
     .collect()
 }

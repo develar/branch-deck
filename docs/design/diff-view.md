@@ -118,8 +118,8 @@ rest gets a label and stays a stop.
 | a file without a grammar | no | no: its block of whitespace stays the pale stop it is; it has its moves |
 | moved lines (`moves`) | yes | never: where lines stand is behaviour. The lines are read where they stand now, and are nothing to read where they left |
 | lines moved between two files (`subject.movedOut`, `movedIn`) | yes, at both ends | never, and no line of them is hidden: both ends are read |
-| a renamed name (`renamed`, `renames`) | yes | yes, where proven: the lines that changed in the name alone, for a value of its body alone, every name of which the scopes bind (a variable, a parameter that no call may name and no annotation or macro may read, in a text the scopes read whole), with nothing but quiet lines changed between its places. Never the declaration of a name that is not local, never a place that makes more of the name than its binding |
-| a renamed name that is not local, in the file that declares it and in the files that use it (`subject.declared`, `used`) | yes | only its uses, where the index of the repository lists every use of the declaration in both trees and each is a place of the rename (`subject.confirmed`). The declaration is always read |
+| a renamed name (`renamed`, `renames`) | yes | yes, where proven: the lines that changed in the name alone, for a value of its body alone, every name of which the scopes bind (a variable, a parameter that no call may name and no annotation or macro may read, in a text the scopes read whole), in a function nothing else of which changed but formatting, comments and other such names. Never the declaration of a name that is not local, never a place that makes more of the name than its binding |
+| a renamed name that is not local, in the file that declares it and in the files that use it (`subject.declared`, `used`) | yes | only its uses, where the code that declares the name changed in names alone and the index of the repository lists every use of the declaration in both trees, each a place of the rename (`subject.confirmed`). The declaration is always read |
 
 - **The marks change no block.** They are a field beside the blocks: `runs` (rows of lines inside one block that
   changed in one way alone), `moves` (the lines that moved within the file), `renames` (the names the change renamed
@@ -193,8 +193,14 @@ rest gets a label and stays a stop.
   a name whose spelling is a value where the code runs: the declaration of a Kotlin property with a delegate
   (`val integrationTest by registering(…)` registers a task of that name, `val total by map` reads the key
   "total"), a variable that is given a function or a class written without a name, which takes it
-  (`const total = () => 1`). The reader stops at that line, where the behaviour changes (`Site` of the navigation,
-  anything but `Plain`), and the other lines of the name are labels: a line that is read stands between its places
+  (`const total = () => 1`), and in C# a name of a value where the language may hand the text around it to code
+  that keeps it (`csharp::navigate::is_handed_as_text`): in an argument and in what a method is called on
+  (`[CallerArgumentExpression]`: `ArgumentNullException.ThrowIfNull(total)` names "total" in its exception,
+  `Debug.Assert(total > 0)` in its message, `total.ShouldBe(1)` of an assertion library), in a lambda whose body is
+  an expression and in a query (an expression tree holds the names of its parameters and of the variables around
+  it). Only the declaration of what is called says whether it does, in another file, so every such place is
+  read. The reader stops at that line, where the behaviour changes (`Site` of the navigation,
+  anything but `Plain`), and the other lines of the name are labels: a line that is read stands in its function
   (below). A name that no body binds (a member, a declaration of the file) is every name of its
   spelling, tied by nothing but that: with its declaration in the file it is a rename whose uses are labels and
   whose declaration is in no run; the pass over the files of its subject asks the index of the repository (accio)
@@ -207,16 +213,51 @@ rest gets a label and stays a stop.
   nameComponent = …` read once where it was), one variable took the place of another: nothing is marked, and the
   blocks are read again without the pair, since a run may lean on a name read as one beside it. On real commits
   half of the local renames the places alone made were such pairs ("Measured on real history" below).
-- **A rename is proven by the lines between its places** (`Renames::prove`). From the first place of a name to its
-  last, every line that changed must be quiet: in a run of formatting, in a run of proven renames, or blank. Then
-  the code that declares the name and reads it is the same code but for names that are the same variables, and the
-  new name is the old variable. A declaration that got another initializer or another type binds another value
-  under the new name: `val subscription = subscriptions[id]` became `val channel =
-  subscriptions[id]?.selectedChannel`, and `if (channel != null)`, the same tokens, asks another question. The
-  scopes give no extent of a declaration (its initializer may stand on later lines), so the rule is of every line
-  up to the last place: a use with another change, a statement added between them, an `if` they were indented
-  into, each makes the runs of the name labels. Two renames in the lines of each other (`val next = head`) are
-  proven together or not at all: the rule is asked until no rename leans on one that is none.
+- **A rename is proven by the member around it** (`Renames::prove`, `Found::code`). A local is the same variable
+  under another name only where the function it lives in is the same code but for names: in the member around the
+  name (`code_symbols::navigate`, `NameAt::statements`: the outermost statement around it that declares no type,
+  a function of a class or of the file with its head, a property with its value, an initializer) no line may have
+  changed in anything that says what a name is. A line of it that changed is in a run of formatting or of
+  comments, in a run of proven renames, on a line that changed in the name its own declaration is known by alone,
+  or holds no token of code. Then the new name is the old variable, and a line that changed in it alone is the
+  line it was. Two renames of one function (`val next = head`) are proven together or not at all: the rule is
+  asked until no rename leans on one that is none.
+- **Why the whole member.** The first rule read the lines between the places of a name, and each review of what it
+  passed found a value given outside them. A declaration that got another initializer binds another value: `val
+  subscription = subscriptions[id]` became `val channel = subscriptions[id]?.selectedChannel`, and `if (channel
+  != null)`, the same tokens, asks another question. The parameter of a lambda gets its value from what the lambda
+  is given to, on the lines before it (`states.mapNotNull { it.registry }.collect { registry -> … }`, whose
+  `mapNotNull` now gives `it.catalogOrNull`), and from the head of its function (`fun Collection<String>.seeds()`
+  that became `fun Collection<SessionId>.seeds()`, with `.map { sessionId -> Seed(sessionId) }` below). An
+  assignment goes on over the line after its name (`last = describe(item,` and `mode);`) and is read by the lines
+  before it in the next turn of its loop; so is a statement after the last place of a name that writes a variable
+  the name is made of. A declaration stands below the function that reads the name. What a local holds comes from
+  the code of its function, and no part of that code is known to give it nothing; what the function reads from
+  outside it (a member, another function, a file) is to a renamed line what it is to a line the change left
+  alone. So the rule is of the member: a rename is passed where nothing else of its function changed, as the
+  Rename refactoring of an editor leaves it, and is a label wherever the function was edited too. A function
+  declared inside another and a method of a class declared in a function are of the function around them, whose
+  variables they read.
+- **A line no token of code stands on** is no change of what a name is: a blank line, a comment worded again (it
+  is read where it stands, a run of comments or a changed line). A blank line put into a string of several lines
+  is a line of that string (`"""`, a template literal, a raw string of Rust): the token of the string stands on
+  it, the value is another, and the name that holds it is a label.
+- **The name a declaration is known by** is on no line of a run of the marks: the declaration of a name that is
+  not local is read. So the proofs read the blocks that hold one once more with those names as one too
+  (`Renames::with_declarations`; no run of that reading is a run of the marks): a function that got another name
+  with a local of its body leaves that local proven, since the name the function is known by gives the local
+  nothing; a function that calls itself by its new name does not, since that call is a use of a name whose proof
+  is another's.
+- **A name that is not local is declared by the same code, or is another thing** (`Renames::read_declarations`,
+  `PairMarks::redeclared`, `Declarations::redeclared`). `const val TIMEOUT = 5` that became `const val LIMIT = 10`
+  is another constant, and `pause(LIMIT)` waits twice as long with the same tokens: the index would confirm every
+  use, and every use would be passed. So the pair reads the statements of the declarations of such a name
+  (`NameAt::statements` of a name that is not local: the innermost statement or member around the declaration)
+  the same way: no line of them may have changed in anything but formatting, comments, this name and the locals
+  the scopes prove. The statement of such a declaration keeps its bodies, since a function is what its body does
+  and a property what its accessors give, but for the members of a type: a type is its head, and what a member
+  does is asked where the member is named. A name declared by other code is not asked of the index, and its proof
+  is `otherDeclaration` in every file that names it, with an index or without one.
 - **Quiet by a measurement.** A kind of run is passed only once a sample of its proven runs of real ranges was read
   by a person, with no change of behaviour among them (`is_quiet`, the one place; "Measured on real history"
   below). Formatting and the renamed names are on. `has_proof` names the kinds that can be proven; of a kind that
@@ -225,8 +266,10 @@ rest gets a label and stays a stop.
   of a proof read. The uses of a name that is not local that the index confirmed (`SubjectMarks::confirmed`,
   `marks_subject::as_confirmed`) are quiet runs of the same kind. The proof of a rename reads scopes without types
   and without the other files; its reviews and its measurement each found a class of change it had passed (the
-  delegate, the branch of `#if`, the two `#[cfg]`, the `eval`, the variable in the place of another): each is a
-  rule above now.
+  delegate, the branch of `#if`, the two `#[cfg]`, the `eval`, the variable in the place of another, the value
+  given on the lines before the first place or after the last, the type in the head of the function, the blank
+  line of a string, the text C# hands to what is called, the constant with another value): each is a rule above
+  now.
 - **What a pair leaves** (`leftovers.rs`). A pair of blobs is what the caches keep, and it stands in many commits
   beside other files, so nothing of a subject may enter it. What the other files of a subject need of a pair is made
   where its texts are, in its worker, and kept beside its diff (in memory and in the `file_leftovers` store, under
@@ -289,7 +332,8 @@ rest gets a label and stays a stop.
   line it left alone, or on a line it only moved), `otherMeaning` (a conflict of accio: a capture, an overload, an
   override, a declaration it hides or that hides it, a namesake; a use without its twin; a use of the new name on a
   line left alone or only moved),
-  `otherDeclaration` (the kind, the owner or the signature changed with the name), `incomplete` (the answer is not
+  `otherDeclaration` (the kind, the owner or the signature changed with the name, by the index; or the code that
+  declares the name changed in more than names, by the pair, which then asks no index), `incomplete` (the answer is not
   complete, a use is tied by its name alone, more uses than listed, another language: accio ties a use by the
   scopes of its file for Kotlin and Java only, so a name a file of another language declares is not asked at all;
   a use by another word that the other tree does not hold at its place; a use in a text with a lone carriage
@@ -336,8 +380,8 @@ rest gets a label and stays a stop.
   of the declaration of a used name, the `proof`, and of a name the file declares its places and files in the
   subject, `across`), which the presenter words: the count of a name other files hold too is that of the subject
   ("3 sites in 2 files", else the places of the file), and after the words of the note "declared in Store.kt · all
-  uses in this change"; nothing for `asked` and `unavailable`. `confirmed` names the runs, by their numbers among `runs`, that are passed once the kind is on
-  (`quiet` then, and the starts without them): a view plays them down and keeps every line of them
+  uses in this change"; nothing for `asked` and `unavailable`. `confirmed` names the runs, by their numbers among `runs`, that the index proved: they are passed
+  (`quiet`, and the starts are without them): a view plays them down and keeps every line of them
   (`BlockMarks.kept`: Inline shows such a run as a label, the row of its pair, never once, and no note opens it),
   whenever the proof came. A `marks` event, and the answer of the index, replace the marks of their file whole; the
   blocks are those of the content, so the rows of the lines stay and rows of words come ("The row at the top as
@@ -352,7 +396,7 @@ rest gets a label and stays a stop.
   A place in no run is on a line that is read as it is, its name in the mark all the same.
 - **Moves need no grammar.** The lines that one block deletes and another block adds are a move
   (`text_diff::moves::find_moves`, [Text Diff Engine](text-diff.md#moves)): the same lines by their text without the
-  whitespace at their ends, with at most a quarter of edited lines between exact ones, from 24 characters of exact
+  whitespace at their ends, with at most a third of edited lines between exact ones, from 24 characters of exact
   lines that stand once among the changed lines of each side (a line that stands twice there pairs with either of
   its likes), the longest first, each line in one move. Every pair of texts has them, read after its runs, whose lines no
   move takes. The whitespace at the ends of a line follows the policy of the diff: where every character counts, a
@@ -572,27 +616,31 @@ lines, not with their square, and the time with the work.
 `FileDiffs::measure`) reads each commit of a range as a view of it reads it, through the stream of the app, and
 counts what the marks find; `--mark-sample <N>` prints N marks of each kind with the lines of both sides, `--whole`
 reads the range as one subject, `--no-marks` the same subjects without any mark, `--index` asks accio of the names
-that are not local. It was run on the monorepo of IntelliJ (read only, `--no-cache`): 6,316 commits (4,235 with a
-file of Kotlin, 1,043 of Java, 420 of C#), and 2,111 of them again after each rule below; and on the last 1,500
-commits of this repository (887 with Rust, 697 with TypeScript, 359 with TSX). Every file's marks were read once
-more from its texts and were the marks its view got (`differ`: 0).
+that are not local, `--min-move-chars <N>` and `--max-edited <N/D>` search each file once more under another
+threshold of a move and count what that adds. It was run on the monorepo of IntelliJ (read only, `--no-cache`):
+6,316 commits (4,235 with a file of Kotlin, 1,043 of Java, 420 of C#), and 2,111 of them again after each rule
+below; and on the last 1,500 commits of this repository (887 with Rust, 697 with TypeScript, 359 with TSX). Every
+file's marks were read once more from its texts and were the marks its view got (`differ`: 0), with the answers of
+the index too.
 
-| | monorepo, 2,111 commits | Branch Deck, 1,500 commits |
+| the rules as they are now | monorepo, 2,111 commits | Branch Deck, 1,500 commits |
 |---|---|---|
 | text files with a change; of a grammar; parsed for their marks | 22,304; 14,826; 8,391 (57 %) | 25,023; 17,528; 12,015 (69 %) |
 | blocks of changed lines | 92,910 | 104,278 |
-| stops of N and P | 90,981: 1,929 fewer (2.1 %) | 104,000: 278 fewer (0.3 %) |
+| stops of N and P | 90,990: 1,920 fewer (2.1 %) | 104,015: 263 fewer (0.3 %) |
 | runs of formatting, all quiet; their old lines, which Inline shows no more | 4,899; 15,061 of 223,555 (6.7 %) | 1,510; 5,995 of 253,998 (2.4 %) |
 | runs of comments (labels) | 2,024 | 8,649 |
-| runs of a renamed name; quiet | 704; 24 | 518; 45 |
-| renames of a local; proven | 185; 16 | 230; 26 |
-| names that are not local: declared in the file, used in it | 474, 227 | 451, 151 |
-| moves within a file; of one line; with an edited line | 1,056; 587; 60 | 2,073; 1,180; 92 |
+| runs of a renamed name; quiet | 676; 11 | 518; 21 |
+| renames of a local; proven | 179; 8 | 230; 8 |
+| names that are not local: declared in the file, used in it; declared by other code | 474, 227; 518 of the 701 | 451, 151; 533 of the 602 |
+| moves within a file; of one line; with an edited line | 1,054; 578; 71 | 2,065; 1,149; 118 |
 | moves between two files; their lines | 1,375; 11,104 | 2,139; 17,615 |
 
 So the quiet kinds take few stops away (a block is passed only when every line of it is quiet: C# lost 27 % of its
 stops to one reformatted tree, Kotlin and Java 0.9 % each), and what they take is real: the lines Inline shows once.
-Most of what the marks say is a label: a comment, a move, a name.
+Most of what the marks say is a label: a comment, a move, a name. A renamed name is passed where its function
+changed in nothing else, which real commits seldom leave: 16 of 409 local renames here, and one name in five
+that is not local is declared by the code that declared it before.
 
 **The audit: what was read, and what it changed.**
 
@@ -608,38 +656,84 @@ Most of what the marks say is a label: a comment, a move, a name.
   subscriptions[id]?.selectedChannel` and `if (channel != null)`; `booth.use(project, sessionId, …)` had become
   `booth.use(project, conn, …)`. The line is the same tokens with another value in them. Of 374 local renames on
   2,111 commits, 189 had no line at all that changed in the name alone (`val isRoot = …` gone, `val nameComponent =
-  …` in its place): a label that was not true. Two rules came of it, each with a table test of the cases
-  (`a_local_none_of_whose_lines_changed_in_its_name_alone_is_no_rename`,
-  `a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_places`): a local is a rename only
-  where a line changed in it alone (185 are left), and it is proven only where nothing but quiet lines changed
-  between its places. A rule of the declaration alone (its line changed in the name alone) was tried first and kept
-  62 of 158 runs; five of its 46 renames were declarations of several lines whose later lines had changed (`val
-  scope = if (project != null) {` with other branches), which the lines between the places catch.
-- *A renamed local, as it is proven now*: every proven run of 6,316 commits of the monorepo, 100 (Kotlin 66, Java
-  20, C# 14), and of 1,500 commits of this repository, 45 (TypeScript 23, Rust 19, TSX 3), read: parameters,
-  locals, loop and lambda variables, a `catch (e …)` that became `catch (_ …)`, a named argument whose value was
-  renamed and whose name was not. None changes behaviour. The kind `renamed` is switched on.
-- *A name that is not local, confirmed by the index* (`--index`, 45 commits of the monorepo with such a name): of
-  643 names 279 were confirmed (43 %), 265 are another declaration, 49 change what another name means, 24 are used
-  outside the change, 26 were not all checked; the answer took 13 s at the median and 40 s at most, after the
-  diffs, as designed. 106 of the 149 confirmed runs read (classes, functions, constants and properties at their
-  imports and their uses): the lines changed in the name alone. They are quiet with their kind; the declaration is
-  read whatever the index says.
-- *Moves within a file*: 100 of one line, 40 with an edited line, 90 of the ones dropped below and 20 more with
-  their lines around them read. The lines are the lines that left in every one: a label is true by how it is
-  found. But of 1,712 moves, 641 (434 of the 1,021 of one line) held no line that stands once among the changed
-  lines of its file: the same statement of each test of a file that was wrapped into a block (`val ref =
-  getMQReferenceAtCaret()` three times, each "moved" to one of the three), the closing lines of each target of a
-  build file, the records of a report in JSON, 21 lines each. Which of the equal lines moved where, nothing says,
-  and no number of characters tells such a pair from a move (they hold up to 290). So a move counts the characters
-  of its exact lines that stand once on each side (`text_diff::moves`): 1,056 moves are left, every one told by a
-  line of its own, and the 24 characters stand: of the 95 moves under 32 characters the ones read are an argument
-  that changed places, an item of a list, a statement moved into a branch. The quarter of edited lines stands
-  too: the 40 read are functions that moved with an argument or a name changed, but for four that paired two
-  tests of one shape, which the lines that stand once now leave out.
+  …` in its place): a label that was not true. So a local is a rename only where a line changed in it alone
+  (`a_local_none_of_whose_lines_changed_in_its_name_alone_is_no_rename`).
+- *A renamed local, proven by the lines between its places* (nothing but quiet lines from its first place to its
+  last): all 145 proven runs were read and called true, and the kind was switched on. A review read them again and
+  found three that were not: the value came from outside those lines. `.mapNotNull { … .registry }` had become `…
+  .catalogOrNull` two lines above `.collect { catalog -> sweep(catalog) }`; `fun Collection<String>.to…Seeds()` had
+  become `fun Collection<AgentSessionId>.to…Seeds()` above `.map { sessionId -> …(sessionId = sessionId) }`;
+  `.projects` had become `.hosts` before `.filter(|host| …)`. Probes of the same shape passed too: an assignment of
+  two lines whose second changed, in a loop; a declaration below the closure that reads it; a blank line put into a
+  raw string. A rule of the statements that hold a place caught the probes and left the second case, whose type
+  stands in the head of the function. What a local holds comes from the code of its function, and no part of that
+  code is known to give it nothing.
+- *A renamed local, as it is proven now* (nothing else of its member changed but formatting, comments and such
+  names; `a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`): every proven run of the
+  build of these rules was read, the 71 runs of 42 locals on all 6,316 commits of the monorepo (Kotlin 27 locals,
+  Java 14, C# 1) and the 21 runs of 8 locals on the 1,500 commits here (Rust 5, TypeScript 3), each with the other
+  changed lines of its member. A parameter of a function or of a lambda and a `val` under a better name
+  (`path` that became `recentProjectId`, `frozenViewport` that became `pinnedViewport` at every place of a test);
+  a parameter nothing reads that became `_` (10 runs: `catch (e: Throwable)`, `k -> new HashSet<>()`); beside
+  them in the member only a call wrapped onto more lines, a comment worded again, and the name of the member
+  itself. The three runs of the review and its probes are labels. None changes
+  behaviour, and none can by its rule: the function is the code it was, under other names.
+- *C#*: a local given to a call is read (`[CallerArgumentExpression]`), so is one in a lambda whose body is an
+  expression and in a query. Of the 17 local renames of C# on 2,111 commits one is proven, a variable that is
+  compared and indexed and given to no call; of 61 runs of a renamed name 2 are quiet.
+- *A name that is not local* is the same thing only where the code that declares it changed in names alone: a
+  constant that got another value is another constant. Of the 149 runs the index had confirmed before this rule,
+  nine read a name whose declaration had another value (`private val outOfSync = PackageManagerErrorMessage(…)`
+  that became `private val updateLock = "Update uv lock"`, with six calls passed; `restoreDiagnosticThreadId =
+  vm.metadata.value.threadId` that became `restoreDiagnosticTranscript = vm.transcript`). On 2,111 commits 518 of
+  701 such names are declared by other code now (533 of 602 here): a test that got another name with another body,
+  a class that was rewritten. They are labels without a question to the index.
+- *A name that is not local, confirmed by the index* (`--index` on the build of these rules, the 45 commits of the
+  monorepo asked before, accio 0.25.0 with the index it had): of their 643 names that are not local, 390 are
+  declared by other code and not asked, 196 are confirmed, 30 name another declaration now, 16 have uses outside
+  the change and 11 an answer that is not whole. All 209 runs the index confirmed were read, the uses of 66
+  names: a class or an object in its imports, its calls and its types, a field, a method, a constant, an entry of
+  an enum. Where the words of the two names differ in more than a prefix the declaration was read in its commit
+  too (`statOrNull` that became `lstatOrNull`, `SAS_DOMAIN_V2` that became `SAS_DOMAIN` while the constant of the
+  first version went, `fittedFirstRowHeight` that became `fittedAndDefaultRowHeights`, `shownPinnedColumns` that
+  became `pinnedColumnsNotToLock`): the code it was, under another name, in every one. None can change what the
+  program does, and none of the nine of before is among them. With them 256 of the 955 runs of a renamed name of
+  these commits are quiet (47 by the scopes), and 402 of 31,003 blocks are passed. An answer took 2.5 s at the
+  median and 238 s at most.
+- *Moves within a file, what the thresholds let in*: 100 of one line, 40 with an edited line, 90 of the ones
+  dropped below and 20 more with their lines around them read. The lines are the lines that left in every one: a
+  label is true by how it is found. But of 1,712 moves, 641 (434 of the 1,021 of one line) held no line that
+  stands once among the changed lines of its file: the same statement of each test of a file that was wrapped into
+  a block (`val ref = getMQReferenceAtCaret()` three times, each "moved" to one of the three), the closing lines of
+  each target of a build file, the records of a report in JSON, 21 lines each. Which of the equal lines moved
+  where, nothing says, and no number of characters tells such a pair from a move (they hold up to 290). So a move
+  counts the characters of its exact lines that stand once on each side (`text_diff::moves`).
+- *Moves within a file, what the thresholds leave out* (each file searched once more under another value, and
+  every move that search adds or makes longer read):
+  - *16 characters in place of 24* add 103 moves to the 1,056 of the monorepo (81 of one line) and 260 to the
+    2,073 here (235 of one line). All 103 and 120 of the 260 were read. 60 of them are a line of a record of a
+    JSON file that stands again in another record (`"version": "1.4.1",` thousands of lines away, `"branchName":
+    "auth",` of two records that changed places): no line moved. Of the others about half are a line that did
+    move (an argument or an item of a list that changed places, an import, a statement of a function that was
+    rewritten around it) and half the same short statement of another function (`catch (e: Exception) {`, `if
+    (shortenedRef != null) {`, `cancelAndWait(jobs);`, `repositoryPath: string,` of another type). A move hides
+    its old lines behind a note in Inline, so a line that did not move must not be one: the 24 characters stay,
+    where the ones read are what they say.
+  - *A third of edited lines in place of a quarter* makes 43 moves longer and adds 4 (16 in the monorepo, 31
+    here): three lines with one edited, six with two, a function that moved while a parameter became a reference
+    or a variable got another name. 46 of the 47 are the lines that left; one pairs two records of a JSON list.
+    Under a quarter the views showed them cut at the edited line, or not at all. **A move holds a third of edited
+    lines now** (`MAX_EDITED_LINES`).
+  - *A half* makes 21 more moves longer (7 and 14): 20 are the lines that left, one pairs entries of a module
+    file (`<orderEntry … module-name="…" />`) with other entries. *Two thirds* add 3 beyond that, one of them five
+    of eight entries of that file paired with others. The higher the share, the more a row of lines of one shape
+    pairs lines that only resemble each other, and where the indentation has a meaning a line at another nesting
+    is an edited line too (a list of YAML indented again becomes one move with half its lines edited), in files
+    this history hardly holds. So the share stays at a third.
 - *Moves between two files*: 100 read, and 37 of those under 64 characters. Nearly all stand between two files
   that share a larger move (a file split, a class moved to a file of its own): the short ones are what an edit cut
-  off that move. The 48 characters and the two lines stand.
+  off that move. The 48 characters and the two lines were read at these values alone; what lower ones add was not
+  measured.
 
 **What the marks cost a real subject** (the Mac Studio, a release build, a load of 8 to 12 of its 20 cores, the
 median of seven reads without a store, `--whole`, with the marks and with `--no-marks`):
@@ -662,8 +756,11 @@ The benchmark after the rules of this measurement (`marks_bench`, the Studio at 
 tables above at a load of 4 to 21): the 60 renamed locals of a file cost 49 ms with the parses and 44 ms with the
 tokens in memory (46 and 39), the files at the limit of their names 54, 51 and 93 ms (55, 51 and 94), the moves of
 10,000 lines 0.32 ms with no line moved and 0.40 ms with 40 functions moved (0.26 and 0.33), the file a search
-costs most in 47 to 79 ms (51 to 94). The proof by the lines between the places and the count of the lines that
-stand once cost nothing a benchmark tells from the load of its machine.
+costs most in 47 to 79 ms (51 to 94). The count of the lines that stand once costs nothing a benchmark tells from
+the load of its machine. Nor does the proof of a local by its member and the statements of a declared name, measured
+after the review (the Studio at a load of 17 to 46): the 60 renamed locals 54 ms with the parses and 44 ms with the
+tokens in memory, the files at the limit of their names 57, 51 and 90 ms. The statements are read from the tree
+the names are bound in, no second parse.
 
 ### The row model
 
@@ -859,8 +956,8 @@ segments are as before.
     and every range it hides, so ⌥-click and `noteOfLine` (the reveal of a name in a hidden line) take it as any
     note. The rows of the lines a note hides or shows carry its key (`LinesPart.note`, `partsNoteOfRow`), so H
     takes the note for a line of it in view, wherever the note stands ("Keys" below).
-  - *A run of a renamed name that is a label* (a member, a parameter a call may name, a local with a line that
-    really changed between its places) shows its lines as lines of their block, read and never shown once, with the
+  - *A run of a renamed name that is a label* (a member, a parameter a call may name, a local of a function
+    that changed otherwise too) shows its lines as lines of their block, read and never shown once, with the
     name in its mark, and its note is plain words. The E2E tests of the quiet form read the local of the
     `commit_marks` template, those of a label a change they build (`tally` of `renamed-names.spec.ts`).
 - **In a section of a review** the heading of a change is the first part of its block (no segment of its own). A run,
@@ -1596,7 +1693,14 @@ beside the binding (`{ total }`, `nameof(total)`, the tokens of a macro, the dec
 delegate, a variable given a function without a name), and for a new name asked with the place its
 clashes. The clashes are one more resolution, of the names of the new spelling and the uses of the local as one name:
 a use that then binds to another declaration is shadowed, a name of the new spelling that binds to the local is
-captured. The answer is data; what is quiet is the reader's.
+captured. An entry asked with another name also says the lines of the statements of its names
+(`NameAt::statements`, "A rename is proven by the member around it" under [Marks](#marks)): of a local the member
+around its uses, whole (the outermost statement around a name that declares no type); of any other name the
+statements of its declarations, with their bodies but the members of a type. One predicate of statements and one
+of types per language, over the tree each navigation reads; where a tree gives a name no statement, its code is
+the whole text, and nothing is proven. They are read for all the entries of an answer in one pass (a climb from
+each name where the tree has parents, one walk of the program for oxc's). The answer is data; what is quiet is
+the reader's.
 
 Two kinds of names are kept apart from the uses. A name its place reads as another kind of thing than a variable is
 bound to no local, by the kind of the name or the namespace of its place: a type, a Java call, the name of a named

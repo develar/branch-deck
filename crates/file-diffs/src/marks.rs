@@ -29,7 +29,9 @@
 //!   one, which adds the runs of the lines that hold a place and takes no run the first reading found: a line that
 //!   changed in its formatting alone is a line of formatting beside a rename too. A name bound inside a body is a
 //!   rename only where a line changed in it alone, and its runs are proven, and so quiet, only for a value of its
-//!   body alone with nothing but quiet lines changed between its places.
+//!   body alone in a member nothing else of which changed but formatting, comments and such names. A name that is
+//!   not local says whether the code that declares it changed in more than names (`PairMarks::redeclared`): the
+//!   index proves the uses of no such name.
 //! - **What the pair leaves** (`PairMarks::undeclared`, `pending`, `proven_renames`; `leftovers`): the names that
 //!   changed at every place of the file, which declares none of them, with the runs their blocks would have were
 //!   they renames. The pass over the files of the subject (`marks_subject`) knows whether another file declares
@@ -166,6 +168,10 @@ pub struct PairMarks {
   /// The renames of `marks.renames`, by their numbers, whose places the scopes of the file prove: a value of its
   /// body alone
   pub proven_renames: Vec<u32>,
+  /// The renames of `marks.renames`, by their numbers, that are not local and whose declaration changed in more
+  /// than names (`marks_renames::Renames::read_declarations`): the code that declares the new name is not the code
+  /// that declared the old one, so the two are two things whatever the index says of their uses
+  pub redeclared: Vec<u32>,
   /// The runs of `marks.runs`, by their numbers, that are proven and are labels all the same, since their kind is not
   /// switched on (`is_quiet`): what the measurement that decides the kind reads a sample of. None while every kind
   /// with a proof is on
@@ -215,6 +221,7 @@ pub fn marks_of(
     undeclared,
     mut pending,
     proven_renames,
+    redeclared,
   } = match grammar {
     Some(grammar) if fits_inner(old, diff.old_line_count) && fits_inner(new, diff.new_line_count) => {
       runs_of(diff, &SideText::new(grammar, old), &SideText::new(grammar, new), true, &tokens)
@@ -244,6 +251,7 @@ pub fn marks_of(
     undeclared,
     pending,
     proven_renames,
+    redeclared,
     proven,
   }
 }
@@ -275,6 +283,9 @@ pub(crate) struct PairRuns {
   pub(crate) pending: Vec<PendingBlock>,
   /// The renames of `renames`, by their numbers, whose places are proven
   pub(crate) proven_renames: Vec<u32>,
+  /// The renames of `renames`, by their numbers, that are not local and whose declaration changed in more than
+  /// names
+  pub(crate) redeclared: Vec<u32>,
 }
 
 /// The runs of the blocks of `diff` and its renames; `ask_first` leaves a block out that answers no before the tokens
@@ -312,9 +323,12 @@ pub(crate) fn runs_of(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, a
       runs.clone_from(&first);
       work = paid;
     }
-    found.prove(&diff.blocks, &has_text(old, new), &mut runs);
+    let declarations = found.with_declarations(&diff.blocks, [old_tokens, new_tokens], &has_text(old, new), &mut work);
+    found.prove(&diff.blocks, [old_tokens, new_tokens], &mut runs, &declarations);
+    found.read_declarations(&diff.blocks, [old_tokens, new_tokens], &runs, &declarations);
     pair.pending = found.pending(&diff.blocks, [old_tokens, new_tokens], &has_text(old, new), &mut work);
     pair.proven_renames = (0u32..).zip(&found.found).filter(|(_, found)| found.proven).map(|(number, _)| number).collect();
+    pair.redeclared = (0u32..).zip(&found.found).filter(|(_, found)| found.redeclared).map(|(number, _)| number).collect();
     pair.renames = found.found.into_iter().map(|found| found.rename).collect();
     pair.undeclared = found.undeclared.into_iter().map(|found| found.rename).collect();
   }

@@ -31,8 +31,8 @@ pub struct GetRenameProofsParams {
 
 /// The marks of the text of a file of a subject, by its path, with what the index of the repository answered of its
 /// renamed names (`get_rename_proofs`): in place of those its diff has. They differ from them in the proofs
-/// (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`) and, once the kind of those
-/// runs is quiet, in what a reader may pass (`starts`); never in a row of the file
+/// (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`), which are quiet, and so in
+/// what a reader may pass (`starts`); never in a row of the file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

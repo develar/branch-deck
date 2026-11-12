@@ -52,7 +52,29 @@ pub(crate) const NAVIGATION: Reading<starlark_syntax::Starlark, Tree> = Reading 
   name_start,
   // a text with an error of its parser: what stands where the parser gave up is no name of the tree
   reads_in_part: |tree| tree.errors().len() > 0,
+  is_statement: |tree, node| tree.node_kind(node).is_some_and(is_statement),
+  // Starlark has no types
+  is_type: |_, _| false,
+  is_member: |_, _| false,
 };
+
+/// A statement (`navigate`, "The statements of a name"); a `def` is one
+const fn is_statement(kind: NodeKind) -> bool {
+  matches!(
+    kind,
+    NodeKind::ASSIGNMENT_STATEMENT
+      | NodeKind::AUG_ASSIGNMENT_STATEMENT
+      | NodeKind::BREAK_STATEMENT
+      | NodeKind::CONTINUE_STATEMENT
+      | NodeKind::EXPRESSION_STATEMENT
+      | NodeKind::FOR_STATEMENT
+      | NodeKind::IF_STATEMENT
+      | NodeKind::LOAD_STATEMENT
+      | NodeKind::PASS_STATEMENT
+      | NodeKind::RETURN_STATEMENT
+      | NodeKind::FUNCTION_DECLARATION
+  )
+}
 
 /// What holds the targets of an assignment or a `for` beside the statement itself: `a, b = pair`, `[a, b] = pair`
 const fn is_target_list(kind: NodeKind) -> bool {

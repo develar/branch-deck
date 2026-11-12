@@ -38,9 +38,11 @@
 use crate::navigate::{
   Access, Bound, Leaves, LocalBinding, LocalKind, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, site_by_binding,
 };
+use crate::psi_navigate::{member_of, statement_of};
 use kotlin_syntax::psi;
 use kotlin_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
 use std::collections::HashMap;
+use std::ops::Range;
 
 /// The name at `position` of a Kotlin text of `kind` and what its syntax says (`navigate::reference_at`)
 pub(crate) fn reference_at(kind: FileKind, text: &str, position: Position) -> Option<ReferenceAt> {
@@ -105,6 +107,23 @@ impl crate::navigate::Names for Names<'_> {
   /// A text with an error of its parser: what stands where the parser gave up is no name of the tree
   fn reads_in_part(&self) -> bool {
     self.tree.errors().len() > 0
+  }
+
+  fn statements_of(&self, starts: &[usize], local: bool) -> Vec<Vec<Range<usize>>> {
+    let is_statement = |node: NodeId| self.is_statement(node);
+    // a class, an object and an entry of an enum hold members
+    let is_type = |node: NodeId| matches!(self.kind(node), Some(NodeKind::CLASS | NodeKind::OBJECT_DECLARATION | NodeKind::ENUM_ENTRY));
+    let statement = |&start: &usize| {
+      let leaf = self.leaves.at(self.tree, start).filter(|&leaf| self.is_name(leaf));
+      leaf.map_or_default(|leaf| {
+        if local {
+          member_of(self.tree, leaf, is_statement, is_type)
+        } else {
+          statement_of(self.tree, leaf, is_statement, |node| self.kind(node) == Some(NodeKind::CLASS_BODY))
+        }
+      })
+    };
+    starts.iter().map(statement).collect()
   }
 }
 
@@ -518,6 +537,13 @@ impl<'t> Names<'t> {
     Access::Read
   }
 
+  /// Whether a node is a statement or a member (`navigate`, "The statements of a name"): Kotlin has no node for
+  /// one, so it is a composite that stands where statements do, in a block, in the body of a class or of the file,
+  /// or as a branch that is no block (`if (ready) total = load()`, the value of an entry of a `when`, its condition)
+  fn is_statement(&self, node: NodeId) -> bool {
+    self.kind(node).is_some() && self.parent_kind(node).is_some_and(|parent| is_branch(parent) || parent == NodeKind::KT_FILE)
+  }
+
   /// The operator of an operation: the token of its `OPERATION_REFERENCE`
   fn operation(&self, node: NodeId) -> Option<TokenKind> {
     let tree = self.tree;
@@ -678,6 +704,15 @@ const fn is_scope(kind: NodeKind) -> bool {
       | NodeKind::CATCH
       | NodeKind::WHEN
       | NodeKind::BLOCK
+  )
+}
+
+/// A node whose children are statements or members: a block, the body of a loop, a branch of an `if`, an entry of
+/// a `when`, a `finally`, the body of a class
+const fn is_branch(kind: NodeKind) -> bool {
+  matches!(
+    kind,
+    NodeKind::BLOCK | NodeKind::BODY | NodeKind::THEN | NodeKind::ELSE | NodeKind::WHEN_ENTRY | NodeKind::FINALLY | NodeKind::CLASS_BODY
   )
 }
 

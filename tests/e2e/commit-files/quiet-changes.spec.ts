@@ -107,12 +107,24 @@ async function shownStop(code: Locator): Promise<ShownRow> {
 async function pressToStop(page: Page, code: Locator, key: "n" | "p", from: ShownRow | null): Promise<ShownRow> {
   await page.keyboard.press(key)
   let shown: ShownRow | undefined
-  await expect
-    .poll(async () => {
-      shown = await shownStop(code).catch(() => undefined)
-      return shown !== undefined && (from === null || shown.path !== from.path || shown.row !== from.row)
-    })
-    .toBe(true)
+  let problem = ""
+  try {
+    await expect
+      .poll(async () => {
+        shown = await shownStop(code).catch((error: unknown) => {
+          problem = String(error)
+          return undefined
+        })
+        return shown !== undefined && (from === null || shown.path !== from.path || shown.row !== from.row)
+      })
+      .toBe(true)
+  } catch (error) {
+    // what the view stood at and where the key went, so a stop that never came says why
+    const focus = await page.evaluate(
+      () => `${document.activeElement?.tagName} ${document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.getAttribute("data-testid")}`,
+    )
+    throw new Error(`${key} from ${JSON.stringify(from)} showed ${JSON.stringify(shown)} (${problem}); the focus is on ${focus}`, { cause: error })
+  }
   return shown!
 }
 
@@ -363,8 +375,10 @@ test.describe("The marks of a diff in the review window", () => {
     }
     // the comment worded again is a stop, a label: its note stands above the line, in view
     expect(ledger.find(stop => stop.text.includes("entry with the largest amount."))).toMatchObject({ kind: "inline", above: "note" })
-    // the lines of the renamed local changed in its name alone, three quiet runs: none is a stop, in either spelling
-    expect(ledger.filter(stop => /\b(sum|total)\b/.test(stop.text))).toEqual([])
+    // the lines of the renamed local changed in its name alone, three quiet runs: none is a stop. A row of Inline
+    // holds both spellings side by side (`totalsum`), so the names are looked for as text, not as words; no other
+    // stop of the file holds either
+    expect(ledger.filter(stop => /sum|total/.test(stop.text))).toEqual([])
     // the real change is one, and the last stop is the one of the last file
     expect(ledger.filter(stop => stop.text.includes("fun isEmpty(): Boolean = entries."))).toHaveLength(1)
     expect(shown.at(-1)).toMatchObject({ path: "src/Store.kt" })
@@ -393,10 +407,11 @@ test.describe("The marks of a diff in the review window", () => {
 
     // five stops in Ledger.kt, then the three of Report.kt and the one of Store.kt
     const shown = await pressThroughStops(page, window, code, 5)
-    // no stop is a line of the name, in either spelling; the stops around them are: the function moved into the class
-    // before them, the comment worded again after them
+    // no stop is a line of the name, in either spelling (a row of Inline holds both side by side, `totalsum`: looked
+    // for as text, not as words); the stops around them are: the function moved into the class before them, the
+    // comment worded again after them
     const ledger = shown.slice(0, 5)
-    expect(ledger.filter(stop => /\b(sum|total)\b/.test(stop.text))).toEqual([])
+    expect(ledger.filter(stop => /sum|total/.test(stop.text))).toEqual([])
     const texts = ledger.map(stop => stop.text)
     expect(texts.indexOf("  fun describe(entry: Entry): String {")).toBeGreaterThanOrEqual(0)
     expect(texts.findIndex(text => text.includes("entry with the largest amount."))).toBe(texts.indexOf("  fun describe(entry: Entry): String {") + 1)
@@ -434,7 +449,7 @@ test.describe("The marks of a diff in the review window", () => {
     // the stop of the report is the block of the added lines, at the blank line before the lines that moved in; no
     // stop is a call of the name, in either spelling
     expect(report).toMatchObject({ path: "src/Report.kt", kind: "added", text: "" })
-    expect(shown.filter(stop => /\b(openStore|connectStore)\(path\)/.test(stop.text))).toEqual([])
+    expect(shown.filter(stop => /(openStore|connectStore)\(path\)/.test(stop.text))).toEqual([])
     // the last card shows at the top where the document ends: its one stop is the declaration, which is in view
     expect(store).toMatchObject({ path: "src/Store.kt", end: true })
     await expect(diffRows(code, "inline", { hasText: "connectStore(path: String): Store {" })).toBeInViewport()
@@ -731,12 +746,14 @@ test.describe("The marks of a diff in the review window", () => {
       })
       return copiedByKey(page)
     }
-    expect(await copyRun()).toBe(NEW_CALL.join("\n"))
+    // an answer that comes after the scopes (the tokens of a file, what the index says of the renamed names) paints
+    // rows anew too and drops the selection with them: the run is selected and copied until the copy takes it
+    await expect(async () => expect(await copyRun()).toBe(NEW_CALL.join("\n"))).toPass()
     await note.click()
     await expect(note).toHaveAttribute("aria-expanded", "true")
     // the old line is painted: the copy takes it with the new ones
     await expect.poll(() => codeOf(formatted(diffRows(code, "deleted")))).toEqual([OLD_CALL])
-    expect(await copyRun()).toBe([OLD_CALL, ...NEW_CALL].join("\n"))
+    await expect(async () => expect(await copyRun()).toBe([OLD_CALL, ...NEW_CALL].join("\n"))).toPass()
   })
 })
 

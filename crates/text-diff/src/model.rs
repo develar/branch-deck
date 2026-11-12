@@ -174,7 +174,9 @@ pub enum RenameProof {
   /// The rename changes what a name means: a use that names another declaration now, an overload, an override, a
   /// declaration it hides or that hides it, a namesake
   OtherMeaning,
-  /// The two names are not one declaration: its kind, its owner or its signature changed with the name
+  /// The two names are not one declaration: its kind, its owner or its signature changed with the name, as the
+  /// index says; or the code that declares the name changed in more than names (a constant with another value, a
+  /// function with another body), which the diff of its file says, and no index is asked then
   OtherDeclaration,
   /// The index did not list every use, or tied one by its name alone, or reads the language of the declaration
   /// without the scopes that would prove a use, or lists a use in a text whose lines it counts otherwise than the

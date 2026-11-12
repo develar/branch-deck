@@ -43,9 +43,11 @@
 
 use crate::js;
 use crate::js::field_of;
-use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer};
+use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, without_bodies};
 use js_syntax::Dialect;
+use js_syntax::oxc_ast::AstKind;
 use std::cell::{Cell, OnceCell};
+use std::ops::Range;
 // jscpd:ignore-start: the names of oxc's tree and visitor each walk reads
 use js_syntax::oxc_ast::ast::{
   ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty,
@@ -170,6 +172,167 @@ impl Names for ProgramNames<'_, '_> {
   /// direct `eval`, which names the variables around its call in a text no scope reads
   fn reads_in_part(&self) -> bool {
     self.broken || *self.evaluates.get_or_init(|| evaluates(self.program, self.text))
+  }
+
+  /// One walk of the program for all of them
+  fn statements_of(&self, starts: &[usize], local: bool) -> Vec<Vec<Range<usize>>> {
+    let mut walk = Statements {
+      starts,
+      local,
+      stack: Vec::new(),
+      nodes: 0,
+      members: Vec::new(),
+      found: vec![None; starts.len()],
+    };
+    walk.visit_program(self.program);
+    let Statements { members, found, .. } = walk;
+    let bytes = |span: Span| span.start as usize..span.end as usize;
+    let statement = |found: Option<NameStatement>| {
+      found.map_or_default(|found| {
+        let under = members.iter().filter(|(parent, _)| found.path.contains(parent));
+        without_bodies(bytes(found.statement), under.map(|(_, body)| bytes(*body)).collect())
+      })
+    };
+    found.into_iter().map(statement).collect()
+  }
+}
+
+/// A node the walk of `Statements` is in: its number in the order the walk enters the nodes, its span, whether it
+/// is a statement, whether it declares a type and whether it is a `for` of any kind
+struct Entered {
+  node: u32,
+  span: Span,
+  statement: bool,
+  is_type: bool,
+  is_for: bool,
+}
+
+/// What the walk found of a name: its statement, and the nodes from the name up to it, whose members the statement
+/// is without (none for a local)
+#[derive(Clone)]
+struct NameStatement {
+  path: Vec<u32>,
+  statement: Span,
+}
+
+/// The walk that finds the statements of each name that starts at a byte of `starts` (`navigate`, "The statements
+/// of a name"): of a local the member around it, the outermost statement around the name that declares no type;
+/// of any other name the innermost statement around it, and the members of a type under the nodes from the name
+/// up to it (`found`, `members`)
+struct Statements<'s> {
+  starts: &'s [usize],
+  local: bool,
+  stack: Vec<Entered>,
+  nodes: u32,
+  /// The bodies of the types the walk met (the members of a class, an interface or a namespace), each with the
+  /// node it is a child of
+  members: Vec<(u32, Span)>,
+  found: Vec<Option<NameStatement>>,
+}
+
+/// Whether a node is a statement or a member (`navigate`, "The statements of a name"); `in_for` says that the node
+/// around it is a `for`. The declaration in the head of a `for` is a part of its loop, a function or a class that
+/// is a value is none, and an export is what it exports
+fn is_statement(kind: AstKind<'_>, in_for: bool) -> bool {
+  match kind {
+    AstKind::VariableDeclaration(_) => !in_for,
+    AstKind::Function(function) => function.is_declaration(),
+    AstKind::Class(class) => class.is_declaration(),
+    AstKind::BlockStatement(_)
+    | AstKind::BreakStatement(_)
+    | AstKind::ContinueStatement(_)
+    | AstKind::DebuggerStatement(_)
+    | AstKind::DoWhileStatement(_)
+    | AstKind::EmptyStatement(_)
+    | AstKind::ExpressionStatement(_)
+    | AstKind::ForInStatement(_)
+    | AstKind::ForOfStatement(_)
+    | AstKind::ForStatement(_)
+    | AstKind::IfStatement(_)
+    | AstKind::LabeledStatement(_)
+    | AstKind::ReturnStatement(_)
+    | AstKind::SwitchStatement(_)
+    | AstKind::ThrowStatement(_)
+    | AstKind::TryStatement(_)
+    | AstKind::WhileStatement(_)
+    | AstKind::WithStatement(_)
+    | AstKind::ImportDeclaration(_)
+    | AstKind::ExportAllDeclaration(_)
+    | AstKind::TSExportAssignment(_)
+    | AstKind::TSNamespaceExportDeclaration(_)
+    | AstKind::TSImportEqualsDeclaration(_)
+    | AstKind::TSTypeAliasDeclaration(_)
+    | AstKind::TSInterfaceDeclaration(_)
+    | AstKind::TSEnumDeclaration(_)
+    | AstKind::TSNamespaceDeclaration(_)
+    | AstKind::TSExternalModuleDeclaration(_)
+    | AstKind::TSGlobalDeclaration(_)
+    | AstKind::MethodDefinition(_)
+    | AstKind::PropertyDefinition(_)
+    | AstKind::AccessorProperty(_)
+    | AstKind::StaticBlock(_)
+    | AstKind::TSIndexSignature(_)
+    | AstKind::TSPropertySignature(_)
+    | AstKind::TSMethodSignature(_)
+    | AstKind::TSEnumMember(_) => true,
+    _ => false,
+  }
+}
+
+/// Whether a statement declares a type, which holds members: a class, an interface, a namespace
+const fn is_type(kind: AstKind<'_>) -> bool {
+  matches!(
+    kind,
+    AstKind::Class(_) | AstKind::TSInterfaceDeclaration(_) | AstKind::TSNamespaceDeclaration(_) | AstKind::TSExternalModuleDeclaration(_) | AstKind::TSGlobalDeclaration(_)
+  )
+}
+
+impl<'a> Visit<'a> for Statements<'_> {
+  fn enter_node(&mut self, kind: AstKind<'a>) {
+    let span = kind.span();
+    let node = self.nodes;
+    self.nodes += 1;
+    let in_for = self.stack.last().is_some_and(|entered| entered.is_for);
+    if let Some(parent) = self.stack.last()
+      && matches!(kind, AstKind::ClassBody(_) | AstKind::TSInterfaceBody(_) | AstKind::TSModuleBlock(_))
+    {
+      self.members.push((parent.node, span));
+    }
+    let is_name = matches!(
+      kind,
+      AstKind::BindingIdentifier(_) | AstKind::IdentifierReference(_) | AstKind::IdentifierName(_) | AstKind::PrivateIdentifier(_) | AstKind::JSXIdentifier(_)
+    );
+    if is_name
+      && let Ok(at) = self.starts.binary_search(&(span.start as usize))
+      && self.found[at].is_none()
+    {
+      self.found[at] = if self.local {
+        // the member around the name: the outermost statement that declares no type
+        let member = self.stack.iter().find(|entered| entered.statement && !entered.is_type);
+        member.map(|member| NameStatement {
+          path: Vec::new(),
+          statement: member.span,
+        })
+      } else {
+        // from the name up to the innermost statement
+        let inner = self.stack.iter().rposition(|entered| entered.statement);
+        inner.map(|inner| NameStatement {
+          path: self.stack[inner..].iter().map(|entered| entered.node).collect(),
+          statement: self.stack[inner].span,
+        })
+      };
+    }
+    self.stack.push(Entered {
+      node,
+      span,
+      statement: is_statement(kind, in_for),
+      is_type: is_type(kind),
+      is_for: matches!(kind, AstKind::ForStatement(_) | AstKind::ForInStatement(_) | AstKind::ForOfStatement(_)),
+    });
+  }
+
+  fn leave_node(&mut self, _kind: AstKind<'a>) {
+    self.stack.pop();
   }
 }
 
