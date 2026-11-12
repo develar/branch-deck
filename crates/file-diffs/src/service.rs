@@ -89,7 +89,7 @@ use tracing::{debug, instrument, warn};
 /// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change.
 /// `stored_layout_test.rs` pins the layout of both with it. 15: a diff whose lines ran out of time is not stored either
 /// (`BudgetedDiff::out_of_time`), so a store of 14 may hold one block of two whole texts that the time made
-pub const MODEL_VERSION: u32 = 17;
+pub const MODEL_VERSION: u32 = 18;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
 /// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
