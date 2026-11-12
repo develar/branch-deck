@@ -4941,7 +4941,10 @@ export type ModuleEdge = {
 
 /**  What enters a module the change adds (`ModuleShape::entries`) */
 export type ModuleEntries = {
-	/**  accio asked every declaration of the module within its budget: `points` is all that enters it */
+	/**
+	 *  accio asked every declaration of the module within its budget and tied every use it found: `points` is all that
+	 *  enters it
+	 */
 	complete: boolean,
 	/**  A class a descriptor registers first, then the declarations other code uses, as accio ranks them */
 	points: EntryPoint[],

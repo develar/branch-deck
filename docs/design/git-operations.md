@@ -3607,7 +3607,8 @@ fixture `.git/branch-deck-accio.json` in the e2e server), canceled once the wind
 superseded after its last query answers `canceled` too, its plan kept for the next ask. Its channel carries the plan
 without the usages, the tests and the registrations before the index is asked (`review_plan_of`'s `pending`), then the plan with them, or `disabled`
 after one `git config` read (`ConfigSnapshot`) when the repository turns the plan off; a plan whose every query
-answered is kept by its subject resolved (`ReviewPlans`, a weighed `moka` cache), so a window that asks it again runs
+answered, none cut short (`ReviewPlan::is_final`: an answer of `accio surface` its budget of time cut is of the load,
+JetBrains/accio#712), is kept by its subject resolved (`ReviewPlans`, a weighed `moka` cache), so a window that asks it again runs
 only the resolve of its subject (`for-each-ref`, `merge-base` or `rev-parse`) and asks no index. A plan is read once
 whoever asks it: a window that asks the plan another window or the read ahead reads now waits for that reading
 (`ReviewPlans`' flights, a `sync_utils::single_flight`) and gets it in one event. After a sync commits the table of a

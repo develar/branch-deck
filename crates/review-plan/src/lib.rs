@@ -210,6 +210,14 @@ pub struct ReviewPlan {
   pub index_note: Option<String>,
 }
 
+impl ReviewPlan {
+  /// Whether the plan is what it would be whenever it is asked: every query of the index answered (`index_note` null)
+  /// and none cut short (`ModuleEntries::cut`). Only such a plan is kept in the memory of the app
+  pub fn is_final(&self) -> bool {
+    self.index_note.is_none() && self.modules.iter().all(|module| module.entries.as_ref().is_none_or(|entries| !entries.cut))
+  }
+}
+
 /// The commit `rev` names (`rev-parse --verify`), `UnknownRevision` when none
 fn resolved(git: &GitCommandExecutor, repository_path: &str, rev: &str) -> Result<String> {
   resolve_commit(git, repository_path, rev)?.ok_or_else(|| UnknownRevision(rev.to_string()).into())

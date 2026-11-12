@@ -262,6 +262,7 @@ fn a_new_module_names_what_enters_it_and_its_group_starts_with_their_files() {
     media.entries,
     Some(ModuleEntries {
       complete: true,
+      cut: false,
       points: vec![
         EntryPoint {
           name: "Player1".to_string(),
@@ -314,6 +315,30 @@ fn a_new_module_names_what_enters_it_and_its_group_starts_with_their_files() {
     }
   }
   assert_eq!(&step.paths[..in_order.len()], in_order.as_slice());
+}
+
+/// An answer of accio its budget cut short (`complete` false with the reason in its note) is of the load of the machine,
+/// so the plan that holds it is not final and the app keeps it not; a use left unresolved alone cuts nothing
+#[test]
+fn a_plan_whose_entries_the_budget_of_accio_cut_short_is_not_final() {
+  let repo = TestRepo::new();
+  let (base, head) = media_range(&repo, 3, classes("gui/media/testSrc/b", "b", "PlayerTest", 1, None), false);
+  let fixture = repo.path().join(".git/branch-deck-accio.json");
+  let plan_with = |surface: serde_json::Value| {
+    std::fs::write(&fixture, serde_json::json!({ "surface": { format!("{head}:gui/media"): surface } }).to_string()).unwrap();
+    let plan = plan_of(&repo, Some(&FixtureIndex), &range(&repo, &base, &head)).unwrap();
+    let entries = plan.modules.iter().find(|module| module.root == "gui/media").unwrap().entries.clone().unwrap();
+    (entries.complete, entries.cut, plan.is_final())
+  };
+  let cut = plan_with(serde_json::json!({
+    "module": "gui/media",
+    "complete": false,
+    "note": "the budget of 15s ran out: 3 of 4 declaration(s) and members not asked, scans under way stopped",
+    "declarations": [],
+  }));
+  assert_eq!(cut, (false, true, false), "(complete, cut, final) of an answer the budget cut");
+  let unresolved = plan_with(serde_json::json!({ "module": "gui/media", "complete": false, "declarations": [] }));
+  assert_eq!(unresolved, (false, false, true), "(complete, cut, final) of an answer with a use left unresolved");
 }
 
 /// The template of the review window (`review_modules`): a plugin of the shape of an IntelliJ one whose second commit

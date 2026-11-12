@@ -17,8 +17,15 @@ use serde::Serialize;
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ModuleEntries {
-  /// accio asked every declaration of the module within its budget: `points` is all that enters it
+  /// accio asked every declaration of the module within its budget and tied every use it found: `points` is all that
+  /// enters it
   pub complete: bool,
+  /// accio cut its answer short and said why (`complete` false with a note: its budget of time ran out, its index could
+  /// not answer): asked again, it may say more, so the answer is of the load of the machine and the state of the index,
+  /// not of the trees, and a plan that holds it is not kept (`ReviewPlan::is_final`). A use left unresolved alone is
+  /// no cut
+  #[serde(skip)]
+  pub cut: bool,
   /// A class a descriptor registers first, then the declarations other code uses, as accio ranks them
   pub points: Vec<EntryPoint>,
 }
@@ -90,6 +97,7 @@ pub(crate) fn add_entries(index: Option<&dyn SymbolIndex>, repository_path: &str
     };
     module.entries = Some(ModuleEntries {
       complete: surface.complete,
+      cut: !surface.complete && surface.note.is_some(),
       points: surface.declarations.iter().filter_map(entry_point).collect(),
     });
   }

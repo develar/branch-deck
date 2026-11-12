@@ -11,7 +11,8 @@
 //! - **One plan per window and slot** (`Windows::begin_plan`): a newer one of the window or its close supersedes the one
 //!   in flight, whose queries of the index are killed, and it answers `canceled`; the plan of a commit of the column
 //!   (`PlanSlot::Commit`) and the plan of its scope go on beside each other, and a symbol search beside both.
-//! - **The memory of the plans** (`ReviewPlans`): a plan whose every query answered is kept by what it is of, so the
+//! - **The memory of the plans** (`ReviewPlans`): a plan whose every query answered, none cut short
+//!   (`ReviewPlan::is_final`), is kept by what it is of, so the
 //!   window that opens it again, or another window of it, reads no git past the resolve of its subject and asks the
 //!   index nothing
 //! - **One reading of a plan** (`PlanReader::read`): a window that asks the plan another window or the read ahead reads
@@ -236,7 +237,7 @@ impl PlanReader {
       }
     };
     let plan = Arc::new(review_plan_of(&self.inputs.git, sources, &asked.params, asked.subject.clone(), send_pending)?);
-    if plan.index_note.is_none() {
+    if plan.is_final() {
       self.plans.kept.insert(asked.key.clone(), Arc::clone(&plan));
     }
     lead.finish(Arc::clone(&plan));
