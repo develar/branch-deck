@@ -443,8 +443,18 @@ pub struct ModuleSurface {
   /// Why the answer is partial (`the budget of 15s ran out: …`) or empty (no usable index)
   #[serde(default)]
   pub note: Option<String>,
+  /// What stopped the answer (JetBrains/accio#712): `Some(Some("work"))` a bound on files read, the same on every run;
+  /// `Some(Some("time"))` the `--budget` seconds, of the load of the moment; `Some(None)` (`null`) nothing, though
+  /// `complete` may be false for a use tied by the name alone. `None`: an accio before the field
+  #[serde(default, deserialize_with = "present")]
+  pub cut: Option<Option<String>>,
   #[serde(default)]
   pub declarations: Vec<SurfaceDeclaration>,
+}
+
+/// A field that is there, `null` included (`Some(None)`); one absent stays `None` by `#[serde(default)]`
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> std::result::Result<Option<T>, D::Error> {
+  T::deserialize(deserializer).map(Some)
 }
 
 /// A declaration of a module used outside it (`ModuleSurface::declarations`)
