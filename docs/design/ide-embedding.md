@@ -160,6 +160,11 @@ sequenceDiagram
 - **The e2e server** serves the same connection on a WebSocket (`GET /repositories/{id}/mcp`, `mcp_socket.rs`), in the
   context of the test repository with the events and the desktop of the connection, for the fake host of the page in
   Air; `mcp_corpus_test.rs` runs `branch-deck-app.ndjson` on it.
+- **The check of the copy** (`src/platform/air/contract.test.ts`): each line of the corpus against
+  `x-air-app.schema.json`, each result and action that the line schema takes as any value against the def of its
+  method, and each app file (the example and those the corpus writes) against `air-app.schema.json`, by Ajv, which
+  validates the draft 2020-12 of both schemas, and `yaml`; both are dev dependencies of the page, so the check runs with
+  `pnpm test:unit` and needs no crate.
 - Settings in two processes: a write under an inter-process lock merges only the changed keys, and a watch tells the
   other process ([Distributed Settings](distributed-settings.md)).
 - The page: `src/air-main.ts` answers `ui/initialize` with `x-air-app`, applies the theme of the host context, awaits

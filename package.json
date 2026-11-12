@@ -75,13 +75,15 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.2.1",
     "actions-up": "2.0.0",
+    "ajv": "8.20.0",
     "esbuild": "0.28.2",
     "jscpd": "5.4.2",
     "oxc-transform-react": "0.156.0",
     "tailwindcss": "4.3.4",
     "typescript": "7.0.2",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "yaml": "2.9.1"
   },
   "packageManager": "pnpm@12.18.0"
 }

@@ -4,9 +4,10 @@
 //!
 //! - **Tools**: `bd_invoke {command, args}` runs one command of app-api by its name (`app_api::dispatch`) for the window
 //!   of the instance of the call, the events of its channel as `x-air-app/callEvent {callId, event}` (the id of the
-//!   call), each before the answer; `bd_bootstrap {view}` gives what the page takes before its main. Both are only for
-//!   the app, and a call of the origin `agent` is refused. A cancel stops a read and leaves no answer; a write runs to
-//!   its end, its answer left out.
+//!   call), each before the answer; `bd_bootstrap {view}` gives what the page takes before its main; `sync` and
+//!   `open_command_palette` are the actions of the app file (Sync Virtual Branches, Branch Deck Command Palette). Each is
+//!   only for the app, and a call of the origin `agent` is refused. A cancel stops a read and leaves no answer; a write
+//!   runs to its end, its answer left out.
 //! - **Mirrors** (`mirror.rs`): `x-air-app/subscribe` of a repository subscribes its session once for every view of it,
 //!   under a window of its own (`mirror:<path>`), so the close of one view ends no other's mirror; the last
 //!   `x-air-app/unsubscribe` ends it.
@@ -284,10 +285,15 @@ impl Server {
         );
       }
       // the action Sync Virtual Branches of the app file: a sync of the repository of the main view
-      Some("sync") if origin == Some("action") => {
+      Some(SYNC_TOOL) => {
         let repository_path = self.main_repository().unwrap_or_default();
         let sync = json!({ "command": "sync", "args": { "params": { "repositoryPath": repository_path, "reason": "manual" } } });
         self.invoke(id, &sync, instance.as_deref());
+      }
+      // the action Branch Deck Command Palette: the palette of the main view, as the menu of the desktop app opens it
+      Some(COMMAND_PALETTE_TOOL) => {
+        self.ctx.events.emit_to(&WindowId::main(), COMMAND_PALETTE_TOOL, Value::Null);
+        self.link.respond(&id, json!({ "content": [], "structuredContent": { "value": null } }));
       }
       name => self
         .link
@@ -299,7 +305,7 @@ impl Server {
   fn invoke(self: &Arc<Self>, id: Value, arguments: &Value, instance: Option<&str>) {
     let command = arguments["command"].as_str().unwrap_or_default();
     let args = arguments.get("args").cloned().unwrap_or(Value::Null);
-    if let Some(value) = self.host_command(command, &args) {
+    if let Some(value) = self.host_command(command, &args, instance) {
       return self.link.respond(&id, json!({ "content": [], "structuredContent": { "value": value } }));
     }
     let args = self.with_subscription(command, args, instance);
@@ -354,9 +360,9 @@ impl Server {
 
   /// What the desktop does beside the commands, which the page asks through `bd_invoke` by the plugin call of Tauri it
   /// makes in the desktop app: an event the page emits goes to the views of the app (to one window with a target), the
-  /// badge and the progress of the Dock mark the tool window, a notification of the OS is one of the IDE. None for a
-  /// command of app-api
-  fn host_command(&self, command: &str, args: &Value) -> Option<Value> {
+  /// badge and the progress of the Dock mark the tool window, a notification of the OS is one of the IDE, and the close
+  /// of the window of `instance` (Escape in a review or a dialog) closes its place. None for a command of app-api
+  fn host_command(&self, command: &str, args: &Value, instance: Option<&str>) -> Option<Value> {
     match command {
       "plugin:event|emit" => {
         let (event, payload) = (args["event"].as_str().unwrap_or_default(), args.get("payload").cloned().unwrap_or(Value::Null));
@@ -384,6 +390,11 @@ impl Server {
           notification["actions"] = actions.clone();
         }
         self.link.ask("x-air-app/notify", notification);
+      }
+      "plugin:window|close" | "plugin:window|destroy" => {
+        if let Some(instance) = instance {
+          self.link.ask("x-air-app/closeView", json!({ "instance": instance }));
+        }
       }
       _ => return None,
     }
@@ -554,20 +565,40 @@ impl Server {
   }
 }
 
-/// The two tools of Branch Deck, both only for the app (`_meta.ui.visibility`): no agent sees them
+/// The tool of the action Sync Virtual Branches of the app file
+const SYNC_TOOL: &str = "sync";
+/// The tool of the action Branch Deck Command Palette of the app file, and the event it sends the main view
+const COMMAND_PALETTE_TOOL: &str = "open_command_palette";
+
+/// The tools of Branch Deck, each only for the app (`_meta.ui.visibility`), so no agent sees one: `bd_invoke` and
+/// `bd_bootstrap` for the page, and the tool of each action of the app file for the IDE
 fn tools() -> Value {
+  let app_only = json!({ "ui": { "visibility": ["app"] } });
+  let no_arguments = json!({ "type": "object", "properties": {} });
   json!([
     {
       "name": "bd_invoke",
       "description": "Runs one command of Branch Deck by its name, as the page of the desktop app invokes it.",
       "inputSchema": { "type": "object", "properties": { "command": { "type": "string" }, "args": { "type": "object" } }, "required": ["command"] },
-      "_meta": { "ui": { "visibility": ["app"] } },
+      "_meta": app_only,
     },
     {
       "name": "bd_bootstrap",
       "description": "What the page of a view takes before its main: the settings, the warm frame, the init data of the view and the title bar.",
       "inputSchema": { "type": "object", "properties": { "view": { "type": "string" } }, "required": ["view"] },
-      "_meta": { "ui": { "visibility": ["app"] } },
+      "_meta": app_only,
+    },
+    {
+      "name": SYNC_TOOL,
+      "description": "Syncs the virtual branches of the repository the main view shows (Sync Virtual Branches).",
+      "inputSchema": no_arguments,
+      "_meta": app_only,
+    },
+    {
+      "name": COMMAND_PALETTE_TOOL,
+      "description": "Opens the command palette of the main view (Branch Deck Command Palette).",
+      "inputSchema": no_arguments,
+      "_meta": app_only,
     },
   ])
 }

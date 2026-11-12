@@ -22,6 +22,7 @@ const WAIT: Duration = Duration::from_secs(60);
 
 /// The air-ide side of a connection of brd on the fixtures of a test repository
 struct Ide {
+  state: std::sync::Arc<crate::state::AppState>,
   to_app: Option<mpsc::UnboundedSender<String>>,
   from_app: mpsc::UnboundedReceiver<String>,
   serving: tokio::task::JoinHandle<()>,
@@ -40,6 +41,7 @@ impl Ide {
     let (to_app, incoming) = mpsc::unbounded_channel();
     let serving = tokio::spawn(connection.serve(ctx, incoming));
     Self {
+      state,
       to_app: Some(to_app),
       from_app,
       serving,
@@ -166,6 +168,15 @@ async fn initialized(ide: &mut Ide) {
   ide.send(&json!({ "jsonrpc": "2.0", "method": "x-air-app/viewShown", "params": { "instance": "main:1", "view": "main", "params": {} } }));
 }
 
+/// `initialized`, then the main view subscribes to the mirror of the repository (`x-air-app/subscribe`, id 2): its path
+async fn subscribed(ide: &mut Ide) -> String {
+  initialized(ide).await;
+  let repo = ide.repo.clone();
+  ide.send(&json!({ "jsonrpc": "2.0", "id": 2, "method": "x-air-app/subscribe", "params": { "instance": "main:1", "params": { "repositoryPath": repo } } }));
+  ide.expect(&json!({ "jsonrpc": "2.0", "id": 2, "result": { "mirror": repo, "state": "${any}" } })).await;
+  repo
+}
+
 /// A call of `bd_invoke` from the instance `instance`
 fn invoke(id: u32, instance: &str, command: &str, args: &Value) -> Value {
   json!({
@@ -178,10 +189,7 @@ fn invoke(id: u32, instance: &str, command: &str, args: &Value) -> Value {
 #[tokio::test]
 async fn a_rewrite_answers_after_its_changes_and_its_call_events() {
   let mut ide = Ide::start().await;
-  initialized(&mut ide).await;
-  let repo = ide.repo.clone();
-  ide.send(&json!({ "jsonrpc": "2.0", "id": 2, "method": "x-air-app/subscribe", "params": { "instance": "main:1", "params": { "repositoryPath": repo } } }));
-  ide.expect(&json!({ "jsonrpc": "2.0", "id": 2, "result": { "mirror": repo, "state": "${any}" } })).await;
+  let repo = subscribed(&mut ide).await;
 
   let witness = json!({ "head": head(&repo), "storeTips": { "issueGroups": null, "stackParents": null, "parked": null } });
   let park = json!({ "kind": "rewrite", "rewrite": "park", "branches": [{ "branchName": "test-branch", "note": "later" }], "witness": witness });
@@ -298,5 +306,78 @@ async fn an_emit_of_the_page_is_an_event_of_the_views() {
   ide
     .expect(&json!({ "jsonrpc": "2.0", "method": "x-air-app/event", "params": { "instance": "main:1", "event": "focus-branch", "payload": "a" } }))
     .await;
+  ide.end().await;
+}
+
+/// A call of the tool `name` from the instance `instance` of the view `view`
+fn tool_call(id: u32, name: &str, instance: &str, arguments: &Value) -> Value {
+  let view = instance.split_once(':').map_or(instance, |(view, _)| view);
+  json!({
+    "jsonrpc": "2.0", "id": id, "method": "tools/call",
+    "params": { "name": name, "arguments": arguments, "_meta": { "x-air-app": { "origin": "click", "view": view, "instance": instance } } },
+  })
+}
+
+/// A cancel of a running read stops it: no answer and no call event of the call follow, while the same read uncancelled
+/// gives both
+#[tokio::test]
+async fn a_cancelled_read_gives_no_answer_and_no_call_event() {
+  let mut ide = Ide::start().await;
+  initialized(&mut ide).await;
+  let args = json!({ "params": fixture_params("get_file_diffs", &ide.repo) });
+  // the cancel comes before the command could write anything: the server reads both before the command runs
+  ide.send(&invoke(2, "main:1", "get_file_diffs", &args));
+  ide.send(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": 2, "reason": "the tab closed" } }));
+  ide.send(&invoke(3, "main:1", "get_file_diffs", &args));
+  let messages = ide.until(&json!({ "jsonrpc": "2.0", "id": 3, "result": "${any}" })).await;
+  let of_call = |id: u32| {
+    messages
+      .iter()
+      .filter(|message| message["id"] == id || (message["method"] == "x-air-app/callEvent" && message["params"]["callId"] == id))
+      .count()
+  };
+  assert_eq!(of_call(2), 0, "the cancelled call wrote nothing: {messages:#?}");
+  assert!(of_call(3) > 1, "the same read uncancelled streams its diffs and answers: {messages:#?}");
+  ide.end().await;
+}
+
+/// The session of a mirror closes (its repository went): the view of the mirror hears `viewEnded` with `sessionClosed`
+#[tokio::test]
+async fn the_end_of_a_session_ends_its_mirror_with_the_reason_session_closed() {
+  let mut ide = Ide::start().await;
+  let repo = subscribed(&mut ide).await;
+  assert_eq!(ide.state.sessions.close_worktree(&repo), 1, "the session of the repository closes");
+  ide
+    .expect(&json!({ "jsonrpc": "2.0", "method": "x-air-app/viewEnded", "params": { "mirror": repo, "reason": "sessionClosed" } }))
+    .await;
+  ide.end().await;
+}
+
+/// Two review tabs call the same tool and the same command for their window: each gets the answer of its own instance,
+/// the data of its own open and a change of the settings whose origin is its window
+#[tokio::test]
+async fn two_review_tabs_each_get_the_answer_of_their_own_instance() {
+  let mut ide = Ide::start().await;
+  initialized(&mut ide).await;
+  for (instance, branch) in [("review:2", "a"), ("review:3", "b")] {
+    let data = json!({ "kind": "branch", "branchName": branch });
+    ide.send(&json!({ "jsonrpc": "2.0", "method": "x-air-app/viewShown", "params": { "instance": instance, "view": "review", "key": format!("branch:{branch}"), "params": { "data": data } } }));
+  }
+  ide.send(&tool_call(2, "bd_bootstrap", "review:2", &json!({ "view": "review" })));
+  ide.send(&tool_call(3, "bd_bootstrap", "review:3", &json!({ "view": "review" })));
+  let patch = |value: u32| json!({ "params": { "patch": { "kind": "value", "key": "reviewProbe", "value": value } } });
+  ide.send(&invoke(4, "review:2", "set_setting", &patch(2)));
+  ide.send(&invoke(5, "review:3", "set_setting", &patch(3)));
+  let mut answers = std::collections::HashMap::new();
+  while answers.len() < 4 {
+    let message = ide.next().await;
+    if let Some(id) = message["id"].as_u64().filter(|_| message.get("result").is_some()) {
+      answers.insert(id, message["result"]["structuredContent"].clone());
+    }
+  }
+  assert_eq!(answers[&2]["initData"]["data"]["branchName"], "a");
+  assert_eq!(answers[&3]["initData"]["data"]["branchName"], "b");
+  assert_eq!(answers[&4]["value"]["origin"], "review:2");
+  assert_eq!(answers[&5]["value"]["origin"], "review:3");
   ide.end().await;
 }

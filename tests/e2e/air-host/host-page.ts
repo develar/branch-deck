@@ -43,7 +43,7 @@ export interface HostView {
 const APP = "branch-deck"
 const X_AIR_APP = { version: "1.0.0" }
 /** The tools of the host itself (`HOST_TOOLS` of src/platform/air/shim.ts): never sent to the app */
-const HOST_TOOLS = new Set(["air_copy", "air_notify", "air_set_badge", "air_set_progress"])
+const HOST_TOOLS = new Set(["air_copy"])
 
 const config = (window as unknown as { __airHostConfig: AirHostConfig }).__airHostConfig
 const calls: HostCall[] = []
@@ -311,11 +311,38 @@ app.onRequest = async (method, params) => {
       }
       return {}
     }
+    case "x-air-app/closeView":
+      // the IDE closes the place of the view, as a click on the cross of its tab
+      calls.push({ method, params })
+      await closeView(String(params.instance))
+      return {}
     default:
-      // closeView, notify, setBadge, setProgress: the IDE shows them, the test reads them
+      // notify, setBadge, setProgress: the IDE shows them, the test reads them
       calls.push({ method, params })
       return {}
   }
+}
+
+/** The IDE closes the place of a view: its frame goes, `brd mcp` forgets its window */
+async function closeView(instance: string): Promise<void> {
+  const open = views.get(instance)
+  views.delete(instance)
+  open?.frame.remove()
+  await app.notify("x-air-app/viewClosed", { instance })
+}
+
+/**
+ * An action of the app file in the title of the tool window (`toolWindow.titleActions`): the IDE calls its tool with
+ * the origin action and the instance of the tool window; the answer of the call
+ */
+async function runAction(action: string, tool: string): Promise<unknown> {
+  const main = [...views.values()].find(open => open.info.view === "main")
+  calls.push({ method: "action", params: { action, tool } })
+  return app.request("tools/call", {
+    name: tool,
+    arguments: {},
+    _meta: { "x-air-app": { origin: "action", app: APP, action, ...(main !== undefined && { view: "main", instance: main.info.instance }) } },
+  })
 }
 
 /** What a test reads and does (`fake-host.ts`) */
@@ -331,13 +358,8 @@ const host = {
       open.bridge.setHostContext(hostContext(open.info))
     }
   },
-  /** The IDE closes the place of a view: its frame goes, `brd mcp` forgets its window */
-  close: async (instance: string) => {
-    const open = views.get(instance)
-    views.delete(instance)
-    open?.frame.remove()
-    await app.notify("x-air-app/viewClosed", { instance })
-  },
+  close: closeView,
+  runAction,
   ready: (async () => {
     await app.request("initialize", {
       protocolVersion: "2025-06-18",

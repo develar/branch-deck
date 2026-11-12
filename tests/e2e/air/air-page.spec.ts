@@ -4,6 +4,7 @@ import { IDE_THEMES, openFakeIde } from "../air-host/fake-host"
 import type { FakeIde } from "../air-host/fake-host"
 import { expect } from "../fixtures/base-test"
 import { TestRepositoryBuilder } from "../helpers/test-repository"
+import { expectClosed } from "../helpers/wait-helpers"
 
 /*
  * The Air build in a fake IDE (`tests/e2e/air-host/`): the frame of each view loads `dist-air/`, the host page relays the
@@ -24,25 +25,36 @@ const test = base.extend<{ ide: FakeIde; repo: TestRepositoryBuilder }>({
   },
 })
 
+/** Syncs the main view by its button and waits for the end of the sync: the row of the branch `feature`, settled */
+async function syncedFeatureRow(ide: FakeIde) {
+  const main = ide.frame("main:1")
+  const sync = main.getByTestId("sync-button")
+  await expect(sync).toBeEnabled()
+  const before = Number(await sync.getAttribute("data-sync-count"))
+  await sync.click()
+  await expect(sync).not.toHaveAttribute("data-sync-count", String(before))
+  await expect(sync).not.toHaveAttribute("aria-busy", "true")
+  const row = main.locator('[data-testid="branch-row"][data-branch-name="feature"]')
+  await expect(row).toBeVisible()
+  return row
+}
+
+/** Opens the review of the branch `feature` from its menu in the main view: the frame of the review tab */
+async function openFeatureReview(ide: FakeIde) {
+  const row = await syncedFeatureRow(ide)
+  await row.click({ button: "right" })
+  await ide.frame("main:1").getByRole("menuitem", { name: "Review Changes" }).click()
+  return ide.frame("review:1")
+}
+
 test.describe("Branch Deck in the IDE", () => {
   test("the tool window shows the branches of the repository after a sync of the page, each patch of the mirror a change of its rows", async ({ ide }) => {
-    const main = ide.frame("main:1")
-    const sync = main.getByTestId("sync-button")
-    await expect(sync).toBeEnabled()
-    const before = Number(await sync.getAttribute("data-sync-count"))
-    await sync.click()
     // the command ran through bd_invoke, and the patches of its run reached the view by the mirror
-    await expect(sync).not.toHaveAttribute("data-sync-count", String(before))
-    await expect(main.locator('[data-testid="branch-row"][data-branch-name="feature"]')).toBeVisible()
+    await syncedFeatureRow(ide)
   })
 
   test("Review Changes opens the review as a view of the IDE, whose diffs stream as the call events of its call", async ({ ide }) => {
-    const main = ide.frame("main:1")
-    await main.getByTestId("sync-button").click()
-    const row = main.locator('[data-testid="branch-row"][data-branch-name="feature"]')
-    await expect(row).toBeVisible()
-    await row.click({ button: "right" })
-    await main.getByRole("menuitem", { name: "Review Changes" }).click()
+    const review = await openFeatureReview(ide)
 
     // brd asked the IDE for the view of the review (`x-air-app/openView`), and the IDE opened its place
     await expect.poll(async () => (await ide.views()).map(view => view.view)).toEqual(["main", "review"])
@@ -50,8 +62,35 @@ test.describe("Branch Deck in the IDE", () => {
     expect(opened).toEqual([expect.objectContaining({ params: expect.objectContaining({ view: "review" }) })])
 
     // the files of the branch came as the call events of `get_file_diffs`, and the call answered after the last
-    const review = ide.frame("review:1")
     await expect(review.getByTestId("review-file-header")).toHaveAttribute("data-path", "auth.js")
+  })
+
+  test("Escape in a review tab closes its place: brd asks the IDE to close the view of its instance", async ({ ide }) => {
+    const review = await openFeatureReview(ide)
+    await expect(review.getByTestId("review-file-header")).toHaveAttribute("data-path", "auth.js")
+
+    // the user works in the tab first: a frame of another origin takes the focus only from the user
+    await review.getByTestId("review-file-header").click()
+    await ide.page.keyboard.press("Escape")
+    // the close of the window of the page is `x-air-app/closeView` of its instance, and the IDE closed the tab
+    await expect.poll(async () => (await ide.views()).map(view => view.instance)).toEqual(["main:1"])
+    expect((await ide.calls()).filter(call => call.method === "x-air-app/closeView")).toEqual([{ method: "x-air-app/closeView", params: { instance: "review:1" } }])
+  })
+
+  test("the actions in the title of the tool window: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository", async ({
+    ide,
+  }) => {
+    const main = ide.frame("main:1")
+    await expect(main.getByTestId("sync-button")).toBeEnabled()
+    await ide.runAction("command-palette", "open_command_palette")
+    // brd sent the main view the event of the palette, as the menu of the desktop app does
+    await expect(main.getByTestId("command-palette")).toBeVisible()
+    await main.getByTestId("command-palette").press("Escape")
+    await expectClosed(main.getByTestId("command-palette"))
+
+    const answer = (await ide.runAction("sync", "sync")) as { structuredContent: { value: { outcome: string } } }
+    expect(["synced", "unchanged"]).toContain(answer.structuredContent.value.outcome)
+    await expect(main.locator('[data-testid="branch-row"][data-branch-name="feature"]')).toBeVisible()
   })
 
   test("the page shows the theme of the IDE and follows its switch from Light to Dark without a reload", async ({ ide }) => {

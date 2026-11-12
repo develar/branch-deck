@@ -167,19 +167,35 @@ describe("The shim of the page in the IDE", () => {
     })
   })
 
-  it("The plugins of Tauri are what the IDE offers: a link, the clipboard, the badge, the progress, the log", async () => {
+  it("The plugins: a link, the clipboard and the log go to the host, the badge, the progress, a notification and the close of the window are bd_invoke of their plugin calls, the size does nothing", async () => {
     const host = new FakeHost()
     const { tauri } = pageOn(host)
     void tauri("plugin:opener|open_url", { url: "https://example.com" })
     expect(host.last()).toMatchObject({ method: "ui/open-link", params: { url: "https://example.com" } })
     void tauri("plugin:clipboard-manager|write_text", { text: "copied" })
     expect(host.last()).toMatchObject({ method: "tools/call", params: { name: HOST_TOOLS.copy, arguments: { text: "copied" } } })
-    void tauri("plugin:window|set_badge_count", { value: 2 })
-    expect(host.last()).toMatchObject({ method: "tools/call", params: { name: HOST_TOOLS.setBadge, arguments: { view: "main", count: 2 } } })
-    void tauri("plugin:window|set_progress_bar", { value: { status: "normal", progress: 40 } })
-    expect(host.last()).toMatchObject({ method: "tools/call", params: { name: HOST_TOOLS.setProgress, arguments: { view: "main", status: "normal", progress: 40 } } })
     await tauri("plugin:log|log", { level: 5, message: "boom" })
     expect(host.last()).toEqual({ jsonrpc: "2.0", method: "notifications/message", params: { level: "error", logger: "branch-deck", data: "boom" } })
+
+    // brd mcp is the one path of the desktop of the IDE: it asks the IDE for the badge, the progress, the notification
+    const desktop = (command: string, args: Record<string, unknown>) => ({ method: "tools/call", params: { name: "bd_invoke", arguments: { command, args } } })
+    void tauri("plugin:window|set_badge_count", { label: "main", value: 2 })
+    await settle()
+    expect(host.last()).toMatchObject(desktop("plugin:window|set_badge_count", { value: 2 }))
+    void tauri("plugin:window|set_progress_bar", { label: "main", value: { status: "normal", progress: 40 } })
+    await settle()
+    expect(host.last()).toMatchObject(desktop("plugin:window|set_progress_bar", { value: { status: "normal", progress: 40 } }))
+    const target = { addEventListener: () => {} } as unknown as Window & { Notification: new (title: string, options?: NotificationOptions) => unknown }
+    new AirPage(new FrameLink(host), { app: "branch-deck", view: "main", instance: "main:1", params: {} }, COMMANDS).install(target)
+    new target.Notification("Safe Push failed", { body: "feature" })
+    await settle()
+    expect(host.last()).toMatchObject(desktop("plugin:notification|notify", { options: { title: "Safe Push failed", body: "feature" } }))
+    // Escape in a review closes its window: brd asks the IDE to close the place
+    void tauri("plugin:window|close", { label: "review" })
+    await settle()
+    expect(host.last()).toMatchObject(desktop("plugin:window|close", { label: "review" }))
+    expect(host.posted.filter(message => message.method === "tools/call" && String((message.params as { name?: string }).name).startsWith("air_set"))).toEqual([])
+
     // the IDE owns the place: its size and its frame are no calls of the page
     const posted = host.posted.length
     expect(await tauri("plugin:window|set_min_size", { value: { width: 1, height: 1 } })).toBeNull()

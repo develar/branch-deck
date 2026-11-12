@@ -91,6 +91,14 @@ export class FakeIde {
   closeView(instance: string): Promise<void> {
     return this.page.evaluate(it => (window as unknown as { __airHost: { close(instance: string): Promise<void> } }).__airHost.close(it), instance)
   }
+
+  /** A click on an action of the app file in the title of the tool window: the IDE calls its tool with the origin action */
+  runAction(action: string, tool: string): Promise<unknown> {
+    return this.page.evaluate(([it, name]) => (window as unknown as { __airHost: { runAction(action: string, tool: string): Promise<unknown> } }).__airHost.runAction(it, name), [
+      action,
+      tool,
+    ] as const)
+  }
 }
 
 /**

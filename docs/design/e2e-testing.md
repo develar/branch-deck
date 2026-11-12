@@ -612,12 +612,16 @@ of Tauri: the page runs on its own shim (`src/platform/air/`). The global setup 
   `mcp-host` serves `brd mcp` on the fixture repository. The fake IDE plays `air-ide`: it numbers the instances
   (`main:1`, `review:1`), the subscriptions (`x-air-ide:/appView/<n>`) and the `serverSeq` of each mirror, maps the ids
   of the calls of a frame to those of the app link (`callId`, `progressToken`), answers `roots/list` with the fixture
-  repository and opens a frame for each `x-air-app/openView`.
+  repository, opens a frame for each `x-air-app/openView` and closes the frame of each `x-air-app/closeView`.
 - **What a test reads**: the frame of a view (`ide.frame("review:1")`), the views (`ide.views()`), the requests of
   `brd mcp` to the IDE and the host tools the pages called (`ide.calls()`); it switches the theme of the IDE
-  (`ide.setTheme(IDE_THEMES.dark)`, the style variables of SEP-1865 of `theme-dark.json`) and closes a view
-  (`ide.closeView`, `x-air-app/viewClosed`).
-  [@test] tests/e2e/air/air-page.spec.ts (`the tool window shows the branches of the repository after a sync of the page, each patch of the mirror a change of its rows`, `Review Changes opens the review as a view of the IDE, whose diffs stream as the call events of its call`, `the page shows the theme of the IDE and follows its switch from Light to Dark without a reload`)
+  (`ide.setTheme(IDE_THEMES.dark)`, the style variables of SEP-1865 of `theme-dark.json`), closes a view
+  (`ide.closeView`, `x-air-app/viewClosed`) and runs an action of the app file as a click in the title of the tool
+  window (`ide.runAction("sync", "sync")`: its tool with the origin `action` and the instance of the tool window).
+- **The focus of a frame**: the page refuses to focus a frame of another origin without the user
+  (`focus-without-user-activation`), so a key for a view that has not had the focus goes after a click into its frame
+  (Escape in a review tab); a key pressed without it reaches the frame that had the focus last.
+  [@test] tests/e2e/air/air-page.spec.ts (`the tool window shows the branches of the repository after a sync of the page, each patch of the mirror a change of its rows`, `Review Changes opens the review as a view of the IDE, whose diffs stream as the call events of its call`, `the page shows the theme of the IDE and follows its switch from Light to Dark without a reload`, `Escape in a review tab closes its place: brd asks the IDE to close the view of its instance`, `the actions in the title of the tool window: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`)
 
 ### The routes of the server
 

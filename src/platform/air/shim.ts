@@ -3,9 +3,10 @@
  * of Tauri (`@/platform/tauri-page`) over the frame link of `x-air-app` (`FrameLink`). A command of app-api is the tool
  * `bd_invoke` of `brd mcp`, its `Channel` the call events of its call, `subscribe_view` the mirror of the repository,
  * `listen` and `emit` the events of `x-air-app`; the plugins of Tauri are what the IDE offers in their place: a link
- * opens by `ui/open-link`, the clipboard, an OS notification, the badge and the progress of the Dock are the tools of the
- * host (`HOST_TOOLS`), the log is `notifications/message`, and a window of the IDE has no size, zoom or frame the page
- * sets. No rule of the domain is here: every command goes to `brd mcp` as the page sends it.
+ * opens by `ui/open-link`, the clipboard is the tool of the host `air_copy` (`HOST_TOOLS`), the log is
+ * `notifications/message`; the badge and the progress of the Dock, an OS notification and the close of the window go to
+ * `brd mcp` as their plugin calls (`bd_invoke`), which asks the IDE for them, and a window of the IDE has no size, zoom
+ * or frame the page sets. No rule of the domain is here: every command goes to `brd mcp` as the page sends it.
  */
 import type { RepositoryView, Version, ViewPatch, ViewSubscription } from "@/lib/bindings"
 import { FrameLinkError } from "@/platform/air/frame-link"
@@ -28,10 +29,20 @@ export interface AirViewContext {
 /** The tools of the host the plugins of Tauri map to; the IDE answers them itself, `brd mcp` never sees them */
 export const HOST_TOOLS = {
   copy: "air_copy",
-  notify: "air_notify",
-  setBadge: "air_set_badge",
-  setProgress: "air_set_progress",
 } as const
+
+/**
+ * The plugin calls of Tauri that `brd mcp` answers as the desktop of the IDE (`bd_invoke`), with their arguments as the
+ * page sends them: it asks the IDE for the badge and the progress of the tool window, a notification, the close of the
+ * place of the view
+ */
+const DESKTOP_CALLS: ReadonlySet<string> = new Set([
+  "plugin:window|set_badge_count",
+  "plugin:window|set_progress_bar",
+  "plugin:window|close",
+  "plugin:window|destroy",
+  "plugin:notification|notify",
+])
 
 /** The tools of `brd mcp` (`tools/list`): both only for the app */
 export const BD_INVOKE = "bd_invoke"
@@ -270,13 +281,10 @@ export class AirPage {
       // an event for the windows goes through `brd mcp`, which tells it to the views of the app (`x-air-app/event`)
       "plugin:event": this.events.plugin((event, payload, target) => this.runCommand("plugin:event|emit", { event, payload, target })),
       "plugin:window": (cmd, payload) => {
+        if (DESKTOP_CALLS.has(cmd)) {
+          return this.runCommand(cmd, payload)
+        }
         switch (action(cmd)) {
-          case "set_badge_count":
-            return this.hostTool(HOST_TOOLS.setBadge, { view: "main", count: (payload?.value as number | undefined) ?? 0 })
-          case "set_progress_bar": {
-            const value = payload?.value as { status?: string; progress?: number } | undefined
-            return this.hostTool(HOST_TOOLS.setProgress, { view: "main", status: value?.status ?? "none", ...(value?.progress !== undefined && { progress: value.progress }) })
-          }
           case "is_focused":
             return document.hasFocus()
           case "is_fullscreen":
@@ -293,7 +301,7 @@ export class AirPage {
           case "outer_size":
             return { width: window.innerWidth * window.devicePixelRatio, height: window.innerHeight * window.devicePixelRatio }
           default:
-            // the IDE owns the place: its size, its frame, its theme, its title and its close
+            // the IDE owns the place: its size, its frame, its theme and its title
             return null
         }
       },
@@ -306,7 +314,10 @@ export class AirPage {
         return null
       },
       "plugin:app": cmd => (action(cmd) === "name" ? "BranchDeck" : ""),
-      "plugin:notification": cmd => {
+      "plugin:notification": (cmd, payload) => {
+        if (DESKTOP_CALLS.has(cmd)) {
+          return this.runCommand(cmd, payload)
+        }
         switch (action(cmd)) {
           case "is_permission_granted":
             return true
@@ -331,9 +342,13 @@ export class AirPage {
     }
   }
 
-  /** The notification plugin of Tauri sends through the browser's `Notification`: in the IDE it is the host's */
+  /**
+   * The notification plugin of Tauri sends through the browser's `Notification`: in the IDE it is the plugin call of
+   * Tauri's own `Notification`, which `brd mcp` asks the IDE to show
+   */
   private answerNotifications(target: Window): void {
-    const notify = (title: string, body: string | undefined) => this.hostTool(HOST_TOOLS.notify, { title, ...(body !== undefined && { body }) }).catch(() => null)
+    const notify = (title: string, body: string | undefined) =>
+      this.runCommand("plugin:notification|notify", { options: { title, ...(body !== undefined && { body }) } }).catch(() => null)
     class IdeNotification {
       static readonly permission: NotificationPermission = "granted"
       static requestPermission(): Promise<NotificationPermission> {

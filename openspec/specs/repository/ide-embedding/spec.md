@@ -117,6 +117,8 @@ At the end of its stdin, `brd mcp` MUST close its sessions and exit with 0.
 #### Scenario: The list
 - **WHEN** air-ide sends `tools/list`
 - **THEN** it gets the four tools, each only for the app
+  [@test] crates/mcp-host/src/server_test.rs (`every_tool_is_only_for_the_app_and_each_action_of_the_app_file_has_its_tool`)
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: bd_invoke runs one command of app-api by its name
 
@@ -160,6 +162,7 @@ A command MUST run for the window of `_meta["x-air-app"].instance`. A command fo
 #### Scenario: Two editor tabs
 - **WHEN** two review tabs call the same command for their window
 - **THEN** each gets the answer for its own instance
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`two_review_tabs_each_get_the_answer_of_their_own_instance`)
 
 ### Requirement: Tools: A call of an agent is refused
 
@@ -179,6 +182,7 @@ end, and its events go to the view and the journal.
 #### Scenario: A cancelled diff
 - **WHEN** air-ide cancels a running `get_file_diffs`
 - **THEN** the command stops, and no answer and no call event of it follow
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`a_cancelled_read_gives_no_answer_and_no_call_event`)
 
 ### Requirement: Tools: bd_bootstrap gives what the page needs before its main
 
@@ -198,6 +202,8 @@ the desktop app. A call of an agent is refused, as for every tool.
 #### Scenario: The shortcut of Sync
 - **WHEN** the user presses Sync Virtual Branches in the IDE, or its button in the title of the tool window
 - **THEN** brd syncs the repository that the main view shows
+  [@test] tests/e2e/air/air-page.spec.ts (`the actions in the title of the tool window: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`)
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: The action Command Palette opens the palette of the main view
 
@@ -208,6 +214,8 @@ desktop app sends it to the main window.
 - **WHEN** the user clicks Branch Deck Command Palette in the title of the tool window
 - **THEN** brd sends `x-air-app/event` of `open_command_palette` with the instance of the main view, and the palette
   opens
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
+  [@test] tests/e2e/air/air-page.spec.ts (`the actions in the title of the tool window: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`)
 
 ### Requirement: Tools: bd_bootstrap gives the settings, the init data and a title bar of the IDE
 
@@ -272,6 +280,7 @@ When the session of a repository closes, `brd mcp` MUST send `x-air-app/viewEnde
 #### Scenario: A removed repository
 - **WHEN** the repository of a mirror is gone, and its session closes
 - **THEN** brd sends `viewEnded` for it with the reason `sessionClosed`
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_end_of_a_session_ends_its_mirror_with_the_reason_session_closed`)
 
 ### Requirement: View: The demand of a view is the demand of its mirror
 
@@ -339,6 +348,7 @@ The Dock badge and the Dock progress MUST be `x-air-app/setBadge` and `x-air-app
 #### Scenario: A robot that needs the user
 - **WHEN** the attention count becomes 2
 - **THEN** brd asks `setBadge {view: "main", count: 2}`
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Windows: A plugin call of the page is the desktop of the IDE
 
@@ -350,6 +360,7 @@ the IDE for them: brd is their one path.
 - **WHEN** the page sets the badge of the Dock to 2
 - **THEN** brd asks `setBadge {view: "main", count: 2}`
   [@test] crates/test-server/src/mcp_corpus_test.rs (`a_change_of_a_setting_is_an_event_and_the_badge_marks_the_tool_window`)
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Windows: A second open of a shown view hands it its data
 
@@ -369,6 +380,8 @@ call. So Escape closes a review tab and a dialog, as their hint says.
 #### Scenario: Escape in a review tab
 - **WHEN** the user presses Escape in a review tab
 - **THEN** brd asks `closeView` of its instance, and the IDE closes the tab
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
+  [@test] tests/e2e/air/air-page.spec.ts (`Escape in a review tab closes its place: brd asks the IDE to close the view of its instance`)
 
 ### Requirement: Repositories: The roots of the project are the repositories of brd mcp
 
@@ -440,6 +453,7 @@ its place. The page mock of the E2E tests installs the same internals of Tauri (
   of its window
 - **THEN** the host gets `ui/open-link`, the tool `air_copy` and `notifications/message`; the badge, the progress and
   the notification are `bd_invoke` of their plugin calls; the size does nothing
+  [@test] src/platform/air/shim.test.ts (`The plugins: a link, the clipboard and the log go to the host, the badge, the progress, a notification and the close of the window are bd_invoke of their plugin calls, the size does nothing`)
 
 ### Requirement: Page: The theme of the IDE maps onto the tokens of the page
 
@@ -469,12 +483,15 @@ view of the session.
 
 ### Requirement: Contract: The copy of the contract is valid against its schema
 
-Each line of `docs/design/ide-embedding/protocol/corpus/*.ndjson` MUST be valid against `x-air-app.schema.json`. The
-example app file is valid against `air-app.schema.json`.
+Each line of `docs/design/ide-embedding/protocol/corpus/*.ndjson` MUST be valid against `x-air-app.schema.json`, and
+each result and action that the line schema takes as any value against the def of its method, as the README of the copy
+names them. The example app file and each app file the corpus writes are valid against `air-app.schema.json`; a file whose entry
+names a problem of the file (`invalidFile`, `unsupportedFormat`) is not.
 
 #### Scenario: The corpus
 - **WHEN** a test reads each corpus file of the copy
 - **THEN** each line is valid, and the example app file too
+  [@test] src/platform/air/contract.test.ts (`each line of the corpus is valid, each result and action by the def of its method, and each app file the corpus writes`, `the example app file is valid against air-app.schema.json`)
 
 ### Requirement: Install: Settings → Tools installs Branch Deck in IntelliJ IDEA
 
