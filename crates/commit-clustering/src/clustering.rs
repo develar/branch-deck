@@ -8,7 +8,8 @@
 //!    is an edge between units, and only the edges of a cycle join (between two anchors, a warning too).
 //! 2. A soft score between two clusters, `S = max(R, P × Kp) × K + adj`, in integer units of 1/10 000 so that ties are
 //!    exact. R links by issue keys and scopes, P by shared paths (IDF-weighted Jaccard), K lowers both when the issue
-//!    projects or the scopes disagree, and adj adds a little for neighbours in the log.
+//!    projects or the scopes disagree, and adj adds a little for neighbours in the log. A scope weighs less the more of
+//!    the range it spreads over (`scope_weights`): a scope of much of the range names an area several branches share.
 //! 3. Agglomerative merges, the best pair first and on a tie the oldest; two anchors never merge, no merge goes over
 //!    `max_commits`, no merge makes a cycle of dependencies, and the merging stops under `MERGE_THRESHOLD`.
 //! 4. `place_clusters` gives each cluster a parent, so that every cluster it depends on is an
@@ -324,7 +325,7 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
     }
   }
   let unit_anchors = groups.iter().map(|group| group.anchor.clone()).collect();
-  let scorer = Scorer::new(&groups, &features, options.max_commits);
+  let scorer = Scorer::new(&groups, &features, options.max_commits, scope_weights(input));
 
   let count = groups.len();
   // the groups each group depends on: the dependencies that joined no units; and the groups
@@ -909,17 +910,19 @@ struct Scored {
   weak: bool,
 }
 
-/// The weights fixed by the units: the IDF of each feature, and the keys too many units name
+/// The weights fixed by the units: the IDF of each feature, the weight of each scope, and the keys too many units name
 struct Scorer<'f> {
   /// By feature id
   idf: Vec<f64>,
+  /// By scope, in units of `ONE`
+  scope_weights: HashMap<String, u32>,
   ignored_mentions: HashSet<String>,
   features: &'f FeatureTable,
   max_commits: usize,
 }
 
 impl<'f> Scorer<'f> {
-  fn new(units: &[Group], features: &'f FeatureTable, max_commits: usize) -> Self {
+  fn new(units: &[Group], features: &'f FeatureTable, max_commits: usize, scope_weights: HashMap<String, u32>) -> Self {
     let count = units.len();
     let mut document_frequency = vec![0usize; features.areas.len()];
     let mut mentioned_by: HashMap<&str, usize> = HashMap::new();
@@ -947,6 +950,7 @@ impl<'f> Scorer<'f> {
     let ignored_mentions = mentioned_by.into_iter().filter(|&(_, units)| units > too_many).map(|(key, _)| key.to_string()).collect();
     Self {
       idf,
+      scope_weights,
       ignored_mentions,
       features,
       max_commits,
@@ -1026,9 +1030,11 @@ impl<'f> Scorer<'f> {
     {
       consider(MENTION, Link::Mention(key.clone()));
     }
-    if let Some(scope) = a.scopes.intersection(&b.scopes).next() {
+    // the shared scope that weighs most, on a tie the first by name
+    let weight = |scope: &String| self.scope_weights.get(scope).copied().unwrap_or(ONE);
+    if let Some(scope) = a.scopes.intersection(&b.scopes).max_by_key(|&scope| (weight(scope), Reverse(scope))) {
       let score = if a.keys.is_empty() && b.keys.is_empty() { SCOPE_WITHOUT_KEYS } else { SCOPE_WITH_KEYS };
-      consider(score, Link::Scope(scope.clone()));
+      consider(scale(score, weight(scope)), Link::Scope(scope.clone()));
     }
     if let Some(key) = a.mentions.intersection(&b.mentions).find(|key| !self.ignored_mentions.contains(*key)) {
       consider(CO_MENTION, Link::CoMention(key.clone()));
@@ -1094,6 +1100,19 @@ fn scale(value: u32, factor: u32) -> u32 {
 #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a similarity in 0 ..= 1")]
 fn to_units(similarity: f64) -> u32 {
   (similarity.clamp(0.0, 1.0) * f64::from(ONE)).round() as u32
+}
+
+/// The weight of each scope, in units of `ONE`: √(1 − s), s the share of the commits of the range with the scope
+fn scope_weights(input: &ClusterInput) -> HashMap<String, u32> {
+  let mut commits: HashMap<&str, usize> = HashMap::new();
+  for scope in input.commits.iter().filter_map(|commit| commit.scope.as_deref()) {
+    *commits.entry(scope).or_default() += 1;
+  }
+  let total = ratio(input.commits.len());
+  commits
+    .into_iter()
+    .map(|(scope, count)| (scope.to_string(), to_units((1.0 - ratio(count) / total).sqrt())))
+    .collect()
 }
 
 fn ratio(count: usize) -> f64 {

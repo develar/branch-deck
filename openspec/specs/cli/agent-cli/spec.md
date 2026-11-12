@@ -3259,8 +3259,9 @@ doesn't build on the branch whose name it uses MUST be a `symbol_dependency` war
 ### Requirement: `brd suggest`: Soft merges go by a deterministic score
 
 Soft merges MUST go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
-`type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the
-best pair first, a tie to the oldest, under `--max-commits` (40) and down to the threshold 0.40.
+`type scope:`) weighted by their spread over the range, shared paths weighted by IDF, the disagreement of issue
+projects and scopes, and log adjacency: the best pair first, a tie to the oldest, under `--max-commits` (40) and down
+to the threshold 0.40.
 
 #### Scenario: Adjacency alone
 - **WHEN** only log adjacency lifts a pair over the threshold
@@ -3272,6 +3273,12 @@ best pair first, a tie to the oldest, under `--max-commits` (40) and down to the
 - **THEN** they merge, and another scope halves the weight of their shared paths
   [@test] crates/commit-clustering/src/clustering_test.rs (`the_same_scope_merges_commits_without_keys_and_another_scope_halves_paths`)
   [@test] crates/sync-utils/src/issue_pattern.rs (`semantic_prefixes_with_and_without_parentheses`)
+
+#### Scenario: A scope over much of the range
+- **WHEN** a conventional scope covers a share s of the commits of the range
+- **THEN** its link weighs √(1 − s): a scope of most of the range names an area several branches share, and its
+  commits don't merge by it alone, even next to each other
+  [@test] crates/commit-clustering/src/clustering_test.rs (`a_scope_over_much_of_the_range_weighs_less`)
 
 #### Scenario: Mentions of issue keys
 - **WHEN** a commit mentions an issue key anywhere in its text

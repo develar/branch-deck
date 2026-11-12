@@ -1455,7 +1455,11 @@ branch tips), their changes from the object cache without lock files, generated 
    - R, the links: a dependency between the two sides when a side without an anchor has no
      issue key (0.95): a follow-up joins the branch it needs, and a commit with its own key stacks on it instead; a
      body names an issue key of the other side (0.9); both sides name a third key (0.7); the same conventional scope
-     (0.8 without issue keys, 0.5 with them). A key that more than max(10, units / 3) units name links nothing: it is
+     (0.8 without issue keys, 0.5 with them), times √(1 − s), s the share of the commits of the range with that scope:
+     a scope of most of the range names an area that several branches share, not a branch (of several shared scopes the
+     heaviest links; the suggest corpora of the review-concerns lab calibrated it: on lease picks of this repository,
+     where a scope names an area, pair precision rose from 32 % to 76 % at the same recall, and the IntelliJ branches
+     and the golden lost nothing). A key that more than max(10, units / 3) units name links nothing: it is
      the key of a series. A branch of a prefix takes in a whole issue branch by the mention only when two of its bodies
      name the key or they share paths (P of at least 0.2): one body that names it is a reference, not the same work. A scope is read from `type(scope):` and from `type scope:`, as in `setup vm:`
      (`parse_semantic_prefix`).

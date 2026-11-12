@@ -139,6 +139,20 @@ fn the_same_scope_merges_commits_without_keys_and_another_scope_halves_paths() {
   assert_eq!(why(&input, &clustering.clusters[0]), "3 units; scope vm in 3 subjects; area tools/vm/src");
 }
 
+/// A scope of much of the range names an area that parallel branches share (`e2e` of the commits of several leases):
+/// it weighs √(1 − s), s its share of the commits, so 9 commits of 11 don't merge by it, even next to each other,
+/// while 2 commits of 11 do; no paths are shared
+#[test]
+fn a_scope_over_much_of_the_range_weighs_less() {
+  let mut commits: Vec<CommitFeatures> = (0..9).map(|index| scoped("e2e", &format!("e2e{index}/a.ts"))).collect();
+  commits.extend([scoped("lease", "one/a.rs"), scoped("lease", "two/b.rs")]);
+  let clustering = cluster(&input(commits), &ClusterOptions::default());
+  let mut expected: Vec<Vec<usize>> = (0..9).map(|index| vec![index]).collect();
+  expected.push(vec![9, 10]);
+  assert_eq!(groups(&clustering), expected);
+  assert_eq!(clustering.clusters[9].links, [Link::Scope("lease".to_string())]);
+}
+
 #[test]
 fn a_mention_links_keys_of_one_project_but_hardly_across_projects() {
   let input = input(vec![
@@ -224,15 +238,23 @@ fn shared_paths_merge_but_a_feature_of_many_units_or_a_peripheral_file_weighs_li
 
 #[test]
 fn the_cap_stops_soft_merges_and_a_tie_goes_to_the_oldest_pair() {
-  let input = input(vec![scoped("vm", "a/x.txt"), scoped("vm", "b/y.txt"), scoped("vm", "c/z.txt")]);
+  // three more commits without a scope, so that the scope covers half of the range and keeps its weight over the threshold
+  let input = input(vec![
+    scoped("vm", "a/x.txt"),
+    scoped("vm", "b/y.txt"),
+    scoped("vm", "c/z.txt"),
+    touching("d/u.txt"),
+    touching("e/v.txt"),
+    touching("f/w.txt"),
+  ]);
   let options = ClusterOptions {
     max_commits: 2,
     ..ClusterOptions::default()
   };
   let first = cluster(&input, &options);
-  assert_eq!(groups(&first), [vec![0, 1], vec![2]]);
+  assert_eq!(groups(&first), [vec![0, 1], vec![2], vec![3], vec![4], vec![5]]);
   assert_eq!(cluster(&input, &options), first, "deterministic");
-  assert_eq!(groups(&cluster(&input, &ClusterOptions::default())), [vec![0, 1, 2]]);
+  assert_eq!(groups(&cluster(&input, &ClusterOptions::default())), [vec![0, 1, 2], vec![3], vec![4], vec![5]]);
 }
 
 /// Repair with a check that finds commit 1 conflicting until it shares a hard unit with commit 0
