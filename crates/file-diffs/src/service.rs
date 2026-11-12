@@ -26,7 +26,10 @@
 //!   a subject read ahead of its view starts none. The pairs come from the caches again; the answer is the marks of
 //!   the files it says something of, which add words and what a reader may pass, never a row. Memory keeps the
 //!   answers of the last subjects (`ANSWERS_CACHE_BYTES`) by their two trees and their questions: two trees never
-//!   change, and a subject shown again asks no process.
+//!   change, and a subject shown again asks no process. Only an answer that is final for each of its pairs is kept
+//!   (`RenameAnswer::is_final`): one that the budget of the query, its limit or the state of the index cut short
+//!   says what that query got to, on that machine at that load, and the subject is asked again when it is shown
+//!   again.
 //! - **Caches.** A diff is keyed by its blob pair, the whitespace policy and how each side is read (`DiffKey`,
 //!   `diff_options`): its grammar, since the scopes and the marks depend on it, `.kt` and `.kts`, `.ts`, `.tsx` and
 //!   `.js` each their own; without a grammar, whether its indentation has a meaning, which the moves depend on, so a
@@ -84,7 +87,7 @@ use tracing::{debug, instrument, warn};
 /// The version of the diffs in the `file_diff` store and of what they left in the `file_leftovers` store: bump it
 /// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change.
 /// `stored_layout_test.rs` pins the layout of both with it
-pub const MODEL_VERSION: u32 = 12;
+pub const MODEL_VERSION: u32 = 13;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
 /// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
@@ -108,7 +111,8 @@ pub const BLOB_CACHE_BYTES: u64 = 128 << 20;
 /// The merges whose conflicting paths memory keeps
 const MAX_CACHED_CONFLICTS: u64 = 256;
 /// The answers of the index that memory keeps, weighed by the uses they list: those of the subjects a window showed
-/// last, each some kilobytes, one of a name used all over a repository a megabyte
+/// last, each some kilobytes, one of a name used all over a repository a megabyte. Final ones alone
+/// (`RenameAnswer::is_final`)
 pub const ANSWERS_CACHE_BYTES: u64 = 16 << 20;
 /// At most this many blobs in one `blob_texts`
 pub const MAX_BLOB_REQUESTS: usize = 10_000;
@@ -558,10 +562,11 @@ impl FileDiffs {
   /// whoever asks again.
   ///
   /// Asked after the diffs of the subject: its pairs come from the caches, and a pair they lost is compared again,
-  /// silently. Every declaration goes into one process, and an answer is kept in memory by its two trees and its
-  /// questions (`ANSWERS_CACHE_BYTES`), so a subject shown again starts none. An index that does not answer (none,
-  /// one without the answer, no index of the repository, a failed query) leaves every asked proof `unavailable`: it
-  /// fails no read
+  /// silently. Every declaration goes into one process, and an answer that is final for each of them
+  /// (`RenameAnswer::is_final`) is kept in memory by its two trees and its questions (`ANSWERS_CACHE_BYTES`), so a
+  /// subject shown again starts none; an answer that the query cut short is used for this question alone. An index
+  /// that does not answer (none, one without the answer, no index of the repository, a failed query) leaves every
+  /// asked proof `unavailable`: it fails no read
   #[instrument(skip(self, git, cache, index, params), fields(repository_path = %params.repository_path, source = ?params.source))]
   pub fn rename_proofs(&self, git: &GitCommandExecutor, cache: &ObjectCache, index: Option<&dyn SymbolIndex>, params: &GetRenameProofsParams) -> Result<Option<Vec<FileMarks>>> {
     let (repository_path, policy) = (params.repository_path.as_str(), params.policy);
@@ -596,7 +601,13 @@ impl FileDiffs {
       (None, Some(index)) => match index.renames(repository_path, questions, &key.1, &key.2) {
         Ok(Some(answers)) if answers.len() == questions.len() => {
           let answers = Arc::new(answers);
-          self.marks_memory.answers.insert(key, Arc::clone(&answers));
+          // an answer the budget or the state of the index cut short is one of this query alone: the next
+          // question of the subject asks the index again
+          if answers.iter().all(RenameAnswer::is_final) {
+            self.marks_memory.answers.insert(key, Arc::clone(&answers));
+          } else {
+            debug!("the index did not answer every rename of the subject to its end: the answer is not kept");
+          }
           Some(answers)
         }
         Ok(_) => None,

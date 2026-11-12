@@ -21,10 +21,17 @@
 //!   complete, that the rename changes the meaning of no name, and when every use it lists in either tree is the
 //!   declaration, a place of the rename with its twin of the other tree listed too, a link of a doc comment, a use
 //!   that writes no word (a positional argument that sets a property), a use by another word (an alias, an accessor)
-//!   that the other tree lists at the same place, or stands on a line that is read anyway (a changed line in no
-//!   run). Every other answer, and no answer, names why not. The places a proven declaration lists are proven, and a run whose every place is proven, by the index or,
-//!   for a local name, by the scopes of its file, is one of `SubjectMarks::confirmed`: quiet once the kind `Renamed`
-//!   is (`marks::is_quiet`). The declaration itself is in no run and stays a stop.
+//!   that the other tree lists at the same place, or stands on a line that is read anyway (a line of a change, in
+//!   no run and in no move). Every other answer, and no answer, names why not. The places a proven declaration lists
+//!   are proven, and a run whose every place is proven, by the index or, for a local name, by the scopes of its
+//!   file, is one of `SubjectMarks::confirmed`: quiet once the kind `Renamed` is (`marks::is_quiet`). The
+//!   declaration itself is in no run and stays a stop.
+//! - **A line a move took is read as the line it was** (`Subject::is_moved`): a view shows it as the same line at
+//!   another place, within its file or in another, and no reader asks what its names mean there. So a use on such a
+//!   line is neither read anyway nor a place of a rename: the old name on it is a use the change left behind
+//!   (`UsesOutside`), the new name one that meant something else (`OtherMeaning`). An edited line of a move that
+//!   differs in more than whitespace is a changed line like any other (`Leftovers::rewritten`). A pale block
+//!   (`WhitespaceOnly`) is the lines it was too.
 //! - **Only Kotlin and Java are proven**: accio checks each tie by the scopes of the file for these two; of another
 //!   language its `complete` is the word of its resolver (its decision 2026-11-11-rename-read-in-two-trees). So a
 //!   name declared in a file of another language is not asked at all: its proof is `Incomplete` without a process.
@@ -45,7 +52,7 @@ use code_symbols::highlight::{Grammar, grammar_of};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use text_diff::model::{BlockKind, DiffBlock, DiffMarks, FileMove, LineRun, Rename, RenameCheck, RenameProof, RunKind, SubjectMarks, TextDiff, UsedRename, starts_of};
+use text_diff::model::{BlockKind, DiffBlock, DiffMarks, FileMove, LineMove, LineRun, Rename, RenameCheck, RenameProof, RunKind, SubjectMarks, TextDiff, UsedRename, starts_of};
 use text_diff::moves_across::{AcrossWork, FileRows, LeftRow, find_moves_across};
 
 /// The languages whose uses accio ties by the scopes of their files, as it names them: only of these is a complete
@@ -431,15 +438,30 @@ impl<'a> Subject<'a> {
   }
 
   /// Whether the line `line` of a side of the file `file` is read whatever a rename is: a line of a change, in no
-  /// run. The lines of a block the policy cut off, and those of a run, are lines a reader may pass
+  /// run and in no move. A reader may pass the lines of a run, and reads a pale block (equal to itself under the
+  /// policy) and a block the policy cut off as the lines they were; a line a move took is the same line at another
+  /// place to him (`is_moved`)
   fn is_read(&self, file: u32, new_side: bool, line: u32) -> bool {
     let Some(Some(subject)) = self.files.get(file as usize) else { return false };
     let blocks = &subject.facts.diff.blocks;
     let lines = |block: &DiffBlock| if new_side { block.new_start..block.new_end } else { block.old_start..block.old_end };
     let changed = blocks
       .get(blocks.partition_point(|block| lines(block).end <= line))
-      .is_some_and(|block| block.kind != BlockKind::Ignored && lines(block).contains(&line));
-    changed && !subject.runs.iter().any(|run| side_of(run, new_side).contains(&line))
+      .is_some_and(|block| block.kind == BlockKind::Changed && lines(block).contains(&line));
+    changed && !subject.runs.iter().any(|run| side_of(run, new_side).contains(&line)) && !self.is_moved(file, new_side, line)
+  }
+
+  /// Whether a move took the line `line` of a side of the file `file` as it is: a line of a move between two files
+  /// (exact lines only), or of a move within the file that did not rewrite it (`Leftovers::rewritten`). A view shows
+  /// such a line as the same line at another place, so a name on it is read as what it was: no use on it is read
+  /// anyway, and none is a place of a rename
+  fn is_moved(&self, file: u32, new_side: bool, line: u32) -> bool {
+    let Some(Some(subject)) = self.files.get(file as usize) else { return false };
+    let between = if new_side { &subject.moved_in } else { &subject.moved_out };
+    let (pair, left) = (&subject.facts.diff.marks, subject.facts.left);
+    let within = |moved: &LineMove| if new_side { moved.new_lines() } else { moved.old_lines() }.contains(&line);
+    between.iter().any(|moved| (moved.start..moved.start + moved.len).contains(&line))
+      || (pair.moves.iter().any(within) && left.rewritten[usize::from(new_side)].binary_search(&line).is_err())
   }
 
   /// What the index proved: of each question whether its declaration is renamed and nothing else, and the places the
@@ -507,7 +529,10 @@ impl<'a> Subject<'a> {
       let (mut left, mut captured) = (false, false);
       for (new_side, uses, others) in [(false, &base, &head), (true, &head, &base)] {
         for (used, place) in &uses.uses {
+          // a place of a rename on a line a move took as it is is none: the line stands at the other end of its
+          // move with the name it had, which is no use of the declaration there
           let site = place
+            .filter(|(file, line)| !self.is_moved(*file, new_side, *line))
             .map(|(file, line)| (file, line, used.column, used.end_column))
             .and_then(|place| if new_side { sites.new.get(&place) } else { sites.old.get(&place) });
           match (site, &used.text) {
@@ -533,9 +558,9 @@ impl<'a> Subject<'a> {
               let same = twin.is_some_and(|(spot, line)| others.words.contains(&(spot, line, used.column, used.end_column, word.as_str())));
               incomplete |= !same;
             }
-            // the old name where the change left the line alone, or in a file it did not touch
+            // the old name where the change left the line alone or moved it as it is, or in a file it did not touch
             (None, None) if !new_side => left = true,
-            // the new name where the change left the line alone: it named something else before
+            // the new name where the change left the line alone or moved it as it is: it named something else before
             (None, None) => captured = true,
           }
         }

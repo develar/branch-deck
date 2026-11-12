@@ -3368,9 +3368,12 @@ git plumbing does not depend on.
   revision this reader was written for (`RENAMES_ANSWER`; one more process, once for each build of the executable,
   told by its size and the time it was written, as its `--version` is: the app outlives an update of accio). An
   answer is kept in memory by the repository, the two trees and the declarations asked (16 MiB): two trees never
-  change, so a subject shown again starts no process. No index of the repository (`available: false`), an accio
-  without the answer, a failure and an answer of another number of pairs leave the names `unavailable`, and are
-  not kept; none fails a read. One question per window (`Windows::begin_rename_proofs`): a newer one supersedes the
+  change, so a subject shown again starts no process. Only an answer that is final for each declaration is kept
+  (`RenameAnswer::is_final`): one that the budget of the query (accio's 30 s, shared by the declarations of the
+  call), its limit or the state of the index cut short (`same` and not `complete`) is used for its question and
+  asked for again by the next, since it is a function of the load of the machine, not of the two trees. No index
+  of the repository (`available: false`), an accio without the answer, a failure and an answer of another number
+  of pairs leave the names `unavailable`, and are not kept; none fails a read. One question per window (`Windows::begin_rename_proofs`): a newer one supersedes the
   one in flight, whose query is killed, as is the query of a window that closed or loads again (`Windows::shows`:
   the page of a window that went away never says so itself); it answers nothing then, and the names stay `asked`
   for the next question. The e2e server answers from the fixture of its repository

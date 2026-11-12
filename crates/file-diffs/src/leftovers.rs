@@ -15,6 +15,9 @@
 //!   is asked by, in its lines and columns, made here where the texts are.
 //! - **The renames the scopes of the file prove** (`proven`): what a run that holds a local name beside a name that
 //!   is not local still needs to be proven whole.
+//! - **The lines a move of the file rewrote** (`rewritten`, `text_diff::moves::rewritten_lines`): the edited lines of
+//!   its moves that differ in more than whitespace. Every other line of a move reads as the same line at another
+//!   place, and what a name on it means is asked of no reader.
 //! - **Whether a side ends a line with a lone carriage return** (`lone_returns`): the comparison counts it as a line
 //!   end and the index does not, so no line the index names of such a text is a line of the diff.
 //!
@@ -27,6 +30,7 @@ use crate::accio::Columns;
 use crate::marks::PairMarks;
 use serde::{Deserialize, Serialize};
 use text_diff::model::{DiffBlock, DiffMarks, LineRun, Rename};
+use text_diff::moves::rewritten_lines;
 use text_diff::moves_across::{LeftRow, left_rows};
 
 /// The leftovers that memory keeps, weighed by their size
@@ -48,6 +52,9 @@ pub struct Leftovers {
   pub proven: Vec<u32>,
   /// Whether the old text, and the new one, ends a line with a carriage return that no line feed follows
   pub lone_returns: [bool; 2],
+  /// The lines of each side, the old one first and each in order, that a move of the marks took and rewrote: an
+  /// edited line of it whose two texts differ in more than whitespace, read as a changed line
+  pub rewritten: [Vec<u32>; 2],
 }
 
 /// The runs of one block, by its number among the blocks of the diff, that it has once the names the file declares
@@ -100,6 +107,7 @@ impl Leftovers {
       pending,
       proven: proven_renames,
       lone_returns,
+      rewritten: rewritten_lines(old, new, &marks.moves),
     };
     (marks, left)
   }
@@ -118,7 +126,8 @@ impl Leftovers {
       .map(|block| 32 + block.runs.iter().map(|run| 48 + run.names.len() * 4).sum::<usize>())
       .sum();
     let declarations: usize = self.declarations.iter().map(|it| 32 + it.places.len() * 16).sum();
-    u32::try_from(64 + rows + renames + pending + declarations + self.proven.len() * 4).unwrap_or(u32::MAX)
+    let rewritten: usize = self.rewritten.iter().map(|lines| lines.len() * 4).sum();
+    u32::try_from(64 + rows + renames + pending + declarations + self.proven.len() * 4 + rewritten).unwrap_or(u32::MAX)
   }
 }
 

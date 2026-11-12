@@ -6965,7 +6965,10 @@ export type RenameProof =
  *  means something else by the rename
  */
 "confirmed" | 
-/**  A use of the name stands where the subject did not change it: in a file it left alone, on a line it left alone */
+/**
+ *  A use of the name stands where the subject did not change it: in a file it left alone, on a line it left
+ *  alone, or on a line it only moved
+ */
 "usesOutside" | 
 /**
  *  The rename changes what a name means: a use that names another declaration now, an overload, an override, a

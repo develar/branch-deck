@@ -359,14 +359,17 @@ fn report_pair_marks(events: &[FileDiffEvent]) -> DiffMarks {
 /// What an index answers of the renames of a subject
 type Renames = anyhow::Result<Option<Vec<RenameAnswer>>>;
 
+/// How an index of a test answers `renames`
+type Answering = fn() -> Renames;
+
 /// An index of a test: it answers `renames` with `answer` and keeps what it was asked
 struct RenameIndex {
-  answer: fn() -> Renames,
+  answer: Answering,
   asked: std::sync::Mutex<Vec<(Vec<RenamePair>, String, String)>>,
 }
 
 impl RenameIndex {
-  fn new(answer: fn() -> Renames) -> Self {
+  fn new(answer: Answering) -> Self {
     Self {
       answer,
       asked: std::sync::Mutex::default(),
@@ -536,7 +539,8 @@ fn the_index_is_asked_after_the_diffs_of_a_subject_in_one_call_and_its_answer_is
 /// A subject that renamed no name that is not local asks the index nothing; an index that answers no renames, one
 /// without an index of the repository and one that fails leave the names unavailable, never a failure of the diffs
 /// and never "no use"; a canceled query answers nothing, and the names stay asked for whoever asks again. No answer
-/// but a whole one is kept
+/// but a whole one is kept, and of the whole ones only one that is final for each pair: an answer that the budget of
+/// the query or the state of the index cut short is asked for again
 #[test]
 fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no_diff() {
   let (repo, _, second) = corpus_of_one_change();
@@ -554,7 +558,7 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
   assert_eq!((files.len(), silent.asked().len()), (1, 0));
 
   let (repo, second) = renamed_store();
-  let answers: [fn() -> Renames; 4] = [
+  let answers: [Answering; 4] = [
     || Ok(None),
     || Err(IndexUnavailable("no index of this repository".to_string()).into()),
     || Err(anyhow::anyhow!("accio failed")),
@@ -579,7 +583,7 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
 
   // canceled: no answer, the names still asked
   let diffs = unhurried();
-  let read = |index: &RenameIndex| {
+  let read_with = |diffs: &FileDiffs, index: &RenameIndex| {
     let files = diffs
       .read_checked(
         repo.git_executor(),
@@ -592,6 +596,7 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
       .unwrap();
     text(file(&files, "src/Report.kt")).marks.subject.clone().unwrap().used[0].proof
   };
+  let read = |index: &RenameIndex| read_with(&diffs, index);
   let canceled = RenameIndex::new(|| Err(SearchCanceled.into()));
   assert_eq!(read(&canceled), RenameProof::Asked);
   let params = GetRenameProofsParams {
@@ -604,6 +609,62 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
   assert_eq!(read(&RenameIndex::new(|| Ok(None))), RenameProof::Unavailable);
   let answering = RenameIndex::new(complete_answer);
   assert_eq!((read(&answering), answering.asked().len()), (RenameProof::Confirmed, 1));
+
+  // an answer that the query cut short says what that query got to, not what the two trees are: it is the answer
+  // of its question and is not kept, so the subject asked again asks the index again, which may have got further
+  let cut_short: [(&str, Answering); 2] = [
+    ("the budget ran out before the pair", || answer_with(BEFORE_THE_PAIR)),
+    ("the uses of both trees, not complete", || answer_with(r#"{"complete": false}"#)),
+  ];
+  for (name, answer) in cut_short {
+    let (diffs, index) = (unhurried(), RenameIndex::new(answer));
+    let proofs = [read_with(&diffs, &index), read_with(&diffs, &index)];
+    assert_eq!((proofs, index.asked().len()), ([RenameProof::Incomplete; 2], 2), "{name}");
+    // an index that answers to the end then is heard, and its answer is the one that stays
+    let whole = RenameIndex::new(complete_answer);
+    let proofs = [read_with(&diffs, &whole), read_with(&diffs, &index)];
+    assert_eq!((proofs, whole.asked().len(), index.asked().len()), ([RenameProof::Confirmed; 2], 1, 2), "{name}");
+  }
+  // what the index says of a pair without its uses is all it ever says of it: kept
+  let decided: [(&str, Answering, RenameProof); 2] = [
+    (
+      "a pair that could not be asked",
+      || answer_with(r#"{"unavailable": true, "same": false, "complete": false, "base": null, "head": null}"#),
+      RenameProof::Unavailable,
+    ),
+    (
+      "two places that are not one declaration",
+      || answer_with(r#"{"same": false, "complete": false, "base": null, "head": null}"#),
+      RenameProof::OtherDeclaration,
+    ),
+  ];
+  for (name, answer, proof) in decided {
+    let (diffs, index) = (unhurried(), RenameIndex::new(answer));
+    let proofs = [read_with(&diffs, &index), read_with(&diffs, &index)];
+    assert_eq!((proofs, index.asked().len()), ([proof; 2], 1), "{name}");
+  }
+}
+
+/// What the accio of `RENAMED_STORE_ANSWER` answers of a pair once the budget of its call ran out before it (asked
+/// with `--budget 0`): the two declarations and that they are one, no uses of either tree, not complete
+const BEFORE_THE_PAIR: &str =
+  r#"{"complete": false, "base": null, "head": null, "note": "the budget of 30s ran out before this pair was asked: its uses and relations are not read"}"#;
+
+/// The complete answer of the renamed store with the fields of `changed`, a JSON object, in place of its own; one
+/// that is `null` is left out
+fn answer_with(changed: &str) -> Renames {
+  let mut answers: Vec<serde_json::Map<String, serde_json::Value>> = serde_json::from_str(RENAMED_STORE_ANSWER)?;
+  let changed: serde_json::Map<String, serde_json::Value> = serde_json::from_str(changed)?;
+  for (field, value) in changed {
+    if value.is_null() {
+      answers[0].remove(&field);
+    } else {
+      answers[0].insert(field, value);
+    }
+  }
+  Ok(Some(serde_json::from_value(serde_json::Value::from(
+    answers.into_iter().map(serde_json::Value::Object).collect::<Vec<_>>(),
+  ))?))
 }
 
 /// A repository whose second commit changes one line of one text file

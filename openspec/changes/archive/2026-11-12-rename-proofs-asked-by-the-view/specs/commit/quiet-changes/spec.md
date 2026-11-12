@@ -23,12 +23,12 @@ carriage return. The pass over a subject MUST read no blob for it.
 - **WHEN** the calls of a function another file declares get another name, one of them beside a call that is wrapped
 - **THEN** the pair keeps, of each such block read with the two names as one, the run of the kind `renamed` of the line of the name, with the name; the run of formatting of the wrapped call is the pair's own and is not kept
 - **AND** the runs of the pair itself are as they were, and a kept run that shares a line with a move of the file is none
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have`)
 
 #### Scenario: A run that leans on the name after its block
 - **WHEN** a line that changed in a name another file declares ends its block, and the first token of the code after the block is a place of another name the file declares none of
 - **THEN** the kept run names both: it is a run only while the code after the block reads the same, which the second name read as one makes it
   [@test] crates/file-diffs/src/marks_subject_test.rs (`the_subject_adds_labels_alone_never_a_quiet_run_or_a_stop`)
-  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have`)
 
 #### Scenario: The places of a declaration
 - **WHEN** a file declares a renamed function after two characters outside the basic plane on its line, has a lone carriage return, or stands at a path with a tab

@@ -29,7 +29,7 @@
 //! A move between files is a label: it is never quiet, takes no line out of a view and changes no stop.
 
 use crate::model::{DiffBlock, LineMove, LineRun, to_u32};
-use crate::moves::{MAX_KEY_CANDIDATES, TakenLines, WHITESPACE, free_spans, line_starts, without_empty_last_line};
+use crate::moves::{MAX_KEY_CANDIDATES, TakenLines, WHITESPACE, free_spans, line_starts, line_text, without_empty_last_line};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
@@ -148,9 +148,7 @@ pub fn left_rows(old: &str, new: &str, blocks: &[DiffBlock], runs: &[LineRun], m
     for span in spans {
       let (mut keys, mut solid) = (Vec::with_capacity(span.lines.len()), Vec::with_capacity(span.lines.len()));
       for line in span.lines.clone() {
-        let start = starts.get(line as usize).copied().unwrap_or(text.len());
-        let end = starts.get(line as usize + 1).copied().unwrap_or(text.len());
-        let ended = text.get(start..end).unwrap_or_default().trim_end_matches(['\n', '\r']).trim_end_matches(WHITESPACE);
+        let ended = line_text(text, &starts, line).trim_end_matches(['\n', '\r']).trim_end_matches(WHITESPACE);
         let trimmed = ended.trim_start_matches(WHITESPACE);
         // a blank line has no depth: it pairs with any blank line
         keys.push(if trimmed.is_empty() { BLANK } else { key_of(if indented { ended } else { trimmed }) });

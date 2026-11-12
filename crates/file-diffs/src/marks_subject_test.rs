@@ -10,7 +10,7 @@ use code_symbols::tokens::tokens;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 use test_log::test;
-use text_diff::model::{DiffBudget, DiffMarks, FileMove, LineMove, LineRun, RenameProof, RunKind, SubjectMarks, TextDiff, diff_texts};
+use text_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, LineMove, LineRun, RenameProof, RunKind, SubjectMarks, TextDiff, diff_texts};
 use text_diff::policy::WhitespacePolicy;
 
 /// A file of a case: its path and its two texts, `None` for a side it does not exist on
@@ -36,13 +36,13 @@ fn added(path: &'static str, new: &str) -> File {
   }
 }
 
-/// The diff of a file with the marks of its pair, and what the pair left
-fn read(file: &File) -> (TextDiff, Leftovers) {
+/// The diff of a file under `policy` with the marks of its pair, and what the pair left
+fn read(file: &File, policy: WhitespacePolicy) -> (TextDiff, Leftovers) {
   let (old, new) = (file.old.as_deref().unwrap_or_default(), file.new.as_deref().unwrap_or_default());
-  let mut diff = diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE);
+  let mut diff = diff_texts(old, new, policy, &DiffBudget::NONE);
   let grammar = pair_grammar(file.path, file.path);
   let indented = pair_indented(file.path, file.path);
-  let pair = marks_of(&diff, old, new, grammar, WhitespacePolicy::Default, indented, |new_side| {
+  let pair = marks_of(&diff, old, new, grammar, policy, indented, |new_side| {
     tokens(grammar?, if new_side { new } else { old }).map(Arc::new)
   });
   let (marks, left) = Leftovers::of(&diff.blocks, pair, old, new, indented);
@@ -57,8 +57,13 @@ struct Case {
 }
 
 impl Case {
+  /// The files read with every character counted
   fn of(files: Vec<File>) -> Self {
-    let pairs = files.iter().map(read).collect();
+    Self::under(files, WhitespacePolicy::Default)
+  }
+
+  fn under(files: Vec<File>, policy: WhitespacePolicy) -> Self {
+    let pairs = files.iter().map(|file| read(file, policy)).collect();
     Self { files, pairs }
   }
 
@@ -518,6 +523,206 @@ fn a_use_on_a_line_that_is_read_anyway_and_a_link_of_a_doc_comment_do_not_stand_
   let deleted = answer.base.as_mut().unwrap().uses.iter_mut().find(|used| used.path == "src/Extra.kt").unwrap();
   deleted.line = 3;
   assert_eq!(proofs(&case, &answer), (RenameProof::UsesOutside, RenameProof::UsesOutside, vec![]));
+}
+
+const DESCRIBE: [&str; 4] = [
+  "fun describeTheStoreOfTheBackup(): String {",
+  "  val backup = openStore(\"backup-of-the-primary-store\")",
+  "  return backup.path + \" is the backup of the primary\"",
+  "}",
+];
+const FIRST: [&str; 4] = ["fun first(): Store {", "  val primary = openStore(\"primary\")", "  return primary", "}"];
+const SECOND: [&str; 3] = ["fun second(): Int {", "  return 2", "}"];
+const HEADER: [&str; 2] = ["package demo", ""];
+const GAP: [&str; 1] = [""];
+/// No line of a side that a move rewrote (`Leftovers::rewritten`)
+const NONE_REWRITTEN: [Vec<u32>; 2] = [Vec::new(), Vec::new()];
+
+/// The proof of the declaration of the store, the file `store` of `case`, with `answer` of the index
+fn declared_proof(case: &Case, store: usize, answer: &RenameAnswer) -> RenameProof {
+  case.subject(IndexAnswer::Answered(std::slice::from_ref(answer)), store).declared[0].proof
+}
+
+/// A view shows a line a move took as the same line at another place, so no reader asks what a name on it means
+/// there: a use on such a line is not read anyway. Only a line the move rewrote is a changed line
+#[test]
+fn a_use_on_a_line_a_move_took_as_it_is_is_not_read_anyway() {
+  // what accio answered of this very change: the store renames `openStore`, a new file declares a function of the
+  // old name that calls the renamed one, one call is renamed and the function with the other call only moved below
+  // two others. The call that moved names the new function now, which the head tree therefore does not list
+  let answer: RenameAnswer = serde_json::from_str(
+    r#"{"base": {"by_name": 0, "complete": true, "total": 3, "uses": [
+        {"column": 4, "end_column": 13, "file": "src/Store.kt", "kind": "declaration", "line": 5, "resolved": "typed"},
+        {"column": 15, "end_column": 24, "file": "src/Use.kt", "kind": "call", "line": 4, "resolved": "import"},
+        {"column": 16, "end_column": 25, "file": "src/Use.kt", "kind": "call", "line": 9, "resolved": "import"}]},
+      "body_equal": true, "complete": true, "conflicts": [],
+      "head": {"by_name": 0, "complete": true, "total": 3, "uses": [
+        {"column": 9, "end_column": 21, "file": "src/Compat.kt", "kind": "call", "line": 4, "resolved": "import"},
+        {"column": 4, "end_column": 16, "file": "src/Store.kt", "kind": "declaration", "line": 5, "resolved": "typed"},
+        {"column": 16, "end_column": 28, "file": "src/Use.kt", "kind": "call", "line": 4, "resolved": "import"}]},
+      "moved": false, "new": {"file": "src/Store.kt", "kind": "function", "language": "kotlin", "line": 5, "name": "connectStore"},
+      "old": {"file": "src/Store.kt", "kind": "function", "language": "kotlin", "line": 5, "name": "openStore"},
+      "quality": "structural", "renamed": true, "same": true}"#,
+  )
+  .unwrap();
+  let compat = || {
+    added(
+      "src/Compat.kt",
+      "package demo\n\nfun openStore(path: String): Store {\n  return connectStore(path.trim().lowercase())\n}\n",
+    )
+  };
+  let store = || changed("src/Store.kt", &text(&STORE), &renamed(&STORE));
+  let old = joined(&[&HEADER, &DESCRIBE, &GAP, &FIRST, &GAP, &SECOND]);
+  let first = renamed(&FIRST);
+  let first: Vec<&str> = first.lines().collect();
+
+  // within the file: the four lines are a move of its pair, the line of the call one of them as it is
+  let within = Case::of(vec![
+    compat(),
+    store(),
+    changed("src/Use.kt", &old, &joined(&[&HEADER, &first, &GAP, &SECOND, &GAP, &DESCRIBE])),
+  ]);
+  let moves = &within.pairs[2].0.marks.moves;
+  assert_eq!(
+    moves.iter().map(|moved| (moved.old_start, moved.new_start, moved.len, &moved.edited)).collect::<Vec<_>>(),
+    [(2, 11, 4, &vec![])]
+  );
+  assert_eq!(within.pairs[2].1.rewritten, NONE_REWRITTEN);
+  assert_eq!(declared_proof(&within, 1, &answer), RenameProof::UsesOutside);
+
+  // to another file: the same answer of accio, and a move between the two files
+  let across = Case::of(vec![
+    compat(),
+    added("src/Describe.kt", &joined(&[&HEADER, &DESCRIBE])),
+    store(),
+    changed("src/Use.kt", &old, &joined(&[&HEADER, &first, &GAP, &SECOND])),
+  ]);
+  let moved = FileMove {
+    start: 2,
+    len: 4,
+    file: 1,
+    line: 2,
+  };
+  assert_eq!(across.subject(IndexAnswer::Unavailable, 3).moved_out, [moved]);
+  assert_eq!(declared_proof(&across, 2, &answer), RenameProof::UsesOutside);
+
+  // the new name on a line that only moved named something else where the line stood: the base tree lists no use
+  // on it, and no other file calls the function
+  let mut captured = answer.clone();
+  captured.base.as_mut().unwrap().uses.remove(1);
+  let head = captured.head.as_mut().unwrap();
+  head.uses.remove(0);
+  head.uses.push(used_at("src/Use.kt", 13, 15, 27));
+  let new_name = |lines: &[&str]| renamed(lines).lines().map(str::to_string).collect::<Vec<_>>();
+  let describe = new_name(&DESCRIBE);
+  let describe: Vec<&str> = describe.iter().map(String::as_str).collect();
+  let kept = Case::of(vec![
+    store(),
+    changed(
+      "src/Use.kt",
+      &joined(&[&HEADER, &describe, &GAP, &FIRST, &GAP, &SECOND]),
+      &joined(&[&HEADER, &first, &GAP, &SECOND, &GAP, &describe]),
+    ),
+  ]);
+  assert_eq!(declared_proof(&kept, 0, &captured), RenameProof::OtherMeaning);
+
+  // a line the move rewrote is a changed line: the call renamed on the way is read where it stands now, in both
+  // trees, and the rename is confirmed
+  let rewritten = Case::of(vec![store(), changed("src/Use.kt", &old, &joined(&[&HEADER, &first, &GAP, &SECOND, &GAP, &describe]))]);
+  assert_eq!(rewritten.pairs[1].0.marks.moves.iter().map(|moved| &moved.edited).collect::<Vec<_>>(), [&vec![1]]);
+  assert_eq!(rewritten.pairs[1].1.rewritten, [vec![3], vec![12]]);
+  let mut both = answer.clone();
+  both.head = captured.head.clone();
+  assert_eq!(declared_proof(&rewritten, 0, &both), RenameProof::Confirmed);
+
+  // a place of the rename on a line a move took as it is: the line of a call became the call by the new name with
+  // another argument, and stands again, as it was, in a function the change added. The index lists the two calls
+  // of that line as the use of each tree, and the old name stands on at the other end of the move
+  let stay: Vec<String> = (0..8).map(|index| format!("  stay{index}()")).collect();
+  let stay: Vec<&str> = stay.iter().map(String::as_str).collect();
+  let call = "  val primary = openStore(\"primary-store-of-the-application\") + 1";
+  let other = "  val primary = connectStore(\"primary-store-of-the-application\") + 2";
+  let place = Case::of(vec![
+    store(),
+    changed(
+      "src/Use.kt",
+      &joined(&[&HEADER, &["fun first() {", call, "  done()", "}"], &GAP, &stay]),
+      &joined(&[&HEADER, &["fun first() {", other, "  done()", "}"], &GAP, &stay, &GAP, &["fun last() {", call, "}"]]),
+    ),
+  ]);
+  let (diff, left) = &place.pairs[1];
+  assert_eq!(
+    diff.marks.moves.iter().map(|moved| (moved.old_start, moved.new_start, &moved.edited)).collect::<Vec<_>>(),
+    [(3, 17, &vec![])]
+  );
+  assert_eq!(
+    left
+      .undeclared
+      .iter()
+      .map(|rename| (rename.old_sites.as_slice(), rename.new_sites.as_slice()))
+      .collect::<Vec<_>>(),
+    [(&[3, 16, 25][..], &[3, 16, 28][..])]
+  );
+  let listed = place.answer("openStore", "connectStore");
+  assert_eq!((listed.base.as_ref().unwrap().total, listed.head.as_ref().unwrap().total), (2, 2));
+  let (marks, _) = place.marks(IndexAnswer::Answered(std::slice::from_ref(&listed)));
+  let subjects: Vec<SubjectMarks> = marks.into_iter().map(|marks| *marks.unwrap().subject.unwrap()).collect();
+  assert_eq!(
+    (subjects[0].declared[0].proof, subjects[1].used[0].proof),
+    (RenameProof::UsesOutside, RenameProof::UsesOutside)
+  );
+
+  // a line the move edited in its whitespace alone is the same line still: the old name on it is a use left behind
+  let spaced = [DESCRIBE[0], "  val backup = openStore( \"backup-of-the-primary-store\" )", DESCRIBE[2], DESCRIBE[3]];
+  let respaced = Case::of(vec![
+    compat(),
+    store(),
+    changed("src/Use.kt", &old, &joined(&[&HEADER, &first, &GAP, &SECOND, &GAP, &spaced])),
+  ]);
+  assert_eq!(respaced.pairs[2].0.marks.moves.iter().map(|moved| &moved.edited).collect::<Vec<_>>(), [&vec![1]]);
+  assert_eq!(respaced.pairs[2].1.rewritten, NONE_REWRITTEN);
+  assert_eq!(declared_proof(&respaced, 1, &answer), RenameProof::UsesOutside);
+}
+
+/// A block that is equal to itself under the policy of the diff is drawn pale, the lines it was: a use on such a
+/// line is not read anyway either
+#[test]
+fn a_use_on_a_line_of_a_pale_block_is_not_read_anyway() {
+  // a third file joins the two lines of a `return` and a call of the old name, which names another function now.
+  // A line break after `return` ends the statement in Kotlin, so the lines are no formatting and in no run
+  let files = || {
+    vec![
+      changed("src/Report.kt", &text(&REPORT), &renamed(&REPORT)),
+      changed("src/Store.kt", &text(&STORE), &renamed(&STORE)),
+      changed(
+        "src/Extra.kt",
+        "package demo\n\nfun keep(path: String): String {\n  return\n    openStore(path).path\n}\n",
+        "package demo\n\nfun keep(path: String): String {\n  return openStore(path).path\n}\n",
+      ),
+    ]
+  };
+  let answer = |case: &Case| {
+    let mut answer = case.answer("openStore", "connectStore");
+    let uses = answer.base.as_mut().unwrap();
+    uses.uses.push(used_at("src/Extra.kt", 5, 4, 13));
+    uses.total += 1;
+    answer
+  };
+  let shape = |case: &Case| {
+    let (diff, _) = &case.pairs[2];
+    (
+      diff.blocks.iter().map(|block| (block.old_start..block.old_end, block.kind)).collect::<Vec<_>>(),
+      diff.marks.runs.len(),
+    )
+  };
+  // with every character counted the two lines are a change no run takes, and are read
+  let counted = Case::of(files());
+  assert_eq!(shape(&counted), (vec![(3..5, BlockKind::Changed)], 0));
+  assert_eq!(proofs(&counted, &answer(&counted)), (RenameProof::Confirmed, RenameProof::Confirmed, vec![0, 1]));
+  // under the policy that counts no whitespace the block is pale: the lines it was
+  let pale = Case::under(files(), WhitespacePolicy::Ignore);
+  assert_eq!(shape(&pale), (vec![(3..5, BlockKind::WhitespaceOnly)], 0));
+  assert_eq!(proofs(&pale, &answer(&pale)), (RenameProof::UsesOutside, RenameProof::UsesOutside, vec![]));
 }
 
 #[test]

@@ -42,6 +42,10 @@
 //!   at its other end, in their block, left with it and stand at its other end now: the move counts them
 //!   (`LineMove::blanks_before`, `blanks_after`). Without them the block the lines left would keep a deleted blank
 //!   line to read. Where the whitespace at the ends of a line counts, they are blank lines of one text.
+//! - **A line a move rewrote** (`rewritten_lines`) is an edited line whose two texts differ in more than whitespace:
+//!   a view shows it as a changed line. Every other line of a move, an exact one and one edited in its whitespace
+//!   alone, reads as the same line at another place; the pass over the files of a subject
+//!   (`file_diffs::marks_subject`) asks which is which and has no text to read it from.
 //! - **One to one, the longest first**: of the moves found, the longest is taken (then the one with fewer edited
 //!   lines, then the first by its new and its old lines); a move that shares a line with a taken one is cut to the rows
 //!   of it that are still free, which are asked again. The answer is a function of the two texts, the blocks, the
@@ -408,14 +412,49 @@ pub(crate) fn line_starts(text: &str) -> Vec<usize> {
   starts
 }
 
+/// The line `line` of `text` (from 0), whose lines start at `starts`, with its line end; empty past the last line
+pub(crate) fn line_text<'t>(text: &'t str, starts: &[usize], line: u32) -> &'t str {
+  let start = starts.get(line as usize).copied().unwrap_or(text.len());
+  let end = starts.get(line as usize + 1).copied().unwrap_or(text.len());
+  text.get(start..end).unwrap_or_default()
+}
+
+/// The lines of each side of `old` and `new`, the old one first and each in order, that a move of `moves` took and
+/// rewrote on the way: its edited lines (`LineMove::edited`) whose two texts differ in a character that is no
+/// whitespace. A view shows such a line as a changed one, with what changed in it. Every other line of a move reads
+/// as the same line at another place: an exact one, and one that was edited in its whitespace alone (its indent, the
+/// whitespace after its text, the spaces between its words). `moves` are the moves of the two texts
+pub fn rewritten_lines(old: &str, new: &str, moves: &[LineMove]) -> [Vec<u32>; 2] {
+  let mut lines = [Vec::new(), Vec::new()];
+  if moves.iter().all(|moved| moved.edited.is_empty()) {
+    return lines;
+  }
+  let (old_starts, new_starts) = (line_starts(old), line_starts(new));
+  for moved in moves {
+    for offset in &moved.edited {
+      let (old_line, new_line) = (moved.old_start + offset, moved.new_start + offset);
+      if !solid_of(line_text(old, &old_starts, old_line)).eq(solid_of(line_text(new, &new_starts, new_line))) {
+        lines[0].push(old_line);
+        lines[1].push(new_line);
+      }
+    }
+  }
+  // the moves are in the order of their new lines
+  lines[0].sort_unstable();
+  lines
+}
+
+/// The characters of a line that are no whitespace
+fn solid_of(line: &str) -> impl Iterator<Item = char> + '_ {
+  line.chars().filter(|character| !character.is_whitespace())
+}
+
 /// The lines of `spans` of `text`, whose lines start at `starts`
 fn side_lines<'t>(text: &'t str, starts: &[usize], spans: &[Span], keys: &mut FxHashMap<&'t str, u32>) -> Vec<Line<'t>> {
   let mut lines = Vec::new();
   for span in spans {
     for line in span.lines.clone() {
-      let start = starts.get(line as usize).copied().unwrap_or(text.len());
-      let end = starts.get(line as usize + 1).copied().unwrap_or(text.len());
-      let whole = text.get(start..end).unwrap_or_default().trim_end_matches(['\n', '\r']);
+      let whole = line_text(text, starts, line).trim_end_matches(['\n', '\r']);
       let indented = whole.trim_start_matches(WHITESPACE);
       let trimmed = indented.trim_end_matches(WHITESPACE);
       let key = if trimmed.is_empty() {

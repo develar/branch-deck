@@ -219,8 +219,9 @@ rest gets a label and stays a stop.
   are declared in none; the runs of the blocks that hold a place of such a name, read once more with those names
   as one (the third reading of a block, `Renames::pending`: every run of it with the names it needs, and none that
   shares a line with a move of the file); the places of the declarations of its renames that are not local, in the
-  lines and the characters the index counts; and which of its renames the scopes prove. The pass over a subject
-  reads no blob, so a subject whose pairs the caches have costs no process.
+  lines and the characters the index counts; which of its renames the scopes prove; and the lines its moves
+  rewrote (`text_diff::moves::rewritten_lines`: the edited lines of a move that differ in more than whitespace).
+  The pass over a subject reads no blob, so a subject whose pairs the caches have costs no process.
 - **What the files of a subject say of each other** (`marks_subject.rs`, the group Subject of the spec). A pure
   function of what the pairs of the subject are and left, in the order of git, so it is the same from the
   comparison, from memory and from the store of another app.
@@ -252,11 +253,20 @@ rest gets a label and stays a stop.
   comment (it runs nothing), a use that writes no word (accio lists a positional argument that sets a property, and
   a constructor delegation, with no column between its ends: there is no name to change), a use by another word (an
   alias of an import, the accessor of a property in another language) that the other tree lists at the same place
-  of a line the change left alone, or stands on a line that is read anyway: a changed line in no run, so a call the
-  change added or deleted in another file stands in the way of nothing. Every other case names why not, for a view
-  to word: `usesOutside` (a use the change left behind in a file it did not touch, which accio reports, or on a
-  line it left alone), `otherMeaning` (a conflict of accio: a capture, an overload, an override, a declaration it
-  hides or that hides it, a namesake; a use without its twin; a use of the new name on a line left alone),
+  of a line the change left alone, or stands on a line that is read anyway: a line of a change, in no run and in
+  no move, so a call the change added or deleted in another file stands in the way of nothing. A line a move took
+  as it is (within its file, or to another file) is not read anyway: a view shows it as the same line at another
+  place, and no reader asks what its names mean there. A function that only moved and still calls the old name,
+  which a new function of that name answers now, is the case: accio lists the call of the old tree and none of the
+  new one, with no conflict (it compares the files the two trees hold alike), and the only word the diff has for
+  those lines is "moved". So a use on such a line is no place of the rename either: the old name on it is a use
+  left behind, the new name one that meant something else. Only a line the move rewrote (an edited line that
+  differs in more than whitespace, `Leftovers::rewritten`) is a changed line like any other. A pale block, equal to
+  itself under the policy of the diff, is the lines it was too. Every other case names why not, for a view
+  to word: `usesOutside` (a use the change left behind in a file it did not touch, which accio reports, on a
+  line it left alone, or on a line it only moved), `otherMeaning` (a conflict of accio: a capture, an overload, an
+  override, a declaration it hides or that hides it, a namesake; a use without its twin; a use of the new name on a
+  line left alone or only moved),
   `otherDeclaration` (the kind, the owner or the signature changed with the name), `incomplete` (the answer is not
   complete, a use is tied by its name alone, more uses than listed, another language: accio ties a use by the
   scopes of its file for Kotlin and Java only, so a name a file of another language declares is not asked at all;
@@ -277,7 +287,13 @@ rest gets a label and stays a stop.
   gives way to the next one, and the backend kills its query (one request of a kind per window, as a symbol search;
   also once the window closes or loads again). A question that got no answer leaves the names `asked`, and the
   subject is asked again when a view shows it again; an answer is kept in memory by the two trees and the
-  declarations asked, so that costs no process. The answer is the marks of the files it says something of, and it
+  declarations asked, so that costs no process. Only an answer that is final for each of its declarations is kept
+  (`RenameAnswer::is_final`: a pair accio could not ask, two places that are not one declaration, a complete answer
+  with the uses of both trees). accio shares one budget of 30 s between the declarations of a call, and a cold
+  index spends it: an answer it cut short (`complete: false`, with no uses when the budget ran out before the
+  pair), or one that lacks a relation the index could not read then, says what that query got to, on that machine
+  at that load. It is the answer of its question (`incomplete`) and is asked for again by the next one, so a
+  result of the load never outlives the query that had it. The answer is the marks of the files it says something of, and it
   comes after their rows: a view passes a confirmed run and shows each of its lines, where a quiet run of the pair
   is shown once. That is why `confirmed` is a list of its own beside `quiet`. Only a commit and a range named by
   their ids are asked: the working tree may be another by the time accio reads it, and its answer would be of

@@ -4,7 +4,7 @@
 use crate::model::{BlockKind, DiffBlock, DiffBudget, LineMove, LineRun, RangeKind, TextDiff, diff_texts, starts_of};
 use crate::moves::{
   LIMITS, Limits, MAX_COMPARED_PAIRS, MAX_KEY_CANDIDATES, MAX_MOVE_LINES, MAX_MOVE_WORK, MAX_UNREAD_PAIRS, MIN_MOVE_CHARS, MoveWork, find_moves, find_moves_counted,
-  find_moves_within,
+  find_moves_within, rewritten_lines,
 };
 use crate::policy::WhitespacePolicy;
 use crate::test_support::{between, proptest_config, run, text};
@@ -512,6 +512,63 @@ fn the_whitespace_inside_a_line_is_part_of_its_key() {
     show(&moves(&old, &four_with(&inside))),
     "6..12 -> 12..18 edited 1: [28, 28, 0, 33, 33, 0]/[28, 29, 0, 34, 35, 0]"
   );
+}
+
+#[test]
+fn a_line_a_move_rewrote_is_an_edited_line_that_differs_in_more_than_whitespace() {
+  let old = four();
+  // the lines of both sides that the moves of `alpha` after `gamma` rewrote
+  let rewritten = |alpha: &[&str]| {
+    let new = four_with(alpha);
+    let found = moves(&old, &new);
+    assert_eq!(found.len(), 1, "{alpha:?}");
+    (found[0].edited.clone(), rewritten_lines(&old, &new, &found))
+  };
+  // an exact move rewrote nothing
+  assert_eq!(rewritten(&ALPHA), (vec![], [vec![], vec![]]));
+  // an argument added, a word that is another: the old line and the new one, each by its number in its text
+  let argument = [ALPHA[0], ALPHA[1], "  report(total, verbose);", ALPHA[3], ALPHA[4]];
+  assert_eq!(rewritten(&argument), (vec![2], [vec![8], vec![14]]));
+  let word = [ALPHA[0], "  let total = compute_total(rows);", ALPHA[2], ALPHA[3], ALPHA[4]];
+  assert_eq!(rewritten(&word), (vec![1], [vec![7], vec![13]]));
+  // edited in its whitespace alone: inside the line, in its indent, after its text, a tab for its spaces. The line
+  // is the same code at another place
+  for line in [
+    "  let total = compute_total( items );",
+    "      let total = compute_total(items);",
+    "  let total = compute_total(items);  \t",
+    "\t\tlet total = compute_total(items);",
+  ] {
+    let spaced = [ALPHA[0], line, ALPHA[2], ALPHA[3], ALPHA[4]];
+    assert_eq!(rewritten(&spaced), (vec![1], [vec![], vec![]]), "{line:?}");
+  }
+  // its whitespace and its text: rewritten
+  let both = [ALPHA[0], ALPHA[1], "      report(total, verbose); ", ALPHA[3], ALPHA[4]];
+  assert_eq!(rewritten(&both), (vec![2], [vec![8], vec![14]]));
+
+  // two functions that changed places below the lines that stay, each with a rewritten line: the lines of each side
+  // in their order, whatever the order of the moves; and a text with carriage returns has the lines of the comparison
+  let gamma = [GAMMA[0], GAMMA[1], "  show(found, verbose);", GAMMA[3], GAMMA[4]];
+  let stay = stay();
+  let stay = refs(&stay);
+  for end in ["\n", "\r\n", "\r"] {
+    let with_end = |text: String| text.replace('\n', end);
+    let old = with_end(text(&[&ALPHA, &BLANK, &GAMMA, &BLANK, &stay]));
+    let new = with_end(text(&[&stay, &BLANK, &gamma, &BLANK, &argument]));
+    let found = moves_under(&old, &new, WhitespacePolicy::Default, false);
+    assert_eq!(found.len(), 2, "{end:?}: {}", show(&found));
+    let [old_lines, new_lines] = rewritten_lines(&old, &new, &found);
+    let line = |text: &str, number: u32| lines_of(text)[number as usize].clone();
+    assert_eq!(
+      (
+        old_lines.iter().map(|number| line(&old, *number)).collect::<Vec<_>>(),
+        new_lines.iter().map(|number| line(&new, *number)).collect::<Vec<_>>()
+      ),
+      (vec![ALPHA[2].to_string(), GAMMA[2].to_string()], vec![gamma[2].to_string(), argument[2].to_string()]),
+      "{end:?}: {}",
+      show(&found)
+    );
+  }
 }
 
 #[test]

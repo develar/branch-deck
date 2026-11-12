@@ -215,6 +215,11 @@ changes no block and is never quiet: where lines stand is behaviour.
   row), the starts go into a heap by their reach, and the longest is taken, of as long ones the first. A move
   taken and a pair found apart only cut the reach of the starts before them, which are asked again as they come
   up, so the moves are those of the row read again for each: a property test compares the two.
+- **A line a move rewrote** (`rewritten_lines(old, new, moves)`) is an edited line whose two texts differ in a
+  character that is no whitespace. An edited line of another kind (its indent, the whitespace after its text, the
+  spaces between its words) and an exact line read as the same line at another place. The pass over the files of a
+  subject asks which is which for the uses of a renamed name ([Diff View](diff-view.md), "What the index proves"),
+  and it has no text: a pair leaves the answer beside its diff (`Leftovers::rewritten`).
 - **The two ends in two blocks.** A pair of lines of one block starts no chain: the comparison shows such lines as
   one change, with no line between them that stays, and a move there would cross nothing. Two functions that change
   places and are indented are one such block.

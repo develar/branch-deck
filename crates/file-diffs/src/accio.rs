@@ -724,6 +724,18 @@ pub struct RenameAnswer {
   pub conflicts: Vec<RenameConflict>,
 }
 
+impl RenameAnswer {
+  /// Whether the answer is all the index says of the pair between its two trees, whenever it is asked: a pair it
+  /// could not ask, two places that are not one declaration, or a complete answer with the uses of both trees. Any
+  /// other one is what a query got to: the budget of the call ran out before the pair or in it (accio shares one
+  /// between the pairs, and a cold index spends it), the limit cut its uses, or the index could not read a relation
+  /// as it was then. Asked again, the index may say more, so such an answer is a function of the load of the
+  /// machine and of the state of the index, not of the two trees
+  pub(crate) const fn is_final(&self) -> bool {
+    self.unavailable || !self.same || (self.complete && self.base.is_some() && self.head.is_some())
+  }
+}
+
 /// A declaration of a `RenameAnswer`
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct RenamedDeclaration {

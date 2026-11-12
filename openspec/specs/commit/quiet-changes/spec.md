@@ -113,7 +113,9 @@ Store.kt"), with what the index said of it, are the next stage of
   between files** is a row of exact lines one file of a subject deleted and another added: a label at both ends,
   never quiet, no stop taken. **A name another file declares** is a rename of the file that uses it, by the two
   spellings; **proven** it is when the index of the repository lists every use of its declaration in both trees and
-  each is a place of the rename or a line read anyway (`confirmed`); else the marks name why not.
+  each is a place of the rename or a line read anyway (`confirmed`); else the marks name why not. **A line read
+  anyway** is a line of a change that is in no run and that no move took as it is: a line a reader stops at and
+  reads as changed. A line that only moved, within its file or to another, reads as the line it was.
 - **A start** is the line the reading of a block starts at: its first line that is in no quiet run and, of its old
   lines, that no move took.
 - **A note** is a row of words between the lines of a diff that says what the lines after it changed in, or, at an
@@ -624,7 +626,7 @@ whether the indentation of a path has a meaning is part of what the diff is kept
 Beside its diff a pair of blobs MUST keep what it leaves to the other files of a subject: the changed lines no mark
 took, as hashed keys in rows; the names it declares none of, with the runs of the kind `renamed` their blocks have
 were they renames, each with every name it leans on; the places of its declarations as the index takes them;
-whether a side has a lone carriage return. The pass over a subject MUST read no blob.
+the lines its moves rewrote; whether a side has a lone carriage return. The pass over a subject MUST read no blob.
 
 #### Scenario: The lines no mark took
 - **WHEN** a file loses a function, a file is added, and a line of a deleted function is in a run or the function moved within its file
@@ -641,12 +643,18 @@ whether a side has a lone carriage return. The pass over a subject MUST read no 
 - **WHEN** the calls of a function another file declares get another name, one of them beside a call that is wrapped
 - **THEN** the pair keeps, of each such block read with the two names as one, the run of the kind `renamed` of the line of the name, with the name; the run of formatting of the wrapped call is the pair's own and is not kept
 - **AND** the runs of the pair itself are as they were, and a kept run that shares a line with a move of the file is none
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have`)
 
 #### Scenario: A run that leans on the name after its block
 - **WHEN** a line that changed in a name another file declares ends its block, and the first token of the code after the block is a place of another name the file declares none of
 - **THEN** the kept run names both: it is a run only while the code after the block reads the same, which the second name read as one makes it
   [@test] crates/file-diffs/src/marks_subject_test.rs (`the_subject_adds_labels_alone_never_a_quiet_run_or_a_stop`)
-  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have`)
+
+#### Scenario: The lines a move rewrote
+- **WHEN** a function moves with an argument added to one of its lines, with a word of a line changed, or with a line edited in its whitespace alone (inside it, in its indent, after its text, a tab for its spaces); and two functions change places, each with such an argument, in texts of each line end
+- **THEN** the pair leaves the number of each edited line that differs in a character that is no whitespace, on the old side and on the new one, each side in its order; a line edited in its whitespace alone and an exact line are left by none
+  [@test] crates/text-diff/src/moves_test.rs (`a_line_a_move_rewrote_is_an_edited_line_that_differs_in_more_than_whitespace`)
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_use_on_a_line_a_move_took_as_it_is_is_not_read_anyway`)
 
 #### Scenario: The places of a declaration
 - **WHEN** a file declares a renamed function after two characters outside the basic plane on its line, has a lone carriage return, or stands at a path with a tab
@@ -780,8 +788,8 @@ name no file declares is in none. The pass MUST add labels alone: the quiet runs
 
 The declarations of the renamed names of a subject that are not local, in files of Kotlin or Java, MUST be asked of
 the index in one process (`accio renames --no-build`), after its diffs and never by their read, by the window that
-shows it. Only an accio that answers them as they are read is started; the working tree MUST NOT be asked. An
-answer MUST be kept by its trees, and the query killed once the window asks another, closes or loads again.
+shows it. Only an accio that answers them as they are read is started; the working tree MUST NOT be asked. A
+final answer MUST be kept by its trees, and the query killed once the window asks another, closes or loads again.
 
 #### Scenario: One process for a subject
 - **WHEN** the diffs of a commit are read where an index is, then the index is asked of the commit, of it again, of a range and of the working tree
@@ -790,6 +798,13 @@ answer MUST be kept by its trees, and the query killed once the window asks anot
   [@test] crates/file-diffs/src/service_test.rs (`the_index_is_asked_after_the_diffs_of_a_subject_in_one_call_and_its_answer_is_kept`)
   [@test] crates/file-diffs/src/accio_test.rs (`the_renames_of_a_subject_are_asked_in_one_process`)
   [@test] crates/test-server/src/commit_files_test.rs (`the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_index_is_asked_after_them`)
+
+#### Scenario: An answer the query cut short
+- **WHEN** the index answers that the budget of its call ran out before the pair, as accio does (one declaration, not complete, the uses of neither tree), or lists the uses of both trees and is not complete; and the subject is asked again
+- **THEN** the names are `incomplete` both times and the index is asked both times: such an answer says what its query got to and is not kept
+- **AND** an index that answers to the end then confirms the rename, and that answer is kept
+- **AND** a pair that could not be asked and two places that are not one declaration are all the index says of them: kept, and asked again they start no process
+  [@test] crates/file-diffs/src/service_test.rs (`an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no_diff`)
 
 #### Scenario: No declaration, no question
 - **WHEN** a subject renames no name that is not local
@@ -825,7 +840,8 @@ answer MUST be kept by its trees, and the query killed once the window asks anot
 A declaration MUST be proven renamed (`confirmed`) only when the index answers one declaration of Kotlin or Java,
 complete, with no name that means something else, and every use it lists is the declaration, a place of the rename
 with its twin listed too, a link of a doc comment, a use without a word or by another word both trees hold alike,
-or on a changed line in no run. The runs whose every place is proven MUST be named (`subject.confirmed`).
+or on a changed line in no run. A line a move took as it is MUST count as neither. The runs whose every place is
+proven MUST be named (`subject.confirmed`).
 
 #### Scenario: Every use is a place of the rename
 - **WHEN** the index lists the declaration and the two calls of the report as the uses of the function in both trees, complete and without a conflict
@@ -837,6 +853,18 @@ or on a changed line in no run. The runs whose every place is proven MUST be nam
 - **WHEN** the change also deletes a call of the function in a third file and adds one there, each on lines of its own, and a doc comment outside the subject names the function
 - **THEN** the rename is confirmed all the same; the same use on a line the change left alone is a use outside it
   [@test] crates/file-diffs/src/marks_subject_test.rs (`a_use_on_a_line_that_is_read_anyway_and_a_link_of_a_doc_comment_do_not_stand_in_the_way`)
+
+#### Scenario: A use on a line a move took as it is
+- **WHEN** a function that calls the renamed function only moved, within its file or to another file, and a new function of the old name answers its call now, as accio answers of such a change: the call listed in the old tree, none in the new one, complete and without a conflict
+- **THEN** the rename is `usesOutside`: a view shows the line as the same line at another place, and the old name stands on it
+- **AND** the new name on a line that only moved is `otherMeaning`; a place of the rename whose old line a move took as it is, and that stands again at the other end of the move, is no place; a line a move edited in its whitespace alone is the line it was
+- **AND** a call renamed on a line of a move is read where it stands now, a changed line, and the rename is confirmed
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_use_on_a_line_a_move_took_as_it_is_is_not_read_anyway`)
+
+#### Scenario: A use on a line of a pale block
+- **WHEN** a third file joins a `return` and the call of the old name on the line after it, read under the policy that counts no whitespace and under the one that counts every character
+- **THEN** under the first the block is pale, the lines it was, and the rename is `usesOutside`; under the second the two lines are a change no run takes, and the rename is confirmed
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_use_on_a_line_of_a_pale_block_is_not_read_anyway`)
 
 #### Scenario: A use without a word, a use by another word
 - **WHEN** the index lists a positional argument that sets a renamed property, on a line the change left alone, as it answers of such a change; and a call by the alias of an import in both trees, on a line the change left alone, in a file of the subject one line further down or in a file outside it
@@ -854,7 +882,7 @@ or on a changed line in no run. The runs whose every place is proven MUST be nam
 Every other answer MUST leave the rename a label and name why: a use outside the change (`usesOutside`), a name
 that means something else (`otherMeaning`), two places that are not one declaration (`otherDeclaration`), an answer
 that does not know every use or names a line the diff has not (`incomplete`), no answer (`unavailable`), `asked`
-until the index answered. No answer MUST fail the diffs or read as "no use"; only a whole one is kept.
+until the index answered. No answer MUST fail the diffs or read as "no use"; only a whole and final one is kept.
 
 #### Scenario: Each reason
 - **WHEN** the answer has a use the change left behind, a use in a file outside the subject or on a line it left alone; a conflict of a capture, an overload, an override, a hidden or a namesake declaration, a use without its twin, a use of the new name on a line left alone; another signature; an answer that is not complete, a use tied by its name alone, more uses than listed, no uses of a tree, another language; a pair that could not be asked
@@ -1856,6 +1884,13 @@ in
   changed in place, [Renames](#requirement-renames-a-use-left-behind-a-name-taken-and-two-names-swapped-are-no-rename)):
   its calls are read; the added or deleted use in another file stands in the way of nothing.
 - The working tree is never asked of the index: nothing pins the tree accio reads to the one the diffs show.
+- An answer of the index that is not complete is never kept, whatever cut it: accio does not say whether the budget
+  of the query ran out or the code itself ties a use by its name alone, which no later query changes. So a subject
+  whose rename is `incomplete` for good is asked again each time its diffs are read again; a flag of accio for an
+  answer its budget cut would let the others be kept.
+- A line of a change whose two sides differ in whitespace alone, in no run (a line break that is no formatting in
+  its language), is read anyway under the policy that counts every character, and is the line it was under a policy
+  that draws its block pale.
 - A question to the index whose subject no view shows any more runs to its end when the window asks of no other
   subject: its answer is kept, and one process a window is the most. Ending it as its last view goes would end it
   for a view that is only hidden for a moment, and ask it again when the view is back.
