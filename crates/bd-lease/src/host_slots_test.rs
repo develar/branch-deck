@@ -593,6 +593,24 @@ fn an_idle_host_slot_is_cleaned_once_it_waited_after_its_last_run() {
   let (cache, returned) = run("run-2");
   assert_eq!(clean_idle_slots(&context.git, &params, returned + hour).unwrap().len(), 1, "idle the hour of the key");
   assert!(!cache.exists());
+
+  // a table of an agent before `returned`: the start of the last lend after the last clean stands for it
+  let (cache, returned) = run("run-3");
+  edit_table(fixture, |table| {
+    table["slots"][0].as_object_mut().unwrap().remove("returned");
+    table["slots"][0]["used"] = Value::from(returned);
+    table["slots"][0]["cleaned_at"] = Value::from(returned / 1000 - 10);
+  });
+  assert_eq!(
+    clean_idle_slots(&context.git, &params, returned + hour).unwrap().len(),
+    1,
+    "a run since the clean, idle an hour"
+  );
+  assert!(!cache.exists());
+  assert!(
+    clean_idle_slots(&context.git, &params, returned + 2 * hour).unwrap().is_empty(),
+    "the clean came after that lend"
+  );
 }
 
 /// Below `branchdeck.leaseMinFree` the keeper takes the steps of a get without one (`keep_free`): the trim deletes the

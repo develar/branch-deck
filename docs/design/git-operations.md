@@ -2559,7 +2559,8 @@ start. The give-back runs off the client's path:
    `branchdeck.hostSlotIdleClean` since its last run, 6 hours without it, when no clean came after that run
    (`host_slots::clean_idle_slots`, on the relief's thread before `keep_free`). The runs of one session in a row find
    the caches warm (the base index of an A/B of one affinity), a night does not; `0` keeps them until a give-back
-   finds the rules due.
+   finds the rules due. A table written before `returned` takes the start of the slot's last lend for it, when no clean
+   came after that lend.
 
 The give-back cleans one slot at a time, and only the slot of a run that just ended. A host slot is a lease, so the
 steps a get takes below the minimum free space (the trim, the shrink, the eviction) never take one, and an idle slot

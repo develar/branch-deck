@@ -1599,12 +1599,15 @@ pub fn clean_idle_slots(git_executor: &GitCommandExecutor, params: &HostSlotsPar
   if refuse_while_upgrading(&table).is_err() {
     return Ok(Vec::new());
   }
-  // `returned` is set by a give-back and taken by a clean: a slot with one ran since its last clean
-  let idle_for = |slot: &HostSlot| slot.returned.map(|returned| Duration::from_millis(now_ms.saturating_sub(returned)));
+  // `returned` is set by a give-back and taken by a clean: a slot with one ran since its last clean. A table of an
+  // agent before `returned` has none: there the start of the last lend stands for it, where no clean came after it
+  // (`cleaned_at` is in seconds, so a clean in the second of the lend counts as after)
+  let since = |slot: &HostSlot| slot.returned.or_else(|| slot.used.filter(|&used| slot.cleaned_at < used / 1000));
+  let idle_for = |slot: &HostSlot| since(slot).map(|returned| Duration::from_millis(now_ms.saturating_sub(returned)));
   let candidates: Vec<&HostSlot> = table
     .slots
     .iter()
-    .filter(|slot| slot.state == HostState::Idle && !slot.path.is_empty() && slot.returned.is_some())
+    .filter(|slot| slot.state == HostState::Idle && !slot.path.is_empty() && since(slot).is_some())
     .collect();
   if candidates.is_empty() {
     return Ok(Vec::new());
