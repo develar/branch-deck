@@ -84,7 +84,7 @@ test.describe("Parts of a file", () => {
     // the first part is of step 1: its place among the steps and its title
     await tree.getByRole("treeitem", { name: LOADER, exact: true }).click()
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 1 / 1")
-    await expect(bar.getByTestId("review-step-title")).toHaveText("probe")
+    await expect(bar.getByTestId("review-step-title")).toHaveText("Add probe")
 
     // Other changes, at its opening and at its card, has no place: its name alone, and the footer no step
     await window.keyboard.press("j")
@@ -176,7 +176,7 @@ test.describe("Parts of a file", () => {
       const below = async (element: typeof view) => (await element.boundingBox())!.y - (await view.boundingBox())!.y
       const offTop = async (element: typeof view) => Math.abs((await below(element)) - 10)
       await tree.getByRole("treeitem", { name: LOADER, exact: true }).click()
-      await expect(bar).toHaveText("Step 1 / 1·probe")
+      await expect(bar).toHaveText("Step 1 / 1·Add probe")
       await expect.poll(() => offTop(cards.nth(0))).toBeLessThanOrEqual(1)
 
       // J: the opening of Other changes, the second part and the imports, each at the top, named by all three
@@ -220,8 +220,8 @@ test.describe("Parts of a file", () => {
       // nothing scrolled the diffs nor chose a section: J goes on from the overview at their top
       await window.getByRole("region", { name: "Changes of the commit" }).focus()
       await window.keyboard.press("j")
-      await expect(bar).toHaveText("Step 1 / 1·probe")
-      await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: "1 · probe", exact: true })).toHaveAttribute("aria-selected", "true")
+      await expect(bar).toHaveText("Step 1 / 1·Add probe")
+      await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: "1 · Add probe", exact: true })).toHaveAttribute("aria-selected", "true")
     },
   )
 

@@ -1807,6 +1807,8 @@ export type Concern = {
 	/**  Names it in this plan, and in the next one while its first part stays: the fingerprint of that part */
 	id: string,
 	name: ConcernName,
+	/**  What it does to its name, the verb of its title */
+	change: ConcernChange,
 	/**  In the order of the story; a generated file after the parts of its source */
 	parts: ConcernPart[],
 	/**  The files of its parts, each once, in the order of its parts */
@@ -1821,6 +1823,28 @@ export type Concern = {
 	/**  The set of the fingerprints of its parts */
 	fingerprint: string,
 };
+
+/**
+ *  What a concern does to its name (`ConcernName`), the verb of its title: what the change does to the declaration of
+ *  that name (of a token, the one of its units so named), whether all its parts add or delete their files whole (of a
+ *  file or a directory), one identifier in the place of another (of a replacement)
+ */
+export type ConcernChange = 
+/**  Adds the declaration or the files */
+{ kind: "adds" } | 
+/**  Removes the declaration or the files */
+{ kind: "removes" } | 
+/**  Puts one identifier in the place of another (`ConcernName::Replacement`) */
+{ kind: "replaces" } | 
+/**  Changes these parts of the form of the declaration */
+{ kind: "form"; changes: FormChange[] } | 
+/**  Changes the body of the declaration alone */
+{ kind: "body" } | 
+/**
+ *  None of these, or nothing a title may say: a token no declaration of the concern is named by, what no evidence
+ *  joined
+ */
+{ kind: "mixed" };
 
 /**  One kind of evidence of a concern and how many joins it made */
 export type ConcernEvidence = {

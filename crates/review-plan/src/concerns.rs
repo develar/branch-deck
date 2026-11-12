@@ -25,10 +25,14 @@
 //! - **The order** is that of the units, the story: each concern at its first part. **The identity**: `id` the
 //!   fingerprint of its first part, `fingerprint` the set of the fingerprints of its parts.
 //! - **The name**, by its evidence: the identifier that joined most of it, else its first changed declaration, else its
-//!   one file (a source with its generated copies), else the directory its files share.
+//!   one file (a source with its generated copies), else the directory its files share. **What it does** to its name
+//!   (`ConcernChange`): to the declaration of that name it adds, removes, changes the form or the body of; one
+//!   identifier in the place of another; the files it adds or deletes whole; the page words it as the verb of its
+//!   title.
 //! - **The main row** of a file in several concerns is in the one whose parts of it change the most lines (`elsewhere`
 //!   of the others), so that the tree lists each file once and the others point to it.
 
+use crate::api::FormChange;
 use crate::files::{ChangedFile, MechanicalKind, blob_lines, lines_in, subject_stem, test_subject};
 use crate::links::{FileLink, LinkState};
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice, digest};
@@ -198,6 +202,8 @@ pub struct Concern {
   /// Names it in this plan, and in the next one while its first part stays: the fingerprint of that part
   pub id: String,
   pub name: ConcernName,
+  /// What it does to its name, the verb of its title
+  pub change: ConcernChange,
   /// In the order of the story; a generated file after the parts of its source
   pub parts: Vec<ConcernPart>,
   /// The files of its parts, each once, in the order of its parts
@@ -262,6 +268,42 @@ pub enum ConcernName {
   Directory { directory: String },
   /// What no evidence joined
   Rest,
+}
+
+/// What a concern does to its name (`ConcernName`), the verb of its title: what the change does to the declaration of
+/// that name (of a token, the one of its units so named), whether all its parts add or delete their files whole (of a
+/// file or a directory), one identifier in the place of another (of a replacement)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ConcernChange {
+  /// Adds the declaration or the files
+  Adds,
+  /// Removes the declaration or the files
+  Removes,
+  /// Puts one identifier in the place of another (`ConcernName::Replacement`)
+  Replaces,
+  /// Changes these parts of the form of the declaration
+  Form { changes: Vec<FormChange> },
+  /// Changes the body of the declaration alone
+  Body,
+  /// None of these, or nothing a title may say: a token no declaration of the concern is named by, what no evidence
+  /// joined
+  Mixed,
+}
+
+impl ConcernChange {
+  /// What the change of a unit does to its declaration
+  fn of_declaration(kind: &UnitKind) -> Self {
+    match kind {
+      UnitKind::Added => Self::Adds,
+      UnitKind::Removed => Self::Removes,
+      UnitKind::Shape { changes } => Self::Form { changes: changes.clone() },
+      UnitKind::Behaviour => Self::Body,
+      _ => Self::Mixed,
+    }
+  }
 }
 
 /// One kind of evidence of a concern and how many joins it made
@@ -1014,35 +1056,10 @@ fn assemble(
       path: path.to_string(),
       blocks: None,
     }));
-    // the identifier of the most nodes of a concern that a token joined, all of them in it
-    let joined_by_token = evidence.iter().any(|evidence| evidence.kind == EvidenceKind::Token);
     let inside: HashSet<usize> = of.iter().copied().collect();
-    let name = joined_by_token
-      .then(|| token_name(nodes, rare, &inside))
-      .flatten()
-      .or_else(|| {
-        of.iter()
-          .map(|&node| &units[nodes[node].unit])
-          .find(|unit| matches!(unit.kind, UnitKind::Shape { .. } | UnitKind::Added | UnitKind::Removed | UnitKind::Behaviour))
-          .and_then(|unit| unit.name.clone())
-          .map(|name| ConcernName::Declaration {
-            name: unquoted(&name).to_string(),
-          })
-      })
-      .unwrap_or_else(|| {
-        // a source with its generated copies is named by its file, more than one file by the directory they share
-        let mut own = of.iter().map(|&node| nodes[node].path);
-        let path = own.next().unwrap_or_default();
-        if own.all(|other| other == path) {
-          ConcernName::File { path: path.to_string() }
-        } else {
-          ConcernName::Directory {
-            directory: shared_directory(parts.iter().map(|part| part.path.as_str())),
-          }
-        }
-      });
+    let (name, change) = name_of(units, nodes, rare, &of, &inside, &evidence, &parts);
     let first = nodes[of[0]].unit;
-    let mut concern = concern(units, nodes, name, parts, evidence, &of);
+    let mut concern = concern(units, nodes, (name, change), parts, evidence, &of);
     concern.links = part_links(units, nodes, &concern.parts, pairs, &inside);
     concerns.push((first, concern, of));
   }
@@ -1050,10 +1067,64 @@ fn assemble(
   if !rest.is_empty() {
     rest.sort_by_key(|&node| (nodes[node].unit, node));
     let parts = parts_of(units, nodes, &rest);
-    concerns.push((usize::MAX, concern(units, nodes, ConcernName::Rest, parts, Vec::new(), &rest), rest));
+    concerns.push((usize::MAX, concern(units, nodes, (ConcernName::Rest, ConcernChange::Mixed), parts, Vec::new(), &rest), rest));
   }
   mark_elsewhere(nodes, &mut concerns);
   concerns.into_iter().map(|(_, concern, _)| concern).collect()
+}
+
+/// The name of a concern (its nodes `of`, the same as a set `inside`) by its evidence, and what it does to that name:
+/// the token that joined most of it, else its first changed declaration, else its one file, else the directory its
+/// files share. What a concern does to a token is what it does to the declaration of that name among its units, else
+/// nothing a title may say (`mixed`): measured on the lab, a token that every changed line adds was most often a name
+/// the lines newly use or a word ("Add over"), not a declaration they add. The token names the concern also where the
+/// uses of a declaration joined it more often: named by that declaration, the concerns of the lab had their names less
+/// often in the subjects of their commits
+fn name_of(
+  units: &[ReviewUnit],
+  nodes: &[Node<'_>],
+  rare: &[RareToken],
+  of: &[usize],
+  inside: &HashSet<usize>,
+  evidence: &[ConcernEvidence],
+  parts: &[ConcernPart],
+) -> (ConcernName, ConcernChange) {
+  let units_of = || of.iter().map(|&node| &units[nodes[node].unit]);
+  let declared = |unit: &ReviewUnit| matches!(unit.kind, UnitKind::Shape { .. } | UnitKind::Added | UnitKind::Removed | UnitKind::Behaviour);
+  let joined_by_token = evidence.iter().any(|evidence| evidence.kind == EvidenceKind::Token);
+  if let Some(name) = joined_by_token.then(|| token_name(nodes, rare, inside)).flatten() {
+    let change = match &name {
+      ConcernName::Replacement { .. } => ConcernChange::Replaces,
+      ConcernName::Token { token } => units_of()
+        .find(|unit| declared(unit) && unit.name.as_deref().is_some_and(|name| unquoted(name).eq_ignore_ascii_case(token)))
+        .map_or(ConcernChange::Mixed, |unit| ConcernChange::of_declaration(&unit.kind)),
+      _ => ConcernChange::Mixed,
+    };
+    return (name, change);
+  }
+  if let Some((unit, name)) = units_of().find(|unit| declared(unit)).and_then(|unit| unit.name.as_deref().map(|name| (unit, name))) {
+    let name = ConcernName::Declaration { name: unquoted(name).to_string() };
+    return (name, ConcernChange::of_declaration(&unit.kind));
+  }
+  // files all added or all deleted
+  let change = if units_of().all(|unit| unit.kind == UnitKind::NewFile) {
+    ConcernChange::Adds
+  } else if units_of().all(|unit| matches!(unit.kind, UnitKind::DeletedFile | UnitKind::DeletedFiles { .. })) {
+    ConcernChange::Removes
+  } else {
+    ConcernChange::Mixed
+  };
+  // a source with its generated copies is named by its file, more than one file by the directory they share
+  let mut own = of.iter().map(|&node| nodes[node].path);
+  let path = own.next().unwrap_or_default();
+  let name = if own.all(|other| other == path) {
+    ConcernName::File { path: path.to_string() }
+  } else {
+    ConcernName::Directory {
+      directory: shared_directory(parts.iter().map(|part| part.path.as_str())),
+    }
+  };
+  (name, change)
 }
 
 pub(crate) fn unquoted(name: &str) -> &str {
@@ -1083,7 +1154,14 @@ fn mark_elsewhere(nodes: &[Node<'_>], concerns: &mut [(usize, Concern, Vec<usize
   }
 }
 
-fn concern(units: &[ReviewUnit], nodes: &[Node<'_>], name: ConcernName, parts: Vec<ConcernPart>, evidence: Vec<ConcernEvidence>, of: &[usize]) -> Concern {
+fn concern(
+  units: &[ReviewUnit],
+  nodes: &[Node<'_>],
+  (name, change): (ConcernName, ConcernChange),
+  parts: Vec<ConcernPart>,
+  evidence: Vec<ConcernEvidence>,
+  of: &[usize],
+) -> Concern {
   let fingerprint_of = |node: usize| {
     let unit = &units[nodes[node].unit];
     let block = nodes[node].block.map_or_else(String::new, |block| block.to_string());
@@ -1097,6 +1175,7 @@ fn concern(units: &[ReviewUnit], nodes: &[Node<'_>], name: ConcernName, parts: V
   Concern {
     id,
     name,
+    change,
     paths,
     elsewhere: Vec::new(),
     evidence,

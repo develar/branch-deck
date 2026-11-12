@@ -80,6 +80,7 @@ describe("review steps", () => {
     const concern: Concern = {
       id: "c",
       name: { source: "token", token: "proxy" },
+      change: { kind: "mixed" },
       parts: [{ unit: "u:a", path: "a.json", blocks: null }],
       paths: ["a.json"],
       elsewhere: ["a.json"],
@@ -118,12 +119,17 @@ describe("review steps", () => {
       ["The proxy", true, false],
       ["accent", true, true],
     ])
+
+    // a concern Rust says removes its name is titled by what it does, a sentence set as text, in every place it is named
+    const removes = presentChapters(plan([{ ...step("c", [commit("one")], [["u:a", "a.json"]]), concern: "c" }], [{ ...concern, change: { kind: "removes" } }]))
+    expect(removes.map(it => [it.label, it.heading, it.code, formatStepDivider(it)])).toEqual([["Remove proxy", "1 · Remove proxy", false, "Step 1 · Remove proxy"]])
   })
 
   it("words Other changes in the hover of the map of the files by its name alone, as it has no number of a step", () => {
     const concern = (id: string, name: Concern["name"], path: string): Concern => ({
       id,
       name,
+      change: { kind: "mixed" },
       parts: [{ unit: `u:${id}`, path, blocks: null }],
       paths: [path],
       elsewhere: [],
@@ -149,6 +155,7 @@ describe("review steps", () => {
     const phrase: Concern = {
       id: "phrase",
       name: { source: "declaration", name: "a b c" },
+      change: { kind: "mixed" },
       parts: [{ unit: "u:phrase", path: "src/Api.kt", blocks: null }],
       paths: ["src/Api.kt"],
       elsewhere: [],
@@ -313,6 +320,7 @@ describe("the units Rust joined in the steps of the concerns", () => {
   const concern = (id: string, token: string): Concern => ({
     id,
     name: { source: "token", token },
+    change: { kind: "mixed" },
     parts: [],
     paths: ["src/Manager.kt"],
     elsewhere: [],

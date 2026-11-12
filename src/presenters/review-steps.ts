@@ -16,7 +16,7 @@ import type {
   StoryRef,
 } from "@/lib/bindings"
 import { plainTitle, titleText } from "@/lib/commit"
-import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
+import { formatConcernEvidence, presentConcernTitle } from "@/presenters/review-concerns"
 
 /*
  * The words of the story of a review (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): Rust tells the steps
@@ -90,7 +90,10 @@ export interface Chapter {
    * joined, and not the one concern that covers the whole range, which would only repeat the range
    */
   readonly told: boolean
-  /** Its label is an identifier (the token, the declaration, the file of a concern no section of a body titles): code */
+  /**
+   * Its label is an identifier (the token, the declaration, the file of a concern no section of a body titles, whose title
+   * has no verb): code
+   */
   readonly code: boolean
   /**
    * Its label is the first sentence of the paragraph its opening tells (`titleSource: "sentence"`): the opening shows
@@ -268,8 +271,10 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
     }))
     const concern = step.concern === null ? undefined : concerns.get(step.concern)
     if (concern !== undefined) {
-      // the author's name of the task, the label of the section of the body told in it, else the name of its evidence
-      const title = step.title ?? plainTitle(formatConcernName(concern.name))
+      // the author's name of the task, the label of the section of the body told in it, else what it does to the name of
+      // its evidence
+      const named = presentConcernTitle(concern)
+      const title = step.title ?? plainTitle(named.label)
       const label = titleText(title)
       const rest = concern.name.source === "rest"
       const told = !rest && plan.steps.told
@@ -284,7 +289,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
         hover: formatConcernEvidence(concern.evidence),
         rest,
         told,
-        code: step.title === null && isCodeName(concern.name),
+        code: step.title === null && !named.sentence && isCodeName(concern.name),
         titleInBody: false,
         parts,
         paths: message ? step.paths : concern.paths,
@@ -523,7 +528,8 @@ export function formatCommitRole(role: CommitRole | null): string | null {
 /** The chapters of `concerns` alone, each named by its evidence (the tests of the tree and the story without steps) */
 export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns"]): Chapter[] {
   return concerns.map((concern, index) => {
-    const label = formatConcernName(concern.name)
+    const named = presentConcernTitle(concern)
+    const label = named.label
     const rest = concern.name.source === "rest"
     return {
       id: concern.id,
@@ -535,7 +541,7 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
       hover: formatConcernEvidence(concern.evidence),
       rest,
       told: !rest,
-      code: isCodeName(concern.name),
+      code: !named.sentence && isCodeName(concern.name),
       titleInBody: false,
       parts: concern.parts.map(part => ({ ...part, joined: NOT_JOINED, marks: NO_MARKS, groupHeading: null, groupOpening: null })),
       paths: concern.paths,

@@ -260,6 +260,7 @@ describe("the tree of a review with its plan", () => {
     const holding: Concern = {
       id: "s",
       name: { source: "declaration", name: "Store" },
+      change: { kind: "mixed" },
       parts: [
         { unit: "declaration:app/User.kt", path: "app/User.kt", blocks: null },
         { unit: "mechanical:buildModel", path: "app/app.iml", blocks: null },
@@ -306,6 +307,7 @@ describe("the concerns in the tree of a review", () => {
   const concern = (id: string, name: ConcernName, paths: string[], elsewhere: string[] = []): Concern => ({
     id,
     name,
+    change: { kind: "mixed" },
     parts: paths.map(path => ({ unit: `other:${path}`, path, blocks: null })),
     paths,
     elsewhere,

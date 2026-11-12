@@ -1,6 +1,6 @@
 ---
 name: Review Concerns
-description: Requirements for the concerns of a review (experimental), the tasks a range does, each a set of parts of its units joined by evidence the plan read already (a changed declaration and the changes that name it, the files of a group, a rare identifier the changed lines of several files share), the rest attached to the concern of its file or its subject, a generated file to the concern of the source its header names, what no evidence joined last; in the order of the story, with an id a growing concern keeps and a name by its evidence.
+description: Requirements for the concerns of a review (experimental), the tasks a range does, each a set of parts of its units joined by evidence the plan read already (a changed declaration and the changes that name it, the files of a group, a rare identifier the changed lines of several files share), the rest attached to the concern of its file or its subject, a generated file to the concern of the source its header names, what no evidence joined last; in the order of the story, with an id a growing concern keeps, a name by its evidence and what it does to that name.
 style: plain-1
 targets:
   - crates/review-plan/src/concerns.rs
@@ -390,6 +390,12 @@ before a compound one, the one its changed lines name first.
 - **THEN** the concern is named by the whole identifier
   [@test] crates/review-plan/src/concerns_test.rs (`a_name_of_a_library_joins_nothing_a_word_of_a_string_does`)
 
+#### Scenario: A token though the uses of a declaration joined more
+- **WHEN** the uses of a changed declaration joined a concern twice and a rare token of a doc joined it once
+- **THEN** the concern is named by the token: named by the declaration, the concerns of the lab had their names less
+  often in the subjects of their commits ("Measurements")
+  [@test] crates/review-plan/src/concerns_test.rs (`a_concern_a_token_joined_is_named_by_it_though_the_uses_of_a_declaration_joined_it_more_often`)
+
 ### Requirement: Order, Identity, Name: A removed and an added token of the same nodes are a replacement
 
 A removed and an added token of the same nodes MUST name the concern `replacement`.
@@ -418,6 +424,44 @@ the generated copies that follow it); else by the directory its files share.
 - **WHEN** no token, declaration or one file names the concern
 - **THEN** it is named by the directory its files share
 
+### Requirement: Order, Identity, Name: A concern says what it does to its name
+
+A concern MUST say what it does to its name (`change`): what the change does to the declaration of that name among
+its units (of a token, the one so named), `adds`, `removes`, `form` with the parts of its form that changed or `body`;
+`replaces` of a replacement; of its one file or its directory `adds` or `removes` where every part adds or deletes a
+file whole; else `mixed`, nothing a title may say.
+
+#### Scenario: A token that names a declaration the concern adds
+- **WHEN** a token joined a new function and the config that lists it by its name
+- **THEN** the concern `adds` it
+- **AND** a token the changed lines of new docs only name is `mixed`: a word or a name they newly use is no addition
+  [@test] crates/review-plan/src/concerns_test.rs (`a_concern_adds_its_token_only_when_it_adds_the_declaration_of_that_name`)
+
+#### Scenario: A token no declaration is named by
+- **WHEN** a token joined the configs that drop one server
+- **THEN** the concern is `mixed`
+  [@test] crates/review-plan/src/concerns_test.rs (`the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`)
+
+#### Scenario: A replacement
+- **WHEN** the concern is named by a replacement
+- **THEN** it `replaces`
+  [@test] crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`)
+
+#### Scenario: A declaration whose parameters changed
+- **WHEN** the concern is named by a declaration whose parameters changed
+- **THEN** it changes the `form` of it, its `changes` the parameters
+  [@test] crates/review-plan/src/concerns_test.rs (`a_changed_declaration_and_the_changes_of_its_uses_are_one_concern`)
+
+#### Scenario: The files deleted from a directory
+- **WHEN** the concern is the files the commits delete from one directory, named by it
+- **THEN** it `removes` them
+  [@test] crates/review-plan/src/concerns_test.rs (`a_concern_of_the_files_deleted_from_a_directory_removes_them`)
+
+#### Scenario: A file of several changes
+- **WHEN** the concern is named by its one file, whose parts neither all add nor all delete it
+- **THEN** it is `mixed`
+  [@test] crates/review-plan/src/concerns_test.rs (`a_source_and_its_generated_copies_are_named_by_the_file`)
+
 ### Requirement: Order, Identity, Name: A token is named as the changed lines write it
 
 A token MUST be matched in lowercase and named, in the name and in its evidence, as the changed lines of the concern
@@ -441,20 +485,24 @@ unchanged.
 
 ### Requirement: In `brd`: `brd review-plan` prints the concerns
 
-`brd review-plan` MUST print `concerns` (`"schema": 32`): per concern its `id`, `name`, its `parts` (`unit`, `path`,
-`blocks`), its `paths`, its `elsewhere` (since 8), its `evidence` (`kind`: `uses`, `group`, `token`, `rest`, its
-`detail` and `joins`, the most joins first) and its `fingerprint`.
+`brd review-plan` MUST print `concerns` (`"schema": 34`): per concern its `id`, `name`, its `change` (since 34), its
+`parts` (`unit`, `path`, `blocks`), its `paths`, its `elsewhere` (since 8), its `evidence` (`kind`: `uses`, `group`,
+`token`, `rest`, its `detail` and `joins`, the most joins first) and its `fingerprint`.
 
 #### Scenario: The concerns of a range
 - **WHEN** `brd review-plan` prints a range
-- **THEN** it prints `concerns`, each with its `id`, `name`, `parts` (`unit`, `path`, `blocks`), `paths`, `elsewhere`,
-  `evidence` (`kind`, `detail`, `joins`, the most joins first) and `fingerprint`
+- **THEN** it prints `concerns`, each with its `id`, `name`, `change`, `parts` (`unit`, `path`, `blocks`), `paths`,
+  `elsewhere`, `evidence` (`kind`, `detail`, `joins`, the most joins first) and `fingerprint`
   [@test] crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
 #### Scenario: The sources of a name
 - **WHEN** `brd review-plan` prints the `name` of a concern
 - **THEN** it is `source` `token` with `token`, `replacement` with `removed` and `added`, `declaration` with `name`,
   `file` with `path`, `directory` with `directory`, or `rest`
+
+#### Scenario: What a concern does to its name
+- **WHEN** `brd review-plan` prints the `change` of a concern
+- **THEN** it is `kind` `adds`, `removes`, `replaces`, `form` with `changes`, `body` or `mixed`
 
 ### Requirement: In `brd`: The hidden `--concern-edges` picks the edges
 
@@ -491,14 +539,14 @@ are the concerns (a range of one commit, or of commits without a body), each ste
 ### Requirement: In the Review Window: The tree lists the concerns at its top
 
 With a concern beside the rest, the tree of a review with its plan MUST list the concerns at its top, in their order:
-a row per concern, named by its evidence ("proxy", "grep → accio", the name of a declaration, the directory or
-"Root"), with its files and lines, why its parts are together in its hover
-("Joined by the identifiers ij-mcp-proxy, ij-proxy").
+a row per concern, titled by what it does to the name of its evidence (`change`), else by that name alone, with its
+files and lines, why its parts are together in its hover. The step of the concern MUST be titled so wherever it is
+named: the tree, the contents, its opening, the bar of the step, the divider of its section.
 
 #### Scenario: The rows of the concerns
 - **GIVEN** a plan with concerns beside the rest
 - **WHEN** the tree of the review shows
-- **THEN** a row per concern stands at its top, in their order, named by its evidence, with its files and lines
+- **THEN** a row per concern stands at its top, in their order, titled by its evidence, with its files and lines
 - **AND** its hover says why its parts are together
   [@test] src/lib/file-tree.test.ts (`lists the concerns, each with its files by their path, a file of another concern also, its generated files folded; then Other changes and Mechanical`)
   [@test] tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
@@ -509,6 +557,16 @@ a row per concern, named by its evidence ("proxy", "grep → accio", the name of
   "Root")
 - **AND** its hover says why its parts are together ("Joined by the identifiers ij-mcp-proxy, ij-proxy")
   [@test] src/presenters/review-concerns.test.ts (`names a concern by its evidence, and says why its parts are together`)
+
+#### Scenario: What a concern does, in its title
+- **WHEN** a concern adds or removes the declaration of its name, changes its form or its body
+- **THEN** its title says it before the name, a sentence set as text: "Add probe", "Remove legacy", "Change the
+  parameters of open" ("visibility", "constructors" alone, else "signature"), "Change open"
+- **AND** a concern that does nothing a title may say, a replacement, the root and Other changes keep the name alone
+  ("ijproxy", "grep → accio", "guide.md", "Root"), an identifier set as code
+  [@test] src/presenters/review-concerns.test.ts (`titles a concern by what it does to its name, a sentence, and a concern of several changes by its name alone, code`)
+  [@test] src/presenters/review-steps.test.ts (`names a step of a concern by the label of the section of the body it tells, else by its concern as code, keeps its main rows, and tells no step of a story Rust tells in none`)
+  [@test] tests/e2e/branch-review/review-parts.spec.ts (`should name in the bar above the diffs a step by its place, Other changes and the group of the imports after the story by their name alone, a click showing the opening of Other changes`)
 
 ### Requirement: In the Review Window: A concern row holds its files and its generated files
 
@@ -672,7 +730,7 @@ The filter of the files MUST keep the concerns of the files it shows.
 
 ```json
 "concerns": [
-  {"id": "3f1c…", "name": {"source": "token", "token": "proxy"},
+  {"id": "3f1c…", "name": {"source": "token", "token": "proxy"}, "change": {"kind": "mixed"},
    "parts": [{"unit": "other:.codex/config.toml", "path": ".codex/config.toml", "blocks": null},
              {"unit": "deleted:dotnet/.codex/config.toml", "path": "dotnet/.codex/config.toml", "blocks": null}],
    "paths": [".codex/config.toml", "dotnet/.codex/config.toml"],
@@ -709,7 +767,8 @@ The first section of each concern opens with a divider on the canvas above its c
 - A declaration both tasks change is one unit and joins them: the plan cannot tell whose change it is.
 - The stop words are a short list: a common word of prose that is no word of the list joins two blocks of prose when
   their cosine is high enough.
-- The name of a token concern is a word, not a sentence: `proxy` for a server dropped from six configs.
+- The name of a token concern no declaration of it is named by is a word, not a sentence: `proxy` for a server
+  dropped from six configs; a verb comes only from a declaration, or from files added or deleted whole.
 
 ## Measurements
 
@@ -761,6 +820,16 @@ led here, each measured on the same corpora:
   hunks of four tasks became two of three); the pairs of hunks it joins are truer: pair precision on idea-1 76.6 →
   77.8, by the label of the case 90.4 → 91.0. The joins it lost were right by chance: the words of the test titles of
   one commit.
+- What a concern does to its name (2026-11-12, `results/bd-v7-base`, `bd-v8`, `bd-v9`, `title_report.py`: the share of
+  the pure concerns whose name is in the subject of their commit). Named by the declaration whose uses made the most
+  joins, a tie by the order of the names, 216 of the 497 names of this repository changed and the share fell 14.2 →
+  11.9; by the declaration whose uses joined more often than a token, the first of the story of equal ones, 72
+  changed and it fell 14.2 → 13.2 (Java 13.1 → 12.7, idea-1 7.0 → 6.1, tangled-ccs 7.5 the same): the token keeps
+  the name. A verb from the token alone (all its changed lines add it, or remove it) was the verb of a declaration
+  for 3 of 16 concerns drawn from this repository, the others "Add over", "Add TestRepo", a word or a name the lines
+  newly use: the verb comes from the declaration of the name. As kept, the groups and the names of all 739 ranges
+  are those before; of the 497 concerns of this repository 211 add their name, 55 change its body, 27 remove it, 24
+  change its form, 12 replace, 168 say nothing a title may say (idea-1: 183, 116, 36, 64, 3, 211 of 613).
 
 A range takes 0.13–0.19 s median for the whole plan (concerns 12.7 ms for 168 units). The false merges left are of
 three kinds: a concern (146 on idea-1), a mechanical slice that holds lines of two tasks (27), and a unit, one

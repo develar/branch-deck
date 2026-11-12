@@ -546,7 +546,7 @@ describe("the document of a review", () => {
     ])
 
     // the only step what no evidence joined: no step to tell; the issue is the headline, a range without a branch by its commits
-    const rest: Concern = { id: "r", name: { source: "rest" }, parts: [], paths: [], elsewhere: [], evidence: [], fingerprint: "r" }
+    const rest: Concern = { id: "r", name: { source: "rest" }, change: { kind: "mixed" }, parts: [], paths: [], elsewhere: [], evidence: [], fingerprint: "r" }
     const untold = presentPrologue(
       plan([{ ...step("r", [commit("fix", "noStory")], [["u:a", "a.kt"]]), concern: "r" }], [], {
         branch: null,
@@ -570,6 +570,7 @@ describe("the document of a review", () => {
     const task: Concern = {
       id: "task",
       name: { source: "declaration", name: "aFunction" },
+      change: { kind: "mixed" },
       parts: [],
       paths: [],
       elsewhere: [],
@@ -848,6 +849,7 @@ describe("the document of a review", () => {
     const concern = (id: string, detail: string): Concern => ({
       id,
       name: { source: "token", token: detail },
+      change: { kind: "mixed" },
       parts: [],
       paths: [],
       elsewhere: [],

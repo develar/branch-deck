@@ -1,4 +1,5 @@
-import type { ConcernEvidence, ConcernName, EvidenceKind } from "@/lib/bindings"
+import type { Concern, ConcernChange, ConcernEvidence, ConcernName, EvidenceKind, FormChange } from "@/lib/bindings"
+import { FORM_WORDS } from "@/presenters/review-plan"
 
 /*
  * The words of the concerns of a review (openspec/specs/branch/review-concerns/spec.md, "In the Review Window"): Rust joins the
@@ -25,6 +26,45 @@ export function formatConcernName(name: ConcernName): string {
     case "rest":
       return OTHER_CHANGES
   }
+}
+
+/** The parts of a form a title names: one of these alone, else "signature" */
+const TITLED_FORM: ReadonlySet<FormChange> = new Set(["parameters", "reach", "constructors"])
+
+/**
+ * The verb of the title of a concern, what Rust says it does to its name (`Concern.change`): "Remove", "Add", "Change",
+ * "Change the parameters of"; none for a replacement, whose name says it ("grep → accio"), for a concern that does
+ * several things, and for one of no name of its own (the root, Other changes)
+ */
+function concernVerb(name: ConcernName, change: ConcernChange): string | null {
+  if (name.source === "rest" || (name.source === "directory" && name.directory === "")) {
+    return null
+  }
+  switch (change.kind) {
+    case "adds":
+      return "Add"
+    case "removes":
+      return "Remove"
+    case "body":
+      return "Change"
+    case "form": {
+      const [only] = change.changes
+      return only !== undefined && change.changes.length === 1 && TITLED_FORM.has(only) ? `Change the ${FORM_WORDS[only]} of` : "Change the signature of"
+    }
+    case "replaces":
+    case "mixed":
+      return null
+  }
+}
+
+/**
+ * The title of a concern: what it does to its name, then the name ("Add probe", "Change the parameters of open",
+ * "grep → accio", "docs/guide"); a title with a verb is a sentence, set as text, a bare name is code (`isCodeName`)
+ */
+export function presentConcernTitle(concern: Pick<Concern, "name" | "change">): { readonly label: string; readonly sentence: boolean } {
+  const name = formatConcernName(concern.name)
+  const verb = concernVerb(concern.name, concern.change)
+  return verb === null ? { label: name, sentence: false } : { label: `${verb} ${name}`, sentence: true }
 }
 
 /** "also in proxy": a row of a file in a chapter of the story (a concern, a step) that is not the one of its main row */

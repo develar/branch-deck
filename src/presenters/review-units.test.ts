@@ -252,6 +252,7 @@ describe("the concerns in the story", () => {
   const concern = (id: string, name: ConcernName, parts: ConcernPart[]): Concern => ({
     id,
     name,
+    change: { kind: "mixed" },
     parts,
     paths: [...new Set(parts.map(part => part.path))],
     elsewhere: [],

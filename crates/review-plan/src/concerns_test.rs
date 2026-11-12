@@ -1,5 +1,6 @@
 use crate::ReviewPlan;
-use crate::concerns::{ConcernName, EvidenceKind};
+use crate::api::FormChange;
+use crate::concerns::{ConcernChange, ConcernName, EvidenceKind};
 use crate::test_support::{plan_of, plan_of_range, range};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -61,6 +62,8 @@ fn the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share
     ]
   );
   assert_eq!(plan.concerns[0].evidence[0].kind, EvidenceKind::Token);
+  // no declaration of the configs is named by the token: nothing a title may say
+  assert_eq!(plan.concerns[0].change, ConcernChange::Mixed);
 }
 
 /// A changed declaration and the changes that name it, in its file or a file that imports it, are one concern; a
@@ -89,6 +92,108 @@ fn a_changed_declaration_and_the_changes_of_its_uses_are_one_concern() {
     concerns(&plan),
     [(declaration("open"), vec!["src/a/Api.kt", "src/b/Use.kt"]), (ConcernName::Rest, vec!["src/c/Other.kt"])]
   );
+  assert_eq!(
+    plan.concerns[0].change,
+    ConcernChange::Form {
+      changes: vec![FormChange::Parameters]
+    }
+  );
+}
+
+/// A concern a token joined is named by the token though the uses of a declaration joined it more often: named by the
+/// declaration, the concerns of the lab had their names less often in the subjects of their commits
+#[test]
+fn a_concern_a_token_joined_is_named_by_it_though_the_uses_of_a_declaration_joined_it_more_often() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[
+      ("src/a/Api.kt", "package a\n\nfun openStore(path: String): Int = 1\n"),
+      ("src/b/One.kt", "package b\n\nimport a.openStore\n\nfun one() = openStore(\"x\")\n"),
+      ("src/c/Two.kt", "package c\n\nimport a.openStore\n\nfun two() = openStore(\"y\")\n"),
+      ("docs/guide.md", "# Guide\n"),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Change",
+    &[
+      ("src/a/Api.kt", "package a\n\nfun openStore(path: String, mode: Int): Int = mode\n"),
+      ("src/b/One.kt", "package b\n\nimport a.openStore\n\nfun one() = openStore(\"zebrafish\", 2)\n"),
+      ("src/c/Two.kt", "package c\n\nimport a.openStore\n\nfun two() = openStore(\"y\", 2)\n"),
+      ("docs/guide.md", "# Guide\n\n- `zebrafish`\n"),
+    ],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(
+    concerns(&plan),
+    [(token("zebrafish"), vec!["docs/guide.md", "src/a/Api.kt", "src/b/One.kt", "src/c/Two.kt"])],
+    "{:#?}",
+    plan.concerns
+  );
+  let kinds: Vec<(EvidenceKind, u32)> = plan.concerns[0].evidence.iter().map(|evidence| (evidence.kind, evidence.joins)).collect();
+  assert_eq!(kinds, [(EvidenceKind::Uses, 2), (EvidenceKind::Token, 1)]);
+}
+
+/// A concern a token joined adds it when it adds the declaration of that name; files that only name an identifier
+/// anew say nothing a title may say: a word or a name they newly use is no addition
+#[test]
+fn a_concern_adds_its_token_only_when_it_adds_the_declaration_of_that_name() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[("src/Modes.kt", "package modes\n\nfun plain() = 1\n"), ("config/modes.json", "{\n  \"modes\": []\n}\n")],
+  );
+  let head = repo.create_commit_with_files(
+    "Add the mode",
+    &[
+      ("src/Modes.kt", "package modes\n\nfun plain() = 1\n\nfun zebrafishMode() = 2\n"),
+      ("config/modes.json", "{\n  \"modes\": [\"zebrafishMode\"]\n}\n"),
+    ],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(
+    concerns(&plan),
+    [(token("zebrafishMode"), vec!["config/modes.json", "src/Modes.kt"])],
+    "{:#?}",
+    plan.concerns
+  );
+  assert_eq!(plan.concerns[0].change, ConcernChange::Adds);
+
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &[("README.md", "# Readme\n")]);
+  let head = repo.create_commit_with_files(
+    "Add the rules",
+    &[("rules/one.md", "# One\n\n- `zebrafish`\n"), ("rules/two.md", "# Two\n\n- `zebrafish`\n")],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(concerns(&plan), [(token("zebrafish"), vec!["rules/one.md", "rules/two.md"])], "{:#?}", plan.concerns);
+  assert_eq!(plan.concerns[0].change, ConcernChange::Mixed);
+}
+
+/// The files a concern deletes whole from one directory, joined as its group and named by it, are what it removes
+#[test]
+fn a_concern_of_the_files_deleted_from_a_directory_removes_them() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[
+      ("README.md", "# Readme\n"),
+      ("old/alpha.md", "# Alpha\n\nThe first.\n"),
+      ("old/beta.md", "# Beta\n\nThe second.\n"),
+      ("old/gamma.md", "# Gamma\n\nThe third.\n"),
+    ],
+  );
+  repo.git(&["rm", "-q", "old/alpha.md", "old/beta.md", "old/gamma.md"]);
+  let head = repo.create_commit_with_files("Drop the old docs", &[("README.md", "# Readme\n\nNew.\n")]);
+  let plan = plan_of_range(&repo, &base, &head);
+  let old = ConcernName::Directory { directory: "old".to_string() };
+  assert_eq!(
+    concerns(&plan),
+    [(old, vec!["old/alpha.md", "old/beta.md", "old/gamma.md"]), (ConcernName::Rest, vec!["README.md"])],
+    "{:#?}",
+    plan.concerns
+  );
+  assert_eq!(plan.concerns[0].change, ConcernChange::Removes);
 }
 
 /// A concern named by a Kotlin declaration keeps its words but not the backticks needed to spell it in source
@@ -181,6 +286,7 @@ fn a_generated_file_follows_the_concern_of_the_source_its_header_names() {
     added: "accioquery".to_string(),
   };
   assert_eq!(concerns(&plan), [(replacement, vec!["docs/guide.md", "docs/tools.md", "AGENTS.md"])]);
+  assert_eq!(plan.concerns[0].change, ConcernChange::Replaces);
 }
 
 /// The changes that share the most rare identifiers join first, and one shared identifier then joins no two concerns of
@@ -405,6 +511,7 @@ fn a_source_and_its_generated_copies_are_named_by_the_file() {
     path: "docs/guide.md".to_string(),
   };
   assert_eq!(concerns(&plan), [(file, vec!["docs/guide.md", "AGENTS.md"])]);
+  assert_eq!(plan.concerns[0].change, ConcernChange::Mixed);
 }
 
 /// A build file whose change is mechanical follows the concern of the code of its module that a link now joins to
