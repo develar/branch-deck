@@ -943,7 +943,8 @@ test.describe("Stacked branches", () => {
     await expect(button).toHaveAttribute("aria-busy", "true")
     expect(await remotePushes(repo)).toEqual([["auth"]])
 
-    releaseSync()
+    // the push runs once the sync ended: the sync, then the push, seconds under load; its answer, then its toast
+    await runAndWaitForAnswer(page, "execute", async () => releaseSync())
     const pushedChildren = page.locator("[data-slot=toast]", { hasText: "Pushed branches session, login and oauth" })
     await expect(pushedChildren).toBeVisible()
     expect(await remotePushes(repo)).toEqual([["auth"], ["login", "oauth", "session"]])
@@ -1050,8 +1051,9 @@ test.describe("Stacked branches", () => {
     await expect(page.getByTestId("push-description").getByTestId("push-retarget")).toHaveText(
       "Retargets #802 of auth to master. Retargets #801 of login to master: GitHub may dismiss its approvals.",
     )
-    // the push retargets them first: every pull request of a virtual branch goes into master, with what it lands
-    await button.click()
+    // the push retargets them first: every pull request of a virtual branch goes into master, with what it lands. The two
+    // retargets and the push take seconds under load: its answer, then its toast
+    await runAndWaitForAnswer(page, "execute", () => button.click())
     const toast = page.locator("[data-slot=toast]", { hasText: "Pushed branches auth and login" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
       "2 commits · created 2 remote branches · retargeted pull request #802 of auth to master · retargeted pull request #801 of login to master",
