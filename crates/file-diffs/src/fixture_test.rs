@@ -16,6 +16,14 @@ pub(crate) fn unhurried() -> FileDiffs {
   })
 }
 
+/// The service whose time limits are over before a comparison starts: every deadline of a view runs out at once
+pub(crate) fn hurried() -> FileDiffs {
+  FileDiffs::new(DiffLimits {
+    file: Duration::ZERO,
+    lines: Duration::ZERO,
+  })
+}
+
 /// `unhurried` as `FileDiffs::for_scans`: it keeps the blobs of its blocks
 pub(crate) fn unhurried_for_scans() -> FileDiffs {
   FileDiffs {

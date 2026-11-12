@@ -688,6 +688,19 @@ value MUST be pinned with the version of its store.
 - **THEN** the sample of the value that is pinned with the version of its store (`MODEL_VERSION`, `MERGE_MODEL_VERSION`) reads otherwise, and the version is raised with the new sample
   [@test] crates/file-diffs/src/stored_layout_test.rs (`the_layout_of_a_stored_value_is_pinned_with_the_version_of_its_store`)
 
+### Requirement: File diffs: A merge the time cut short reaches no store
+
+The `file_merge` store MUST NOT keep a merge whose deadline ran out (`BudgetedMerge::out_of_time`: its lines, then one
+block of the three whole texts, or the words of a block), also of a text over the limits of the inner ranges; memory
+keeps it for the run. A side over a size limit or a comparison of too many changes is a limit of the work, and such a
+merge is stored.
+
+#### Scenario: A merge whose lines ran out of time
+- **GIVEN** a conflict in a text over the line limit of the inner ranges
+- **WHEN** the views merge it with a line budget already over, then another app merges it through the same store
+- **THEN** the first merge is one block of the three whole texts, and the other app gets the blocks of a merge without a limit
+  [@test] crates/file-diffs/src/merge_test.rs (`a_merge_whose_lines_ran_out_of_time_reaches_no_store`)
+
 ### Requirement: File diffs: The working tree is compared with HEAD
 
 The working tree MUST be compared with `HEAD`: staged, unstaged and untracked files, from one `status`. The new side is

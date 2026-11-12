@@ -3786,7 +3786,8 @@ The conflict view gets the merge of each conflicting file as typed JSON (`FileDi
   those of `get_file_diffs`: `files` with the stage ids, a `content` for each file (the files in view first), and the
   `scopes` of a text merge.
 - **Caches.** A merge is keyed by its three blob ids, the policy and the languages of the scopes: memory first, then
-  the `file_merge` store (`MERGE_MODEL_VERSION`). A merge that the time cut short stays in memory only. The blobs stay
+  the `file_merge` store (`MERGE_MODEL_VERSION`). A merge that the time cut short (`BudgetedMerge::out_of_time`: its
+  lines or the words of a block ran out, also of a text over the inner limits) stays in memory only. The blobs stay
   in the blob cache of `get_blob_texts`.
 - **Measured** on cherry-picks of the last commits onto an older commit, under load (load average 15 to 20). In Branch
   Deck, 141 merges and 886 files: p50 47 ms, of which 26 ms are the `merge-tree`. In the monorepo, 62 merges and 392

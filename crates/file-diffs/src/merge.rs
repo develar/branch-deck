@@ -26,15 +26,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
 use text_diff::cancellation::Deadline;
-use text_diff::merge_model::{TextMerge, merge_texts};
-use text_diff::model::{BudgetedDiff, DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts_in};
+use text_diff::merge_model::{BudgetedMerge, TextMerge, merge_texts_in};
+use text_diff::model::{BudgetedDiff, DiffBudget, Scope, TextDiff, diff_texts_in};
 use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument};
 
 /// The version of the merges in the `file_merge` store: bump it when `TextMerge`, `TextDiff` (a merge of one side
 /// holds a diff, with its marks), the merge or the scopes change. `stored_layout_test.rs` pins the layout with it. 10:
-/// a merge of one side whose lines ran out of time is not stored either (`BudgetedDiff::out_of_time`)
-pub(crate) const MERGE_MODEL_VERSION: u32 = 10;
+/// a merge of one side whose lines ran out of time is not stored either (`BudgetedDiff::out_of_time`); 11: nor a merge
+/// of three sides whose lines ran out (`BudgetedMerge::out_of_time`), so a store of 10 may hold one block of three whole
+/// texts that the time made
+pub(crate) const MERGE_MODEL_VERSION: u32 = 11;
 
 /// The memory key of a merge: the options byte and the base, left and right blob ids, empty for a missing side
 pub(crate) type MergeMemoryKey = (u8, String, String, String);
@@ -404,8 +406,9 @@ impl MergeWork<'_> {
       return ((!cut_short).then(|| (key.clone(), StoredMerge::OneSided { deleted, diff })), made);
     }
 
-    let mut merge = merge_texts(texts[1], texts[0], texts[2], self.policy, &budget);
-    let cut_short = merge.line_level_only && fits_inner(&texts);
+    let BudgetedMerge { mut merge, out_of_time } = merge_texts_in(texts[1], texts[0], texts[2], self.policy, &budget);
+    // a merge the time cut short, of the words of a block or of its lines, stays in memory only
+    let cut_short = out_of_time;
     if let Some(language) = language {
       send(content_event(MergeContent::Text(merge.clone())));
       let side_scopes = |id: Option<&str>, text: &str, made: &mut Vec<((u8, String), FileSummary)>| -> Vec<Scope> {
@@ -431,9 +434,4 @@ impl MergeWork<'_> {
   fn remember(&self, key: &MergeMemoryKey, content: &MergeContent) {
     self.service.merges.insert(key.clone(), Arc::new(content.clone()));
   }
-}
-
-/// Whether the comparison gave the texts their inner ranges only for lack of time
-fn fits_inner(texts: &[&str; 3]) -> bool {
-  texts.iter().all(|text| text.len() <= MAX_INNER_BYTES && text.lines().nth(MAX_INNER_LINES).is_none())
 }

@@ -1,13 +1,11 @@
 //! The blocks of many pairs for the scans: the same blocks as the views, the binary files, the caches, and no deadline.
 
 use crate::blocks::{BlobPair, PairDiff};
-use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, unhurried_for_scans, write};
+use crate::fixture_test::{commit_all, hurried, process_counts, repo_path, unhurried, unhurried_for_scans, write};
 use crate::model::{DiffContent, DiffFile, DiffSource};
-use crate::service::{DiffLimits, FileDiffs};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::fmt::Write as _;
-use std::time::Duration;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use text_diff::policy::WhitespacePolicy;
@@ -202,10 +200,7 @@ fn a_scan_has_the_blocks_of_no_deadline_and_a_diff_the_time_cut_short_reaches_no
     .collect();
   assert_eq!(expected.iter().map(Vec::len).collect::<Vec<_>>(), [2, 20]);
 
-  let hurried = FileDiffs::new(DiffLimits {
-    file: Duration::ZERO,
-    lines: Duration::ZERO,
-  });
+  let hurried = hurried();
   assert_eq!(texts_of(hurried.blocks_of(repo.git_executor(), repo_path(&repo), &cache, &pairs).unwrap()), expected);
 
   let cut = hurried.read(repo.git_executor(), repo_path(&repo), &cache, &source, WhitespacePolicy::Default).unwrap();

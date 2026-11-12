@@ -6,7 +6,7 @@
 //! commit being picked). Lines are IntelliJ's, as in `model.rs`.
 
 use crate::by_word;
-use crate::cancellation::Deadline;
+use crate::cancellation::{Deadline, DiffTooBig};
 use crate::comparison_util::is_equal_texts;
 use crate::manager::merge_content_lines;
 use crate::merge_conflict_type::{MergeConflictKind, MergeConflictType, ResolutionStrategy};
@@ -114,6 +114,21 @@ pub struct Sides<T> {
 /// Merges three texts under `policy` by line, with the words inside the blocks and the resolve of the conflicts by
 /// words; `budget.inner` bounds the words and the resolves of the whole file, `budget.lines` the merge of the lines
 pub fn merge_texts(left: &str, base: &str, right: &str, policy: WhitespacePolicy, budget: &DiffBudget) -> TextMerge {
+  merge_texts_in(left, base, right, policy, budget).merge
+}
+
+/// A merge, and whether the time of its budget cut it short
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BudgetedMerge {
+  pub merge: TextMerge,
+  /// A deadline of the budget ran out: the lines (one block of the three whole texts) or the words of a block (the
+  /// merge by lines alone, a default resolution maybe not found). A side over the size limits or a comparison of too
+  /// many changes is a limit of the work, the same on any machine, and is not this
+  pub out_of_time: bool,
+}
+
+/// `merge_texts` within `budget`; says whether its time ran out (`BudgetedMerge::out_of_time`)
+pub fn merge_texts_in(left: &str, base: &str, right: &str, policy: WhitespacePolicy, budget: &DiffBudget) -> BudgetedMerge {
   let sources = [SourceText::new(left), SourceText::new(base), SourceText::new(right)];
   let texts = [sources[0].text(), sources[1].text(), sources[2].text()];
   let comparison_policy = policy.comparison_policy();
@@ -123,7 +138,9 @@ pub fn merge_texts(left: &str, base: &str, right: &str, policy: WhitespacePolicy
     .all(|(text, source)| text.len() <= MAX_INNER_BYTES && source.line_count() <= MAX_INNER_LINES);
   let mut inner = budget.inner.filter(|_| fits);
 
-  let ranges = merge_content_lines(texts[0], texts[1], texts[2], comparison_policy, &budget.lines).unwrap_or_else(|_| {
+  let mut out_of_time = false;
+  let ranges = merge_content_lines(texts[0], texts[1], texts[2], comparison_policy, &budget.lines).unwrap_or_else(|error| {
+    out_of_time = error == DiffTooBig::DeadlineExceeded;
     inner = None;
     whole_texts(&sources)
   });
@@ -132,6 +149,8 @@ pub fn merge_texts(left: &str, base: &str, right: &str, policy: WhitespacePolicy
   for range in &ranges {
     let (block, completed) = block_of(range, texts, &sources, comparison_policy, inner.as_ref());
     if !completed {
+      // only the deadline leaves the words of a block uncompleted
+      out_of_time = true;
       inner = None;
     }
     blocks.push(block);
@@ -139,7 +158,7 @@ pub fn merge_texts(left: &str, base: &str, right: &str, policy: WhitespacePolicy
 
   let conflicts = blocks.iter().filter(|block| block.kind == MergeBlockKind::Conflict).count();
   let unresolved = blocks.iter().filter(|block| block.kind == MergeBlockKind::Conflict && block.resolution.is_none()).count();
-  TextMerge {
+  let merge = TextMerge {
     left_line_count: to_u32(sources[0].line_count()),
     base_line_count: to_u32(sources[1].line_count()),
     right_line_count: to_u32(sources[2].line_count()),
@@ -157,7 +176,8 @@ pub fn merge_texts(left: &str, base: &str, right: &str, policy: WhitespacePolicy
     left_scopes: Vec::new(),
     base_scopes: Vec::new(),
     right_scopes: Vec::new(),
-  }
+  };
+  BudgetedMerge { merge, out_of_time }
 }
 
 /// One block of the whole texts, when the merge of the lines runs out of time

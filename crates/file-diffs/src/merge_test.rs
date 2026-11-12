@@ -1,10 +1,11 @@
 //! The merges of conflicting files on fixture repositories with real `merge-tree` conflicts: each conflict type, the
 //! resolve by words, the caches and the git processes.
 
-use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
+use crate::fixture_test::{commit_all, hurried, process_counts, repo_path, unhurried, write};
 use crate::model::{FileMerge, FileMergeEvent, GetFileMergesParams, GitConflictKind, MergeContent, MergeSide, MergeSource};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
+use std::fmt::Write as _;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use text_diff::merge_model::{MergeBlockKind, MergeResolution, Sides, TextMerge};
@@ -214,4 +215,52 @@ fn a_resolved_copy_names_the_blob_of_each_file() {
     Some(repo.git(&["rev-parse", &format!("{target}:content.txt")]).trim().to_string())
   );
   assert_eq!(file(&merges, "gone.txt").header.resolved_id, None);
+}
+
+/// A conflict in a text over the line limit of the inner ranges (`MAX_INNER_LINES`): the target and the picked commit
+/// change line 7 each their own way, and the commit also line 15 007
+fn long_conflict() -> (TestRepo, MergeSource) {
+  let long = |edits: &[(usize, &str)]| -> Vec<u8> {
+    let mut text = String::new();
+    for line in 0..=text_diff::model::MAX_INNER_LINES {
+      let edit = edits.iter().find(|(at, _)| *at == line).map_or("", |(_, edit)| *edit);
+      writeln!(text, "line {line}{edit}").unwrap();
+    }
+    text.into_bytes()
+  };
+  let repo = TestRepo::new();
+  write(&repo, "long.txt", &long(&[]));
+  let base = commit_all(&repo, "Base");
+  repo.git(&["checkout", "-q", "-b", "target"]);
+  write(&repo, "long.txt", &long(&[(7, " of the target")]));
+  let target = commit_all(&repo, "Target");
+  repo.git(&["checkout", "-q", "-b", "picked", &base]);
+  write(&repo, "long.txt", &long(&[(7, " of the commit"), (15_007, " of the commit")]));
+  let commit = commit_all(&repo, "Commit");
+  (
+    repo,
+    MergeSource::CherryPick {
+      parent: base,
+      target,
+      commit,
+      resolved: None,
+    },
+  )
+}
+
+/// A merge whose lines ran out of time is one block of the three whole texts, kept in memory only, also of a text over
+/// the limits of the inner ranges, which the time did not choose to compare by lines: another app merges it again and
+/// gets its blocks
+#[test]
+fn a_merge_whose_lines_ran_out_of_time_reaches_no_store() {
+  let (repo, source) = long_conflict();
+  let exact = read(&repo, &source);
+  assert_eq!(text(file(&exact, "long.txt")).blocks.len(), 2);
+
+  let cache_dir = tempfile::tempdir().unwrap();
+  let cache = test_utils::process_budget::cache_in(cache_dir.path());
+  let hurried = hurried();
+  let cut = hurried.read_merges(repo.git_executor(), &cache, &params(&repo, &source)).unwrap();
+  assert_eq!(text(file(&cut, "long.txt")).blocks.len(), 1);
+  assert_eq!(unhurried().read_merges(repo.git_executor(), &cache, &params(&repo, &source)).unwrap(), exact);
 }
