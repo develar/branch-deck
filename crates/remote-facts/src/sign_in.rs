@@ -7,7 +7,7 @@
 //! same YouTrack session, ends it first, as canceled. The lock of the runs only registers them, never spans a
 //! request or the browser. A sign-in or a sign-out that changed an account tells the host once (`SignInHost::changed`),
 //! which has every session read the fact `auth` again and tells the windows (`auth-changed`). Run by the commands of
-//! app-api (`app_api::app::sign_in`), hosted by the app (`AppSignIns` of `src-tauri/src/services.rs`) and by each test
+//! app-api (`app_api::app::sign_in`), hosted by the app and `brd mcp` (`AppSignIns` of `app_api::app::services`) and by each test
 //! repository of the E2E server (`RemoteHost`).
 
 use crate::youtrack_cli::hand_token_to_cli;

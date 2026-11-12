@@ -1,7 +1,7 @@
 //! The commands of app-api over HTTP, as the page mock sends them (`tests/e2e/setup/tauri-mocks.ts`): one route
-//! `/invoke/<name>` per entry of `app_api::for_each_command!`, which runs the body of the app in the `AppContext` of the
-//! test repository the request names (`X-Repository-Id`), for the window the request names (`X-Window-Label`, `main`
-//! without one). A JSON command answers its value, as Tauri resolves the `invoke` of the page with it, or
+//! `/invoke/<name>` per entry of `app_api::for_each_command!`, which runs the body of the app by its name
+//! (`app_api::dispatch`, as `brd mcp` runs it) in the `AppContext` of the test repository the request names
+//! (`X-Repository-Id`), for the window the request names (`X-Window-Label`, `main` without one). A JSON command answers its value, as Tauri resolves the `invoke` of the page with it, or
 //! `{ "status": "error", "error": <ApiError> }` (`Rejection`); a raw one its bytes (`application/octet-stream`) or the
 //! error.
 //!
@@ -14,8 +14,9 @@
 
 use crate::state::AppState;
 use app_api::context::AppContext;
-use app_api::registry::Command;
-use app_api::transport::{EventSink, Sink, SinkGone};
+use app_api::dispatch::{Answer, Dispatched};
+use app_api::registry::{CommandKind, CommandSpec};
+use app_api::transport::{EventSink, SinkGone};
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
@@ -25,10 +26,8 @@ use axum::response::{IntoResponse, Json, Response};
 use axum::routing::post;
 use domain_types::error::ApiError;
 use serde::Serialize;
-use std::any::Any;
 use std::convert::Infallible;
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
@@ -99,25 +98,10 @@ impl Progress {
   }
 }
 
-/// The SSE stream of a request as the channel of a command of app-api
-impl<T: Serialize + Send + Sync> EventSink<T> for Progress {
-  fn send(&self, event: T) -> Result<(), SinkGone> {
+/// The SSE stream of a request as the channel of a command of app-api, each event as its JSON
+impl EventSink<serde_json::Value> for Progress {
+  fn send(&self, event: serde_json::Value) -> Result<(), SinkGone> {
     if self.try_send(&event) { Ok(()) } else { Err(SinkGone) }
-  }
-}
-
-/// The channel argument of a command, made of the stream of its request: none for a command without one
-pub trait ChannelOf {
-  fn of(progress: Progress) -> Self;
-}
-
-impl ChannelOf for () {
-  fn of(_progress: Progress) -> Self {}
-}
-
-impl<T: Serialize + Send + Sync + 'static> ChannelOf for Sink<T> {
-  fn of(progress: Progress) -> Self {
-    Arc::new(progress)
   }
 }
 
@@ -156,78 +140,59 @@ pub fn event_stream(receiver: mpsc::UnboundedReceiver<serde_json::Value>) -> Res
     .into_response()
 }
 
-/// The callback of `for_each_command!`: the route of each command by its kind
+/// The callback of `for_each_command!`: the route of each command, which runs it by its name (`app_api::dispatch`)
 macro_rules! invoke_routes {
   ($($(#[doc = $doc:literal])* $class:ident $(($reason:ident))? $kind:ident $(($($field:tt)*))? $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
     /// `router` with the route of every command of app-api
     pub fn command_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
-      router $(.route(concat!("/invoke/", stringify!($name)), invoke_route!($kind $name)))*
+      router $(.route(concat!("/invoke/", stringify!($name)), post(|state: State<Arc<AppState>>, headers: HeaderMap, body: Bytes| invoke(stringify!($name), state, headers, body))))*
     }
-  };
-}
-
-/// The handler of one command: `json` and `plain` answer JSON, `raw` its bytes
-macro_rules! invoke_route {
-  (raw $name:ident) => {
-    post(raw::<app_api::commands::$name::Command>)
-  };
-  ($kind:ident $name:ident) => {
-    post(json::<app_api::commands::$name::Command>)
   };
 }
 
 app_api::for_each_command!(invoke_routes);
 
-/// A command that answers JSON: on the SSE stream of its channel when it has one and the page named it
-async fn json<C: Command<Args: 'static, Output: Serialize + 'static, Channel: ChannelOf + 'static> + 'static>(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  body: Bytes,
-) -> Response {
-  let channel = progress_channel(&headers).filter(|_| C::SPEC.channel.is_some());
-  answer_with_progress(channel, move |progress| async move { run::<C>(&state, &headers, &body, progress).await.map(Json) }).await
-}
-
-async fn raw<C: Command<Args: 'static, Output = Vec<u8>, Channel = ()> + 'static>(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
-  match run::<C>(&state, &headers, &body, Progress { sender: None }).await {
-    Ok(bytes) => ([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response(),
-    Err(rejection) => rejection.into_response(),
+/// The handler of the command `name`: JSON, on the SSE stream of its channel when it has one and the page named it, or
+/// the bytes of a raw command
+async fn invoke(name: &'static str, State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
+  let spec = app_api::dispatch::spec(name).expect("a route is a command of the registry");
+  if spec.kind == CommandKind::Raw {
+    return match run(name, &state, &headers, &body, Progress { sender: None }).await {
+      Ok(Answer::Bytes(bytes)) => ([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response(),
+      Ok(Answer::Json(value)) => Json(value).into_response(),
+      Err(rejection) => rejection.into_response(),
+    };
   }
+  let channel = progress_channel(&headers).filter(|_| spec.channel.is_some());
+  answer_with_progress(channel, move |progress| async move {
+    match run(name, &state, &headers, &body, progress).await? {
+      Answer::Json(value) => Ok(Json(value)),
+      Answer::Bytes(_) => Err(failed(name, "a JSON command answered bytes")),
+    }
+  })
+  .await
 }
 
-/// Runs `C` with the arguments of `body` in the context of the repository the request names, for the call of the
-/// window it names, its channel on `progress`
-async fn run<C: Command<Args: 'static, Output: 'static, Channel: ChannelOf + 'static> + 'static>(
-  state: &AppState,
-  headers: &HeaderMap,
-  body: &[u8],
-  progress: Progress,
-) -> Result<C::Output, Rejection> {
+/// Runs the command `name` with the arguments of `body` in the context of the repository the request names, for the
+/// call of the window it names, its channel on `progress`
+async fn run(name: &'static str, state: &AppState, headers: &HeaderMap, body: &[u8], progress: Progress) -> Result<Answer, Rejection> {
   let context = requesting_context(state, headers)?;
   let call = context.call(requesting_window(headers));
-  let args = arguments::<C>(body).map_err(|e| failed(C::SPEC.name, format!("Invalid arguments of {}: {e}", C::SPEC.name)))?;
-  let channel = C::Channel::of(progress);
-  let output = caught(erase(async move { C::call(&context, &call, args, channel).await })).await.inspect_err(|rejection| {
+  let spec = app_api::dispatch::spec(name).expect("a route is a command of the registry");
+  let args = arguments(spec, body).map_err(|e| failed(name, format!("Invalid arguments of {name}: {e}")))?;
+  let prepared = app_api::dispatch::prepare(name, args).map_err(Rejection::Error)?;
+  caught(prepared.run(context, call, Arc::new(progress))).await.inspect_err(|rejection| {
     if let Rejection::Error(error) = rejection {
-      tracing::debug!("Cannot {}: {}", C::SPEC.name, error.message);
+      tracing::debug!("Cannot {name}: {}", error.message);
     }
-  })?;
-  Ok(*output.downcast::<C::Output>().expect("a command answers its output"))
-}
-
-/// The answer of a command with its output erased, so every command runs in the same kind of task (`caught`)
-pub(crate) type ErasedAnswer = Pin<Box<dyn Future<Output = Result<Box<dyn Any + Send>, ApiError>> + Send>>;
-
-/// `answer` on the heap, its output erased: the futures of the sessions and the engine are deep, and the router proves
-/// each handler `Send`; one task type for every command keeps the server small (a task type per command took its test
-/// binary past the 16 MB of unwind tables the linker encodes compactly)
-pub(crate) fn erase<T: Send + 'static>(answer: impl Future<Output = Result<T, ApiError>> + Send + 'static) -> ErasedAnswer {
-  Box::pin(async move { answer.await.map(|output| Box::new(output) as Box<dyn Any + Send>) })
+  })
 }
 
 /// The answer of a command, run as a task of its own, as Tauri runs a command: its error, or `Panicked` for a command
-/// that panicked, which fails the request
-pub(crate) async fn caught(answer: ErasedAnswer) -> Result<Box<dyn Any + Send>, Rejection> {
+/// that panicked, which fails the request. One task type for every command (`app_api::dispatch::Dispatched`) keeps the
+/// server small (a task type per command took its test binary past the 16 MB of unwind tables the linker encodes
+/// compactly)
+pub(crate) async fn caught(answer: Dispatched) -> Result<Answer, Rejection> {
   match tokio::spawn(answer.in_current_span()).await {
     Ok(answer) => answer.map_err(Rejection::Error),
     Err(failure) => {
@@ -246,17 +211,18 @@ fn requesting_window(headers: &HeaderMap) -> &str {
     .unwrap_or(app_settings::windows::MAIN_WINDOW)
 }
 
-/// The arguments of `C` from the body the page mock sends: the object of the arguments by their camelCase names, or
-/// the value of `params` alone, which the mock unwraps; nothing for a command without arguments
-fn arguments<C: Command>(body: &[u8]) -> serde_json::Result<C::Args> {
-  if C::SPEC.args.is_empty() {
-    return serde_json::from_value(serde_json::json!({}));
+/// The arguments of a command from the body the page mock sends, as the page's `invoke` names them: the object of the
+/// arguments by their camelCase names, or the value of `params` alone, which the mock unwraps; nothing for a command
+/// without arguments
+fn arguments(spec: &CommandSpec, body: &[u8]) -> serde_json::Result<serde_json::Value> {
+  if spec.args.is_empty() {
+    return Ok(serde_json::json!({}));
   }
   let value: serde_json::Value = if body.is_empty() { serde_json::Value::Null } else { serde_json::from_slice(body)? };
-  if C::SPEC.args == ["params"] {
-    return serde_json::from_value(serde_json::json!({ "params": value }));
+  if spec.args == ["params"] {
+    return Ok(serde_json::json!({ "params": value }));
   }
-  serde_json::from_value(value)
+  Ok(value)
 }
 
 /// The context of the test repository of the page that sends a command (`X-Repository-Id`)

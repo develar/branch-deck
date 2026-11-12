@@ -8,6 +8,7 @@ members = [
   "crates/git-ops",
   "crates/test-utils",
   "crates/test-server",
+  "crates/mcp-host",
   "crates/sync-core",
   "crates/update-core",
   "crates/trial-check",

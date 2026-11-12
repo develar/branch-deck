@@ -281,6 +281,10 @@ enum Command {
   /// A `brd` symlink in ~/.local/bin (macOS, Linux; on Windows `brd.exe` is next to the app), the skill in
   /// ~/.claude/skills and ~/.agents/skills
   Install(InstallArgs),
+  /// Serve an IDE with Air: MCP with x-air-app on the stdin and the stdout, for the app file of Branch Deck
+  /// (`~/.air/apps/branch-deck.yaml`); the stdout carries only the protocol, the end of the stdin ends it
+  #[command(hide = true)]
+  Mcp,
   /// `brd help agent`, `brd help update`, `brd help worktrees`, `brd help skill`, `brd help <command>`, or the usage
   ///
   /// `agent`: the agent workflow; `update`: the update and its resolve session; `worktrees`: sessions in worktrees of
@@ -301,7 +305,12 @@ pub fn run(args: impl Iterator<Item = OsString>) -> i32 {
     Ok(invocation) => invocation,
     Err(exit_code) => return exit_code,
   };
-  init_logging(invocation.cli.verbose);
+  // the process of an IDE: no JSON object on stdout, its log on stderr (`mcp_host::process`)
+  if matches!(invocation.cli.command, Command::Mcp) {
+    init_logging(invocation.cli.verbose, "warn");
+    return mcp_host::process::run();
+  }
+  init_logging(invocation.cli.verbose, "off");
   execute_operation(&invocation, &environment, out)
 }
 
@@ -478,9 +487,10 @@ fn execute_operation(invocation: &Invocation, environment: &Environment, out: &m
   execute(&invocation.cli, environment, out)
 }
 
-fn init_logging(verbose: u8) {
+/// The log on stderr: `quiet` without -v (`brd mcp` logs its warnings, the IDE keeps the last lines of its stderr)
+fn init_logging(verbose: u8, quiet: &str) {
   let level = match verbose {
-    0 => "off",
+    0 => quiet,
     1 => "debug",
     _ => "trace",
   };
@@ -656,6 +666,11 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Schema(args) => schema(args).and_then(|output| printed(out, &output)),
     Command::Version => printed(out, &version(environment)),
     Command::Install(args) => install(environment, args).and_then(|output| printed(out, &output)),
+    // `run` serves it before any output: a run of a test has no stdin of an IDE
+    Command::Mcp => Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      "`brd mcp` is the process of an IDE: run it as `branch-deck cli mcp` with its stdin",
+    )),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map(|()| 0).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map(|()| 0).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "update" => out.write_all(UPDATE_HELP.as_bytes()).map(|()| 0).map_err(io_error),
@@ -697,6 +712,7 @@ const fn reads_only(command: &Command) -> bool {
     | Command::Version
     | Command::Workspace
     | Command::Install(_)
+    | Command::Mcp
     | Command::Help { .. }
     | Command::Lease(LeaseArgs {
       command: LeaseCommand::Status(_) | LeaseCommand::Disk(_),

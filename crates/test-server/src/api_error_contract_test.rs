@@ -5,8 +5,9 @@
 //! that JSON with the id of the operation the body failed in, as the app does, on the stream of a channel too:
 //! `a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app` of `session_routes_test.rs`.
 
-use crate::invoke::{answer_with_progress, caught, erase, failed};
+use crate::invoke::{answer_with_progress, caught, failed};
 use app_api::api_error::{CONTRACT_JSON, api_error, contract_cases};
+use app_api::dispatch::{Answer, Dispatched};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use pretty_assertions::assert_eq;
@@ -17,7 +18,7 @@ async fn a_command_of_the_server_answers_the_api_error_json_of_the_contract() {
   let expected: Map<String, Value> = serde_json::from_str(CONTRACT_JSON).expect("api_errors.json is no JSON object");
   let mut actual = Map::new();
   for (name, error) in contract_cases() {
-    let response = caught(erase(async move { Err::<(), _>(api_error(error)) })).await.unwrap_err().into_response();
+    let response = caught(Box::pin(async move { Err::<Answer, _>(api_error(error)) })).await.unwrap_err().into_response();
     assert_eq!(response.status(), StatusCode::OK, "{name}: an error is an answer, not a failure of the server");
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let mut answer: Map<String, Value> = serde_json::from_slice(&body).unwrap();
@@ -32,16 +33,18 @@ async fn a_command_of_the_server_answers_the_api_error_json_of_the_contract() {
 /// which the page mock throws as a bug of the server
 #[tokio::test]
 async fn a_panicked_command_of_the_server_fails_the_request() {
-  let response = caught(erase::<()>(async { panic!("the command panicked") })).await.unwrap_err().into_response();
+  let response = caught(panicked()).await.unwrap_err().into_response();
   assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
-  let response = answer_with_progress(Some(1), |_progress| async {
-    caught(erase::<()>(async { panic!("the command panicked") })).await.map(|_| axum::Json(()))
-  })
-  .await;
+  let response = answer_with_progress(Some(1), |_progress| async { caught(panicked()).await.map(|_| axum::Json(())) }).await;
   let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
   let body = String::from_utf8(body.to_vec()).unwrap();
   assert!(body.contains(r#"data: {"result":{"panicked":true}}"#), "{body}");
+}
+
+/// The answer of a command that panics
+fn panicked() -> Dispatched {
+  Box::pin(async { panic!("the command panicked") })
 }
 
 /// A command with a channel (`invoke.rs`) fails on its event stream with the same JSON:

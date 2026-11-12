@@ -7,7 +7,7 @@ targets:
   - crates/sync-core/src/branch_name_suggestion.rs
   - crates/sync-utils/src/child_process.rs
   - crates/app-api/src/remote/suggest.rs
-  - src-tauri/src/services.rs
+  - crates/app-api/src/app/services.rs
   - crates/test-server/src/host.rs
   - src-tauri/src/legacy_model_cache.rs
   - src/hooks/useBranchSuggestions.ts

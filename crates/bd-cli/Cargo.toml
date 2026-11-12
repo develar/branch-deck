@@ -25,6 +25,8 @@ lease-pool = { path = "../lease-pool", features = ["schemars"] }
 bd-remote = { path = "../bd-remote" }
 bd-rewrite = { path = "../bd-rewrite" }
 bd-update = { path = "../bd-update" }
+# `brd mcp`: the host of app-api for an IDE with Air
+mcp-host = { path = "../mcp-host" }
 commit-clustering = { path = "../commit-clustering" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }

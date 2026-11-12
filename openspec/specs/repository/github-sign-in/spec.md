@@ -15,7 +15,7 @@ targets:
   - crates/sync-utils/src/secret_store.rs
   - crates/github/src/token.rs
   - crates/domain-types/src/pull_request.rs
-  - src-tauri/src/services.rs
+  - crates/app-api/src/app/services.rs
   - crates/app-api/src/remote/accounts.rs
   - crates/app-api/src/app/sign_in.rs
   - crates/app-api/src/events.rs

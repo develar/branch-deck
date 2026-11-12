@@ -16,7 +16,7 @@ targets:
   - crates/test-server/src/cli_tools_fixtures.rs
   - crates/app-api/src/app/cli_tools.rs
   - crates/test-server/src/host.rs
-  - src-tauri/src/services.rs
+  - crates/app-api/src/app/services.rs
   - src/stores/cli-tools.ts
   - src/lib/sign-in-run.ts
   - crates/remote-facts/src/sign_in.rs

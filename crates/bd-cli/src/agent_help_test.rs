@@ -34,7 +34,7 @@ const NOT_IN_AGENT_HELP: &[&str] = &[
 const SAME_OPTIONS_AS: &[(&str, &str)] = &[("rename", "group"), ("restack", "group"), ("unstack", "group"), ("stack-together", "group")];
 
 /// The long options of the commands: the global ones, and per subcommand its own, a nested one as `lease get`; without
-/// `--help`, `--version` and hidden options
+/// `--help`, `--version`, hidden options and hidden commands (`brd mcp`, the process of an IDE, no agent's)
 fn options_of_commands() -> (BTreeSet<String>, BTreeMap<String, BTreeSet<String>>) {
   let mut command = Cli::command();
   command.build();
@@ -47,7 +47,7 @@ fn options_of_commands() -> (BTreeSet<String>, BTreeMap<String, BTreeSet<String>
   };
   let global = longs(&command, true);
   let mut commands = BTreeMap::new();
-  for subcommand in command.get_subcommands() {
+  for subcommand in command.get_subcommands().filter(|subcommand| !subcommand.is_hide_set()) {
     commands.insert(subcommand.get_name().to_string(), &longs(subcommand, false) - &global);
     for nested in subcommand.get_subcommands().filter(|nested| nested.get_name() != "help") {
       commands.insert(format!("{} {}", subcommand.get_name(), nested.get_name()), &longs(nested, false) - &global);

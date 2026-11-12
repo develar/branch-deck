@@ -3,7 +3,7 @@ name = "app-api"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The adapters' crate of the app and the e2e server: the registry of the commands, their bodies and context, and the one conversion of a core's error into the `ApiError` a command answers"
+description = "The adapters' crate of the app, the e2e server and `brd mcp`: the registry of the commands, their bodies and context, and the one conversion of a core's error into the `ApiError` a command answers"
 publish = false
 
 [dependencies]
@@ -37,6 +37,8 @@ trial-check = { path = "../trial-check" }
 update-core = { path = "../update-core" }
 youtrack = { path = "../youtrack" }
 anyhow.workspace = true
+# the system time zone of the statistics (`AppHost::calendar` of `app::services`)
+jiff = { workspace = true, features = ["tz-system"] }
 moka.workspace = true
 serde.workspace = true
 # the payloads of the events of the app (`AppEvents`)

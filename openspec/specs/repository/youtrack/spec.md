@@ -19,7 +19,7 @@ targets:
   - crates/domain-types/src/youtrack.rs
   - crates/app-api/src/remote/accounts.rs
   - crates/app-api/src/remote/pull_requests.rs
-  - src-tauri/src/services.rs
+  - crates/app-api/src/app/services.rs
   - crates/operations/src/issue.rs
   - src/lib/issue-actions.ts
   - src-tauri/src/lib.rs

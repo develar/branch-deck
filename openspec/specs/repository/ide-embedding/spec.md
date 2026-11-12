@@ -15,6 +15,13 @@ targets:
   - src/platform/air/theme.ts
   - src/platform/air/bootstrap.ts
   - src/platform/air/frame-link.ts
+  - crates/app-api/src/dispatch.rs
+  - crates/mcp-host/src/server.rs
+  - crates/mcp-host/src/mirror.rs
+  - crates/mcp-host/src/hosts.rs
+  - crates/mcp-host/src/resources.rs
+  - crates/mcp-host/src/process.rs
+  - crates/test-server/src/mcp_socket.rs
 ---
 
 # Branch Deck in the IDE
@@ -58,10 +65,12 @@ it speaks `x-air-app` of Air with the page and with `brd mcp` ([IDE Embedding](.
 #### Scenario: initialize
 - **WHEN** air-ide sends `initialize` with `x-air-app` 1.0.0
 - **THEN** brd answers the server `branch-deck` with the tools, the resources and `x-air-app` 1.0.0
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 #### Scenario: The app link corpus
 - **WHEN** a test runs `docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson` against `brd mcp` on the fixtures
 - **THEN** each line of the app matches the corpus
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: `brd mcp`: The data of brd mcp is the data of the desktop app
 
@@ -71,6 +80,7 @@ same as the desktop app and `brd`.
 #### Scenario: A setting of the desktop app
 - **WHEN** the desktop app saved a setting, and `brd mcp` starts
 - **THEN** `bd_bootstrap` gives that setting
+  [@test] crates/mcp-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
 
 ### Requirement: `brd mcp`: The page of each view is a resource built into the binary
 
@@ -80,6 +90,8 @@ file of the Air build is `ui://branch-deck/<path>`, and another URI gets `-32602
 #### Scenario: The main page and a missing file
 - **WHEN** air-ide reads `ui://branch-deck/main` and then `ui://branch-deck/nothing.js`
 - **THEN** it gets the HTML of the page, and then `-32602 {reason: "badParams"}`
+  [@test] crates/mcp-host/src/resources_test.rs (`a_view_is_the_page_and_a_missing_file_is_none`)
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: `brd mcp`: The end of stdin ends brd mcp
 
@@ -88,6 +100,7 @@ At the end of its stdin, `brd mcp` MUST close its sessions and exit with 0.
 #### Scenario: The IDE closes the project
 - **WHEN** the stdin of `brd mcp` ends
 - **THEN** the process exits with 0
+  [@test] crates/mcp-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
 
 ### Requirement: Tools: The tools are bd_invoke and bd_bootstrap, both only for the app
 
@@ -96,6 +109,8 @@ At the end of its stdin, `brd mcp` MUST close its sessions and exit with 0.
 #### Scenario: The list
 - **WHEN** air-ide sends `tools/list`
 - **THEN** it gets the two tools, and no agent sees either
+  [@test] crates/mcp-host/src/server_test.rs (`both_tools_are_only_for_the_app`)
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: bd_invoke runs one command of app-api by its name
 
@@ -105,10 +120,12 @@ At the end of its stdin, `brd mcp` MUST close its sessions and exit with 0.
 #### Scenario: A JSON command
 - **WHEN** the page calls `bd_invoke` with `get_settings_changes`
 - **THEN** the result holds the output of the command in `structuredContent.value`
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 #### Scenario: An unknown command
 - **WHEN** the page calls `bd_invoke` with a name that no command has
 - **THEN** the result is `isError` with an `ApiError`
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: A raw command answers its bytes in base64
 
@@ -127,6 +144,7 @@ Every call event comes before the answer of its call.
 #### Scenario: The diffs of a commit
 - **WHEN** the page calls `bd_invoke` with `get_file_diffs`
 - **THEN** each file diff is one call event of that call, and the answer comes after the last one
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: The window of a call is the instance of its view
 
@@ -145,6 +163,7 @@ an agent stays the `brd` command line.
 #### Scenario: The origin agent
 - **WHEN** air-ide sends `bd_invoke` with the origin `agent`
 - **THEN** brd answers `-32009 {reason: "agentOrigin"}` and runs no command
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: A cancel stops a read and lets a write end
 
@@ -163,6 +182,26 @@ bar. The page takes them where the desktop app takes its init script.
 #### Scenario: The main view
 - **WHEN** the page of `main` calls `bd_bootstrap`
 - **THEN** the result has `settings`, `warmFrame`, `initData` and `titleBar`
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
+
+### Requirement: Tools: The action Sync Virtual Branches is the tool sync
+
+A `tools/call` of `sync` with the origin `action` MUST sync the repository of the main view, as Sync does in the
+desktop app. No list of tools names it, and no other origin calls it.
+
+#### Scenario: The shortcut of Sync
+- **WHEN** the user presses Sync Virtual Branches in the IDE
+- **THEN** brd syncs the repository that the main view shows
+
+### Requirement: Tools: bd_bootstrap gives the settings, the init data and a title bar of the IDE
+
+`bd_bootstrap` MUST give the settings of the window of the instance as `{values, version}`, the warm frame and the
+roots of the main view, the data of the open of any other view, and the title bar `native`.
+
+#### Scenario: The settings of the desktop app
+- **WHEN** the settings window bootstraps after the desktop app saved a setting
+- **THEN** `settings.values` holds the setting
+  [@test] crates/mcp-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
 
 ### Requirement: View: subscribe_view is the mirror of the repository
 
@@ -172,6 +211,7 @@ its `version`. The views of one repository share that mirror.
 #### Scenario: The main view of a repository
 - **WHEN** air-ide subscribes `main:1` to a repository
 - **THEN** the answer names the path of the repository and holds the view
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: View: Each patch of the session is one change of the mirror
 
@@ -181,6 +221,7 @@ key, and every other part is replaced whole.
 #### Scenario: A renamed branch
 - **WHEN** a sync renames the branch `a` to `b`
 - **THEN** one change sets `branches/b`, removes `branches/a` and replaces `order`
+  [@test] crates/mcp-host/src/mirror_test.rs (`a_renamed_branch_sets_the_new_key_removes_the_old_and_replaces_the_order`)
 
 #### Scenario: The news
 - **WHEN** a patch carries news
@@ -193,6 +234,7 @@ key, and every other part is replaced whole.
 #### Scenario: A rewrite
 - **WHEN** the page runs a rewrite with `execute`
 - **THEN** its `viewChanged` and its call events come before the answer of `bd_invoke`
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`a_rewrite_answers_after_its_changes_and_its_call_events`)
 
 ### Requirement: View: The mirror takes no intent
 
@@ -202,6 +244,7 @@ as in the desktop app.
 #### Scenario: An intent
 - **WHEN** air-ide dispatches an action to the mirror of a repository
 - **THEN** brd answers `unknownAction`, and the view does not change
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: View: The end of a session ends its mirror
 
@@ -211,6 +254,14 @@ When the session of a repository closes, `brd mcp` MUST send `x-air-app/viewEnde
 - **WHEN** the repository of a mirror is gone
 - **THEN** brd sends `viewEnded` for it
 
+### Requirement: View: The demand of a view is the demand of its mirror
+
+`set_demand` of a view MUST name the subscription of the mirror of its instance, which the page does not know.
+
+#### Scenario: A review that demands the details of a robot
+- **WHEN** a review tab sets its demand
+- **THEN** the session of its repository reads what the demand asks
+
 ### Requirement: Events: An event of the app is an event of x-air-app
 
 `AppEvents::emit` MUST send `x-air-app/event {event, payload}`, and `emit_to` sends it with the instance of its window.
@@ -218,6 +269,7 @@ When the session of a repository closes, `brd mcp` MUST send `x-air-app/viewEnde
 #### Scenario: A change of the settings
 - **WHEN** a setting changes
 - **THEN** brd sends one `x-air-app/event` without an instance
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`a_change_of_a_setting_is_an_event_and_the_badge_marks_the_tool_window`)
 
 ### Requirement: Windows: A window of the desktop app is a view of the IDE
 
@@ -227,10 +279,12 @@ the settings a frame, and the conflicting files and the missing commits a dialog
 #### Scenario: A review
 - **WHEN** the user opens the review of a branch twice
 - **THEN** brd asks `openView` of `review` with the key of the branch, and the IDE shows one tab
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`an_open_of_a_review_is_an_open_view_keyed_by_its_target`)
 
 #### Scenario: A new title
 - **WHEN** what a review shows changes its title
 - **THEN** brd asks `setViewTitle` of its instance
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`an_open_of_a_review_is_an_open_view_keyed_by_its_target`)
 
 ### Requirement: Windows: The life of a place reaches the window registry
 
@@ -257,6 +311,26 @@ The Dock badge and the Dock progress MUST be `x-air-app/setBadge` and `x-air-app
 - **WHEN** the attention count becomes 2
 - **THEN** brd asks `setBadge {view: "main", count: 2}`
 
+### Requirement: Windows: A plugin call of the page is the desktop of the IDE
+
+`bd_invoke` of `plugin:window|set_badge_count`, `plugin:window|set_progress_bar` and `plugin:notification|notify`
+MUST be `x-air-app/setBadge` and `x-air-app/setProgress` of `main` and `x-air-app/notify`.
+
+#### Scenario: The badge
+- **WHEN** the page sets the badge of the Dock to 2
+- **THEN** brd asks `setBadge {view: "main", count: 2}`
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`a_change_of_a_setting_is_an_event_and_the_badge_marks_the_tool_window`)
+
+### Requirement: Windows: A second open of a shown view hands it its data
+
+When the IDE answers an open with an instance the window showed already, brd MUST send it the data of the open
+(`init-data-updated`) and its title (`setViewTitle`).
+
+#### Scenario: The review of the same branch
+- **WHEN** a review tab shows a branch and the user opens its review again
+- **THEN** the tab gets `init-data-updated` with the data and the title of the new open
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`an_open_of_a_review_is_an_open_view_keyed_by_its_target`)
+
 ### Requirement: Repositories: The roots of the project are the repositories of brd mcp
 
 `brd mcp` MUST read the repositories from `roots/list`, at its start and on `notifications/roots/list_changed`. The
@@ -266,6 +340,14 @@ main view shows the root that the user picked last in the project, else the firs
 - **WHEN** the project has two Git roots
 - **THEN** the main view shows the first one until the user picks the other
 
+### Requirement: Repositories: A change of the roots tells the main view
+
+When `roots/list` answers other Git roots than before, brd MUST send the main view the event `roots-changed` with them.
+
+#### Scenario: A root added to the project
+- **WHEN** the project gets a second Git root
+- **THEN** the main view hears `roots-changed` with both roots
+
 ### Requirement: Hosts: The hosts without a place in the IDE do nothing
 
 In `brd mcp`, the menu, the updater, the restart and the install of the agent CLI MUST do nothing. A folder dialog is
@@ -274,6 +356,7 @@ not offered, because the roots name the repositories.
 #### Scenario: A check for updates
 - **WHEN** the page asks for an update in the IDE
 - **THEN** brd does nothing, because the app updates with the desktop app
+  [@test] crates/mcp-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
 
 ### Requirement: Page: The page in the IDE is the page of the desktop app
 

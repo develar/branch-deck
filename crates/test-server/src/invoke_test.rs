@@ -5,20 +5,22 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 /// The arguments of a command are its `params` (which the page mock sends alone), the object of its named arguments,
-/// or none
+/// or none, as the page's `invoke` names them for `app_api::dispatch`
 #[test]
 fn the_arguments_of_a_command_are_its_params_or_its_named_arguments() {
-  let args = arguments::<app_api::commands::get_commit_files::Command>(br#"{ "repositoryPath": "/r", "commitId": "c" }"#).unwrap();
-  assert_eq!((args.params.repository_path.as_str(), args.params.commit_id.as_str()), ("/r", "c"));
+  let spec = |name| app_api::dispatch::spec(name).unwrap();
+  let args = arguments(spec("get_commit_files"), br#"{ "repositoryPath": "/r", "commitId": "c" }"#).unwrap();
+  assert_eq!(args, json!({ "params": { "repositoryPath": "/r", "commitId": "c" } }));
+  app_api::dispatch::prepare("get_commit_files", args).unwrap();
 
-  let args = arguments::<app_api::commands::get_archived_branch_commits::Command>(br#"{ "repositoryPath": "/r", "branchName": "b" }"#).unwrap();
-  assert_eq!((args.repository_path.as_str(), args.branch_name.as_str()), ("/r", "b"));
-
-  assert!(arguments::<app_api::commands::get_archived_branch_commits::Command>(br#"{ "repositoryPath": "/r" }"#).is_err());
+  let args = arguments(spec("get_archived_branch_commits"), br#"{ "repositoryPath": "/r", "branchName": "b" }"#).unwrap();
+  app_api::dispatch::prepare("get_archived_branch_commits", args).unwrap();
+  let partial = arguments(spec("get_archived_branch_commits"), br#"{ "repositoryPath": "/r" }"#).unwrap();
+  assert!(app_api::dispatch::prepare("get_archived_branch_commits", partial).is_err());
 
   // a command without arguments: the `{}` of the page, or nothing of a direct call
-  arguments::<app_api::commands::cancel_symbol_search::Command>(b"{}").unwrap();
-  arguments::<app_api::commands::cancel_conflict_fix::Command>(b"").unwrap();
+  assert_eq!(arguments(spec("cancel_symbol_search"), b"{}").unwrap(), json!({}));
+  assert_eq!(arguments(spec("cancel_conflict_fix"), b"").unwrap(), json!({}));
 }
 
 /// A read of app-api runs the app's body in the context of the test repository: the git config of the test machine

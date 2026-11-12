@@ -108,12 +108,39 @@ sequenceDiagram
 
 ### Implementation notes
 
-- `crates/app-api`: `dispatch::invoke_json(name, args, call, sink)` over `for_each_command!`, moved out of
-  `crates/test-server/src/invoke.rs` (`run<C>`), which then uses it.
-- `crates/mcp-host` (planned): the JSON-RPC over stdio on tokio and the hosts of `app-api`: `EventSink` →
-  `callEvent`, `AppEvents` → `event`, `WindowHost` → `openView`; `DialogHost` gives way to `roots/list`; `MenuHost`,
-  `Updater`, `RestartHost` and `AgentCliHost` do nothing. `crates/bd-cli/src/architecture_test.rs` admits it to
-  `app-api` and keeps Tauri out of it.
+- `crates/app-api/src/dispatch.rs`: a command of `for_each_command!` by its name, its arguments as the page's `invoke`
+  sends them, its answer as JSON or bytes, its channel one sink of JSON values. The e2e server runs every route through
+  it (`crates/test-server/src/invoke.rs`), and `brd mcp` every `bd_invoke`.
+- `crates/app-api/src/app/services.rs`: the services of a process on the user's machine (the sessions, Patronus,
+  GitHub, YouTrack, the sign-ins) over a `ContextSource`, and `AppServices::into_context`, the one construction of its
+  `AppContext`; the Tauri shell gives them the state it manages (`src-tauri/src/services.rs`), `brd mcp` the context it
+  built. The seed of the main view from the frame of its session is `app_api::app::warm_start::seed`, which the init
+  script of the app and `bd_bootstrap` both take.
+- `crates/mcp-host` (`brd mcp`, `branch-deck cli mcp`; on Windows `brd.exe mcp`): `server.rs` the connection and its
+  methods, `mirror.rs` the patch as one change, `hosts.rs` the hosts of app-api, `link.rs` the one ordered queue of
+  what brd writes, `resources.rs` the files of `dist-air/` built into the binary by `build.rs` (a stub page without
+  them; a new build of the page is picked up as the directory changes), `process.rs` the stdio loop and the context on
+  `org.develar.branch-deck`. `crates/bd-cli/src/architecture_test.rs` admits it to `app-api` and keeps Tauri out of it.
+- **The window of a call** is the instance of its view: the main window for `main:<n>`, else the instance itself
+  (`review:3`), so two review tabs are two windows of `forget_window`. A sub-window opened by `open_sub_window` is
+  `x-air-app/openView` of the view of its URL (`/review` → `review`), with `params.data` the data of the open; a
+  review is keyed `<kind>:<target>` (`branch:feature`), any other view by its window id. A second open answered with
+  the instance shown already sends it `init-data-updated {data}` and `setViewTitle`.
+- **A mirror** subscribes the session once for all the views of a repository, under a window of its own
+  (`mirror:<path>`), and the last unsubscribe forgets that window; the patches that come before the answer of the
+  subscription are in its state. `set_demand` of a view names the subscription of its mirror (brd puts it in). The
+  session dropping the subscription of a shown mirror is `x-air-app/viewEnded {reason: "sessionClosed"}`.
+- **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
+  `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
+  params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native"}`.
+- **The desktop of the page**: the plugin calls of Tauri that the page makes for the Dock and the notifications come
+  through `bd_invoke` by their names (`plugin:window|set_badge_count`, `plugin:window|set_progress_bar`,
+  `plugin:notification|notify`) and become `setBadge`, `setProgress` of `main` and `notify`. The action Sync Virtual
+  Branches of the app file is the tool `sync` with the origin `action`, which no list shows. A change of the Git roots
+  of the project is the event `roots-changed` to the main view.
+- **The e2e server** serves the same connection on a WebSocket (`GET /repositories/{id}/mcp`, `mcp_socket.rs`), in the
+  context of the test repository with the events and the desktop of the connection, for the fake host of the page in
+  Air; `mcp_corpus_test.rs` runs `branch-deck-app.ndjson` on it.
 - Settings in two processes: a write under an inter-process lock merges only the changed keys, and a watch tells the
   other process ([Distributed Settings](distributed-settings.md)).
 - The page: `src/air-main.ts` answers `ui/initialize` with `x-air-app`, applies the theme of the host context, awaits

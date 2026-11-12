@@ -31,10 +31,11 @@ mod warm_start_test;
 #[cfg(test)]
 mod zoom_test;
 
-use app_api::app::windows::{BuiltPage, SubWindowState, epoch_millis, open_script, settings_script, show_when_settled};
+use app_api::app::services::{AppServices, ProcessParts, RemoteServices, start_sessions};
+use app_api::app::windows::{BuiltPage, epoch_millis, open_script, settings_script, show_when_settled};
 use app_api::transport::Desktop;
 use auto_update::{AppUpdater, UpdateState};
-use services::{AppSignIns, GitHubState, PatronusState, SignInsState, YouTrackState};
+use services::TauriContext;
 use sync_utils::span::in_current_span;
 use tauri_specta::Builder;
 
@@ -42,9 +43,7 @@ use app_api::context::AppContext;
 use app_api::repository_state::RepositoryStateCache;
 use app_api::transport::WindowId;
 use git_executor::git_command_executor::GitCommandExecutor;
-use github::sign_in_session::GitHubSignInSession;
 use menu::{TauriMenu, configure_app_menu, handle_menu_event};
-use remote_facts::sign_in::SignIns;
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
@@ -186,24 +185,16 @@ pub fn run() {
       let repository_state = RepositoryStateCache::new();
       app.manage(git.clone());
       app.manage(repository_state.clone());
-      let (sessions, registry) = services::start_sessions(app.handle(), &git, &repository_state);
+      let current_version = app.package_info().version.to_string();
+      let remote = Arc::new(RemoteServices::new(&current_version, git.clone(), app.path().app_data_dir().ok()));
+      let services = AppServices::new(Arc::new(TauriContext(app.handle().clone())), remote);
+      let runtime = tauri::async_runtime::handle().inner().clone();
+      let events: Arc<dyn app_api::transport::AppEvents> = Arc::new(api::TauriEvents(app.handle().clone()));
+      let (sessions, registry) = start_sessions(&services, &runtime, Arc::clone(&events), &git, &repository_state);
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(in_current_span(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir)));
       }
 
-      let current_version = app.package_info().version.to_string();
-      app.manage(PatronusState::new(&current_version));
-      let app_data_dir = app.path().app_data_dir().ok();
-      app.manage(GitHubState::new(
-        &current_version,
-        app.state::<GitCommandExecutor>().inner().clone(),
-        app_data_dir.as_deref(),
-      ));
-      let youtrack = YouTrackState::new(&current_version, app_data_dir.as_deref());
-      app.manage(youtrack);
-      let github_session = GitHubSignInSession::new(app_data_dir.as_deref().map(github::token_store::token_file));
-      let sign_in_host = Arc::new(AppSignIns { app: app.handle().clone() });
-      app.manage(SignInsState(SignIns::new(sign_in_host, github_session)));
       let update_state = Arc::new(std::sync::Mutex::new(UpdateState::new(current_version)));
 
       // the one writer of settings.json and repository-state.json: every window starts from its copy and changes it
@@ -219,44 +210,29 @@ pub fn run() {
       configure_app_menu(app, &app_settings)?;
 
       // the state of the commands of app-api
-      let services = Arc::new(services::AppServices::new(app.handle()));
       let desktop = Arc::new(desktop::TauriDesktop(app.handle().clone()));
-      app.manage(AppContext {
+      let desktop = Desktop {
+        windows: Arc::clone(&desktop) as Arc<dyn app_api::transport::WindowHost>,
+        dialog: Arc::clone(&desktop) as Arc<dyn app_api::transport::DialogHost>,
+        menu: Arc::new(TauriMenu(app.handle().clone())),
+        restart: desktop,
+        updater: Arc::new(AppUpdater {
+          app: app.handle().clone(),
+          state: update_state,
+          check_flight: sync_utils::single_flight::SingleFlight::default(),
+        }),
+        agent_cli: Arc::new(agent_cli::AppAgentCli),
+      };
+      app.manage(services.into_context(ProcessParts {
         git,
         settings: Arc::clone(&settings_service),
-        prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
         repository_state,
-        // one memory of the diffs and the files of the ranges for the reviews' lists and their diffs (`get_range_files`,
-        // `get_file_diffs`) and the read ahead of a review (`prefetch_review`)
-        file_diffs: file_diffs::service::FileDiffs::default(),
-        symbol_indexes: Arc::new(app_api::reads::symbols::Accio),
-        conflict_fix: app_api::reads::conflict_fix::ConflictFixSearch::default(),
-        review_plans: app_api::reads::review_plan::ReviewPlans::default(),
         sessions,
         registry,
-        windows: Arc::default(),
-        services: Arc::clone(&services) as Arc<dyn remote_facts::service_sources::ServiceHost>,
-        rewrites: Arc::clone(&services) as Arc<dyn operations::rewrite::RewriteHost>,
-        events: Arc::new(api::TauriEvents(app.handle().clone())),
-        host: services,
-        remote: app_api::remote::RemoteMemory::default(),
-        desktop: Desktop {
-          windows: Arc::clone(&desktop) as Arc<dyn app_api::transport::WindowHost>,
-          dialog: Arc::clone(&desktop) as Arc<dyn app_api::transport::DialogHost>,
-          menu: Arc::new(TauriMenu(app.handle().clone())),
-          restart: desktop,
-          updater: Arc::new(AppUpdater {
-            app: app.handle().clone(),
-            state: update_state,
-            check_flight: sync_utils::single_flight::SingleFlight::default(),
-          }),
-          agent_cli: Arc::new(agent_cli::AppAgentCli),
-        },
-        sub_windows: Arc::new(SubWindowState::default()),
-        cli_tools: app_api::app::cli_tools::CliToolsState::default(),
-        air_watches: Arc::default(),
-        runtime: tauri::async_runtime::handle().inner().clone(),
-      });
+        events,
+        desktop,
+        runtime,
+      }));
       app.manage(settings_service);
       let ctx = app.state::<AppContext>();
 

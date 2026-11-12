@@ -608,6 +608,7 @@ the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless 
 |---|---|---|
 | `POST /invoke/<name>` | a command of the registry in the context of the repository of `X-Repository-Id`, for the window of `X-Window-Label`; SSE with `X-Progress-Channel` (`invoke.rs`) | the page mock |
 | `POST /repositories`, `GET`/`DELETE …` | a repository of a template, its path, its deletion after its commands, each of which answers once its work ended (the read ahead of a review too: a read that outlived its command failed on the objects of a deleted repository) | `setupRepo`, `init`, `cleanup` |
+| `GET …/mcp` | `brd mcp` on a WebSocket: one connection of `mcp-host` in the context of the repository, one JSON-RPC message per text frame (`mcp_socket.rs`, [IDE Embedding](ide-embedding.md)) | the fake host of the page in Air |
 | `GET`/`POST …/events` | the event stream of a page (`?window=`), an event a page emits (`host.rs`) | the page mock |
 | `GET …/windows`, `POST …/windows/built`, `POST …/dialog-pick` | what the desktop opened and its menus, the build of a page a test opens, the folder of the dialog | `getOpenedSubWindows`, `getWindowMenus`, `registerWindowBuild` (sub-window-helpers.ts), `setDialogPick` |
 | `GET /store/{repo}`, `GET`/`POST`/`DELETE /store/{repo}/{key}` | the settings of the repository's app, through their writer | `setupRepo` (`initialStoreValues`, `syncedAgoMs`; common-setup.ts) |

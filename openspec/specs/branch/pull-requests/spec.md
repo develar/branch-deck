@@ -12,7 +12,7 @@ targets:
   - crates/remote-facts/src/pull_requests.rs
   - crates/sync-core/src/github_repository.rs
   - crates/sync-core/src/repo_facts.rs
-  - src-tauri/src/services.rs
+  - crates/app-api/src/app/services.rs
   - crates/app-api/src/remote/pull_requests.rs
   - crates/app-api/src/repository_state.rs
   - src/stores/pull-requests.ts

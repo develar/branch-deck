@@ -24,7 +24,7 @@ targets:
   - crates/test-server/src/review_fixtures.rs
   - crates/app-api/src/reads/diffs.rs
   - crates/app-api/src/remote/pull_requests.rs
-  - src-tauri/src/services.rs
+  - crates/app-api/src/app/services.rs
   - crates/app-api/src/app/windows.rs
   - src-tauri/src/lib.rs
   - src-tauri/capabilities/sub-windows.json

@@ -182,6 +182,7 @@ dependencies = [
  "git-ops",
  "github",
  "history-rewrite",
+ "jiff",
  "lease-pool",
  "moka",
  "object-cache",
@@ -593,6 +594,7 @@ dependencies = [
  "github",
  "history-rewrite",
  "lease-pool",
+ "mcp-host",
  "object-cache",
  "operations",
  "patronus",
@@ -903,18 +905,13 @@ dependencies = [
  "file-diffs",
  "git-executor",
  "git-ops",
- "github",
  "gtk",
  "history-rewrite",
- "jiff",
  "log",
- "moka",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "object-cache",
- "operations",
- "patronus",
  "pretty_assertions",
  "remote-facts",
  "repository-model",
@@ -946,7 +943,6 @@ dependencies = [
  "update-core",
  "webkit2gtk",
  "windows",
- "youtrack",
 ]
 
 [[package]]
@@ -4081,6 +4077,29 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "mcp-host"
+version = "0.1.0"
+dependencies = [
+ "app-api",
+ "app-settings",
+ "base64 0.23.1",
+ "dirs",
+ "domain-types",
+ "file-diffs",
+ "git-executor",
+ "operations",
+ "pretty_assertions",
+ "remote-facts",
+ "repository-model",
+ "serde",
+ "serde_json",
+ "sync-utils",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "memchr"
@@ -7734,6 +7753,7 @@ dependencies = [
  "github",
  "history-rewrite",
  "lease-pool",
+ "mcp-host",
  "object-cache",
  "operations",
  "patronus",

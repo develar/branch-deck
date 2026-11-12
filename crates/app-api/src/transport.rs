@@ -102,7 +102,7 @@ pub trait AppEvents: Send + Sync {
 
 /// What the app gives a command beside the services of the sessions (`ServiceHost`, by the key of a session): its own
 /// accounts, which no repository owns, and what it reaches outside the repositories (the `teamcity` CLI, Claude Code,
-/// the wall clock). The app's are its own (`AppServices` of `src-tauri/src/services.rs`); a test repository of the e2e
+/// the wall clock). The app's and those of `brd mcp` are their own (`AppServices` of `app::services`); a test repository of the e2e
 /// server has the fakes of its repository and reaches nothing of the machine (`TestHost` of
 /// `crates/test-server/src/host.rs`)
 pub trait AppHost: Send + Sync {

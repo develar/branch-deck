@@ -14,7 +14,7 @@ targets:
   - crates/lease-pool/src/trim.rs
   - crates/test-server/src/disk_fixtures.rs
   - crates/test-server/src/host.rs
-  - src-tauri/src/services.rs
+  - crates/app-api/src/app/services.rs
   - src/components/disk/DiskUsageDialog.tsx
   - src/hooks/useDiskUsage.ts
   - src/hooks/useTrimPools.ts

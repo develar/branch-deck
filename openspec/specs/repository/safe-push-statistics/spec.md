@@ -13,7 +13,7 @@ targets:
   - crates/remote-facts/src/robot_stats_aggregate.rs
   - crates/bd-remote/src/robot_stats_command.rs
   - crates/app-api/src/remote/patronus.rs
-  - src-tauri/src/services.rs
+  - crates/app-api/src/app/services.rs
   - crates/test-server/src/host.rs
   - crates/test-server/src/remote_fixtures.rs
   - src/components/landing/LandingView.tsx

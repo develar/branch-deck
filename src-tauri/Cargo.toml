@@ -32,7 +32,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 repository-model = { path = "../crates/repository-model" }
-operations = { path = "../crates/operations" }
 tauri.workspace = true
 serde.workspace = true
 sync-core = { path = "../crates/sync-core", features = ["specta"] }
@@ -43,12 +42,10 @@ history-rewrite = { path = "../crates/history-rewrite", features = ["specta"] }
 domain-types = { path = "../crates/domain-types", features = ["specta"] }
 # `api_error`: a core's error as the `ApiError` of a command, the same as the e2e server answers
 app-api = { path = "../crates/app-api" }
-# the directory of the instance files of Start in Air (`AppHost::air_instances`)
+# the types of the commands of Start in Air, which the registry names by their path
 air-launch = { path = "../crates/air-launch" }
 sync-utils = { path = "../crates/sync-utils" }
 cli-tools = { path = "../crates/cli-tools" }
-# the system time zone of the statistics (`get_robot_stats`)
-jiff = { workspace = true, features = ["tz-system"] }
 branch-integration = { path = "../crates/branch-integration", features = ["specta"] }
 serde_json.workspace = true
 specta.workspace = true
@@ -69,7 +66,6 @@ log = "0.4"
 
 # Development dependencies (feature-gated)
 tauri-plugin-devtools = { version = "2.2.3", optional = true }
-moka.workspace = true
 
 # Crate dependencies
 git-ops = { path = "../crates/git-ops", features = ["specta"] }
@@ -77,9 +73,6 @@ file-diffs = { path = "../crates/file-diffs", features = ["specta"] }
 review-plan = { path = "../crates/review-plan", features = ["specta"] }
 git-executor = { path = "../crates/git-executor" }
 object-cache = { path = "../crates/object-cache" }
-patronus = { path = "../crates/patronus" }
-github = { path = "../crates/github" }
-youtrack = { path = "../crates/youtrack" }
 bd-cli = { path = "../crates/bd-cli" }
 bd-core = { path = "../crates/bd-core" }
 tokio.workspace = true

@@ -1,0 +1,40 @@
+[package]
+name = "mcp-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "`brd mcp`: the host of app-api for an IDE with Air, MCP with x-air-app over one JSON-RPC connection (stdio, or a WebSocket of the e2e server)"
+publish = false
+
+[dependencies]
+# the commands, the sessions and the services of the app, run by name (`app_api::dispatch`)
+app-api = { path = "../app-api" }
+# the writer of the settings and the snapshot of a window (`bd_bootstrap`)
+app-settings = { path = "../app-settings" }
+domain-types = { path = "../domain-types" }
+# the context of the process: the memory of the diffs, the services of the sessions and of the rewrites
+file-diffs = { path = "../file-diffs" }
+operations = { path = "../operations" }
+remote-facts = { path = "../remote-facts" }
+git-executor = { path = "../git-executor" }
+# the view of a mirror, applied as the page's store applies a patch (`repository_model::patch::apply_patch`)
+repository-model = { path = "../repository-model" }
+sync-utils = { path = "../sync-utils" }
+# the bytes of a raw command and a binary file of the page in base64
+base64 = "0.23.1"
+# the app data directory of the app (`org.develar.branch-deck`)
+dirs = "7"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-std", "io-util"] }
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+# the app data directory of a test (`process_test.rs`)
+tempfile.workspace = true
+# the views of the mirror tests (`domain_types::fixtures`)
+domain-types = { path = "../domain-types", features = ["fixtures"] }
+
+[lints]
+workspace = true

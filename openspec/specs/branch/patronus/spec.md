@@ -25,7 +25,7 @@ targets:
   - src/presenters/pull-request-url.ts
   - crates/sync-core/src/remote_status.rs
   - crates/app-api/src/remote/patronus.rs
-  - src-tauri/src/services.rs
+  - crates/app-api/src/app/services.rs
   - crates/trial-check/src/landing_gate.rs
   - crates/domain-types/src/landing.rs
   - src/presenters/landing.ts

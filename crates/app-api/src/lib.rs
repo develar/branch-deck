@@ -1,6 +1,6 @@
-//! The adapters' crate: what the app (`src-tauri`) and the e2e server (`test-server`) share between a command and the
-//! cores, so both answer the same. Only those two depend on it, and it reaches no Tauri (`architecture_test.rs` of
-//! `bd-cli`) (docs/design/rust-domain-authority.md, s12-app-api).
+//! The adapters' crate: what the app (`src-tauri`), the e2e server (`test-server`) and `brd mcp` of an IDE (`mcp-host`)
+//! share between a command and the cores, so all answer the same. Only those three depend on it, and it reaches no
+//! Tauri (`architecture_test.rs` of `bd-cli`) (docs/design/rust-domain-authority.md, s12-app-api).
 //!
 //! - `commands`: the one list of the commands (`for_each_command!`), in the grammar of `registry` (`api_commands!`,
 //!   `Command`, `COMMANDS`), and its table for the page mock of the e2e server (`commands.json`); the bodies by family:
@@ -9,6 +9,8 @@
 //!   beside the facts of a session, the reviews of branches, the branch names of Claude Code, the app's accounts), `app`
 //!   (the writers of the app: Activity, the settings, the repository config, the sign-ins; and the app itself: its
 //!   windows, the desktop, the agent CLI, the CLIs of Settings → Tools).
+//! - `dispatch`: a command of the registry by its name, with its arguments, its answer and its channel as JSON, for the
+//!   hosts that get a command as a message (the e2e server, `brd mcp`).
 //! - `context`: `AppContext`, what every command runs with, the key of a session, and `PrefixInputs`, the prefix of a
 //!   repository's branches.
 //! - `transport`: what a host hands a command besides its arguments (the call of a window, the channel to its page),
@@ -23,6 +25,7 @@ pub mod api_error;
 pub mod app;
 pub mod commands;
 pub mod context;
+pub mod dispatch;
 pub mod events;
 pub mod operation;
 pub mod reads;

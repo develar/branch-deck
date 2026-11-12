@@ -25,6 +25,7 @@ targets:
   - src/model/store.ts
   - src/router.ts
   - src-tauri/src/warm_start.rs
+  - crates/app-api/src/app/warm_start.rs
   - crates/repository-model/src/warm_start.rs
   - crates/app-settings/src/projects.rs
   - crates/repository-model/src/sync_scheduler.rs
@@ -642,7 +643,7 @@ the window resolves).
 #### Scenario: The common git directory without git
 - **WHEN** the start reads the frame of a main or a linked worktree
 - **THEN** it finds the common git directory by the files of the worktree, without a git process
-  [@test] src-tauri/src/warm_start_test.rs (`the_common_dir_is_found_by_the_files_of_the_main_and_of_a_linked_worktree`)
+  [@test] crates/app-api/src/app/warm_start_test.rs (`the_common_dir_is_found_by_the_files_of_the_main_and_of_a_linked_worktree`)
 
 ### Requirement: Before the first sync: The start opens the session seeded from the frame
 

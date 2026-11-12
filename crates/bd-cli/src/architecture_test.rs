@@ -20,10 +20,13 @@ use std::process::Command;
 
 /// The app (`src-tauri`): nothing depends on it, and only it depends on Tauri
 const APP: &str = "branch-deck";
-/// The adapters' crate (`api_error`): only the app and the e2e server depend on it
+/// The adapters' crate (`api_error`): only the app, the e2e server and `brd mcp` depend on it
 const APP_API: &str = "app-api";
 /// The e2e server, the other host of the app's commands
 const TEST_SERVER: &str = "test-server";
+/// `brd mcp`, the host of the app's commands for an IDE with Air (docs/design/ide-embedding.md); not a brd family, so
+/// its name does not start with `bd-`
+const MCP_HOST: &str = "mcp-host";
 /// The base of the CLI layer, which every family builds on
 const BD_CORE: &str = "bd-core";
 /// The CLI that collects the families
@@ -171,6 +174,11 @@ const UNREACHABLE: &[Unreachable] = &[
     from: "fs-walk",
     forbidden: &["lease-pool", "pool-disk"],
     why: "the filesystem walk is below the pools that use it",
+  },
+  Unreachable {
+    from: MCP_HOST,
+    forbidden: &[TAURI, APP],
+    why: "brd mcp hosts the commands of app-api for an IDE without Tauri: the page runs in the IDE, the Tauri side stays in the app",
   },
   Unreachable {
     from: "remote-facts",
@@ -471,8 +479,8 @@ fn direct_rule(from: &str, dependency: &Dependency) -> Option<&'static str> {
   if matches(TAURI, to) && from != APP {
     return Some("only the app depends on Tauri");
   }
-  if to == APP_API && from != APP && from != TEST_SERVER {
-    return Some("only the app and the e2e server depend on app-api, the adapters' crate");
+  if to == APP_API && from != APP && from != TEST_SERVER && from != MCP_HOST {
+    return Some("only the app, the e2e server and brd mcp depend on app-api, the adapters' crate");
   }
   if !is_layer(to) {
     return None;
@@ -764,20 +772,23 @@ fn the_architecture_check_keeps_the_bd_families_apart() {
 }
 
 #[test]
-fn the_architecture_check_keeps_app_api_to_the_app_and_the_e2e_server() {
+fn the_architecture_check_keeps_app_api_to_the_app_the_e2e_server_and_brd_mcp() {
   let graph = graph_of(&[
     (APP, APP_API, Kind::Normal, &[]),
     (TEST_SERVER, APP_API, Kind::Normal, &[]),
+    (MCP_HOST, APP_API, Kind::Normal, &[]),
+    (BD_CLI, MCP_HOST, Kind::Normal, &[]),
     ("sync-core", APP_API, Kind::Normal, &[]),
     ("bd-core", APP_API, Kind::Dev, &[]),
     (APP_API, "sync-core", Kind::Normal, &[]),
     (APP_API, "tauri-specta", Kind::Normal, &[]),
   ]);
-  let only = "only the app and the e2e server depend on app-api, the adapters' crate";
+  let only = "only the app, the e2e server and brd mcp depend on app-api, the adapters' crate";
   assert_eq!(
     violations(&graph, &[]),
     [
       "  app-api reaches tauri-specta (app-api -> tauri-specta): the adapters' crate serves the app and the e2e server alike: the Tauri side stays in the app".to_owned(),
+      "  mcp-host reaches tauri-specta (mcp-host -> app-api -> tauri-specta): brd mcp hosts the commands of app-api for an IDE without Tauri: the page runs in the IDE, the Tauri side stays in the app".to_owned(),
       "  app-api depends on tauri-specta (Normal): only the app depends on Tauri".to_owned(),
       format!("  bd-core depends on app-api (Dev): {only}"),
       format!("  sync-core depends on app-api (Normal): {only}"),

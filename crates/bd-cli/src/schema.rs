@@ -98,8 +98,9 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("workspace", &["workspace"]),
 ];
 
-/// The commands without a JSON output of their own: `brd schema` prints these schemas or the index, `brd help` text
-pub const WITHOUT_OUTPUT: &[&str] = &["help", "schema"];
+/// The commands without a JSON output of their own: `brd schema` prints these schemas or the index, `brd help` text,
+/// `brd mcp` the messages of its protocol with an IDE
+pub const WITHOUT_OUTPUT: &[&str] = &["help", "schema", "mcp"];
 
 #[derive(Debug, clap::Args)]
 pub struct SchemaArgs {
