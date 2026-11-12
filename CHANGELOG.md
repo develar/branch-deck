@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.10.0](https://github.com/develar/branch-deck/compare/v1.9.0...v1.10.0) (2026-11-12)
+
+
+### Features
+
+* **bd:** brd suggest weighs a conventional scope by its spread over the range, so a scope of most of the commits names an area, not a branch ([ff3280e](https://github.com/develar/branch-deck/commit/ff3280ebeda4dbf72cbc925fbc6c80b42fae9694))
+* **diff:** the diffs of a subject say which lines moved between two of its files and which names one file declares and others use, and ask the index whether such a rename is one at every use ([b650458](https://github.com/develar/branch-deck/commit/b6504589dd3313d2590ace9b7a82ea05ed815ead))
+* **diff:** the views name a rename once, at its declaration, and draw its name in a mark of its own at every site, never as a change ([b489a3b](https://github.com/develar/branch-deck/commit/b489a3b65968031a874a464cc4f9113bfb03823f))
+* **diff:** the views word what the files of a subject say of each other: a move between two files names the other file at both ends and shows it, a name another file declares is named where it is used, and a rename says what the index proved ([05f9828](https://github.com/develar/branch-deck/commit/05f98283b2ba3e98f1532fa8a1783e9f28cef240))
+* **ide:** brd mcp hosts app-api for an IDE with Air: MCP with x-air-app over stdio, the commands by name, the mirrors of the views, the windows as views, and the corpus of the app link run against it ([2bf09c5](https://github.com/develar/branch-deck/commit/2bf09c5536ac9d4564c9970fb4d348a87af2c794))
+* **ide:** Settings → Tools installs Branch Deck in IntelliJ IDEA: the app file of the IDE for this binary with its icons, and Remove deletes them ([ad9c8f4](https://github.com/develar/branch-deck/commit/ad9c8f4cee4e508e6bef86408d3fa2e4902ff84c))
+* **ide:** the mirror of a view holds the version of the session, set last in each change, and an emit of the page through brd mcp is an event of the views ([2a53396](https://github.com/develar/branch-deck/commit/2a53396117d41c907ee3ea3844bedbda1468bc7d))
+* **ide:** the page runs in a view of the IDE: the Air build, a shim of Tauri over x-air-app, the mirror back into patches of the session and the theme of the IDE ([5785130](https://github.com/develar/branch-deck/commit/578513011822f5a17eee895dfc800aed3ccabe39))
+* **lease:** the keeper cleans a host slot that waited idle since its last run ([3a619e3](https://github.com/develar/branch-deck/commit/3a619e39019fe5deb94bd838e5ad0695c31f224e))
+* **review:** the step of a concern says what the change does to the declaration of its name: "Add probe", "Change the parameters of open" ([64c491b](https://github.com/develar/branch-deck/commit/64c491b2f3310933b94e61c5887a250d2f9bfb60))
+* **settings:** two processes on one app data directory keep each other's settings: a save merges what its process changed into the file under a lock, and a change the other saved reaches every window ([e8c6526](https://github.com/develar/branch-deck/commit/e8c6526f6cfdd2dc3fb565a4407cd7162f27e489))
+
+
+### Bug Fixes
+
+* **diff:** a place a note names in another file is shown once, Back from a declaration returns to the site of its note, and the note at a declaration counts the places of the whole change ([ec2dc55](https://github.com/develar/branch-deck/commit/ec2dc55c5e6b8f99a525bb68929180ca7c850025))
+* **diff:** a use on a line that only moved proves no rename, and an answer of the index that its query cut short is asked for again ([85432bc](https://github.com/develar/branch-deck/commit/85432bc355c23efa3e35469a0bd9c1635a793a07))
+* **diff:** the diffs of a subject wait for no index, which the window asks of the subject it shows, and the pass over a subject adds labels alone ([9694b4d](https://github.com/develar/branch-deck/commit/9694b4d0b668d57709e29d7e1e83d14644cff149))
+
 ## [1.9.0](https://github.com/develar/branch-deck/compare/v1.8.0...v1.9.0) (2026-11-11)
 
 
