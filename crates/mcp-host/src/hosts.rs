@@ -282,11 +282,13 @@ impl AgentCliHost for Nothing {
     Err(ApiError::internal(IN_THE_IDE))
   }
 
+  /// Nothing to install here: the page offers no install of `brd` or of the app file of the IDE
   fn status(&self) -> AgentCliStatus {
     AgentCliStatus {
       bd: None,
       skills: Vec::new(),
       ide_app: None,
+      installable: false,
     }
   }
 

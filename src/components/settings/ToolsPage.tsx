@@ -45,7 +45,8 @@ import type { RunningCliToolAction } from "@/stores/cli-tools"
  * the `teamcity` and `youtrack` CLIs, each with its binary,
  * version and sign-ins, and the one action Rust picks for it; read again on each open and focus, the last answer shown
  * meanwhile; a failed read says why, with Retry, above them. `server` is the TeamCity server an open names (the server
- * of a robot's build), for the sign-in.
+ * of a robot's build), for the sign-in. A host that installs nothing (`installable`: the page in the IDE, whose desktop
+ * app installs) shows neither `brd` nor IntelliJ IDEA.
  */
 export function ToolsPage({ openCount, server }: { openCount: number; server: string | undefined }) {
   const statuses = useCliToolStatuses()
@@ -63,8 +64,8 @@ export function ToolsPage({ openCount, server }: { openCount: number; server: st
 
   return (
     <SettingsSection title="Command-line tools" description="Agents and Branch Deck run them as you would; each keeps its own sign-in, its skill teaches the agents to use it">
-      <AgentCliRow status={agentCli} homeDir={homeDir} />
-      {agentCli !== null && <IdeAppRow ideApp={agentCli.ide_app} homeDir={homeDir} />}
+      {agentCli?.installable !== false && <AgentCliRow status={agentCli} homeDir={homeDir} />}
+      {agentCli?.installable === true && <IdeAppRow ideApp={agentCli.ide_app} homeDir={homeDir} />}
       {readError !== null && <ReadFailure title="Cannot read the tools" message={readError} testId="cli-tools-error" onRetry={retryCliTools} />}
       {statuses === null
         ? readError === null && <LoadingLine>Reading the tools…</LoadingLine>

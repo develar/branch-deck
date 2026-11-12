@@ -93,6 +93,15 @@ test.describe("Branch Deck in the IDE", () => {
     await expect(main.locator('[data-testid="branch-row"][data-branch-name="feature"]')).toBeVisible()
   })
 
+  test("Settings → Tools in the IDE shows the command-line tools but no install of brd or of IntelliJ IDEA, which the desktop app installs", async ({ ide }) => {
+    const instance = await ide.openView("settings", { data: { page: "tools" } })
+    const settings = ide.frame(instance)
+    await expect(settings.getByTestId("cli-tool-teamcity")).toBeVisible()
+    // brd mcp installs nothing: its status says so, and the page shows neither row
+    await expect(settings.getByTestId("agent-skill")).toHaveCount(0)
+    await expect(settings.getByTestId("ide-app")).toHaveCount(0)
+  })
+
   test("the page shows the theme of the IDE and follows its switch from Light to Dark without a reload", async ({ ide }) => {
     const main = ide.frame("main:1")
     const root = main.locator("html")

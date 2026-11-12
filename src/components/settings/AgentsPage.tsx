@@ -35,14 +35,15 @@ function onOff(value: boolean): string {
  * Settings → Agents (openspec/specs/repository/settings/spec.md#agents): how coding agents work, which `brd workspace` tells an
  * agent before its first edit, one value for every repository in the global git config and the repository's own. The
  * pull request after a commit is off where the repository lands by a push, as Rust says (`agentPullRequestOff`). While
- * the skill is not installed no agent asks: one line with the install. The skill itself is on Tools, beside the others
+ * the skill is not installed no agent asks: one line with the install, where the host installs (`installable`). The
+ * skill itself is on Tools, beside the others
  */
 export function AgentsPage({ openCount }: { openCount: number }) {
   const { scope, name } = useSettingsScope()
   const status = useAgentCliStatus(openCount)
   return (
     <>
-      {status !== null && status.bd === null && (
+      {status !== null && status.bd === null && status.installable && (
         <p className="flex min-h-6 flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="agent-skill">
           Agents read these rules once the skill is installed
           <InstallAgentCliButton openAgentSettings={false} />

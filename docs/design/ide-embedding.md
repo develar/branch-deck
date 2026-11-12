@@ -205,7 +205,9 @@ sequenceDiagram
   Windows) with `mcp`. Remove deletes the file and the two icons. The status reads the file and compares it with what an
   install writes now, so a file another Branch Deck wrote (an app moved or a second copy) says so and Install writes it
   for this one. `brd mcp` serves the Air build of the page built into it: each build of the app runs `pnpm build:air`
-  before cargo (`beforeBuildCommand` of `src-tauri/tauri*.conf.json`).
+  before cargo (`beforeBuildCommand` of `src-tauri/tauri*.conf.json`). `brd mcp` installs nothing: its
+  `agent_cli_status` answers `installable: false`, so the page in the IDE shows neither `brd` nor IntelliJ IDEA on
+  Tools and no install of the Agent CLI on Agents or in the hint of the agents.
 
 ## Alternatives Considered
 

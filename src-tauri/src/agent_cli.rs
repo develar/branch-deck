@@ -51,6 +51,7 @@ impl AgentCliHost for AppAgentCli {
         file: app.file,
         current: app.current,
       }),
+      installable: true,
     }
   }
 

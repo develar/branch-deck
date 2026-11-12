@@ -9,7 +9,8 @@ import { useSelectedProjectPath } from "@/stores/repository"
 /**
  * Where coding agents work beside the user, said on the way to the first branches (Ready to Sync, No active branches):
  * the user stays in this checkout, an agent leases a worktree of its own through bd (`branchdeck.agentLease` of the
- * repository, on by default) once the Agent CLI is installed. Its action installs it, then opens Settings → Agents
+ * repository, on by default) once the Agent CLI is installed. Its action installs it, then opens Settings → Agents; a
+ * host that installs nothing (`installable`: the page in the IDE) offers no install
  */
 export function AgentsHint() {
   const path = useSelectedProjectPath() ?? ""
@@ -28,7 +29,7 @@ export function AgentsHint() {
           Open Agent Settings
         </Button>
       ) : (
-        <InstallAgentCliButton openAgentSettings />
+        status.installable && <InstallAgentCliButton openAgentSettings />
       )}
     </div>
   )

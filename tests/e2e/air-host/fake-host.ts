@@ -92,6 +92,14 @@ export class FakeIde {
     return this.page.evaluate(it => (window as unknown as { __airHost: { close(instance: string): Promise<void> } }).__airHost.close(it), instance)
   }
 
+  /** The IDE opens the view `view` with `params` (the place of the Settings window, `{data: {page: "tools"}}`): its instance */
+  openView(view: string, params: Record<string, unknown> = {}): Promise<string> {
+    return this.page.evaluate(
+      ([it, given]) => (window as unknown as { __airHost: { open(view: string, params: Record<string, unknown>): Promise<string> } }).__airHost.open(it, given),
+      [view, params] as const,
+    )
+  }
+
   /** A click on an action of the app file in the title of the tool window: the IDE calls its tool with the origin action */
   runAction(action: string, tool: string): Promise<unknown> {
     return this.page.evaluate(([it, name]) => (window as unknown as { __airHost: { runAction(action: string, tool: string): Promise<unknown> } }).__airHost.runAction(it, name), [

@@ -106,6 +106,7 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
           skills: ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"],
           // the app file of the IDE that another Branch Deck wrote: its line of the warning
           ide_app: { file: "/Users/test/.air/apps/branch-deck.yaml", current: false },
+          installable: true,
         }))
       },
     },

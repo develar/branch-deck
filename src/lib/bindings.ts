@@ -633,6 +633,11 @@ export type AgentCliStatus = {
 	skills: string[],
 	/**  The app file of an IDE with Air (`install_ide_app`); `null` while there is none */
 	ide_app: IdeApp | null,
+	/**
+	 *  This host installs `brd` and the app file of an IDE: false in an IDE (`brd mcp`), whose desktop app installs them,
+	 *  so the page offers no install there
+	 */
+	installable: boolean,
 };
 
 /**  The three rules of `brd workspace` (Settings → Agents) */

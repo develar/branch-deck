@@ -473,12 +473,14 @@ impl AgentCliHost for TestAgentCli {
         bd: Some(AGENT_CLI.to_owned()),
         skills: AGENT_SKILLS.map(str::to_owned).to_vec(),
         ide_app,
+        installable: true,
       }
     } else {
       AgentCliStatus {
         bd: None,
         skills: Vec::new(),
         ide_app,
+        installable: true,
       }
     }
   }

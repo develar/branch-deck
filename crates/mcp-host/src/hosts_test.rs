@@ -44,4 +44,5 @@ async fn the_hosts_without_a_place_in_the_ide_do_nothing() {
   assert_eq!(desktop.dialog.pick_folder("Open"), None);
   assert!(matches!(desktop.agent_cli.install(), Err(error) if !error.message.is_empty()));
   assert_eq!(desktop.agent_cli.status().bd, None);
+  assert!(!desktop.agent_cli.status().installable, "the page offers no install of brd or of the app file in the IDE");
 }

@@ -65,6 +65,9 @@ pub struct AgentCliStatus {
   pub skills: Vec<String>,
   /// The app file of an IDE with Air (`install_ide_app`); `null` while there is none
   pub ide_app: Option<IdeApp>,
+  /// This host installs `brd` and the app file of an IDE: false in an IDE (`brd mcp`), whose desktop app installs them,
+  /// so the page offers no install there
+  pub installable: bool,
 }
 
 /// The app file of an IDE with Air, `~/.air/apps/branch-deck.yaml` (docs/design/ide-embedding.md): the IDE starts
