@@ -271,3 +271,32 @@ async fn a_change_of_a_setting_is_an_event_and_the_badge_marks_the_tool_window()
     .await;
   ide.end().await;
 }
+
+/// An event the page emits goes to the views of the app: to every view, or with a target to the view of that window
+#[tokio::test]
+async fn an_emit_of_the_page_is_an_event_of_the_views() {
+  let mut ide = Ide::start().await;
+  initialized(&mut ide).await;
+  ide.send(&invoke(
+    2,
+    "main:1",
+    "plugin:event|emit",
+    &json!({ "event": "review-run", "payload": { "branch": "a" }, "target": null }),
+  ));
+  ide
+    .expect(&json!({ "jsonrpc": "2.0", "method": "x-air-app/event", "params": { "event": "review-run", "payload": { "branch": "a" } } }))
+    .await;
+  ide
+    .expect(&json!({ "jsonrpc": "2.0", "id": 2, "result": { "content": [], "structuredContent": { "value": null } } }))
+    .await;
+  ide.send(&invoke(
+    3,
+    "main:1",
+    "plugin:event|emit",
+    &json!({ "event": "focus-branch", "payload": "a", "target": "main" }),
+  ));
+  ide
+    .expect(&json!({ "jsonrpc": "2.0", "method": "x-air-app/event", "params": { "instance": "main:1", "event": "focus-branch", "payload": "a" } }))
+    .await;
+  ide.end().await;
+}

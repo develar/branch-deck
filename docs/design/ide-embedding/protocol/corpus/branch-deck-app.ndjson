@@ -18,7 +18,7 @@
 {"comment":"bd_bootstrap gives what the page needs before its main: the settings, the warm frame, the init data of the view and the title bar."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"bd_bootstrap","arguments":{"view":"main"},"_meta":{"progressToken":5,"x-air-app":{"origin":"click","app":"branch-deck","view":"main","instance":"main:1"}}}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":5,"result":{"content":[],"structuredContent":{"settings":"${any}","warmFrame":"${any}","initData":"${any}","titleBar":"${any}"}}}}
-{"comment":"subscribe_view of the page is the mirror of its repository: the state is the view without its version, which stays in brd."}
+{"comment":"subscribe_view of the page is the mirror of its repository: the state is the view with its version, which the page compares with the versions that commands answer; each change sets the part version last."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":6,"method":"x-air-app/subscribe","params":{"instance":"main:1","params":{"repositoryPath":"${repo}"}}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":6,"result":{"mirror":"${repo}","state":"${any}"}}}
 {"comment":"An intent of the mirror is refused: Branch Deck takes its intents through bd_invoke."}

@@ -353,10 +353,18 @@ impl Server {
   }
 
   /// What the desktop does beside the commands, which the page asks through `bd_invoke` by the plugin call of Tauri it
-  /// makes in the desktop app: the badge and the progress of the Dock mark the tool window, a notification of the OS is
-  /// one of the IDE. None for a command of app-api
+  /// makes in the desktop app: an event the page emits goes to the views of the app (to one window with a target), the
+  /// badge and the progress of the Dock mark the tool window, a notification of the OS is one of the IDE. None for a
+  /// command of app-api
   fn host_command(&self, command: &str, args: &Value) -> Option<Value> {
     match command {
+      "plugin:event|emit" => {
+        let (event, payload) = (args["event"].as_str().unwrap_or_default(), args.get("payload").cloned().unwrap_or(Value::Null));
+        match args["target"].as_str() {
+          Some(label) => self.ctx.events.emit_to(&WindowId::new(label), event, payload),
+          None => self.ctx.events.emit(event, payload),
+        }
+      }
       "plugin:window|set_badge_count" => {
         let count = args["value"].as_u64().filter(|count| *count > 0);
         self.link.ask("x-air-app/setBadge", json!({ "view": MAIN_VIEW, "count": count }));

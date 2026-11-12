@@ -1,9 +1,9 @@
 //! The mirror of the view of a session (openspec/specs/repository/ide-embedding/spec.md, "View"): the state of a mirror
-//! is the `RepositoryView` of the session without its `version`, which stays in brd (air-ide counts its own
-//! `serverSeq`), each top-level field one part; a `ViewPatch` becomes one `x-air-app/viewChanged`, its ops by the table
-//! rule of Air: a keyed part (`branches`, `stacks`, …) sets each changed key and removes each removed one, any other part
-//! that changed is replaced whole, with its value in the view after the patch (`repository_model::patch::apply_patch`,
-//! as the page's store applies it). The news are the part `news`, the last news of the session, which the page tells by
+//! is the `RepositoryView` of the session, each top-level field one part, its `version` too, which the page compares
+//! with the versions the commands answer (`SyncAnswer.version`, `Outcome.versionAfter`); a `ViewPatch` becomes one
+//! `x-air-app/viewChanged`, its ops by the table rule of Air: a keyed part (`branches`, `stacks`, …) sets each changed
+//! key and removes each removed one, any other part that changed is replaced whole, with its value in the view after the
+//! patch (`repository_model::patch::apply_patch`, as the page's store applies it), and the part `version` last. The news are the part `news`, the last news of the session, which the page tells by
 //! id, so a resync tells none twice.
 
 use domain_types::session::{RepositoryView, TableChanges, ViewPatch};
@@ -22,23 +22,23 @@ impl MirrorView {
     Self { view }
   }
 
-  /// The state of the mirror: the view without its version
+  /// The state of the mirror: the view, its version with it
   pub fn state(&self) -> Value {
-    let mut state = serde_json::to_value(&self.view).unwrap_or_else(|_| json!({}));
-    if let Some(parts) = state.as_object_mut() {
-      parts.remove("version");
-    }
-    state
+    serde_json::to_value(&self.view).unwrap_or_else(|_| json!({}))
   }
 
-  /// Applies `patch` and gives the ops of its change, none when it changed no part
+  /// Applies `patch` and gives the ops of its change, the version after it last; none when it changed no part
   ///
   /// # Errors
   /// The patch does not apply to the view (another epoch, a lost patch)
   pub fn apply(&mut self, patch: ViewPatch) -> Result<Vec<Value>, PatchRejected> {
     let changes = patch.changes.clone();
     apply_patch(&mut self.view, patch)?;
-    Ok(ops(&self.view, &changes))
+    let mut ops = ops(&self.view, &changes);
+    if !ops.is_empty() {
+      ops.push(json!({ "op": "part", "part": "version", "value": self.view.version }));
+    }
+    Ok(ops)
   }
 
   /// Applies `patch` when its base is the version of the view: the patches that came before the answer of the

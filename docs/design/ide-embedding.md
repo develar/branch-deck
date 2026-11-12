@@ -81,9 +81,9 @@ sequenceDiagram
 2. **Decision**: One `x-air-app/viewChanged` per `ViewPatch`, its ops by the table rule of Air: replace a part, set or
    remove one entry of a keyed part.
    **Rationale**: `TableChanges` is that shape already (parts whole, keyed parts by key with `removed*`), so the
-   conversion is mechanical and generic; the `Version` of the session stays inside `brd`, and the page rebuilds its
-   patch from the `serverSeq` of `air-ide`. The news become the part `news` of the kept list, which the page tells by
-   id, so a resync tells none twice.
+   conversion is mechanical and generic; the `Version` of the session is the part `version`, set last in each change,
+   so the page rebuilds its patch between the versions of brd and compares them with those the commands answer. The
+   news become the part `news` of the kept list, which the page tells by id, so a resync tells none twice.
 3. **Decision**: The mirror key is the repository path.
    **Rationale**: `subscribe_view` answers per session, not per window, so every view of a repository shares one
    mirror; the window only matters for `forget_window`, which the life of the place drives.
@@ -128,16 +128,19 @@ sequenceDiagram
   the instance shown already sends it `init-data-updated {data}` and `setViewTitle`.
 - **A mirror** subscribes the session once for all the views of a repository, under a window of its own
   (`mirror:<path>`), and the last unsubscribe forgets that window; the patches that come before the answer of the
-  subscription are in its state. `set_demand` of a view names the subscription of its mirror (brd puts it in). The
+  subscription are in its state, which holds the `version` of the view, set last in each change. `set_demand` of a view names the subscription of its mirror (brd puts it in). The
   session dropping the subscription of a shown mirror is `x-air-app/viewEnded {reason: "sessionClosed"}`.
 - **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native"}`.
-- **The desktop of the page**: the plugin calls of Tauri that the page makes for the Dock and the notifications come
-  through `bd_invoke` by their names (`plugin:window|set_badge_count`, `plugin:window|set_progress_bar`,
-  `plugin:notification|notify`) and become `setBadge`, `setProgress` of `main` and `notify`. The action Sync Virtual
-  Branches of the app file is the tool `sync` with the origin `action`, which no list shows. A change of the Git roots
-  of the project is the event `roots-changed` to the main view.
+- **The desktop of the page**: an event the page emits for the other windows is `bd_invoke` of
+  `plugin:event|emit {event, payload, target}`, which brd tells the views (`x-air-app/event`, with the instance of the
+  window `target` names). The page sets the badge, the progress and its notifications through the host tools of the
+  IDE (`air_set_badge`, `air_set_progress`, `air_notify`); brd answers the same plugin calls of Tauri by their names too
+  (`plugin:window|set_badge_count`, `plugin:window|set_progress_bar`, `plugin:notification|notify` → `setBadge`,
+  `setProgress` of `main`, `notify`). The action Sync Virtual Branches of the app file is the tool `sync` with the
+  origin `action`, which no list shows. A change of the Git roots of the project is the event `roots-changed` to the
+  main view.
 - **The e2e server** serves the same connection on a WebSocket (`GET /repositories/{id}/mcp`, `mcp_socket.rs`), in the
   context of the test repository with the events and the desktop of the connection, for the fake host of the page in
   Air; `mcp_corpus_test.rs` runs `branch-deck-app.ndjson` on it.

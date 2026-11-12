@@ -21,11 +21,12 @@ fn patch(view: &MirrorView, seq: u32, changes: TableChanges) -> ViewPatch {
   ViewPatch { base, next: base.next(), changes }
 }
 
-/// The state of a mirror is the view of the session without its version: air-ide counts its own sequence
+/// The state of a mirror is the view of the session with its version, which the page compares with the versions the
+/// commands answer
 #[test]
-fn the_state_is_the_view_without_its_version() {
+fn the_state_is_the_view_with_its_version() {
   let state = MirrorView::new(RepositoryView::default()).state();
-  assert!(state.get("version").is_none(), "{state}");
+  assert_eq!(state["version"], json!({ "epoch": 0, "seq": 0 }), "{state}");
   assert!(state.get("branches").is_some() && state.get("sections").is_some() && state.get("news").is_some(), "{state}");
 }
 
@@ -54,8 +55,10 @@ fn a_renamed_branch_sets_the_new_key_removes_the_old_and_replaces_the_order() {
       (json!("set"), json!("branches"), Some(json!("b"))),
       (json!("remove"), json!("branches"), Some(json!("a"))),
       (json!("part"), json!("order"), None),
+      (json!("part"), json!("version"), None),
     ]
   );
+  assert_eq!(ops[3]["value"], json!({ "epoch": 0, "seq": 2 }));
   // the value of a set key is the whole row, as the view holds it after the patch
   assert_eq!(ops[0]["value"]["head"]["name"], "b");
   assert_eq!(ops[2]["value"], json!(["b"]));
@@ -74,7 +77,7 @@ fn a_change_of_a_section_replaces_the_sections() {
     ..TableChanges::default()
   };
   let ops = mirror.apply(patch(&mirror, 0, changes)).unwrap();
-  assert_eq!(ops.len(), 1);
+  assert_eq!(ops.len(), 2);
   assert_eq!((ops[0]["op"].as_str(), ops[0]["part"].as_str()), (Some("part"), Some("sections")));
   assert!(ops[0]["value"].get("unassigned").is_some(), "{}", ops[0]);
 }
