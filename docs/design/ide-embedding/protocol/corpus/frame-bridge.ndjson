@@ -1,5 +1,6 @@
-{"comment":"The host page between the frame of a view and air-ide. The frame speaks MCP Apps (SEP-1865) by postMessage, with the extension x-air-app that it offers in appCapabilities. The host page maps each x-air-app message to the page link, and it keeps the order of the WebSocket. A runner of the host page sends the lines of the frame and of air-ide, and checks its own: the ends host and page. ${ticket} and ${t2} are the tickets that the IDE gives the host page for main:1."}
-{"step":"wsHandshake","origin":"https://air-openui.local","host":"127.0.0.1:${port}","expect":101}
+{"comment":"The host page between the frame of a view and air-ide. The frame speaks MCP Apps (SEP-1865) by postMessage, with the extension x-air-app that it offers in appCapabilities. The host page maps each x-air-app message to the page link, and it keeps the order of the WebSocket. A runner of the host page serves the host document and plays air-ide on http://127.0.0.1:${port}, sends the lines of the frame and of air-ide, and checks its own: the ends host and page. The step pageLoad {url, location} loads the host document with ${ticket} in the fragment and expects the address of the page after it, without the ticket; pageTicket {ticket} is the call window.airAppHost.connect(ticket) of the IDE that gives the loaded page ${t2} after a drop."}
+{"step":"pageLoad","url":"http://127.0.0.1:${port}/#ticket=${ticket}","location":"http://127.0.0.1:${port}/"}
+{"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${ticket}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.0.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
 {"comment":"ui/initialize: the host serves x-air-app, and hostContext names the view of the ticket, with the theme of the IDE."}
@@ -42,12 +43,13 @@
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/stale","params":{"channel":"x-air-ide:/appView/1"}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/resync","params":{"channel":"x-air-ide:/appView/1","snapshot":{"resource":"x-air-ide:/appView/1","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7},"lastClientSeq":1}}}
 {"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/resync","params":{"subscription":"x-air-ide:/appView/1","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7}}}
-{"comment":"A dropped WebSocket: each call in flight fails with connectionLost. The host page asks the IDE for a new ticket, opens the view again, and the frame gets a resync of the subscription that it holds. The frame never loads again."}
+{"comment":"A dropped WebSocket: each call in flight fails with connectionLost. The IDE sees that the instance is no longer connected and gives the page a new ticket by airAppHost.connect. The page opens the view again, and the frame gets a resync of the subscription that it holds. The frame never loads again."}
 {"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"invoke","arguments":{"command":"slow"}}}}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":5,"method":"x-air-app/toolsCall","params":{"channel":"ahp-root://","name":"invoke","arguments":{"command":"slow"}}}}
 {"step":"wsClose","closeCode":1006}
 {"link":"frame","from":"host","message":{"jsonrpc":"2.0","id":5,"error":{"code":-32003,"message":"${any}","data":{"reason":"connectionLost"}}}}
-{"step":"wsHandshake","origin":"https://air-openui.local","host":"127.0.0.1:${port}","expect":101}
+{"step":"pageTicket","ticket":"${t2}"}
+{"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${t2}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":7,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.0.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":2,"method":"x-air-app/viewOpen","params":{"channel":"ahp-root://","params":{"repositoryPath":"/r"}}}}

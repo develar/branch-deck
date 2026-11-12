@@ -391,7 +391,7 @@ server:
 projects:
   require: [git]
 views:
-  main: {{ resource: ui://branch-deck/main, place: toolWindow, toolWindow: {{ anchor: bottom, title: Branch Deck }} }}
+  main: {{ resource: ui://branch-deck/main, place: toolWindow, toolWindow: {{ anchor: bottom, title: Branch Deck, titleActions: [sync, command-palette, settings] }} }}
   activity: {{ resource: ui://branch-deck/activity, place: toolWindowTab, toolWindowTab: {{ of: main, title: Activity }} }}
   review: {{ resource: ui://branch-deck/review, place: editor, instances: many }}
   settings: {{ resource: ui://branch-deck/settings, place: window, window: {{ width: 880, height: 640 }} }}
@@ -400,9 +400,18 @@ views:
 actions:
   - id: sync
     text: Sync Virtual Branches
+    icon: AllIcons.Actions.Refresh
     groups: [Vcs.MainMenu]
     shortcut: {{ mac: "meta alt Y", other: "ctrl alt Y" }}
     run: {{ tool: sync }}
+  - id: command-palette
+    text: Branch Deck Command Palette
+    icon: AllIcons.Actions.Search
+    run: {{ tool: open_command_palette }}
+  - id: settings
+    text: Branch Deck Settings
+    icon: AllIcons.General.Settings
+    run: {{ view: settings }}
 agent:
   tools: none
 "#

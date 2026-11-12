@@ -133,7 +133,13 @@
           "type": "object",
           "properties": {
             "anchor": { "enum": ["left", "right", "bottom"], "default": "bottom" },
-            "title": { "type": "string", "minLength": 1 }
+            "title": { "type": "string", "minLength": 1 },
+            "titleActions": {
+              "description": "The ids of actions of the file that the title of the tool window shows, in this order. Each runs with the instance of the tool window. The registry drops an id that names no action of the file, with one warn log entry.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/Id" },
+              "uniqueItems": true
+            }
           }
         },
         "toolWindowTab": {
@@ -173,6 +179,11 @@
         "id": { "$ref": "#/$defs/Id" },
         "text": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
+        "icon": {
+          "description": "The icon of the action, which a title of a tool window shows: an SVG of 16 px as the icon of the app, or an icon of the IDE by its field path, such as AllIcons.Actions.Refresh.",
+          "type": "string",
+          "pattern": "(\\.svg$)|(^AllIcons(\\.[A-Za-z0-9_]+)+$)"
+        },
         "groups": {
           "description": "The ids of the IDE action groups that get the action, such as Vcs.MainMenu.",
           "type": "array",
@@ -191,7 +202,7 @@
       }
     },
     "Run": {
-      "description": "What an action or the action of a notification does: a call of a tool of the app with the origin action, or the open of a view.",
+      "description": "What an action or the action of a notification does: a call of a tool of the app with the origin action, or the open of a view. The tool may be one that only the app sees (visibility app).",
       "oneOf": [
         {
           "type": "object",

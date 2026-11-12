@@ -49,6 +49,8 @@ it speaks `x-air-app` of Air with the page and with `brd mcp` ([IDE Embedding](.
 - One process for all the projects of a user (P2): each project of the IDE runs its own `brd mcp`.
 - Tools for an agent: an agent keeps the `brd` command line.
 - A project file of the app, or a project that is not on this machine.
+- Remote development: in a split IDE the frame runs in the client and `air-ide` on the backend, so Air serves no app
+  there.
 
 ## Concepts
 
@@ -56,6 +58,9 @@ it speaks `x-air-app` of Air with the page and with `brd mcp` ([IDE Embedding](.
   copy, with `corpus/branch-deck-app.ndjson`, the app link as Branch Deck writes it.
 - An instance is one open view of the IDE, such as `review:3`. It is the window of the desktop app: the window of a
   command, of an event to one window and of `forget_window`.
+- The host page of a view comes from `air-ide` on `http://127.0.0.1:<port>`, a port that changes with each run of the
+  IDE. The frame of Branch Deck stays on `https://branch-deck.air-genui-app.local`, so its `localStorage` survives a
+  restart of the IDE.
 
 ## Requirements
 
@@ -104,15 +109,14 @@ At the end of its stdin, `brd mcp` MUST close its sessions and exit with 0.
 - **THEN** the process exits with 0
   [@test] crates/mcp-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
 
-### Requirement: Tools: The tools are bd_invoke and bd_bootstrap, both only for the app
+### Requirement: Tools: Every tool of brd mcp is only for the app
 
-`tools/list` MUST list `bd_invoke` and `bd_bootstrap`, each with `_meta.ui.visibility: ["app"]`, and no other tool.
+`tools/list` MUST list `bd_invoke`, `bd_bootstrap` and the tool of each action of the app file, `sync` and
+`open_command_palette`. Each has `_meta.ui.visibility: ["app"]`, so no agent sees it.
 
 #### Scenario: The list
 - **WHEN** air-ide sends `tools/list`
-- **THEN** it gets the two tools, and no agent sees either
-  [@test] crates/mcp-host/src/server_test.rs (`both_tools_are_only_for_the_app`)
-  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
+- **THEN** it gets the four tools, each only for the app
 
 ### Requirement: Tools: bd_invoke runs one command of app-api by its name
 
@@ -188,12 +192,22 @@ bar. The page takes them where the desktop app takes its init script.
 
 ### Requirement: Tools: The action Sync Virtual Branches is the tool sync
 
-A `tools/call` of `sync` with the origin `action` MUST sync the repository of the main view, as Sync does in the
-desktop app. No list of tools names it, and no other origin calls it.
+A `tools/call` of `sync` with the origin `action` or `click` MUST sync the repository of the main view, as Sync does in
+the desktop app. A call of an agent is refused, as for every tool.
 
 #### Scenario: The shortcut of Sync
-- **WHEN** the user presses Sync Virtual Branches in the IDE
+- **WHEN** the user presses Sync Virtual Branches in the IDE, or its button in the title of the tool window
 - **THEN** brd syncs the repository that the main view shows
+
+### Requirement: Tools: The action Command Palette opens the palette of the main view
+
+A `tools/call` of `open_command_palette` MUST send the main view the event `open_command_palette`, as the menu of the
+desktop app sends it to the main window.
+
+#### Scenario: The button in the title
+- **WHEN** the user clicks Branch Deck Command Palette in the title of the tool window
+- **THEN** brd sends `x-air-app/event` of `open_command_palette` with the instance of the main view, and the palette
+  opens
 
 ### Requirement: Tools: bd_bootstrap gives the settings, the init data and a title bar of the IDE
 
@@ -252,11 +266,12 @@ as in the desktop app.
 
 ### Requirement: View: The end of a session ends its mirror
 
-When the session of a repository closes, `brd mcp` MUST send `x-air-app/viewEnded {mirror, reason}`.
+When the session of a repository closes, `brd mcp` MUST send `x-air-app/viewEnded {mirror, reason}` with the reason
+`sessionClosed`. brd cannot tell a repository that is gone from a session that closed, so it has no other reason.
 
 #### Scenario: A removed repository
-- **WHEN** the repository of a mirror is gone
-- **THEN** brd sends `viewEnded` for it
+- **WHEN** the repository of a mirror is gone, and its session closes
+- **THEN** brd sends `viewEnded` for it with the reason `sessionClosed`
 
 ### Requirement: View: The demand of a view is the demand of its mirror
 
@@ -328,7 +343,8 @@ The Dock badge and the Dock progress MUST be `x-air-app/setBadge` and `x-air-app
 ### Requirement: Windows: A plugin call of the page is the desktop of the IDE
 
 `bd_invoke` of `plugin:window|set_badge_count`, `plugin:window|set_progress_bar` and `plugin:notification|notify`
-MUST be `x-air-app/setBadge` and `x-air-app/setProgress` of `main` and `x-air-app/notify`.
+MUST be `x-air-app/setBadge` and `x-air-app/setProgress` of `main` and `x-air-app/notify`. The page calls no tool of
+the IDE for them: brd is their one path.
 
 #### Scenario: The badge
 - **WHEN** the page sets the badge of the Dock to 2
@@ -344,6 +360,15 @@ When the IDE answers an open with an instance the window showed already, brd MUS
 - **WHEN** a review tab shows a branch and the user opens its review again
 - **THEN** the tab gets `init-data-updated` with the data and the title of the new open
   [@test] crates/test-server/src/mcp_corpus_test.rs (`an_open_of_a_review_is_an_open_view_keyed_by_its_target`)
+
+### Requirement: Windows: The close of a window of the page closes its place
+
+`bd_invoke` of `plugin:window|close` MUST send `x-air-app/closeView {instance}` with the instance of the window of the
+call. So Escape closes a review tab and a dialog, as their hint says.
+
+#### Scenario: Escape in a review tab
+- **WHEN** the user presses Escape in a review tab
+- **THEN** brd asks `closeView` of its instance, and the IDE closes the tab
 
 ### Requirement: Repositories: The roots of the project are the repositories of brd mcp
 
@@ -411,9 +436,10 @@ its place. The page mock of the E2E tests installs the same internals of Tauri (
   [@test] src/platform/air/shim.test.ts (`listen hears the events of x-air-app, and emit goes to the views of the app through brd mcp`)
 
 #### Scenario: The plugins
-- **WHEN** the page opens a link, copies, sets the badge and the progress of the Dock, logs, or sets the size of its window
-- **THEN** the host gets `ui/open-link`, its tools, `notifications/message`, and nothing for the size
-  [@test] src/platform/air/shim.test.ts (`The plugins of Tauri are what the IDE offers: a link, the clipboard, the badge, the progress, the log`)
+- **WHEN** the page opens a link, copies, sets the badge or the progress of the Dock, notifies, logs, or sets the size
+  of its window
+- **THEN** the host gets `ui/open-link`, the tool `air_copy` and `notifications/message`; the badge, the progress and
+  the notification are `bd_invoke` of their plugin calls; the size does nothing
 
 ### Requirement: Page: The theme of the IDE maps onto the tokens of the page
 
@@ -490,12 +516,16 @@ the install of the agent CLI refuses it.
 
 - The tool window **Branch Deck** at the bottom, with the tab **Activity**; the action **Sync Virtual Branches** in the
   VCS menu (⌥⌘Y, Ctrl+Alt+Y).
+- The title of the tool window: **Sync Virtual Branches**, **Branch Deck Command Palette** and **Branch Deck Settings**,
+  the actions of the app file, in place of the menu of the desktop app.
 - Before the first start, the empty tool window shows the consent banner of the IDE: **Allow Once**, **Always Allow**,
   **Deny**.
 
 ## Open Questions / Risks
 
 - The chain JCEF → WebSocket → `air-ide` → stdio on a big diff: stage 0 of the plan measures it.
+- The page entry of Air is measured on macOS only: a loopback document that cannot open its socket on Windows, on
+  Linux or behind a proxy of the IDE would change the transport.
 - The desktop app and `brd mcp` both poll GitHub and Patronus in P1.
 
 ## References

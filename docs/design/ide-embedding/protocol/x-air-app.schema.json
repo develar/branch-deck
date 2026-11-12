@@ -392,6 +392,7 @@
                   "type": "string"
                 },
                 "visibility": {
+                  "description": "Who may call the tool. model: an agent through air_app, with agent.tools model and its consent. app: a frame of a view (origin click) and an action of the app file or of a notification (origin action). Without it, both.",
                   "type": "array",
                   "items": {
                     "enum": ["model", "app"]
@@ -1168,8 +1169,8 @@
                     "$ref": "#/$defs/Mirror"
                   },
                   "reason": {
-                    "type": "string",
-                    "minLength": 1
+                    "description": "sessionClosed: the app no longer serves the mirror. An app cannot tell a gone repository from a closed session, so version 1 has no other reason.",
+                    "enum": ["sessionClosed"]
                   }
                 }
               }
@@ -1285,7 +1286,7 @@
           "type": "string"
         },
         "ticket": {
-          "description": "At least 32 characters of base64url, once.",
+          "description": "At least 32 characters of base64url, once: the ticket of the fragment of the address of the host document, or of window.airAppHost.connect.",
           "type": "string",
           "minLength": 1
         },
@@ -2643,7 +2644,7 @@
           "type": "object",
           "additionalProperties": {
             "type": "object",
-            "required": ["view", "params", "generation"],
+            "required": ["view", "params", "generation", "connected"],
             "properties": {
               "view": {
                 "$ref": "#/$defs/ViewId"
@@ -2665,6 +2666,10 @@
                 "description": "Grows with each restart of the process: a new generation reloads the frame with a new ticket.",
                 "type": "integer",
                 "minimum": 1
+              },
+              "connected": {
+                "description": "True while a WebSocket of a host page holds the instance by its ticket. When it turns false while the place stays, the IDE gives the loaded page of the instance a new ticket, unless it loads the page again itself.",
+                "type": "boolean"
               }
             }
           }
@@ -2759,6 +2764,7 @@
           }
         },
         {
+          "description": "The life of a place. The result of the echo is {changed}: whether the shown state of the instance flipped, an instance starting hidden, or for a close whether the instance left the channel. The app hears each report.",
           "type": "object",
           "required": ["type", "app", "instance"],
           "properties": {
@@ -2786,6 +2792,7 @@
           }
         },
         {
+          "description": "An action of the app file. instance names the instance whose place shows the action, such as a title action of a tool window; the call then names its view and its instance.",
           "type": "object",
           "required": ["type", "app", "action"],
           "properties": {
@@ -2854,17 +2861,19 @@
       ]
     },
     "AppViewTicketResult": {
+      "description": "The answer of x-air-ide/appViewTicket. The IDE loads <pageUrl>#ticket=<ticket> in a new browser of the instance, or gives the ticket to the loaded page of the instance by window.airAppHost.connect(ticket) in its main frame. The page opens its WebSocket on the origin of pageUrl.",
       "type": "object",
-      "required": ["ticket", "url", "expiresInMs"],
+      "required": ["ticket", "pageUrl", "expiresInMs"],
       "properties": {
         "ticket": {
           "description": "At least 32 characters of base64url, once.",
           "type": "string",
           "minLength": 1
         },
-        "url": {
+        "pageUrl": {
+          "description": "The host document of the page entry of air-ide, http://127.0.0.1:<port>/, the same for each ticket of one run.",
           "type": "string",
-          "pattern": "^ws://127\\.0\\.0\\.1:"
+          "pattern": "^http://127\\.0\\.0\\.1:"
         },
         "expiresInMs": {
           "type": "integer",
@@ -2883,7 +2892,15 @@
           "$ref": "#/$defs/Id"
         },
         "method": {
-          "enum": ["initialize", "x-air-ide/appsOpen", "x-air-ide/appViewTicket", "x-air-ide/appNotify", "x-air-ide/appHostTool", "x-air-ide/appToolCall"]
+          "enum": [
+            "initialize",
+            "x-air-ide/appsOpen",
+            "x-air-ide/appViewTicket",
+            "x-air-ide/appResourceRead",
+            "x-air-ide/appNotify",
+            "x-air-ide/appHostTool",
+            "x-air-ide/appToolCall"
+          ]
         },
         "params": {
           "type": "object"
@@ -3010,6 +3027,39 @@
           "if": {
             "properties": {
               "method": {
+                "const": "x-air-ide/appResourceRead"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "description": "A root command: the request handler of the IDE reads one file of a frame of an app, ui://<app>/<path>, and gets the ReadResourceResult of the app as it wrote it.",
+                "type": "object",
+                "required": ["channel", "apps", "app", "uri"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "apps": {
+                    "$ref": "#/$defs/AppsChannel"
+                  },
+                  "app": {
+                    "$ref": "#/$defs/AppId"
+                  },
+                  "uri": {
+                    "type": "string",
+                    "pattern": "^ui://"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
                 "const": "x-air-ide/appNotify"
               }
             }
@@ -3059,7 +3109,8 @@
                   },
                   "name": {
                     "type": "string",
-                    "pattern": "^air_"
+                    "pattern": "^air_",
+                    "description": "A tool of the IDE: air_copy, air_open_file, air_show_diff, air_show_commit or air_navigate. The badge, the progress and a notification are requests of the app, x-air-app/setBadge, setProgress and notify, and no host tool."
                   },
                   "arguments": {
                     "type": "object"
@@ -3376,12 +3427,12 @@
       ]
     },
     "Step": {
-      "description": "An event of the world that a runner makes happen or expects. A runner skips a step that its end cannot see.",
+      "description": "An event of the world that a runner makes happen or expects. A runner skips a step that its end cannot see. httpRequest sends one HTTP request without an upgrade and expects its status, the headers by their lowercase names and a text of the body. pageLoad is the load of the host document by the IDE and the address of the page after it, and pageTicket the call window.airAppHost.connect(ticket) of the IDE in the main frame of a loaded page: a runner of air-ide skips both.",
       "type": "object",
       "required": ["step"],
       "properties": {
         "step": {
-          "enum": ["appExit", "appStart", "wsHandshake", "wsClose", "jcefReload", "clock", "file", "fileRemoved"]
+          "enum": ["appExit", "appStart", "httpRequest", "wsHandshake", "wsClose", "jcefReload", "pageLoad", "pageTicket", "clock", "file", "fileRemoved"]
         },
         "code": {
           "type": ["integer", "null"]
@@ -3392,6 +3443,9 @@
             "type": "string"
           }
         },
+        "method": {
+          "enum": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        },
         "origin": {
           "type": ["string", "null"]
         },
@@ -3400,6 +3454,15 @@
         },
         "expect": {
           "type": "integer"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "bodyIncludes": {
+          "type": "string"
         },
         "closeCode": {
           "type": "integer"
@@ -3412,6 +3475,15 @@
           "type": "string"
         },
         "text": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "ticket": {
           "type": "string"
         },
         "command": {

@@ -16,9 +16,9 @@ These files pin the wire.
 | `link` | Ends (`from`) | Wire |
 |---|---|---|
 | `app` | `air-ide`, `app` | The stdio of the app process: MCP JSON-RPC 2.0, one object per line |
-| `page` | `page`, `air-ide` | The WebSocket of the host page on `127.0.0.1`: one JSON-RPC 2.0 object per text frame, in the shape of AHP |
+| `page` | `page`, `air-ide` | The page entry of `air-ide` on `127.0.0.1:<port>`: `GET /` is the host document, and the WebSocket on the same port carries one JSON-RPC 2.0 object per text frame, in the shape of AHP |
 | `frame` | `frame`, `host` | postMessage between the frame of a view and the host page: MCP Apps of SEP-1865 with `x-air-app` |
-| `ide` | `ide`, `air-ide` | The connection of `air-ide`: the frames of air-apps in the vocabulary `x-air-ide` |
+| `ide` | `ide`, `air-ide` | The connection of `air-ide`: the frames of air-apps in the vocabulary `x-air-ide`, such as the apps channel and the root commands `appViewTicket` and `appResourceRead` |
 
 ## A line
 
@@ -27,9 +27,16 @@ These files pin the wire.
   its handshake, from 1. Without `conn`, the line is on the WebSocket that opened last.
 - `{"link", "from", "raw"}` is a line or a text frame that is no JSON message. `${16MiB+1}` stands for a text of that
   size.
-- `{"step": "<kind>", ...}` is an event of the world: `file`, `fileRemoved`, `appStart`, `appExit`, `wsHandshake`,
-  `wsClose`, `jcefReload` and `clock`. The first comment of a file defines the steps that it uses.
+- `{"step": "<kind>", ...}` is an event of the world: `file`, `fileRemoved`, `appStart`, `appExit`, `httpRequest`,
+  `wsHandshake`, `wsClose`, `jcefReload`, `pageLoad`, `pageTicket` and `clock`. The first comment of a file defines the
+  steps that it uses. `pageLoad` (the IDE loads the host document with the ticket in the fragment) and `pageTicket` (the
+  IDE calls `window.airAppHost.connect(ticket)` in a loaded page) are steps of the host page, which a runner of
+  `air-ide` skips.
 - `{"state": {"link", "channel", "state"}}` is the mirror of a channel after the lines before it, by the table rule.
+- The line schema takes a result and the action of an echo as any value. A check of the corpus validates them by the def
+  of their method: the answer of `x-air-ide/appViewTicket` by `AppViewTicketResult`, of `initialize` by
+  `PageInitializeResult` or `AppInitializeResult`, an action of the apps channel by `AppsAction` or `AppsIntent`, and a
+  snapshot of it by `AppsState`.
 
 ## A runner
 
@@ -40,7 +47,8 @@ These files pin the wire.
   `${home}`, `${dir}`, `${project}` and `${port}` are given by the runner. Only the end under test writes `${any}`.
 - The files with the fixture app (`registry`, `consent-and-start`, `page-connection`, `view-mirror`, `calls`,
   `requests-to-ide`, `failures`) test `air-ide`: a runner plays the IDE, the host page and a scripted app.
-- `frame-bridge.ndjson` tests the host page: a runner plays the frame and `air-ide`.
+- `frame-bridge.ndjson` tests the host page: a runner serves the host document on `http://127.0.0.1:${port}`, plays
+  the frame, `air-ide` and the calls of the IDE into the page.
 - An app pins its own side of the app link in a corpus file of its repository, such as
   `docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson` of Branch Deck. Its lines of `from: app` may hold
   `${any}`, and a runner of `air-ide` does not run it.

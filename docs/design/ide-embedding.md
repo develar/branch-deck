@@ -21,7 +21,9 @@ The IDE reads `~/.air/apps/branch-deck.yaml` (written by the installer of Branch
 (`brd mcp`) for each project, after the user's consent. The page runs in a sandboxed frame of the IDE with its own
 origin. Three links carry one protocol, `x-air-app`: the frame talks MCP Apps to a host page by postMessage; the host
 page talks to `air-ide` (the Rust library of Air) over a loopback WebSocket; `air-ide` talks MCP to `brd mcp` over
-stdio. Kotlin places the views and holds the browsers, but it is not in the path of the data.
+stdio. Kotlin places the views and holds the browsers, but it is not in the path of the data. `air-ide` serves the host
+page itself, on a port of `127.0.0.1`: Chromium lets a page open a loopback socket without a prompt only when the page
+came over loopback HTTP.
 
 `brd mcp` is a third host of `app-api` beside the Tauri shell and `test-server`: the same commands, the same sessions,
 the same data directories (`org.develar.branch-deck`), so the desktop app and the IDE can be open on the same
@@ -36,7 +38,7 @@ flowchart LR
     subgraph IDE["IntelliJ IDEA"]
         K["Kotlin: places, actions, consent banner"]
         subgraph JCEF["JCEF browser of a view"]
-            H["host page<br/>https://air-openui.local"]
+            H["host page<br/>http://127.0.0.1:port (from air-ide)"]
             F["frame of Branch Deck<br/>https://branch-deck.air-genui-app.local"]
         end
         A["air-ide (Rust)<br/>air-apps: registry, consent,<br/>process, mirrors, events"]
@@ -44,15 +46,20 @@ flowchart LR
     B["brd mcp<br/>app-api + sessions"]
     Y["~/.air/apps/branch-deck.yaml"]
     F <-- "postMessage: MCP Apps + x-air-app" --> H
-    H <-- "WebSocket 127.0.0.1, ticket" --> A
+    H <-- "GET / and the WebSocket on 127.0.0.1:port, ticket" --> A
     A <-- "stdio: MCP + x-air-app" --> B
-    K <-- "apps channel, tickets (FFM)" --> A
+    K <-- "apps channel, tickets, frame files (FFM)" --> A
+    K -. "load #ticket=..., executeJavaScript" .-> H
     Y --> A
 ```
 
 The registry of `air-apps` turns the YAML into the apps channel of a project; Kotlin builds a tool window, a tab, an
 editor tab, a frame or a dialog for each instance in it. A view gets a one-use ticket that binds its WebSocket to its
-instance, so a page never says which window it is.
+instance, so a page never says which window it is. The IDE loads `http://127.0.0.1:<port>/#ticket=…`: the fragment goes
+in no request, and the host page removes it from its address; after a drop or a reload the IDE gives the page a new
+ticket by `executeJavaScript`, when the instance in the apps channel turns not `connected`. The files of the frame of
+Branch Deck (`https://branch-deck.air-genui-app.local`, a stable origin, so its `localStorage` survives a restart of
+the IDE) come from the request handler of the IDE, which reads them from `brd mcp` by `resources/read`.
 
 ### A call that changes state
 
@@ -87,10 +94,12 @@ sequenceDiagram
 3. **Decision**: The mirror key is the repository path.
    **Rationale**: `subscribe_view` answers per session, not per window, so every view of a repository shares one
    mirror; the window only matters for `forget_window`, which the life of the place drives.
-4. **Decision**: Two tools only, both app-only: `bd_invoke {command, args}` and `bd_bootstrap {view}`.
+4. **Decision**: Every tool is app-only: `bd_invoke {command, args}` and `bd_bootstrap {view}` for the page, and the
+   tools of the actions of the app file, `sync` and `open_command_palette`, for the IDE (the origin `action`).
    **Rationale**: the page already calls commands by name (`for_each_command!`), so one generic tool keeps the page
-   unforked and `app-api` the one list of commands; no agent reaches it (`agent.tools: none`), and the origin `agent`
-   is refused besides.
+   unforked and `app-api` the one list of commands; an action of the IDE calls a tool by its name, and Air accepts an
+   app-only tool from the origins `click` and `action`. No agent reaches one (`agent.tools: none`), and the origin
+   `agent` is refused besides.
 5. **Decision**: The channel of a command is bound to its call (`callId` is the id of the `tools/call`).
    **Rationale**: every command has at most one channel, so no argument has to name it, and the order "events before
    the answer" is the order of one stdio stream.
@@ -99,7 +108,10 @@ sequenceDiagram
    `forget_window` must follow the tab, so `viewClosed` is the only close.
 7. **Decision**: Sub-windows are views: the review an editor tab per target (`instances: many`, restored after a
    restart of the IDE), Settings a frame of 880 × 640, the conflicting files and the missing commits non-modal
-   dialogs; OS notifications and the Dock badge become IDE notifications and the badge of the tool window.
+   dialogs; OS notifications and the Dock badge become IDE notifications and the badge of the tool window, both asked
+   by brd. The close of a window of the page (`plugin:window|close`, Escape in the review and the dialogs) is
+   `x-air-app/closeView` of its instance. The menu of the desktop app is the title of the tool window: the actions
+   Sync Virtual Branches, Branch Deck Command Palette and Branch Deck Settings of the app file (`titleActions`).
    **Rationale**: the IDE gives detaching, persistence and focus for free; the desktop semantics map one to one.
 8. **Decision**: The contract is Air's, with a copy here.
    **Rationale**: Air serves other apps with the same protocol; `docs/design/ide-embedding/protocol/` holds the
@@ -128,19 +140,23 @@ sequenceDiagram
   the instance shown already sends it `init-data-updated {data}` and `setViewTitle`.
 - **A mirror** subscribes the session once for all the views of a repository, under a window of its own
   (`mirror:<path>`), and the last unsubscribe forgets that window; the patches that come before the answer of the
-  subscription are in its state, which holds the `version` of the view, set last in each change. `set_demand` of a view names the subscription of its mirror (brd puts it in). The
-  session dropping the subscription of a shown mirror is `x-air-app/viewEnded {reason: "sessionClosed"}`.
+  subscription are in its state, which holds the `version` of the view, set last in each change. `set_demand` of a
+  view names the subscription of its mirror (brd puts it in). The session dropping the subscription of a shown mirror
+  is `x-air-app/viewEnded {reason: "sessionClosed"}`, the one reason of the contract: brd cannot tell a repository that
+  is gone from a session that closed.
 - **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native"}`.
 - **The desktop of the page**: an event the page emits for the other windows is `bd_invoke` of
   `plugin:event|emit {event, payload, target}`, which brd tells the views (`x-air-app/event`, with the instance of the
-  window `target` names). The page sets the badge, the progress and its notifications through the host tools of the
-  IDE (`air_set_badge`, `air_set_progress`, `air_notify`); brd answers the same plugin calls of Tauri by their names too
-  (`plugin:window|set_badge_count`, `plugin:window|set_progress_bar`, `plugin:notification|notify` → `setBadge`,
-  `setProgress` of `main`, `notify`). The action Sync Virtual Branches of the app file is the tool `sync` with the
-  origin `action`, which no list shows. A change of the Git roots of the project is the event `roots-changed` to the
-  main view.
+  window `target` names). The page sets the badge, the progress and its notifications only through brd, by `bd_invoke`
+  of the plugin calls of Tauri (`plugin:window|set_badge_count`, `plugin:window|set_progress_bar`,
+  `plugin:notification|notify` → `setBadge`,
+  `setProgress` of `main`, `notify`). The actions of the app file are tools only for the app, which `tools/list`
+  names: Sync Virtual Branches is `sync`, Branch Deck Command Palette is `open_command_palette`, which sends the main
+  view the event `open_command_palette` as the menu of the desktop app does, and Branch Deck Settings opens the view
+  `settings` in the IDE alone. `plugin:window|close` of a page is `x-air-app/closeView` of its instance. A change of
+  the Git roots of the project is the event `roots-changed` to the main view.
 - **The e2e server** serves the same connection on a WebSocket (`GET /repositories/{id}/mcp`, `mcp_socket.rs`), in the
   context of the test repository with the events and the desktop of the connection, for the fake host of the page in
   Air; `mcp_corpus_test.rs` runs `branch-deck-app.ndjson` on it.
@@ -159,9 +175,10 @@ sequenceDiagram
     them; the `Channel` the table names gets the `x-air-app/callEvent` of its call (`callId` is the id of the
     `tools/call`); `structuredContent.value`, `bytes` (base64) or `error`. `listen` hears `x-air-app/event`; `emit` and
     `emit_to` are `bd_invoke` of `plugin:event|emit {event, payload, target}`, which `brd mcp` tells the views of the
-    app. The plugins: `ui/open-link` for a link, the host tools `air_copy`, `air_notify` (the browser's `Notification`
-    of the notification plugin), `air_set_badge` and `air_set_progress` (`view: "main"`), the log as
-    `notifications/message`; the size, the zoom, the theme and the close of a window are the place's, and do nothing.
+    app. The plugins: `ui/open-link` for a link, the host tool `air_copy`, the log as `notifications/message`; the
+    badge, the progress and the notification (the browser's `Notification` too) are `bd_invoke` of their plugin calls,
+    and the close of a window `bd_invoke` of `plugin:window|close`; the size, the zoom and the theme are the place's,
+    and do nothing.
   - `src/platform/air/view-mirror.ts`: `subscribe_view` is `x-air-app/subscribe {params: {repositoryPath}}`. The state
     of the mirror is the `RepositoryView` of the session, one part per field, with the part `version` (the page compares
     the versions that commands answer, `SyncAnswer.version`, `Outcome.versionAfter`, with that of its view). Each
@@ -187,9 +204,18 @@ sequenceDiagram
 
 ## Alternatives Considered
 
-- **Through Kotlin (`JBCefJSQuery`)**: every patch and every diff stream would cross the JVM twice, and Kotlin would hold
-  a second copy of the protocol.
-  - Why not: the size of a diff and the cost of two translations.
+The transport is Air's decision, with its measurements in JCEF: the decision record of idea-1 names them.
+
+- **Through Kotlin (`JBCefJSQuery`)**: every patch and every diff stream would cross the JVM, 3 to 8 times slower than
+  a socket, and the function of the query is visible to the sandboxed frame of an app.
+  - Why not: speed, and a frame of Branch Deck could reach the handler of the host.
+- **The built-in server of the IDE (port 63342)**: it admits any loopback page and a request without `Origin`, shares
+  its origin with the files of the projects and every plugin, and is off in the dev runs of remote development.
+  - Why not: the checks of the origin would be the server's, not Air's.
+- **A grant of the loopback permission (a content setting, DevTools, a Chromium flag) or a `file:` page**: a global
+  setting with one owner, a grant that the close of any browser resets, a switch for every page of JCEF, or the
+  `Origin` `null`.
+  - Why not: none keeps a narrow, stable check; the content setting stays Air's fallback.
 - **Branch Deck serves its own WebSocket or HTTP**: the consent, the ticket and the origin checks would be Branch
   Deck's, different for every app.
   - Why not: the trust rules belong to the host.
@@ -197,6 +223,12 @@ sequenceDiagram
   - Why not: the page and the rules would fork.
 - **Events as state**: a resync would drop a toast or a step of a push.
   - Why not: events must arrive exactly once.
+
+## Non-goals
+
+- Remote development: in a split IDE the frame runs in the client and `air-ide` on the backend, so the loopback port is
+  on the other machine; Air serves no app there in its first version.
+- One `brd mcp` for all the projects of a user (P2), and a project that is not on this machine.
 
 ## Performance Considerations
 
