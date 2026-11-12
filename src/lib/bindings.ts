@@ -6942,11 +6942,22 @@ export type Rename = {
 	newSites: number[],
 };
 
-/**  What the index says of the uses of a rename of `DiffMarks::renames` that is not local */
+/**
+ *  What the subject says of a rename of `DiffMarks::renames` that is not local: how far it reaches in the files of
+ *  the subject, and what the index says of its uses
+ */
 export type RenameCheck = {
 	/**  The number of the rename among `DiffMarks::renames` */
 	rename: number,
 	proof: RenameProof,
+	/**
+	 *  The places that hold the two names in the files of the subject: those of every file that declares the name and
+	 *  renamed it so, this one among them, and of every file that uses it and names it a rename (`used`). What the
+	 *  proof speaks of, where it is one: a view says it beside the rename, where the name is declared
+	 */
+	sites: number,
+	/**  The files of the subject those places are in, this one among them: 1 for a name no other file renamed so */
+	files: number,
 };
 
 /**

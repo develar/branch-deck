@@ -268,6 +268,25 @@ describe("the words of a rename", () => {
     expect(note([{ ...total, proof: "usesOutside" }]).name).toBe("Renamed total to sum, 12 sites, uses outside this change")
   })
 
+  it("counts the places of a name the file declares in every file of the subject that holds it, and those of the file alone where no other does", () => {
+    // the declaration of the store and the two calls of the report: what the proof beside the count speaks of
+    const declared: RenamedName = { old: "openStore", new: "connectStore", sites: 1, proof: "confirmed", across: { sites: 3, files: 2 } }
+    expect(note([declared])).toMatchObject({
+      renamed: [{ old: "openStore", new: "connectStore", sites: "3 sites in 2 files" }],
+      reach: [{ declared: null, proof: "confirmed", said: "all uses in this change" }],
+      name: "Renamed openStore to connectStore, 3 sites in 2 files, all uses in this change",
+    })
+    // no other file of the subject holds the name: the places of the file, as of any rename
+    expect(note([{ ...declared, sites: 4, across: { sites: 4, files: 1 } }]).renamed).toEqual([{ old: "openStore", new: "connectStore", sites: "4 sites" }])
+    expect(note([{ ...declared, across: null }]).renamed).toEqual([{ old: "openStore", new: "connectStore", sites: "1 site" }])
+    // a counted rename says the same in its line of the hover and to a screen reader
+    expect(note([total, count, declared]).more).toEqual({
+      words: "and 2 more",
+      names: "count → size · 3 sites\nopenStore → connectStore · 3 sites in 2 files · all uses in this change",
+      said: ": count to size, 3 sites; openStore to connectStore, 3 sites in 2 files, all uses in this change",
+    })
+  })
+
   it("tells of which rename of a note of several the subject speaks, by its new name, and of a counted one in its line of the hover", () => {
     const two = note([total, { ...open, proof: "confirmed" }])
     expect(two.reach).toEqual([

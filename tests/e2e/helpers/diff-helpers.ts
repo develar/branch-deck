@@ -111,6 +111,21 @@ export function moveTargets(scope: Locator | Page): Locator {
   return scope.getByTestId("diff-move-target")
 }
 
+/** The view went to `row` (a note at an end of a move, the heading that says it): it is marked as the row the jump landed on, and in view */
+export async function expectLandedOn(row: Locator): Promise<void> {
+  await expect(row).toHaveAttribute("data-landed", "")
+  await expect(row).toBeInViewport()
+}
+
+/**
+ * The view went to `row` and the mark went with it: no other row of `scope` has it. The row the jump left may be
+ * outside the painted rows by then, so the mark is counted, not asked of that row
+ */
+export async function expectLandedAloneOn(scope: Locator, row: Locator): Promise<void> {
+  await expectLandedOn(row)
+  await expect(scope.locator("[data-landed]")).toHaveCount(1)
+}
+
 /** The one button of a place that names the key of the moves (`aria-keyshortcuts`): the note the key takes now */
 export function keyedMoveTargets(scope: Locator | Page): Locator {
   return scope.locator("[data-testid=diff-move-target][aria-keyshortcuts]")

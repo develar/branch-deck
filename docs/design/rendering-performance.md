@@ -662,7 +662,9 @@ used to download and compile the main window's tree before its own page: 61 modu
   chunks before).
 - A loading line ("Loading changes…", "Loading diff…", "Loading files…", `LoadingLine`) shows only after 300 ms: a
   read from a cache answers before, and a spinner that flashes for a frame reads as a delay where there was none. The
-  review shows what it has meanwhile (the tree, the headers of the files).
+  review shows what it has meanwhile (the tree, the headers of the files). The diff of a file that opens while it is
+  still read is its view already, with one row whose word "Loading…" shows after the same 300 ms
+  ([Diff View](diff-view.md), "The first rows of a view").
 - The page logs the phases of each open ("review open 96 ms: loaded 41, files 44, diffs 47, painted 88"): a new
   window loads the app (`loaded`), a reused one only renders.
 

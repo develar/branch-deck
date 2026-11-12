@@ -6,7 +6,8 @@ import { describeMoveEnd, MOVE_END_LABEL } from "@/presenters/diff-marks"
  * The menu of the code of a diff (openspec/specs/commit/symbol-navigation/spec.md): one builder, which the context menu of the
  * code renders, opened by the pointer on the name under it or by a menu key on the name at the selection; the keys of
  * its items work in the view whatever the menu (`DiffView`). On a line of a move, or the note at its end, it has the
- * item that shows the other end of the move (openspec/specs/commit/quiet-changes/spec.md, "Views").
+ * item that shows the other end of the move, and on the note of a rename that names the file that declares the name
+ * its Go to Declaration shows that declaration (openspec/specs/commit/quiet-changes/spec.md, "Views").
  */
 
 export interface CodeMenuContext {
@@ -23,18 +24,28 @@ export interface CodeMenuContext {
    * of the item says; null or absent for a move within the file
    */
   moveEnd: { readonly at: "source" | "destination"; readonly go: () => void; readonly key: string | null; readonly file?: string | null } | null
+  /**
+   * The declaration the note of a rename names, where the menu opened on that note ("Renamed openStore → connectStore
+   * · declared in Store.kt"), a row of no name: what the place of the note says in full, the hover of the item ("Go to
+   * the declaration of connectStore in src/Store.kt"), and what shows the declaration, as a click on the place does.
+   * Null or absent on any other row, and where no view shows that file
+   */
+  declared?: { readonly hover: string; readonly go: () => void } | null
 }
 
-export function codeMenuItems({ name, goToDeclaration, findUsages, moveEnd }: CodeMenuContext): MenuItem[] {
+export function codeMenuItems({ name, goToDeclaration, findUsages, moveEnd, declared }: CodeMenuContext): MenuItem[] {
+  // on the note of a rename that names the file of the declaration, Go to Declaration goes where the note says
+  const noted = name === null ? (declared ?? null) : null
   const items: MenuItem[] = [
     {
       id: "go-to-declaration",
       label: "Go to Declaration",
       icon: CodeIcon,
-      kbds: ["mod", "b"],
-      disabled: name === null,
-      description: name === null ? "No name here" : `Go to the declaration of ${name}`,
-      onSelect: () => goToDeclaration(),
+      // the key acts on the name at the selection: the item of a note names none
+      ...(noted === null && { kbds: ["mod", "b"] }),
+      disabled: name === null && noted === null,
+      description: noted !== null ? noted.hover : name === null ? "No name here" : `Go to the declaration of ${name}`,
+      onSelect: () => (noted !== null ? noted.go() : goToDeclaration()),
     },
   ]
   if (findUsages !== null) {

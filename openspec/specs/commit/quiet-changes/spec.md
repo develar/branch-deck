@@ -802,6 +802,23 @@ name no file declares is in none. The pass MUST add labels alone: the quiet runs
 - **AND** a line of the renamed name at the end of its block is a run only when the name after the block is one a file of the subject renamed too
   [@test] crates/file-diffs/src/marks_subject_test.rs (`the_subject_adds_labels_alone_never_a_quiet_run_or_a_stop`)
 
+### Requirement: Subject: The file that declares a renamed name says how far the rename reaches
+
+For each name a file declares that is not local, the pass MUST say how many places of the files of the subject hold
+the two names, its own and those of every file that names the rename (`subject.used`), and in how many files
+(`subject.declared`: `sites`, `files`). A file that uses the name and names no rename MUST NOT be counted.
+
+#### Scenario: The store and its callers
+- **WHEN** a store renames its function and a report calls it at two places; the store is the one file of its subject; and two files more call it, one of which also adds a call
+- **THEN** the store says three places in two files; alone, its one place in one file; with the callers four places in three files
+- **AND** the file that added a call names no rename, and its places are not counted
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_declaration_says_how_many_places_of_the_subject_hold_its_name_and_in_how_many_files`)
+
+#### Scenario: The fields
+- **WHEN** the marks of a file with what its subject says of a name it declares are written as JSON
+- **THEN** the check of the name has `sites` and `files` beside its `proof`
+  [@test] crates/text-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
+
 ### Requirement: Subject: The index is asked once of every declaration a subject renamed
 
 The declarations of the renamed names of a subject that are not local, in files of Kotlin or Java, MUST be asked of
@@ -1949,7 +1966,7 @@ own.
 
 #### Scenario: A name that is not local
 - **WHEN** the preview shows Store.kt of the template, whose function `openStore` is `connectStore`, declared there
-- **THEN** the note "Renamed openStore → connectStore · 1 site" stands before the line of the declaration, which is read
+- **THEN** the note "Renamed openStore → connectStore · 3 sites in 2 files" stands before the line of the declaration, which is read
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a name that is not local is named at its declaration, which is read, and once in a file that only uses it, each use in the mark of a renamed name`)
 
 #### Scenario: A section of a review that does not show the declaration
@@ -2012,6 +2029,29 @@ more"; of three or more the first, the others counted ("and 2 more"), listed on 
 - **THEN** the note of the three reads "Renamed low → small · 2 sites · and 2 more", plain words; the hover of its count lists "high → large · 2 sites" and "both → all · 2 sites", and the words of the two are in the text of the note after the count, where no eye sees them
 - **AND** the note of the two reads "Renamed left → a · 2 sites · right → b · 2 sites" and counts none
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a note words both renames of a block that declares two, the first of three with the count of the others, and stands right above the line of its declaration`)
+
+### Requirement: Views: The note at the declaration of a name counts the places of the subject
+
+Where a file declares a renamed name that other files of the subject hold too, its note MUST count the places of
+all of them and their files ("Renamed openStore → connectStore · 3 sites in 2 files"): what a proof beside the count
+speaks of. A name no other file holds MUST count the places of the file, as any rename.
+
+#### Scenario: The words
+- **WHEN** a note words a name the file declares at one place, which the subject says three places of two files hold; the same name with no other file; and that rename as a counted one of a note of three
+- **THEN** it says "3 sites in 2 files", as one sentence "Renamed openStore to connectStore, 3 sites in 2 files, all uses in this change"; with no other file the places of the file, "4 sites"
+- **AND** the counted rename says the same in its line of the hover and to a screen reader
+  [@test] src/presenters/diff-marks.test.ts (`counts the places of a name the file declares in every file of the subject that holds it, and those of the file alone where no other does`)
+
+#### Scenario: What the note carries
+- **WHEN** the notes of a file are made that declares a function the subject says three places of two files hold, beside a local
+- **THEN** the note of the function carries those places and files with what the index proved; the note of the local nothing
+  [@test] src/lib/diff/block-parts.test.ts (`says of a name the file declares what the index proved of it and how far it reaches in the subject, by its number among the renames of the file, and nothing of a local`)
+
+#### Scenario: The declaration of the store, in a browser
+- **WHEN** the preview shows Store.kt of the `commit_marks` template, which declares the function Report.kt calls twice, and the review of a commit of eight files shows Accounts.kt, which declares a function Names.kt calls once
+- **THEN** the notes say "Renamed openStore → connectStore · 3 sites in 2 files" and "Renamed openAccounts → loadAccounts · 2 sites in 2 files"
+  [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a name that is not local is named at its declaration, which is read, and once in a file that only uses it, each use in the mark of a renamed name`)
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note names the file that declares a name in plain words while the review does not show that file: no button, nothing to go to; shown again, it is a button, in a note of two renames beside the name it speaks of`)
 
 ### Requirement: Views: A renamed name is drawn in a mark of its own, never as a change
 
@@ -2259,13 +2299,15 @@ name, with as many of its directories as tell it from another file of the subjec
 The place a note of a move between two files names MUST be a button that shows the other end in its file, the note
 there marked. In a review window the card of that file opens and the end the jump left is kept for Back; where each
 file has a view of its own (the preview of a commit, the uncommitted changes) the diff of that file opens and shows
-it. G and the menu of the code MUST take the note as the note of any move.
+it, once: a diff of that file that mounts again later MUST show its top. G and the menu of the code MUST take the
+note as the note of any move.
 
 #### Scenario: A click in the preview of a commit
 - **GIVEN** the preview of the commit of the template with the diff of Ledger.kt open and the one of Report.kt closed
 - **WHEN** the user clicks "to Report.kt:18", then "from Ledger.kt:55" in the diff that opened, then "to Report.kt:18" again
 - **THEN** the row of Report.kt opens its diff, which shows the note where the lines stand, marked; the second click shows the note where they left, marked; the third the first again
 - **AND** the buttons are named "Go to line 18 of src/Report.kt, where the lines stand now" and "Go to line 55 of src/Ledger.kt, where the lines were", and name no key
+- **AND** back at the top of the preview, the directory of the files folded and unfolded and then the diffs read again under another whitespace policy, the preview stays at its top and no row is marked: a place is shown once; asked again by its note, it is shown again
 - **AND** the diff of Report.kt, closed and opened again by its row, shows its top: the place a note asked of it before is asked no more
   [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a click on the file and the line a note of a move names opens the diff of that file under its row and shows the other end there, and the note there shows the first again`)
 
@@ -2290,8 +2332,9 @@ it. G and the menu of the code MUST take the note as the note of any move.
 ### Requirement: Views: A place in a file no view shows is plain words
 
 Where no view shows the file a note names (the search or the owner of a review hides it), the note MUST say the same
-words as plain text: no button, with the file and the line in full on a hover. G MUST pass such a note and the menu
-of the code MUST have no item of its move. Shown again, the place is a button.
+words as plain text: no button, with the file and the line in full on a hover, or of the file that declares a name
+"connectStore is declared in src/Store.kt". G MUST pass such a note and the menu of the code MUST have no item of
+its move and no declaration to go to. Shown again, the place is a button.
 
 #### Scenario: A file the search of a review hides
 - **GIVEN** the review of a commit of eight files that moves a function from Accounts.kt to Names.kt
@@ -2299,6 +2342,14 @@ of the code MUST have no item of its move. Shown again, the place is a button.
 - **THEN** the note in Accounts.kt still says "Moved to Names.kt:5", plain words with the hover "Line 5 of src/Names.kt, where the lines stand now"; no place of the diffs is a button, G moves nothing and the menu has no item of the move
 - **AND** with every file shown the place is a button again, and a click shows the note in Names.kt
   [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note names the other end of a move in plain words while the review does not show its file: no button, no key, no item of the menu; shown again, it is a button`)
+
+#### Scenario: The file that declares a name, hidden by the search
+- **GIVEN** the review of a commit of eight files in which Accounts.kt renames its function `openAccounts` to `loadAccounts` and Names.kt, which calls it, renames a local on the same line
+- **WHEN** the user types "Names" into the search of the files, clicks "declared in Accounts.kt", opens the menu of the code on the note, then clears the search
+- **THEN** the note in Names.kt says "Renamed list → found · 2 sites · openAccounts → loadAccounts · 1 site · loadAccounts declared in Accounts.kt" both times: the new name before the words says which of its two renames they speak of
+- **AND** while the search hides Accounts.kt the words are no button, their hover "loadAccounts is declared in src/Accounts.kt"; the click goes nowhere and Go to Declaration of the menu is disabled
+- **AND** with every file shown they are the button "Go to the declaration of loadAccounts in src/Accounts.kt", which shows the declaration with the name selected, and Back returns to the call
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note names the file that declares a name in plain words while the review does not show that file: no button, nothing to go to; shown again, it is a button, in a note of two renames beside the name it speaks of`)
 
 #### Scenario: The words and the key
 - **WHEN** a note is worded whose file the view does not show, and the note of the key is asked of a layout with such notes
@@ -2310,13 +2361,13 @@ of the code MUST have no item of its move. Shown again, the place is a button.
 
 A file that uses a name another file of the subject declares and renamed MUST name the rename once, at its first
 site in the rows, with "declared in Store.kt" after its sites, and draw the name at each site as any renamed name.
-Where a view shows that file the words MUST be a button that shows the declaration, the new name selected, the site
-kept for Back; else plain words.
+Where a view shows that file the words MUST be a button that shows the declaration, the new name selected; Back
+MUST return to the site the note names the rename at, never an earlier one its rows do not show. Else plain words.
 
 #### Scenario: The calls of the report
 - **WHEN** the preview shows Report.kt of the template, and the user clicks "declared in Store.kt"
 - **THEN** one note stands above the first call, "Renamed openStore → connectStore · 2 sites · declared in Store.kt", and each call has the name in the mark of a renamed name
-- **AND** the click opens the diff of Store.kt at the declaration with `connectStore` selected; the note there says "Renamed openStore → connectStore · 1 site" and names no file
+- **AND** the click opens the diff of Store.kt at the declaration with `connectStore` selected; the note there says "Renamed openStore → connectStore · 3 sites in 2 files" and names no file
   [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the note of a name another file declares names that file, and a click on it opens the diff of that file at the declaration, the new name selected`)
 
 #### Scenario: The declaration in a review, and Back
@@ -2324,12 +2375,35 @@ kept for Back; else plain words.
 - **THEN** the declaration shows in the card of Store.kt with `connectStore` selected, the diffs focused; Back selects the name at the first call in Report.kt, Forward the declaration again
   [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a click on the file that declares a name shows the declaration there with the new name selected, and Back returns to the use`)
 
+#### Scenario: The site Back returns to
+- **WHEN** the notes of a file are made that names a function another file declares in an import and in a call, with every row shown, in a review that plays the imports down, and in a section that does not show the block of the first site; and a note of two renames
+- **THEN** the jump from the note leaves the site the note stands at: the import where every row shows, the call where the import is played down or not shown
+- **AND** each rename of a note of two is named at its own site, and a name the file declares itself has no declaration elsewhere to jump to
+  [@test] src/lib/diff/block-parts.test.ts (`names each rename of a note at its site in the rows, the place a jump to its declaration leaves: never an earlier site that a review plays down or a section does not show`)
+
 #### Scenario: The note of a used name
 - **WHEN** the notes of the renames of a file are made whose two calls of a name another file declares are runs of a renamed name, in a section that shows them all and in one that does not show the first
 - **THEN** the name has one note, at its first site in the rows, with the file and the line of its declaration; both runs are named by it and have no note of their own
 - **AND** a local of the file named in the same block shares the note, each rename with what the subject says of it
-  [@test] src/lib/diff/block-parts.test.ts (`gives a name another file declares one note, at its first site in the rows, with the file and the line of its declaration and what the index proved`, `says of a name the file declares what the index proved of it, by its number among the renames of the file, and nothing of a local`)
+  [@test] src/lib/diff/block-parts.test.ts (`gives a name another file declares one note, at its first site in the rows, with the file and the line of its declaration and what the index proved`, `says of a name the file declares what the index proved of it and how far it reaches in the subject, by its number among the renames of the file, and nothing of a local`)
   [@test] src/presenters/diff-marks.test.ts (`says after a rename which file of the subject declares the name, a button that shows it where the view shows that file`)
+
+### Requirement: Views: Go to Declaration on the note of a name another file declares shows that declaration
+
+Go to Declaration of the menu of the code, opened on the note of a rename that names the file declaring a name,
+where a view shows that file, MUST show the declaration the note names, as a click on its place does; Find Usages
+has no name there. On any other note the item has no name to go to. The place has no key of its own.
+
+#### Scenario: The menu of the code on the note
+- **WHEN** the menu of the code opens on the note "Renamed openStore → connectStore · 2 sites · declared in Store.kt" in the review of the template, and on the note of Store.kt
+- **THEN** on the first its Go to Declaration is enabled and shows the declaration in Store.kt with `connectStore` selected, Back returns to the call, and Find Usages is disabled: the row holds no name
+- **AND** on the note of the file that declares the name the item is disabled
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`Go to Declaration of the menu of the code on the note of a name another file declares shows the declaration the note names, and Back returns to the use`)
+
+#### Scenario: The item of the menu
+- **WHEN** the items of the menu are built on a note that names a declaration, on a name of such a row, and on a note that names none
+- **THEN** on the note the item goes where the note says, with the name of its place as its hover; on a name it is the name's; else it is disabled
+  [@test] src/lib/diff/code-menu.test.ts (`goes to the declaration the note of a rename names where the menu opened on that note, a row of no name`)
 
 ### Requirement: Views: The note of a rename says how far the index proved it
 
@@ -2341,7 +2415,7 @@ say nothing while the index is still to be asked and where none answers.
 #### Scenario: Every use in the change
 - **GIVEN** the template, the index answering that the declaration of the store and its two calls are every use of the name in both trees
 - **WHEN** the preview shows Report.kt and Store.kt, once the index answered
-- **THEN** the notes say "Renamed openStore → connectStore · 2 sites · declared in Store.kt · all uses in this change" and "Renamed openStore → connectStore · 1 site · all uses in this change"
+- **THEN** the notes say "Renamed openStore → connectStore · 2 sites · declared in Store.kt · all uses in this change" and "Renamed openStore → connectStore · 3 sites in 2 files · all uses in this change"
   [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note says after its words that every use of the name is in the change, where the name is declared and where it is used`)
 
 #### Scenario: A use the change left alone
@@ -2353,7 +2427,7 @@ say nothing while the index is still to be asked and where none answers.
 #### Scenario: No index
 - **WHEN** the index of the repository answers nothing of the name
 - **THEN** the notes are what they were before it was asked, and say nothing of the uses
-  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note says nothing of the uses of a name where no index answers: the rename is named, and each use is read`)
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note says nothing of the uses of a name where no index answers: the rename is named as before it was asked`)
 
 #### Scenario: The words of each answer
 - **WHEN** a note of one rename, of two and of three is worded with each answer of the index
@@ -2403,7 +2477,8 @@ its lines may group anew around the note, each with its row.
 
 A view MUST keep the row at its top where it is while the marks of a subject add rows above it. A view that scrolls
 itself keeps its anchor; a view that is a block of another scroller MUST move that scroller by the rows that came
-above its top row, by all of them when the view lies above the viewport, each view by its own part.
+above its top row, by all of them when the view lies above the viewport, each view by its own part. The engine's
+own scroll anchoring MUST be off in that scroller only while it holds such a view.
 
 #### Scenario: A review window
 - **GIVEN** the review of the template whose Report.kt says nothing of its subject until the index answers, a line of `reportTitle` at the top of the diffs
@@ -2423,6 +2498,11 @@ above its top row, by all of them when the view lies above the viewport, each vi
 - **WHEN** the marks of Report.kt come
 - **THEN** the preview scrolls by the two rows of the notes, and the line stays where it was, a line of the move now
   [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the notes they add to the diff a reader has on screen in a preview come above its top row, which stays where it is`)
+
+#### Scenario: The scroller once its last diff is closed
+- **WHEN** the preview of the template opens the diff of Ledger.kt, then the one of Report.kt, closes the first, closes the second, and opens it again
+- **THEN** the engine's scroll anchoring is off in the preview while a diff is open, with one as with two, on again once the last one is closed, and off again with the diff that opens
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the scroller around the diffs of a preview is kept by its views while it holds one, and is the engine's to keep again once its last diff is closed`)
 
 #### Scenario: The anchor of a view
 - **WHEN** the row of a line is asked before and after the notes came above it, and the top of a view below the rows of its last file is kept across a layout with more rows
@@ -2481,8 +2561,9 @@ above its top row, by all of them when the view lies above the viewport, each vi
   colour of the text with " → " between them, then ` · ` and the places that hold the name: "Renamed total → sum ·
   12 sites", "… · 1 site". Two renames named at its block are both worded, ` · ` between them ("Renamed total → sum
   · 12 sites · count → size · 3 sites"); of three or more the first, then ` · and 2 more`, whose hover lists the
-  others, a line each ("count → size · 3 sites"), and which says them to a screen reader. It stands right above the
-  line of its declaration. Where it opens (Inline, a quiet run of its renames) it is a button as any note that
+  others, a line each ("count → size · 3 sites"), and which says them to a screen reader. A name the file declares
+  that other files of the subject hold too counts the places of all of them: "Renamed openStore → connectStore · 3
+  sites in 2 files". It stands right above the line of its declaration. Where it opens (Inline, a quiet run of its renames) it is a button as any note that
   opens, named "Renamed total to sum, 12 sites: Show the 4 old lines", with the key H in a review.
 - After the words of the note of a rename, what the subject says of it, muted, each part after ` · `: the file that
   declares a name the file only uses, "declared in Store.kt", a button with the dotted line of a place where a view
@@ -2492,7 +2573,9 @@ above its top row, by all of them when the view lies above the viewport, each vi
   not all checked"; nothing while the index is still to be asked and where none answers. In a note of two renames
   the new name of the rename they are about stands before these words, in the font of the code; a rename the note
   counts says them in its line of the hover. The name of a note that opens holds them: "Renamed openStore to
-  connectStore, 2 sites, declared in Store.kt, all uses in this change".
+  connectStore, 2 sites, declared in Store.kt, all uses in this change". The place of the declaration has no key of
+  its own (G is the key of the moves): a click shows it, and so does Go to Declaration of the menu of the code on
+  the note, its hover the name of the button; ⌘B on the name at a site asks the index, as on any name.
 - A use of a name the index proved, once the runs of a renamed name are quiet: its lines as they were, on the quiet
   colour, both names in their mark; N and P pass it and the file counts it out of what is left to read.
 - A renamed name: the quiet colour a step nearer the text and a dotted line along its lower edge
@@ -2545,6 +2628,9 @@ in
   runs of a renamed local quiet, their blocks without a start, what `PairMarks::as_proven` answers for the
   template). The rewrite knows whole blocks alone and reads `Rename.local` as the proof, which holds for the
   template and not for every rename. It goes with the switch of the kind, and its tests then read the engine.
+- The place "declared in Store.kt" has no key: G is the key of the moves, and one key for both would take whichever
+  note comes first in view. A click and Go to Declaration of the menu of the code on the note show it; without a
+  pointer the declaration is reached by its file in the tree of the files, where its note stands.
 - A note of three or more renames words the first and counts the others: a hover lists them and a screen reader
   hears them after the count; a keyboard without one reaches them at their sites, where each name is in its mark.
 - On a quiet line shown once the find marks the new name for a hit of the old one, and for a hit of other text of a

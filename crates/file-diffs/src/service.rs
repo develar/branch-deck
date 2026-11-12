@@ -87,7 +87,7 @@ use tracing::{debug, instrument, warn};
 /// The version of the diffs in the `file_diff` store and of what they left in the `file_leftovers` store: bump it
 /// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change.
 /// `stored_layout_test.rs` pins the layout of both with it
-pub const MODEL_VERSION: u32 = 13;
+pub const MODEL_VERSION: u32 = 14;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
 /// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens) and

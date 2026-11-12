@@ -33,7 +33,7 @@ use tracing::{debug, instrument};
 
 /// The version of the merges in the `file_merge` store: bump it when `TextMerge`, `TextDiff` (a merge of one side
 /// holds a diff, with its marks), the merge or the scopes change. `stored_layout_test.rs` pins the layout with it
-pub(crate) const MERGE_MODEL_VERSION: u32 = 8;
+pub(crate) const MERGE_MODEL_VERSION: u32 = 9;
 
 /// The memory key of a merge: the options byte and the base, left and right blob ids, empty for a missing side
 pub(crate) type MergeMemoryKey = (u8, String, String, String);

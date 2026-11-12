@@ -95,14 +95,15 @@ export interface ScrollAnchor {
    */
   opening?: true
   /**
-   * The offset is from the end of the rows of the file, the last one: the top is below them (a view that lies above
-   * the viewport of the scroller it is a block of, the space past the end of a document). So rows that come or go
-   * above keep what is below the file where it is
+   * The offset is from the end of the file, the last one (its rows, the strip of its scrollbar, the line at its end):
+   * the top is below its rows, or below all of a file that shows none yet (a view that lies above the viewport of the
+   * scroller it is a block of, the space past the end of a document). So whatever comes or goes in the file, its
+   * first rows too, keeps what is below it where it is
    */
   below?: true
   /**
-   * The pixels from the top of the anchor (the row, the start of the section, the file, or the end of its rows) to the
-   * top of the viewport
+   * The pixels from the top of the anchor (the row, the start of the section, the file, or its end) to the top of the
+   * viewport
    */
   offset: number
 }
@@ -452,12 +453,15 @@ export class DiffLayout {
     if (scrollTop < this.offsets[file]!) {
       return { key, opening: true, offset: scrollTop - this.sectionStart(file) }
     }
+    const fileEnd = this.offsets[file]! + this.fileHeight(file)
     if (rows === null || rows.rowCount === 0 || scrollTop < rowsTop) {
-      return { key, offset: scrollTop - this.offsets[file]! }
+      // past the end of the last file, one that shows no rows (its diff is still read): held by its end, so the rows
+      // that come keep what is below it where it is; in it, by its top, and its rows come below
+      return scrollTop >= fileEnd ? { key, below: true, offset: scrollTop - fileEnd } : { key, offset: scrollTop - this.offsets[file]! }
     }
-    // below the rows of the last file: held by their end, however many rows there are
+    // below the rows of the last file: held by its end, however many rows there are
     if (scrollTop >= rowsTop + this.rowsHeight(file)) {
-      return { key, below: true, offset: scrollTop - rowsTop - this.rowsHeight(file) }
+      return { key, below: true, offset: scrollTop - fileEnd }
     }
     let index = this.rowAt(file, scrollTop)
     let row = fileRowAt(rows, index)
@@ -497,7 +501,7 @@ export class DiffLayout {
     }
     const rows = this.files[file]!.rows
     if (anchor.below === true) {
-      return this.offsets[file]! + this.rowsOffset(file) + this.rowsHeight(file) + anchor.offset
+      return this.offsets[file]! + this.fileHeight(file) + anchor.offset
     }
     if (anchor.line === undefined || rows === null || rows.rowCount === 0) {
       return this.offsets[file]! + Math.min(anchor.offset, this.fileHeight(file))

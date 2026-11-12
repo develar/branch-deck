@@ -330,6 +330,33 @@ fn a_name_another_file_declares_is_a_rename_of_the_file_that_uses_it() {
 }
 
 #[test]
+fn a_declaration_says_how_many_places_of_the_subject_hold_its_name_and_in_how_many_files() {
+  let reach = |case: &Case, store: usize| {
+    let check = &case.subject(IndexAnswer::Unavailable, store).declared[0];
+    (check.sites, check.files)
+  };
+  // the declaration of the store and the two calls of the report
+  assert_eq!(reach(&renamed_store(), 1), (3, 2));
+  // the store alone: its own place
+  assert_eq!(reach(&Case::of(vec![changed("src/Store.kt", &text(&STORE), &renamed(&STORE))]), 0), (1, 1));
+
+  // a second file that calls the name once more, and a third that renamed its call and added one: no rename of that
+  // file (not every place changed in place), so its calls are read and not counted
+  let caller = ["package demo", "", "fun load(path: String): Store = openStore(path)"];
+  let grown = ["package demo", "", "fun first(path: String): Store = openStore(path)"];
+  let more = "fun second(path: String): Store = connectStore(path + path)\n";
+  let case = Case::of(vec![
+    changed("src/Caller.kt", &text(&caller), &renamed(&caller)),
+    changed("src/Grown.kt", &text(&grown), &format!("{}{more}", renamed(&grown))),
+    changed("src/Report.kt", &text(&REPORT), &renamed(&REPORT)),
+    changed("src/Store.kt", &text(&STORE), &renamed(&STORE)),
+  ]);
+  assert_eq!(case.subject(IndexAnswer::Unavailable, 0).used.len(), 1);
+  assert_eq!(case.marks(IndexAnswer::Unavailable).0[1], None, "the file that added a call names no rename");
+  assert_eq!(reach(&case, 3), (4, 3));
+}
+
+#[test]
 fn a_rename_every_use_of_which_the_index_lists_is_confirmed_and_its_declaration_stays_a_stop() {
   let case = renamed_store();
   // while the index is asked

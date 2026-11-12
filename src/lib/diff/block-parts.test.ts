@@ -16,13 +16,14 @@ import {
   partsRowOfLine,
   partsStopRow,
   readingOf,
+  renameJumpOf,
   renameNotesOf,
   stopsOf,
 } from "@/lib/diff/block-parts"
 import type { BlockMarks, PartsOptions, RenameNotes } from "@/lib/diff/block-parts"
 import type { LineRun, TextDiff } from "@/lib/diff/file-diff-model"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, fileMove, move, rename, run, subjectMarks, textDiff } from "@/test-support/diff-blocks"
+import { block, fileMove, move, rename, renameCheck, run, subjectMarks, textDiff } from "@/test-support/diff-blocks"
 
 const OLD = 0
 const NEW = 1
@@ -1116,42 +1117,88 @@ describe("the notes of the renames another file of the subject declares", () => 
   const using = (proof: "asked" | "confirmed" | "usesOutside") =>
     textDiff(20, 20, blocks(), { runs: labels, subject: subjectMarks({ used: [{ rename: open, file: 2, line: 18, proof }] }) })
 
+  /** One block of two lines: the call of a function another file declares on the first, a local of the file renamed on the second */
+  const usingBesideLocal = () =>
+    textDiff(20, 20, [block(4, 6, 4, 6, { inlinePairs: true })], {
+      renames: [rename("total", "sum", [[5, 2, 5, 2]])],
+      subject: subjectMarks({ used: [{ rename: rename("openStore", "connectStore", [[4, 16, 4, 16]], { local: false, declared: [] }), file: 2, line: 18, proof: "confirmed" }] }),
+    })
+
   it("gives a name another file declares one note, at its first site in the rows, with the file and the line of its declaration and what the index proved", () => {
     const notes = renameNotesOf(using("asked"))
     expect([...notes.byBlock].map(([at, note]) => [at, note.key, note.renames, note.reach, note.lines, note.hides])).toEqual([
-      [0, 4, [open], [{ proof: "asked", declared: { file: 2, line: 18 } }], [4, 4], []],
+      [0, 4, [open], [{ proof: "asked", declared: { file: 2, line: 18 }, across: null }], [4, 4], []],
     ])
     // both its runs are named by that note: neither has a note of its own
     const diff = using("confirmed")
     const confirmed = renameNotesOf(diff)
     const [note] = [...confirmed.byBlock.values()]
-    expect([diff.marks.runs.map(one => confirmed.ofRun.get(one) === note), note!.reach]).toEqual([[true, true], [{ proof: "confirmed", declared: { file: 2, line: 18 } }]])
+    expect([diff.marks.runs.map(one => confirmed.ofRun.get(one) === note), note!.reach]).toEqual([
+      [true, true],
+      [{ proof: "confirmed", declared: { file: 2, line: 18 }, across: null }],
+    ])
     // a section that does not show the first block: the note at the next site
     expect([...renameNotesOf(using("asked"), index => index !== 0).byBlock.keys()]).toEqual([1])
   })
 
-  it("says of a name the file declares what the index proved of it, by its number among the renames of the file, and nothing of a local", () => {
-    // a local of the first block, and a function the file declares in the third, which the index was asked of
+  it("says of a name the file declares what the index proved of it and how far it reaches in the subject, by its number among the renames of the file, and nothing of a local", () => {
+    // a local of the first block, and a function the file declares in the third, which the index was asked of: three
+    // places in two files of the subject hold it
     const total = rename("total", "sum", [[4, 2, 4, 2]])
     const declared = rename("openStore", "connectStore", [[14, 4, 14, 4]], { local: false })
-    const diff = textDiff(20, 20, blocks(), { renames: [total, declared], subject: subjectMarks({ declared: [{ rename: 1, proof: "usesOutside" }] }) })
+    const diff = textDiff(20, 20, blocks(), { renames: [total, declared], subject: subjectMarks({ declared: [renameCheck(1, "usesOutside", 3, 2)] }) })
     expect([...renameNotesOf(diff).byBlock].map(([at, note]) => [at, note.renames.map(it => it.new), note.reach])).toEqual([
-      [0, ["sum"], [{ proof: null, declared: null }]],
-      [2, ["connectStore"], [{ proof: "usesOutside", declared: null }]],
+      [0, ["sum"], [{ proof: null, declared: null, across: null }]],
+      [2, ["connectStore"], [{ proof: "usesOutside", declared: null, across: { sites: 3, files: 2 } }]],
     ])
     // the renames of a file and the names it uses in one note, each with what the subject says of it, in the order of their sites
-    const mixed = textDiff(20, 20, [block(4, 6, 4, 6, { inlinePairs: true })], {
-      renames: [rename("total", "sum", [[5, 2, 5, 2]])],
-      subject: subjectMarks({ used: [{ rename: rename("openStore", "connectStore", [[4, 16, 4, 16]], { local: false, declared: [] }), file: 2, line: 18, proof: "confirmed" }] }),
-    })
+    const mixed = usingBesideLocal()
     expect([...renameNotesOf(mixed).byBlock.values()].map(note => [note.renames.map(it => it.new), note.reach])).toEqual([
       [
         ["connectStore", "sum"],
         [
-          { proof: "confirmed", declared: { file: 2, line: 18 } },
-          { proof: null, declared: null },
+          { proof: "confirmed", declared: { file: 2, line: 18 }, across: null },
+          { proof: null, declared: null, across: null },
         ],
       ],
     ])
+  })
+
+  it("names each rename of a note at its site in the rows, the place a jump to its declaration leaves: never an earlier site that a review plays down or a section does not show", () => {
+    const jumps = (notes: ReturnType<typeof renameNotesOf>) => [...notes.byBlock.values()].map(note => [note.sites, note.renames.map((_, at) => renameJumpOf(note, at))])
+    // a file that names the function on line `first` (an import on line 2, a block of the imports alone, or a call) and calls it on line 30
+    const report = (first: number, extra: Parameters<typeof textDiff>[3] = {}) => {
+      const used = rename(
+        "openStore",
+        "connectStore",
+        [
+          [first, 13, first, 13],
+          [30, 16, 30, 16],
+        ],
+        { local: false, declared: [] },
+      )
+      return textDiff(40, 40, [block(first, first + 1, first, first + 1, { inlinePairs: true }), block(30, 31, 30, 31, { inlinePairs: true })], {
+        runs: [run(first, first + 1, first, first + 1, { kind: "renamed", quiet: false }), run(30, 31, 30, 31, { kind: "renamed", quiet: false })],
+        subject: subjectMarks({ used: [{ rename: used, file: 2, line: 18, proof: "asked" }] }),
+        ...extra,
+      })
+    }
+    const atCall = { file: 2, line: 18, name: "connectStore", from: 30 }
+    // every row shown: the note at the import, the first site, and the jump leaves it
+    expect(jumps(renameNotesOf(report(2)))).toEqual([[[2], [{ ...atCall, from: 2 }]]])
+    // a review that plays the imports down has the note at the call: the jump leaves the call, never the import above
+    expect(jumps(renameNotesOf(report(2, { importBlocks: [0] }), () => true, new Set([0])))).toEqual([[[30], [atCall]]])
+    // a section that does not show the block of the first site: the note, and the place the jump leaves, at the call it shows
+    expect(jumps(renameNotesOf(report(10), index => index === 1))).toEqual([[[30], [atCall]]])
+    // a note of two renames: each at its own site; a name the file declares itself has no declaration elsewhere to jump to
+    const mixed = usingBesideLocal()
+    expect(jumps(renameNotesOf(mixed))).toEqual([
+      [
+        [4, 5],
+        [{ file: 2, line: 18, name: "connectStore", from: 4 }, null],
+      ],
+    ])
+    const [note] = [...renameNotesOf(mixed).byBlock.values()]
+    expect(renameJumpOf(note!, 2)).toBeNull()
   })
 })

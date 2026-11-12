@@ -23,7 +23,7 @@ const DIFF: &str = concat!(
   r#""moves":[{"oldStart":3,"newStart":7,"len":1,"indent":2,"blanksBefore":1,"blanksAfter":0,"edited":[0],"oldRanges":[[0,1,2]],"newRanges":[[0,1,2]]}],"#,
   r#""renames":[{"old":"a","new":"b","sites":1,"local":true,"declared":[0],"oldSites":[1,2,3],"newSites":[1,2,3]}],"starts":[0,1,1],"#,
   r#""subject":{"movedOut":[{"start":1,"len":2,"file":1,"line":3}],"movedIn":[{"start":1,"len":2,"file":1,"line":3}],"#,
-  r#""declared":[{"rename":0,"proof":"asked"}],"#,
+  r#""declared":[{"rename":0,"proof":"asked","sites":3,"files":2}],"#,
   r#""used":[{"rename":{"old":"a","new":"b","sites":1,"local":false,"declared":[],"oldSites":[1,2,3],"newSites":[1,2,3]},"file":1,"line":2,"proof":"confirmed"}],"#,
   r#""confirmed":[0]}}}"#
 );
@@ -47,14 +47,14 @@ fn the_layout_of_a_stored_value_is_pinned_with_the_version_of_its_store() {
   // the diffs and what they left: raise `MODEL_VERSION` with a new sample
   assert_eq!(
     (MODEL_VERSION, written::<TextDiff>(DIFF).as_str(), written::<Leftovers>(LEFTOVERS).as_str()),
-    (13, DIFF, LEFTOVERS),
+    (14, DIFF, LEFTOVERS),
     "the layout of a stored diff or of what it left changed: raise MODEL_VERSION and pin the sample again"
   );
   // a merge of one side holds a diff: raise `MERGE_MODEL_VERSION` whenever the diff is another
   let one_sided = format!(r#"{{"OneSided":{{"deleted":"left","diff":{DIFF}}}}}"#);
   assert_eq!(
     (MERGE_MODEL_VERSION, written::<StoredMerge>(&one_sided)),
-    (8, one_sided),
+    (9, one_sided),
     "the layout of a stored merge changed: raise MERGE_MODEL_VERSION and pin the sample again"
   );
 }

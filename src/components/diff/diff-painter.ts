@@ -322,8 +322,12 @@ export class DiffPainter {
     this.scrollParent = scrollParent
     if (scrollParent !== null) {
       // the views keep what a reader has on screen in place themselves (`setModel`), in every engine alike: the
-      // scroller must not move it a second time (diff-view.css)
-      scrollParent.dataset.dvScrollParent = ""
+      // scroller must not move it a second time (diff-view.css), for as long as it holds a view
+      const views = viewsOf.get(scrollParent) ?? 0
+      viewsOf.set(scrollParent, views + 1)
+      if (views === 0) {
+        scrollParent.dataset.dvScrollParent = ""
+      }
     }
     const scroller = root
     const onScroll = (event: Event) => {
@@ -401,6 +405,17 @@ export class DiffPainter {
       cleanup()
     }
     this.client()?.release(this.viewId)
+    const { scrollParent } = this
+    if (scrollParent !== null) {
+      // the last view of the scroller left: what scrolls in it is the engine's to keep in place again
+      const views = (viewsOf.get(scrollParent) ?? 1) - 1
+      if (views > 0) {
+        viewsOf.set(scrollParent, views)
+      } else {
+        viewsOf.delete(scrollParent)
+        delete scrollParent.dataset.dvScrollParent
+      }
+    }
     this.root = null
     this.scrollParent = null
   }
@@ -912,8 +927,9 @@ export class DiffPainter {
    * which a hover lists and a screen reader hears after the count, in a note of plain words as in the name of one
    * that opens; after its words, what the subject says of each rename worded: the file that declares it ("declared in
    * Store.kt", a button that shows the declaration where the view can show that file) and what the index of the
-   * repository proved of its uses ("all uses in this change"). Not focusable, as a fold: a review has hundreds, and
-   * the keys reach them
+   * repository proved of its uses ("all uses in this change"). Not focusable, as a fold: a review has hundreds. The
+   * keys of the view reach a note that opens and the place of a move (`notesKey`, `moveKey`); the place of a
+   * declaration has no key, and the menu of the code on its note shows it (`declarationAt`)
    */
   private remark(file: number, note: NoteRow, remark: Remark): Node[] {
     const { label, renamed, target, detail, more, reach, name, toggle } = presentRemark(this.factsOf(file, remark))
@@ -1055,6 +1071,7 @@ export class DiffPainter {
                   sites: rename.sites,
                   proof: reach?.proof ?? null,
                   declared: reach?.declared == null ? null : { file: other(reach.declared.file), line: reach.declared.line },
+                  across: reach?.across ?? null,
                 }
               }),
               hides: renames.hides,
@@ -1589,15 +1606,39 @@ export class DiffPainter {
     this.keyedMoveButton = button
   }
 
-  private moveOfRow(row: HTMLElement | null): { file: number; end: MoveEnd } | null {
+  /** What a painted row of the view shows, and its file; null for an element that is no row of the view */
+  private valueOfRow(row: HTMLElement | null): { file: number; value: ReturnType<typeof rowAt> } | null {
     const file = Number(row?.parentElement?.dataset.file)
     const rows = this.model?.files[file]?.rows
     if (row === null || this.root === null || !this.root.contains(row) || rows == null || row.dataset.row === undefined) {
       return null
     }
-    const value = rowAt(rows, Number(row.dataset.row))
+    return { file, value: rowAt(rows, Number(row.dataset.row)) }
+  }
+
+  private moveOfRow(row: HTMLElement | null): { file: number; end: MoveEnd } | null {
+    const found = this.valueOfRow(row)
+    if (found === null) {
+      return null
+    }
+    const { file, value } = found
     const end = value.kind === "fold" ? null : isLineRow(value) ? value.move : (value.remark?.move ?? null)
     return end === null ? null : { file, end }
+  }
+
+  /**
+   * The declaration the note of renames at a point of the viewport names as a place the view can show ("declared in
+   * Store.kt", a button), for the menu of the code: the note, the number of that rename among its renames, and what
+   * the button says in full; null where the row under the point is no such note
+   */
+  declarationAt(clientX: number, clientY: number): { file: number; note: RenameNote; rename: number; hover: string } | null {
+    const found = this.valueOfRow(document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>(".dv-row") ?? null)
+    const remark = found === null || found.value.kind !== "note" ? null : found.value.remark
+    if (found === null || remark?.renames == null) {
+      return null
+    }
+    const told = presentRemark(this.factsOf(found.file, remark)).reach.find(it => it.declared?.jump === true)
+    return told === undefined ? null : { file: found.file, note: remark.renames, rename: told.rename, hover: told.declared!.name }
   }
 
   /**
@@ -1880,6 +1921,13 @@ export class DiffPainter {
     }
   }
 }
+
+/**
+ * How many views each scroller holds as blocks of it (`DiffPainter.attach` with a scroll parent): while it holds one
+ * it is marked `data-dv-scroll-parent`, which turns the engine's own scroll anchoring off in it (diff-view.css), and
+ * the mark goes with the last view
+ */
+const viewsOf = new WeakMap<HTMLElement, number>()
 
 /** A file of the subject the view knows nothing of: named without a name, never shown */
 const UNKNOWN_FILE: OtherFile = { path: "another file", name: "another file", shown: false }

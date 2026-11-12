@@ -335,6 +335,29 @@ describe("DiffLayout", () => {
     const two = new DiffLayout([file("a", rows), file("b", rows)], embedded)
     expect([two.anchorAt(240)?.key, two.anchorAt(540)]).toEqual(["b", { key: "b", below: true, offset: 60 }])
   })
+
+  it("keeps a top below a file whose diff is still read from the end of the file: the rows that come, and the strip of their scrollbar, move it by as much", () => {
+    // a view without headers above the viewport, its one file still read: the row of its notice, the top 300 px below it
+    const embedded = { rowHeight: 20, headerHeight: 0 }
+    const pending = new DiffLayout([file("a", null, { notice: true })], embedded)
+    expect(pending.height).toBe(20)
+    const below = pending.anchorAt(320)!
+    expect(below).toEqual({ key: "a", below: true, offset: 300 })
+    expect(pending.scrollTopOf(below)).toBe(320)
+    // in the row of the notice the top is held by the top of the file: its rows come below it
+    expect([pending.anchorAt(10), pending.anchorAt(20)]).toEqual([
+      { key: "a", offset: 10 },
+      { key: "a", below: true, offset: 0 },
+    ])
+    // its 12 rows came, a line wider than its column among them: the top moves by them and the strip, less the notice
+    const rows = buildFileRows(ONE_CHANGE, "unified")
+    const read = new DiffLayout([file("a", rows, { scrollbar: true })], embedded)
+    expect([read.height, read.scrollTopOf(below)]).toEqual([240 + SCROLLBAR_HEIGHT, 240 + SCROLLBAR_HEIGHT + 300])
+    // and back: the diff is read again (another whitespace policy), the top returns to where it was
+    expect(pending.scrollTopOf(read.anchorAt(240 + SCROLLBAR_HEIGHT + 300)!)).toBe(320)
+    // a top in the strip below the rows is held by the end of the file too
+    expect(read.anchorAt(245)).toEqual({ key: "a", below: true, offset: -5 })
+  })
 })
 
 describe("DiffLayout of file cards", () => {

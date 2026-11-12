@@ -15,6 +15,10 @@
 //!   they add runs to those of the pair and take none (`marks_renames::with_the_first`). A run that leans on a name
 //!   no file of the subject declares does not hold. Labels: the tie is of the two spellings. Nothing else is added:
 //!   the quiet runs and the stops of a file are those of its pair, which went out with its rows.
+//! - **How far a rename reaches** (`RenameCheck::sites`, `files`): the file that declares a renamed name says how
+//!   many places of the files of the subject hold the two names, its own and those of every file that names the
+//!   rename (`SubjectMarks::used`), and in how many files: what its proof speaks of. A file that uses the name and
+//!   changed more than it (a call added or deleted) names no rename, and its places are not counted.
 //! - **What the index proves** (`Subject::questions`, `IndexAnswer`): every declaration of a renamed name that is
 //!   not local is asked of the index of the repository, all in one call. A declaration is proven renamed
 //!   (`RenameProof::Confirmed`) when the index says that the two places are one declaration, that its answer is
@@ -364,6 +368,14 @@ impl<'a> Subject<'a> {
       }
     };
 
+    // how far each pair of names reaches in the subject: its places, and the files they are in
+    let reach = |rename: &Rename| -> (u32, u32) {
+      self.sites.get(&names_of(rename)).map_or((rename.sites, 1), |sites| {
+        let files: HashSet<u32> = sites.new.values().map(|site| site.file).collect();
+        (to_u32(sites.new.len()), to_u32(files.len()))
+      })
+    };
+
     (0u32..)
       .zip(&self.files)
       .map(|(index, file)| {
@@ -372,9 +384,14 @@ impl<'a> Subject<'a> {
         let declared: Vec<RenameCheck> = (0u32..)
           .zip(&pair.renames)
           .filter(|(_, rename)| !rename.local)
-          .map(|(number, rename)| RenameCheck {
-            rename: number,
-            proof: proof(index, Name::Declared(number), rename),
+          .map(|(number, rename)| {
+            let (sites, files) = reach(rename);
+            RenameCheck {
+              rename: number,
+              proof: proof(index, Name::Declared(number), rename),
+              sites,
+              files,
+            }
           })
           .collect();
         let used: Vec<UsedRename> = file

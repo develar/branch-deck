@@ -464,6 +464,8 @@ fn the_marks_are_camel_case_json_with_every_field() {
       declared: vec![RenameCheck {
         rename: 0,
         proof: RenameProof::UsesOutside,
+        sites: 3,
+        files: 2,
       }],
       used: vec![UsedRename {
         rename: Rename {
@@ -495,7 +497,7 @@ fn the_marks_are_camel_case_json_with_every_field() {
       "subject": {
         "movedOut": [{ "start": 53, "len": 4, "file": 1, "line": 17 }],
         "movedIn": [],
-        "declared": [{ "rename": 0, "proof": "usesOutside" }],
+        "declared": [{ "rename": 0, "proof": "usesOutside", "sites": 3, "files": 2 }],
         "used": [{
           "rename": {
             "old": "openStore", "new": "connectStore", "sites": 1, "local": false, "declared": [],

@@ -41,6 +41,26 @@ describe("the menu of the code", () => {
     expect(calls).toEqual(["source", "destination"])
   })
 
+  it("goes to the declaration the note of a rename names where the menu opened on that note, a row of no name", () => {
+    const calls: string[] = []
+    const context = { goToDeclaration: () => calls.push("name"), findUsages: () => calls.push("usages"), moveEnd: null }
+    const declared = { hover: "Go to the declaration of connectStore in src/Store.kt", go: () => calls.push("note") }
+    const noted = codeMenuItems({ ...context, name: null, declared })
+    // the usages are of a name: none on a note; and the key of the item acts on a name, so the note shows none
+    expect(noted.map(item => [item.id, item.disabled, item.description, item.kbds])).toEqual([
+      ["go-to-declaration", false, "Go to the declaration of connectStore in src/Store.kt", undefined],
+      ["find-usages", true, "No name here", ["alt", "f7"]],
+    ])
+    noted[0]!.onSelect(FROM_MENU)
+    // on a name the item is the name's, whatever note the row is
+    const named = codeMenuItems({ ...context, name: "helper", declared })
+    expect([named[0]!.description, named[0]!.kbds]).toEqual(["Go to the declaration of helper", ["mod", "b"]])
+    named[0]!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["note", "name"])
+    // a note that names no file a view shows
+    expect(codeMenuItems({ ...context, name: null, declared: null })[0]!.disabled).toBe(true)
+  })
+
   it("opens for a menu key under the start of the name at the selection", () => {
     expect(codeMenuKeyPoint({ left: 340, bottom: 212 }, VIEW)).toEqual({ x: 340, y: 212 })
   })

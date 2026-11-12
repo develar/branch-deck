@@ -1,4 +1,4 @@
-import type { DiffBlock, FileMove, LineMove, LineRun, Rename, Scope, SubjectMarks, TextDiff } from "@/lib/diff/file-diff-model"
+import type { DiffBlock, FileMove, LineMove, LineRun, Rename, RenameCheck, Scope, SubjectMarks, TextDiff } from "@/lib/diff/file-diff-model"
 import type { MergeBlock, TextMerge } from "@/lib/diff/file-merge-model"
 
 /** A block of the diff engine: a change by default, without inner ranges */
@@ -43,6 +43,15 @@ export function rename(old: string, renamed: string, sites: readonly (readonly [
  */
 export function fileMove(start: number, len: number, file: number, line: number): FileMove {
   return { start, len, file, line }
+}
+
+/**
+ * What the subject says of rename `rename` of the marks of a file, a name the file declares that is not local
+ * (`SubjectMarks.declared`): what the index proved of it, and the places that hold it in the files of the subject and
+ * the files they are in, one place in this file alone by default
+ */
+export function renameCheck(rename: number, proof: RenameCheck["proof"], sites = 1, files = 1): RenameCheck {
+  return { rename, proof, sites, files }
 }
 
 /** What the other files of a subject say of a file (`DiffMarks.subject`): nothing by default */

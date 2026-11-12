@@ -244,6 +244,11 @@ rest gets a label and stays a stop.
     every name it leans on: those with a place in its lines, and the one whose place is the first token of the code
     after its block when the run reaches the end of the block (`code_symbols::tokens::same_after` compares that
     token).
+- **How far a rename reaches** (`RenameCheck::sites`, `files`). The file that declares a renamed name says how many
+  places of the files of the subject hold the two names, its own and those of every file that names the rename
+  (`used`), and in how many files: what its proof speaks of, which the note at the declaration counts ("3 sites in 2
+  files"). A file that uses the name and changed more than it names no rename, and its places are not counted. Both
+  numbers are those of the pair of names in the subject, as the proof is.
 - **What the index proves** (`Subject::questions`, `IndexAnswer`). Every declaration of a renamed name that is not
   local is asked of accio in one call (`accio renames`, its decision 2026-11-11-rename-read-in-two-trees): whether
   the two places are one declaration, its uses in both trees, what the rename changed beyond the name. accio maps
@@ -308,11 +313,13 @@ rest gets a label and stays a stop.
   things: no layout leaves a line of it out, and the lines that left are read ("The ends of a move" under "The row
   model"). `used` is `{rename, file, line, proof}`: a `Rename` without a declaration, one of the renames a view
   names in the file (`namedRenames`: those of `renames`, then these), its note at its first site, its lines the runs
-  of the kind `renamed` that hold its places. `declared` is `{rename, proof}` for the renames of `renames` that are
-  not local, by their number. The note of a rename carries what the subject says of each of its renames
-  (`RenameNote.reach`: the file and the line of the declaration of a used name, the `proof`), which the presenter
-  words after the words of the note: "declared in Store.kt · all uses in this change"; nothing for `asked` and
-  `unavailable`. `confirmed` names the runs, by their numbers among `runs`, that are passed once the kind is on
+  of the kind `renamed` that hold its places. `declared` is `{rename, proof, sites, files}` for the renames of
+  `renames` that are not local, by their number: `sites` places in `files` files of the subject hold the name. The
+  note of a rename carries what the subject says of each of its renames (`RenameNote.reach`: the file and the line
+  of the declaration of a used name, the `proof`, and of a name the file declares its places and files in the
+  subject, `across`), which the presenter words: the count of a name other files hold too is that of the subject
+  ("3 sites in 2 files", else the places of the file), and after the words of the note "declared in Store.kt · all
+  uses in this change"; nothing for `asked` and `unavailable`. `confirmed` names the runs, by their numbers among `runs`, that are passed once the kind is on
   (`quiet` then, and the starts without them): a view plays them down and keeps every line of them
   (`BlockMarks.kept`: Inline shows such a run as a label, the row of its pair, never once, and no note opens it),
   whenever the proof came. A `marks` event, and the answer of the index, replace the marks of their file whole; the
@@ -1058,10 +1065,25 @@ layouts (`setModel`: `scrollTopOf` of the new layout less that of the old one): 
 at the top where the reader is in the view, and by all of them where the view lies above the viewport, whose anchor
 is the end of its rows (`ScrollAnchor.below`; before, such a view was held by its last row, so a diff above the one
 on screen that grew pulled the preview back to itself). The parts add up in whatever order the views get their
-models. The engine's own anchoring is off on that scroller too (the painter marks it, `data-dv-scroll-parent`), or
-an engine that anchors by itself would move it a second time. A mark of the subject that cuts a block (a line that
-left for another file among lines that changed) regroups the lines of that one block around its note, as the same
-marks show it when they come with the content; the row at the top still holds.
+models. The engine's own anchoring is off on that scroller while it holds a view (the painter counts the views of a
+scroller and marks it, `data-dv-scroll-parent`, from the first `attach` to the last `detach`), or an engine that
+anchors by itself would move it a second time; a scroller whose last diff was closed is the engine's to keep
+again. A mark of the subject that cuts a block (a line that left for another file among lines that changed)
+regroups the lines of that one block around its note, as the same marks show it when they come with the content;
+the row at the top still holds.
+
+**The first rows of a view.** A view moves its scroller only for a layout that follows another (`setModel` with a
+model before it): what a view replaces when it mounts is not its own to know. So the diff of a file that opens
+while it is still read is a view from the moment the file opens (`SubjectFileDiff` with `pending`: the surfaces
+hand the view a file without a diff, as a review window does): it says "Loading…" in one row, the word shown once
+the read took 300 ms so that a quick read never flashes it (diff-view.css, as `LoadingLine`), and the rows that come
+are a new layout of a view that stands, held as any. A top below such a file is held from the end of the file
+(`ScrollAnchor.below`, also for a file that shows no rows, and measured from the end of the file, the strip of its
+scrollbar counted), so the rows that come above the viewport move the scroller by all of them. The same view takes
+a diff read again (another whitespace policy) without a mount: its folds and its place stay with it. A view gets
+its first rows above the viewport only where a jump opens its file, and the jump scrolls to its place; the line
+"Loading diff…" stands only while the code of the diff view itself loads, once a session, in the row the reader
+just opened.
 
 With soft wraps off, only a fold, a collapse or a new row height changes a height. Between them the rows never move.
 
@@ -1614,9 +1636,16 @@ as for any place, and the place the jump left is kept for Back. In the preview o
 changes each file has a view of its own, in the scroller around them: the view asks the surface
 (`DiffViewProps.elsewhere`: `shows(path)`, `show(place)`), which opens the row of that file (`CommitFileTree`: the
 directories above it, then its diff; `SubjectFileDiffList`: its item) and hands the place to the view of that file
-(`shownPlace`: shown once the view shows the file, and again when the prop is another object, so the same place
-asked twice is shown twice; the surface forgets it when the user closes that file, so a diff opened again shows its
-top). Where no view shows the file (the search or the owner chip of a review hides it), the
+(`shownPlace`: shown once the view has the diff of the file, and again when the prop is another object, so the same
+place asked twice is shown twice). A place is shown once: the view tells the surface that it showed it
+(`elsewhere.shown(place)`, at the scroll of the reveal) and the surface forgets it, so a view of that file that
+mounts later (its directory folded and unfolded, an item of the list that shifted) shows its top, never the place
+again; the surface also forgets it when the user closes the file before its diff showed it. Back from a
+declaration returns to the site the note names the rename at (`renameJumpOf`: `RenameNote.sites`, the site of each
+rename in the rows of the note), never to the first site of the file, which a review may play down (an import) or
+show in another section. The place of a declaration has no key (G is the key of the moves); Go to Declaration of
+the menu of the code, opened on the note, shows it too (`DiffPainter.declarationAt`, `CodeMenuContext.declared`).
+Where no view shows the file (the search or the owner chip of a review hides it), the
 painter draws the place as plain words with the file and the line in full as their hover
 (`PainterFile.otherFile(index).shown`), the key of the moves passes that note (`moveNoteOfKey` with `takes`) and the
 menu of the code has no item for it. The painter is told which files the views beside it show by a key of those
@@ -1988,6 +2017,10 @@ No frame had an empty row and no long task followed the first rows. Inline is wi
 run in the first round, and reads what its parent reads in each: the highlighted time of the 200 files, the one that
 rises with the load, was 448 ms at its fastest on the parent and 429 and 471 ms on the views (the Split of the first
 round opened its window in 200 ms where the others took 154: the load of that minute, before any row).
+With the views of a scroller counted and a top below a file held from the end of the file (the review of these
+views), two rounds more of the same benchmark, Inline: 527 and 442 ms highlighted for the 200 files at a load of 15,
+445 and 414 ms at a load of 5 to 6 (the median, the fastest); the first rows 259 and 244 ms after ready, the 10,000
+lines 239 and 237 ms, a scroll event 3 ms at p95, the nodes as before.
 
 Two rules keep a scroll event short in WebKit. React mounts the sections three viewports around the view, the ones
 ahead in a transition, so a scroll event mounts a section only when its frame needs it; and a section is a memoized

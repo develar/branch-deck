@@ -10,6 +10,8 @@ import {
   diffRows,
   diffSides,
   expectBarReachesEndOf,
+  expectLandedAloneOn,
+  expectLandedOn,
   findMarks,
   horizontalBars,
   joinedText,
@@ -72,21 +74,6 @@ function ownMovedSides(scope: Locator, at: "source" | "destination", side: numbe
 /** The note where the lines of `accounts()` left, and the one where they stand now */
 function accountsNotes(scope: Locator): { source: Locator; destination: Locator } {
   return { source: moveNotes(scope, "source").filter({ hasText: "5 lines moved" }), destination: moveNotes(scope, "destination").filter({ hasText: "from line 22" }) }
-}
-
-/** The view went to `note`: it is marked as the row the jump landed on, and in view */
-async function expectLandedOn(note: Locator): Promise<void> {
-  await expect(note).toHaveAttribute("data-landed", "")
-  await expect(note).toBeInViewport()
-}
-
-/**
- * The view went to `note` and the mark went with it: no other row of `scope` has it. The note the jump left may be
- * outside the painted rows by then, so the mark is counted, not asked of that note
- */
-async function expectLandedAloneOn(scope: Locator, note: Locator): Promise<void> {
-  await expectLandedOn(note)
-  await expect(scope.locator("[data-landed]")).toHaveCount(1)
 }
 
 /** The key the item of a menu shows, a `Kbd` after its label */

@@ -23,9 +23,9 @@
 }
 
 /*
- * The scroller such views are blocks of (the painter marks it): each view moves it by the rows that come or go above
- * the row a reader has at the top, as a view that scrolls itself keeps its own anchor, so the engine must not anchor
- * the scroll a second time where it does that by itself
+ * The scroller such views are blocks of (the painter marks it while it holds one): each view moves it by the rows
+ * that come or go above the row a reader has at the top, as a view that scrolls itself keeps its own anchor, so the
+ * engine must not anchor the scroll a second time where it does that by itself
  */
 [data-dv-scroll-parent] {
   overflow-anchor: none;
@@ -41,6 +41,26 @@
   color: var(--muted-foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * The notice of a view that is a block of another scroller while the diff of its file is still read (the diff under
+ * the row of a file of a commit, an item of a list of files): the row is there from the moment the file opens, so the
+ * rows that come are a new layout of a view that stands, and its word shows once the read took 300 ms, so a quick
+ * read never flashes it (as `LoadingLine`)
+ */
+.dv-embedded[aria-busy="true"] .dv-notice {
+  animation: dv-notice-late 0s linear 300ms both;
+}
+
+@keyframes dv-notice-late {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .dv-section {

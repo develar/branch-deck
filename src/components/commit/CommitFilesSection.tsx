@@ -110,11 +110,11 @@ function CommitFileTree({ commitFiles, onReviewFile }: { commitFiles: CommitFile
   const [expandedFiles, setExpandedFiles] = useState<ReadonlySet<string>>(() => new Set())
   const toggleDirectory = useCallback((key: string) => setCollapsed(previous => toggleInSet(previous, key)), [])
   // a place of another file of the commit that a note of a diff names (the other end of a move between two files, the
-  // file that declares a renamed name): the row of that file shows, its diff opens under it and shows the place
+  // file that declares a renamed name): the row of that file shows, its diff opens under it and shows the place, once
   const [shownPlace, setShownPlace] = useState<DeclarationPlace | null>(null)
   const toggleFile = useCallback((key: string) => {
     setExpandedFiles(previous => toggleInSet(previous, key))
-    // a diff the user closes and opens again shows its top: the place a note asked of it before is asked no more
+    // a file the user closes before its diff showed the place: opened again, the diff shows its top
     setShownPlace(previous => (previous?.path === key ? null : previous))
   }, [])
   const elsewhere = useMemo(
@@ -127,6 +127,8 @@ function CommitFileTree({ commitFiles, onReviewFile }: { commitFiles: CommitFile
         // a new object each time: the same place asked again is shown again
         setShownPlace({ ...place })
       },
+      // shown: asked no more, whatever mounts the diff of that file again (its directory folded and unfolded)
+      shown: place => setShownPlace(previous => (previous === place ? null : previous)),
     }),
     [files, nodes],
   )

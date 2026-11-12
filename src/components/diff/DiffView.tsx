@@ -14,7 +14,7 @@ import { useMeasuredHeights } from "@/components/diff/use-measured-heights"
 import type { MeasuredHeights } from "@/components/diff/use-measured-heights"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import type { BlobRequest, CommitFile, DeclarationSite, ReviewTitle } from "@/lib/bindings"
-import { noteKey } from "@/lib/diff/block-parts"
+import { noteKey, renameJumpOf } from "@/lib/diff/block-parts"
 import type { MoveEnd, RenameNote } from "@/lib/diff/block-parts"
 import { codeMenuItems, codeMenuKeyPoint } from "@/lib/diff/code-menu"
 import type { FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
@@ -298,8 +298,9 @@ export interface DiffViewProps {
   initialPlace?: DeclarationPlace
   /**
    * A place the surface around the view asks it to show (`revealDeclaration` as a prop, for a view that mounts with
-   * it): shown once the view shows its file, and again whenever the prop is another object. The other end of a move
-   * between two files, or the declaration of a name, that another view of the same subject jumped to (`elsewhere`)
+   * it): shown once the view has the diff of its file, and again whenever the prop is another object. The other end
+   * of a move between two files, or the declaration of a name, that another view of the same subject jumped to
+   * (`elsewhere`); the view tells the surface once it showed it (`elsewhere.shown`), and the surface asks it no more
    */
   shownPlace?: DeclarationPlace
   /**
@@ -364,6 +365,11 @@ export interface DiffViewProps {
 export interface DiffViewElsewhere {
   readonly shows: (path: string) => boolean
   readonly show: (place: DeclarationPlace) => void
+  /**
+   * The view of the file of `place` showed it, the place the surface handed it (`DiffViewProps.shownPlace`, that
+   * object): a place is shown once, so the surface forgets it and no view that mounts later shows it again
+   */
+  readonly shown: (place: DeclarationPlace) => void
 }
 
 interface ViewMetrics {
@@ -1374,20 +1380,17 @@ export function DiffView({
 
   /**
    * Shows the declaration of a name that another file of the subject declares, from the note of its rename in this
-   * file (a click on "declared in Store.kt"): the new name selected in its line there, the site the note stands at
-   * the place Back returns to
+   * file (a click on "declared in Store.kt", Go to Declaration of the menu of the code on the note): the new name
+   * selected in its line there; the site the note names the rename at is the place Back returns to (`renameJumpOf`)
    */
   const jumpDeclaration = (file: PreparedFile | undefined, note: RenameNote, at: number) => {
-    const rename = note.renames[at]
-    const declared = note.reach[at]?.declared
-    const path = declared == null ? undefined : file?.diff?.subjectPaths?.[declared.file]
-    if (file === undefined || rename === undefined || declared == null || path === undefined) {
+    const jump = renameJumpOf(note, at)
+    const path = jump === null ? undefined : file?.diff?.subjectPaths?.[jump.file]
+    if (file === undefined || jump === null || path === undefined) {
       return
     }
-    const name = (where: string, line: number): DeclarationPlace => ({ path: where, side: "new", line, column: 0, endColumn: 0, name: rename.new })
-    // the first site of the rename in this file, where its note stands or a line of its block
-    const site = rename.newSites[0] ?? note.lines[NEW]
-    showPlace(name(path, declared.line), name(file.path, site))
+    const name = (where: string, line: number): DeclarationPlace => ({ path: where, side: "new", line, column: 0, endColumn: 0, name: jump.name })
+    showPlace(name(path, jump.line), name(file.path, jump.from))
   }
 
   /**
@@ -1652,11 +1655,14 @@ export function DiffView({
     const keyOfMove = moved !== null && moveKey !== undefined && painter.keyedMove()?.end === moved.end ? moveKey : null
     const movedFile = moved === null ? undefined : prepared[moved.file]
     const paths = movedFile?.diff?.subjectPaths
+    // the note of a rename under the pointer that names the file of the declaration, a place the view shows
+    const noted = keyed === null && target === null ? painter.declarationAt(at.x, at.y) : null
     setCodeMenu(
       codeMenuItems({
         name: target === null ? null : word!.text,
         goToDeclaration: () => goTo(word, at),
         findUsages: onFindUsages === undefined ? null : () => goTo(word, at, onFindUsages),
+        declared: noted === null ? null : { hover: noted.hover, go: () => jumpDeclaration(prepared[noted.file], noted.note, noted.rename) },
         moveEnd:
           moved === null
             ? null
@@ -1695,10 +1701,10 @@ export function DiffView({
     }
   }, [layout, prepared, initialPlace])
 
-  // a place the surface around the view asks for: once its file is laid out, and again for another one
+  // a place the surface around the view asks for: once the diff of its file is there, and again for another one
   const askedPlace = useRef<DeclarationPlace | null>(null)
   useLayoutEffect(() => {
-    if (shownPlace !== undefined && askedPlace.current !== shownPlace && sectionOf(prepared, shownPlace.path) >= 0) {
+    if (shownPlace !== undefined && askedPlace.current !== shownPlace && prepared[sectionOf(prepared, shownPlace.path)]?.pending === false) {
       askedPlace.current = shownPlace
       revealInitial(shownPlace)
     }
@@ -1730,6 +1736,11 @@ export function DiffView({
     } else {
       // once the row of the name is painted with its text, whenever that is
       painter.selectWord(index, side, place.line, place.column, place.endColumn, place.name ?? null)
+    }
+    // the place the surface asked for is shown: the surface forgets it, so a view of the file that mounts later (its
+    // directory folded and unfolded, its diffs read again) shows its top, never the place once more
+    if (place === askedPlace.current) {
+      elsewhereNow.current?.shown(place)
     }
   }, [layout, prepared, revealTick, painter, headerHeight, scroll])
 

@@ -17,6 +17,7 @@ export type {
   LineMove,
   LineRun,
   Rename,
+  RenameCheck,
   RenameProof,
   RunKind,
   Scope,

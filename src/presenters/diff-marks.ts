@@ -6,7 +6,7 @@ import { cutList } from "@/lib/text"
  * a block changed in one way alone, which lines moved within the file, which names the change renamed and where the
  * reading of each block starts (`TextDiff.marks`), and what the other files of the subject and the index of the
  * repository say of the file (`TextDiff.marks.subject`: the lines that moved to or from another file, the name
- * another file declares, how far a rename is proven), this says it: in the note before such lines and beside the
+ * another file declares, how far a rename reaches in the subject and how far it is proven), this says it: in the note before such lines and beside the
  * counts of a file. What a line of a quiet run or of a move is to a screen reader is generated content of diff-view.css, as
  * what a changed line is.
  */
@@ -78,15 +78,21 @@ export interface RemarkFacts {
 /**
  * A rename as a note words it: the two spellings of the name and how many places of the file hold it (`Rename`), and
  * what the subject says of it: what the index of the repository proved of its uses (`proof`; null or absent where it
- * was not asked), and of a name another file of the subject declares that file and the line of the declaration there,
- * from 0 (`declared`; null or absent for a name the file declares)
+ * was not asked), of a name another file of the subject declares that file and the line of the declaration there,
+ * from 0 (`declared`; null or absent for a name the file declares), and of a name the file declares that is not local
+ * the places that hold it in the files of the subject, this one among them, and the files they are in (`across`;
+ * null or absent else)
  */
 export type RenamedName = Pick<Rename, "old" | "new" | "sites"> & {
   readonly proof?: RenameProof | null
   readonly declared?: { readonly file: OtherFile; readonly line: number } | null
+  readonly across?: { readonly sites: number; readonly files: number } | null
 }
 
-/** The words of one rename of a note: its two spellings, set in the font of the code, and the places that hold it, "12 sites" */
+/**
+ * The words of one rename of a note: its two spellings, set in the font of the code, and the places that hold it, "12
+ * sites"; of a name the file declares and other files of the subject use, those of all of them: "30 sites in 4 files"
+ */
 export interface RenamedWords {
   readonly old: string
   readonly new: string
@@ -191,6 +197,16 @@ function siteCount(count: number): string {
   return `${count} ${count === 1 ? "site" : "sites"}`
 }
 
+/**
+ * The places that hold a renamed name, as its note counts them: those of the file, "12 sites"; where the file declares
+ * the name and other files of the subject hold it too, those of the subject, which a proof beside them speaks of:
+ * "30 sites in 4 files"
+ */
+function sitesOf(rename: RenamedName): string {
+  const across = rename.across
+  return across != null && across.files > 1 ? `${siteCount(across.sites)} in ${across.files} files` : siteCount(rename.sites)
+}
+
 /** What the subject says of a rename, in the words of a note; null where it says nothing to tell */
 function reachOf(rename: RenamedName, at: number, several: boolean): ReachWords | null {
   const file = rename.declared?.file
@@ -225,7 +241,8 @@ function reachSentence(reach: ReachWords): string {
  * move between two files "Moved to Report.kt:12" and "Moved from Ledger.kt:40", or of the renames named at a block:
  * "Renamed total → sum · 12 sites", two of them both ("Renamed total → sum · 12 sites · count → size · 3 sites"), of
  * three or more the first and the count of the others, "and 2 more" (`cutList`), then what the subject says of each
- * ("declared in Store.kt · all uses in this change"); and what its buttons do. A line is named by its number in its
+ * ("declared in Store.kt · all uses in this change"); a name the file declares and other files of the subject use
+ * counts the places of all of them ("Renamed openStore → connectStore · 30 sites in 4 files"); and what its buttons do. A line is named by its number in its
  * text, from 1: the first line of the other end, the blank lines that moved with the move among them
  */
 export function presentRemark(remark: RemarkFacts): RemarkWords {
@@ -242,16 +259,16 @@ export function presentRemark(remark: RemarkFacts): RemarkWords {
     // each rename with what the subject says of it: "total to sum, 12 sites, declared in Store.kt, all uses in this change"
     const told = renames.map((it, at) => ({ rename: it, reach: reachOf(it, at, renames.length > 1) }))
     const sentence = ({ rename: it, reach }: (typeof told)[number]) =>
-      [`${it.old} to ${it.new}`, siteCount(it.sites), ...(reach === null ? [] : [reachSentence(reach)])].filter(part => part !== "").join(", ")
+      [`${it.old} to ${it.new}`, sitesOf(it), ...(reach === null ? [] : [reachSentence(reach)])].filter(part => part !== "").join(", ")
     const line = ({ rename: it, reach }: (typeof told)[number]) =>
-      [`${it.old} → ${it.new}`, siteCount(it.sites), ...(reach === null ? [] : [reach.declared?.words ?? "", reach.said])].filter(part => part !== "").join(" · ")
+      [`${it.old} → ${it.new}`, sitesOf(it), ...(reach === null ? [] : [reach.declared?.words ?? "", reach.said])].filter(part => part !== "").join(" · ")
     const counted = told.slice(shown.length)
     const said = counted.map(sentence).join("; ")
     const more = rest === 0 ? null : { words: `and ${rest} more`, names: counted.map(line).join("\n"), said: `: ${said}` }
     const name = [`Renamed ${sentence(told[0]!)}`, ...told.slice(1, shown.length).map(it => `and ${sentence(it)}`), ...(more === null ? [] : [`${more.words}: ${said}`])].join(", ")
     return {
       label: "Renamed",
-      renamed: shown.map(it => ({ old: it.old, new: it.new, sites: siteCount(it.sites) })),
+      renamed: shown.map(it => ({ old: it.old, new: it.new, sites: sitesOf(it) })),
       target: null,
       detail: "",
       more,

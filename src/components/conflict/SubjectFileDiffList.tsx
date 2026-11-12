@@ -6,7 +6,6 @@ import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHead
 import type { DeclarationPlace, DiffViewElsewhere } from "@/components/diff/DiffView"
 import { LazyDiffView } from "@/components/diff/LazyDiffViews"
 import { Callout } from "@/components/shared/Callout"
-import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { CommitFile, FileStatus } from "@/lib/bindings"
 import type { FileDiff, FileDiffSubject } from "@/lib/diff/file-diff-model"
 import { withEngineCounts } from "@/lib/diff/view-files"
@@ -38,10 +37,10 @@ export interface SubjectFileDiffListProps {
 
 /**
  * An accordion of the changed files of a subject, collapsed by default, from the diffs of the engine (one
- * `get_file_diffs` for the subject under the whitespace policy): a header with the engine's counts, an open item reads
- * the two texts of its file by blob id. A note of a diff that names a place of another file of the list (the other
- * end of a move between two files, the file that declares a renamed name) opens the item of that file and shows the
- * place in its diff.
+ * `get_file_diffs` for the subject under the whitespace policy): a header with the engine's counts, an open item has
+ * its view at once, which says "Loading…" until the diff is there, and reads the two texts of its file by blob id. A
+ * note of a diff that names a place of another file of the list (the other end of a move between two files, the file
+ * that declares a renamed name) opens the item of that file and shows the place in its diff, once.
  */
 export function SubjectFileDiffList({ subject, files, keyPrefix, diffViewMode, refreshKey, defaultOpen = [], renderBeforeDiff, renderActions }: SubjectFileDiffListProps) {
   const policy = useDiffWhitespacePolicy()
@@ -54,7 +53,7 @@ export function SubjectFileDiffList({ subject, files, keyPrefix, diffViewMode, r
   }, [subjectKey, policy, refreshKey])
   // the items that are open, each by its value: the user's, and the one a note of another diff of the list asked for
   const [open, setOpen] = useState<readonly string[]>(() => defaultOpen.map(index => `item-${index}`))
-  // the place such a note named, for the diff of its file
+  // the place such a note named, for the diff of its file, until that diff showed it
   const [shownPlace, setShownPlace] = useState<DeclarationPlace | null>(null)
   const elsewhere: DiffViewElsewhere = {
     shows: path => files.some(file => file.path === path),
@@ -64,6 +63,8 @@ export function SubjectFileDiffList({ subject, files, keyPrefix, diffViewMode, r
       // a new object each time: the same place asked again is shown again
       setShownPlace({ ...place })
     },
+    // shown: asked no more, whatever mounts the diff of that file again
+    shown: place => setShownPlace(previous => (previous === place ? null : previous)),
   }
 
   return (
@@ -72,7 +73,7 @@ export function SubjectFileDiffList({ subject, files, keyPrefix, diffViewMode, r
       value={[...open]}
       onValueChange={(value: string[]) => {
         setOpen(value)
-        // an item the user closes and opens again shows the top of its diff: the place a note asked of it is asked no more
+        // an item the user closes before its diff showed the place: opened again, the diff shows its top
         setShownPlace(previous => (previous !== null && !value.includes(`item-${files.findIndex(file => file.path === previous.path)}`) ? null : previous))
       }}
       className="flex flex-col gap-2"
@@ -103,12 +104,12 @@ export function SubjectFileDiffList({ subject, files, keyPrefix, diffViewMode, r
                     {entry.message}
                   </Callout>
                 </div>
-              ) : found === "pending" ? (
-                <LoadingLine className="p-4">Loading diff…</LoadingLine>
               ) : (
+                // the view of an open item from the moment it opens: it says "Loading…" itself while the diff is read
                 <SubjectFileDiff
                   file={file}
                   diff={diff}
+                  pending={found === "pending"}
                   diffViewMode={diffViewMode}
                   worktree={subject.kind === "uncommitted"}
                   elsewhere={elsewhere}
@@ -126,6 +127,12 @@ export function SubjectFileDiffList({ subject, files, keyPrefix, diffViewMode, r
 export interface SubjectFileDiffProps {
   file: SubjectFile
   diff: FileDiff | undefined
+  /**
+   * The diff of the file is still read: the view says so in a row ("Loading…") and gets its rows as the diff comes.
+   * The view of an open file is there from the moment the file opens, so the rows that come are a new layout of a view
+   * that stands, and what a reader has on screen below it stays where it is (`DiffPainter.setModel`)
+   */
+  pending?: boolean
   diffViewMode: DiffViewMode
   worktree?: boolean
   /** The diffs of the other files of the subject beside this one: what shows a place of another file that a note names */
@@ -136,9 +143,9 @@ export interface SubjectFileDiffProps {
 
 /**
  * The diff of an open item in `DiffView` without a header, in the scroller of what holds it: its rows virtualized, its
- * texts read by blob id as they come into view, its notice in a row
+ * texts read by blob id as they come into view, its notice in a row, "Loading…" while the diff is still read
  */
-export function SubjectFileDiff({ file, diff, diffViewMode, worktree = false, elsewhere, shownPlace }: SubjectFileDiffProps) {
+export function SubjectFileDiff({ file, diff, pending = false, diffViewMode, worktree = false, elsewhere, shownPlace }: SubjectFileDiffProps) {
   const softWraps = useDiffSoftWraps()
   const files = useMemo(() => {
     const commitFile: CommitFile = {
@@ -152,8 +159,8 @@ export function SubjectFileDiff({ file, diff, diffViewMode, worktree = false, el
       newId: diff?.newId ?? null,
       submodule: diff?.content.kind === "submodule",
     }
-    return withEngineCounts([commitFile], diff === undefined ? undefined : [diff]).map(counted => ({ file: counted, diff }))
-  }, [file, diff])
+    return withEngineCounts([commitFile], diff === undefined ? undefined : [diff]).map(counted => ({ file: counted, diff, pending }))
+  }, [file, diff, pending])
   return (
     <LazyDiffView
       files={files}

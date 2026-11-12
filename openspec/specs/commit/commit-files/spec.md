@@ -48,7 +48,9 @@ targets:
   - crates/app-api/src/reads/blobs.rs
   - crates/test-utils/src/repo_template.rs
   - src/components/conflict/CollapsibleFileHeader.tsx
+  - src/components/conflict/SubjectFileDiffList.tsx
   - src/components/diff/LazyDiffViews.tsx
+  - src/lib/diff/layout.ts
   - src/lib/diff/file-languages.ts
   - src/lib/diff/bundled-languages.ts
   - vite.config.ts
@@ -952,12 +954,27 @@ A deleted file MUST be struck through, its status letter never, in the tree and 
 
 ### Requirement: Files section: A file expands to its diff under its row
 
-A file MUST expand to its diff under its row.
+A file MUST expand to its diff under its row. A file expanded while the diffs of the commit are still read MUST have
+its view at once, which says "Loading…" in a row, the word once the read took 300 ms; the rows of its diff MUST come
+in that view, and what a reader has on screen below it MUST stay where it is.
 
 #### Scenario: A file is expanded
 - **WHEN** the user expands a file row
 - **THEN** its diff shows under its row
   [@test] tests/e2e/commit-files/commit-files.spec.ts (`should list the files of the commit in the preview and load a diff when a file is expanded`)
+
+#### Scenario: A file expanded while the diffs are read
+- **GIVEN** a commit of a file of 122 lines and forty small ones, the read of its diffs held
+- **WHEN** the user expands the first file, scrolls the preview until the row of a file further down is at its top, and the diffs arrive
+- **THEN** the view of the file says "Loading…" in one row and is busy; its 122 rows come in place of that row, above the view
+- **AND** the preview scrolls by as much, and the row at its top stays where it was
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a file opened while the diffs of the commit are read says so in its own view, and its rows come above the row a reader has at the top of the preview, which stays where it is`)
+
+#### Scenario: The anchor of a file that shows no rows yet
+- **WHEN** the top of a view is asked below a file whose diff is still read, and kept across the layout with its rows and the strip of their scrollbar, and back
+- **THEN** the top is held from the end of the file: it moves by the rows that came and the strip, less the row that said the file is read, and returns to where it was when the rows go again
+- **AND** a top in the row of the notice is held by the top of the file: the rows come below it
+  [@test] src/lib/diff/layout.test.ts (`keeps a top below a file whose diff is still read from the end of the file: the rows that come, and the strip of their scrollbar, move it by as much`)
 
 ### Requirement: Files section: The tree is one tab stop moved by the arrows
 
@@ -2050,8 +2067,10 @@ When the files cannot be read, the copy MUST show an error toast and copy nothin
   ([UI Theme](../../../../docs/design/ui-theme.md) "Diffs"). The rows of a whitespace-only block are pale, nothing
   strong. The scope of a hunk follows the count of its separator in
   `foreground`, cut with "…" when it is long.
-- Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading diff…". A failed
-  read of the diffs is a destructive callout "Cannot read the changes of the commit" in the panel.
+- Loading: an inline spinner and "Loading files…" in muted `text-sm`. A file expanded while its diff is read shows
+  one row of its diff, the word "Loading…" in it once the read took 300 ms, muted, at the size of the code ("Loading
+  diff…" with a spinner only while the code of the diff view itself loads, once a session). A failed read of the
+  diffs is a destructive callout "Cannot read the changes of the commit" in the panel.
 - The footer shows the ghost `xs` buttons `D Review Changes` and `F Files` (pressed while the section is open) before
   `E Edit`.
 

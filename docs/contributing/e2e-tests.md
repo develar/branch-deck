@@ -80,7 +80,7 @@ rules in one line each and links here.
   it counts beside the ones it words in `diff-remark-more`, whose `title` lists them), `quietSides(scope, side)` the cells of the lines played down
   (`data-tint="quiet"`), `remarkHits(scope)` the hits of the find a note names (`diff-remark-hits`); of a move,
   `moveNotes(scope, end)` are the rows of the notes at its ends (`data-move`: `source`, `destination`; `data-landed`
-  on the one a jump landed on), `moveTargets(scope)` the buttons of the places they name (`diff-move-target`; the
+  on the one a jump landed on: `expectLandedOn(row)`, `expectLandedAloneOn(scope, row)`), `moveTargets(scope)` the buttons of the places they name (`diff-move-target`; the
   one the key of the moves takes has `aria-keyshortcuts`: `keyedMoveTargets(scope)`), `movePlaces(scope)` the places
   that are plain words because no view shows their file (`diff-move-place`),
   `movedSides(scope, end, side)` the cells of its lines (`data-cell="moved"`), `acrossSides(scope, end, side)` those

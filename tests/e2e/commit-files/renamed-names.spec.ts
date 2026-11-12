@@ -225,8 +225,9 @@ test.describe("The renames of a diff in the preview of a commit", () => {
     const preview = await openCommitPreview(page, getBranchCommitRow(page, "ledger", MARKS_SUBJECT))
     const tree = await openCommitFilesSection(preview)
     const store = await openFileOf(tree, "Store.kt", "return Store(path)")
-    // the declaration of the function: the one site of the file, under the note of the rename, a change to read
-    await expect(remarks(store, "renamed")).toHaveText(["Renamed openStore → connectStore · 1 site"])
+    // the declaration of the function: the one site of the file, under the note of the rename, a change to read; the
+    // note counts the places of the commit, the two calls of the report among them
+    await expect(remarks(store, "renamed")).toHaveText(["Renamed openStore → connectStore · 3 sites in 2 files"])
     const declaration = siteRows(store, "inline")
     await expect.poll(() => codeOf(declaration)).toEqual(["fun openStoreconnectStore(path: String): Store {"])
     await expect(renamedNames(declaration)).toHaveText(["connectStore"])

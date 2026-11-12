@@ -98,6 +98,12 @@ export interface RenameReach {
    * subject (`FileDiff.subjectPaths`), and the new line of the declaration there. Null for a name this file declares
    */
   readonly declared: { readonly file: number; readonly line: number } | null
+  /**
+   * Of a name this file declares that is not local (`RenameCheck`): the places that hold it in the files of the
+   * subject, this one among them, and the files they are in. What the proof speaks of; null for a name another file
+   * declares, a local, a diff of no subject
+   */
+  readonly across: { readonly sites: number; readonly files: number } | null
 }
 
 /**
@@ -113,16 +119,41 @@ export interface RenameNote {
   readonly key: number
   /** The renames it names, in the order of their sites in the block: the note words them, a list too long cut (`presentRemark`) */
   readonly renames: readonly Rename[]
-  /** What the subject says of each of `renames`, in their order: where another file declares it, what the index proved of it */
+  /**
+   * What the subject says of each of `renames`, in their order: where another file declares it, how far it reaches in
+   * the files of the subject, what the index proved of it
+   */
   readonly reach: readonly RenameReach[]
   /** The site it stands at: its line on each side */
   readonly lines: readonly [number, number]
+  /**
+   * The new line of the site each of `renames` is named at, in their order, the first the line of the note: the place
+   * a jump from the note to the declaration of that rename left (`renameJumpOf`)
+   */
+  readonly sites: readonly number[]
   /**
    * The old lines of the quiet runs it opens (`RenameNotes.ofRun`), [start, end) each, in their order: what Inline
    * shows once, by the new lines, until the note is opened. Empty where it opens none: every line of its renames is
    * read or kept by every layout (`BlockMarks.kept`), or the note of another rename opens their runs
    */
   readonly hides: readonly (readonly [number, number])[]
+}
+
+/**
+ * The jump from the note of renames to the declaration of rename `at` of it, a name another file of the subject
+ * declares ("declared in Store.kt"): the file that declares it, by its index among the files of the subject, and the
+ * new line of the declaration there; the new name, which the jump selects in that line; and the new line of the site
+ * the note names the rename at, the place Back returns to: the site in the rows of the note, never an earlier one that
+ * a section of a review does not show or plays down. Null for a rename the note does not hold, and for a name the
+ * file declares itself
+ */
+export function renameJumpOf(note: RenameNote, at: number): { readonly file: number; readonly line: number; readonly name: string; readonly from: number } | null {
+  const rename = note.renames[at]
+  const declared = note.reach[at]?.declared
+  if (rename === undefined || declared == null) {
+    return null
+  }
+  return { file: declared.file, line: declared.line, name: rename.new, from: note.sites[at] ?? note.lines[NEW] }
 }
 
 /** The notes of the renames of a diff as the rows of a view draw them (`renameNotesOf`) */
@@ -397,9 +428,10 @@ export function renameNotesOf(diff: TextDiff, shown: (block: number) => boolean 
   const reachOf = (index: number): RenameReach => {
     const used = subject?.used[index - diff.marks.renames.length]
     if (used !== undefined) {
-      return { proof: used.proof, declared: { file: used.file, line: used.line } }
+      return { proof: used.proof, declared: { file: used.file, line: used.line }, across: null }
     }
-    return { proof: subject?.declared.find(check => check.rename === index)?.proof ?? null, declared: null }
+    const check = subject?.declared.find(it => it.rename === index)
+    return { proof: check?.proof ?? null, declared: null, across: check === undefined ? null : { sites: check.sites, files: check.files } }
   }
   const blockAt = (site: RenameSite) => {
     const block = blockOf(diff.blocks, NEW, site.line, 1)
@@ -428,6 +460,7 @@ export function renameNotesOf(diff: TextDiff, shown: (block: number) => boolean 
       renames: at.map(site => site.rename),
       reach: at.map(site => reachOf(site.index)),
       lines: [first.twin.line, first.line] as const,
+      sites: at.map(site => site.line),
       hides: [],
     }
     byBlock.set(block, note)
