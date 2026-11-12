@@ -3348,7 +3348,11 @@ git plumbing does not depend on.
   summary goes to the store. The parse costs more than the comparison (8.1 s against 0.9 s over 300 commits of Branch
   Deck, one thread), so the `content` of a text goes out before its `scopes`. The same event carries the blocks of
   the imports alone (`import_blocks`): each changed line of each side in an import or package statement of the
-  summary (`FileSummary::import_lines`) or blank, which a review with its plan plays down.
+  summary (`FileSummary::import_lines`) or blank, which a review with its plan plays down. A summary counts the
+  lines of git (a line ends at `\n` alone) and the blocks those of the diffs (at a lone `\r` too), so the lines of
+  the scopes and of the statements are translated first (`side_facts`, `text_diff::text_lines::TextLines::of_git`):
+  under a lone `\r` a line of code right above the imports would else be an import, and a scope would start a line
+  early.
 - **Marks.** The marks of a text ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md),
   `crates/file-diffs/src/marks.rs`) go out with its `content`, not after it: they change the rows a view draws. So a
   block is first asked a question of its characters alone, and only a file with a block that may hold a run is

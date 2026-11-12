@@ -11,6 +11,7 @@ targets:
   - crates/review-plan/src/fan_in.rs
   - crates/review-plan/src/files.rs
   - crates/review-plan/src/whitespace.rs
+  - crates/text-diff/src/text_lines.rs
   - crates/generated-files/src/header.rs
   - crates/generated-files/src/attributes.rs
   - crates/generated-files/src/generated_by.rs
@@ -1512,7 +1513,7 @@ A hunk is a block of the diffs, and its text and its tokens MUST be read by the 
 - **THEN** the file stays real work: the hunk is read by the lines of the diffs, never by the lines git counts there
 - **AND** a hunk of such a file that wraps a call or adds spaces inside its brackets, and one of a file of no grammar that changes spaces alone, are `whitespace`
   [@test] crates/review-plan/src/files_test.rs (`a_hunk_is_read_by_the_lines_of_the_diffs`)
-  [@test] crates/review-plan/src/whitespace_test.rs (`the_lines_of_a_text_are_those_of_the_diffs`)
+  [@test] crates/text-diff/src/text_lines_test.rs (`the_lines_of_a_text_are_those_of_the_diffs`)
 
 ### Requirement: Mechanical Changes: An import statement runs until its brackets close
 
@@ -3254,7 +3255,7 @@ the header opens either.
 A block whose every changed line of each side is an import or a package statement or blank (`TextDiff::import_blocks`,
 from the syntax of the texts) MUST be pale, as a change of whitespace alone, and N and P MUST pass it; in the story it
 is in the unit of the imports, and the section of its file shows one row for it. A block with a line of code beside
-them is a change as any.
+them is a change as any. The statements are read at the lines of the diff, never of git.
 
 #### Scenario: A block of the imports alone
 - **WHEN** every changed line of each side of a block is an import or a package statement or blank
@@ -3273,6 +3274,12 @@ them is a change as any.
 #### Scenario: A line of code beside the imports
 - **WHEN** a block has a line of code beside the imports
 - **THEN** it is a change as any
+
+#### Scenario: A lone `\r` above the imports
+- **GIVEN** a text whose comment above its statements holds a lone `\r`, and a line of code right above the first statement: a file annotation of Kotlin, a directive of TypeScript
+- **WHEN** a change touches that line of code alone
+- **THEN** its block is a change as any, and a block of the import below it is a block of the imports alone
+  [@test] crates/file-diffs/src/service_test.rs (`the_imports_and_the_scopes_of_a_text_with_a_lone_cr_are_at_the_lines_of_the_diffs`)
 
 ### Requirement: In the Review Window: The dependency changes show on the row that holds the build file
 

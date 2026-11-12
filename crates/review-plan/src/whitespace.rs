@@ -11,7 +11,7 @@
 //!   indentation has a meaning (`code_symbols::tokens::indentation_matters`: Python, YAML, a Makefile).
 //! - **A file of a grammar without tokens** (nested too deeply, a script read only after a recovery) and a file whose
 //!   two sides are not both of a grammar (a rename from `.txt` to `.kt`) have no whitespace change: nothing proves one.
-//! - **The lines** are those of the diffs (`TextLines`): a line ends at `\n`, `\r\n` or a lone `\r`, as the engine
+//! - **The lines** are those of the diffs (`text_diff::text_lines::TextLines`): a line ends at `\n`, `\r\n` or a lone `\r`, as the engine
 //!   that made the blocks and the hunks counts them and as the tokens do. The lines of a declaration are git's (a
 //!   line ends at `\n` alone, as the summaries count them) and are translated first (`TextLines::of_git`): in a file
 //!   with a lone `\r` the two counts differ, and the lines of one read by the other are other lines.
@@ -54,65 +54,6 @@ pub(crate) enum Sides<'a, 't> {
   Grammar { tokens: &'a TextTokens<'t>, old: Side<'a>, new: Side<'a> },
   /// Only one side is of a grammar: never the same
   Unknown,
-}
-
-/// The lines of a text as the diffs count them: a line ends at `\n`, `\r\n` or a lone `\r`
-/// (`text_diff::apply::split_lines`), so the text has one more line than line ends
-pub(crate) struct TextLines<'t> {
-  /// Each line without its line end
-  lines: Vec<&'t str>,
-  /// The lines a lone `\r` ends: line ends of the diffs, none of git
-  lone_cr: Vec<u32>,
-}
-
-impl<'t> TextLines<'t> {
-  pub(crate) fn of(text: &'t str) -> Self {
-    let (mut lines, mut lone_cr) = (Vec::new(), Vec::new());
-    let mut rest = text;
-    while let Some(end) = rest.find(['\n', '\r']) {
-      let line_end = if rest[end..].starts_with("\r\n") {
-        2
-      } else {
-        if rest[end..].starts_with('\r') {
-          lone_cr.push(u32::try_from(lines.len()).unwrap_or(u32::MAX));
-        }
-        1
-      };
-      lines.push(&rest[..end]);
-      rest = &rest[end + line_end..];
-    }
-    lines.push(rest);
-    Self { lines, lone_cr }
-  }
-
-  /// Every line
-  pub(crate) fn all(&self) -> &[&'t str] {
-    &self.lines
-  }
-
-  /// The lines `lines` (from 0, the end excluded), as far as the text has them
-  pub(crate) fn text(&self, lines: &Range<u32>) -> &[&'t str] {
-    let (start, end) = ((lines.start as usize).min(self.lines.len()), (lines.end as usize).min(self.lines.len()));
-    &self.lines[start..end.max(start)]
-  }
-
-  /// The lines that are `lines` as git counts them (a line ends at `\n` alone; from 0, the end excluded): the same
-  /// lines unless a lone `\r` ends one
-  pub(crate) fn of_git(&self, lines: Range<u32>) -> Range<u32> {
-    // the line that starts the line `line` of git: each lone `\r` before it ends one more line here
-    let at = |line: u32| {
-      let mut view = line;
-      for &ended in &self.lone_cr {
-        if ended >= view {
-          break;
-        }
-        view += 1;
-      }
-      view
-    };
-    let start = at(lines.start);
-    start..at(lines.end).max(start)
-  }
 }
 
 impl<'t> TextTokens<'t> {

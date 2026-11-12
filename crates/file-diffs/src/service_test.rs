@@ -971,6 +971,46 @@ fn a_block_of_import_statements_alone_is_marked_by_the_syntax() {
   assert_eq!(text(file(&files, "notes.txt")).import_blocks, Vec::<u32>::new());
 }
 
+/// A summary counts the lines of git and the blocks those of the diffs, where a lone `\r` ends a line too: under one
+/// the statements and the declarations keep their own lines, so a line of code right above the imports is no import
+/// and a scope starts at the line of its declaration
+#[test]
+fn the_imports_and_the_scopes_of_a_text_with_a_lone_cr_are_at_the_lines_of_the_diffs() {
+  // the lines of the diffs: 0 and 1 the comment, 2 the annotation, 3 the package, 4 the import, 6 to 8 the class
+  let kotlin = |name: &str, import: &str, body: &str| format!("/* a\rb */\n@file:JvmName(\"{name}\")\npackage a\nimport b.{import}\n\nclass A {{\n  fun run() = {body}\n}}\n");
+  // TypeScript: a directive right above the import
+  let script = |directive: &str, import: &str| format!("/* a\rb */\n\"{directive}\";\nimport {{ {import} }} from \"./b\";\n\nexport const one = 1;\n");
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &[("A.kt", &kotlin("A", "Old", "1")), ("a.ts", &script("use client", "old"))]);
+  let annotation = repo.create_commit_with_files("Annotation", &[("A.kt", &kotlin("B", "Old", "1")), ("a.ts", &script("use server", "old"))]);
+  let imports = repo.create_commit_with_files("Imports", &[("A.kt", &kotlin("B", "New", "2")), ("a.ts", &script("use server", "new"))]);
+  let read = |id: &str| {
+    unhurried()
+      .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(id), WhitespacePolicy::Default)
+      .unwrap()
+  };
+
+  // the line above the statements changed: code, though git counts it where the diffs count the package statement
+  let files = read(&annotation);
+  for path in ["A.kt", "a.ts"] {
+    let diff = text(file(&files, path));
+    assert_eq!((diff.blocks.len(), (diff.blocks[0].new_start, diff.blocks[0].new_end)), (1, (2, 3)), "{path}");
+    assert_eq!(diff.import_blocks, Vec::<u32>::new(), "{path}");
+  }
+  // the import changed, and the body: the first block is of the imports alone
+  let files = read(&imports);
+  let a = text(file(&files, "A.kt"));
+  assert_eq!(
+    (a.blocks.len(), (a.blocks[0].new_start, a.blocks[0].new_end), a.import_blocks.as_slice()),
+    (2, (4, 5), &[0][..])
+  );
+  assert_eq!(text(file(&files, "a.ts")).import_blocks, [0]);
+  // the class and its function, where the diffs show them
+  let scopes: Vec<(u32, u32, &str)> = a.new_scopes.iter().map(|scope| (scope.start_line, scope.end_line, scope.label.as_str())).collect();
+  assert_eq!(scopes, [(6, 9, "A"), (7, 8, "A › run")]);
+  assert_eq!(a.old_scopes, a.new_scopes);
+}
+
 /// The content of the one file of the commit `id` as its stream brings it, a text, between the list of the files
 /// and the scopes of the file
 fn streamed_text(repo: &TestRepo, id: &str) -> (DiffContent, TextDiff) {

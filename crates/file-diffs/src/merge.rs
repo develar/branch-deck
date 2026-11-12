@@ -29,14 +29,15 @@ use text_diff::cancellation::Deadline;
 use text_diff::merge_model::{BudgetedMerge, TextMerge, merge_texts_in};
 use text_diff::model::{BudgetedDiff, DiffBudget, Scope, TextDiff, diff_texts_in};
 use text_diff::policy::WhitespacePolicy;
+use text_diff::text_lines::TextLines;
 use tracing::{debug, instrument};
 
 /// The version of the merges in the `file_merge` store: bump it when `TextMerge`, `TextDiff` (a merge of one side
 /// holds a diff, with its marks), the merge or the scopes change. `stored_layout_test.rs` pins the layout with it. 10:
 /// a merge of one side whose lines ran out of time is not stored either (`BudgetedDiff::out_of_time`); 11: nor a merge
 /// of three sides whose lines ran out (`BudgetedMerge::out_of_time`), so a store of 10 may hold one block of three whole
-/// texts that the time made
-pub(crate) const MERGE_MODEL_VERSION: u32 = 11;
+/// texts that the time made; 12: the scopes are by the lines of the diffs (`service::side_facts`)
+pub(crate) const MERGE_MODEL_VERSION: u32 = 12;
 
 /// The memory key of a merge: the options byte and the base, left and right blob ids, empty for a missing side
 pub(crate) type MergeMemoryKey = (u8, String, String, String);
@@ -393,10 +394,10 @@ impl MergeWork<'_> {
       let BudgetedDiff { mut diff, out_of_time } = diff_texts_in(texts[0], remaining, self.policy, &budget);
       if let Some(language) = language {
         if let Some(id) = base_id {
-          diff.old_scopes = side_facts(self.summaries, language, &path.path, id, texts[0], &mut made).0;
+          diff.old_scopes = side_facts(self.summaries, language, &path.path, id, texts[0], &TextLines::of(texts[0]), &mut made).0;
         }
         if let Some(id) = remaining_id {
-          diff.new_scopes = side_facts(self.summaries, language, &path.path, id, remaining, &mut made).0;
+          diff.new_scopes = side_facts(self.summaries, language, &path.path, id, remaining, &TextLines::of(remaining), &mut made).0;
         }
       }
       let cut_short = out_of_time;
@@ -412,7 +413,7 @@ impl MergeWork<'_> {
     if let Some(language) = language {
       send(content_event(MergeContent::Text(merge.clone())));
       let side_scopes = |id: Option<&str>, text: &str, made: &mut Vec<((u8, String), FileSummary)>| -> Vec<Scope> {
-        id.map_or_else(Vec::new, |id| side_facts(self.summaries, language, &path.path, id, text, made).0)
+        id.map_or_else(Vec::new, |id| side_facts(self.summaries, language, &path.path, id, text, &TextLines::of(text), made).0)
       };
       merge.base_scopes = side_scopes(base_id, texts[0], &mut made);
       merge.left_scopes = side_scopes(left_id, texts[1], &mut made);

@@ -83,13 +83,16 @@ use sync_utils::span::in_current_span;
 use text_diff::cancellation::Deadline;
 use text_diff::model::{BlockKind, BudgetedDiff, DiffBudget, DiffMarks, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts_in};
 use text_diff::policy::WhitespacePolicy;
+use text_diff::text_lines::TextLines;
 use tracing::{debug, instrument, warn};
 
 /// The version of the diffs in the `file_diff` store and of what they left in the `file_leftovers` store: bump it
 /// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change.
 /// `stored_layout_test.rs` pins the layout of both with it. 15: a diff whose lines ran out of time is not stored either
-/// (`BudgetedDiff::out_of_time`), so a store of 14 may hold one block of two whole texts that the time made
-pub const MODEL_VERSION: u32 = 18;
+/// (`BudgetedDiff::out_of_time`), so a store of 14 may hold one block of two whole texts that the time made. 19: the
+/// scopes and the blocks of the imports alone are by the lines of the diffs (`side_facts`), so a store of 18 may hold
+/// those of a text with a lone `\r` by the lines of git
+pub const MODEL_VERSION: u32 = 19;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
 /// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
@@ -1118,17 +1121,19 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
     if old_side.is_some() || new_side.is_some() {
       // the blocks first: the parse of the scopes costs more than the comparison, and changes no row
       send(content_event(DiffContent::Text(diff.clone())));
+      let lines = [TextLines::of(old_text), TextLines::of(new_text)];
       let old_imports = old_side.map(|(language, id)| {
-        let (scopes, imports) = side_facts(context.summaries, language, entry.old_path.as_deref().unwrap_or(&entry.path), id, old_text, &mut summaries);
+        let path = entry.old_path.as_deref().unwrap_or(&entry.path);
+        let (scopes, imports) = side_facts(context.summaries, language, path, id, old_text, &lines[0], &mut summaries);
         diff.old_scopes = scopes;
         imports
       });
       let new_imports = new_side.map(|(language, id)| {
-        let (scopes, imports) = side_facts(context.summaries, language, &entry.path, id, new_text, &mut summaries);
+        let (scopes, imports) = side_facts(context.summaries, language, &entry.path, id, new_text, &lines[1], &mut summaries);
         diff.new_scopes = scopes;
         imports
       });
-      diff.import_blocks = import_blocks(&diff, [old_text, new_text], [old_imports.as_deref(), new_imports.as_deref()]);
+      diff.import_blocks = import_blocks(&diff, [&lines[0], &lines[1]], [old_imports.as_deref(), new_imports.as_deref()]);
       send(Outcome::Event(FileDiffEvent::Scopes {
         index: to_u32(index),
         old_scopes: diff.old_scopes.clone(),
@@ -1157,21 +1162,31 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
 }
 
 /// The scopes and the lines of the import statements of a side: from its cached summary, else from a summary made
-/// now, kept for the store unless truncated; no lines of a truncated summary
+/// now, kept for the store unless truncated; no lines of a truncated summary. Both by the lines of the diffs (`lines`,
+/// of `text`), which the blocks name: a summary counts the lines of git, and a lone `\r` above a statement or a
+/// declaration would else give its lines to its neighbours (`TextLines::of_git`)
 pub(crate) fn side_facts(
   summaries: &HashMap<(u8, String), FileSummary>,
   language: Language,
   path: &str,
   id: &str,
   text: &str,
+  lines: &TextLines<'_>,
   made: &mut Vec<((u8, String), FileSummary)>,
 ) -> (Vec<Scope>, Vec<LineSpan>) {
+  let facts = |summary: &FileSummary| {
+    let imports = summary.import_lines.iter().map(|span| {
+      let (start, end) = lines.of_summary(span.start, span.end);
+      LineSpan { start, end }
+    });
+    (scopes_of_summary(summary, lines), imports.collect())
+  };
   let key = (summary_key(language, path), id.to_string());
   if let Some(summary) = summaries.get(&key) {
-    return (scopes_of_summary(summary), summary.import_lines.clone());
+    return facts(summary);
   }
   let summary = summarize(language, path, text.as_bytes());
-  let facts = (scopes_of_summary(&summary), summary.import_lines.clone());
+  let facts = facts(&summary);
   if !summary.truncated {
     made.push((key, summary));
   }
@@ -1179,23 +1194,24 @@ pub(crate) fn side_facts(
 }
 
 /// The blocks of `diff` whose every changed line of each side is in an import statement of that side (`imports`, the
-/// lines of a side's statements; `None` for a side of no known language) or blank, with a line of a statement at least
-pub(crate) fn import_blocks(diff: &TextDiff, texts: [&str; 2], imports: [Option<&[LineSpan]>; 2]) -> Vec<u32> {
-  let lines: [Vec<&str>; 2] = texts.map(|text| text.split('\n').collect());
+/// lines of a side's statements as `side_facts` gives them; `None` for a side of no known language) or blank, with a
+/// line of a statement at least; `lines` the lines of each side as the blocks count them
+pub(crate) fn import_blocks(diff: &TextDiff, lines: [&TextLines<'_>; 2], imports: [Option<&[LineSpan]>; 2]) -> Vec<u32> {
   diff
     .blocks
     .iter()
     .enumerate()
     .filter(|(_, block)| block.kind != BlockKind::Ignored)
-    .filter(|(_, block)| imports_only([block.old_start..block.old_end, block.new_start..block.new_end], [&lines[0], &lines[1]], imports))
+    .filter(|(_, block)| imports_only([block.old_start..block.old_end, block.new_start..block.new_end], lines.map(TextLines::all), imports))
     .map(|(index, _)| to_u32(index))
     .collect()
 }
 
 /// Whether the changed lines of a block (`changed`, of each side from 0, the end excluded) are each in an import
 /// statement of their side (`imports`, the lines of a side's statements; `None` for a side of no known language) or
-/// blank, with a line of a statement at least; `lines` the text of each side by line. The one test of a change of the
-/// imports alone, for the diffs and the units of a review (`review_plan::units`)
+/// blank, with a line of a statement at least; `lines` the text of each side by line. The blocks, the statements and
+/// the text count the lines of the diffs (`text_diff::text_lines`), never those of git. The one test of a change of
+/// the imports alone, for the diffs and the units of a review (`review_plan::units`)
 pub fn imports_only(changed: [Range<u32>; 2], lines: [&[&str]; 2], imports: [Option<&[LineSpan]>; 2]) -> bool {
   // per side, by 0-based line: in a statement, blank, else code
   let kind = |side: usize, line: u32| -> Option<bool> {

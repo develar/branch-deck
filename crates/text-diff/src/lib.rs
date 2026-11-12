@@ -36,6 +36,7 @@ pub mod provider;
 pub mod range;
 pub mod side;
 pub mod text;
+pub mod text_lines;
 pub mod trim_util;
 
 #[cfg(test)]
@@ -78,6 +79,8 @@ mod moves_test;
 mod split_comparison_util_test;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod text_lines_test;
 #[cfg(test)]
 mod trim_util_test;
 #[cfg(test)]

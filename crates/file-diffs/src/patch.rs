@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 use text_diff::apply::{BlockId, LineBlock, split_lines};
 use text_diff::model::{BlockKind, DiffBlock, Scope, TextDiff};
+use text_diff::text_lines::TextLines;
 
 /// The lines of context on each side of a block
 const CONTEXT_LINES: usize = 3;
@@ -115,7 +116,7 @@ fn file_patch(pair: &BlobPair<'_>, diff: &TextDiff, old: &str, new: &str) -> Vec
   if !diff.old_scopes.is_empty() || !diff.new_scopes.is_empty() {
     return block_patches(old, new, diff, &diff.old_scopes, &diff.new_scopes);
   }
-  let parse = |path: &str, text: &str| language_of(path).map_or_else(Vec::new, |language| scopes_of_summary(&summarize(language, path, text.as_bytes())));
+  let parse = |path: &str, text: &str| language_of(path).map_or_else(Vec::new, |language| scopes_of_summary(&summarize(language, path, text.as_bytes()), &TextLines::of(text)));
   let old_scopes = parse(pair.old_path.unwrap_or(pair.path), old);
   block_patches(old, new, diff, &old_scopes, &parse(pair.path, new))
 }

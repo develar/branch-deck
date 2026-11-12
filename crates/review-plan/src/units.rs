@@ -39,7 +39,7 @@ use crate::api::{FormChange, form_changes, listed};
 use crate::files::{ChangedFile, FileKinds, MechanicalKind, lines_edit_key, without_whitespace};
 use crate::moved::{crossable, ordering_token, place_free};
 use crate::pair::{LineBlock, PairBlocks};
-use crate::whitespace::{Sides, TextLines, TextTokens};
+use crate::whitespace::{Sides, TextTokens};
 use code_symbols::language::language_of;
 use code_symbols::tokens::indentation_matters;
 use file_diffs::service::imports_only;
@@ -48,6 +48,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::ops::Range;
+use text_diff::text_lines::TextLines;
 use trial_check::symbol_dependencies::declaration_checks::{FileDeclarations, SpannedDeclaration, spanned_declarations};
 use trial_check::symbol_scan::SymbolInput;
 
@@ -198,11 +199,7 @@ const fn lines_of(declaration: &SpannedDeclaration) -> Range<u32> {
 /// the diffs (`TextLines::of_git`), which the blocks of the file name: in a file with a lone `\r` a declaration and
 /// a block of the same lines would else name others
 fn in_lines_of_diffs(mut declarations: FileDeclarations, lines: &TextLines<'_>) -> FileDeclarations {
-  // from 1, both included, to the same of the diffs
-  let translate = |start: &mut u32, end: &mut u32| {
-    let range = lines.of_git(start.saturating_sub(1)..*end);
-    (*start, *end) = (range.start + 1, range.end);
-  };
+  let translate = |start: &mut u32, end: &mut u32| (*start, *end) = lines.of_summary(*start, *end);
   for declaration in &mut declarations.declarations {
     translate(&mut declaration.start_line, &mut declaration.end_line);
   }

@@ -4,6 +4,7 @@
 use code_symbols::language::Language;
 use code_symbols::summary::{DeclKind, Declaration, FileSummary};
 use text_diff::model::Scope;
+use text_diff::text_lines::TextLines;
 
 /// Between the names of a scope and the scopes around it
 const SEPARATOR: &str = " › ";
@@ -12,12 +13,14 @@ const SEPARATOR: &str = " › ";
 /// truncated
 #[cfg(test)]
 pub(crate) fn scopes_of(language: Language, path: &str, text: &str) -> Vec<Scope> {
-  scopes_of_summary(&code_symbols::extract::summarize(language, path, text.as_bytes()))
+  scopes_of_summary(&code_symbols::extract::summarize(language, path, text.as_bytes()), &TextLines::of(text))
 }
 
 /// The types, functions, modules and Bazel targets of a summary, in source order; empty for a truncated one. A target
-/// is a scope so that the folded lines inside its call (`deps = […]`) carry its name
-pub(crate) fn scopes_of_summary(summary: &FileSummary) -> Vec<Scope> {
+/// is a scope so that the folded lines inside its call (`deps = […]`) carry its name. The lines of a scope are those of
+/// the diffs (`lines`, of the text of the summary), which the blocks and the hunks name: the summary counts the lines
+/// of git, others in a text with a lone `\r`
+pub(crate) fn scopes_of_summary(summary: &FileSummary, lines: &TextLines<'_>) -> Vec<Scope> {
   if summary.truncated {
     return Vec::new();
   }
@@ -25,11 +28,14 @@ pub(crate) fn scopes_of_summary(summary: &FileSummary) -> Vec<Scope> {
     .declarations
     .iter()
     .filter(|declaration| matches!(declaration.kind, DeclKind::Type | DeclKind::Function | DeclKind::Module | DeclKind::Target) && !declaration.in_error)
-    .map(|declaration| Scope {
+    .map(|declaration| {
       // the summary has 1-based lines, the last one included
-      start_line: declaration.start_line.saturating_sub(1),
-      end_line: declaration.end_line,
-      label: label(summary, declaration),
+      let (first, last) = lines.of_summary(declaration.start_line, declaration.end_line);
+      Scope {
+        start_line: first.saturating_sub(1),
+        end_line: last,
+        label: label(summary, declaration),
+      }
     })
     .collect()
 }

@@ -48,7 +48,7 @@
 use crate::api::{ApiChange, ApiChangeKind};
 use crate::dependencies::ManifestState;
 use crate::links::{FileLink, LinkState};
-use crate::whitespace::{TextLines, TextTokens};
+use crate::whitespace::TextTokens;
 use code_symbols::language::language_of;
 use code_symbols::tokens::indentation_matters;
 use file_diffs::service::compare_tree_paths;
@@ -60,6 +60,7 @@ use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Range;
+use text_diff::text_lines::TextLines;
 use trial_check::diff_scan::CommitDiff;
 use trial_check::module_roots::is_module_file;
 

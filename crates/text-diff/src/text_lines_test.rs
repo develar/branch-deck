@@ -1,6 +1,6 @@
-use crate::whitespace::TextLines;
+use crate::apply::split_lines;
+use crate::text_lines::TextLines;
 use pretty_assertions::assert_eq;
-use text_diff::apply::split_lines;
 
 /// The lines of a text are those the engine of the diffs splits it into, each without its line end, and a range of
 /// lines of git names the lines of the diffs between the same two `\n`
@@ -50,4 +50,14 @@ fn the_lines_of_a_text_are_those_of_the_diffs() {
   // without a lone `\r` the lines of git are those of the diffs
   let lines = TextLines::of("a\r\nb\nc");
   assert_eq!([lines.of_git(0..1), lines.of_git(1..3), lines.of_git(2..2)], [0..1, 1..3, 2..2]);
+}
+
+/// The lines of a syntax summary are from 1 with the last included, and stay so among the lines of the diffs
+#[test]
+fn the_lines_of_a_summary_are_named_the_same_way_among_the_lines_of_the_diffs() {
+  // git has "/* a\rb */", "import x.A", "class A {", "}" and the empty line after them
+  let lines = TextLines::of("/* a\rb */\nimport x.A\nclass A {\n}\n");
+  assert_eq!([lines.of_summary(1, 1), lines.of_summary(2, 2), lines.of_summary(3, 4)], [(1, 2), (3, 3), (4, 5)]);
+  let lines = TextLines::of("import x.A\r\nclass A {\n}\n");
+  assert_eq!([lines.of_summary(1, 1), lines.of_summary(2, 3)], [(1, 1), (2, 3)]);
 }

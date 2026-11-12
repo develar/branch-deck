@@ -87,6 +87,7 @@ flowchart TD
 | `moves.rs` | Branch Deck's own: the lines a change moved within a file (`find_moves`) |
 | `moves_across.rs` | Branch Deck's own: what a pair leaves to the other files of its subject (`left_rows`) and the lines a change moved between two files (`find_moves_across`) |
 | `apply.rs` | Branch Deck's own: blocks applied to bytes, the result of a merge on bytes, the ids of the blocks |
+| `text_lines.rs` | Branch Deck's own: the lines of a text as the diffs count them, and the lines of git and of a syntax summary among them (`TextLines::of_git`) |
 
 ### Model
 
@@ -144,7 +145,7 @@ flowchart TD
   comparison of too many changes is not: a caller keeps such a diff out of its stores. The views pass their budgets,
   a scan `DiffBudget::NONE`, bounded by the work alone.
   `old_scopes`, `new_scopes` and `import_blocks` stay empty here: the file-diffs service fills them from the summaries
-  of the texts ([Git Operations](git-operations.md), "File diffs").
+  of the texts, by the lines of the diffs ([Git Operations](git-operations.md), "File diffs").
 - **Marks.** `marks` (`DiffMarks`, [Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md)) says what a
   reader may pass and what a view labels, and changes no block: `runs`, rows of lines inside one block that changed
   in one way alone (`LineRun`: formatting, comments, a renamed name; `quiet` when the run provably changes no

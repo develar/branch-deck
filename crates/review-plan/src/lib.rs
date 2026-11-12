@@ -738,5 +738,3 @@ mod test_support;
 mod texts_test;
 #[cfg(test)]
 mod units_test;
-#[cfg(test)]
-mod whitespace_test;

@@ -6,6 +6,7 @@ targets:
   - crates/review-plan/src/units.rs
   - crates/review-plan/src/pair.rs
   - crates/review-plan/src/whitespace.rs
+  - crates/text-diff/src/text_lines.rs
   - crates/review-plan/src/moved.rs
   - crates/trial-check/src/declaration_checks.rs
   - crates/file-diffs/src/service.rs
