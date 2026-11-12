@@ -17,6 +17,8 @@ export interface AirHostConfig {
   /** The origin of the frames of the app (`https://branch-deck.air-genui-app.local`) */
   readonly appOrigin: string
   readonly repositoryPath: string
+  /** The Git roots of the project (`roots/list`), the repository first; the repository alone when none */
+  readonly roots?: readonly string[]
   readonly theme: HostContextTheme
 }
 
@@ -291,7 +293,7 @@ app.onNotification = (method, params) => {
 app.onRequest = async (method, params) => {
   switch (method) {
     case "roots/list":
-      return { roots: [{ uri: `file://${config.repositoryPath}`, name: "repo" }] }
+      return { roots: (config.roots ?? [config.repositoryPath]).map(root => ({ uri: `file://${root}`, name: root.split("/").at(-1) })) }
     case "x-air-app/openView": {
       calls.push({ method, params })
       const instance = await openView(

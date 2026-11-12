@@ -23,6 +23,9 @@ const WAIT: Duration = Duration::from_secs(60);
 /// The air-ide side of a connection of brd on the fixtures of a test repository
 struct Ide {
   state: std::sync::Arc<crate::state::AppState>,
+  addr: std::net::SocketAddr,
+  /// The id of the test repository in the server
+  id: String,
   to_app: Option<mpsc::UnboundedSender<String>>,
   from_app: mpsc::UnboundedReceiver<String>,
   serving: tokio::task::JoinHandle<()>,
@@ -36,12 +39,24 @@ impl Ide {
     let (addr, state) = start_test_server_with_state().await;
     let (_, repo) = create_repository(&reqwest::Client::new(), addr).await;
     let id = state.path_to_id.get(&repo).map(|id| id.value().clone()).unwrap();
+    Self::connect(state, addr, id, repo)
+  }
+
+  /// A new connection of brd on the same test repository, its settings those the connections before it wrote: a next
+  /// start of the project in the IDE
+  fn again(&self) -> Self {
+    Self::connect(std::sync::Arc::clone(&self.state), self.addr, self.id.clone(), self.repo.clone())
+  }
+
+  fn connect(state: std::sync::Arc<crate::state::AppState>, addr: std::net::SocketAddr, id: String, repo: String) -> Self {
     let (connection, from_app) = Connection::new();
     let ctx = context_of_connection(&state, &id, &connection).unwrap();
     let (to_app, incoming) = mpsc::unbounded_channel();
     let serving = tokio::spawn(connection.serve(ctx, incoming));
     Self {
       state,
+      addr,
+      id,
       to_app: Some(to_app),
       from_app,
       serving,
@@ -160,11 +175,18 @@ async fn the_app_link_corpus_runs() {
 
 /// The initialize of the corpus and the roots: the main view shows the first Git root
 async fn initialized(ide: &mut Ide) {
+  let roots = [ide.repo.clone()];
+  initialized_with_roots(ide, &roots).await;
+}
+
+/// The initialize of the corpus, the roots `roots` of the project, and the show of the main view
+async fn initialized_with_roots(ide: &mut Ide, roots: &[String]) {
   ide.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": { "roots": { "listChanged": true }, "experimental": { "x-air-app": { "version": "1.0.0", "ahpVersion": "1.0.0" } } }, "clientInfo": { "name": "air-ide", "version": "1.0.0" } } }));
   ide.expect(&json!({ "jsonrpc": "2.0", "id": 1, "result": "${any}" })).await;
   ide.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
-  let roots = ide.expect(&json!({ "jsonrpc": "2.0", "id": "${any}", "method": "roots/list" })).await;
-  ide.send(&json!({ "jsonrpc": "2.0", "id": roots["id"], "result": { "roots": [{ "uri": format!("file://{}", ide.repo), "name": "repo" }] } }));
+  let answered: Vec<Value> = roots.iter().map(|root| json!({ "uri": format!("file://{root}"), "name": "repo" })).collect();
+  let request = ide.expect(&json!({ "jsonrpc": "2.0", "id": "${any}", "method": "roots/list" })).await;
+  ide.send(&json!({ "jsonrpc": "2.0", "id": request["id"], "result": { "roots": answered } }));
   ide.send(&json!({ "jsonrpc": "2.0", "method": "x-air-app/viewShown", "params": { "instance": "main:1", "view": "main", "params": {} } }));
 }
 
@@ -379,5 +401,85 @@ async fn two_review_tabs_each_get_the_answer_of_their_own_instance() {
   assert_eq!(answers[&3]["initData"]["data"]["branchName"], "b");
   assert_eq!(answers[&4]["value"]["origin"], "review:2");
   assert_eq!(answers[&5]["value"]["origin"], "review:3");
+  ide.end().await;
+}
+
+/// The paths of the recent projects of `value`
+fn paths(value: &Value) -> Vec<String> {
+  value
+    .as_array()
+    .into_iter()
+    .flatten()
+    .filter_map(|project| project["path"].as_str().map(str::to_owned))
+    .collect()
+}
+
+/// The main view shows the Git roots of the project as its recent projects, the first one first; a pick of the page
+/// shows the root it picked, which the next start of the project shows again, while the recent projects of the desktop
+/// app keep their order
+#[tokio::test]
+async fn the_main_view_shows_the_root_picked_last_for_the_roots_of_its_project() {
+  let mut ide = Ide::start().await;
+  let (_, second) = create_repository(&reqwest::Client::new(), ide.addr).await;
+  let repo = ide.repo.clone();
+  initialized_with_roots(&mut ide, &[repo.clone(), second.clone()]).await;
+  ide.send(&tool_call(2, "bd_bootstrap", "main:1", &json!({ "view": "main" })));
+  let bootstrap = ide.expect(&json!({ "jsonrpc": "2.0", "id": 2, "result": "${any}" })).await;
+  let bootstrap = &bootstrap["result"]["structuredContent"];
+  assert_eq!(bootstrap["initData"]["repositoryPath"], json!(repo));
+  assert_eq!(paths(&bootstrap["settings"]["values"]["recentProjects"]), [repo.clone(), second.clone()]);
+
+  // the user picks the second root in the selector: the page writes the recent projects with it first
+  let picked = json!([{ "path": second }, { "path": repo, "parkedCollapsed": true }]);
+  ide.send(&invoke(
+    3,
+    "main:1",
+    "set_setting",
+    &json!({ "params": { "patch": { "kind": "value", "key": "recentProjects", "value": picked } } }),
+  ));
+  let answer = ide.expect(&json!({ "jsonrpc": "2.0", "id": 3, "result": "${any}" })).await;
+  assert_eq!(paths(&answer["result"]["structuredContent"]["value"]["value"]), [second.clone(), repo.clone()]);
+  let store = std::sync::Arc::clone(&ide.state.repositories.get(&ide.id).unwrap().store);
+  let recent = store.value("recentProjects");
+  assert_eq!(paths(&recent)[0], repo, "the recent projects of the desktop app keep their order");
+  assert_eq!(recent[0]["parkedCollapsed"], true, "what the page changed of a root is kept");
+  let mut next = ide.again();
+  ide.end().await;
+
+  // the next start of the project, its roots named in another order
+  initialized_with_roots(&mut next, &[second.clone(), repo.clone()]).await;
+  next.send(&tool_call(2, "bd_bootstrap", "main:1", &json!({ "view": "main" })));
+  let bootstrap = next.expect(&json!({ "jsonrpc": "2.0", "id": 2, "result": "${any}" })).await;
+  assert_eq!(bootstrap["result"]["structuredContent"]["initData"]["repositoryPath"], json!(second));
+  next.end().await;
+}
+
+/// A Git root added to the project after the page started: the main view hears `roots-changed` with both roots, and the
+/// views get the recent projects of the roots as a change of the settings
+#[tokio::test]
+async fn a_root_added_to_the_project_tells_the_main_view_and_the_recent_projects_of_the_views() {
+  let mut ide = Ide::start().await;
+  let (_, second) = create_repository(&reqwest::Client::new(), ide.addr).await;
+  let repo = ide.repo.clone();
+  initialized(&mut ide).await;
+  ide.send(&tool_call(2, "bd_bootstrap", "main:1", &json!({ "view": "main" })));
+  ide.expect(&json!({ "jsonrpc": "2.0", "id": 2, "result": "${any}" })).await;
+
+  ide.send(&json!({ "jsonrpc": "2.0", "method": "notifications/roots/list_changed" }));
+  let request = ide.expect(&json!({ "jsonrpc": "2.0", "id": "${any}", "method": "roots/list" })).await;
+  let both = [repo.clone(), second.clone()];
+  let roots: Vec<Value> = both.iter().map(|root| json!({ "uri": format!("file://{root}"), "name": "repo" })).collect();
+  ide.send(&json!({ "jsonrpc": "2.0", "id": request["id"], "result": { "roots": roots } }));
+  ide
+    .expect(&json!({ "jsonrpc": "2.0", "method": "x-air-app/event", "params": { "instance": "main:1", "event": "roots-changed", "payload": { "roots": both } } }))
+    .await;
+  let change = ide
+    .expect(&json!({ "jsonrpc": "2.0", "method": "x-air-app/event", "params": { "event": "settings_changed", "payload": { "version": "${any}", "key": "recentProjects", "value": "${any}", "origin": "rust" } } }))
+    .await;
+  assert_eq!(
+    paths(&change["params"]["payload"]["value"]),
+    both,
+    "the main view still shows the first root, the second after it"
+  );
   ide.end().await;
 }

@@ -111,16 +111,24 @@ export class FakeIde {
 
 /**
  * Opens the fake IDE on the fixture repository `repoId` at `repositoryPath` with the main view: the host page is a page
- * of the test server's origin, so its WebSocket to the app link is a loopback one, and each frame loads the Air build
+ * of the test server's origin, so its WebSocket to the app link is a loopback one, and each frame loads the Air build.
+ * `roots` are the Git roots of the project, the repository alone by default; an open again is a next start of the
+ * project, a new connection of `brd mcp` on the same settings
  */
 export async function openFakeIde(
   page: Page,
-  { repoId, repositoryPath, theme = IDE_THEMES.light, appUrl = appLinkUrl(repoId) }: { repoId: string; repositoryPath: string; theme?: HostContextTheme; appUrl?: string },
+  {
+    repoId,
+    repositoryPath,
+    roots,
+    theme = IDE_THEMES.light,
+    appUrl = appLinkUrl(repoId),
+  }: { repoId: string; repositoryPath: string; roots?: readonly string[]; theme?: HostContextTheme; appUrl?: string },
 ): Promise<FakeIde> {
   await serveAppFiles(page)
   // a document of the server's origin, its content the host page's
   await page.goto(`${TEST_SERVER_URL}/health`)
-  const config: AirHostConfig = { appUrl, appOrigin: APP_ORIGIN, repositoryPath, theme }
+  const config: AirHostConfig = { appUrl, appOrigin: APP_ORIGIN, repositoryPath, ...(roots !== undefined && { roots }), theme }
   await page.setContent(`<!doctype html><html><head><title>Fake IDE</title></head><body style="margin: 0"></body></html>`)
   await page.evaluate(value => {
     ;(window as unknown as { __airHostConfig: AirHostConfig }).__airHostConfig = value

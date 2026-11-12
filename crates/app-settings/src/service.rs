@@ -102,8 +102,8 @@ impl StoreFile {
   /// `settings.json` drops them there
   const SAVE_ORDER: [Self; 2] = [Self::RepositoryState, Self::Settings];
 
-  /// The file of `key`: `repositoryState` and `linkedPullRequests` in `repository-state.json`, every other key in
-  /// `settings.json`
+  /// The file of `key`: `repositoryState`, `linkedPullRequests` and `ideRootPicks` in `repository-state.json`, every
+  /// other key in `settings.json`
   fn of(key: &str) -> Self {
     if REPOSITORY_STATE_KEYS.contains(&key) { Self::RepositoryState } else { Self::Settings }
   }

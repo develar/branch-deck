@@ -145,9 +145,11 @@ sequenceDiagram
    **Rationale**: zustand state must be an object. The writer and the file see the plain array.
 
 8. **Decision**: Keys only the main window keeps (`MAIN_ONLY_KEYS` in `crates/app-settings/src/windows.rs`: the
-   robot history, the state of the repositories, the links of Reviews, the journals of the projects) reach no
-   sub-window: not in its snapshot, not in its changes. The links of Reviews (`linkedPullRequests`) and the journals of
-   the projects (`journalPaths`) are keys Rust writes and no window reads: `subscribe_view` remembers the journal of the repository of a project by its path, a `Fields` patch of
+   robot history, the state of the repositories, the links of Reviews, the journals of the projects, the roots an IDE
+   showed last) reach no sub-window: not in its snapshot, not in its changes. The links of Reviews
+   (`linkedPullRequests`), the journals of the projects (`journalPaths`) and the root the main view of an IDE showed
+   last by the roots of its project (`ideRootPicks`, `app_settings::ide_roots`, [IDE Embedding](ide-embedding.md)) are
+   keys Rust writes and no window reads: `subscribe_view` remembers the journal of the repository of a project by its path, a `Fields` patch of
    that path (`app_settings::journals`), which Activity reads in Rust (`read_activity`). The log of Activity is no key:
    it is read from the journals (`operations::journal`), and the load drops the key `activity` of a file of before.
    **Rationale**: They are large or change with every sync, and only the main window writes them; the Activity window

@@ -157,6 +157,16 @@ sequenceDiagram
   view the event `open_command_palette` as the menu of the desktop app does, and Branch Deck Settings opens the view
   `settings` in the IDE alone. `plugin:window|close` of a page is `x-air-app/closeView` of its instance. A change of
   the Git roots of the project is the event `roots-changed` to the main view.
+- **The repositories of the main view** (`projects.rs`): the views see the Git roots of the project as their recent
+  projects (`recentProjects`), the root the main view shows first, each with what the recent projects of the settings
+  keep of it: in the snapshot of `bd_bootstrap`, in each `settings_changed` and in the answers that carry changes
+  (`set_setting`, `get_settings_changes`, `sub_window_loaded`). So the page, unchanged, selects that root, its
+  selector lists the roots, and no rule of it is in TS. A write of `recentProjects` by the page is a pick: brd shows
+  its first root, remembers it by the set of the roots in `ideRootPicks` of `repository-state.json`
+  (`app_settings::ide_roots`), which the next start of the project shows, and writes what the page changed of each root
+  into the recent projects in their place; their order, which selects the repository of the desktop app, stays. A
+  change of the roots after a page took the settings writes `recentProjects` as it is, so the views get the roots in a
+  change newer than every one they have.
 - **The e2e server** serves the same connection on a WebSocket (`GET /repositories/{id}/mcp`, `mcp_socket.rs`), in the
   context of the test repository with the events and the desktop of the connection, for the fake host of the page in
   Air; `mcp_corpus_test.rs` runs `branch-deck-app.ndjson` on it.

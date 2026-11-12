@@ -1,7 +1,8 @@
 //! `settings.json`: one JSON object of the page's stores by key (`appSettings`, `recentProjects`, the diff view, …).
 //! Rust knows `appSettings` (`AppSettings`); every other key is kept raw, as the page wrote it. `repository-state.json`
-//! beside it has the same form with the one key `repositoryState`: what each sync of a repository records
-//! (`REPOSITORY_STATE_FIELDS`), so a sync never rewrites the file of the user's settings, which `bd` reads. A load never fails: a
+//! beside it has the same form with the keys of `REPOSITORY_STATE_KEYS`: `repositoryState`, what each sync of a
+//! repository records (`REPOSITORY_STATE_FIELDS`), so a sync never rewrites the file of the user's settings, which `bd`
+//! reads, and the keys only Rust writes (`linkedPullRequests`, `ideRootPicks`). A load never fails: a
 //! missing file is the defaults, a file that does not parse is the defaults with a warning, a field of the wrong type
 //! is its default. A save writes the stored form (only the fields that differ from their defaults, decision 5 of
 //! `docs/design/distributed-settings.md`) to a temporary file beside it and renames it over the file
@@ -33,8 +34,12 @@ pub const REPOSITORY_STATE_KEY: &str = "repositoryState";
 /// `repository-state.json`: Rust alone writes it (`linked_pull_requests`), no window reads it
 pub const LINKED_PULL_REQUESTS_KEY: &str = "linkedPullRequests";
 
+/// The key of the root the main view of an IDE showed last, by the set of the Git roots of its project, in
+/// `repository-state.json`: `brd mcp` alone writes it (`ide_roots`), no window reads it
+pub const IDE_ROOT_PICKS_KEY: &str = "ideRootPicks";
+
 /// The keys of `repository-state.json`
-pub const REPOSITORY_STATE_KEYS: [&str; 2] = [REPOSITORY_STATE_KEY, LINKED_PULL_REQUESTS_KEY];
+pub const REPOSITORY_STATE_KEYS: [&str; 3] = [REPOSITORY_STATE_KEY, LINKED_PULL_REQUESTS_KEY, IDE_ROOT_PICKS_KEY];
 
 /// The fields of a repository in `repositoryState`: when it was synced last, how many branches that sync had, how long
 /// the steps of Update Project and of a sync took, when Branch Deck fetched its baseline last, up to when the Landed

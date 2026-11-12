@@ -14,7 +14,8 @@
 //! - **Places**: `x-air-app/viewShown` records the params of an instance, `x-air-app/viewClosed` forgets its page and its
 //!   window (`AppContext::forget_window`); the end of a WebSocket never reaches brd.
 //! - **Roots**: the repositories are the Git roots of the project (`roots/list`, asked at the start and on
-//!   `notifications/roots/list_changed`); the main view shows the first.
+//!   `notifications/roots/list_changed`), which the views see as their recent projects; the main view shows the root
+//!   picked last for these roots, else the first (`projects.rs`).
 //!
 //! Every message brd writes goes through the one queue of `Link`, in the order it was sent: a command that changes the
 //! view sends its patches (from the session, through the mirror) and its events before its answer.
@@ -22,15 +23,19 @@
 use crate::hosts::{Instances, MAIN_VIEW, McpEvents, desktop, label_of, view_of};
 use crate::link::{INTERNAL_ERROR, INVALID_PARAMS, Link, METHOD_NOT_FOUND, NO_CONSENT, Reply};
 use crate::mirror::MirrorView;
+use crate::projects::{Projects, RECENT_PROJECTS_KEY, merged};
 use crate::resources;
 use app_api::context::AppContext;
 use app_api::dispatch::{Answer, prepare};
+use app_api::events::settings_changed;
 use app_api::registry::{Command, CommandClass};
 use app_api::transport::{AppEvents, Desktop, EventSink, SinkGone, WindowId};
+use app_settings::ide_roots;
 use app_settings::windows::{MAIN_WINDOW, window_snapshot};
 use base64::Engine;
 use domain_types::error::ApiError;
 use domain_types::session::{SubscribeViewParams, ViewPatch};
+use domain_types::settings::SettingsPatch;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -53,6 +58,7 @@ const TITLE_BAR: &str = r#"{"kind":"native","checkForUpdates":false}"#;
 pub struct Connection {
   link: Arc<Link>,
   instances: Arc<Instances>,
+  projects: Arc<Projects>,
 }
 
 impl Connection {
@@ -62,6 +68,7 @@ impl Connection {
     let connection = Self {
       link: Arc::new(link),
       instances: Arc::default(),
+      projects: Arc::default(),
     };
     (connection, out)
   }
@@ -71,6 +78,7 @@ impl Connection {
     Arc::new(McpEvents {
       link: Arc::clone(&self.link),
       instances: Arc::clone(&self.instances),
+      projects: Arc::clone(&self.projects),
     })
   }
 
@@ -86,9 +94,10 @@ impl Connection {
       ctx: Arc::clone(&ctx),
       link: self.link,
       instances: self.instances,
+      projects: self.projects,
+      bootstrapped: AtomicBool::new(false),
       calls: Mutex::default(),
       mirrors: Mutex::default(),
-      roots: Mutex::default(),
     });
     while let Some(line) = incoming.recv().await {
       if line.trim().is_empty() {
@@ -143,8 +152,10 @@ struct Server {
   calls: Mutex<HashMap<String, Running>>,
   /// The mirrors, by the path of their repository
   mirrors: Mutex<HashMap<String, Mirror>>,
-  /// The Git roots of the project, as `roots/list` answered last
-  roots: Mutex<Vec<String>>,
+  /// The Git roots of the project and the one the main view shows
+  projects: Arc<Projects>,
+  /// A page took the settings (`bd_bootstrap`): a change of the roots reaches it as a change of the settings
+  bootstrapped: AtomicBool,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -244,23 +255,54 @@ impl Server {
           .filter_map(path_of_uri)
           .filter(|path| is_git_root(path))
           .collect();
-        let changed = {
-          let mut kept = locked(&server.roots);
-          let changed = *kept != roots;
-          kept.clone_from(&roots);
-          changed
-        };
-        if changed {
+        let remembered = ide_roots::picked(&server.ctx.settings, &roots);
+        if server.projects.set_roots(roots.clone(), remembered) {
           server.ctx.events.emit_to(&WindowId::main(), "roots-changed", json!({ "roots": roots }));
+          server.tell_recent_projects();
         }
       }
       .in_current_span(),
     );
   }
 
-  /// The repository the main view shows: the first Git root of the project
+  /// The repository the main view shows: the Git root of the project the user picked last, else the first
   fn main_repository(&self) -> Option<String> {
-    locked(&self.roots).first().cloned()
+    self.projects.shown()
+  }
+
+  /// The roots changed after a page took the settings: the views get the recent projects anew, as a change of the
+  /// settings that writes them as they are, so the version of the change is newer than every one a view has
+  fn tell_recent_projects(&self) {
+    if !self.bootstrapped.load(Ordering::SeqCst) {
+      return;
+    }
+    let recent = self.ctx.settings.value(RECENT_PROJECTS_KEY);
+    let patch = SettingsPatch::Value {
+      key: RECENT_PROJECTS_KEY.to_owned(),
+      value: recent,
+    };
+    match self.ctx.settings.set(patch, "rust") {
+      Ok(change) => settings_changed(&*self.ctx.events, &change),
+      Err(error) => tracing::warn!(%error, "the views do not hear the roots of the project"),
+    }
+  }
+
+  /// A write of the recent projects by the page of the IDE, whose list is the roots of the project: its first is the
+  /// root the main view shows now, which brd remembers for this set of roots, and what it changed of each root goes into
+  /// the recent projects of the settings, in their order, which stays the desktop app's
+  fn with_recent_projects(&self, command: &str, mut args: Value) -> Value {
+    if command != "set_setting" || args["params"]["patch"]["kind"] != "value" || args["params"]["patch"]["key"] != RECENT_PROJECTS_KEY {
+      return args;
+    }
+    let seen = args["params"]["patch"]["value"].take();
+    if let Some(picked) = seen[0]["path"].as_str()
+      && self.projects.pick(picked)
+      && let Err(error) = ide_roots::remember(&self.ctx.settings, &self.projects.roots(), picked)
+    {
+      tracing::warn!(%error, "the root the main view shows is not remembered");
+    }
+    args["params"]["patch"]["value"] = merged(&self.ctx.settings.value(RECENT_PROJECTS_KEY), &seen);
+    args
   }
 
   fn call_tool(self: &Arc<Self>, id: Value, params: &Value) {
@@ -309,6 +351,8 @@ impl Server {
       return self.link.respond(&id, json!({ "content": [], "structuredContent": { "value": value } }));
     }
     let args = self.with_subscription(command, args, instance);
+    let args = self.with_recent_projects(command, args);
+    let changes_settings = SETTINGS_COMMANDS.contains(&command);
     let prepared = match prepare(command, args) {
       Ok(prepared) => prepared,
       Err(error) => return self.link.respond(&id, tool_error(&error)),
@@ -342,7 +386,12 @@ impl Server {
           return;
         }
         match answer {
-          Ok(Ok(Answer::Json(value))) => server.link.respond(&id, json!({ "content": [], "structuredContent": { "value": value } })),
+          Ok(Ok(Answer::Json(mut value))) => {
+            if changes_settings {
+              server.projects.seen_changes(&mut value);
+            }
+            server.link.respond(&id, json!({ "content": [], "structuredContent": { "value": value } }));
+          }
           Ok(Ok(Answer::Bytes(bytes))) => {
             let bytes = base64::engine::general_purpose::STANDARD.encode(bytes);
             server.link.respond(&id, json!({ "content": [], "structuredContent": { "bytes": bytes } }));
@@ -437,12 +486,18 @@ impl Server {
   /// title bar
   async fn bootstrap(&self, view: &str, instance: Option<&str>) -> Value {
     let label = instance.map_or_else(|| MAIN_WINDOW.to_owned(), label_of);
-    let (version, values) = window_snapshot(&self.ctx.settings, &label);
+    self.bootstrapped.store(true, Ordering::SeqCst);
+    let (version, mut values) = window_snapshot(&self.ctx.settings, &label);
+    if let Some(recent) = values.get_mut(RECENT_PROJECTS_KEY) {
+      *recent = self.projects.seen(recent);
+    } else if let Value::Object(values) = &mut values {
+      values.insert(RECENT_PROJECTS_KEY.to_owned(), self.projects.seen(&Value::Null));
+    }
     let title_bar: Value = serde_json::from_str(TITLE_BAR).unwrap_or(Value::Null);
     let shown = instance.and_then(|instance| self.instances.params(instance)).unwrap_or_else(|| json!({}));
     let (warm_frame, init_data) = if view == MAIN_VIEW || instance.is_some_and(|instance| view_of(instance) == MAIN_VIEW) {
       let repository = self.main_repository();
-      let roots = locked(&self.roots).clone();
+      let roots = self.projects.roots();
       let frame = match &repository {
         Some(path) => app_api::app::warm_start::seed(&self.ctx, path).await,
         None => None,
@@ -564,6 +619,9 @@ impl Server {
     }
   }
 }
+
+/// The commands whose answer holds changes of the settings, which the views see with the recent projects of the roots
+const SETTINGS_COMMANDS: [&str; 3] = ["set_setting", "get_settings_changes", "sub_window_loaded"];
 
 /// The tool of the action Sync Virtual Branches of the app file
 const SYNC_TOOL: &str = "sync";

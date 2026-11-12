@@ -102,6 +102,28 @@ test.describe("Branch Deck in the IDE", () => {
     await expect(settings.getByTestId("ide-app")).toHaveCount(0)
   })
 
+  test("the selector of the main view lists the Git roots of the project, and the root picked shows again at the next start of the project", async ({ page, repo }) => {
+    const other = new TestRepositoryBuilder().useTemplate("simple")
+    await other.init()
+    try {
+      const nameOf = (path: string) => path.split("/").at(-1)!
+      const roots = [repo.path, other.path]
+      let main = (await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path, roots })).frame("main:1")
+      const selector = () => main.getByRole("combobox")
+      await expect(selector()).toContainText(nameOf(repo.path))
+      await selector().click()
+      await expect(main.getByRole("option")).toHaveText([new RegExp(nameOf(repo.path)), new RegExp(nameOf(other.path))])
+      await main.getByRole("option", { name: nameOf(other.path) }).click()
+      await expect(selector()).toContainText(nameOf(other.path))
+
+      // the next start of the project: brd remembered the root picked for these roots, whatever their order
+      main = (await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path, roots: [...roots].reverse() })).frame("main:1")
+      await expect(selector()).toContainText(nameOf(other.path))
+    } finally {
+      await other.cleanup()
+    }
+  })
+
   test("the page shows the theme of the IDE and follows its switch from Light to Dark without a reload", async ({ ide }) => {
     const main = ide.frame("main:1")
     const root = main.locator("html")

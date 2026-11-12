@@ -6,8 +6,10 @@
 //! dialog is offered: the roots of the project name the repositories.
 
 use crate::link::Link;
+use crate::projects::Projects;
 use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp};
 use app_api::app::windows::{OpenSubWindowParams, Shown};
+use app_api::events::SETTINGS_CHANGED_EVENT;
 use app_api::transport::{AgentCliHost, AppEvents, Desktop, DialogHost, Later, MenuHost, RestartHost, Updater, WindowHost, WindowId};
 use app_settings::windows::MAIN_WINDOW;
 use domain_types::error::ApiError;
@@ -90,21 +92,34 @@ impl Instances {
   }
 }
 
-/// The events of the app as `x-air-app/event`: to every view, or to the instance of a window
+/// The events of the app as `x-air-app/event`: to every view, or to the instance of a window; a change of the recent
+/// projects as the views see them (`Projects::seen_change`)
 pub struct McpEvents {
   pub link: Arc<Link>,
   pub instances: Arc<Instances>,
+  pub projects: Arc<Projects>,
+}
+
+impl McpEvents {
+  fn seen(&self, event: &str, mut payload: Value) -> Value {
+    if event == SETTINGS_CHANGED_EVENT {
+      self.projects.seen_change(&mut payload);
+    }
+    payload
+  }
 }
 
 impl AppEvents for McpEvents {
   fn emit(&self, event: &str, payload: Value) {
-    self.link.notify("x-air-app/event", json!({ "event": event, "payload": payload }));
+    self.link.notify("x-air-app/event", json!({ "event": event, "payload": self.seen(event, payload) }));
   }
 
   fn emit_to(&self, window: &WindowId, event: &str, payload: Value) {
     // a window that is not open hears nothing, as in Tauri
     if let Some(instance) = self.instances.instance_of(window.as_str()) {
-      self.link.notify("x-air-app/event", json!({ "instance": instance, "event": event, "payload": payload }));
+      self
+        .link
+        .notify("x-air-app/event", json!({ "instance": instance, "event": event, "payload": self.seen(event, payload) }));
     }
   }
 }

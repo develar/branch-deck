@@ -2,7 +2,7 @@
 //! changes; the keys only the main window keeps (`MAIN_ONLY_KEYS`) reach no sub-window. One rule for the app
 //! (`src-tauri/src/settings.rs`) and the E2E server
 
-use crate::file::{JOURNAL_PATHS_KEY, LINKED_PULL_REQUESTS_KEY, REPOSITORY_STATE_KEY};
+use crate::file::{IDE_ROOT_PICKS_KEY, JOURNAL_PATHS_KEY, LINKED_PULL_REQUESTS_KEY, REPOSITORY_STATE_KEY};
 use crate::service::SettingsService;
 use domain_types::settings::SettingsChange;
 use serde_json::Value;
@@ -12,9 +12,10 @@ pub const MAIN_WINDOW: &str = "main";
 
 /// The keys only the main window reads and writes: the history of the robots (`src/stores/robot-history.ts`) and what
 /// the syncs record of each repository (`repositoryState`, `src/stores/settings/repositoryState.ts`), which changes with
-/// every sync; and the links of Reviews and the journals of the projects (`journalPaths`), which only Rust reads and
-/// writes (Activity reads the journals through `read_activity`)
-pub const MAIN_ONLY_KEYS: &[&str] = &["robotHistory", REPOSITORY_STATE_KEY, LINKED_PULL_REQUESTS_KEY, JOURNAL_PATHS_KEY];
+/// every sync; and the links of Reviews, the journals of the projects (`journalPaths`) and the roots the main view of
+/// an IDE showed last (`ideRootPicks`), which only Rust reads and writes (Activity reads the journals through
+/// `read_activity`)
+pub const MAIN_ONLY_KEYS: &[&str] = &["robotHistory", REPOSITORY_STATE_KEY, LINKED_PULL_REQUESTS_KEY, JOURNAL_PATHS_KEY, IDE_ROOT_PICKS_KEY];
 
 /// Whether only the main window gets the key `key`
 #[must_use]
