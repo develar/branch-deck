@@ -6,7 +6,9 @@
 //! one relief keeps the minimum free space (`lease_pool::host_slots::keep_free`: below `branchdeck.leaseMinFree` the
 //! steps of a get there, the trim of every pool of the host among them), on a thread of its own and once per volume: the
 //! repositories of a host share one. A failed fill waits 1, 5, then 15 minutes before the next one, a relief that leaves
-//! a volume below its minimum 15 minutes.
+//! a volume below its minimum 15 minutes. Before the relief of a repository, the same thread applies the clean rules
+//! of each host slot that waited idle `branchdeck.hostSlotIdleClean` (6 hours by default) since its last run
+//! (`lease_pool::host_slots::clean_idle_slots`), so a slot keeps its caches warm for a session's runs, not for days.
 //! The repositories start from the
 //! repository list and the runs on disk, so a restart of `serve` keeps them. A change of the outcome of the git is one
 //! line of the log. With `tuning::keeper_rounds` each round is a line too, with what it did about each fill and the
@@ -18,7 +20,7 @@ use crate::repo::Repository;
 use crate::run::Runs;
 use crate::{cleanup, run_git, tuning};
 use lease_pool::host_runs::reclaim_all;
-use lease_pool::host_slots::{fill, keep_free};
+use lease_pool::host_slots::{clean_idle_slots, fill, keep_free};
 use lease_pool::lease::{ReliefRound, Relieved};
 use lease_pool::lease_clean::describe_size;
 use std::collections::{BTreeSet, HashMap};
@@ -227,6 +229,18 @@ fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) -> Turn {
     let mut round = ReliefRound::default();
     let mut low = false;
     for repo in repos {
+      let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
+      match clean_idle_slots(&repo.git, &repo.params(), now_ms) {
+        Ok(cleaned) => {
+          for target in cleaned {
+            let freed: u64 = target.cleaned.iter().map(|rule| rule.freed_bytes).sum();
+            log(&format!("cleaned the host slot {} idle since its last run: {}", target.path, describe_size(freed)));
+          }
+        }
+        Err(error) => log(&format!("cannot clean the idle host slots of {}: {error:#}", repo.path.display())),
+      }
       match keep_free(&repo.git, &repo.params(), &mut round) {
         Ok(None) => {}
         Ok(Some(relieved)) => {

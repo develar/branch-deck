@@ -13,7 +13,7 @@ use bd_cli::fixture_test::{assert_error, canonical, git, gone_process};
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
   Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout,
-  clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, relieve_host_slots, set_limit, shrink, snapshot_run,
+  clean_idle_slots, clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, relieve_host_slots, set_limit, shrink, snapshot_run,
 };
 use lease_pool::lease::{LeaseState, Pool, ReliefRound, canonical_path};
 use lease_pool::lease_clean::CleanOverrides;
@@ -552,6 +552,47 @@ fn a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs() {
   assert!(!Path::new(&path).join("out/cache").exists());
   let (exit_code, refused) = fixture.run(&["lease", "clean", "--host", "--free"]);
   assert_error(&refused, exit_code, (2, "invalid_arguments"));
+}
+
+/// The keeper applies the clean rules of a host slot that waited idle `branchdeck.hostSlotIdleClean` since its last run
+/// (6 hours without it): not sooner, never with `0`, and once: a slot cleaned after its last run waits for the next one
+#[test_log::test]
+fn an_idle_host_slot_is_cleaned_once_it_waited_after_its_last_run() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  // no minimum free space of the host's own config makes a give-back clean the slot first
+  git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "0"]);
+  let hour = 3_600_000;
+  let run = |name: &str| {
+    let slot = lent(lend_to(&params, name, None));
+    let cache = Path::new(&slot.path).join("out/cache");
+    std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+    std::fs::write(&cache, "x\n").unwrap();
+    give_back(&context.git, &params, 1, name).unwrap();
+    (cache, table(fixture).slots[0].returned.expect("a give-back records when"))
+  };
+
+  let (cache, returned) = run("run-1");
+  assert!(clean_idle_slots(&context.git, &params, returned + 5 * hour).unwrap().is_empty(), "idle less than 6 hours");
+  git(&fixture.repo, &["config", "branchdeck.hostSlotIdleClean", "0"]);
+  assert!(clean_idle_slots(&context.git, &params, returned + 7 * hour).unwrap().is_empty(), "`0`: never");
+  assert!(cache.exists());
+  git(&fixture.repo, &["config", "--unset", "branchdeck.hostSlotIdleClean"]);
+  let cleaned = clean_idle_slots(&context.git, &params, returned + 6 * hour).unwrap();
+  assert_eq!(cleaned.len(), 1, "idle 6 hours");
+  assert!(!cache.exists());
+  std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+  std::fs::write(&cache, "x\n").unwrap();
+  assert!(
+    clean_idle_slots(&context.git, &params, returned + 12 * hour).unwrap().is_empty(),
+    "cleaned after its last run"
+  );
+  assert!(cache.exists());
+
+  git(&fixture.repo, &["config", "branchdeck.hostSlotIdleClean", "1h"]);
+  let (cache, returned) = run("run-2");
+  assert_eq!(clean_idle_slots(&context.git, &params, returned + hour).unwrap().len(), 1, "idle the hour of the key");
+  assert!(!cache.exists());
 }
 
 /// Below `branchdeck.leaseMinFree` the keeper takes the steps of a get without one (`keep_free`): the trim deletes the

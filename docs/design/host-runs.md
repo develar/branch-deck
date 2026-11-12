@@ -72,8 +72,9 @@ slots per repository (`branchdeck.hostSlots`, 4 by default) as plain `ready` lea
   slot used longest ago, else it waits in a first-come queue. A waiting run gives back a slot that a gone run left
   itself, without waiting for the keeper.
 - The give-back at the end of each run stops the processes that the run left, keeps the Bazel servers of the slot,
-  and discards the changes. The ignored files stay as the warm cache. A process older than the lend quarantines the
-  slot.
+  and discards the changes. The ignored files stay as the warm cache until the slot has waited idle
+  `branchdeck.hostSlotIdleClean` (6 hours by default): then the keeper applies the repository's clean rules. A process
+  older than the lend quarantines the slot.
 - The keeper fills, cleans and shrinks the slots. Nothing on the client keeps or returns a slot.
 
 The lend table, the give-back, the clean and the shrink are in "Host slots" of

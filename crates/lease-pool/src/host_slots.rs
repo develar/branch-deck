@@ -28,7 +28,9 @@ use crate::lease::{
   BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, ReliefRound, Relieved, ServerStop, canonical_path,
   get_host_slot, move_reused_slot, relieve_core, return_host_slot, slot_servers, stop_servers,
 };
-use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, ParsedRule, TrackedPaths, Trash, apply_clean_rules, apply_tracked_rules, read_clean_rules, tracked_by_rules};
+use crate::lease_clean::{
+  CleanMode, CleanOverrides, Cleaned, ParsedRule, TrackedPaths, Trash, apply_clean_rules, apply_tracked_rules, parse_age, read_clean_rules, tracked_by_rules,
+};
 use crate::output_bases::OutputBase;
 use crate::shrink::DEEP;
 use crate::state_file::StateFile;
@@ -60,6 +62,9 @@ pub const DEFAULT_HOST_SLOTS: u32 = 4;
 const CLEAN_AFTER_RUNS: u32 = 50;
 /// … or this long after its last clean
 const CLEAN_AFTER: Duration = Duration::from_hours(7 * 24);
+/// Without `branchdeck.hostSlotIdleClean`, how long a host slot waits idle after its last run before the keeper applies
+/// its clean rules (`clean_idle_slots`): the runs of one session in a row find their caches warm, a night does not
+const IDLE_CLEAN_AFTER: Duration = Duration::from_hours(6);
 /// How long a give-back waits for the processes of the run to exit on SIGTERM, before SIGKILL
 const STOP_WAIT: Duration = Duration::from_secs(10);
 /// How long it waits for them after SIGKILL
@@ -124,6 +129,11 @@ pub struct HostSlot {
   /// When it was last cleaned (or filled), in Unix seconds
   #[serde(default)]
   pub cleaned_at: u64,
+  /// When its last run gave it back, in Unix milliseconds, until a clean (`clean_core`): a slot that waited idle
+  /// `branchdeck.hostSlotIdleClean` since is cleaned by the keeper (`clean_idle_slots`), and a clean after the run leaves
+  /// none to wait for
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub returned: Option<u64>,
   /// One more each time something removes files of the slot: a give-back that discards changes, a clean. What an agent
   /// made in the slot (the outputs of its prepare steps) holds only within one generation, and the table moves it before
   /// the removal, so no next run and no retry after a crash sees a stale one
@@ -1186,6 +1196,7 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
   set_state(params, n, mine, |slot| {
     slot.state = HostState::Idle;
     slot.runs_since_clean = slot.runs_since_clean.saturating_add(1);
+    slot.returned = Some(now_ms());
   })?;
   debug!(slot = %path, "a give-back left the host slot idle");
   let cleaned = match due.as_ref().map(CleanDue::is_due) {
@@ -1408,6 +1419,7 @@ fn clean_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
     if succeeded {
       slot.runs_since_clean = 0;
       slot.cleaned_at = now_secs();
+      slot.returned = None;
     }
   });
   // nothing went into the trash when the rules could not be read
@@ -1513,6 +1525,7 @@ pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, pro
         used: None,
         runs_since_clean: 0,
         cleaned_at: 0,
+        returned: None,
         generation: 0,
         affinity: None,
         state: HostState::Filling(me.clone()),
@@ -1573,6 +1586,51 @@ pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>
   let config = lease_config(git_executor, &params.repository.top_level)?;
   let min_free = config_size("branchdeck.leaseMinFree", config.min_free.as_ref())?.unwrap_or(0);
   relieve_host_slots(git_executor, params, relieved, min_free, &available_bytes)
+}
+
+/// The clean rules of each idle host slot of `params` that waited `branchdeck.hostSlotIdleClean` (6 hours without it,
+/// `0` never) since its last run gave it back at `now_ms`, with no clean after that run: the keeper's, once a tick. The
+/// runs of one session in a row find the slot's caches warm (an A/B's base index, a suite's homes), and a slot that
+/// no run took since does not keep them for days. A slot never lent, one with a process of a run in it, and one that is
+/// not idle stay as they are; the clean of a slot is `clean_core`'s, as `brd lease clean --host` cleans it. While a
+/// live process upgrades git it runs no git and cleans nothing: the tick after the upgrade does
+pub fn clean_idle_slots(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, now_ms: u64) -> Result<Vec<CleanTarget>> {
+  let table = params.table().read::<HostSlots>()?;
+  if refuse_while_upgrading(&table).is_err() {
+    return Ok(Vec::new());
+  }
+  // `returned` is set by a give-back and taken by a clean: a slot with one ran since its last clean
+  let idle_for = |slot: &HostSlot| slot.returned.map(|returned| Duration::from_millis(now_ms.saturating_sub(returned)));
+  let candidates: Vec<&HostSlot> = table
+    .slots
+    .iter()
+    .filter(|slot| slot.state == HostState::Idle && !slot.path.is_empty() && slot.returned.is_some())
+    .collect();
+  if candidates.is_empty() {
+    return Ok(Vec::new());
+  }
+  let config = lease_config(git_executor, &params.repository.top_level)?;
+  let after = match config.host_slot_idle_clean.as_deref() {
+    Some("0") => Duration::ZERO,
+    Some(text) => parse_age(text).map_err(|error| anyhow::anyhow!("branchdeck.hostSlotIdleClean: {error:#}"))?,
+    None => IDLE_CLEAN_AFTER,
+  };
+  if after.is_zero() {
+    return Ok(Vec::new());
+  }
+  let scan = ProcessScan::scan();
+  let mut cleaned = Vec::new();
+  for slot in candidates.into_iter().filter(|slot| idle_for(slot).is_some_and(|idle| idle >= after)) {
+    if !workers_inside(&scan, &slot.path).is_empty() {
+      continue;
+    }
+    match clean_core(git_executor, params, slot.n, CleanOverrides::default(), Take::Idle) {
+      Ok(target) => cleaned.push(target),
+      // a run that took it meanwhile, or rules that cannot be read: the next tick asks again
+      Err(error) => debug!(slot = %slot.path, error = %format!("{error:#}"), "cannot clean the idle host slot"),
+    }
+  }
+  Ok(cleaned)
 }
 
 /// What the keeper freed in one idle host slot below the minimum free space (`relieve_host_slots`)

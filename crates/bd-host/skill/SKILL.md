@@ -125,7 +125,8 @@ command that follows the run.
 The host keeps a fixed set of warm slots per repository (`branchdeck.hostSlots` of its git config, 4 by default). Each
 run borrows one for that run only. A run gets the slot that its affinity used last, else the one used longest ago,
 else it waits in a queue with one line a minute. After an hour it refuses with `slot_timeout`. At the end of each run
-the slot comes back: the processes of the run stop, and its changes go. The ignored files stay as the warm cache. So
+the slot comes back: the processes of the run stop, and its changes go. The ignored files stay as the warm cache, until
+the slot has been idle 6 hours (`branchdeck.hostSlotIdleClean`): then the keeper applies the clean rules. So
 nothing keeps or returns a slot by hand. The agent does the lend and the git of the host in process, so the host needs
 no `brd` binary.
 

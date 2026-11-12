@@ -2553,6 +2553,13 @@ start. The give-back runs off the client's path:
    while the slot is `giving_back`, so an upgrade of git waits for it (`tracked_by_rules`); the walk of the sizes, which
    runs no git, comes once the slot is idle (`apply_tracked_rules`), so the next run does not wait for it. The clean
    takes the slot only while it is still idle, and it leaves the slot idle before it deletes its trash.
+5. The give-back records when it left the slot idle (`returned`), which a clean takes away. A slot that no run takes again is never given back
+   again, so a give-back alone never cleans it: on the Studio on 2026-11-12 four host slots of accio held 20 to 50 GB
+   each of `.bench` with 350 GB free. The keeper applies the clean rules of a slot that waited idle
+   `branchdeck.hostSlotIdleClean` since its last run, 6 hours without it, when no clean came after that run
+   (`host_slots::clean_idle_slots`, on the relief's thread before `keep_free`). The runs of one session in a row find
+   the caches warm (the base index of an A/B of one affinity), a night does not; `0` keeps them until a give-back
+   finds the rules due.
 
 The give-back cleans one slot at a time, and only the slot of a run that just ended. A host slot is a lease, so the
 steps a get takes below the minimum free space (the trim, the shrink, the eviction) never take one, and an idle slot

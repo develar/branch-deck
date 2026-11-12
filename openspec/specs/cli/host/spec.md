@@ -1590,7 +1590,8 @@ after the command the patch from it (`changes_run`).
 
 The keeper MUST wake once a minute and at each `Start` of a repository, and run `ensure_host_git`, `reclaim`,
 `reclaim_refs` (`lease_pool::host_runs::reclaim_all`) and `fill` in process, one repository at a time, then one
-relief (`keep_free`) over the repositories.
+relief (`keep_free`) over the repositories, each repository's preceded by the clean of its host slots idle since their
+last run (`clean_idle_slots`).
 
 #### Scenario: A round of the keeper
 - **WHEN** a minute passed, or a `Start` of a repository came
