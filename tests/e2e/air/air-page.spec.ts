@@ -2,6 +2,7 @@
 import { test as base } from "@playwright/test"
 import { IDE_THEMES, openFakeIde } from "../air-host/fake-host"
 import type { FakeIde } from "../air-host/fake-host"
+import type { HostContextTheme } from "../air-host/host-page"
 import { expect } from "../fixtures/base-test"
 import { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed } from "../helpers/wait-helpers"
@@ -128,14 +129,21 @@ test.describe("Branch Deck in the IDE", () => {
     const main = ide.frame("main:1")
     const root = main.locator("html")
     const token = (name: string) => root.evaluate((element, it) => getComputedStyle(element).getPropertyValue(it).trim().toLowerCase(), name)
+    const variable = (theme: HostContextTheme, name: string) => theme.styles.variables[name]!.toLowerCase()
     await expect(root).toHaveAttribute("data-theme", "light")
-    await expect.poll(() => token("--background")).toBe(IDE_THEMES.light.styles.variables["--color-background-primary"]!.toLowerCase())
+    // the canvas is the background of the place, the cards the raised surface of the IDE
+    await expect.poll(() => token("--canvas")).toBe(variable(IDE_THEMES.light, "--color-background-primary"))
+    await expect.poll(() => token("--card")).toBe(variable(IDE_THEMES.light, "--color-background-secondary"))
     // a mark of this document: a reload would lose it
     await root.evaluate(element => element.setAttribute("data-e2e-document", "first"))
 
     await ide.setTheme(IDE_THEMES.dark)
     await expect(root).toHaveAttribute("data-theme", "dark")
-    await expect.poll(() => token("--background")).toBe(IDE_THEMES.dark.styles.variables["--color-background-primary"]!.toLowerCase())
+    await expect.poll(() => token("--canvas")).toBe(variable(IDE_THEMES.dark, "--color-background-primary"))
+    await expect.poll(() => token("--card")).toBe(variable(IDE_THEMES.dark, "--color-background-secondary"))
+    // in the dark theme too the canvas is darker than the cards on it
+    const lightness = (hex: string) => [1, 3, 5].reduce((sum, at) => sum + Number.parseInt(hex.slice(at, at + 2), 16), 0)
+    expect(lightness(await token("--canvas"))).toBeLessThan(lightness(await token("--card")))
     await expect(root).toHaveAttribute("data-e2e-document", "first")
   })
 })

@@ -22,14 +22,16 @@ export const HOST_VARIABLE_PREFIX = "--air-host-"
 
 /** The token of the page, the variable of the host it reads */
 const TOKENS: readonly (readonly [string, string])[] = [
-  ["--background", "--color-background-primary"],
+  // the canvas is the background of the place of the view (the tool window, the editor tab), so the page is one surface
+  // with the place; the islands of the page stand out on it as the raised surface of the IDE, its second background,
+  // which is lighter than the first in the light and in the dark theme: the canvas is darker than the cards in both
+  ["--canvas", "--color-background-primary"],
+  ["--background", "--color-background-secondary"],
   ["--foreground", "--color-text-primary"],
-  ["--card", "--color-background-primary"],
+  ["--card", "--color-background-secondary"],
   ["--card-foreground", "--color-text-primary"],
   ["--popover", "--color-background-secondary"],
   ["--popover-foreground", "--color-text-primary"],
-  // the canvas is the frame behind the islands: the IDE's second surface
-  ["--canvas", "--color-background-secondary"],
   ["--primary", "--air-color-accent"],
   ["--primary-foreground", "--air-color-accent-foreground"],
   ["--muted-foreground", "--color-text-secondary"],

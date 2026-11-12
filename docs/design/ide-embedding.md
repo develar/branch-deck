@@ -205,8 +205,12 @@ sequenceDiagram
     snapshot then comes from `brd mcp`.
   - `src/platform/air/theme.ts`: each variable of the host (`styles.variables`, `com.jetbrains.air/variables`) is set on
     the root as `--air-host-<name>`, and the semantic tokens (`--background`, `--card`, `--primary`, `--border`, …) read
-    them while the page shows the theme of the IDE; the query of the system's dark appearance answers the theme of the
-    IDE, so the setting System follows it, and `host-context-changed` switches it without a reload.
+    them while the page shows the theme of the IDE: the canvas the first background of the host (the background of the
+    place, so the page is one surface with its tool window), the cards, the popups and the fields the second, the
+    raised surface, lighter than the first in both themes, so the canvas is darker than the cards in the dark theme
+    too (the desktop app follows Islands Dark instead, whose window is lighter than its islands); the query of the
+    system's dark appearance answers the theme of the IDE, so the setting System follows it, and
+    `host-context-changed` switches it without a reload.
 - The install: the row IntelliJ IDEA of Settings → Tools, after `brd` (`install_ide_app`, `remove_ide_app`, the status
   in `agent_cli_status`), runs `bd_cli::install::install_ide_app` (`crates/bd-cli/src/install.rs`): it writes
   `~/.air/apps/branch-deck.yaml` and the icons of the tool window in `~/.air/apps/icons/`, each file whole through a
