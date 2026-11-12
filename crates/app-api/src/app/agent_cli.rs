@@ -2,7 +2,8 @@
 //! (`install_agent_cli`, `brd install`), the `brd` command the copied prompts name (`agent_cli_command`) and the skills
 //! Settings → Agents shows (`agent_cli_status`). The install and the binary are the host's (`AgentCliHost`: the app's
 //! `bd_cli::install`, a fixed path in the e2e server); the rules of `brd workspace` where the install wrote none are the
-//! global git config's, read here.
+//! global git config's, read here. Beside it, Settings → Tools → IntelliJ IDEA writes the app file of an IDE with Air
+//! (`install_ide_app`) and Remove deletes it (`remove_ide_app`), again through the host.
 
 use crate::context::AppContext;
 use crate::operation::{operation, run_blocking};
@@ -55,13 +56,25 @@ pub struct AgentCliCommand {
   pub powershell: bool,
 }
 
-/// Whether the agent skill is installed (Settings → Agents)
+/// Whether the agent skill is installed (Settings → Agents), and Branch Deck in IntelliJ IDEA (Settings → Tools)
 #[derive(Debug, serde::Serialize, specta::Type)]
 pub struct AgentCliStatus {
   /// The command the skills name; `null` while no skill is installed
   pub bd: Option<String>,
   /// The skill files that exist
   pub skills: Vec<String>,
+  /// The app file of an IDE with Air (`install_ide_app`); `null` while there is none
+  pub ide_app: Option<IdeApp>,
+}
+
+/// The app file of an IDE with Air, `~/.air/apps/branch-deck.yaml` (docs/design/ide-embedding.md): the IDE starts
+/// Branch Deck as `brd mcp` for each project and shows it in a tool window
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+pub struct IdeApp {
+  /// Its path
+  pub file: String,
+  /// It starts this app, as an install writes it now; else another Branch Deck wrote it, and an install writes it anew
+  pub current: bool,
 }
 
 /// `brd install`: the `brd` command, the skills, and the rules of `brd workspace` as the global git config has them where
@@ -100,4 +113,20 @@ pub async fn agent_cli_command(ctx: &AppContext, repository_path: String) -> Res
 #[instrument(skip_all)]
 pub fn agent_cli_status(ctx: &AppContext, _call: &Call) -> AgentCliStatus {
   ctx.desktop.agent_cli.status()
+}
+
+/// Settings → Tools → IntelliJ IDEA: writes `~/.air/apps/branch-deck.yaml` for this app and its icons, which an IDE with
+/// Air shows at once; a file there is written anew
+#[instrument(skip_all)]
+pub async fn install_ide_app(ctx: &AppContext) -> Result<IdeApp, ApiError> {
+  let host = Arc::clone(&ctx.desktop.agent_cli);
+  run_blocking(move || host.install_ide_app()).await
+}
+
+/// Settings → Tools → IntelliJ IDEA, Remove: deletes the app file of the IDE and its icons; the IDE closes the views of
+/// Branch Deck
+#[instrument(skip_all)]
+pub async fn remove_ide_app(ctx: &AppContext) -> Result<(), ApiError> {
+  let host = Arc::clone(&ctx.desktop.agent_cli);
+  run_blocking(move || host.remove_ide_app()).await
 }

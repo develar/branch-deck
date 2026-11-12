@@ -54,3 +54,15 @@ export function useInstallAgentCli(): void {
     void installAgentCli()
   })
 }
+
+/**
+ * Settings → Tools → IntelliJ IDEA: writes the app file of an IDE with Air (`install_ide_app`), or with `remove` deletes it
+ * (`remove_ide_app`); the row shows the status read again, no toast
+ */
+export async function setIdeAppInstalled(install: boolean): Promise<void> {
+  const result = install ? await commands.installIdeApp() : await commands.removeIdeApp()
+  if (result.status === "error") {
+    notifyError(install ? "Cannot install Branch Deck in IntelliJ IDEA" : "Cannot remove Branch Deck from IntelliJ IDEA", result.error)
+  }
+  refreshAgentCliStatus()
+}

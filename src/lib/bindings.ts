@@ -362,6 +362,10 @@ export const commands = {
 	getUpdateStatus: () => typedError<UpdateInfo, ApiError>(__TAURI_INVOKE("get_update_status")),
 	installUpdate: () => typedError<null, ApiError>(__TAURI_INVOKE("install_update")),
 	installAgentCli: () => typedError<AgentCliInstall, ApiError>(__TAURI_INVOKE("install_agent_cli")),
+	/**  Settings → Tools → IntelliJ IDEA: writes `~/.air/apps/branch-deck.yaml`, with which an IDE with Air runs this app */
+	installIdeApp: () => typedError<IdeApp, ApiError>(__TAURI_INVOKE("install_ide_app")),
+	/**  Settings → Tools → IntelliJ IDEA, Remove: deletes the app file of the IDE */
+	removeIdeApp: () => typedError<null, ApiError>(__TAURI_INVOKE("remove_ide_app")),
 	/**
 	 *  The brd command of the prompts the app copies. Writes nothing and needs no install, so the brd of a prompt is always
 	 *  the version of the app that wrote it; an error when the app can't tell its binary (no `brd.exe` next to it)
@@ -611,12 +615,14 @@ export type AgentCliInstall = {
 	agents: AgentRules,
 };
 
-/**  Whether the agent skill is installed (Settings → Agents) */
+/**  Whether the agent skill is installed (Settings → Agents), and Branch Deck in IntelliJ IDEA (Settings → Tools) */
 export type AgentCliStatus = {
 	/**  The command the skills name; `null` while no skill is installed */
 	bd: string | null,
 	/**  The skill files that exist */
 	skills: string[],
+	/**  The app file of an IDE with Air (`install_ide_app`); `null` while there is none */
+	ide_app: IdeApp | null,
 };
 
 /**  The three rules of `brd workspace` (Settings → Agents) */
@@ -3765,6 +3771,17 @@ export type HourTime = {
 	/**  The median from start to merge, seconds */
 	median: number,
 	count: number,
+};
+
+/**
+ *  The app file of an IDE with Air, `~/.air/apps/branch-deck.yaml` (docs/design/ide-embedding.md): the IDE starts
+ *  Branch Deck as `brd mcp` for each project and shows it in a tool window
+ */
+export type IdeApp = {
+	/**  Its path */
+	file: string,
+	/**  It starts this app, as an install writes it now; else another Branch Deck wrote it, and an install writes it anew */
+	current: boolean,
 };
 
 /**  Confidence level for integration detection */

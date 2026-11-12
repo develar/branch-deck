@@ -11,8 +11,9 @@ import { CopyButton } from "@/components/shared/CopyButton"
 import { InstallAgentCliButton } from "@/components/shared/InstallAgentCliButton"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { useAgentCliStatus } from "@/hooks/useAgentCliStatus"
+import { setIdeAppInstalled } from "@/hooks/useInstallAgentCli"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
-import type { CliToolAction, CliToolServer, CliToolSkill, CliToolStatus } from "@/lib/bindings"
+import type { AgentCliStatus, CliToolAction, CliToolServer, CliToolSkill, CliToolStatus, IdeApp } from "@/lib/bindings"
 import {
   CLI_TOOL_PURPOSE,
   cliToolActionLabel,
@@ -58,9 +59,12 @@ export function ToolsPage({ openCount, server }: { openCount: number; server: st
   }, [])
   useWindowFocus(() => void refreshCliTools())
 
+  const agentCli = useAgentCliStatus(openCount)
+
   return (
     <SettingsSection title="Command-line tools" description="Agents and Branch Deck run them as you would; each keeps its own sign-in, its skill teaches the agents to use it">
-      <AgentCliRow openCount={openCount} homeDir={homeDir} />
+      <AgentCliRow status={agentCli} homeDir={homeDir} />
+      {agentCli !== null && <IdeAppRow ideApp={agentCli.ide_app} homeDir={homeDir} />}
       {readError !== null && <ReadFailure title="Cannot read the tools" message={readError} testId="cli-tools-error" onRetry={retryCliTools} />}
       {statuses === null
         ? readError === null && <LoadingLine>Reading the tools…</LoadingLine>
@@ -71,11 +75,10 @@ export function ToolsPage({ openCount, server }: { openCount: number; server: st
 
 /**
  * `brd`, the agent CLI of Branch Deck (openspec/specs/repository/settings/spec.md#tools): whether its skill is installed
- * (`agent_cli_status`, asked on each open and focus) with the path of brd to copy, else Install Agent CLI, the install
+ * (`agent_cli_status`, asked by the page on each open and focus) with the path of brd to copy, else Install Agent CLI, the install
  * of Help → Install Agent CLI…, whose toast has no action here. The rules agents follow are on Agents
  */
-function AgentCliRow({ openCount, homeDir }: { openCount: number; homeDir: string }) {
-  const status = useAgentCliStatus(openCount)
+function AgentCliRow({ status, homeDir }: { status: AgentCliStatus | null; homeDir: string }) {
   const nameId = useId()
   const brd = status?.bd ?? null
   return (
@@ -99,6 +102,48 @@ function AgentCliRow({ openCount, homeDir }: { openCount: number; homeDir: strin
           {brd === null ? "The agent skill is not installed" : `Agent skill: ${status.skills.map(it => tildePath(it, homeDir)).join(", ")}`}
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * Branch Deck in IntelliJ IDEA (openspec/specs/repository/ide-embedding/spec.md#install-settings-tools-installs-branch-deck-in-intellij-idea):
+ * the app file of an IDE with Air (`agent_cli_status`), with Remove, else Install; a file that another Branch Deck wrote
+ * says so, and Install writes it for this one
+ */
+function IdeAppRow({ ideApp, homeDir }: { ideApp: IdeApp | null; homeDir: string }) {
+  const [running, setRunning] = useState(false)
+  const nameId = useId()
+  const run = (install: boolean) => {
+    setRunning(true)
+    void setIdeAppInstalled(install).finally(() => setRunning(false))
+  }
+  return (
+    <div role="group" aria-labelledby={nameId} className="flex flex-col gap-1.5" data-testid="ide-app">
+      <div className="flex min-h-6 items-center gap-2">
+        <span id={nameId} className="text-sm">
+          IntelliJ IDEA
+        </span>
+        {ideApp !== null && (
+          <span className="min-w-0 truncate text-xs text-muted-foreground" title={ideApp.file}>
+            {tildePath(ideApp.file, homeDir)}
+          </span>
+        )}
+        <span className="flex-1" />
+        {(ideApp === null || !ideApp.current) && (
+          <Button size="xs" variant="outline" disabled={running} aria-busy={running || undefined} onClick={() => run(true)}>
+            <DownloadIcon data-icon="inline-start" />
+            Install
+          </Button>
+        )}
+        {ideApp !== null && (
+          <Button variant="link" size="xs" className="px-1 text-muted-foreground" disabled={running} aria-label="Remove Branch Deck from IntelliJ IDEA" onClick={() => run(false)}>
+            Remove
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">IntelliJ IDEA with Air shows Branch Deck in a tool window of each Git project</p>
+      {ideApp !== null && !ideApp.current && <p className="text-xs text-warning">Another Branch Deck wrote the app file: Install makes IntelliJ IDEA run this one</p>}
     </div>
   )
 }

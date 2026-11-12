@@ -1,9 +1,10 @@
 //! The agent CLI of the app (`AgentCliHost` of app-api): `brd` is this app's own binary, installed by `brd install`
-//! (`bd_cli::install`, docs/contributing/agent-cli.md) and named by the prompts the app copies (`bd_core::bd_command`)
+//! (`bd_cli::install`, docs/contributing/agent-cli.md) and named by the prompts the app copies (`bd_core::bd_command`);
+//! the same binary is `brd mcp` of an IDE with Air, whose app file `bd_cli::install::install_ide_app` writes
 
-use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, AgentRules};
+use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, AgentRules, IdeApp};
 use app_api::transport::AgentCliHost;
-use bd_cli::install::{InstallArgs, install, install_status};
+use bd_cli::install::{InstallArgs, ide_app_status, install, install_ide_app, install_status, uninstall_ide_app};
 use bd_core::bd_command::bd_command;
 use bd_core::context::Environment;
 use domain_types::error::ApiError;
@@ -41,10 +42,24 @@ impl AgentCliHost for AppAgentCli {
   }
 
   fn status(&self) -> AgentCliStatus {
-    let status = install_status(&Environment::from_process());
+    let environment = Environment::from_process();
+    let status = install_status(&environment);
     AgentCliStatus {
       bd: status.bd,
       skills: status.skills,
+      ide_app: ide_app_status(&environment).map(|app| IdeApp {
+        file: app.file,
+        current: app.current,
+      }),
     }
+  }
+
+  fn install_ide_app(&self) -> Result<IdeApp, ApiError> {
+    let file = install_ide_app(&Environment::from_process()).map_err(|e| ApiError::new(e.code, e.message))?;
+    Ok(IdeApp { file, current: true })
+  }
+
+  fn remove_ide_app(&self) -> Result<(), ApiError> {
+    uninstall_ide_app(&Environment::from_process()).map(drop).map_err(|e| ApiError::new(e.code, e.message))
   }
 }

@@ -604,6 +604,7 @@ dependencies = [
  "review-plan",
  "schemars 1.2.3",
  "serde",
+ "serde-saphyr",
  "serde_json",
  "sha2 0.11.1",
  "sync-core",

@@ -6,7 +6,7 @@
 //! dialog is offered: the roots of the project name the repositories.
 
 use crate::link::Link;
-use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus};
+use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp};
 use app_api::app::windows::{OpenSubWindowParams, Shown};
 use app_api::transport::{AgentCliHost, AppEvents, Desktop, DialogHost, Later, MenuHost, RestartHost, Updater, WindowHost, WindowId};
 use app_settings::windows::MAIN_WINDOW;
@@ -272,7 +272,7 @@ fn up_to_date() -> UpdateInfo {
   }
 }
 
-/// The agent CLI is installed from the desktop app
+/// The agent CLI and the app file of the IDE are installed from the desktop app
 impl AgentCliHost for Nothing {
   fn install(&self) -> Result<AgentCliInstalled, ApiError> {
     Err(ApiError::internal(IN_THE_IDE))
@@ -283,7 +283,19 @@ impl AgentCliHost for Nothing {
   }
 
   fn status(&self) -> AgentCliStatus {
-    AgentCliStatus { bd: None, skills: Vec::new() }
+    AgentCliStatus {
+      bd: None,
+      skills: Vec::new(),
+      ide_app: None,
+    }
+  }
+
+  fn install_ide_app(&self) -> Result<IdeApp, ApiError> {
+    Err(ApiError::internal(IN_THE_IDE))
+  }
+
+  fn remove_ide_app(&self) -> Result<(), ApiError> {
+    Err(ApiError::internal(IN_THE_IDE))
   }
 }
 

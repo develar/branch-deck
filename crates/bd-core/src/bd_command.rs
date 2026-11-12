@@ -75,10 +75,15 @@ pub fn bd_command(environment: &Environment) -> Result<BdCommand, CliError> {
       return Ok(BdCommand { program: link, subcommand: None });
     }
   }
-  // the app binary needs `cli`; a binary named `brd` (a cargo build, `brd.exe` on Windows) is the CLI itself
-  let is_cli = target.file_stem().is_some_and(|stem| stem == CLI_NAME);
-  let subcommand = (!cfg!(windows) && !is_cli).then_some("cli");
+  let subcommand = cli_subcommand(&target);
   Ok(BdCommand { program: target, subcommand })
+}
+
+/// `cli` when `target`, the binary of `app_binary`, is the app binary, which needs it to run the CLI; `None` for a binary
+/// named `brd` (a cargo build, `brd.exe` on Windows), which is the CLI itself
+pub fn cli_subcommand(target: &Path) -> Option<&'static str> {
+  let is_cli = target.file_stem().is_some_and(|stem| stem == CLI_NAME);
+  (!cfg!(windows) && !is_cli).then_some("cli")
 }
 
 /// The command `brd help skill` names, quoted for a shell: `bd_command`, or `brd` when the binary is unknown

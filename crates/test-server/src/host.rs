@@ -13,7 +13,7 @@ use crate::invoke::event_stream;
 use crate::remote_host::{HeldAnswer, PAGE_CLOCK_START, RemoteHost};
 use crate::state::AppState;
 use crate::updater::NO_UPDATER_MESSAGE;
-use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus};
+use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp};
 use app_api::app::windows::{BuiltPage, OpenSubWindowParams, Shown, SubWindowOpen, show_when_settled};
 use app_api::transport::{AgentCliHost, AppEvents, AppHost, DialogHost, Later, MenuHost, RestartHost, WindowHost, WindowId};
 use app_settings::service::SettingsService;
@@ -431,12 +431,16 @@ pub const AGENT_CLI: &str = "/Users/test/.local/bin/brd";
 /// The skill files the fake install names
 const AGENT_SKILLS: [&str; 2] = ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"];
 
+/// The app file of the IDE the fake install names
+const IDE_APP_FILE: &str = "/Users/test/.air/apps/branch-deck.yaml";
+
 /// The agent CLI of a test repository: `brd install` without its files, which leaves the rules of `brd workspace` to the
 /// global config of the repository, as the app reads the developer's; the command of a POSIX shell, with the repository
-/// path as it is (test paths are plain)
+/// path as it is (test paths are plain). The app file of the IDE is a flag too: installed or not
 #[derive(Default)]
 pub struct TestAgentCli {
   installed: AtomicBool,
+  ide_app: AtomicBool,
 }
 
 impl AgentCliHost for TestAgentCli {
@@ -457,16 +461,39 @@ impl AgentCliHost for TestAgentCli {
     })
   }
 
-  /// The skills once `install_agent_cli` ran, else none
+  /// The skills once `install_agent_cli` ran, else none; the app file of the IDE from `install_ide_app` to
+  /// `remove_ide_app`
   fn status(&self) -> AgentCliStatus {
+    let ide_app = self.ide_app.load(Ordering::SeqCst).then(|| IdeApp {
+      file: IDE_APP_FILE.to_owned(),
+      current: true,
+    });
     if self.installed.load(Ordering::SeqCst) {
       AgentCliStatus {
         bd: Some(AGENT_CLI.to_owned()),
         skills: AGENT_SKILLS.map(str::to_owned).to_vec(),
+        ide_app,
       }
     } else {
-      AgentCliStatus { bd: None, skills: Vec::new() }
+      AgentCliStatus {
+        bd: None,
+        skills: Vec::new(),
+        ide_app,
+      }
     }
+  }
+
+  fn install_ide_app(&self) -> Result<IdeApp, ApiError> {
+    self.ide_app.store(true, Ordering::SeqCst);
+    Ok(IdeApp {
+      file: IDE_APP_FILE.to_owned(),
+      current: true,
+    })
+  }
+
+  fn remove_ide_app(&self) -> Result<(), ApiError> {
+    self.ide_app.store(false, Ordering::SeqCst);
+    Ok(())
   }
 }
 

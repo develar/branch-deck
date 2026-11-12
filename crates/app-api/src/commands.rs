@@ -339,6 +339,12 @@ macro_rules! for_each_command {
 
       app(TheApp) json install_agent_cli() -> $crate::app::agent_cli::AgentCliInstall = $crate::app::agent_cli::install_agent_cli;
 
+      /// Settings → Tools → IntelliJ IDEA: writes `~/.air/apps/branch-deck.yaml`, with which an IDE with Air runs this app
+      app(TheApp) json install_ide_app() -> $crate::app::agent_cli::IdeApp = $crate::app::agent_cli::install_ide_app;
+
+      /// Settings → Tools → IntelliJ IDEA, Remove: deletes the app file of the IDE
+      app(TheApp) json remove_ide_app() -> () = $crate::app::agent_cli::remove_ide_app;
+
       /// The brd command of the prompts the app copies. Writes nothing and needs no install, so the brd of a prompt is always
       /// the version of the app that wrote it; an error when the app can't tell its binary (no `brd.exe` next to it)
       read json agent_cli_command(repository_path: String) -> $crate::app::agent_cli::AgentCliCommand = $crate::app::agent_cli::agent_cli_command;

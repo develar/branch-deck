@@ -73,6 +73,8 @@ github = { path = "../github", features = ["fake"] }
 # the plan of a commit shown alone, which the app reads and `bd` does not (`process_budget_test`)
 review-plan = { path = "../review-plan" }
 test-utils = { path = "../test-utils" }
+# the app file of the IDE read as the IDE reads it, beside the example of the contract (`install_test`)
+serde-saphyr = "2.1.1"
 pretty_assertions.workspace = true
 tempfile.workspace = true
 test-log.workspace = true

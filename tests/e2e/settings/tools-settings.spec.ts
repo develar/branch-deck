@@ -1,12 +1,30 @@
 // @spec openspec/specs/repository/cli-tools/spec.md
+// @spec openspec/specs/repository/ide-embedding/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { completeYouTrackSignIn, issueKeyLink, linkIssuesToYouTrack, openIssue, youTrackHost, youTrackUrlOf } from "../helpers/youtrack-helpers"
 
 test.describe("Settings → Tools", () => {
+  test("should install Branch Deck in IntelliJ IDEA beside brd, which then names its app file, and remove it", async ({ page, setupRepo }) => {
+    await setupRepo("simple", { prepopulateStore: true })
+    const window = await openSettingsWindow(page, { page: "tools" })
+    const row = window.getByTestId("ide-app")
+    await expect(row).toContainText("IntelliJ IDEA with Air shows Branch Deck in a tool window of each Git project")
+    await expect(row.getByRole("button", { name: "Remove Branch Deck from IntelliJ IDEA" })).toHaveCount(0)
+
+    // the backend writes the app file, and its status read again names it
+    await runAndWaitForAnswer(window, "install_ide_app", () => row.getByRole("button", { name: "Install" }).click())
+    await expect(row).toContainText(".air/apps/branch-deck.yaml")
+    await expect(row.getByRole("button", { name: "Install" })).toHaveCount(0)
+
+    await runAndWaitForAnswer(window, "remove_ide_app", () => row.getByRole("button", { name: "Remove Branch Deck from IntelliJ IDEA" }).click())
+    await expect(row.getByRole("button", { name: "Install" })).toBeVisible()
+    await expect(row).not.toContainText(".air/apps/branch-deck.yaml")
+  })
+
   test("should install a missing CLI through Homebrew with its agent skill, then show its version and its sign-in", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ brew: true, latest: { teamcity: "1.6.3" }, files: { "teamcity.skill": "1.4.0" } })

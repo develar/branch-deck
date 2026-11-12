@@ -183,6 +183,8 @@ export const APP_COMMAND_CALLERS = {
   check_for_updates: "src/hooks/useAutoUpdate.ts",
   install_update: "src/hooks/useAutoUpdate.ts",
   install_agent_cli: "src/hooks/useInstallAgentCli.ts",
+  install_ide_app: "src/hooks/useInstallAgentCli.ts",
+  remove_ide_app: "src/hooks/useInstallAgentCli.ts",
   trim_pools: "src/hooks/useTrimPools.ts",
   air_launch: "src/lib/air-launch.ts",
   stop_air_watch: "src/lib/air-launch.ts",

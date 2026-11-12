@@ -15,7 +15,7 @@ check of Auto-sync on Focus in the native menu, and `brd` the branch prefix of t
 `settings.json` needs one writer. Several writers race and overwrite each other; a write in place (truncate, then
 write) gives a reader a cut file; and a naive "write, then apply the change notification" loop echoes values back and
 rolls the state back to a stale value while several writes are in flight. Branch Deck in an IDE (`brd mcp`, the
-backend of its views in IntelliJ IDEA) is a second process with a backend of its own on the same app data directory, so
+backend of its views in IntelliJ IDEA, [IDE Embedding](ide-embedding.md)) is a second process with a backend of its own on the same app data directory, so
 the files have one writer per process, and neither may drop or miss what the other saved.
 
 ## Solution Overview
@@ -264,6 +264,7 @@ Optimizations:
 
 ## References
 
+- [IDE Embedding](ide-embedding.md): `brd mcp`, the second process on the app data directory
 - Types that cross a window or a process: `crates/domain-types/src/settings.rs` (`AppSettings`, `SettingsPatch`,
   `SettingsChange`, `GitBranchPrefix`, `ResolvedBranchPrefix`)
 - Writer: `crates/app-settings/src/service.rs`, `crates/app-settings/src/file.rs`, `crates/app-settings/src/windows.rs`,

@@ -167,7 +167,8 @@ publisher: choose More info → Run anyway.
   ([command palette](openspec/specs/repository/command-palette/spec.md)). Signed in to YouTrack, an issue key shows the issue on
   hover and marks it fixed once its work landed ([YouTrack](openspec/specs/repository/youtrack/spec.md)). Settings → Tools
   shows the skill of `brd`, and installs and updates the `teamcity` and `youtrack` CLIs your agents use, with their
-  agent skills ([tools](openspec/specs/repository/cli-tools/spec.md)).
+  agent skills ([tools](openspec/specs/repository/cli-tools/spec.md)). In IntelliJ IDEA with Air, Branch Deck can run as
+  a tool window of the IDE, installed from Settings → Tools ([Draft](openspec/specs/repository/ide-embedding/spec.md)).
   Disk Usage shows what the worktrees of your agents take on this Mac and on your build hosts, and trims them to their
   limit ([disk usage](openspec/specs/repository/disk-usage/spec.md)).
 

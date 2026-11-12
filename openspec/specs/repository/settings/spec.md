@@ -522,9 +522,9 @@ The tab of Accounts MUST have the dot of the setup while the app's YouTrack sign
 ### Requirement: Pages: Tools has `brd` and the CLIs
 
 Tools SHALL show first `brd`, whose skill coding agents read: its path with a copy button and the skill files, paths
-under the home directory as `~` (`agent_cli_status`, asked on each open of the window and when it gets the focus), or
-"The agent skill is not installed" with Install Agent CLI; then the `teamcity` and `youtrack` CLIs, their version,
-sign-ins and the action each needs ([Command-Line Tools](../cli-tools/spec.md)).
+under the home directory as `~` (`agent_cli_status`, asked on each open and focus), or "The agent skill is not
+installed" with Install Agent CLI; then IntelliJ IDEA ([IDE](../ide-embedding/spec.md)); then the `teamcity` and
+`youtrack` CLIs, their version, sign-ins and the action each needs ([Command-Line Tools](../cli-tools/spec.md)).
 
 #### Scenario: The agent skill is not installed
 - **GIVEN** the agent skill is not installed (`agent_cli_status`)
@@ -539,7 +539,7 @@ sign-ins and the action each needs ([Command-Line Tools](../cli-tools/spec.md)).
 
 #### Scenario: The CLIs
 - **WHEN** the user opens Tools
-- **THEN** after `brd` it shows the `teamcity` and `youtrack` CLIs, their version, sign-ins and the action each needs
+- **THEN** after `brd` and IntelliJ IDEA it shows the `teamcity` and `youtrack` CLIs, their version, sign-ins and the action each needs
 - **AND** the sign-ins of the CLIs are their own, not those of Accounts
 
 ### Requirement: Pages: Branches, Landing and Agents are the git config

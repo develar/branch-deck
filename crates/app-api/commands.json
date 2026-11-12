@@ -404,6 +404,16 @@
     "transport": "json"
   },
   {
+    "name": "install_ide_app",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "remove_ide_app",
+    "class": "app",
+    "transport": "json"
+  },
+  {
     "name": "agent_cli_command",
     "class": "read",
     "transport": "json"

@@ -1,16 +1,16 @@
 #[cfg(unix)]
 use crate::fixture_test::assert_covered;
+use crate::fixture_test::environment;
 #[cfg(unix)]
-use crate::fixture_test::{environment, run_json};
-use crate::install::refuse_temporary_location;
+use crate::fixture_test::run_json;
+use crate::install::{IDE_APPS_DIR, IdeAppStatus, ide_app_args, ide_app_status, ide_app_text, install_ide_app, refuse_temporary_location, uninstall_ide_app};
 #[cfg(unix)]
 use crate::install::{InstallStatus, SKILL_DIRS, SKILL_NAME, install_status};
-use bd_core::bd_command::app_binary_path;
 #[cfg(unix)]
 use bd_core::bd_command::{BdCommand, bd_command};
+use bd_core::bd_command::{app_binary, app_binary_path};
 use domain_types::error::ErrorCode;
 use pretty_assertions::assert_eq;
-#[cfg(unix)]
 use serde_json::{Value, json};
 use std::path::Path;
 #[cfg(unix)]
@@ -327,4 +327,84 @@ fn install_links_to_the_appimage() {
   let (exit_code, output) = run_json(&environment, &["install"]);
   assert_eq!((exit_code, &output["brd"]), (0, &json!(home.join(".local/bin/brd").to_str().unwrap())), "{output}");
   assert_eq!(std::fs::read_link(home.join(".local/bin/brd")).unwrap(), appimage);
+}
+
+/// The YAML of `text` as the IDE reads it: as JSON
+fn read_yaml(text: &str) -> Value {
+  serde_saphyr::from_str(text).unwrap()
+}
+
+#[test]
+fn the_ide_app_file_is_the_example_of_the_contract_with_the_command_of_this_binary() {
+  let example = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/design/ide-embedding/protocol/examples/branch-deck.yaml")).unwrap();
+  let mut expected = read_yaml(&example);
+  let command = "/Applications/BranchDeck.app/Contents/MacOS/branch-deck";
+  expected["server"]["command"] = command.into();
+  expected["server"]["args"] = json!(["cli", "mcp"]);
+  assert_eq!(read_yaml(&ide_app_text(Path::new(command), &["cli", "mcp"])), expected);
+
+  // a Windows path keeps its backslashes
+  let windows = r"C:\Program Files\Branch Deck\brd.exe";
+  let file = read_yaml(&ide_app_text(Path::new(windows), &["mcp"]));
+  assert_eq!((&file["server"]["command"], &file["server"]["args"]), (&windows.into(), &json!(["mcp"])));
+}
+
+#[test]
+fn the_ide_runs_brd_mcp_with_the_app_binary_and_mcp_with_brd() {
+  let app = if cfg!(windows) { vec!["mcp"] } else { vec!["cli", "mcp"] };
+  assert_eq!(ide_app_args(Path::new("/Applications/BranchDeck.app/Contents/MacOS/branch-deck")), app);
+  assert_eq!(ide_app_args(Path::new("/opt/branch-deck/brd")), ["mcp"]);
+}
+
+#[test]
+fn installs_the_ide_app_for_this_binary_and_removes_it() {
+  let home = tempfile::tempdir().unwrap();
+  let home = std::fs::canonicalize(home.path()).unwrap();
+  let app = home.join("BranchDeck/branch-deck");
+  std::fs::create_dir_all(app.parent().unwrap()).unwrap();
+  std::fs::write(&app, "app").unwrap();
+  // Windows runs `brd.exe` beside the app
+  std::fs::write(app.with_file_name("brd.exe"), "brd").unwrap();
+  let mut environment = environment(&home);
+  environment.home = Some(home.clone());
+  environment.executable = Some(app);
+  let target = app_binary(&environment).unwrap();
+  let apps = home.join(IDE_APPS_DIR);
+  let file = apps.join("branch-deck.yaml");
+  let icons = apps.join("icons");
+  assert_eq!(ide_app_status(&environment), None);
+
+  assert_eq!(install_ide_app(&environment).unwrap(), file.to_string_lossy());
+  let text = std::fs::read_to_string(&file).unwrap();
+  assert_eq!(text, ide_app_text(&target, &ide_app_args(&target)));
+  assert_eq!(read_yaml(&text)["server"]["command"], Value::from(target.to_string_lossy().into_owned()));
+  for icon in ["branch-deck.svg", "branch-deck_dark.svg"] {
+    assert!(std::fs::read_to_string(icons.join(icon)).unwrap().starts_with("<svg "), "{icon}");
+  }
+  let installed = IdeAppStatus {
+    file: file.to_string_lossy().into_owned(),
+    current: true,
+  };
+  assert_eq!(ide_app_status(&environment), Some(installed.clone()));
+
+  // the file of another Branch Deck: an install writes it anew
+  std::fs::write(&file, ide_app_text(Path::new("/old/branch-deck"), &["cli", "mcp"])).unwrap();
+  assert_eq!(
+    ide_app_status(&environment),
+    Some(IdeAppStatus {
+      current: false,
+      ..installed.clone()
+    })
+  );
+  install_ide_app(&environment).unwrap();
+  assert_eq!(ide_app_status(&environment), Some(installed));
+
+  // the icons of another app stay
+  std::fs::write(icons.join("other.svg"), "<svg/>").unwrap();
+  assert_eq!(uninstall_ide_app(&environment).unwrap(), Some(file.to_string_lossy().into_owned()));
+  assert!(!file.exists());
+  assert!(!icons.join("branch-deck.svg").exists() && !icons.join("branch-deck_dark.svg").exists());
+  assert!(icons.join("other.svg").exists());
+  assert_eq!(ide_app_status(&environment), None);
+  assert_eq!(uninstall_ide_app(&environment).unwrap(), None);
 }

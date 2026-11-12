@@ -8,7 +8,7 @@
 //! `auto_update.rs`, `agent_cli.rs`) and the e2e server records or answers from the fixtures of the test repository
 //! (`crates/test-server/src/host.rs`, `updater.rs`).
 
-use crate::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus};
+use crate::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp};
 use crate::app::disk::HostDisk;
 use crate::app::windows::{OpenSubWindowParams, Shown};
 use cli_tools::environment::ToolEnvironment;
@@ -282,6 +282,19 @@ pub trait AgentCliHost: Send + Sync {
   /// The app cannot tell its binary
   fn command(&self, repository_path: &str) -> Result<AgentCliCommand, ApiError>;
 
-  /// The skill files of `brd install` that exist, without writing anything
+  /// The skill files of `brd install` that exist and the app file of the IDE, without writing anything
   fn status(&self) -> AgentCliStatus;
+
+  /// Writes the app file of an IDE with Air for this app (`bd_cli::install::install_ide_app`). Blocking: call within
+  /// `run_blocking`
+  ///
+  /// # Errors
+  /// The app cannot tell its binary, or the write failed
+  fn install_ide_app(&self) -> Result<IdeApp, ApiError>;
+
+  /// Deletes the app file of the IDE. Blocking: call within `run_blocking`
+  ///
+  /// # Errors
+  /// The removal failed
+  fn remove_ide_app(&self) -> Result<(), ApiError>;
 }

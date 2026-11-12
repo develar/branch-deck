@@ -104,6 +104,8 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
         await routeCommand(window, "agent_cli_status", () => ({
           bd: "/Users/test/.local/bin/brd",
           skills: ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"],
+          // the app file of the IDE that another Branch Deck wrote: its line of the warning
+          ide_app: { file: "/Users/test/.air/apps/branch-deck.yaml", current: false },
         }))
       },
     },
@@ -178,6 +180,7 @@ async function expectTallestState(window: Page, name: string, scope: string): Pr
   }
   if (name === "Tools") {
     await expect(window.getByTestId("agent-skill")).toContainText("/Users/test/.local/bin/brd")
+    await expect(window.getByTestId("ide-app")).toContainText("Another Branch Deck wrote the app file")
     await expect(window.getByTestId("cli-tool-teamcity").getByTestId("cli-tool-server")).toHaveCount(2)
     await expect(window.getByTestId("cli-tool-youtrack").locator("pre")).toBeVisible()
   }

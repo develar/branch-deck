@@ -175,8 +175,15 @@ sequenceDiagram
     the root as `--air-host-<name>`, and the semantic tokens (`--background`, `--card`, `--primary`, `--border`, …) read
     them while the page shows the theme of the IDE; the query of the system's dark appearance answers the theme of the
     IDE, so the setting System follows it, and `host-context-changed` switches it without a reload.
-- The install: beside the agent CLI, "IntelliJ IDEA" writes `~/.air/apps/branch-deck.yaml` with `current_exe`
-  (`crates/bd-cli/src/install.rs`), and Remove deletes it.
+- The install: the row IntelliJ IDEA of Settings → Tools, after `brd` (`install_ide_app`, `remove_ide_app`, the status
+  in `agent_cli_status`), runs `bd_cli::install::install_ide_app` (`crates/bd-cli/src/install.rs`): it writes
+  `~/.air/apps/branch-deck.yaml` and the icons of the tool window in `~/.air/apps/icons/`, each file whole through a
+  rename, since the IDE reads the file at each change. The file is the example of the contract with the binary of the
+  app (`app_binary`, never a translocated one): the app binary with `cli mcp`, `brd` (`brd.exe` beside the app on
+  Windows) with `mcp`. Remove deletes the file and the two icons. The status reads the file and compares it with what an
+  install writes now, so a file another Branch Deck wrote (an app moved or a second copy) says so and Install writes it
+  for this one. `brd mcp` serves the Air build of the page built into it: each build of the app runs `pnpm build:air`
+  before cargo (`beforeBuildCommand` of `src-tauri/tauri*.conf.json`).
 
 ## Alternatives Considered
 
