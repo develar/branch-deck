@@ -830,6 +830,21 @@ led here, each measured on the same corpora:
   newly use: the verb comes from the declaration of the name. As kept, the groups and the names of all 739 ranges
   are those before; of the 497 concerns of this repository 211 add their name, 55 change its body, 27 remove it, 24
   change its form, 12 replace, 168 say nothing a title may say (idea-1: 183, 116, 36, 64, 3, 211 of 613).
+- Four edges for the recall (2026-11-12, `results/bd-v10-*`, the hidden values of one build of `--concern-edges`;
+  recall / purity LB95 / pair precision against the default, this repository, idea-1 by the commit of a line, Java):
+  a test that adds a use of a declaration whose body alone changed joins it: recall +1.1, +0.8, +1.2, pair precision
+  95.9 → 92.7, 77.8 → 73.0, Java 88.8 the same; any change that adds such a use: recall +1.7, +1.3, +2.1, pair
+  precision 92.8, 72.1, purity of idea-1 83.0 → 82.6, a group per file's; a hub of more than 6 uses joins the uses the
+  change adds: recall +0.1 to +0.4, pair precision of idea-1 −1.3; a weak bridge between two sides of two or more
+  nodes each cut: purity up on every corpus (idea-1 83.0 → 83.7, pair precision 77.8 → 85.8), recall −0.3 to −1.6,
+  and of its cuts 35 of 39 on this repository, 21 of 21 on tangled-ccs and 37 against 17 on idea-1 split one task, not
+  two: a smaller concern is purer, no truer. None is kept.
+- Where the recall goes (the same runs): of the pairs of one task the default leaves apart, 52.7% on Java are two
+  parts of one file both in `rest`, which the lab counted as two groups. The window shows `rest` as Other changes, a
+  part of a file under the row of its file: scored as it shows, its parts of one file one group, the recall is 75.8
+  on Java (a group per file 81.4, purity LB95 89.6 against 87.1), 73.8 on this repository (72.9, purity 90.9 against
+  89.6), 80.0 on tangled-ccs (80.8), and 76.0 on idea-1 by the commit of a line (77.8), whose purity falls to 79.5
+  (82.6): Other changes of one file there holds the lines of several commits.
 
 A range takes 0.13–0.19 s median for the whole plan (concerns 12.7 ms for 168 units). The false merges left are of
 three kinds: a concern (146 on idea-1), a mechanical slice that holds lines of two tasks (27), and a unit, one
