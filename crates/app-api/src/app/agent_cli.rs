@@ -10,6 +10,7 @@ use crate::operation::{operation, run_blocking};
 use crate::transport::Call;
 use domain_types::error::ApiError;
 use lease_pool::agent_workspace::agent_defaults;
+use std::path::Path;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -63,11 +64,34 @@ pub struct AgentCliStatus {
   pub bd: Option<String>,
   /// The skill files that exist
   pub skills: Vec<String>,
+  /// The skill directories of the agents that have the skill, e.g. `~/.claude/skills` of
+  /// `~/.claude/skills/branch-deck/SKILL.md`, each once, as the line of the skill names them
+  pub skill_dirs: Vec<String>,
   /// The app file of an IDE with Air (`install_ide_app`); `null` while there is none
   pub ide_app: Option<IdeApp>,
   /// This host installs `brd` and the app file of an IDE: false in an IDE (`brd mcp`), whose desktop app installs them,
   /// so the page offers no install there
   pub installable: bool,
+}
+
+impl AgentCliStatus {
+  /// The status of `skills`, with the directories of the agents they are in
+  pub fn new(bd: Option<String>, skills: Vec<String>, ide_app: Option<IdeApp>, installable: bool) -> Self {
+    let mut skill_dirs: Vec<String> = Vec::new();
+    for skill in &skills {
+      let dir = Path::new(skill).parent().and_then(Path::parent).map(|dir| dir.to_string_lossy().into_owned());
+      if let Some(dir) = dir.filter(|dir| !skill_dirs.contains(dir)) {
+        skill_dirs.push(dir);
+      }
+    }
+    Self {
+      bd,
+      skills,
+      skill_dirs,
+      ide_app,
+      installable,
+    }
+  }
 }
 
 /// The app file of an IDE with Air, `~/.air/apps/branch-deck.yaml` (docs/design/ide-embedding.md): the IDE starts

@@ -5,28 +5,28 @@
 //! `youtrack_status`: the user's tools in the app, the fakes of a test repository in the e2e server).
 
 use crate::context::AppContext;
-use crate::events::setup_changed;
+use crate::events::{cli_tools_running_changed, setup_changed};
 use crate::operation::{operation, run_blocking};
-use crate::transport::{Call, Sink};
+use crate::transport::{AppEvents, Call};
 use cli_tools::install::{ActionInput, ActionOutput, run_action};
 use cli_tools::kept_statuses::KeptStatuses;
 use cli_tools::setup::{SetupFacts, setup_entries};
 use cli_tools::status::{FoundTool, KnownFacts, find_statuses};
-use domain_types::cli_tools::{CliTool, CliToolAction, CliToolStatus};
-use domain_types::error::ApiError;
+use domain_types::cli_tools::{CliTool, CliToolAction, CliToolRunning, CliToolStatus, CliToolsRunning};
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::setup::{SetupEntry, SetupSkip};
 use domain_types::youtrack::YouTrackAuthStatus;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use sync_utils::single_flight::NextFlight;
-use tracing::{instrument, warn};
+use tracing::instrument;
 
 /// The tools of the app: the actions that run and the statuses of the read that started last
 #[derive(Default)]
 pub struct CliToolsState {
-  /// The actions running now, by tool: a cancel sets its flag
-  running: Mutex<HashMap<CliTool, Arc<AtomicBool>>>,
+  /// The actions running now, by tool, which every window shows (`cli_tools_running`, the event `cli-tools-running`)
+  running: Arc<Mutex<Running>>,
   /// The statuses of the read that started last, which the Setup dot takes without running the CLIs again
   statuses: KeptStatuses,
   /// The reads of the statuses: the windows that ask while one runs (the Setup dot of each, Settings → Tools) share the
@@ -40,8 +40,118 @@ impl CliToolsState {
     self.statuses.forget();
   }
 
-  fn running(&self) -> std::sync::MutexGuard<'_, HashMap<CliTool, Arc<AtomicBool>>> {
-    self.running.lock().unwrap_or_else(PoisonError::into_inner)
+  /// The actions that run now
+  pub fn running_now(&self) -> CliToolsRunning {
+    lock(&self.running).snapshot()
+  }
+}
+
+/// The actions that run, and the version of their last change, which grows with each
+#[derive(Default)]
+struct Running {
+  version: u32,
+  actions: HashMap<CliTool, RunningAction>,
+}
+
+/// An action that runs: what the windows show of it, and the flag its cancel sets
+struct RunningAction {
+  action: CliToolAction,
+  line: String,
+  url: Option<String>,
+  canceled: Arc<AtomicBool>,
+}
+
+impl Running {
+  /// The actions in the order of the rows, at a new version
+  fn changed(&mut self) -> CliToolsRunning {
+    self.version = self.version.wrapping_add(1);
+    self.snapshot()
+  }
+
+  fn snapshot(&self) -> CliToolsRunning {
+    let actions = CliTool::ALL
+      .into_iter()
+      .filter_map(|tool| {
+        self.actions.get(&tool).map(|running| CliToolRunning {
+          tool,
+          action: running.action,
+          line: running.line.clone(),
+          url: running.url.clone(),
+        })
+      })
+      .collect();
+    CliToolsRunning { version: self.version, actions }
+  }
+}
+
+fn lock(running: &Mutex<Running>) -> std::sync::MutexGuard<'_, Running> {
+  running.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// An action of a tool from its start to its end: each change goes to every window, and its drop ends it there, also
+/// when the action panics
+struct RunningGuard {
+  tool: CliTool,
+  running: Arc<Mutex<Running>>,
+  events: Arc<dyn AppEvents>,
+}
+
+impl RunningGuard {
+  /// Starts `action` of `tool`, refused with `CliToolBusy` while another action of it runs (a window that started one
+  /// before it heard of the other)
+  fn start(state: &CliToolsState, events: &Arc<dyn AppEvents>, tool: CliTool, action: CliToolAction, canceled: Arc<AtomicBool>) -> Result<Self, ApiError> {
+    let snapshot = {
+      let mut running = lock(&state.running);
+      if running.actions.contains_key(&tool) {
+        return Err(ApiError::new(
+          ErrorCode::CliToolBusy,
+          format!("{} runs another action: it shows on its row until it ends", tool.command()),
+        ));
+      }
+      running.actions.insert(
+        tool,
+        RunningAction {
+          action,
+          line: String::new(),
+          url: None,
+          canceled,
+        },
+      );
+      running.changed()
+    };
+    cli_tools_running_changed(&**events, &snapshot);
+    Ok(Self {
+      tool,
+      running: Arc::clone(&state.running),
+      events: Arc::clone(events),
+    })
+  }
+
+  /// A line of the output, or the page a sign-in opened with its line
+  fn progress(&self, line: &str, url: Option<&str>) {
+    let snapshot = {
+      let mut running = lock(&self.running);
+      let Some(action) = running.actions.get_mut(&self.tool) else {
+        return;
+      };
+      line.clone_into(&mut action.line);
+      if let Some(url) = url {
+        action.url = Some(url.to_string());
+      }
+      running.changed()
+    };
+    cli_tools_running_changed(&*self.events, &snapshot);
+  }
+}
+
+impl Drop for RunningGuard {
+  fn drop(&mut self) {
+    let snapshot = {
+      let mut running = lock(&self.running);
+      running.actions.remove(&self.tool);
+      running.changed()
+    };
+    cli_tools_running_changed(&*self.events, &snapshot);
   }
 }
 
@@ -141,14 +251,6 @@ pub struct RunCliToolActionParams {
   pub with_skill: bool,
 }
 
-/// A line of the output of a running action, or the page a sign-in opened in the browser
-#[derive(Clone, Debug, serde::Serialize, specta::Type)]
-pub struct CliToolProgress {
-  pub line: String,
-  /// The authorize page of a sign-in, for "Open in Browser" when the browser didn't come up
-  pub url: Option<String>,
-}
-
 /// What an action did, in the words of its toast
 #[derive(Clone, Debug, serde::Serialize, specta::Type)]
 pub struct CliToolActionDone {
@@ -158,10 +260,10 @@ pub struct CliToolActionDone {
 }
 
 /// Runs the action of a row (install, with the agent skill when `with_skill`; update; the skill; the sign-in of
-/// `teamcity` to `server`), each line of its output to `progress`; a second action of the same tool while one runs is
-/// refused
+/// `teamcity` to `server`); every window shows it running with its last line (`cli-tools-running`), so a second action
+/// of the same tool while one runs is refused (`CliToolBusy`)
 #[instrument(skip_all, fields(tool = ?params.tool, action = ?params.action))]
-pub async fn run_cli_tool_action(ctx: &AppContext, params: RunCliToolActionParams, progress: Sink<CliToolProgress>) -> Result<CliToolActionDone, ApiError> {
+pub async fn run_cli_tool_action(ctx: &AppContext, params: RunCliToolActionParams) -> Result<CliToolActionDone, ApiError> {
   operation(async move {
     let RunCliToolActionParams {
       tool,
@@ -171,32 +273,11 @@ pub async fn run_cli_tool_action(ctx: &AppContext, params: RunCliToolActionParam
       with_skill,
     } = params;
     let canceled = Arc::new(AtomicBool::new(false));
-    {
-      let mut running = ctx.cli_tools.running();
-      if running.contains_key(&tool) {
-        return Err(ApiError::internal(format!("{} is busy with another action", tool.command())));
-      }
-      running.insert(tool, Arc::clone(&canceled));
-    }
+    let guard = RunningGuard::start(&ctx.cli_tools, &ctx.events, tool, action, Arc::clone(&canceled))?;
     let environment = ctx.host.tool_environment();
     let result = run_blocking(move || {
-      let send = |event: CliToolProgress| {
-        if progress.send(event).is_err() {
-          warn!("the page of the action went away: its lines go nowhere");
-        }
-      };
-      let on_line = |line: &str| {
-        send(CliToolProgress {
-          line: line.to_string(),
-          url: None,
-        });
-      };
-      let on_url = |url: &str| {
-        send(CliToolProgress {
-          line: "Waiting for the browser…".to_string(),
-          url: Some(url.to_string()),
-        });
-      };
+      let on_line = |line: &str| guard.progress(line, None);
+      let on_url = |url: &str| guard.progress("Waiting for the browser…", Some(url));
       let input = ActionInput {
         latest: latest.as_deref(),
         server: server.as_deref(),
@@ -206,10 +287,10 @@ pub async fn run_cli_tool_action(ctx: &AppContext, params: RunCliToolActionParam
         on_line: &on_line,
         on_url: &on_url,
       };
+      // the guard ends the action in every window when this returns or panics
       run_action(&environment, tool, action, &input, &output, &|| canceled.load(Ordering::SeqCst))
     })
     .await;
-    ctx.cli_tools.running().remove(&tool);
     ctx.host.tool_changed(tool).await;
     result.map(|done| CliToolActionDone {
       title: done.title,
@@ -219,11 +300,18 @@ pub async fn run_cli_tool_action(ctx: &AppContext, params: RunCliToolActionParam
   .await
 }
 
+/// The actions of the tools that run now: a window that opens, or loads again, while one runs shows it, then follows
+/// the event `cli-tools-running`
+#[instrument(skip_all)]
+pub fn cli_tools_running(ctx: &AppContext, _call: &Call) -> CliToolsRunning {
+  ctx.cli_tools.running_now()
+}
+
 /// Ends the action of `tool` that runs, with its whole process group
 #[instrument(skip_all, fields(tool = ?tool))]
 pub fn cancel_cli_tool_action(ctx: &AppContext, _call: &Call, tool: CliTool) {
-  if let Some(canceled) = ctx.cli_tools.running().get(&tool) {
-    canceled.store(true, Ordering::SeqCst);
+  if let Some(running) = lock(&ctx.cli_tools.running).actions.get(&tool) {
+    running.canceled.store(true, Ordering::SeqCst);
   }
 }
 

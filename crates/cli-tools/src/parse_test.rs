@@ -1,6 +1,6 @@
 use crate::parse::{
   compare_versions, is_json_line, parse_authorize_event, parse_json_error, parse_login_event, parse_skill_list, parse_skill_version, parse_teamcity_auth, parse_version,
-  parse_youtrack_auth, parse_youtrack_update,
+  parse_youtrack_auth, parse_youtrack_update, url_in,
 };
 use domain_types::cli_tools::{CliToolServer, CliToolSignInState};
 use pretty_assertions::assert_eq;
@@ -39,6 +39,7 @@ fn reads_the_servers_of_teamcity_with_their_user_and_expiry() {
         user: Some("vladimir.krivosheev".to_string()),
         state: CliToolSignInState::Authenticated,
         error: None,
+        error_url: None,
         expires_at: Some(1_795_280_299),
       },
       CliToolServer {
@@ -46,6 +47,7 @@ fn reads_the_servers_of_teamcity_with_their_user_and_expiry() {
         user: None,
         state: CliToolSignInState::Failed,
         error: Some("token missing or could not be retrieved".to_string()),
+        error_url: None,
         expires_at: None,
       },
       CliToolServer {
@@ -53,6 +55,7 @@ fn reads_the_servers_of_teamcity_with_their_user_and_expiry() {
         user: None,
         state: CliToolSignInState::Guest,
         error: None,
+        error_url: None,
         expires_at: None,
       },
     ]
@@ -65,6 +68,18 @@ fn reads_the_servers_of_teamcity_with_their_user_and_expiry() {
   assert!(parse_teamcity_auth("Error: unknown flag").unwrap_err().contains("teamcity auth status"));
 }
 
+/// The page a failed sign-in names is a link of its line: the first URL of the CLI's words, without the punctuation
+/// after it
+#[test]
+fn a_failed_server_names_the_page_of_its_reason() {
+  let stdout = r#"[{"server":"https://buildserver.labs.intellij.net","status":"error","error":"login gateway detected - https://jb.gg/warp may be required"}]"#;
+  let servers = parse_teamcity_auth(stdout).unwrap();
+  assert_eq!(servers[0].error.as_deref(), Some("login gateway detected - https://jb.gg/warp may be required"));
+  assert_eq!(servers[0].error_url.as_deref(), Some("https://jb.gg/warp"));
+  assert_eq!(url_in("see https://ci.example/help."), Some("https://ci.example/help".to_string()));
+  assert_eq!(url_in("token missing or could not be retrieved"), None);
+}
+
 #[test]
 fn reads_the_instances_of_youtrack_as_one_object_or_an_array() {
   let one = r#"{"url":"https://youtrack.jetbrains.com","login":"develar","fullName":"Vladimir","status":"authenticated"}"#;
@@ -75,6 +90,7 @@ fn reads_the_instances_of_youtrack_as_one_object_or_an_array() {
       user: Some("develar".to_string()),
       state: CliToolSignInState::Authenticated,
       error: None,
+      error_url: None,
       expires_at: None,
     }]
   );
@@ -86,6 +102,7 @@ fn reads_the_instances_of_youtrack_as_one_object_or_an_array() {
       user: None,
       state: CliToolSignInState::Failed,
       error: Some("invalid token".to_string()),
+      error_url: None,
       expires_at: None,
     }]
   );

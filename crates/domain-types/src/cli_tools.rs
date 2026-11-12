@@ -50,6 +50,9 @@ pub struct CliToolServer {
   pub state: CliToolSignInState,
   /// Why `state` is `Failed`, in the CLI's words
   pub error: Option<String>,
+  /// The page `error` names, e.g. `https://jb.gg/warp` of "login gateway detected - `https://jb.gg/warp` may be
+  /// required", for a link of the line
+  pub error_url: Option<String>,
   /// Unix seconds when the token expires; None for a token without an expiry (a permanent one)
   pub expires_at: Option<u32>,
 }
@@ -124,4 +127,28 @@ pub struct CliToolStatus {
   /// The YouTrack of the app's own sign-in, for a `youtrack` signed in to none: Use Branch Deck Sign-In hands it a token
   /// of it; None for `teamcity`, or when the app is signed in to no YouTrack
   pub sign_in_with: Option<String>,
+}
+
+/// An action of a CLI that runs now, as every window shows it: on its row, or the line of the skill, and on the item of
+/// the Setup dot
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct CliToolRunning {
+  pub tool: CliTool,
+  pub action: CliToolAction,
+  /// The last line of its output; empty before the first
+  pub line: String,
+  /// The authorize page a sign-in opened in the browser, for "Open in Browser" when the browser didn't come up
+  pub url: Option<String>,
+}
+
+/// The actions of the CLIs that run now, the whole of them: the answer of `cli_tools_running` and the payload of the
+/// event `cli-tools-running`. `version` grows with each change, so a window keeps the newest of the read and the events
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct CliToolsRunning {
+  pub version: u32,
+  pub actions: Vec<CliToolRunning>,
 }

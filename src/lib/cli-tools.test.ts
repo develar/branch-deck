@@ -33,10 +33,19 @@ describe("cli tools", () => {
     expect(describeCliToolVersion({ ...INSTALLED, action: "update" })).toBe("1.6.0 · 1.7.0 is out")
     expect(describeCliToolVersion(INSTALLED)).toBe("1.6.0")
     expect(
-      describeCliToolServer({ url: "https://buildserver.labs.intellij.net", user: "jane.doe", state: "authenticated", error: null, expiresAt: Date.UTC(2026, 10, 21, 12) / 1000 }),
+      describeCliToolServer({
+        url: "https://buildserver.labs.intellij.net",
+        user: "jane.doe",
+        state: "authenticated",
+        error: null,
+        errorUrl: null,
+        expiresAt: Date.UTC(2026, 10, 21, 12) / 1000,
+      }),
     ).toBe("buildserver.labs.intellij.net · jane.doe · expires Nov 21")
-    expect(describeCliToolServer({ url: "https://ci.example", user: null, state: "failed", error: "invalid token", expiresAt: null })).toBe("ci.example · invalid token")
-    expect(describeCliToolServer({ url: "https://ci.example", user: null, state: "guest", error: null, expiresAt: null })).toBe("ci.example · guest")
+    expect(describeCliToolServer({ url: "https://ci.example", user: null, state: "failed", error: "invalid token", errorUrl: null, expiresAt: null })).toBe(
+      "ci.example · invalid token",
+    )
+    expect(describeCliToolServer({ url: "https://ci.example", user: null, state: "guest", error: null, errorUrl: null, expiresAt: null })).toBe("ci.example · guest")
   })
 
   it("says the skill of the agents against the one the CLI bundles", () => {

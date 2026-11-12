@@ -320,12 +320,7 @@ impl AgentCliHost for Nothing {
 
   /// Nothing to install here: the page offers no install of `brd` or of the app file of the IDE
   fn status(&self) -> AgentCliStatus {
-    AgentCliStatus {
-      bd: None,
-      skills: Vec::new(),
-      ide_app: None,
-      installable: false,
-    }
+    AgentCliStatus::new(None, Vec::new(), None, false)
   }
 
   fn install_ide_app(&self) -> Result<IdeApp, ApiError> {

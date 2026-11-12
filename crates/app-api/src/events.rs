@@ -5,6 +5,7 @@
 
 use crate::transport::{AppEvents, WindowId};
 use app_settings::windows::is_main_only;
+use domain_types::cli_tools::CliToolsRunning;
 use domain_types::settings::SettingsChange;
 use serde::Serialize;
 use sync_core::repository_config::RepositoryConfigKey;
@@ -32,6 +33,10 @@ pub const REPOSITORY_CONFIG_CHANGED_EVENT: &str = "repository_config_changed";
 /// The statuses of the tools changed, to every window: each reads the items of the Setup dot again
 /// (openspec/specs/repository/setup-attention/spec.md)
 pub const SETUP_CHANGED_EVENT: &str = "setup-changed";
+
+/// The actions of the tools that run changed (one started, wrote a line, ended), to every window: the whole of them
+/// (`CliToolsRunning`), which a window keeps while its version is the newest it has (openspec/specs/repository/cli-tools/spec.md)
+pub const CLI_TOOLS_RUNNING_EVENT: &str = "cli-tools-running";
 
 /// The payload of `repository_config_changed`
 #[derive(Debug, Clone, Serialize)]
@@ -72,6 +77,13 @@ pub fn auth_changed(events: &dyn AppEvents) {
 /// Tells every window that the statuses of the tools changed
 pub fn setup_changed(events: &dyn AppEvents) {
   events.emit(SETUP_CHANGED_EVENT, serde_json::Value::Null);
+}
+
+/// Tells every window the actions of the tools that run now
+pub fn cli_tools_running_changed(events: &dyn AppEvents, running: &CliToolsRunning) {
+  if let Some(payload) = payload_of(CLI_TOOLS_RUNNING_EVENT, running) {
+    events.emit(CLI_TOOLS_RUNNING_EVENT, payload);
+  }
 }
 
 /// Tells the main window that `key` of the config of `repository_path` was written

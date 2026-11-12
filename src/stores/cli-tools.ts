@@ -1,7 +1,8 @@
-import { Channel } from "@tauri-apps/api/core"
+import { listen } from "@tauri-apps/api/event"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { CliTool, CliToolAction, CliToolProgress, CliToolStatus, SignInEvent } from "@/lib/bindings"
+import { useTauriCustomListen } from "@/hooks/useTauriListen"
+import type { CliTool, CliToolAction, CliToolsRunning, CliToolStatus, SignInEvent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { getErrorCode, notifyError } from "@/lib/errors"
 import { cancelSignIn, invokeSignIn, openSignInPage, signedInTitle } from "@/lib/sign-in-run"
@@ -9,7 +10,9 @@ import { showToast } from "@/lib/toast-message"
 
 /*
  * The `teamcity` and `youtrack` CLIs of Settings → Tools (openspec/specs/repository/cli-tools/spec.md): the last status Rust
- * read, and the action running for each tool with the last line of its output.
+ * read, and the actions that run with the last line of each. Rust keeps the actions (`cli_tools_running`, the event
+ * `cli-tools-running`), so every window shows one that another window started, or that ran before the page loaded; only
+ * the sign-in of youtrack with the app's YouTrack, another command, is the action of the window that started it.
  */
 
 export interface RunningCliToolAction {
@@ -25,12 +28,21 @@ interface CliToolsState {
   readonly statuses: readonly CliToolStatus[] | null
   /** Why the last read failed; null once one answers. The last statuses stay */
   readonly readError: string | null
-  readonly running: Partial<Record<CliTool, RunningCliToolAction>>
+  /** The actions Rust runs, at the newest version a read or an event gave */
+  readonly running: { readonly version: number; readonly byTool: Partial<Record<CliTool, RunningCliToolAction>> }
+  /** The sign-in of youtrack with the app's YouTrack (`signInYoutrackWithApp`) that this window runs */
+  readonly appSignIn: RunningCliToolAction | undefined
   /** "Also install the agent skill" of a missing CLI: on by default, kept while the app runs, not a setting */
   readonly installWithSkill: Record<CliTool, boolean>
 }
 
-const cliToolsStore = createStore<CliToolsState>(() => ({ statuses: null, readError: null, running: {}, installWithSkill: { teamcity: true, youtrack: true } }))
+const cliToolsStore = createStore<CliToolsState>(() => ({
+  statuses: null,
+  readError: null,
+  running: { version: -1, byTool: {} },
+  appSignIn: undefined,
+  installWithSkill: { teamcity: true, youtrack: true },
+}))
 
 export function useInstallWithSkill(tool: CliTool): boolean {
   return useStore(cliToolsStore, state => state.installWithSkill[tool])
@@ -48,8 +60,39 @@ export function useCliToolsReadError(): string | null {
   return useStore(cliToolsStore, state => state.readError)
 }
 
-export function useRunningCliToolAction(tool: CliTool): RunningCliToolAction | undefined {
-  return useStore(cliToolsStore, state => state.running[tool])
+/** The action of `tool` that runs; none for no tool (an item of the Setup dot that is not of a CLI) */
+export function useRunningCliToolAction(tool: CliTool | null): RunningCliToolAction | undefined {
+  return useStore(cliToolsStore, state => (tool === null ? undefined : runningOf(state, tool)))
+}
+
+function runningOf(state: CliToolsState, tool: CliTool): RunningCliToolAction | undefined {
+  return state.running.byTool[tool] ?? (tool === "youtrack" ? state.appSignIn : undefined)
+}
+
+/** Keeps `running` when it is newer than what the window has: a read and the events answer on different paths */
+function acceptRunning(running: CliToolsRunning): void {
+  cliToolsStore.setState(state => {
+    if (running.version <= state.running.version) {
+      return state
+    }
+    const byTool: Partial<Record<CliTool, RunningCliToolAction>> = {}
+    for (const it of running.actions) {
+      byTool[it.tool] = { action: it.action, line: it.line, url: it.url }
+    }
+    return { running: { version: running.version, byTool } }
+  })
+}
+
+/**
+ * Follows the actions of the tools that run, in every window that shows a tool (Settings → Tools, the Setup dot):
+ * subscribes to `cli-tools-running` first, then reads them, so no end of an action falls between the two
+ */
+export function useCliToolsRunning(): void {
+  useTauriCustomListen("cli-tools-running", async () => {
+    const unlisten = await listen<CliToolsRunning>("cli-tools-running", event => acceptRunning(event.payload))
+    void commands.cliToolsRunning().then(acceptRunning)
+    return unlisten
+  })
 }
 
 /**
@@ -68,30 +111,20 @@ export function retryCliTools(): void {
   void refreshCliTools()
 }
 
-function setRunning(tool: CliTool, running: RunningCliToolAction | undefined): void {
-  cliToolsStore.setState(state => ({ running: { ...state.running, [tool]: running } }))
-}
-
 /**
- * Runs `action` of `tool`, its lines shown where it was started (its row, or the line of the skill); then the toast of
- * what it did and the status again, which tells every window's Setup dot (`setup-changed`). `latest` names the release
- * an update wants, `server` the server a sign-in is to; an install brings the agent skill along when its checkbox is on
+ * Runs `action` of `tool`, which every window then shows running (its row, or the line of the skill, and the item of the
+ * Setup dot); then the toast of what it did and the status again, which tells every window's Setup dot (`setup-changed`).
+ * `latest` names the release an update wants, `server` the server a sign-in is to; an install brings the agent skill
+ * along when its checkbox is on. An action of the tool that runs already (`cli_tool_busy`: another window started it a
+ * moment before) toasts nothing: the row shows it
  */
 export async function runCliToolAction(tool: CliTool, action: CliToolAction, latest: string | null, server: string | null = null): Promise<void> {
-  if (cliToolsStore.getState().running[tool] !== undefined) {
+  if (runningOf(cliToolsStore.getState(), tool) !== undefined) {
     return
-  }
-  setRunning(tool, { action, line: "", url: null })
-  const progress = new Channel<CliToolProgress>()
-  progress.onmessage = ({ line, url }) => {
-    const running = cliToolsStore.getState().running[tool]
-    if (running !== undefined) {
-      setRunning(tool, { action, line, url: url ?? running.url })
-    }
   }
   try {
     const withSkill = action === "install" && cliToolsStore.getState().installWithSkill[tool]
-    const result = await commands.runCliToolAction({ tool, action, latest, server, withSkill }, progress)
+    const result = await commands.runCliToolAction({ tool, action, latest, server, withSkill })
     if (result.status === "ok") {
       // Undo of a removed skill installs it again
       const undo = action === "removeSkill" ? { children: "Undo", onClick: () => void runCliToolAction(tool, "installSkill", null) } : undefined
@@ -99,15 +132,17 @@ export async function runCliToolAction(tool: CliTool, action: CliToolAction, lat
       if (result.data.skill_problem !== null) {
         notifyError(`Cannot install the ${tool} agent skill`, result.data.skill_problem)
       }
-    } else if (result.error.code !== "canceled") {
+    } else if (result.error.code !== "canceled" && result.error.code !== "cli_tool_busy") {
       notifyError(failedTitle(action, tool), result.error)
     }
   } catch (error) {
     notifyError(failedTitle(action, tool), error)
-  } finally {
-    setRunning(tool, undefined)
   }
   await refreshCliTools()
+}
+
+function setAppSignIn(running: RunningCliToolAction | undefined): void {
+  cliToolsStore.setState({ appSignIn: running })
 }
 
 /**
@@ -117,18 +152,18 @@ export async function runCliToolAction(tool: CliTool, action: CliToolAction, lat
  */
 export async function signInYoutrackWithApp(url: string): Promise<void> {
   const tool = "youtrack"
-  if (cliToolsStore.getState().running[tool] !== undefined) {
+  if (runningOf(cliToolsStore.getState(), tool) !== undefined) {
     return
   }
-  setRunning(tool, { action: "signIn", line: "Starting…", url: null })
+  setAppSignIn({ action: "signIn", line: "Starting…", url: null })
   const onEvent = (event: SignInEvent) => {
-    const page = cliToolsStore.getState().running[tool]?.url ?? null
+    const page = cliToolsStore.getState().appSignIn?.url ?? null
     if (event.kind === "browser") {
-      setRunning(tool, { action: "signIn", line: "Waiting for the browser…", url: event.url })
+      setAppSignIn({ action: "signIn", line: "Waiting for the browser…", url: event.url })
       void openSignInPage(event.url)
     } else if (event.kind === "waiting" && page !== null) {
       // the browser came back: the token is made and handed to the CLI
-      setRunning(tool, { action: "signIn", line: "Signing youtrack in…", url: page })
+      setAppSignIn({ action: "signIn", line: "Signing youtrack in…", url: page })
     }
   }
   try {
@@ -139,14 +174,14 @@ export async function signInYoutrackWithApp(url: string): Promise<void> {
       notifyError(failedTitle("signIn", tool), result.error)
     }
   } finally {
-    setRunning(tool, undefined)
+    setAppSignIn(undefined)
   }
   await refreshCliTools()
 }
 
 /** Ends the action running for `tool`; its command answers the code `canceled`, which toasts nothing */
 export function cancelCliToolAction(tool: CliTool): void {
-  if (tool === "youtrack" && cliToolsStore.getState().running[tool]?.action === "signIn") {
+  if (tool === "youtrack" && cliToolsStore.getState().running.byTool[tool] === undefined && cliToolsStore.getState().appSignIn !== undefined) {
     void cancelSignIn("youTrackCli")
     return
   }

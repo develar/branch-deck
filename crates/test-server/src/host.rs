@@ -473,19 +473,9 @@ impl AgentCliHost for TestAgentCli {
       current: true,
     });
     if self.installed.load(Ordering::SeqCst) {
-      AgentCliStatus {
-        bd: Some(AGENT_CLI.to_owned()),
-        skills: AGENT_SKILLS.map(str::to_owned).to_vec(),
-        ide_app,
-        installable: true,
-      }
+      AgentCliStatus::new(Some(AGENT_CLI.to_owned()), AGENT_SKILLS.map(str::to_owned).to_vec(), ide_app, true)
     } else {
-      AgentCliStatus {
-        bd: None,
-        skills: Vec::new(),
-        ide_app,
-        installable: true,
-      }
+      AgentCliStatus::new(None, Vec::new(), ide_app, true)
     }
   }
 

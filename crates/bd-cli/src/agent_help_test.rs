@@ -210,6 +210,8 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::NetworkError
     | ErrorCode::PatronusError
     | ErrorCode::Internal
+    // an action of Settings → Tools in the app, no command of brd
+    | ErrorCode::CliToolBusy
     | ErrorCode::Canceled => &[],
     ErrorCode::InvalidPlan => &["reword"],
     ErrorCode::StackConflict

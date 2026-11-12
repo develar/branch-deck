@@ -289,6 +289,9 @@ pub enum ErrorCode {
   /// `brd lease return` and `adopt`: a process other than brd and its session has its working directory in the worktree;
   /// `processes` names each with its argv and kind. Nothing was changed
   SlotBusy,
+  /// Settings → Tools: an action of the CLI runs already (started in another window); every window shows it running,
+  /// so the page toasts nothing. Nothing was started
+  CliToolBusy,
   /// `brd lease return`: the slot is one of the host slots that `bd-host` keeps for its runs (`n`); `bd-host slots
   /// --local --shrink <n>` gives it back to the pool. Nothing was changed
   HostSlot,
@@ -431,6 +434,7 @@ impl ErrorCode {
       | Self::NeedsPush
       | Self::ReviewRefused
       | Self::SlotBusy
+      | Self::CliToolBusy
       | Self::HostSlot
       | Self::UnlandedCommits
       | Self::DirtyWorktree

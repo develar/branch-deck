@@ -2,7 +2,7 @@
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
-import { expectSettingsOpened } from "../helpers/settings-helpers"
+import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 
 /** The main window reads the items again, as once the CLIs were read (`setup-changed`), and opens the dot */
@@ -100,6 +100,31 @@ test.describe("Setup dot", () => {
     // still skipped when the items are read again
     await emitTauriEvent(page, "setup-changed")
     await expect(page.getByTestId("settings-button")).toHaveAccessibleName("Settings")
+  })
+
+  test("should show the update an item started as running, in the dot and in Settings opened meanwhile, which offers no second one", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    await repo.setCliTools(teamcityBehindOnHomebrew({ "brew.hang": "" }))
+    const popover = await openSetup(page)
+    await popover.getByTestId("setup-item").getByRole("button", { name: "Update" }).click()
+    // brew runs, and would for a minute
+    await expect.poll(() => repo.getCliToolsLog()).toContain("brew upgrade jetbrains/utils/teamcity")
+    const item = (await openSetup(page)).getByTestId("setup-item")
+    await expect(item.getByTestId("cli-tool-progress")).toBeVisible()
+    await expect(item.getByRole("button")).toHaveCount(0)
+    await page.keyboard.press("Escape")
+
+    // a window of its own, opened after the update started: the row shows it with Cancel, not Update to 1.7.0
+    const window = await openSettingsWindow(page, { page: "tools" })
+    const row = window.getByTestId("cli-tool-teamcity")
+    await expect(row.getByTestId("cli-tool-progress")).toBeVisible()
+    await expect(row.getByRole("button", { name: "Update to 1.7.0" })).toHaveCount(0)
+    await row.getByRole("button", { name: "Cancel" }).click()
+    await expect(row.getByRole("button", { name: "Update to 1.7.0" })).toBeVisible()
+    await expect(row.getByTestId("cli-tool-progress")).toHaveCount(0)
+    // a cancel toasts nothing, in neither window
+    await expect(window.locator("[data-slot=toast]")).toHaveCount(0)
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
   })
 
   test("should remind of an expiring sign-in tomorrow, and open Tools to sign in", async ({ page, setupRepo }) => {

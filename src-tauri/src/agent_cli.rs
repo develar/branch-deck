@@ -44,15 +44,11 @@ impl AgentCliHost for AppAgentCli {
   fn status(&self) -> AgentCliStatus {
     let environment = Environment::from_process();
     let status = install_status(&environment);
-    AgentCliStatus {
-      bd: status.bd,
-      skills: status.skills,
-      ide_app: ide_app_status(&environment).map(|app| IdeApp {
-        file: app.file,
-        current: app.current,
-      }),
-      installable: true,
-    }
+    let ide_app = ide_app_status(&environment).map(|app| IdeApp {
+      file: app.file,
+      current: app.current,
+    });
+    AgentCliStatus::new(status.bd, status.skills, ide_app, true)
   }
 
   fn install_ide_app(&self) -> Result<IdeApp, ApiError> {

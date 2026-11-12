@@ -28,6 +28,7 @@ fn server(url: &str, expires_at: Option<u32>) -> CliToolServer {
     user: Some("jane".to_string()),
     state: CliToolSignInState::Authenticated,
     error: None,
+    error_url: None,
     expires_at,
   }
 }

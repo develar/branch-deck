@@ -153,7 +153,7 @@ export function SettingsPage() {
             <AccountsPage />
           </SettingsPanel>
           <SettingsPanel id="tools">
-            <ToolsPage openCount={openCount} server={target?.server} />
+            <ToolsPage openCount={openCount} server={target?.server} onShowAgents={() => setPage("agents")} />
           </SettingsPanel>
           <SettingsScopeContext value={scopeValue}>
             {/* the scope tabs of the pages of the git config, once above the page shown */}

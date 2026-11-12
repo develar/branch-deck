@@ -1,11 +1,13 @@
 import { useEffect, useId, useState } from "react"
+import type { ReactNode } from "react"
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { CircleArrowUpIcon, DownloadIcon, ExternalLinkIcon, LogInIcon, XIcon } from "lucide-react"
+import { cn } from "cn"
+import { CircleArrowUpIcon, DownloadIcon, LogInIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { Spinner } from "@/components/ui/spinner"
 import { ReadFailure, SettingsSection } from "@/components/settings/SettingRow"
+import { CliToolRunningLine } from "@/components/shared/CliToolRunningLine"
 import { CommandLine } from "@/components/shared/CommandLine"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { InstallAgentCliButton } from "@/components/shared/InstallAgentCliButton"
@@ -22,6 +24,7 @@ import {
   describeCliToolServer,
   describeCliToolSkill,
   describeCliToolVersion,
+  hostOf,
   isSkillAction,
 } from "@/lib/cli-tools"
 import { notifyError } from "@/lib/errors"
@@ -35,20 +38,22 @@ import {
   signInYoutrackWithApp,
   useCliToolStatuses,
   useCliToolsReadError,
+  useCliToolsRunning,
   useInstallWithSkill,
   useRunningCliToolAction,
 } from "@/stores/cli-tools"
 import type { RunningCliToolAction } from "@/stores/cli-tools"
 
 /**
- * Settings → Tools (openspec/specs/repository/cli-tools/spec.md): `brd`, whose skill tells coding agents how to work here, then
- * the `teamcity` and `youtrack` CLIs, each with its binary,
- * version and sign-ins, and the one action Rust picks for it; read again on each open and focus, the last answer shown
- * meanwhile; a failed read says why, with Retry, above them. `server` is the TeamCity server an open names (the server
- * of a robot's build), for the sign-in. A host that installs nothing (`installable`: the page in the IDE, whose desktop
- * app installs) shows neither `brd` nor IntelliJ IDEA.
+ * Settings → Tools (openspec/specs/repository/cli-tools/spec.md): one list, `brd` first, whose skill tells coding agents how
+ * to work here, then IntelliJ IDEA and the `teamcity` and `youtrack` CLIs, each with its binary, version and sign-ins,
+ * and the one action Rust picks for it; read again on each open and focus, the last answer shown meanwhile; a failed read
+ * says why, with Retry, above them. An action that runs shows on its row in every window, also one another window
+ * started (`useCliToolsRunning`). `server` is the TeamCity server an open names (the server of a robot's build), for the
+ * sign-in; `onShowAgents` shows the page of the rules of the agents. A host that installs nothing (`installable`: the
+ * page in the IDE, whose desktop app installs) shows neither `brd` nor IntelliJ IDEA.
  */
-export function ToolsPage({ openCount, server }: { openCount: number; server: string | undefined }) {
+export function ToolsPage({ openCount, server, onShowAgents }: { openCount: number; server: string | undefined; onShowAgents: () => void }) {
   const statuses = useCliToolStatuses()
   const readError = useCliToolsReadError()
   const [homeDir, setHomeDir] = useState("")
@@ -59,121 +64,215 @@ export function ToolsPage({ openCount, server }: { openCount: number; server: st
     void resolveHomeDir().then(setHomeDir)
   }, [])
   useWindowFocus(() => void refreshCliTools())
+  useCliToolsRunning()
 
   const agentCli = useAgentCliStatus(openCount)
 
   return (
     <SettingsSection title="Command-line tools" description="Agents and Branch Deck run them as you would; each keeps its own sign-in, its skill teaches the agents to use it">
-      {agentCli?.installable !== false && <AgentCliRow status={agentCli} homeDir={homeDir} />}
-      {agentCli?.installable === true && <IdeAppRow ideApp={agentCli.ide_app} homeDir={homeDir} />}
       {readError !== null && <ReadFailure title="Cannot read the tools" message={readError} testId="cli-tools-error" onRetry={retryCliTools} />}
-      {statuses === null
-        ? readError === null && <LoadingLine>Reading the tools…</LoadingLine>
-        : statuses.map(status => <CliToolRow key={status.tool} status={status} homeDir={homeDir} server={server} />)}
+      <div className="flex flex-col divide-y divide-border">
+        {agentCli?.installable !== false && <AgentCliRow status={agentCli} homeDir={homeDir} onShowAgents={onShowAgents} />}
+        {agentCli?.installable === true && <IdeAppRow ideApp={agentCli.ide_app} homeDir={homeDir} />}
+        {statuses === null
+          ? readError === null && <LoadingLine className="py-3">Reading the tools…</LoadingLine>
+          : statuses.map(status => <CliToolRow key={status.tool} status={status} homeDir={homeDir} server={server} />)}
+      </div>
     </SettingsSection>
   )
 }
 
 /**
- * `brd`, the agent CLI of Branch Deck (openspec/specs/repository/settings/spec.md#tools): whether its skill is installed
- * (`agent_cli_status`, asked by the page on each open and focus) with the path of brd to copy, else Install Agent CLI, the install
- * of Help → Install Agent CLI…, whose toast has no action here. The rules agents follow are on Agents
+ * A row of the list: the name (`mono` for a command), what of it is there (`meta`: version, path) and the one action at
+ * the end of its first line, what it is for under it, then its facts
  */
-function AgentCliRow({ status, homeDir }: { status: AgentCliStatus | null; homeDir: string }) {
+function ToolRow({
+  name,
+  mono,
+  meta,
+  end,
+  purpose,
+  testId,
+  focusKey,
+  children,
+}: {
+  name: string
+  mono: boolean
+  meta: ReactNode
+  end: ReactNode
+  purpose: ReactNode
+  testId: string
+  focusKey?: string
+  children?: ReactNode
+}) {
   const nameId = useId()
+  return (
+    <div
+      role="group"
+      aria-labelledby={nameId}
+      className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0"
+      data-testid={testId}
+      data-settings-focus={focusKey}
+      tabIndex={focusKey === undefined ? undefined : -1}
+    >
+      <div className="flex min-h-6 items-center gap-2">
+        <span id={nameId} className={cn("shrink-0 text-sm font-medium", mono && "font-mono")}>
+          {name}
+        </span>
+        {meta}
+        <span className="flex-1" />
+        {end}
+      </div>
+      <p className="text-xs text-muted-foreground">{purpose}</p>
+      {children}
+    </div>
+  )
+}
+
+/** The meta of a row: a version, a path, "Not installed"; cut at the end, whole in its tooltip */
+function RowMeta({ children, title }: { children: string; title?: string }) {
+  return (
+    <span className="min-w-0 truncate text-xs text-muted-foreground" title={title}>
+      {children}
+    </span>
+  )
+}
+
+/**
+ * `brd`, the agent CLI of Branch Deck (openspec/specs/repository/settings/spec.md#tools): whether its skill is installed
+ * (`agent_cli_status`, asked by the page on each open and focus) with the path of brd to copy and the skill directories of
+ * the agents, else Install Agent CLI, the install of Help → Install Agent CLI…, whose toast has no action here. The rules
+ * agents follow are on Agents, which its link shows
+ */
+function AgentCliRow({ status, homeDir, onShowAgents }: { status: AgentCliStatus | null; homeDir: string; onShowAgents: () => void }) {
   const brd = status?.bd ?? null
   return (
-    <div role="group" aria-labelledby={nameId} className="flex flex-col gap-1.5" data-testid="agent-skill" data-settings-focus="cli-brd" tabIndex={-1}>
-      <div className="flex min-h-6 items-center gap-2">
-        <span id={nameId} className="font-mono text-sm">
-          brd
-        </span>
-        {brd !== null && (
-          <span className="min-w-0 truncate text-xs text-muted-foreground" title={brd}>
-            {tildePath(brd, homeDir)}
-          </span>
-        )}
-        {brd !== null && <CopyButton text={() => brd} tooltip="Copy the path of brd" alwaysVisible />}
-        <span className="flex-1" />
-        {status !== null && brd === null && <InstallAgentCliButton openAgentSettings={false} />}
-      </div>
-      <p className="text-xs text-muted-foreground">Coding agents ask it how to work in your repositories: Settings → Agents</p>
+    <ToolRow
+      name="brd"
+      mono
+      testId="agent-skill"
+      focusKey="cli-brd"
+      meta={
+        brd !== null && (
+          <>
+            <RowMeta title={brd}>{tildePath(brd, homeDir)}</RowMeta>
+            <CopyButton text={() => brd} tooltip="Copy the path of brd" alwaysVisible />
+          </>
+        )
+      }
+      end={status !== null && brd === null && <InstallAgentCliButton openAgentSettings={false} />}
+      purpose={
+        <>
+          {"Coding agents ask it how to work in your repositories, by the rules of "}
+          <Button variant="link" size="xs" className="h-auto p-0" onClick={onShowAgents}>
+            Agents
+          </Button>
+        </>
+      }
+    >
       {status !== null && (
-        <p className="min-w-0 truncate text-xs" data-testid="agent-skill-files">
-          {brd === null ? "The agent skill is not installed" : `Agent skill: ${status.skills.map(it => tildePath(it, homeDir)).join(", ")}`}
+        <p className="min-w-0 truncate text-xs" data-testid="agent-skill-files" title={status.skills.join("\n")}>
+          {brd === null ? "The agent skill is not installed" : `Agent skill branch-deck · ${status.skill_dirs.map(it => tildePath(it, homeDir)).join(", ")}`}
         </p>
       )}
-    </div>
+    </ToolRow>
   )
 }
 
 /**
  * Branch Deck in IntelliJ IDEA (openspec/specs/repository/ide-embedding/spec.md#install-settings-tools-installs-branch-deck-in-intellij-idea):
- * the app file of an IDE with Air (`agent_cli_status`), with Remove, else Install; a file that another Branch Deck wrote
- * says so, and Install writes it for this one
+ * the app file of an IDE with Air (`agent_cli_status`), with Remove, else "Not installed" and Install; a file that
+ * another Branch Deck wrote says so, and Install writes it for this one
  */
 function IdeAppRow({ ideApp, homeDir }: { ideApp: IdeApp | null; homeDir: string }) {
   const [running, setRunning] = useState(false)
-  const nameId = useId()
   const run = (install: boolean) => {
     setRunning(true)
     void setIdeAppInstalled(install).finally(() => setRunning(false))
   }
   return (
-    <div role="group" aria-labelledby={nameId} className="flex flex-col gap-1.5" data-testid="ide-app">
-      <div className="flex min-h-6 items-center gap-2">
-        <span id={nameId} className="text-sm">
-          IntelliJ IDEA
-        </span>
-        {ideApp !== null && (
-          <span className="min-w-0 truncate text-xs text-muted-foreground" title={ideApp.file}>
-            {tildePath(ideApp.file, homeDir)}
-          </span>
-        )}
-        <span className="flex-1" />
-        {(ideApp === null || !ideApp.current) && (
-          <Button size="xs" variant="outline" disabled={running} aria-busy={running || undefined} onClick={() => run(true)}>
-            <DownloadIcon data-icon="inline-start" />
-            Install
-          </Button>
-        )}
-        {ideApp !== null && (
-          <Button variant="link" size="xs" className="px-1 text-muted-foreground" disabled={running} aria-label="Remove Branch Deck from IntelliJ IDEA" onClick={() => run(false)}>
-            Remove
-          </Button>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground">IntelliJ IDEA with Air shows Branch Deck in a tool window of each Git project</p>
+    <ToolRow
+      name="IntelliJ IDEA"
+      mono={false}
+      testId="ide-app"
+      meta={ideApp === null ? <RowMeta>Not installed</RowMeta> : <RowMeta title={ideApp.file}>{tildePath(ideApp.file, homeDir)}</RowMeta>}
+      end={
+        <>
+          {(ideApp === null || !ideApp.current) && (
+            <Button size="xs" variant="outline" disabled={running} aria-busy={running || undefined} onClick={() => run(true)}>
+              <DownloadIcon data-icon="inline-start" />
+              Install
+            </Button>
+          )}
+          {ideApp !== null && (
+            <Button
+              variant="link"
+              size="xs"
+              className="px-1 text-muted-foreground"
+              disabled={running}
+              aria-label="Remove Branch Deck from IntelliJ IDEA"
+              onClick={() => run(false)}
+            >
+              Remove
+            </Button>
+          )}
+        </>
+      }
+      purpose="IntelliJ IDEA with Air shows Branch Deck in a tool window of each Git project"
+    >
       {ideApp !== null && !ideApp.current && <p className="text-xs text-warning">Another Branch Deck wrote the app file: Install makes IntelliJ IDEA run this one</p>}
-    </div>
+    </ToolRow>
   )
+}
+
+/** A URL without its trailing `/`, as the CLI names its servers */
+function serverKey(url: string): string {
+  return url.trim().replace(/\/+$/, "")
 }
 
 function CliToolRow({ status, homeDir, server }: { status: CliToolStatus; homeDir: string; server: string | undefined }) {
   const running = useRunningCliToolAction(status.tool)
+  const [otherServer, setOtherServer] = useState(false)
   const label = cliToolActionLabel(status)
   const action = status.action
-  const nameId = useId()
-  // the app starts the browser sign-in of the CLI itself: it needs the server
-  const signsIn = action === "signIn" && status.command === null
+  // the app starts the browser sign-in of teamcity itself: it needs the server
+  const signsIn = status.tool === "teamcity" && action === "signIn" && status.command === null
+  // the server to sign in to, the one the open names, else the first the CLI knows: one it has a line of signs in from
+  // the head of the row, the form only for a server it doesn't know
+  const wanted = serverKey(server ?? status.servers[0]?.url ?? "")
+  const known = signsIn ? status.servers.find(it => it.url === wanted) : undefined
   // a skill action runs on the line of the skill, everything else on the row
   const runningHere = running !== undefined && !isSkillAction(running.action) ? running : undefined
   const busy = running === undefined ? undefined : `${status.tool} is busy`
   return (
-    <div role="group" aria-labelledby={nameId} className="flex flex-col gap-1.5" data-testid={`cli-tool-${status.tool}`} data-settings-focus={`cli-${status.tool}`} tabIndex={-1}>
-      <div className="flex min-h-6 items-center gap-2">
-        <span id={nameId} className="font-mono text-sm">
-          {status.tool}
-        </span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground" title={status.binary ?? undefined}>
+    <ToolRow
+      name={status.tool}
+      mono
+      testId={`cli-tool-${status.tool}`}
+      focusKey={`cli-${status.tool}`}
+      meta={
+        <RowMeta title={status.binary ?? undefined}>
           {status.binary === null ? describeCliToolVersion(status) : `${describeCliToolVersion(status)} · ${tildePath(status.binary, homeDir)}`}
-        </span>
-        <span className="flex-1" />
-        {runningHere !== undefined ? (
+        </RowMeta>
+      }
+      end={
+        runningHere !== undefined ? (
           <Button size="xs" variant="ghost" onClick={() => cancelCliToolAction(status.tool)}>
             <XIcon data-icon="inline-start" />
             Cancel
           </Button>
+        ) : known !== undefined ? (
+          <>
+            {!otherServer && (
+              <Button variant="link" size="xs" className="px-1 text-muted-foreground" disabled={running !== undefined} onClick={() => setOtherServer(true)}>
+                Other Server…
+              </Button>
+            )}
+            <Button size="xs" variant="outline" disabled={running !== undefined} title={busy} onClick={() => void runCliToolAction(status.tool, "signIn", null, known.url)}>
+              <LogInIcon data-icon="inline-start" />
+              Sign In
+            </Button>
+          </>
         ) : (
           label !== null &&
           action !== null && (
@@ -182,15 +281,16 @@ function CliToolRow({ status, homeDir, server }: { status: CliToolStatus; homeDi
               {label}
             </Button>
           )
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground">{CLI_TOOL_PURPOSE[status.tool]}</p>
-      {status.servers.map(known => (
-        <ServerLine key={known.url} status={status} server={known} disabled={running !== undefined} />
+        )
+      }
+      purpose={CLI_TOOL_PURPOSE[status.tool]}
+    >
+      {status.servers.map(it => (
+        <ServerLine key={it.url} status={status} server={it} again={it.url !== known?.url} disabled={running !== undefined} />
       ))}
       {status.skill !== null && <SkillLine status={status} skill={status.skill} running={running} />}
-      {runningHere !== undefined && <RunningLine running={runningHere} />}
-      {running === undefined && signsIn && <SignInForm status={status} initialServer={server ?? status.servers[0]?.url ?? ""} />}
+      {runningHere !== undefined && <CliToolRunningLine running={runningHere} />}
+      {running === undefined && signsIn && (known === undefined || otherServer) && <SignInForm status={status} initialServer={known === undefined ? (server ?? "") : ""} />}
       {running === undefined && status.command !== null && (
         <div className="flex flex-col gap-1">
           <p className="text-xs text-muted-foreground">{cliToolCommandHint(action)}</p>
@@ -198,7 +298,7 @@ function CliToolRow({ status, homeDir, server }: { status: CliToolStatus; homeDi
         </div>
       )}
       {status.problem !== null && <p className="text-xs text-warning">{status.problem}</p>}
-    </div>
+    </ToolRow>
   )
 }
 
@@ -239,8 +339,8 @@ function SkillLine({ status, skill, running }: { status: CliToolStatus; skill: C
   if (running !== undefined && isSkillAction(running.action)) {
     return (
       <div className="flex min-w-0 items-center gap-1" data-testid="cli-tool-skill">
-        <RunningLine running={running} />
-        <Button variant="link" size="xs" className="px-1" onClick={() => cancelCliToolAction(status.tool)}>
+        <CliToolRunningLine running={running} />
+        <Button variant="link" size="xs" className="h-auto px-1 py-0" onClick={() => cancelCliToolAction(status.tool)}>
           Cancel
         </Button>
       </div>
@@ -257,7 +357,7 @@ function SkillLine({ status, skill, running }: { status: CliToolStatus; skill: C
           key={skillAction}
           variant="link"
           size="xs"
-          className={skillAction === "removeSkill" ? "px-1 text-muted-foreground" : "px-1"}
+          className={cn("h-auto px-1 py-0", skillAction === "removeSkill" && "text-muted-foreground")}
           disabled={running !== undefined}
           aria-label={skillAction === "removeSkill" ? `Remove the ${status.tool} agent skill` : undefined}
           onClick={() => void runCliToolAction(status.tool, skillAction, null)}
@@ -269,14 +369,25 @@ function SkillLine({ status, skill, running }: { status: CliToolStatus; skill: C
   )
 }
 
-/** A server of the CLI; `teamcity` signs in to it again from here (an expiring or refused token) */
-function ServerLine({ status, server, disabled }: { status: CliToolStatus; server: CliToolServer; disabled: boolean }) {
-  const again = status.tool === "teamcity" && status.command === null && server.state !== "guest"
+/**
+ * A server of the CLI: its user and expiry, or why its sign-in failed in the CLI's words, in `text-warning`, the page they
+ * name a link. `teamcity` signs in to it again from here (an expiring or refused token), unless the head of the row
+ * does (`again`)
+ */
+function ServerLine({ status, server, again, disabled }: { status: CliToolStatus; server: CliToolServer; again: boolean; disabled: boolean }) {
+  const signsInAgain = again && status.tool === "teamcity" && status.command === null && server.state !== "guest"
   return (
     <p className="flex min-w-0 items-center gap-1 text-xs" data-testid="cli-tool-server">
-      <span className="min-w-0 truncate">{describeCliToolServer(server)}</span>
-      {again && (
-        <Button variant="link" size="xs" className="px-1" disabled={disabled} onClick={() => void runCliToolAction(status.tool, "signIn", null, server.url)}>
+      {server.state === "failed" ? (
+        <span className="min-w-0 truncate">
+          {`${hostOf(server.url)} · `}
+          <FailedReason server={server} />
+        </span>
+      ) : (
+        <span className="min-w-0 truncate">{describeCliToolServer(server)}</span>
+      )}
+      {signsInAgain && (
+        <Button variant="link" size="xs" className="h-auto px-1 py-0" disabled={disabled} onClick={() => void runCliToolAction(status.tool, "signIn", null, server.url)}>
           Sign In Again
         </Button>
       )}
@@ -284,20 +395,27 @@ function ServerLine({ status, server, disabled }: { status: CliToolStatus; serve
   )
 }
 
-/** The last line of the running action; a sign-in also offers the page it opened, for a browser that didn't come up */
-function RunningLine({ running }: { running: RunningCliToolAction }) {
-  const url = running.url
+/** Why the sign-in of a server failed, its page a link (`error_url`, which Rust found in the words) */
+function FailedReason({ server }: { server: CliToolServer }) {
+  const reason = server.error ?? "not signed in"
+  const url = server.errorUrl
+  const at = url === null ? -1 : reason.indexOf(url)
+  if (url === null || at < 0) {
+    return <span className="text-warning">{reason}</span>
+  }
   return (
-    <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" aria-live="polite" data-testid="cli-tool-progress">
-      <Spinner className="size-3 shrink-0" />
-      <span className="min-w-0 truncate font-mono">{running.line === "" ? "Starting…" : running.line}</span>
-      {url !== null && (
-        <Button variant="link" size="xs" className="px-1" onClick={() => void openUrl(url).catch((error: unknown) => notifyError("Cannot open the TeamCity sign-in", error))}>
-          <ExternalLinkIcon data-icon="inline-start" />
-          Open in Browser
-        </Button>
-      )}
-    </p>
+    <span className="text-warning">
+      {reason.slice(0, at)}
+      <Button
+        variant="link"
+        size="xs"
+        className="h-auto p-0 text-warning underline"
+        onClick={() => void openUrl(url).catch((error: unknown) => notifyError("Cannot open the page", error))}
+      >
+        {url}
+      </Button>
+      {reason.slice(at + url.length)}
+    </span>
   )
 }
 

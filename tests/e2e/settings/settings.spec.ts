@@ -87,7 +87,7 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
     files: {
       "teamcity.auth": JSON.stringify([
         { server: "https://buildserver.example", status: "authenticated", user: { username: "jane.doe" }, token_expiry: "2026-11-21T16:58:19Z" },
-        { server: "https://ci.example", status: "error", error: "token missing or could not be retrieved" },
+        { server: "https://ci.example", status: "error", error: "login gateway detected - https://jb.gg/warp may be required" },
       ]),
     },
   })
@@ -104,6 +104,7 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
         await routeCommand(window, "agent_cli_status", () => ({
           bd: "/Users/test/.local/bin/brd",
           skills: ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"],
+          skill_dirs: ["/Users/test/.claude/skills", "/Users/test/.agents/skills"],
           // the app file of the IDE that another Branch Deck wrote: its line of the warning
           ide_app: { file: "/Users/test/.air/apps/branch-deck.yaml", current: false },
           installable: true,

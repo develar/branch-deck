@@ -382,9 +382,12 @@ macro_rules! for_each_command {
       read json cli_tools_status() -> Vec<domain_types::cli_tools::CliToolStatus> = $crate::app::cli_tools::cli_tools_status;
 
       /// Runs the action of a row (install, with the agent skill when `with_skill`; update; the skill; the sign-in of
-      /// `teamcity` to `server`), each line of its output to `progress`; a second action of the same tool while one runs is
-      /// refused
-      app(Tools) json run_cli_tool_action(params: $crate::app::cli_tools::RunCliToolActionParams) [channel progress: $crate::app::cli_tools::CliToolProgress] -> $crate::app::cli_tools::CliToolActionDone = $crate::app::cli_tools::run_cli_tool_action;
+      /// `teamcity` to `server`), which every window shows running with its last line (`cli-tools-running`); a second
+      /// action of the same tool while one runs is refused (`cli_tool_busy`)
+      app(Tools) json run_cli_tool_action(params: $crate::app::cli_tools::RunCliToolActionParams) -> $crate::app::cli_tools::CliToolActionDone = $crate::app::cli_tools::run_cli_tool_action;
+
+      /// The actions of the tools that run now, for a window that opens or loads again while one runs
+      read now cli_tools_running() -> domain_types::cli_tools::CliToolsRunning = $crate::app::cli_tools::cli_tools_running;
 
       /// Ends the action of `tool` that runs, with its whole process group
       app(Tools) now cancel_cli_tool_action(tool: domain_types::cli_tools::CliTool) = $crate::app::cli_tools::cancel_cli_tool_action;

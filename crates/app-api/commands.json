@@ -459,10 +459,12 @@
   {
     "name": "run_cli_tool_action",
     "class": "app",
-    "transport": {
-      "channel": "progress",
-      "open": false
-    }
+    "transport": "json"
+  },
+  {
+    "name": "cli_tools_running",
+    "class": "read",
+    "transport": "json"
   },
   {
     "name": "cancel_cli_tool_action",

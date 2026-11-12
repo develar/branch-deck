@@ -1,7 +1,7 @@
 // @spec openspec/specs/repository/settings/spec.md
 import type { RepositoryConfig } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expectSettingsOpened, openSettingsWindow, recordWrites } from "../helpers/settings-helpers"
+import { expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { routeCommand, openTooltip } from "../helpers/wait-helpers"
@@ -140,9 +140,12 @@ test.describe("Settings → Agents", () => {
     await window.getByTestId("settings-tab-tools").click()
     const brd = window.getByTestId("agent-skill")
     await expect(brd).toContainText("/Users/test/.local/bin/brd")
-    await expect(window.getByTestId("agent-skill-files")).toHaveText(
-      "Agent skill: /Users/test/.claude/skills/branch-deck/SKILL.md, /Users/test/.agents/skills/branch-deck/SKILL.md",
-    )
+    // the directories of the agents, as the lines of the other skills
+    await expect(window.getByTestId("agent-skill-files")).toHaveText("Agent skill branch-deck · /Users/test/.claude/skills, /Users/test/.agents/skills")
+    // the rules the agents ask brd for are a click away
+    await brd.getByRole("button", { name: "Agents" }).click()
+    await expect(settingsTab(window, "Agents")).toHaveAttribute("aria-selected", "true")
+    await expect(window.getByRole("heading", { name: "Coding agents" })).toBeVisible()
   })
 })
 

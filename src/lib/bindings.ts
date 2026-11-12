@@ -408,10 +408,12 @@ export const commands = {
 	cliToolsStatus: () => typedError<CliToolStatus[], ApiError>(__TAURI_INVOKE("cli_tools_status")),
 	/**
 	 *  Runs the action of a row (install, with the agent skill when `with_skill`; update; the skill; the sign-in of
-	 *  `teamcity` to `server`), each line of its output to `progress`; a second action of the same tool while one runs is
-	 *  refused
+	 *  `teamcity` to `server`), which every window shows running with its last line (`cli-tools-running`); a second
+	 *  action of the same tool while one runs is refused (`cli_tool_busy`)
 	 */
-	runCliToolAction: (params: RunCliToolActionParams, progress: Channel<CliToolProgress>) => typedError<CliToolActionDone, ApiError>(__TAURI_INVOKE("run_cli_tool_action", { params, progress })),
+	runCliToolAction: (params: RunCliToolActionParams) => typedError<CliToolActionDone, ApiError>(__TAURI_INVOKE("run_cli_tool_action", { params })),
+	/**  The actions of the tools that run now, for a window that opens or loads again while one runs */
+	cliToolsRunning: () => __TAURI_INVOKE<CliToolsRunning>("cli_tools_running"),
 	/**  Ends the action of `tool` that runs, with its whole process group */
 	cancelCliToolAction: (tool: CliTool) => __TAURI_INVOKE<void>("cancel_cli_tool_action", { tool }),
 	/**
@@ -631,6 +633,11 @@ export type AgentCliStatus = {
 	bd: string | null,
 	/**  The skill files that exist */
 	skills: string[],
+	/**
+	 *  The skill directories of the agents that have the skill, e.g. `~/.claude/skills` of
+	 *  `~/.claude/skills/branch-deck/SKILL.md`, each once, as the line of the skill names them
+	 */
+	skill_dirs: string[],
 	/**  The app file of an IDE with Air (`install_ide_app`); `null` while there is none */
 	ide_app: IdeApp | null,
 	/**
@@ -1493,10 +1500,16 @@ export type CliToolActionDone = {
 	skill_problem: string | null,
 };
 
-/**  A line of the output of a running action, or the page a sign-in opened in the browser */
-export type CliToolProgress = {
+/**
+ *  An action of a CLI that runs now, as every window shows it: on its row, or the line of the skill, and on the item of
+ *  the Setup dot
+ */
+export type CliToolRunning = {
+	tool: CliTool,
+	action: CliToolAction,
+	/**  The last line of its output; empty before the first */
 	line: string,
-	/**  The authorize page of a sign-in, for "Open in Browser" when the browser didn't come up */
+	/**  The authorize page a sign-in opened in the browser, for "Open in Browser" when the browser didn't come up */
 	url: string | null,
 };
 
@@ -1509,6 +1522,11 @@ export type CliToolServer = {
 	state: CliToolSignInState,
 	/**  Why `state` is `Failed`, in the CLI's words */
 	error: string | null,
+	/**
+	 *  The page `error` names, e.g. `https://jb.gg/warp` of "login gateway detected - `https://jb.gg/warp` may be
+	 *  required", for a link of the line
+	 */
+	errorUrl: string | null,
 	/**  Unix seconds when the token expires; None for a token without an expiry (a permanent one) */
 	expiresAt: number | null,
 };
@@ -1562,6 +1580,15 @@ export type CliToolStatus = {
 	 *  of it; None for `teamcity`, or when the app is signed in to no YouTrack
 	 */
 	signInWith: string | null,
+};
+
+/**
+ *  The actions of the CLIs that run now, the whole of them: the answer of `cli_tools_running` and the payload of the
+ *  event `cli-tools-running`. `version` grows with each change, so a window keeps the newest of the read and the events
+ */
+export type CliToolsRunning = {
+	version: number,
+	actions: CliToolRunning[],
 };
 
 /**  A span of code in a line of prose (`sync_utils::code_spans`): UTF-16 offsets, the end excluded */
@@ -2926,6 +2953,11 @@ export type ErrorCode =
  *  `processes` names each with its argv and kind. Nothing was changed
  */
 "slot_busy" | 
+/**
+ *  Settings → Tools: an action of the CLI runs already (started in another window); every window shows it running,
+ *  so the page toasts nothing. Nothing was started
+ */
+"cli_tool_busy" | 
 /**
  *  `brd lease return`: the slot is one of the host slots that `bd-host` keeps for its runs (`n`); `bd-host slots
  *  --local --shrink <n>` gives it back to the pool. Nothing was changed

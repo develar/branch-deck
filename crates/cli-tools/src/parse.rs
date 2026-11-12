@@ -62,10 +62,12 @@ pub fn parse_teamcity_auth(stdout: &str) -> Result<Vec<CliToolServer>, String> {
           "guest" => CliToolSignInState::Guest,
           _ => CliToolSignInState::Failed,
         };
+        let error = (state == CliToolSignInState::Failed).then(|| entry.error.unwrap_or(entry.status));
         CliToolServer {
           url: entry.server.trim_end_matches('/').to_string(),
           user: entry.user.and_then(|user| user.username),
-          error: (state == CliToolSignInState::Failed).then(|| entry.error.unwrap_or(entry.status)),
+          error_url: error.as_deref().and_then(url_in),
+          error,
           expires_at: entry.token_expiry.as_deref().and_then(parse_timestamp),
           state,
         }
@@ -133,6 +135,7 @@ pub fn parse_youtrack_auth(stdout: &str) -> Result<Vec<CliToolServer>, String> {
           url: entry.url.trim_end_matches('/').to_string(),
           user: entry.login.filter(|login| !login.is_empty()),
           state: if authenticated { CliToolSignInState::Authenticated } else { CliToolSignInState::Failed },
+          error_url: if authenticated { None } else { url_in(&entry.status) },
           error: (!authenticated).then_some(entry.status),
           // a permanent token has no expiry
           expires_at: None,
@@ -140,6 +143,15 @@ pub fn parse_youtrack_auth(stdout: &str) -> Result<Vec<CliToolServer>, String> {
       })
       .collect(),
   )
+}
+
+/// The first `http://` or `https://` word of a sentence of a CLI, without the punctuation after it: the page of
+/// "login gateway detected - `https://jb.gg/warp` may be required"
+pub fn url_in(text: &str) -> Option<String> {
+  text
+    .split_whitespace()
+    .find(|word| word.starts_with("https://") || word.starts_with("http://"))
+    .map(|word| word.trim_end_matches(['.', ',', ';', ':', ')', '"', '\'']).to_string())
 }
 
 fn one_or_many<T: for<'de> Deserialize<'de>>(stdout: &str) -> Result<Vec<T>, serde_json::Error> {

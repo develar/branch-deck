@@ -208,6 +208,37 @@ test.describe("Settings → Tools", () => {
     await expect.poll(() => repo.getCliToolsLog()).toContain("teamcity auth login --server https://ci.example --web --json --no-input")
   })
 
+  test("should sign in to a server whose sign-in failed from the head of its row, its reason a link, and to another server from its form", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    const gateway = JSON.stringify([{ server: "https://ci.example", status: "error", error: "login gateway detected - https://jb.gg/warp may be required" }])
+    await repo.setCliTools({ installed: [{ tool: "teamcity", version: "1.6.3" }], files: { "teamcity.auth": gateway } })
+    const window = await openSettingsWindow(page, { page: "tools" })
+    const row = window.getByTestId("cli-tool-teamcity")
+    const line = row.getByTestId("cli-tool-server")
+    await expect(line).toHaveText("ci.example · login gateway detected - https://jb.gg/warp may be required")
+    // one sign-in of the server: the head of the row, neither Sign In Again on its line nor its form
+    await expect(line.getByRole("button", { name: "Sign In Again" })).toHaveCount(0)
+    await expect(row.getByRole("textbox", { name: "TeamCity server" })).toHaveCount(0)
+    await line.getByRole("button", { name: "https://jb.gg/warp" }).click()
+    await expect.poll(() => getOpenedUrls(window)).toContain("https://jb.gg/warp")
+    await row.getByRole("button", { name: "Sign In", exact: true }).click()
+    await expect(window.locator("[data-slot=toast]", { hasText: "Signed in to ci.example as jane" })).toBeVisible()
+    expect(await repo.getCliToolsLog()).toContain("teamcity auth login --server https://ci.example --web --json --no-input")
+
+    // failed again: another server through the form
+    await repo.setCliTools({ files: { "teamcity.auth": gateway } })
+    await emitTauriEvent(window, "tauri://focus")
+    await row.getByRole("button", { name: "Other Server…" }).click()
+    const field = row.getByRole("textbox", { name: "TeamCity server" })
+    await expect(field).toHaveValue("")
+    await field.click()
+    await expect(field).toBeFocused()
+    await field.fill("https://other.example")
+    await field.press("Enter")
+    await expect(window.locator("[data-slot=toast]", { hasText: "Signed in to other.example as jane" })).toBeVisible()
+    expect(await repo.getCliToolsLog()).toContain("teamcity auth login --server https://other.example --web --json --no-input")
+  })
+
   test("should offer an older teamcity its update before the sign-in, else the sign-in of a terminal", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ installed: [{ tool: "teamcity", version: "1.6.1", unmanaged: true }] })

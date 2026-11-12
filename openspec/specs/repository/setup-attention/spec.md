@@ -344,6 +344,17 @@ the agents with it.
 - **WHEN** the user acts on "The teamcity agent skill 1.4.0 is ready to install"
 - **THEN** the skill updates
 
+### Requirement: The dot: An item of a CLI whose action runs shows it
+
+An item of a CLI whose action runs MUST show its last line instead of its buttons, wherever the action started (the
+item, Settings → Tools), as Rust keeps the actions that run ([Command-Line Tools](../cli-tools/spec.md)).
+
+#### Scenario: The dot opened again while an update runs
+- **GIVEN** the user chose Update on "teamcity 1.7.0 is out"
+- **WHEN** the dot opens again while the update runs
+- **THEN** the item shows its last line, without Update or Skip This Version
+  [@test] tests/e2e/repository/setup-dot.spec.ts (`should show the update an item started as running, in the dot and in Settings opened meanwhile, which offers no second one`)
+
 ### Requirement: The dot: A sign-in item opens where to sign in
 
 "The teamcity sign-in to ci.example expires Jan 5" and "… expired" MUST open Settings → Tools at the tool to sign in;
@@ -429,7 +440,7 @@ The skips MUST be a setting of every window (`appSettings.setupSkips`), which Ru
 
 - The dot is `size-1.5` `bg-primary` at the top end of the icon, hidden from the accessible name, which counts the
   items. The list is a `Popover` aligned to the end, `w-96`: an item is its words and a row of an `xs` outline action
-  and a ghost skip.
+  and a ghost skip, or the running line of its CLI (`CliToolRunningLine`: a spinner and the last line in mono).
 
 ## Testing / Local Run
 
