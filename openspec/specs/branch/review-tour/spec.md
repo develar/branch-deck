@@ -1214,7 +1214,9 @@ A paragraph wrapped anew MUST be no change.
 
 A removed paragraph and the first similar added one after the last pair (half of the shorter kept and a third of the
 longer, by word) MUST be one `changed` paragraph with the words the change wrote (`inserted`) and removed (`deleted`,
-each at the offset of the text it stood before), the rest `added` or `removed`.
+each at the offset of the text it stood before), the rest `added` or `removed`. The word diff of a pair MUST be bounded
+by its work (the changes the comparison may count), never by time, so that the brief of a range is the same under any
+load of the machine.
 
 #### Scenario: A new paragraph and lines appended to one
 - **WHEN** a change adds a paragraph alone, and appends lines to another

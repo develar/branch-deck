@@ -9,7 +9,6 @@ use crate::units::UnitBlock;
 use domain_types::commit_body::CodeSpan;
 use serde::Serialize;
 use std::ops::Range;
-use std::time::Duration;
 use sync_utils::code_spans::code_spans;
 use text_diff::by_word;
 use text_diff::cancellation::Deadline;
@@ -160,8 +159,6 @@ pub struct ProseLink {
 
 /// An excerpt is shown only when it leaves out at least this share of the paragraph, as `(numerator, denominator)`
 const EXCERPT_MAX_SHARE: (usize, usize) = (3, 4);
-/// The word diff of one pair of paragraphs gets this long, then the pair is a removal and an addition
-const WORD_DIFF_BUDGET: Duration = Duration::from_millis(50);
 /// What stands between two cells of a row in the text of its paragraph
 const CELL_SEPARATOR: &str = " | ";
 
@@ -803,11 +800,12 @@ fn resolve_target(target: &str, directory: &str) -> String {
 
 /// What the commits wrote and removed in `after` by word, when `before` is similar: at least half of the characters of
 /// the shorter side and a third of the longer one kept (a sentence appended to a paragraph keeps it); `None` for
-/// paragraphs too different to read as one (or a diff out of its budget)
+/// paragraphs too different to read as one (or a diff of too many changes, `FilesTooBig`). No time limit: a pair is
+/// bounded by its work, so the brief is the same under any load
 fn word_change(before: &str, after: &str) -> Option<(Vec<TextRange>, Vec<ProseDeletion>)> {
   let old: Vec<u16> = before.encode_utf16().collect();
   let new: Vec<u16> = after.encode_utf16().collect();
-  let fragments = by_word::compare(&old, &new, ComparisonPolicy::Default, &Deadline::after(WORD_DIFF_BUDGET)).ok()?;
+  let fragments = by_word::compare(&old, &new, ComparisonPolicy::Default, &Deadline::NONE).ok()?;
   let removed: usize = fragments.iter().map(|fragment| fragment.end_offset1 - fragment.start_offset1).sum();
   let kept = old.len() - removed.min(old.len());
   if kept * 2 < old.len().min(new.len()) || kept * 3 < old.len().max(new.len()) {

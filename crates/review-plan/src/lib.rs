@@ -84,6 +84,7 @@ use generated_files::attributes::attribute_generated_paths;
 use generated_files::generated_by::GeneratedBy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::landed_pairing::walk_commits_with_messages;
+use git_ops::object_texts::into_text;
 use git_ops::reviewed_refs::read_reviewed_refs;
 use git_ops::revs::resolve_commit;
 use object_cache::cache::ObjectCache;
@@ -467,7 +468,9 @@ pub fn review_plan_of(
     // file, which the review shows under its module
     let root_paths: Vec<&str> = changed.iter().map(|file| file.path).collect();
     let (input, read) = read_symbol_input_with(git, repository_path, &head, sources.cache, &diffs, &unread, &root_paths)?;
-    texts.extend(unread.into_iter().zip(read).filter_map(|(id, bytes)| Some((id, String::from_utf8(bytes?).ok()?))));
+    // as the memory of the diffs holds a text, an invalid sequence replaced: the plan is the same whether the diffs came
+    // from git in this process or from the object cache
+    texts.extend(unread.into_iter().zip(read).filter_map(|(id, bytes)| Some((id, into_text(bytes?)))));
     Some(input)
   };
   let (mut api, order, links) = input.as_ref().map_or_else(
@@ -671,6 +674,8 @@ mod message_steps_test;
 mod modules_test;
 #[cfg(test)]
 mod order_test;
+#[cfg(test)]
+mod plan_sources_test;
 #[cfg(test)]
 mod prose_test;
 #[cfg(test)]

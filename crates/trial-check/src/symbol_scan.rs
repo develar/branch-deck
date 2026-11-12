@@ -12,6 +12,7 @@ use code_symbols::extract::{MAX_BYTES, extractor_version, summarize};
 use code_symbols::language::{Language, language_of, summary_key};
 use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_files::MAX_BLOB_BYTES;
 use git_ops::object_texts::read_blob_bytes;
 use object_cache::cache::ObjectCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -98,8 +99,10 @@ pub fn read_symbol_input(git: &GitCommandExecutor, repository_path: &str, cache:
 
 /// `read_symbol_input` with the module structure at `rev` (the head a review plan reads, which may not be checked out)
 /// above the source files and above `root_paths` (every file a review plan shows under its module), and the bytes of
-/// the `extra` blobs of the caller in its one `cat-file --batch`, in order: `None` for a missing, binary or too large
-/// one. With no summary to parse and no manifest to read, the batch reads
+/// the `extra` blobs of the caller in its one `cat-file --batch`, in order: `None` for a missing or binary one and one
+/// larger than the texts of the diffs (`MAX_BLOB_BYTES`), so that the caller reads a blob the memory of the diffs
+/// would hold as that memory holds it; a source blob or a manifest larger than a parsed file (`MAX_BYTES`) is none, as
+/// before. With no summary to parse and no manifest to read, the batch reads
 /// `extra` alone; with no `extra` either, it runs no process
 #[instrument(skip_all, fields(commits = diffs.len(), extra = extra.len()))]
 pub fn read_symbol_input_with(
@@ -161,11 +164,13 @@ pub fn read_symbol_input_with(
     .chain(tsconfigs.iter().map(|(_, blob)| blob.clone()))
     .chain(extra.iter().cloned())
     .collect();
-  let mut contents = read_blob_bytes(git, repository_path, &names, MAX_BYTES)?.into_iter();
-  let sources: Vec<Option<Vec<u8>>> = contents.by_ref().take(missing.len()).collect();
+  // one batch under the larger limit of the extra blobs; a source or a manifest over the limit of a parsed file is none
+  let parsed_size = |content: Option<Vec<u8>>| content.filter(|bytes| bytes.len() <= MAX_BYTES);
+  let mut contents = read_blob_bytes(git, repository_path, &names, MAX_BLOB_BYTES)?.into_iter();
+  let sources: Vec<Option<Vec<u8>>> = contents.by_ref().take(missing.len()).map(parsed_size).collect();
   let crates: HashMap<String, String> = manifests
     .iter()
-    .zip(contents.by_ref())
+    .zip(contents.by_ref().map(parsed_size))
     .map(|((dir, _), content)| {
       let name = content.as_deref().and_then(crate_name).unwrap_or_else(|| dir.rsplit('/').next().unwrap_or(dir).to_string());
       (dir.clone(), name.replace('-', "_"))
@@ -173,7 +178,7 @@ pub fn read_symbol_input_with(
     .collect();
   let aliases: HashMap<String, TsAliases> = tsconfigs
     .iter()
-    .zip(contents.by_ref())
+    .zip(contents.by_ref().map(parsed_size))
     .filter_map(|((path, _), content)| {
       let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
       Some((dir.to_string(), ts_aliases(dir, &String::from_utf8_lossy(content.as_deref()?))))
