@@ -47,14 +47,14 @@ fn the_layout_of_a_stored_value_is_pinned_with_the_version_of_its_store() {
   // the diffs and what they left: raise `MODEL_VERSION` with a new sample
   assert_eq!(
     (MODEL_VERSION, written::<TextDiff>(DIFF).as_str(), written::<Leftovers>(LEFTOVERS).as_str()),
-    (14, DIFF, LEFTOVERS),
+    (15, DIFF, LEFTOVERS),
     "the layout of a stored diff or of what it left changed: raise MODEL_VERSION and pin the sample again"
   );
   // a merge of one side holds a diff: raise `MERGE_MODEL_VERSION` whenever the diff is another
   let one_sided = format!(r#"{{"OneSided":{{"deleted":"left","diff":{DIFF}}}}}"#);
   assert_eq!(
     (MERGE_MODEL_VERSION, written::<StoredMerge>(&one_sided)),
-    (9, one_sided),
+    (10, one_sided),
     "the layout of a stored merge changed: raise MERGE_MODEL_VERSION and pin the sample again"
   );
 }

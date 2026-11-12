@@ -140,6 +140,9 @@ flowchart TD
 - **Budget.** A side over `MAX_INNER_LINES` (20,000) or `MAX_INNER_BYTES` (1 MiB), or an inner comparison out of
   time (`DiffBudget::inner`), gives `line_level_only`: the comparison runs again by line, and the blocks stay exact.
   When the line comparison runs out of time too (`DiffBudget::lines`), the diff is one block of both whole texts.
+  `diff_texts_in` says whether a deadline ran out (`BudgetedDiff::out_of_time`), which a side over a limit or a
+  comparison of too many changes is not: a caller keeps such a diff out of its stores. The views pass their budgets,
+  a scan `DiffBudget::NONE`, bounded by the work alone.
   `old_scopes`, `new_scopes` and `import_blocks` stay empty here: the file-diffs service fills them from the summaries
   of the texts ([Git Operations](git-operations.md), "File diffs").
 - **Marks.** `marks` (`DiffMarks`, [Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md)) says what a
@@ -422,8 +425,9 @@ not squashed) and `ByChar`.
    fails with `TooManyChanges` when it gives up, as `DiffTooBigException`. A block whose words fail with
    `TooManyChanges` keeps no inner changes; after `MAX_BAD_LINES` (3) such blocks, the next blocks are not compared
    by word. `DeadlineExceeded` stops the whole comparison.
-   **Rationale**: Branch Deck has no indicator, but it needs a time budget for each file. A caller then falls back to
-   a cheaper diff.
+   **Rationale**: Branch Deck has no indicator, but a view needs a time budget for each file. A caller then falls
+   back to a cheaper diff. A scan passes no deadline: its blocks are kept per commit, and must not depend on the load
+   (`TooManyChanges` and the size limits still bound it).
 
 6. **Decision**: The comparison sees each `\r\n` and each lone `\r` as `\n` (`SourceText`), as IntelliJ converts the
    line separators of a document, which never holds a `\r`.

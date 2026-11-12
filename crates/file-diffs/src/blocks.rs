@@ -4,7 +4,13 @@
 //!
 //! - **Caches.** A pair that memory or the `file_diff` store has (the view showed it) costs nothing: the key is the
 //!   view's (`diff_options`). The others are compared and not cached here: their callers cache them per commit
-//!   (`commit_diff`), and the views need the scopes and the marks.
+//!   (`commit_diff`), and the views need the scopes and the marks. A diff of memory by lines alone is not taken: the
+//!   time of a view may have cut it short, and the store never keeps such a diff.
+//! - **No deadline.** A pair is compared without the time budgets of the views (`DiffBudget::NONE`): only the limits of
+//!   the work bound it (`MAX_INNER_BYTES`, `MAX_INNER_LINES`, the changes a comparison may count), so the blocks, and
+//!   the hunks a commit keeps in `commit_diff`, are the same under any load. Measured on 191 924 pairs of 20 000
+//!   commits of a monorepo (`examples/scan_limits.rs`): 18% more time than under the budgets of the views, the longest
+//!   pair 2.2 s, where those budgets cut 17 pairs short and gave 14 of them other blocks.
 //! - **Processes.** One `cat-file --batch` for the blobs of the pairs that no cache has. A pair goes to a worker as soon as
 //!   both its blobs are read, and a blob that no other pair waits for is dropped, so memory holds the pairs in flight;
 //!   an instance `for_scans` keeps them in its memory cache instead, for the next pass over the same commits.
@@ -20,7 +26,6 @@ use object_cache::file_diff::DiffKey;
 use std::collections::HashMap;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
-use text_diff::cancellation::Deadline;
 use text_diff::model::{DiffBudget, TextDiff, diff_texts};
 use text_diff::policy::WhitespacePolicy;
 
@@ -105,7 +110,7 @@ impl FileDiffs {
           loop {
             let job = jobs.lock().unwrap_or_else(PoisonError::into_inner).recv();
             let Ok((index, [old, new])) = job else { return };
-            let diff = compare(old.as_deref(), new.as_deref(), self.limits.file, self.limits.lines);
+            let diff = compare(old.as_deref(), new.as_deref());
             computed.lock().unwrap_or_else(PoisonError::into_inner).push((index, diff));
           }
         }
@@ -149,17 +154,18 @@ impl FileDiffs {
     Ok(results.into_iter().map(|diff| diff.unwrap_or(PairDiff::NoText)).collect())
   }
 
-  /// The diff of a pair that memory has
+  /// The diff of a pair that memory has; not one by lines alone, which the time of a view may have cut short
   fn known_diff(&self, key: &MemoryKey) -> Option<PairDiff> {
     match self.diffs.get(key)?.as_ref() {
+      DiffContent::Text(diff) if diff.line_level_only => None,
       DiffContent::Text(diff) => Some(PairDiff::Text(diff.clone())),
       _ => Some(PairDiff::NoText),
     }
   }
 }
 
-/// The diff of two sides, as the views compare them, within the budgets of a file
-fn compare(old: Option<&BlobText>, new: Option<&BlobText>, file: std::time::Duration, lines: std::time::Duration) -> PairDiff {
+/// The diff of two sides, as the views compare them, without a deadline
+fn compare(old: Option<&BlobText>, new: Option<&BlobText>) -> PairDiff {
   const fn text(blob: Option<&BlobText>) -> Option<&str> {
     match blob {
       None => Some(""),
@@ -170,9 +176,5 @@ fn compare(old: Option<&BlobText>, new: Option<&BlobText>, file: std::time::Dura
   let (Some(old), Some(new)) = (text(old), text(new)) else {
     return PairDiff::NoText;
   };
-  let budget = DiffBudget {
-    inner: Some(Deadline::after(file)),
-    lines: Deadline::after(lines),
-  };
-  PairDiff::Text(diff_texts(old, new, WhitespacePolicy::Default, &budget))
+  PairDiff::Text(diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE))
 }

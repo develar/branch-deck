@@ -1,10 +1,13 @@
-//! The blocks of many pairs for the scans: the same blocks as the views, the binary files, and the caches.
+//! The blocks of many pairs for the scans: the same blocks as the views, the binary files, the caches, and no deadline.
 
 use crate::blocks::{BlobPair, PairDiff};
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, unhurried_for_scans, write};
-use crate::model::{DiffContent, DiffSource};
+use crate::model::{DiffContent, DiffFile, DiffSource};
+use crate::service::{DiffLimits, FileDiffs};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
+use std::fmt::Write as _;
+use std::time::Duration;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use text_diff::policy::WhitespacePolicy;
@@ -22,6 +25,19 @@ fn repo() -> (TestRepo, String) {
   (repo, commit)
 }
 
+/// The blob pair of each file of a view, as a scan asks it
+fn pairs_of(files: &[DiffFile]) -> Vec<BlobPair<'_>> {
+  files
+    .iter()
+    .map(|file| BlobPair {
+      path: &file.path,
+      old_path: file.old_path.as_deref(),
+      old_id: file.old_id.as_deref(),
+      new_id: file.new_id.as_deref(),
+    })
+    .collect()
+}
+
 #[test]
 fn the_blocks_of_a_scan_are_the_blocks_of_the_view() {
   let (repo, commit) = repo();
@@ -36,15 +52,7 @@ fn the_blocks_of_a_scan_are_the_blocks_of_the_view() {
       WhitespacePolicy::Default,
     )
     .unwrap();
-  let pairs: Vec<BlobPair<'_>> = view
-    .iter()
-    .map(|file| BlobPair {
-      path: &file.path,
-      old_path: file.old_path.as_deref(),
-      old_id: file.old_id.as_deref(),
-      new_id: file.new_id.as_deref(),
-    })
-    .collect();
+  let pairs = pairs_of(&view);
 
   let counting = repo.git_executor().with_process_stats("test");
   let scan = unhurried().blocks_of(&counting, repo_path(&repo), &cache, &pairs).unwrap();
@@ -137,4 +145,84 @@ fn a_rename_that_keeps_the_content_is_compared_once() {
     PairDiff::NoText => panic!("{diff:?}"),
   };
   assert_eq!(scan.iter().map(changed).collect::<Vec<_>>(), [false, true]);
+}
+
+/// A commit that changes a short Kotlin file and a text over the line limit of the inner ranges (`MAX_INNER_LINES`),
+/// one line of every thousand: the paths and the pairs of its two files
+fn short_and_long() -> (TestRepo, String) {
+  let long = |changed: bool| -> Vec<u8> {
+    let mut text = String::new();
+    for line in 0..=text_diff::model::MAX_INNER_LINES {
+      let edit = if changed && line % 1000 == 7 { " edited" } else { "" };
+      writeln!(text, "line {line}{edit}").unwrap();
+    }
+    text.into_bytes()
+  };
+  let repo = TestRepo::new();
+  write(&repo, "A.kt", b"class A {\n  fun a() = 1\n  fun b() = 2\n}\n");
+  write(&repo, "long.txt", &long(false));
+  commit_all(&repo, "Base");
+  write(&repo, "A.kt", b"class A {\n  fun a() = 10\n  fun b() = 2\n  fun c() = 3\n}\n");
+  write(&repo, "long.txt", &long(true));
+  let commit = commit_all(&repo, "Change");
+  (repo, commit)
+}
+
+/// The blocks of each pair of `diffs`, of text pairs only
+fn texts_of(diffs: Vec<PairDiff>) -> Vec<Vec<text_diff::model::DiffBlock>> {
+  diffs
+    .into_iter()
+    .map(|diff| match diff {
+      PairDiff::Text(diff) => diff.blocks,
+      PairDiff::NoText => panic!("a text pair"),
+    })
+    .collect()
+}
+
+/// A scan compares without the deadlines of the views: an instance whose budgets are already over gets the blocks of
+/// one without a limit. The views of that instance, cut short by the time (by lines alone, and the lines of the long
+/// file one block of both whole texts), stay in memory only: a scan after them does not take them, and the store has
+/// none of them, so another instance reads the blobs again
+#[test]
+fn a_scan_has_the_blocks_of_no_deadline_and_a_diff_the_time_cut_short_reaches_no_store() {
+  let (repo, commit) = short_and_long();
+  let cache_dir = tempfile::tempdir().unwrap();
+  let cache = test_utils::process_budget::cache_in(cache_dir.path());
+  let source = DiffSource::Commit { id: commit };
+  let exact = unhurried()
+    .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &source, WhitespacePolicy::Default)
+    .unwrap();
+  let pairs = pairs_of(&exact);
+  let expected: Vec<Vec<text_diff::model::DiffBlock>> = exact
+    .iter()
+    .map(|file| match &file.content {
+      DiffContent::Text(diff) => diff.blocks.clone(),
+      other => panic!("{}: {other:?}", file.path),
+    })
+    .collect();
+  assert_eq!(expected.iter().map(Vec::len).collect::<Vec<_>>(), [2, 20]);
+
+  let hurried = FileDiffs::new(DiffLimits {
+    file: Duration::ZERO,
+    lines: Duration::ZERO,
+  });
+  assert_eq!(texts_of(hurried.blocks_of(repo.git_executor(), repo_path(&repo), &cache, &pairs).unwrap()), expected);
+
+  let cut = hurried.read(repo.git_executor(), repo_path(&repo), &cache, &source, WhitespacePolicy::Default).unwrap();
+  let cut_blocks: Vec<usize> = cut
+    .iter()
+    .map(|file| match &file.content {
+      DiffContent::Text(diff) => {
+        assert!(diff.line_level_only, "{}", file.path);
+        diff.blocks.len()
+      }
+      other => panic!("{}: {other:?}", file.path),
+    })
+    .collect();
+  assert_eq!(cut_blocks, [1, 1]);
+  assert_eq!(texts_of(hurried.blocks_of(repo.git_executor(), repo_path(&repo), &cache, &pairs).unwrap()), expected);
+
+  let counting = repo.git_executor().with_process_stats("test");
+  assert_eq!(texts_of(unhurried().blocks_of(&counting, repo_path(&repo), &cache, &pairs).unwrap()), expected);
+  assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1)]);
 }

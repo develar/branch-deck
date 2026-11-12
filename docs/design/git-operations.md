@@ -3333,9 +3333,15 @@ git plumbing does not depend on.
   writes `Subproject commit <id>`; in the working tree its new side is the commit in the index. A blob that git cannot
   read (a pruned object, a partial clone) gives `Missing`, which no cache keeps. Else the diff is a `TextDiff`; a text
   that is not UTF-8 is compared as decoded, with U+FFFD for each bad byte.
-- **Budgets.** Each file has 100 ms for its inner ranges; after that, it is compared by line (`line_level_only`). Its
-  line comparison has 1 s; after that, it is one block. These budgets catch a pathological file only. No budget spans
-  the subject, so the result does not depend on the load of the machine or the order of the files.
+- **Budgets.** In a view each file has 100 ms for its inner ranges; after that, it is compared by line
+  (`line_level_only`). Its line comparison has 1 s; after that, it is one block. These budgets catch a pathological
+  file only. No budget spans the subject, so the result does not depend on the order of the files. A scan
+  (`blocks_of`: the hunks of a commit in `commit_diff`, its patch, the pairs of a review plan) has no deadline: the
+  limits of the work alone bound it (`MAX_INNER_BYTES`, `MAX_INNER_LINES`, the changes a comparison may count), and it
+  takes no diff by lines alone from memory, so its blocks are the same under any load. Measured on 191,924 pairs of
+  20,000 commits of the IntelliJ monorepo (`crates/file-diffs/examples/scan_limits.rs`): 18% more time than under the
+  budgets of the views, which cut 17 pairs short (14 with other blocks); the longest pair 2.2 s, a 4.6 MB file over
+  the inner limits.
 - **Scopes.** The types, functions and modules of each side are its scopes, with the label `Outer › inner`, for the
   hunk headers of a view. They come from the summary of the blob in the `blob_summary` store, which the sync of the
   branches made already for most commits. A side without one is parsed (`code_symbols::extract::summarize`), and its
@@ -3395,7 +3401,8 @@ git plumbing does not depend on.
   `file_diff` store, under `model_version()`: `MODEL_VERSION` with the version of the tokens (`store_version`,
   `code_symbols::tokens::tokens_version`) and that of the rules the names of its renames are bound by
   (`code_symbols::navigate::RULES_VERSION`), so a diff made with other parsers or other rules is never read. The store never keeps a
-  diff that the time cut short; memory keeps it for the run, with the marks of its blocks. What a pair left is a
+  diff that the time cut short (`BudgetedDiff::out_of_time`: its inner ranges or its lines ran out, also of a file over
+  the inner limits); memory keeps it for the run, with the marks of its blocks. What a pair left is a
   value of its own under the same key and version, in memory (16 MiB, `MarksMemory::leftovers`) and in the
   `file_leftovers` store, written before its diff: a scan (`blocks_of`) decodes the diff of a pair at every hit and
   never what the pair left, and a view knows a text with both or compares the pair again, so the pass over a

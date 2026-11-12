@@ -39,7 +39,8 @@
 //! - **Budgets.** A side over `MAX_BLOB_BYTES` is `TooLarge`, a binary one `Binary`. Each file has `DiffLimits::file`
 //!   for its inner ranges and `DiffLimits::lines` for its lines, for a pathological file only: no budget spans the
 //!   subject, so the result does not depend on the load of the machine or the order of the files. A diff that the time
-//!   cut short (`line_level_only` within the size limits) stays in memory only: the store never keeps it.
+//!   cut short (`BudgetedDiff::out_of_time`: its inner ranges or its lines ran out) stays in memory only: the store
+//!   never keeps it, and a scan never reads it (`blocks_of` compares without a deadline).
 
 use crate::accio::{IndexUnavailable, RenameAnswer, RenamePair, SearchCanceled, SymbolIndex};
 use crate::collapse::collapse_of;
@@ -80,14 +81,15 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_utils::span::in_current_span;
 use text_diff::cancellation::Deadline;
-use text_diff::model::{BlockKind, DiffBudget, DiffMarks, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts};
+use text_diff::model::{BlockKind, BudgetedDiff, DiffBudget, DiffMarks, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts_in};
 use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument, warn};
 
 /// The version of the diffs in the `file_diff` store and of what they left in the `file_leftovers` store: bump it
 /// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change.
-/// `stored_layout_test.rs` pins the layout of both with it
-pub const MODEL_VERSION: u32 = 14;
+/// `stored_layout_test.rs` pins the layout of both with it. 15: a diff whose lines ran out of time is not stored either
+/// (`BudgetedDiff::out_of_time`), so a store of 14 may hold one block of two whole texts that the time made
+pub const MODEL_VERSION: u32 = 15;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
 /// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
@@ -1019,7 +1021,7 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
       inner: Some(Deadline::after(limits.file)),
       lines: Deadline::after(limits.lines),
     };
-    let mut diff = diff_texts(old_text, new_text, context.policy, &budget);
+    let BudgetedDiff { mut diff, out_of_time } = diff_texts_in(old_text, new_text, context.policy, &budget);
     // the marks before the content: they change the rows of the file
     let paths = [entry.old_path.as_deref().unwrap_or(&entry.path), &entry.path];
     let pair = context
@@ -1040,7 +1042,8 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
         text: (content, Arc::clone(&left)),
       });
     };
-    let cut_short = diff.line_level_only && fits_inner(old_text, diff.old_line_count) && fits_inner(new_text, diff.new_line_count);
+    // a diff the time cut short, of its inner ranges or of its lines, stays in memory only
+    let cut_short = out_of_time;
     let old_side = entry.old_language().zip(entry.old_id.as_deref());
     let new_side = language_of(&entry.path).zip(entry.new_id.as_deref());
     let mut summaries = Vec::new();

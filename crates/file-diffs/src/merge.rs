@@ -27,13 +27,14 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
 use text_diff::cancellation::Deadline;
 use text_diff::merge_model::{TextMerge, merge_texts};
-use text_diff::model::{DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts};
+use text_diff::model::{BudgetedDiff, DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts_in};
 use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument};
 
 /// The version of the merges in the `file_merge` store: bump it when `TextMerge`, `TextDiff` (a merge of one side
-/// holds a diff, with its marks), the merge or the scopes change. `stored_layout_test.rs` pins the layout with it
-pub(crate) const MERGE_MODEL_VERSION: u32 = 9;
+/// holds a diff, with its marks), the merge or the scopes change. `stored_layout_test.rs` pins the layout with it. 10:
+/// a merge of one side whose lines ran out of time is not stored either (`BudgetedDiff::out_of_time`)
+pub(crate) const MERGE_MODEL_VERSION: u32 = 10;
 
 /// The memory key of a merge: the options byte and the base, left and right blob ids, empty for a missing side
 pub(crate) type MergeMemoryKey = (u8, String, String, String);
@@ -387,7 +388,7 @@ impl MergeWork<'_> {
       } else {
         (MergeSide::Right, left_id, texts[1])
       };
-      let mut diff = diff_texts(texts[0], remaining, self.policy, &budget);
+      let BudgetedDiff { mut diff, out_of_time } = diff_texts_in(texts[0], remaining, self.policy, &budget);
       if let Some(language) = language {
         if let Some(id) = base_id {
           diff.old_scopes = side_facts(self.summaries, language, &path.path, id, texts[0], &mut made).0;
@@ -396,7 +397,7 @@ impl MergeWork<'_> {
           diff.new_scopes = side_facts(self.summaries, language, &path.path, id, remaining, &mut made).0;
         }
       }
-      let cut_short = diff.line_level_only && fits_inner(&texts);
+      let cut_short = out_of_time;
       let content = MergeContent::OneSided { deleted, diff: diff.clone() };
       self.remember(key, &content);
       send(content_event(content));

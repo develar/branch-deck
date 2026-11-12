@@ -5,7 +5,7 @@
 //! Lines are IntelliJ's (`SourceText`): `\n`, `\r\n` and a lone `\r` end a line, and a text has one line more than it
 //! has line ends. Line ends compare as equal; `TextDiff::line_ends` names them when the files differ in them.
 
-use crate::cancellation::Deadline;
+use crate::cancellation::{Deadline, DiffTooBig};
 use crate::comparison_util::is_equal_texts;
 use crate::inline::{LineRanges, inline_pairs, ranges_dropped};
 use crate::policy::{ComparisonPolicy, HighlightPolicy, WhitespacePolicy};
@@ -392,19 +392,43 @@ impl DiffBudget {
   };
 }
 
-/// Compares two texts under `policy`, by word inside the changed lines
+/// Compares two texts under `policy`, by word inside the changed lines (`diff_texts_in`)
 pub fn diff_texts(old: &str, new: &str, policy: WhitespacePolicy, budget: &DiffBudget) -> TextDiff {
+  diff_texts_in(old, new, policy, budget).diff
+}
+
+/// A diff, and whether the time of its budget cut it short
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BudgetedDiff {
+  pub diff: TextDiff,
+  /// A deadline of the budget ran out: the inner ranges (the diff is by lines alone) or the lines (one block of both
+  /// whole texts). A side over the size limits or a comparison of too many changes is a limit of the work, the same on
+  /// any machine, and is not this
+  pub out_of_time: bool,
+}
+
+/// Compares two texts under `policy`, by word inside the changed lines, within `budget`; says whether its time ran out
+pub fn diff_texts_in(old: &str, new: &str, policy: WhitespacePolicy, budget: &DiffBudget) -> BudgetedDiff {
   let (old_source, new_source) = (SourceText::new(old), SourceText::new(new));
   let (old_text, new_text) = (old_source.text(), new_source.text());
   let fits = |text: &str, source: &SourceText| text.len() <= MAX_INNER_BYTES && source.line_count() <= MAX_INNER_LINES;
 
   let inner = budget.inner.filter(|_| fits(old, &old_source) && fits(new, &new_source));
   let mut line_level_only = inner.is_none();
-  let mut fragments = inner.and_then(|deadline| compare_for_view(old_text, new_text, policy, HighlightPolicy::ByWord, &deadline).ok());
+  let mut out_of_time = false;
+  let mut compare = |highlight: HighlightPolicy, deadline: &Deadline| match compare_for_view(old_text, new_text, policy, highlight, deadline) {
+    Ok(fragments) => Some(fragments),
+    Err(error) => {
+      out_of_time |= error == DiffTooBig::DeadlineExceeded;
+      None
+    }
+  };
+  let mut fragments = inner.and_then(|deadline| compare(HighlightPolicy::ByWord, &deadline));
   if fragments.is_none() {
     line_level_only = true;
-    fragments = compare_for_view(old_text, new_text, policy, HighlightPolicy::ByLine, &budget.lines).ok();
+    fragments = compare(HighlightPolicy::ByLine, &budget.lines);
   }
+  drop(compare);
   let blocks = match fragments {
     Some(fragments) => fragments.iter().map(|fragment| block_of(fragment, &old_source, &new_source)).collect(),
     // out of time: the whole texts, unless they are equal
@@ -430,7 +454,7 @@ pub fn diff_texts(old: &str, new: &str, policy: WhitespacePolicy, budget: &DiffB
     starts: starts_of(&blocks, &[], &[]),
     ..DiffMarks::default()
   };
-  TextDiff {
+  let diff = TextDiff {
     old_line_count: to_u32(old_source.line_count()),
     new_line_count: to_u32(new_source.line_count()),
     additions: counted(&new_source, changed().map(|block| block.new_start..block.new_end).collect()),
@@ -447,7 +471,8 @@ pub fn diff_texts(old: &str, new: &str, policy: WhitespacePolicy, budget: &DiffB
     new_scopes: Vec::new(),
     import_blocks: Vec::new(),
     marks,
-  }
+  };
+  BudgetedDiff { diff, out_of_time }
 }
 
 /// Where the reading of each block starts (`DiffMarks::starts`), from the quiet runs among `runs` (by `old_start`,

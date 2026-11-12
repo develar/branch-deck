@@ -39,6 +39,7 @@ targets:
   - crates/git-ops/src/cat_file_batch.rs
   - crates/file-diffs/src/service.rs
   - crates/file-diffs/src/merge.rs
+  - crates/file-diffs/src/blocks.rs
   - crates/file-diffs/src/worktree.rs
   - crates/file-diffs/src/model.rs
   - crates/text-diff/src/model.rs
@@ -600,13 +601,21 @@ file.
 
 ### Requirement: File diffs: The result does not depend on the load of the machine
 
-The result MUST NOT depend on the load of the machine: only a pathological file (100 ms for its inner ranges, 1 s for
-its lines) is compared by line, and an answer of the index that its query cut short MUST NOT outlive its question.
+The result MUST NOT depend on the load of the machine: in a view only a pathological file (100 ms for its inner
+ranges, 1 s for its lines) is compared by line, a scan (`blocks_of`: the hunks of a commit, its patch, the pairs of a
+review plan) MUST compare without a deadline, bounded by its work alone, and MUST NOT take a diff of memory that the
+time of a view may have cut short; an answer of the index that its query cut short MUST NOT outlive its question.
 
 #### Scenario: A file out of time
 - **WHEN** a file takes more than 100 ms for its inner ranges or more than 1 s for its lines
 - **THEN** it is compared by line
   [@test] crates/file-diffs/src/service_test.rs (`a_diff_out_of_time_is_by_line_and_not_stored`)
+
+#### Scenario: A scan under any load
+- **GIVEN** a commit that changes a short file and one over the line limit of the inner ranges
+- **WHEN** an instance whose budgets are already over scans it, before and after its views of the commit, which the time cut short
+- **THEN** the scan has the blocks of a comparison without a limit both times, and the store has none of the views' diffs
+  [@test] crates/file-diffs/src/blocks_test.rs (`a_scan_has_the_blocks_of_no_deadline_and_a_diff_the_time_cut_short_reaches_no_store`)
 
 #### Scenario: An answer of the index that its query cut short
 - **WHEN** the index answers the renames of a subject without getting to the end of a declaration: its budget ran out before it, or its answer is not complete
@@ -660,6 +669,7 @@ value MUST be pinned with the version of its store.
 - **WHEN** the time cut a diff short
 - **THEN** the store does not keep it
   [@test] crates/file-diffs/src/service_test.rs (`a_diff_out_of_time_is_by_line_and_not_stored`)
+  [@test] crates/file-diffs/src/blocks_test.rs (`a_scan_has_the_blocks_of_no_deadline_and_a_diff_the_time_cut_short_reaches_no_store`)
 
 #### Scenario: Other parsers
 - **WHEN** the store holds a diff of the pair that an app with other parsers, other rules of the tokens, or other rules of the names (a scope that was fixed since) made
