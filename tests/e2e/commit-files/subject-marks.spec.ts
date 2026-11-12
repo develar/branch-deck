@@ -6,6 +6,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 import {
   acrossSides,
+  copiedByKey,
   diffHistoryKeys,
   diffRows,
   diffSides,
@@ -51,6 +52,34 @@ function declaredIn(scope: Locator | Page): Locator {
 /** What the index of the repository proved of a rename, after the words of its note ("all uses in this change"); `data-proof` is its answer */
 function proofs(scope: Locator | Page): Locator {
   return scope.getByTestId("diff-rename-proof")
+}
+
+/** Selects in `scope` from the start of the line whose code is `from` to the end of the line whose code is `to`, as a drag over them leaves it */
+async function selectLines(scope: Locator, from: string, to: string): Promise<void> {
+  await scope.evaluate(
+    (element, ends) => {
+      const cells = [...element.querySelectorAll("[data-testid=diff-row] [data-testid=diff-code]")]
+      const [first, last] = ends.map(text => cells.find(cell => cell.textContent === text)!)
+      const range = document.createRange()
+      range.setStart(first!, 0)
+      range.setEnd(last!, last!.childNodes.length)
+      document.getSelection()!.removeAllRanges()
+      document.getSelection()!.addRange(range)
+    },
+    [from, to],
+  )
+}
+
+/** The selection of the page: whether it is a caret, and the code of the rows its two ends are in */
+async function selectedEnds(page: Page): Promise<{ collapsed: boolean; anchor: string | null; focus: string | null }> {
+  return page.evaluate(() => {
+    const selection = document.getSelection()
+    const codeAt = (node: Node | null | undefined) => {
+      const element = node instanceof Element ? node : (node?.parentElement ?? null)
+      return element?.closest("[data-testid=diff-row]")?.querySelector("[data-testid=diff-code]")?.textContent ?? null
+    }
+    return { collapsed: selection?.isCollapsed ?? true, anchor: codeAt(selection?.anchorNode), focus: codeAt(selection?.focusNode) }
+  })
 }
 
 /** The row of a file in the tree of the files of a preview, which holds its diff once it is open */
@@ -725,35 +754,49 @@ test.describe("The marks of a subject that come after the rows of a file were sh
     expect(await topIn(view, row)).toBe(before)
   }
 
+  /**
+   * The review of the commit of the marks, at its Report.kt, while the marks of the subject of that file are late: the
+   * report says nothing of its subject until the index answered, as where its pair had to be compared, and the answer
+   * is held (with the kind `renamed` switched on, the answer makes the two calls quiet). `answer` lets the answer of
+   * the index arrive, with the marks of the report
+   */
+  async function openLateReview(
+    page: Page,
+    repositoryPath: string,
+    syncAndWaitForBranches: () => Promise<unknown>,
+  ): Promise<{ window: Locator; code: Locator; report: Locator; answer: () => Promise<void> }> {
+    answerStoreRename(repositoryPath)
+    await lateSubjectMarks(page, "src/Report.kt")
+    const release = await holdCommand(page, "get_rename_proofs")
+    await syncAndWaitForBranches()
+    const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
+    const report = code.getByRole("region", { name: "src/Report.kt" })
+    await window.getByRole("treeitem", { name: "Report.kt" }).click()
+    await expect(diffRows(report, "note")).toHaveCount(0)
+    const answer = async () => {
+      const answered = nextAnswer(page, "get_rename_proofs")
+      release()
+      await answered
+    }
+    return { window, code, report, answer }
+  }
+
   // the scroll of the view at the moment its rows are laid out again: the engines differ in what they keep by themselves
   test(
     "the notes they add come above the row a reader has at the top of a review, which stays where it is, and the uses the index proved keep their rows, played down",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupRepo("commit_marks")
-      answerStoreRename(repo.path)
-      // the report says nothing of its subject until the index answered, as where its pair had to be compared, and the
-      // answer is held; with the kind `renamed` switched on, the answer makes the two calls quiet
-      await lateSubjectMarks(page, "src/Report.kt")
-      const release = await holdCommand(page, "get_rename_proofs")
-      await syncAndWaitForBranches()
-      const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
+      const { window, code, report, answer } = await openLateReview(page, repo.path, syncAndWaitForBranches)
       const view = code.getByTestId("diff-view")
-      const report = code.getByRole("region", { name: "src/Report.kt" })
-      await window.getByRole("treeitem", { name: "Report.kt" }).click()
       // as the content of the file gave it: the calls and the added lines are changes as any, under no note
       await expect.poll(() => codeOf(diffRows(report, "inline"))).toEqual([CALL, CALL])
-      await expect(diffRows(report, "note")).toHaveCount(0)
       await expect(acrossSides(report)).toHaveCount(0)
       await expect(report.getByTestId("review-file-to-read")).toHaveCount(0)
       const row = balanceRow(report)
       await standAt(view, row)
       // the two notes come, both above the row at the top: the view moves by their two rows, the row not at all
-      await expectStaysThrough(view, row, async () => {
-        const answered = nextAnswer(page, "get_rename_proofs")
-        release()
-        await answered
-      })
+      await expectStaysThrough(view, row, answer)
       await expect(acrossSides(row, "destination")).toHaveCount(1)
       // the calls the index proved are passed now: one change of three is left to read
       await expect(report.getByTestId("review-file-to-read")).toHaveText("1 to read")
@@ -765,6 +808,56 @@ test.describe("The marks of a subject that come after the rows of a file were sh
       await expect.poll(() => diffSides(calls).evaluateAll(sides => sides.map(side => side.getAttribute("data-tint")))).toEqual(["quiet", "quiet"])
       await expect(diffRows(report, "once")).toHaveCount(0)
       await expect.poll(() => codeOf(acrossSides(report, "destination"))).toEqual(TITLE)
+    },
+  )
+
+  // the selection of the page over rows that are painted again: the engines differ in what is left of it
+  test(
+    "a selection a reader made in a file stays on its lines through the notes that come above them, and a copy takes those lines before and after",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("commit_marks")
+      const { report, answer } = await openLateReview(page, repo.path, syncAndWaitForBranches)
+      // from the start of the second line of `reportTitle` to the end of its third, as a drag over the two lines leaves it
+      const first = balanceRow(report)
+      const last = diffRows(report, "added", { hasText: TITLE[2] })
+      await expect.poll(() => codeOf(first)).toEqual([TITLE[1]])
+      await expect.poll(() => codeOf(last)).toEqual([TITLE[2]])
+      await selectLines(report, TITLE[1]!, TITLE[2]!)
+      const selected = TITLE.slice(1, 3).join("\n")
+      expect(await copiedByKey(page)).toBe(selected)
+      // the answer of the index comes with the marks of the report: two notes above the selected lines, every row
+      // of the file painted again
+      await answer()
+      await expect(diffRows(report, "note")).toHaveCount(2)
+      // the selection is on the same two lines, in the rows painted for them now: its ends are in the file, it is no
+      // caret, and the copy is what it was
+      await expect.poll(() => selectedEnds(page)).toEqual({ collapsed: false, anchor: TITLE[1], focus: TITLE[2] })
+      expect(await copiedByKey(page)).toBe(selected)
+    },
+  )
+
+  // a selection from one file to another: what an engine leaves of it as the rows go is a range between two hosts
+  test(
+    "a selection from a line of a file to a line of the next file stays on both lines through the notes that come between them",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("commit_marks")
+      const { code, report, answer } = await openLateReview(page, repo.path, syncAndWaitForBranches)
+      const store = code.getByRole("region", { name: "src/Store.kt" })
+      await expect.poll(() => codeOf(balanceRow(report))).toEqual([TITLE[1]])
+      await expect.poll(() => codeOf(diffRows(store, "inline"))).toEqual([DECLARATION])
+      // from the start of the second line of `reportTitle` in the report to the end of the declaration in the store
+      await selectLines(code, TITLE[1]!, DECLARATION)
+      const ends = { collapsed: false, anchor: TITLE[1], focus: DECLARATION }
+      expect(await selectedEnds(page)).toEqual(ends)
+      const copied = await copiedByKey(page)
+      expect(copied?.split("\n").slice(0, 3)).toEqual(TITLE.slice(1))
+      expect(copied?.split("\n").at(-1)).toBe("fun connectStore(path: String): Store {")
+      await answer()
+      await expect(diffRows(report, "note")).toHaveCount(2)
+      await expect.poll(() => selectedEnds(page)).toEqual(ends)
+      expect(await copiedByKey(page)).toBe(copied)
     },
   )
 

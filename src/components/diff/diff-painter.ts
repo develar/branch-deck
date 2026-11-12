@@ -13,8 +13,8 @@ import { getLineTable, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
 import type { RenameSite } from "@/lib/diff/rename-sites"
 import type { RowCells } from "@/lib/diff/row-cells"
-import { foldWords, isLineRow, NEW, OLD, rowAt, rowOfLine, rowOfPlace } from "@/lib/diff/rows"
-import type { FileRows, FoldRow, LineRow, NoteRow, Row } from "@/lib/diff/rows"
+import { foldWords, isLineRow, NEW, OLD, placeOfRow, rowAt, rowOfLine, rowOfPlace, rowOfRowPlace } from "@/lib/diff/rows"
+import type { FileRows, FoldRow, LineRow, NoteRow, Row, RowPlace } from "@/lib/diff/rows"
 import { blobText } from "@/lib/diff/view-files"
 import { wrapBreaks } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
@@ -120,6 +120,22 @@ export interface PainterCallbacks {
   /** A wrapped line came out wider in the DOM than measured: the widths are corrected, the heights need a layout */
   onWidthsCorrected: () => void
 }
+
+/**
+ * An end of the selection of the view as a new model finds it again (`DiffPainter.heldSelection`): the file by its
+ * key, the row by a line of the file (`RowPlace`) and by the text it shows, and the place in that text, of the code
+ * cell of a side (`side`) or of the whole row
+ */
+interface HeldEnd {
+  key: string
+  place: RowPlace
+  text: string
+  side: number | null
+  offset: number
+}
+
+/** The selection of the view over a new model: its two ends, or the file whose side ⌘A selected */
+type HeldSelection = { kind: "ends"; anchor: HeldEnd; focus: HeldEnd } | { kind: "all"; key: string }
 
 interface PaintedRow {
   element: HTMLElement
@@ -446,9 +462,11 @@ export class DiffPainter {
   }
 
   /**
-   * A new model: the anchor of the old layout keeps its place in the new one, then every row is painted again. A view
-   * that scrolls itself goes to where its anchor is now. A view that is a block of the scroller of its parent moves
-   * that scroller by as much as its anchor moved in it: by the rows that came or went above the row at the top of the
+   * A new model: the anchor of the old layout keeps its place in the new one, then every row is painted again, and
+   * the selection of the view is put on the new rows of its ends (`heldSelection`): a model comes for an answer a
+   * reader did not ask for (the scopes of a file, what the index proved of a name), and what the reader selected to
+   * copy or to act on must not go with it. A view that scrolls itself goes to where its anchor is now. A view that
+   * is a block of the scroller of its parent moves that scroller by as much as its anchor moved in it: by the rows that came or went above the row at the top of the
    * viewport, or by all of them when the view lies above the viewport (its anchor is the end of its rows). Each view
    * of a scroller adds its own part, in whatever order they get their models, so what a reader has on screen stays
    * where it is though several views above it change at once
@@ -468,8 +486,123 @@ export class DiffPainter {
         }
       }
     }
+    const held = previous === null ? null : this.heldSelection(previous)
+    if (held !== null) {
+      // the rows of its ends go: what the engine would leave of it (a caret in a host, or a range from one host to
+      // another) is no selection of the reader
+      document.getSelection()?.removeAllRanges()
+    }
     this.clearRows()
     this.update()
+    if (held !== null) {
+      this.restoreHeld(held)
+    }
+  }
+
+  /**
+   * The selection of the view as the rows of `model` show it, for a model that takes their place: the side of a file
+   * that ⌘A selected, else its two ends, each in a painted row. Null without a selection in the view, and for one an
+   * end of which is in no row
+   */
+  private heldSelection(model: PainterModel): HeldSelection | null {
+    const selection = document.getSelection()
+    const root = this.root
+    if (selection === null || root === null || selection.rangeCount === 0) {
+      return null
+    }
+    const { anchorNode, focusNode } = selection
+    if (anchorNode === null || focusNode === null || !root.contains(anchorNode) || !root.contains(focusNode)) {
+      return null
+    }
+    const all = this.selectAll === null ? undefined : model.files[this.selectAll.file]
+    if (all !== undefined && !selection.isCollapsed && anchorNode === this.hosts.get(this.selectAll!.file)) {
+      return { kind: "all", key: all.key }
+    }
+    const end = (node: Node, offset: number): HeldEnd | null => {
+      const element = node instanceof Element ? node : node.parentElement
+      const row = element?.closest<HTMLElement>(".dv-row") ?? null
+      const file = row?.parentElement?.dataset.file
+      const painterFile = file === undefined ? undefined : model.files[Number(file)]
+      if (row === null || painterFile === undefined || painterFile.rows === null) {
+        return null
+      }
+      const place = placeOfRow(painterFile.rows, Number(row.dataset.row))
+      if (place === null) {
+        return null
+      }
+      const cell = element?.closest<HTMLElement>(".dv-code[data-side]") ?? null
+      return {
+        key: painterFile.key,
+        place,
+        text: row.textContent ?? "",
+        side: cell === null ? null : Number(cell.dataset.side),
+        offset: textOffset(cell ?? row, node, offset, NOT_COUNTED_NOWHERE),
+      }
+    }
+    const anchor = end(anchorNode, selection.anchorOffset)
+    const focus = selection.isCollapsed ? anchor : end(focusNode, selection.focusOffset)
+    return anchor === null || focus === null ? null : { kind: "ends", anchor, focus }
+  }
+
+  /**
+   * Puts the selection a model before held (`heldSelection`) on the rows painted now: each end in the row at its
+   * place that shows the text its row showed, painted for it where it is outside the rows in view (as a row that
+   * scrolled away is kept for an end). An end whose row is gone or shows another text has no place: the selection
+   * has ended. A name a reveal selected in this paint stays selected
+   */
+  private restoreHeld(held: HeldSelection): void {
+    const selection = document.getSelection()
+    const model = this.model
+    if (selection === null || model === null || selection.rangeCount > 0) {
+      return
+    }
+    if (held.kind === "all") {
+      const file = model.layout.indexOf(held.key)
+      const host = this.hosts.get(file)
+      if (host === undefined || this.selectAll === null) {
+        this.selectAll = null
+        return
+      }
+      this.selectAll = { ...this.selectAll, file }
+      selection.selectAllChildren(host)
+      return
+    }
+    const pointOfEnd = (end: HeldEnd, paints: boolean): { node: Node; offset: number } | null => {
+      const file = model.layout.indexOf(end.key)
+      const painterFile = model.files[file]
+      const host = this.hosts.get(file)
+      const rows = painterFile?.rows
+      const row = rows == null ? null : rowOfRowPlace(rows, end.place)
+      if (painterFile === undefined || rows == null || row === null || host === undefined) {
+        return null
+      }
+      const painted = this.painted.get(file)
+      let entry = painted?.get(row)
+      if (entry === undefined && paints && painted !== undefined) {
+        const { layout } = model
+        const top = layout.rowTop(file, row) - layout.offsets[file]! - layout.rowsOffset(file)
+        entry = this.paintRow(file, painterFile, row, rowAt(rows, row), this.tablesOf(painterFile), top, layout.rowHeight(file, row))
+      }
+      if (entry === undefined || (entry.element.textContent ?? "") !== end.text) {
+        return null
+      }
+      const within = end.side === null ? entry.element : entry.element.querySelector<HTMLElement>(`.dv-code[data-side="${end.side}"]`)
+      if (within === null) {
+        return null
+      }
+      if (!entry.element.isConnected) {
+        host.append(entry.element)
+        painted!.set(row, entry)
+      }
+      return textPoint(within, end.offset)
+    }
+    // a caret holds no row (`holdsSelection`): it is put back only into a row in view
+    const paints = held.anchor !== held.focus
+    const anchor = pointOfEnd(held.anchor, paints)
+    const focus = held.anchor === held.focus ? anchor : pointOfEnd(held.focus, paints)
+    if (anchor !== null && focus !== null) {
+      selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset)
+    }
   }
 
   attachRows(file: number, host: HTMLElement | null): void {
@@ -1992,6 +2125,28 @@ function caretAt(clientX: number, clientY: number): { node: Node; offset: number
 const NOT_OF_THE_LINE = "[data-inline-deleted], .dv-eof"
 /** What a code cell holds beside the text of an Inline row, the deleted parts of the old line with it (`inlineOffset`) */
 const NOT_OF_THE_ROW = ".dv-eof"
+/** Every text of an element counts: a selector no element matches */
+const NOT_COUNTED_NOWHERE = ":not(*)"
+
+/**
+ * The point of a selection after `offset` characters of the text of an element, every text of it counted
+ * (`textOffset` with `NOT_COUNTED_NOWHERE`): in the text node that holds the character there, at the end of the
+ * last one for the end of the text, and at the element itself where it holds no text
+ */
+function textPoint(element: HTMLElement, offset: number): { node: Node; offset: number } {
+  let length = 0
+  let last: Node | null = null
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+  for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
+    const size = text.textContent?.length ?? 0
+    if (offset < length + size) {
+      return { node: text, offset: Math.max(offset - length, 0) }
+    }
+    length += size
+    last = text
+  }
+  return last === null ? { node: element, offset: 0 } : { node: last, offset: last.textContent?.length ?? 0 }
+}
 
 /**
  * Calls `visit` with each text node of a code cell that holds a part of `[start, end)` of its text, and that part as

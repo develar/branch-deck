@@ -190,34 +190,74 @@ impl Names for ProgramNames<'_, '_> {
     let statement = |found: Option<NameStatement>| {
       found.map_or_default(|found| {
         let under = members.iter().filter(|(parent, _)| found.path.contains(parent));
-        without_bodies(bytes(found.statement), under.map(|(_, body)| bytes(*body)).collect())
+        let mut parts: Vec<_> = found.heads.iter().map(|head| bytes(*head)).collect();
+        parts.extend(without_bodies(bytes(found.statement), under.map(|(_, body)| bytes(*body)).collect()));
+        parts
       })
     };
     found.into_iter().map(statement).collect()
   }
 }
 
-/// A node the walk of `Statements` is in: its number in the order the walk enters the nodes, its span, whether it
-/// is a statement, whether it declares a type and whether it is a `for` of any kind
+/// A node the walk of `Statements` is in: its number in the order the walk enters the nodes, its span and what it
+/// is to the statements of a name
 struct Entered {
   node: u32,
   span: Span,
-  statement: bool,
-  is_type: bool,
-  is_for: bool,
+  part: Part,
 }
 
-/// What the walk found of a name: its statement, and the nodes from the name up to it, whose members the statement
-/// is without (none for a local)
+/// What a node is to the statements of a name
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Part {
+  /// A statement or a member that declares no type
+  Statement,
+  /// A `for` of any kind: a statement, whose declaration in its head is a part of it
+  For,
+  /// A statement that declares a type, which holds members: a class, an interface, a namespace
+  Type,
+  /// A class that is a value: a type, and no statement
+  TypeValue,
+  /// What the members of a type or the statements of the file stand in beside a type: the program, the body of a
+  /// type, an export of a declaration
+  Holder,
+  /// Anything else: a part of a statement
+  Inner,
+}
+
+impl Part {
+  fn of(kind: AstKind<'_>, in_for: bool) -> Self {
+    match (is_statement(kind, in_for), is_type(kind)) {
+      (true, true) => Self::Type,
+      (false, true) => Self::TypeValue,
+      (true, false) if matches!(kind, AstKind::ForStatement(_) | AstKind::ForInStatement(_) | AstKind::ForOfStatement(_)) => Self::For,
+      (true, false) => Self::Statement,
+      (false, false) if holds_members(kind) => Self::Holder,
+      (false, false) => Self::Inner,
+    }
+  }
+
+  const fn is_statement(self) -> bool {
+    matches!(self, Self::Statement | Self::For | Self::Type)
+  }
+
+  const fn is_type(self) -> bool {
+    matches!(self, Self::Type | Self::TypeValue)
+  }
+}
+
+/// What the walk found of a name: its statement, the nodes from the name up to it, whose members the statement
+/// is without (none for a local), and the heads of the types around the member of a local (none for another name)
 #[derive(Clone)]
 struct NameStatement {
   path: Vec<u32>,
   statement: Span,
+  heads: Vec<Span>,
 }
 
 /// The walk that finds the statements of each name that starts at a byte of `starts` (`navigate`, "The statements
-/// of a name"): of a local the member around it, the outermost statement around the name that declares no type;
-/// of any other name the innermost statement around it, and the members of a type under the nodes from the name
+/// of a name"): of a local the member around it, the outermost statement around the name that declares no type,
+/// with the heads of the types around it (`member_of`); of any other name the innermost statement around it, and the members of a type under the nodes from the name
 /// up to it (`found`, `members`)
 struct Statements<'s> {
   starts: &'s [usize],
@@ -232,9 +272,11 @@ struct Statements<'s> {
 
 /// Whether a node is a statement or a member (`navigate`, "The statements of a name"); `in_for` says that the node
 /// around it is a `for`. The declaration in the head of a `for` is a part of its loop, a function or a class that
-/// is a value is none, and an export is what it exports
+/// is a value is none, and an export is what it exports: the declaration, else itself (`export default` of a value,
+/// whose functions have no other statement around them)
 fn is_statement(kind: AstKind<'_>, in_for: bool) -> bool {
   match kind {
+    AstKind::ExportDefaultDeclaration(export) => export.declaration.is_expression(),
     AstKind::VariableDeclaration(_) => !in_for,
     AstKind::Function(function) => function.is_declaration(),
     AstKind::Class(class) => class.is_declaration(),
@@ -287,12 +329,46 @@ const fn is_type(kind: AstKind<'_>) -> bool {
   )
 }
 
+/// Whether a node is what the members of a type or the statements of the file stand in beside a type: the
+/// program, the body of a type, an export of a declaration
+const fn holds_members(kind: AstKind<'_>) -> bool {
+  matches!(
+    kind,
+    AstKind::Program(_) | AstKind::ClassBody(_) | AstKind::TSInterfaceBody(_) | AstKind::TSModuleBlock(_) | AstKind::ExportDeclaration(_) | AstKind::ExportDefaultDeclaration(_)
+  )
+}
+
+/// The member around a name of a local, whose nodes from the program down to it are `stack` (`navigate`, "The
+/// statements of a name"): the outermost statement that declares no type, with the heads of the types around it
+/// (each up to its body: its type parameters are what its members see). None where no such statement is around
+/// the name, and none where it stands in anything but the program, a type, the body of one or an export of a
+/// declaration: it is a statement of a function that is a value in the head of a class (a decorator of it, what
+/// it extends)
+fn member_of(stack: &[Entered]) -> Option<NameStatement> {
+  let member = stack.iter().position(|entered| matches!(entered.part, Part::Statement | Part::For))?;
+  let mut heads = Vec::new();
+  for (at, entered) in stack[..member].iter().enumerate() {
+    if entered.part.is_type() {
+      // the body is the node the walk entered next: the member stands in it
+      let body = stack.get(at + 1).filter(|next| next.part == Part::Holder).map_or(entered.span.end, |body| body.span.start);
+      heads.push(Span::new(entered.span.start, body.max(entered.span.start)));
+    } else if entered.part != Part::Holder {
+      return None;
+    }
+  }
+  Some(NameStatement {
+    path: Vec::new(),
+    statement: stack[member].span,
+    heads,
+  })
+}
+
 impl<'a> Visit<'a> for Statements<'_> {
   fn enter_node(&mut self, kind: AstKind<'a>) {
     let span = kind.span();
     let node = self.nodes;
     self.nodes += 1;
-    let in_for = self.stack.last().is_some_and(|entered| entered.is_for);
+    let in_for = self.stack.last().is_some_and(|entered| entered.part == Part::For);
     if let Some(parent) = self.stack.last()
       && matches!(kind, AstKind::ClassBody(_) | AstKind::TSInterfaceBody(_) | AstKind::TSModuleBlock(_))
     {
@@ -307,27 +383,21 @@ impl<'a> Visit<'a> for Statements<'_> {
       && self.found[at].is_none()
     {
       self.found[at] = if self.local {
-        // the member around the name: the outermost statement that declares no type
-        let member = self.stack.iter().find(|entered| entered.statement && !entered.is_type);
-        member.map(|member| NameStatement {
-          path: Vec::new(),
-          statement: member.span,
-        })
+        member_of(&self.stack)
       } else {
         // from the name up to the innermost statement
-        let inner = self.stack.iter().rposition(|entered| entered.statement);
+        let inner = self.stack.iter().rposition(|entered| entered.part.is_statement());
         inner.map(|inner| NameStatement {
           path: self.stack[inner..].iter().map(|entered| entered.node).collect(),
           statement: self.stack[inner].span,
+          heads: Vec::new(),
         })
       };
     }
     self.stack.push(Entered {
       node,
       span,
-      statement: is_statement(kind, in_for),
-      is_type: is_type(kind),
-      is_for: matches!(kind, AstKind::ForStatement(_) | AstKind::ForInStatement(_) | AstKind::ForOfStatement(_)),
+      part: Part::of(kind, in_for),
     });
   }
 

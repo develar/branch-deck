@@ -374,15 +374,16 @@ fn a_local_none_of_whose_lines_changed_in_its_name_alone_is_no_rename() {
   ]);
 }
 
-/// A rename of a local is proven by the lines between its places: where every line that changed from the first of
-/// them to the last is quiet, the code that declares the name and reads it is the same code, the new name is the old
-/// variable, and each line that changed in it alone is the line it was. Where the declaration changed otherwise
-/// (found on real commits: `val subscription = subscriptions[id]` became `val channel =
-/// subscriptions[id]?.selectedChannel`), the name binds another value: `if (channel != null)` asks another question
-/// than `if (subscription != null)` did, with the same tokens, so the runs of such a rename are labels. So are they
-/// where the declaration is of several lines and a later one changed, and where a use between them changed otherwise
+/// A rename of a local is a label where its declaration or a line of one of its uses changed in more than the name:
+/// lines of its member, which proves it only whole (the test below reads the other lines of the member). Where the
+/// declaration changed otherwise (found on real commits: `val subscription = subscriptions[id]` became `val channel
+/// = subscriptions[id]?.selectedChannel`), the name binds another value: `if (channel != null)` asks another
+/// question than `if (subscription != null)` did, with the same tokens, so the runs of such a rename are labels. So
+/// are they where the declaration is of several lines and a later one changed, and where a line of a use changed
+/// otherwise. Two locals renamed in the lines of each other are proven together or labels together, and a blank
+/// line put into the function is no change of it
 #[test]
-fn a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_places() {
+fn a_rename_of_a_local_is_a_label_where_its_declaration_or_a_line_of_a_use_changed_otherwise() {
   check_cases(&[
     // the declaration got another initializer: a rename by its `if`, a label, every block read
     (
@@ -473,7 +474,13 @@ fn a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_plac
 /// Where such a line changed, the name may hold another value, and the lines that changed in the name alone are
 /// labels (the first six cases found by a review of the measured runs). A comment that changed, formatting,
 /// another local renamed with it, the name of the function itself and what changed in another function leave the
-/// rename proven
+/// rename proven.
+///
+/// The head of each type around the member is code of its locals too (the parameters of a primary constructor that
+/// the value of a property reads, the components of a record, the bounds of the type parameters), and a function
+/// that is a value in the head of a type or the value of an `export default` has no statement of its own around it,
+/// so its member is never one statement of its body (found by a second review, which gave such a local its value
+/// on the line beside the renamed ones): the cases at the end
 #[test]
 fn a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone() {
   check_cases(&[
@@ -576,6 +583,77 @@ fn a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone() 
       "fun timeout(depth: Int): Int {\n  val base = 5\n  return if (depth > 0) timeout(depth - 1) else base\n}\n",
       "fun limit(depth: Int): Int {\n  val unit = 5\n  return if (depth > 0) limit(depth - 1) else unit\n}\n",
       "blocks [0..3/0..3] runs [1..3/1..3 renamed] renames [timeout->limit declared [0] at 0:4 2:24 / 0:4 2:24, base->unit local declared [0] at 1:6 2:48 / 1:6 2:46] starts [0, 1, 0]",
+    ),
+    // a function that is the value of an `export default` has no statement of its own around it: the export is its
+    // member, not the statement of its body that holds the name (found by a review of the rule: the value came
+    // from the line beside it)
+    (
+      "a.ts",
+      "export default async (request, backup) => {\n  const rows = await load(request)\n  prepare()\n  for (const row of rows) {\n    publish(row)\n  }\n}\n",
+      "export default async (request, backup) => {\n  const rows = await load(backup)\n  prepare()\n  for (const entry of rows) {\n    publish(entry)\n  }\n}\n",
+      "blocks [1..2/1..2, 3..5/3..5] runs [3..5/3..5 renamed] renames [row->entry local declared [0] at 3:13 4:12 / 3:13 4:12] starts [0, 1, 1, 1, 1, 3]",
+    ),
+    // and a method of an object that is such a value
+    (
+      "a.js",
+      "export default {\n  methods: {\n    notify(users, admins) {\n      const list = users.filter(active)\n      prepare()\n      list.forEach(user => {\n        send(user)\n      })\n    },\n  },\n}\n",
+      "export default {\n  methods: {\n    notify(users, admins) {\n      const list = admins.filter(active)\n      prepare()\n      list.forEach(member => {\n        send(member)\n      })\n    },\n  },\n}\n",
+      "blocks [3..4/3..4, 5..7/5..7] runs [5..7/5..7 renamed] renames [user->member local declared [0] at 5:19 6:13 / 5:19 6:13] starts [0, 1, 3, 1, 1, 5]",
+    ),
+    // a function that is a value in the head of a type is of no member: an argument of a constant of an enum, of
+    // the constructor of a supertype, of a decorator of a class
+    (
+      "A.java",
+      "enum Step {\n  LOAD((source, backup) -> {\n    var rows = source.rows();\n    prepare();\n    for (Row row : rows) publish(row);\n  });\n\n  Step(Loader loader) {}\n}\n",
+      "enum Step {\n  LOAD((source, backup) -> {\n    var rows = backup.rows();\n    prepare();\n    for (Row entry : rows) publish(entry);\n  });\n\n  Step(Loader loader) {}\n}\n",
+      "blocks [2..3/2..3, 4..5/4..5] runs [4..5/4..5 renamed] renames [row->entry local declared [0] at 4:13 4:33 / 4:13 4:35] starts [0, 1, 2, 1, 1, 4]",
+    ),
+    (
+      "a.kt",
+      "class Job(source: Source, backup: Source) : Base({\n  val rows = source.rows()\n  prepare()\n  rows.forEach { row ->\n    publish(row)\n  }\n}) {\n  fun other() = 1\n}\n",
+      "class Job(source: Source, backup: Source) : Base({\n  val rows = backup.rows()\n  prepare()\n  rows.forEach { entry ->\n    publish(entry)\n  }\n}) {\n  fun other() = 1\n}\n",
+      "blocks [1..2/1..2, 3..5/3..5] runs [3..5/3..5 renamed] renames [row->entry local declared [0] at 3:17 4:12 / 3:17 4:12] starts [0, 1, 1, 1, 1, 3]",
+    ),
+    (
+      "a.ts",
+      "@Component({\n  factory: (source, backup) => {\n    const rows = source.rows()\n    prepare()\n    for (const row of rows) publish(row)\n  },\n})\nexport class Job {\n  other() {}\n}\n",
+      "@Component({\n  factory: (source, backup) => {\n    const rows = backup.rows()\n    prepare()\n    for (const entry of rows) publish(entry)\n  },\n})\nexport class Job {\n  other() {}\n}\n",
+      "blocks [2..3/2..3, 4..5/4..5] runs [4..5/4..5 renamed] renames [row->entry local declared [0] at 4:15 4:36 / 4:15 4:38] starts [0, 1, 2, 1, 1, 4]",
+    ),
+    // the head of the type around the member is code of its locals: the parameter of the primary constructor that
+    // the value of a property reads got another type, so `entry.name` reads another thing
+    (
+      "a.kt",
+      "class Report(rows: List<Row>) {\n  val names = rows.map { row ->\n    row.name\n  }\n}\n",
+      "class Report(rows: List<Other>) {\n  val names = rows.map { entry ->\n    entry.name\n  }\n}\n",
+      "blocks [0..3/0..3] runs [1..3/1..3 renamed] renames [row->entry local declared [0] at 1:25 2:4 / 1:25 2:4] starts [0, 1, 0] undeclared [Row->Other declared [] at 0:24 / 0:24]",
+    ),
+    // the component of a record that its compact constructor reads
+    (
+      "A.java",
+      "record Report(List<Row> rows) {\n  Report {\n    rows.forEach(row -> log(row));\n  }\n}\n",
+      "record Report(List<Other> rows) {\n  Report {\n    rows.forEach(entry -> log(entry));\n  }\n}\n",
+      "blocks [0..1/0..1, 2..3/2..3] runs [2..3/2..3 renamed] renames [row->entry local declared [0] at 2:17 2:28 / 2:17 2:30] starts [0, 1, 0, 1, 1, 2] undeclared [Row->Other declared [] at 0:19 / 0:19]",
+    ),
+    // and the bound of a type parameter that a member names
+    (
+      "a.rs",
+      "impl<T: Row> Ledger<T> {\n  fn names(&self) -> Vec<Name> {\n    self.rows.iter().map(|row| row.name()).collect()\n  }\n}\n",
+      "impl<T: Other> Ledger<T> {\n  fn names(&self) -> Vec<Name> {\n    self.rows.iter().map(|entry| entry.name()).collect()\n  }\n}\n",
+      "blocks [0..1/0..1, 2..3/2..3] runs [2..3/2..3 renamed] renames [row->entry local declared [0] at 2:26 2:31 / 2:26 2:33] starts [0, 1, 0, 1, 1, 2] undeclared [Row->Other declared [] at 0:8 / 0:8]",
+    ),
+    (
+      "a.ts",
+      "class Ledger<T extends Row> {\n  names(rows: T[]) {\n    return rows.map(row => row.name)\n  }\n}\n",
+      "class Ledger<T extends Other> {\n  names(rows: T[]) {\n    return rows.map(entry => entry.name)\n  }\n}\n",
+      "blocks [0..1/0..1, 2..3/2..3] runs [2..3/2..3 renamed] renames [row->entry local declared [0] at 2:20 2:27 / 2:20 2:29] starts [0, 1, 0, 1, 1, 2] undeclared [Row->Other declared [] at 0:23 / 0:23]",
+    ),
+    // another member of the type is none of that code: proven, with its line read
+    (
+      "a.kt",
+      "class Report(rows: List<Row>) {\n  val names = rows.map { row ->\n    row.name\n  }\n\n  fun size() = 1\n}\n",
+      "class Report(rows: List<Row>) {\n  val names = rows.map { entry ->\n    entry.name\n  }\n\n  fun size() = 2\n}\n",
+      "blocks [1..3/1..3, 5..6/5..6] runs [1..3/1..3 renamed quiet] renames [row->entry local declared [0] at 1:25 2:4 / 1:25 2:4] starts [1, 1, 5]",
     ),
   ]);
 }

@@ -1938,9 +1938,9 @@ fn statements_at(grammar: Grammar, text: &str, needle: &str, occurrence: usize) 
 
 /// The statements of a local are the member around it, whole: the function of a class or of a file with its head,
 /// whatever is nested between the two (a lambda, a function of its own, a class declared in it), the property a
-/// lambda is the value of, never the class or the namespace that holds the member. What gives a local its value
-/// stands anywhere in that code. Those of any other name are the statements of its declarations, each with its
-/// bodies but the members of a type
+/// lambda is the value of, and the heads of the types that hold the member (never their other members). What gives
+/// a local its value stands anywhere in that code. Those of any other name are the statements of its declarations,
+/// each with its bodies but the members of a type
 #[test]
 fn the_statements_of_a_local_are_the_member_around_it_and_those_of_another_name_its_declarations() {
   let kotlin = "package demo\n\nclass Ledger(val store: Store) {\n  val total = 1\n\n  /** Sends. */\n  fun send(users: List<User>) {\n    users\n      .filter { it.active }\n      .forEach { user ->\n        fun inner(count: Int) = log(count)\n        inner(user.id)\n      }\n  }\n\n  val handler = { event: Event ->\n    log(event)\n  }\n\n  init {\n    val first = 1\n    log(first)\n  }\n}\n\nfun top(scale: Int): Int {\n  val helper = object : Runnable {\n    override fun run() {\n      val inside = scale\n      log(inside)\n    }\n  }\n  return scale\n}\n";
@@ -1952,12 +1952,12 @@ fn the_statements_of_a_local_are_the_member_around_it_and_those_of_another_name_
   let rows: &[(Grammar, &str, &str, usize, &str)] = &[
     // the parameter of a lambda, of a function declared in it and a parameter of the method: the method, from its
     // name to its last line, without its doc comment
-    (Grammar::Kotlin, kotlin, "user ->", 0, "6..14"),
-    (Grammar::Kotlin, kotlin, "count:", 0, "6..14"),
-    (Grammar::Kotlin, kotlin, "users:", 0, "6..14"),
+    (Grammar::Kotlin, kotlin, "user ->", 0, "2..3 6..14"),
+    (Grammar::Kotlin, kotlin, "count:", 0, "2..3 6..14"),
+    (Grammar::Kotlin, kotlin, "users:", 0, "2..3 6..14"),
     // the parameter of a lambda that is the value of a property: the property; a local of an initializer: the `init`
-    (Grammar::Kotlin, kotlin, "event:", 0, "15..18"),
-    (Grammar::Kotlin, kotlin, "first =", 0, "19..23"),
+    (Grammar::Kotlin, kotlin, "event:", 0, "2..3 15..18"),
+    (Grammar::Kotlin, kotlin, "first =", 0, "2..3 19..23"),
     // a local of a method of an object declared in a function is of that function, whose variables it reads
     (Grammar::Kotlin, kotlin, "inside =", 0, "25..34"),
     (Grammar::Kotlin, kotlin, "scale:", 0, "25..34"),
@@ -1967,24 +1967,24 @@ fn the_statements_of_a_local_are_the_member_around_it_and_those_of_another_name_
     (Grammar::Kotlin, kotlin, "Ledger", 0, "2..3"),
     (Grammar::Kotlin, kotlin, "store:", 0, "2..3"),
     // Java: a local of a method of an anonymous class is of the method around it; a method of a constant of an enum
-    (Grammar::Java, java, "inside =", 0, "4..14"),
-    (Grammar::Java, java, "time)", 0, "4..14"),
-    (Grammar::Java, java, "size)", 0, "17..20"),
+    (Grammar::Java, java, "inside =", 0, "0..1 4..14"),
+    (Grammar::Java, java, "time)", 0, "0..1 4..14"),
+    (Grammar::Java, java, "size)", 0, "0..1 15..20"),
     (Grammar::Java, java, "LIMIT", 0, "1..3"),
     (Grammar::Java, java, "pause", 0, "4..14"),
     // C#: a method of a class of a namespace
-    (Grammar::CSharp, csharp, "total =", 0, "2..9"),
-    (Grammar::CSharp, csharp, "item in", 0, "2..9"),
+    (Grammar::CSharp, csharp, "total =", 0, "0..9"),
+    (Grammar::CSharp, csharp, "item in", 0, "0..9"),
     // Starlark: a `def`; a name of the file is no local, and its statement is its own
     (Grammar::Starlark, starlark, "total =", 0, "2..7"),
     (Grammar::Starlark, starlark, "LIMIT", 0, "0..1"),
     // Rust: a function of an `impl` of a module, with a function declared in it; a constant on two lines
-    (Grammar::Rust, rust, "total =", 0, "3..10"),
-    (Grammar::Rust, rust, "item|", 0, "3..10"),
-    (Grammar::Rust, rust, "count:", 0, "3..10"),
+    (Grammar::Rust, rust, "total =", 0, "0..2 3..10"),
+    (Grammar::Rust, rust, "item|", 0, "0..2 3..10"),
+    (Grammar::Rust, rust, "count:", 0, "0..2 3..10"),
     (Grammar::Rust, rust, "LIMIT", 0, "13..15"),
     // TypeScript: a method of an exported class, an exported function, a statement of the module
-    (Grammar::TypeScript, typescript, "acc,", 0, "3..8"),
+    (Grammar::TypeScript, typescript, "acc,", 0, "0..1 3..8"),
     (Grammar::TypeScript, typescript, "count:", 0, "10..14"),
     (Grammar::TypeScript, typescript, "scale:", 0, "10..14"),
     (Grammar::TypeScript, typescript, "entry =>", 0, "18..21"),
@@ -2003,4 +2003,135 @@ fn the_statements_of_a_local_are_the_member_around_it_and_those_of_another_name_
     .collect();
   let expected: Vec<_> = rows.iter().map(|&(grammar, _, needle, _, lines)| (grammar, needle, lines.to_string())).collect();
   assert_eq!(found, expected);
+}
+
+/// The head of a type is code of the locals of its members: it declares the parameters of the constructor that an
+/// initializer runs with and the type parameters the members name, so another type there is another thing a local
+/// reads. A function that is a value in the head of a type, or the value of an `export default`, has no member
+/// that is a statement of its own around it: its locals are of the whole text, never of one statement of its body
+#[test]
+fn the_member_of_a_local_holds_the_heads_of_its_types_and_a_function_in_the_head_of_a_type_has_none() {
+  let rows: &[(Grammar, &str, &str, &str)] = &[
+    // Kotlin: the parameter of the primary constructor is read by the value of a property and by an `init`
+    (
+      Grammar::Kotlin,
+      "class Report(\n  rows: List<Row>,\n) : Base() {\n  val names = rows.map { row ->\n    row.name\n  }\n\n  fun other() = 1\n\n  init {\n    rows.forEach { entry -> log(entry) }\n  }\n}\n",
+      "row ->",
+      "0..6",
+    ),
+    (
+      Grammar::Kotlin,
+      "class Report(\n  rows: List<Row>,\n) : Base() {\n  val names = rows.map { row ->\n    row.name\n  }\n\n  fun other() = 1\n\n  init {\n    rows.forEach { entry -> log(entry) }\n  }\n}\n",
+      "entry ->",
+      "0..3 9..12",
+    ),
+    // a lambda given to the constructor of the supertype: no statement of the class is around it
+    (
+      Grammar::Kotlin,
+      "class Job(source: Source, backup: Source) : Base({\n  val rows = source.rows()\n  prepare()\n  rows.forEach { row ->\n    publish(row)\n  }\n}) {\n  fun other() = 1\n}\n",
+      "row ->",
+      "0..9",
+    ),
+    // a member of an entry of an enum: the heads of the enum and of the entry, with its arguments
+    (
+      Grammar::Kotlin,
+      "enum class Mode(val cost: Int) {\n  FAST(\n    1,\n  ) {\n    override fun run(size: Int) = size\n  };\n\n  abstract fun run(size: Int): Int\n}\n",
+      "size:",
+      "0..5",
+    ),
+    // Java: a lambda that is an argument of a constant of an enum; the compact constructor of a record reads the
+    // components of its head
+    (
+      Grammar::Java,
+      "enum Step {\n  LOAD((source, backup) -> {\n    var rows = source.rows();\n    prepare();\n    for (Row row : rows) publish(row);\n  });\n\n  Step(Loader loader) {}\n}\n",
+      "row :",
+      "0..9",
+    ),
+    (
+      Grammar::Java,
+      "record Report(\n    List<Row> rows) {\n  Report {\n    rows.forEach(row -> log(row));\n  }\n\n  int size() {\n    return 1;\n  }\n}\n",
+      "row ->",
+      "0..5",
+    ),
+    // C#: the parameters of a primary constructor are seen by every member
+    (
+      Grammar::CSharp,
+      "class Report(\n    List<Row> rows) {\n  int Count() {\n    var total = rows.Count;\n    return total;\n  }\n\n  int Other() => 1;\n}\n",
+      "total =",
+      "0..6",
+    ),
+    // Rust: the parameters of an `impl` are what its functions name; a block in its head is no member
+    (
+      Grammar::Rust,
+      "impl<T: Row> Ledger<T>\nwhere\n  T: Named,\n{\n  fn other() {}\n\n  fn names(&self) {\n    let total = self.rows.len();\n    log(total);\n  }\n}\n",
+      "total =",
+      "0..3 6..10",
+    ),
+    (
+      Grammar::Rust,
+      "impl Ring<{\n  let twice = |size: usize| {\n    let wide = size * 2;\n    wide\n  };\n  twice(4)\n}> {\n  fn other() {}\n}\n",
+      "wide =",
+      "0..9",
+    ),
+    // TypeScript: `export default` of a function that is a value, and of an object whose method holds the local
+    (
+      Grammar::TypeScript,
+      "import { load } from './load'\n\nexport default async (request, backup) => {\n  const rows = await load(request)\n  prepare()\n  for (const row of rows) {\n    publish(row)\n  }\n}\n\nexport const LIMIT = 5\n",
+      "row of",
+      "2..9",
+    ),
+    (
+      Grammar::JavaScript,
+      "export default {\n  methods: {\n    notify(users, admins) {\n      const list = users.filter(active)\n      list.forEach(user => {\n        send(user)\n      })\n    },\n  },\n}\n\nexport const LIMIT = 5\n",
+      "user =>",
+      "0..10",
+    ),
+    // `export default` of a declaration is the declaration: a method of the class, a function
+    (
+      Grammar::TypeScript,
+      "export default class Ledger<T extends Row> {\n  other() {}\n\n  sum(items: T[]) {\n    return items.map(item => item.name)\n  }\n}\n",
+      "item =>",
+      "0..1 3..6",
+    ),
+    (
+      Grammar::TypeScript,
+      "const LIMIT = 5\n\nexport default function top(scale: number) {\n  return scale\n}\n",
+      "scale:",
+      "2..5",
+    ),
+    // a function in a decorator of a class or in what the class extends: no statement of the class is around it
+    (
+      Grammar::TypeScript,
+      "@Component({\n  factory: (source, backup) => {\n    const rows = source.rows()\n    prepare()\n    for (const row of rows) publish(row)\n  },\n})\nexport class Job {\n  other() {}\n}\n",
+      "row of",
+      "0..10",
+    ),
+    (
+      Grammar::TypeScript,
+      "class Job extends mixin((source) => {\n  const rows = source.rows()\n  return rows\n}) {\n  other() {}\n}\n",
+      "rows =",
+      "0..6",
+    ),
+    // a member of a namespace: its head, and the head of the class
+    (
+      Grammar::TypeScript,
+      "namespace Demo {\n  export const LIMIT = 5\n\n  export class Ledger {\n    sum(items: number[]) {\n      return items.map(item => item + 1)\n    }\n  }\n}\n",
+      "item =>",
+      "0..1 3..7",
+    ),
+  ];
+  let found: Vec<_> = rows
+    .iter()
+    .map(|&(grammar, text, needle, _)| (grammar, needle, statements_at(grammar, text, needle, 0)))
+    .collect();
+  let expected: Vec<_> = rows.iter().map(|&(grammar, _, needle, lines)| (grammar, needle, lines.to_string())).collect();
+  assert_eq!(found, expected);
+}
+
+/// A constant of an enum with a body is a type: its statement is its head, with its arguments and without the
+/// members of its body, as that of a class
+#[test]
+fn the_statement_of_a_constant_of_an_enum_is_without_the_members_of_its_body() {
+  let java = "enum Mode {\n  FAST(\n      1) {\n    int cost(int size) {\n      return size;\n    }\n  };\n\n  Mode(int base) {}\n}\n";
+  assert_eq!(statements_at(Grammar::Java, java, "FAST", 0), "1..3");
 }

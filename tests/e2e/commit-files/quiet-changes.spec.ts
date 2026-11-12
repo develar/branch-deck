@@ -16,7 +16,7 @@ import {
   renamedNames,
   scrollDiffsTo,
 } from "../helpers/diff-helpers"
-import { answerStoreRename, codeOf, expectScopesShown, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview as openReview } from "../helpers/marks-helpers"
+import { answerStoreRename, codeOf, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview as openReview } from "../helpers/marks-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { openPlanWindow, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
@@ -730,9 +730,6 @@ test.describe("The marks of a diff in the review window", () => {
     const { code } = await openReview(page, "ledger", SUBJECT)
     const note = remarks(code, "formatting")
     await expect(note).toHaveAttribute("aria-expanded", "false")
-    // the scopes of the file have come: they lay its rows out again, which paints every row anew and so drops a
-    // selection made before them (under load they come after the note shows)
-    await expectScopesShown(code, "src/Ledger.kt")
     /** Selects from the row of the note to the end of the last line of the run, then copies with the key of the system */
     const copyRun = async (): Promise<string | null> => {
       await code.evaluate(element => {
@@ -746,14 +743,14 @@ test.describe("The marks of a diff in the review window", () => {
       })
       return copiedByKey(page)
     }
-    // an answer that comes after the scopes (the tokens of a file, what the index says of the renamed names) paints
-    // rows anew too and drops the selection with them: the run is selected and copied until the copy takes it
-    await expect(async () => expect(await copyRun()).toBe(NEW_CALL.join("\n"))).toPass()
+    // whatever comes after the rows were shown (the scopes of the file, its tokens, what the index says of the renamed
+    // names) leaves the selection where it is: the copy waits for none of it
+    expect(await copyRun()).toBe(NEW_CALL.join("\n"))
     await note.click()
     await expect(note).toHaveAttribute("aria-expanded", "true")
     // the old line is painted: the copy takes it with the new ones
     await expect.poll(() => codeOf(formatted(diffRows(code, "deleted")))).toEqual([OLD_CALL])
-    await expect(async () => expect(await copyRun()).toBe([OLD_CALL, ...NEW_CALL].join("\n"))).toPass()
+    expect(await copyRun()).toBe([OLD_CALL, ...NEW_CALL].join("\n"))
   })
 })
 

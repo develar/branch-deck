@@ -1,4 +1,4 @@
-import { memo, startTransition, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { memo, startTransition, useCallback, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react"
 import { flushSync } from "react-dom"
 import { cn } from "cn"
@@ -2187,6 +2187,20 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
     onExpandAll,
   } = props
   const { section } = file
+  // one callback for the life of the section: React detaches and attaches the host of a ref callback that is another
+  // function, and a host that is detached loses its painted rows, with the selection a reader made in them. As a
+  // part of the element it would be made again with every height of the rows
+  const attachRows = useCallback(
+    (host: HTMLDivElement | null) => {
+      painter.attachRows(index, host)
+      return () => {
+        if (host !== null) {
+          painter.detachRows(index, host)
+        }
+      }
+    },
+    [painter, index],
+  )
   return (
     <>
       {dividerHeight > 0 && section !== null && renderDivider !== undefined && (
@@ -2231,18 +2245,7 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
         )}
         {rows !== null && (
           <>
-            <div
-              className="dv-rows"
-              style={{ height: rowsHeight }}
-              ref={host => {
-                painter.attachRows(index, host)
-                return () => {
-                  if (host !== null) {
-                    painter.detachRows(index, host)
-                  }
-                }
-              }}
-            />
+            <div className="dv-rows" style={{ height: rowsHeight }} ref={attachRows} />
             {scrollbar && (
               <HorizontalBars file={file} sideWidths={sideWidths.split(" ").map(Number)} columnWidth={columnWidth} codeWidths={codeWidthsOf(file, width, columnWidth, split)} />
             )}

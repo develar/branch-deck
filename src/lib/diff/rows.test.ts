@@ -16,10 +16,12 @@ import {
   noteOfLine,
   notesOfRows,
   OLD,
+  placeOfRow,
   RIGHT,
   rowAt,
   rowOfLine,
   rowOfPlace,
+  rowOfRowPlace,
   setFoldLevels,
   setOpenNotes,
 } from "@/lib/diff/rows"
@@ -606,6 +608,40 @@ describe("the moves of a diff in its rows", () => {
     // the old line of an edited pair is found where the lines left, never in the row of the pair
     const edited = whole(EDITED, "inline", [20])
     expect([rowOfLine(edited, OLD, 22), describeRow(rowAt(edited, rowOfLine(edited, OLD, 22)))]).toEqual([28, "-22 pale away"])
+  })
+
+  it("finds a row again in other rows of its file by a line beside it: a line, the note above lines, and no row a fold took", () => {
+    const closed = whole(MOVED, "inline")
+    const open = whole(MOVED, "inline", [20])
+    const again = (from: FileRows, to: FileRows, row: number) => {
+      const place = placeOfRow(from, row)
+      const found = place === null ? null : rowOfRowPlace(to, place)
+      return found === null ? null : describeRow(rowAt(to, found))
+    }
+    // every row of a line of the closed layout stands in the open one, where four old lines came between, and the
+    // note above the lines of the move with them
+    const moved: string[] = []
+    for (let row = 0; row < closed.rowCount; row++) {
+      const was = describeRow(rowAt(closed, row))
+      if (again(closed, open, row) !== was) {
+        moved.push(`${was} -> ${again(closed, open, row)}`)
+      }
+    }
+    // the note of the lines that left stood before the line after them, where the last of them stands now: the row
+    // found is another, which a reader of the place tells by what the row shows
+    expect(moved).toEqual(["remark moved 20-24 closed source -> -23 away"])
+    // and back: an old line the closed note hides is shown by no row, so it is found nowhere
+    expect([24, 25, 26, 29, 30].map(row => [describeRow(rowAt(open, row)), again(open, closed, row)])).toEqual([
+      ["19:23", "19:23"],
+      ["remark moved 20-20 open source", null],
+      ["-20 away", null],
+      ["-23 away", null],
+      ["24:24", "24:24"],
+    ])
+    // rows with a fold in place of the lines: the line it took has no row
+    const folded = buildFileRows(MOVED, "inline")
+    const line = placeOfRow(open, 15)!
+    expect([line, rowOfRowPlace(folded, line), again(open, folded, 6)]).toEqual([{ side: NEW, line: 14, before: 0 }, null, "+5 here"])
   })
 
   it("says the words of an end of a move that starts its block in the heading of the change, and leaves a move with an end in no block out", () => {

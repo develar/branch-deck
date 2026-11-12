@@ -22,6 +22,15 @@
 //!   is known to give a name nothing, so the whole of it is the code of each of its locals. A function declared
 //!   inside another, and a method of a class declared in a function, are of the function around them: they read
 //!   its variables.
+//! - With the member come the heads of the types around it, each up to its members: a head declares what the
+//!   members see by their scopes, the parameters of a constructor that the value of a property and an initializer
+//!   run with (Kotlin's and C#'s primary constructor, the components of a Java record in its compact constructor)
+//!   and the type parameters with their bounds.
+//! - A member stands in the file, in a type or in the body of one. Where the outermost statement that declares no
+//!   type stands in anything else, it is a statement inside a function that is a value in the head of a type (an
+//!   argument of a constant of an enum, of the constructor of a supertype, of a decorator): that function has no
+//!   statement around it, so the local has no member and its code is the whole text, never the one statement of the
+//!   body that holds the name. `export default` of a value is the statement of the functions in that value.
 //! - Of any other name it is the innermost statement or member around its declaration, without the members of the
 //!   type it declares: a type is its head, and what a member does is asked where the member is named. The body of a
 //!   function is what the function does, and the value of a property with its accessors what the property is: they
@@ -45,7 +54,7 @@ use std::ops::Range;
 /// makes of a name (`Site`) and what another name clashes with. Bump it on any change of an answer of `names_at`, so
 /// that what was stored of the answers is made again (`file_diffs::service::model_version`); the parsers of the
 /// build have their own version (`tokens::tokens_version`)
-pub const RULES_VERSION: u32 = 1;
+pub const RULES_VERSION: u32 = 2;
 
 /// A place in a text: a line from 0 and a UTF-16 column, as the view counts them
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,8 +290,9 @@ pub struct NameAt {
   /// was asked or the name is no local, empty where the rename changes no binding the scopes show
   pub clashes: Option<Vec<Clash>>,
   /// For a place asked with another name: the lines (from 0, the end excluded, in order, none next to another) of
-  /// the statements of the names (module doc, "The statements of a name"): the member around the uses of a local,
-  /// the statements of the declarations of any other name. The code that says what the name is and gives it its
+  /// the statements of the names (module doc, "The statements of a name"): the member around the uses of a local
+  /// with the heads of the types around it (every line of the text for a local without a member), the statements
+  /// of the declarations of any other name. The code that says what the name is and gives it its
   /// value: where a change left these lines alone, another name there is the same thing. `None` where no other
   /// name was asked
   pub statements: Option<Vec<Range<u32>>>,
@@ -459,9 +469,10 @@ pub(crate) trait Names {
   fn reads_in_part(&self) -> bool;
 
   /// The statements of each name that starts at a byte of `starts` (in the order of the text), as the bytes of
-  /// their parts in their order (module doc, "The statements of a name"): the member around a name of a local
-  /// with `local`, else the statement of a declaration that is not local without the members of its type. None
-  /// for a byte no name starts at and for a name no statement is around, which a reader takes for the whole text
+  /// their parts in their order (module doc, "The statements of a name"): the heads of the types around a name of
+  /// a local and the member around it with `local`, else the statement of a declaration that is not local without
+  /// the members of its type. None for a byte no name starts at, for a name no statement is around and for a local
+  /// without a member, which a reader takes for the whole text
   fn statements_of(&self, starts: &[usize], local: bool) -> Vec<Vec<Range<usize>>>;
 }
 

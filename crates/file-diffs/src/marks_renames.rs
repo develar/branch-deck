@@ -40,7 +40,8 @@
 //! 6. **A run is proven** (`Renames::prove`) when it holds only places of proven renames: a local value of its body
 //!    alone, every name of which the scopes bind (`LocalBinding::is_of_body_alone`: a value no code outside its body
 //!    may name, in a text the scopes read whole), in a member nothing else of which changed (`Found::code`: the
-//!    member around the name, `code_symbols::navigate`, "The statements of a name"). No line of that member
+//!    member around the name with the heads of the types that hold it, the whole text for a name without a
+//!    member, `code_symbols::navigate`, "The statements of a name"). No line of that code
 //!    changed in anything that says what a name is: each is in a run of formatting or of comments, in a run of the
 //!    kind `Renamed` of proven renames, on a line that changed in the name its own declaration is known by alone,
 //!    or holds no token of code (a blank line inside a string of several lines is a line of that string, and

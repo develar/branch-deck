@@ -113,13 +113,14 @@ impl crate::navigate::Names for Names<'_> {
     let is_statement = |node: NodeId| self.is_statement(node);
     // a class, an object and an entry of an enum hold members
     let is_type = |node: NodeId| matches!(self.kind(node), Some(NodeKind::CLASS | NodeKind::OBJECT_DECLARATION | NodeKind::ENUM_ENTRY));
+    let is_body = |node: NodeId| self.kind(node) == Some(NodeKind::CLASS_BODY);
     let statement = |&start: &usize| {
       let leaf = self.leaves.at(self.tree, start).filter(|&leaf| self.is_name(leaf));
       leaf.map_or_default(|leaf| {
         if local {
-          member_of(self.tree, leaf, is_statement, is_type)
+          member_of(self.tree, leaf, is_statement, is_type, is_body)
         } else {
-          statement_of(self.tree, leaf, is_statement, |node| self.kind(node) == Some(NodeKind::CLASS_BODY))
+          statement_of(self.tree, leaf, is_statement, is_body)
         }
       })
     };

@@ -143,13 +143,42 @@ pub(crate) fn statement_of<L: TreeLanguage>(tree: &Tree<L>, leaf: NodeId, is_sta
 }
 
 /// The member around the name `leaf` of a local (`navigate`, "The statements of a name"): the outermost node around
-/// it that `is_statement` and declares no type (`is_type`), from its first token to its last one; none where no
-/// such node is around the name
-pub(crate) fn member_of<L: TreeLanguage>(tree: &Tree<L>, leaf: NodeId, is_statement: impl Fn(NodeId) -> bool, is_type: impl Fn(NodeId) -> bool) -> Vec<Range<usize>> {
-  let member = std::iter::successors(tree.parent(leaf), |&node| tree.parent(node))
-    .filter(|&node| is_statement(node) && !is_type(node))
-    .last();
-  member.map_or_default(|member| vec![tree.declaration_range(member)])
+/// it that `is_statement` and declares no type (`is_type`), from its first token to its last one, after the heads
+/// of the types around it (`head_of`). None where no such node is around the name, and none where that node stands
+/// in anything but the file, a type or the body of one (`is_member` of a node that is no statement): it is a
+/// statement of a function that is a value in the head of a type (an argument of a constant of an enum, of the call
+/// of a supertype), and the function has no node that is a statement
+pub(crate) fn member_of<L: TreeLanguage>(
+  tree: &Tree<L>,
+  leaf: NodeId,
+  is_statement: impl Fn(NodeId) -> bool,
+  is_type: impl Fn(NodeId) -> bool,
+  is_member: impl Fn(NodeId) -> bool,
+) -> Vec<Range<usize>> {
+  // from the name up to the file
+  let around: Vec<NodeId> = std::iter::successors(tree.parent(leaf), |&node| tree.parent(node)).collect();
+  let Some(member) = around.iter().rposition(|&node| is_statement(node) && !is_type(node)) else {
+    return Vec::new();
+  };
+  let mut parts = Vec::with_capacity(around.len() - member);
+  for &node in around[member + 1..].iter().rev() {
+    if is_type(node) {
+      parts.push(head_of(tree, node, &is_member));
+    } else if tree.parent(node).is_some() && (is_statement(node) || !is_member(node)) {
+      return Vec::new();
+    }
+  }
+  parts.push(tree.declaration_range(around[member]));
+  parts
+}
+
+/// The head of the type `node`: from its first token to the first of its members, or to the body that holds them
+/// (`is_member`); the whole of a type without any. What its members see by their scopes is declared there: its type
+/// parameters, the parameters of its constructor
+fn head_of<L: TreeLanguage>(tree: &Tree<L>, node: NodeId, is_member: impl Fn(NodeId) -> bool) -> Range<usize> {
+  let whole = tree.declaration_range(node);
+  let members = tree.children(node).find(|&child| !tree.is_leaf(child) && is_member(child));
+  whole.start..members.map_or(whole.end, |members| tree.range(members).start.max(whole.start))
 }
 
 /// A language's scopes for `resolve_names`: the walk asks them what a node is to the name it resolves
@@ -370,7 +399,7 @@ impl<L: TreeLanguage, T> Names for TreeNames<'_, L, T> {
     let statement = |&start: &usize| {
       name_leaf_at(reading, tree, &self.leaves, start).map_or_default(|leaf| {
         if local {
-          member_of(psi, leaf, is_statement, |node| (reading.is_type)(tree, node))
+          member_of(psi, leaf, is_statement, |node| (reading.is_type)(tree, node), |node| (reading.is_member)(tree, node))
         } else {
           statement_of(psi, leaf, is_statement, |node| (reading.is_member)(tree, node))
         }

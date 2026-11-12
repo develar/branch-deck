@@ -1,6 +1,6 @@
 ---
 name: Quiet Changes
-description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, a local one only where a line changed in it alone, proven by the bindings of both sides for a value of its body alone with nothing but quiet lines changed between its places, and quiet then, the lines that moved within a file, exact, indented or with a few edited lines, told by a line that stands once and never quiet, what the files of a subject say of each other (the lines that moved between two files, labels at both ends, the names one file declares and another uses, and what the index of the repository proves of them), the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, the measurement on real commits that switches a kind on (`brd commits --mark-stats`), and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, a rename named once at its declaration with its name in a mark of its own at every site, a move between two files with a note at each end that names the other file and shows it, a name another file declares named once where it is used with the file that declares it, what the index proved of a rename after the words of its note, the row at the top of a view kept as marks come late, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour, the colour of a move and the mark of a renamed name.
+description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, a local one only where a line changed in it alone, proven by the bindings of both sides for a value of its body alone in a member nothing else of which changed, and quiet then, the lines that moved within a file, exact, indented or with a few edited lines, told by a line that stands once and never quiet, what the files of a subject say of each other (the lines that moved between two files, labels at both ends, the names one file declares and another uses, and what the index of the repository proves of them), the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, the measurement on real commits that switches a kind on (`brd commits --mark-stats`), and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, a rename named once at its declaration with its name in a mark of its own at every site, a move between two files with a note at each end that names the other file and shows it, a name another file declares named once where it is used with the file that declares it, what the index proved of a rename after the words of its note, the row at the top of a view kept as marks come late, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour, the colour of a move and the mark of a renamed name.
 style: plain-1
 targets:
   - crates/text-diff/src/model.rs
@@ -53,7 +53,7 @@ forty lines inside a new `if`. Such lines can be passed, but only when they prov
 reviewer who passes a quiet block that hid a change has reviewed nothing. This spec is what the diff says of its own
 blocks, decided in Rust for every view: which lines changed in their formatting alone (quiet), which in their
 comments alone (a label), which names the change renamed and which lines changed in such a name alone (quiet for
-a value of its body alone where nothing but quiet lines changed between its places, a label else), which lines moved
+a value of its body alone in a member nothing else of which changed, a label else), which lines moved
 within the file (a label: where lines stand is behaviour), what the files of a subject say
 of each other (the group Subject: the lines that moved from one file to another and the names one file declares and
 another uses, labels, and what the index of the repository proves of such a name), and where the reading of each
@@ -396,11 +396,11 @@ that shares a line with it without holding it, or crosses it, is none.
 
 ### Requirement: Renames: A run of a renamed name is quiet only for a value of its body alone
 
-A run of the kind `renamed` MUST be proven, and so quiet, only when every place in it is of a name bound inside a
-body that is a value of that body alone on both sides, every name of which the scopes bind, and when the member
-around that name changed in names alone: each changed line of it is in a run of formatting, of comments or of proven
-renames, changed in the name of its own declaration alone, or holds no token of code. Any other rename MUST have
-runs that are labels.
+A run of the kind `renamed` MUST be proven, and so quiet, only for a name bound inside a body that is a value of
+that body alone on both sides, every name of which the scopes bind, whose code (its member with the heads of the
+types that hold it; its file for a name without a member) changed in names alone: each changed line is in a run of
+formatting, of comments or of proven renames, changed in the name of its own declaration alone, or holds no token of
+code. Any other rename is a label.
 
 #### Scenario: A local other code may name
 - **WHEN** a parameter of a named function of Kotlin, C# or Starlark, a Java parameter under an annotation a framework may read, a Rust parameter under an attribute macro, or a function declared in a body is renamed
@@ -424,13 +424,24 @@ runs that are labels.
 - **WHEN** the declaration of a renamed local got another initializer or another type, on its line or on a later line of it, a use of it stands on a line with another change, a line of its function changed after its last place, or a local it is given to is renamed with it, in Kotlin, Java, TypeScript and Rust
 - **THEN** the lines that changed in the name alone are labels, each read: the name may hold another value there
 - **AND** a blank line put between its places leaves its runs quiet; two locals renamed in the lines of each other are proven together, or labels together
-  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_places`)
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_rename_of_a_local_is_a_label_where_its_declaration_or_a_line_of_a_use_changed_otherwise`)
 
 #### Scenario: The member around the name
 - **WHEN** a line of the function of a renamed local changed otherwise, before its first place or after its last: what the lambda of a renamed parameter is given to (the value at the start of its chain, the body of a lambda before it), the type in the head of the function, the second line of an assignment in a loop or of a declaration below the function that reads the name, a statement of the loop of its places after the last of them, another parameter of its function, any other statement of it; or a blank line was put into a string of several lines the name is given, in Kotlin, Java, TypeScript and Rust
 - **THEN** the lines that changed in the name alone are labels, each read: nothing says that the line gives the name nothing
 - **AND** a line that changed in another function, a comment of the function worded again, a call of it wrapped otherwise and another local of it renamed too leave the runs quiet; the comment and the other function are read
 - **AND** a function that got another name with a local of its body leaves that local proven, and one that calls itself by its new name does not
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
+
+#### Scenario: The head of the type around the member
+- **WHEN** the parameter of the primary constructor of a Kotlin class got another type above the value of a property that reads it, the component of a Java record above its compact constructor, or the bound of a type parameter of a Rust `impl` or of a TypeScript class above a method that names it, and a local of that member is renamed
+- **THEN** the lines that changed in the name alone are labels, each read: the local may read another thing
+- **AND** a line that changed in another member of the type leaves the runs quiet
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
+
+#### Scenario: A function without a member of its own
+- **WHEN** a local is renamed in a function that is the value of an `export default`, in a method of an object that is such a value, or in a lambda given to a constant of a Java enum, to the constructor of the supertype of a Kotlin class or to a decorator of a TypeScript class, and the statement beside its lines gives it another value
+- **THEN** the lines that changed in the name alone are labels, each read: the statement of the body that holds the name is not its member
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
 
 #### Scenario: A comment beside a renamed name
@@ -2590,6 +2601,46 @@ own scroll anchoring MUST be off in that scroller only while it holds such a vie
   [@test] src/lib/diff/rows.test.ts (`keeps the row at the top of a view at its line while the notes come above it`)
   [@test] src/lib/diff/layout.test.ts (`keeps a top below the rows of the last file from the end of its rows: rows that come above it move it by as much, and nothing of the file is brought back into view`)
 
+### Requirement: Views: A selection stays on its lines as the rows are painted again
+
+A view MUST keep the selection a reader made in its rows while a new model paints them again (the scopes of a file,
+the marks of a subject, what the index proved of a name): each end on the row that shows its line now, at the same
+place of the text of that row, also where rows came above it. A side of a file that Select All selected MUST stay
+selected. An end whose row is gone or shows another text ends the selection.
+
+#### Scenario: Notes that come above a selection
+- **GIVEN** the review of the template whose Report.kt says nothing of its subject until the index answers, two lines of `reportTitle` selected and copied
+- **WHEN** the answer comes with the marks of the file, two notes above the selected lines
+- **THEN** the selection is on the same two lines, in the rows painted for them, and a copy gives the same two lines
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a selection a reader made in a file stays on its lines through the notes that come above them, and a copy takes those lines before and after`)
+
+#### Scenario: A selection from one file to the next
+- **GIVEN** the same review, a selection from a line of `reportTitle` in Report.kt to the end of the declaration in Store.kt, copied
+- **WHEN** the answer comes with the marks of Report.kt, two notes between the two ends
+- **THEN** the two ends are on the same two lines, and a copy gives what it gave
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a selection from a line of a file to a line of the next file stays on both lines through the notes that come between them`)
+
+#### Scenario: A row found again by its line
+- **WHEN** a row of a line, the note above the lines of a move and a line that a closed note or a fold hides are looked for in other rows of their file
+- **THEN** the row of a line and the note above lines are the rows they were; a line no row shows has no row; a note whose next line is another one now is told by the text its row shows
+  [@test] src/lib/diff/rows.test.ts (`finds a row again in other rows of its file by a line beside it: a line, the note above lines, and no row a fold took`)
+
+### Requirement: Views: The rows of a file stay attached across the renders of its section
+
+The rows of a file MUST stay attached to their section across its renders: a render paints no row again by itself,
+whatever it changes of the section (the height of its rows, its header), and drops no selection.
+
+#### Scenario: A section that grows by two notes
+- **GIVEN** two lines of Report.kt selected in a review
+- **WHEN** the marks of the file come and its section renders with the height of two rows more
+- **THEN** the rows the new model painted are the rows of the section, and the selection put on them stays
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a selection a reader made in a file stays on its lines through the notes that come above them, and a copy takes those lines before and after`)
+
+#### Scenario: A copy over a quiet run
+- **WHEN** the user selects the lines of a quiet run in a review and copies at once, while the scopes of the file, its tokens and the answer of the index may still come
+- **THEN** the copy is the lines of the run: the test selects once and waits for none of them
+  [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`a copy takes what a quiet run shows: its new lines, and its old line once the note is opened`)
+
 ### Requirement: Measurement: A subject is measured as a view reads it
 
 A measurement (`FileDiffs::measure`) MUST read a subject through the stream a view reads and give each file as the
@@ -2775,15 +2826,21 @@ lines), is in [Diff View](../../../../docs/design/diff-view.md#measured-on-real-
 ## Open Questions / Risks
 
 - Quiet is switched on for formatting and for the renamed names, each by its measurement
-  ([Diff View](../../../../docs/design/diff-view.md#measured-on-real-history)): 200 runs of formatting and 145 runs
-  of a renamed local of real commits read, none a change of behaviour. The same measurement may switch a kind off:
-  `is_quiet` is the one place, and a kind that is off has its proven runs as labels again.
-- A rename of a local is proven by its member whole: one line of its function that changed for another reason makes
-  every rename of that function a label, though the name holds what it held. Two narrower rules were tried, the
-  lines between the places of the name and the statements that hold a place, and a review of what each passed found
-  a value given outside it (the chain a lambda is given to, the type in the head of the function, the statement
-  that writes a variable in the turn of a loop before). No part of a function is known to give a name nothing
-  without the flow of its values, which the scopes do not read.
+  ([Diff View](../../../../docs/design/diff-view.md#measured-on-real-history)): 200 runs of formatting read; of the
+  renamed locals every run the rule as it is now proves, 64 runs of 36 locals on 6,316 commits of a monorepo and 21
+  runs of 8 locals on 1,500 commits of Branch Deck; and the 209 runs the index confirmed of names that are not
+  local on 45 commits; none a change of behaviour. The same measurement may switch a kind off: `is_quiet` is the
+  one place, and a kind that is off has its proven runs as labels again.
+- A rename of a local is proven by its member whole, with the heads of the types that hold the member: one line of
+  its function that changed for another reason makes every rename of that function a label, though the name holds
+  what it held, and so does another type of a parameter of the constructor of its class. Narrower rules were tried
+  and each failed a review of what it passed: the lines between the places of the name and the statements that
+  hold a place left a value given outside them (the chain a lambda is given to, the type in the head of the
+  function, the statement that writes a variable in the turn of a loop before); the member without the head of
+  its type left the parameter of a primary constructor; and a member found as the outermost statement left the
+  line beside the name in a function no statement stands around (a lambda in the head of a type, the value of an
+  `export default`). No part of a function is known to give a name nothing without the flow of its values, which
+  the scopes do not read.
 - What a function reads from outside it is no part of the proof: a property of its class whose value changed in
   the same commit, a function another file changed. A renamed line is passed as a line the change left alone is
   not shown: neither says what changed elsewhere.

@@ -722,6 +722,57 @@ export function rowOfPlace(rows: FileRows, side: number, line: number): number {
 }
 
 /**
+ * Where a row stands by a line its file shows, for finding the row again in other rows of the file (`rowOfRowPlace`):
+ * the line of the nearest row of a line at or after it (before it, for the rows after the last line), and how many
+ * rows the row stands before that one, negative after it
+ */
+export interface RowPlace {
+  side: number
+  line: number
+  before: number
+}
+
+/** The place of row `row` by a line (`RowPlace`); null in rows without any row of a line */
+export function placeOfRow(rows: FileRows, row: number): RowPlace | null {
+  const lineAt = (at: number): RowPlace | null => {
+    const value = rowAt(rows, at)
+    if (!isLineRow(value)) {
+      return null
+    }
+    const side = value.lines[NEW] == null ? value.lines.findIndex(line => line !== null) : NEW
+    const line = value.lines[side]
+    return line == null ? null : { side, line, before: at - row }
+  }
+  for (let at = row; at < rows.rowCount; at++) {
+    const place = lineAt(at)
+    if (place !== null) {
+      return place
+    }
+  }
+  for (let at = row - 1; at >= 0; at--) {
+    const place = lineAt(at)
+    if (place !== null) {
+      return place
+    }
+  }
+  return null
+}
+
+/**
+ * The row of `rows` at a place another layout of the file gave (`placeOfRow`): as many rows before the row of its
+ * line as it stood there; null where no row shows that line now (a fold took it) or no row stands that far from it
+ */
+export function rowOfRowPlace(rows: FileRows, place: RowPlace): number | null {
+  if (rows.rowCount === 0) {
+    return null
+  }
+  const at = rowOfLine(rows, place.side, place.line)
+  const value = rowAt(rows, at)
+  const row = at - place.before
+  return isLineRow(value) && value.lines[place.side] === place.line && row >= 0 && row < rows.rowCount ? row : null
+}
+
+/**
  * The note that hides `line` of the old side, or would once closed, by its key (`noteKey`); null for a line no note of
  * the rows hides
  */

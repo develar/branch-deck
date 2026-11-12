@@ -76,11 +76,18 @@ pub(crate) const NAVIGATION: Reading<java_syntax::Java, Tree> = Reading {
   is_member: |tree, node| tree.node_kind(node).is_some_and(is_member),
 };
 
-/// A member of a class, which stands in the class itself
+/// A member of a class, which stands in the class itself, and the body of a constant of an enum, which holds the
+/// members of the constant
 const fn is_member(kind: NodeKind) -> bool {
   matches!(
     kind,
-    NodeKind::CLASS | NodeKind::FIELD | NodeKind::ENUM_CONSTANT | NodeKind::METHOD | NodeKind::ANNOTATION_METHOD | NodeKind::CLASS_INITIALIZER
+    NodeKind::CLASS
+      | NodeKind::FIELD
+      | NodeKind::ENUM_CONSTANT
+      | NodeKind::METHOD
+      | NodeKind::ANNOTATION_METHOD
+      | NodeKind::CLASS_INITIALIZER
+      | NodeKind::ENUM_CONSTANT_INITIALIZER
   )
 }
 

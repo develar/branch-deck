@@ -216,7 +216,8 @@ rest gets a label and stays a stop.
 - **A rename is proven by the member around it** (`Renames::prove`, `Found::code`). A local is the same variable
   under another name only where the function it lives in is the same code but for names: in the member around the
   name (`code_symbols::navigate`, `NameAt::statements`: the outermost statement around it that declares no type,
-  a function of a class or of the file with its head, a property with its value, an initializer) no line may have
+  a function of a class or of the file with its head, a property with its value, an initializer) and in the heads
+  of the types that hold that member no line may have
   changed in anything that says what a name is. A line of it that changed is in a run of formatting or of
   comments, in a run of proven renames, on a line that changed in the name its own declaration is known by alone,
   or holds no token of code. Then the new name is the old variable, and a line that changed in it alone is the
@@ -238,6 +239,25 @@ rest gets a label and stays a stop.
   Rename refactoring of an editor leaves it, and is a label wherever the function was edited too. A function
   declared inside another and a method of a class declared in a function are of the function around them, whose
   variables they read.
+- **The head of a type is code of its members** (`psi_navigate::head_of`). `class Report(rows: List<Row>)` that
+  became `class Report(rows: List<Other>)` gives `val names = rows.map { entry -> entry.name }` another thing to
+  read: the parameter of a primary constructor is a parameter of the code the value of a property and an `init`
+  run as, as a parameter of a function is of its body. So are the parameters of a C# primary constructor to every
+  member, the components of a Java record to its compact constructor, and the type parameters of a class or an
+  `impl` with their bounds to every member that names them. So the head of each type around a member, from its
+  first token to its members, is code of the locals of that member, in every language alike: the rule asks no
+  language which of its members see which part of a head. Another member of the type is not: what a function
+  reads of a property is outside it.
+- **A function without a statement around it has no member.** The member is found from the name outwards, the
+  outermost statement that declares no type. Where a function is a value in the head of a type (a lambda given to
+  a constant of an enum, to the constructor of a supertype, to a decorator of a class) no statement stands around
+  it, and the outermost one is a statement inside its body: `var rows = source.rows()` that became `backup.rows()`
+  stood beside `for (Row entry : rows)`, outside the "member" of `entry`, and the loop was quiet. A member stands
+  in the file, in a type or in the body of one (`member_of` of each tree); a local whose outermost statement
+  stands in anything else has none, and its code is the whole text: it is proven only in a file that changed in
+  names alone. The value of an `export default` is a statement of its own for the same reason (a function or an
+  object of methods, the shape of a component and of a configuration); an `export default` of a declaration is
+  that declaration.
 - **A line no token of code stands on** is no change of what a name is: a blank line, a comment worded again (it
   is read where it stands, a run of comments or a changed line). A blank line put into a string of several lines
   is a line of that string (`"""`, a template literal, a raw string of Rust): the token of the string stands on
@@ -627,11 +647,11 @@ the index too.
 |---|---|---|
 | text files with a change; of a grammar; parsed for their marks | 22,304; 14,826; 8,391 (57 %) | 25,023; 17,528; 12,015 (69 %) |
 | blocks of changed lines | 92,910 | 104,278 |
-| stops of N and P | 90,990: 1,920 fewer (2.1 %) | 104,015: 263 fewer (0.3 %) |
+| stops of N and P | 90,992: 1,918 fewer (2.1 %) | 104,015: 263 fewer (0.3 %) |
 | runs of formatting, all quiet; their old lines, which Inline shows no more | 4,899; 15,061 of 223,555 (6.7 %) | 1,510; 5,995 of 253,998 (2.4 %) |
 | runs of comments (labels) | 2,024 | 8,649 |
-| runs of a renamed name; quiet | 676; 11 | 518; 21 |
-| renames of a local; proven | 179; 8 | 230; 8 |
+| runs of a renamed name; quiet | 676; 9 | 518; 21 |
+| renames of a local; proven | 179; 7 | 230; 8 |
 | names that are not local: declared in the file, used in it; declared by other code | 474, 227; 518 of the 701 | 451, 151; 533 of the 602 |
 | moves within a file; of one line; with an edited line | 1,054; 578; 71 | 2,065; 1,149; 118 |
 | moves between two files; their lines | 1,375; 11,104 | 2,139; 17,615 |
@@ -639,7 +659,7 @@ the index too.
 So the quiet kinds take few stops away (a block is passed only when every line of it is quiet: C# lost 27 % of its
 stops to one reformatted tree, Kotlin and Java 0.9 % each), and what they take is real: the lines Inline shows once.
 Most of what the marks say is a label: a comment, a move, a name. A renamed name is passed where its function
-changed in nothing else, which real commits seldom leave: 16 of 409 local renames here, and one name in five
+changed in nothing else, which real commits seldom leave: 15 of 409 local renames here, and one name in five
 that is not local is declared by the code that declared it before.
 
 **The audit: what was read, and what it changed.**
@@ -668,19 +688,36 @@ that is not local is declared by the code that declared it before.
   raw string. A rule of the statements that hold a place caught the probes and left the second case, whose type
   stands in the head of the function. What a local holds comes from the code of its function, and no part of that
   code is known to give it nothing.
-- *A renamed local, as it is proven now* (nothing else of its member changed but formatting, comments and such
+- *A renamed local, proven by its member* (nothing else of its member changed but formatting, comments and such
   names; `a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`): every proven run of the
-  build of these rules was read, the 71 runs of 42 locals on all 6,316 commits of the monorepo (Kotlin 27 locals,
+  build of that rule was read, the 71 runs of 42 locals on all 6,316 commits of the monorepo (Kotlin 27 locals,
   Java 14, C# 1) and the 21 runs of 8 locals on the 1,500 commits here (Rust 5, TypeScript 3), each with the other
   changed lines of its member. A parameter of a function or of a lambda and a `val` under a better name
   (`path` that became `recentProjectId`, `frozenViewport` that became `pinnedViewport` at every place of a test);
   a parameter nothing reads that became `_` (10 runs: `catch (e: Throwable)`, `k -> new HashSet<>()`); beside
   them in the member only a call wrapped onto more lines, a comment worded again, and the name of the member
   itself. The three runs of the review and its probes are labels. None changes
-  behaviour, and none can by its rule: the function is the code it was, under other names.
+  behaviour.
+- *A renamed local, as it is proven now* (the member with the heads of the types that hold it; no member for a
+  function that no statement stands around). A second review probed the rule of the member where the tree gives a
+  function no statement and where a member reads what the head of its type declares, and it passed each probe:
+  `export default async (request, backup) => {` with `load(request)` that became `load(backup)` above `for (const
+  entry of rows)` (the member of `entry` was the `for` alone), the same in a method of an object that is the value
+  of an `export default`, in a lambda given to a constant of a Java enum, to the constructor of the supertype of
+  a Kotlin class and to a decorator of a TypeScript class; and `class Report(rows: List<Row>)` that became
+  `List<Other>` above `val names = rows.map { entry -> entry.name }`. None of the runs read before was such a case.
+  Measured again by the build of these rules: 64 runs of 36 locals are proven on the 6,316 commits of the monorepo
+  (Kotlin 22 locals, Java 14) and the same 21 runs of 8 locals on the 1,500 commits here. Every one is a run that
+  was read under the rule before, so none changes behaviour; the rule is narrower and adds none. The six locals
+  that are labels now were renames, each in a member whose type got another head in the same commit: the classes
+  `FrozenStripTable` and `FrozenColumnsController` of one commit, each with another type of a parameter of its
+  constructor (four locals), `ExecutionManagerImpl` whose `private val coroutineScope` became a parameter, a C#
+  class that got another name under a namespace written another way. The price of a rule that asks no language which member
+  sees which part of a head.
 - *C#*: a local given to a call is read (`[CallerArgumentExpression]`), so is one in a lambda whose body is an
-  expression and in a query. Of the 17 local renames of C# on 2,111 commits one is proven, a variable that is
-  compared and indexed and given to no call; of 61 runs of a renamed name 2 are quiet.
+  expression and in a query. Of the 17 local renames of C# on 2,111 commits one was proven by its member, a
+  variable that is compared and indexed and given to no call; its class got another name in that commit, so with
+  the heads none is, and none of the 61 runs of a renamed name of C# is quiet.
 - *A name that is not local* is the same thing only where the code that declares it changed in names alone: a
   constant that got another value is another constant. Of the 149 runs the index had confirmed before this rule,
   nine read a name whose declaration had another value (`private val outOfSync = PackageManagerErrorMessage(…)`
@@ -697,9 +734,11 @@ that is not local is declared by the code that declared it before.
   too (`statOrNull` that became `lstatOrNull`, `SAS_DOMAIN_V2` that became `SAS_DOMAIN` while the constant of the
   first version went, `fittedFirstRowHeight` that became `fittedAndDefaultRowHeights`, `shownPinnedColumns` that
   became `pinnedColumnsNotToLock`): the code it was, under another name, in every one. None can change what the
-  program does, and none of the nine of before is among them. With them 256 of the 955 runs of a renamed name of
-  these commits are quiet (47 by the scopes), and 402 of 31,003 blocks are passed. An answer took 2.5 s at the
-  median and 238 s at most.
+  program does, and none of the nine of before is among them. An answer took 2.5 s at the median and 238 s at
+  most. The index was not asked again for the rule of the heads, which changes no name that is not local: the
+  same 389 names of these commits are declared by other code before and after it, so the questions are the same.
+  It takes four of the 47 runs the scopes proved there: 252 of the 955 runs of a renamed name of these commits
+  are quiet (43 by the scopes), and 398 of 31,003 blocks are passed.
 - *Moves within a file, what the thresholds let in*: 100 of one line, 40 with an edited line, 90 of the ones
   dropped below and 20 more with their lines around them read. The lines are the lines that left in every one: a
   label is true by how it is found. But of 1,712 moves, 641 (434 of the 1,021 of one line) held no line that
@@ -1779,6 +1818,18 @@ the current hit), and the rows, their sides, code cells and line numbers have te
   switch to Inline or Unified, where a name a reveal selects is of the one column.
 - The painter keeps the row of the anchor of a selection in the DOM while the selection lives. So the browser does
   not lose the selection when that row leaves the view.
+- A new model paints every row again, and a model comes for answers a reader did not ask for: the scopes of a
+  file, the marks of a subject, what the index proved of a name, seconds or minutes after the rows were shown. So
+  the painter takes the selection across it (`DiffPainter.heldSelection`, `restoreHeld`): each end is the row of
+  a line of its file (`placeOfRow` of `rows.ts`: the nearest row of a line and how far the row stands before it,
+  which finds a note or a fold too), the text that row shows, and the place in that text, of its code cell or of
+  the whole row. After the paint the end is put on the row at that place (`rowOfRowPlace`), painted for it where
+  it lies outside the rows in view, if it shows the same text; else the selection ends, as it did. A side that ⌘A
+  selected is selected again. A name a reveal selects in that paint wins.
+- The rows of a file hang in a host of their section, attached by a ref. The ref is one callback for the life of
+  the section (`FileSection`): React detaches and attaches the host of a ref callback that is another function,
+  and a detached host loses its rows. As a part of the element the callback was made again with every height of
+  the rows, so each model was painted twice and each render of a section dropped the selection in it.
 
 A `copy` event builds the text from the model, not from the DOM. It maps the two ends of the selection to a file, a
 row, a side and an offset (from `data-row` and the text nodes of the code cell). Then it joins the lines between them

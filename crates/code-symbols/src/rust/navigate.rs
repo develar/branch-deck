@@ -247,14 +247,30 @@ fn statement_of(token: &SyntaxToken) -> Vec<Range<usize>> {
 
 /// The member around the name `token` of a local (`navigate`, "The statements of a name"): the outermost node
 /// around it that `is_statement` and holds no items of its own (a module, an `impl`, a trait), from its first token
-/// that is code to its last one; none where no such node is around the name
+/// that is code to its last one, after the heads of those around it (each up to its items: its generic parameters
+/// are what its items see). None where no such node is around the name, and none where that node stands in
+/// anything but the file, a module, an `impl`, a trait or the items of one: it is a statement of a block that is a
+/// value in the head of one (`impl Ring<{ … }>`)
 fn member_of(token: &SyntaxToken) -> Vec<Range<usize>> {
   let is_type = |node: &SyntaxNode| matches!(node.kind(), K::MODULE | K::IMPL | K::TRAIT | K::EXTERN_BLOCK);
-  let member = token
-    .parent_ancestors()
-    .filter(|node| node.parent().is_some() && is_statement(node) && !is_type(node))
-    .last();
-  member.map_or_default(|member| vec![own_range(&member)])
+  let is_items = |node: &SyntaxNode| matches!(node.kind(), K::ITEM_LIST | K::ASSOC_ITEM_LIST | K::EXTERN_ITEM_LIST);
+  // from the name up to the file
+  let around: Vec<SyntaxNode> = token.parent_ancestors().collect();
+  let Some(member) = around.iter().rposition(|node| node.parent().is_some() && is_statement(node) && !is_type(node)) else {
+    return Vec::new();
+  };
+  let mut parts = Vec::with_capacity(around.len() - member);
+  for node in around[member + 1..].iter().rev() {
+    if is_type(node) {
+      let whole = own_range(node);
+      let items = node.children().find(is_items);
+      parts.push(whole.start..items.map_or(whole.end, |items| usize::from(items.text_range().start()).max(whole.start)));
+    } else if node.parent().is_some() && !is_items(node) {
+      return Vec::new();
+    }
+  }
+  parts.push(own_range(&around[member]));
+  parts
 }
 
 /// The bytes of a node from its first token that is code to its last one: without the comments and the whitespace

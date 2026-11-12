@@ -29,7 +29,8 @@
 //!   one, which adds the runs of the lines that hold a place and takes no run the first reading found: a line that
 //!   changed in its formatting alone is a line of formatting beside a rename too. A name bound inside a body is a
 //!   rename only where a line changed in it alone, and its runs are proven, and so quiet, only for a value of its
-//!   body alone in a member nothing else of which changed but formatting, comments and such names. A name that is
+//!   body alone in a member nothing else of which changed but formatting, comments and such names (the member
+//!   with the heads of the types that hold it). A name that is
 //!   not local says whether the code that declares it changed in more than names (`PairMarks::redeclared`): the
 //!   index proves the uses of no such name.
 //! - **What the pair leaves** (`PairMarks::undeclared`, `pending`, `proven_renames`; `leftovers`): the names that
@@ -118,9 +119,13 @@ impl FileDiffs {
 /// A kind is switched on by a measurement, never by its proof alone: a sample of its proven runs of real ranges of a
 /// large repository, read by a person, with no change of behaviour among them (`PairMarks::proven` names the runs,
 /// `brd commits --mark-stats --mark-sample` prints them). Measured (docs/design/diff-view.md, "Measured on real
-/// history"): 200 runs of formatting and 145 runs of a renamed local held none, the latter once a rename is proven
-/// only where nothing but quiet lines changed between its places (`marks_renames::Renames::prove`): before that
-/// rule, the lines of a variable that another one took the place of read as a rename
+/// history"): 200 runs of formatting held none. A renamed local is quiet by the rule of its member
+/// (`marks_renames::Renames::prove`: nothing else changed of the member around the name and of the heads of the
+/// types that hold it): the 64 proven runs of 6,316 commits of a monorepo and the 21 of 1,500 commits of this
+/// repository were each read, with the 209 runs the index confirmed of names that are not local, and none changed
+/// behaviour. Two narrower rules were switched on before and failed their reviews: the lines between the places
+/// of the name passed a value given outside them (three of 145 runs read), and a member that was one statement of
+/// a function without a statement around it passed the line beside it
 pub const fn is_quiet(kind: RunKind) -> bool {
   match kind {
     RunKind::Formatting | RunKind::Renamed => true,
