@@ -6,8 +6,9 @@
 //! the e2e server).
 //!
 //! - **On the channel** of the command: `disabled` when the repository turns the review plan off
-//!   (`branchdeck.reviewExperimental`), else the plan without the usages while the index is asked (`pending`), then the
-//!   plan with them; the page replaces what it shows with each, and orders nothing itself.
+//!   (`branchdeck.reviewExperimental`), else the plan as it stands while the index is asked, each with what it still
+//!   waits for (`PlanWait`: every answer of the index, then the tests of the steps alone), then the plan whole; the page
+//!   replaces what it shows with each, and orders nothing itself.
 //! - **One plan per window and slot** (`Windows::begin_plan`): a newer one of the window or its close supersedes the one
 //!   in flight, whose queries of the index are killed, and it answers `canceled`; the plan of a commit of the column
 //!   (`PlanSlot::Commit`) and the plan of its scope go on beside each other, and a symbol search beside both.
@@ -16,9 +17,12 @@
 //!   window that opens it again, or another window of it, reads no git past the resolve of its subject and asks the
 //!   index nothing
 //! - **One reading of a plan** (`PlanReader::read`): a window that asks the plan another window or the read ahead reads
-//!   now joins that reading and gets its plan whole, in one event, without the plan of its pending usages; a reading
-//!   whose caller went away (superseded, canceled) ends without a plan, and the first caller that waited for it reads
-//!   it itself
+//!   now joins that reading. The reading publishes each stage of its plan beside its flight (`Staging`), so the window
+//!   that joined gets the latest one at once and each later one as it comes, then the plan whole; a reading whose
+//!   caller went away (superseded, canceled) ends without a plan, and the first caller that waited for it reads it
+//!   itself
+//! - **The read ahead yields to a window** (`Stage::yields`): a window that joins a reading led below the app ends
+//!   it, its queries of the index killed, and reads the plan itself at the priority of the app
 //! - **Read ahead after a rewrite** (`review_prefetch`): the branch a window asked the plan of is read again, below the
 //!   app, once a sync moved it
 
@@ -34,8 +38,10 @@ use domain_types::error::ApiError;
 use file_diffs::accio::SearchCanceled;
 use file_diffs::service::FileDiffs;
 use moka::sync::Cache;
-use review_plan::{PlanSources, ResolvedSubject, ReviewPlan, ReviewPlanEvent, ReviewPlanParams, ReviewSubject, resolve_subject, review_plan_of};
-use std::sync::Arc;
+use review_plan::{PlanSources, PlanWait, ResolvedSubject, ReviewPlan, ReviewPlanEvent, ReviewPlanParams, ReviewSubject, resolve_subject, review_plan_of};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_utils::child_process::ChildPriority;
@@ -77,13 +83,56 @@ impl PlanKey {
 
 /// The plans of the reviews: those whose every query of the index answered, by what each is of (`PlanKey`): its
 /// commits and its reviewed pair fix it, so it is never stale; weighed by the size of its JSON, at most `MAX_BYTES`,
-/// and gone after `IDLE` unread. Beside them the readings in flight, by key, and what the windows asked, for the read
-/// ahead (`Prefetch`)
+/// and gone after `IDLE` unread. Beside them the readings in flight, by key, with what each published of its plan so
+/// far (`Stage`), and what the windows asked, for the read ahead (`Prefetch`)
 #[derive(Clone)]
 pub struct ReviewPlans {
   kept: Cache<PlanKey, Arc<ReviewPlan>>,
   flights: Arc<SingleFlight<PlanKey, Arc<ReviewPlan>>>,
+  /// The stage of each reading in flight, there from its start until it ends, however it ends (`Staging`)
+  stages: Arc<Mutex<HashMap<PlanKey, Arc<Stage>>>>,
   pub(crate) prefetch: Arc<Prefetch>,
+}
+
+/// What a reading in flight shows the callers that joined it, beside its flight: the plan as it stands, and whether it
+/// gives way to a window. Never a plan of the memory: a staged plan is no answer of a reading
+struct Stage {
+  /// The priority of the queries of its leader
+  priority: ChildPriority,
+  /// The plan as its leader published it last, with what it still waits for and the number of the stage, from 1
+  published: Mutex<Option<(u32, Arc<ReviewPlan>, PlanWait)>>,
+  /// A window waits for this reading led below the app: its leader ends it without a plan (`yields`)
+  yields: AtomicBool,
+}
+
+impl Stage {
+  /// The stage published after the stage `seen`, if any
+  fn published_after(&self, seen: u32) -> Option<(u32, Arc<ReviewPlan>, PlanWait)> {
+    self.published.lock().unwrap_or_else(PoisonError::into_inner).clone().filter(|(number, ..)| *number > seen)
+  }
+
+  fn publish(&self, plan: Arc<ReviewPlan>, waits: PlanWait) {
+    let mut published = self.published.lock().unwrap_or_else(PoisonError::into_inner);
+    let number = published.as_ref().map_or(1, |(number, ..)| number + 1);
+    *published = Some((number, plan, waits));
+  }
+}
+
+/// The stage of the reading this caller leads, in the stages of the plans until it is dropped: before its flight ends,
+/// so a caller that joins the next flight of the key never finds it
+struct Staging<'a> {
+  plans: &'a ReviewPlans,
+  key: &'a PlanKey,
+  stage: Arc<Stage>,
+}
+
+impl Drop for Staging<'_> {
+  fn drop(&mut self) {
+    let mut stages = self.plans.stages();
+    if stages.get(self.key).is_some_and(|stage| Arc::ptr_eq(stage, &self.stage)) {
+      stages.remove(self.key);
+    }
+  }
 }
 
 /// The memory of the plans at most
@@ -99,6 +148,7 @@ impl Default for ReviewPlans {
     Self {
       kept: Cache::builder().max_capacity(MAX_BYTES).weigher(weigh).time_to_idle(IDLE).build(),
       flights: Arc::default(),
+      stages: Arc::default(),
       prefetch: Arc::default(),
     }
   }
@@ -108,6 +158,75 @@ impl ReviewPlans {
   /// `window` closed: the branch it showed is read ahead again after a rewrite, as the window no longer asks it
   pub fn forget_window(&self, window: &WindowId) {
     self.prefetch.forget_window(window);
+  }
+
+  /// The stages of the readings in flight: held for a look or a change of the map, never across a reading
+  fn stages(&self) -> MutexGuard<'_, HashMap<PlanKey, Arc<Stage>>> {
+    self.stages.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  /// The stage of the reading of `key` this caller leads at `priority`, there until the `Staging` is dropped
+  fn stage<'a>(&'a self, key: &'a PlanKey, priority: ChildPriority) -> Staging<'a> {
+    let stage = Arc::new(Stage {
+      priority,
+      published: Mutex::default(),
+      yields: AtomicBool::new(false),
+    });
+    self.stages().insert(key.clone(), Arc::clone(&stage));
+    Staging { plans: self, key, stage }
+  }
+
+  /// The stage of the reading of `key` in flight, once its leader opened it
+  fn stage_of(&self, key: &PlanKey) -> Option<Arc<Stage>> {
+    self.stages().get(key).cloned()
+  }
+}
+
+/// A caller that waits for the reading of another (`joined`): what it does on each look at that reading
+pub(crate) struct Follower<'a> {
+  plans: &'a ReviewPlans,
+  key: &'a PlanKey,
+  /// The priority this caller would read at
+  priority: ChildPriority,
+  /// The page of the window that waits, if a window does
+  events: Option<&'a Sink<ReviewPlanEvent>>,
+  canceled: &'a Canceled,
+  /// The number of the last stage it sent its page
+  seen: u32,
+}
+
+impl<'a> Follower<'a> {
+  pub(crate) fn new(plans: &'a ReviewPlans, asked: &'a Asked, priority: ChildPriority, events: Option<&'a Sink<ReviewPlanEvent>>, canceled: &'a Canceled) -> Self {
+    Self {
+      plans,
+      key: &asked.key,
+      priority,
+      events,
+      canceled,
+      seen: 0,
+    }
+  }
+
+  /// One look at the reading it waits for: a window that waits for a reading led below the app makes it yield, and the
+  /// stage that reading published since the last look goes to the page of the window, unless its request was superseded
+  fn look(&mut self) {
+    let Some(stage) = self.plans.stage_of(self.key) else { return };
+    if self.priority == ChildPriority::Normal && stage.priority == ChildPriority::Background {
+      stage.yields.store(true, Ordering::SeqCst);
+    }
+    let Some(events) = self.events else { return };
+    if let Some((number, plan, waits)) = stage.published_after(self.seen)
+      && !(self.canceled)()
+    {
+      self.seen = number;
+      send(
+        events,
+        ReviewPlanEvent::Plan {
+          plan: Box::new(plan.as_ref().clone()),
+          waits: Some(waits),
+        },
+      );
+    }
   }
 }
 
@@ -175,19 +294,20 @@ impl PlanReader {
   }
 
   /// The plan of `asked`: of the memory; else of the reading of its key in flight, joined; else read now by this caller,
-  /// its queries of the index at `priority` and killed once `canceled` turns true, the plan of its pending usages on
-  /// `pending`. A joined reading that ended without a plan (its caller went away) is read again, by the first of its
-  /// joiners; `canceled` answers `SearchCanceled`
-  pub(crate) async fn read(&self, asked: &Asked, canceled: &Canceled, priority: ChildPriority, pending: Option<&Sink<ReviewPlanEvent>>) -> Result<Arc<ReviewPlan>, ApiError> {
+  /// its queries of the index at `priority` and killed once `canceled` turns true. Each stage of the plan (`PlanWait`)
+  /// goes to `events`, of the reading it leads as of the one it joined. A joined reading that ended without a plan (its
+  /// caller went away, or it yielded to this window) is read again, by the first of its joiners; `canceled` answers
+  /// `SearchCanceled`
+  pub(crate) async fn read(&self, asked: &Asked, canceled: &Canceled, priority: ChildPriority, events: Option<&Sink<ReviewPlanEvent>>) -> Result<Arc<ReviewPlan>, ApiError> {
     loop {
       let turn = {
-        let (reader, asked, canceled, pending) = (self.clone(), asked.clone(), Arc::clone(canceled), pending.cloned());
-        run_blocking(move || reader.lead_or_join(&asked, &canceled, priority, pending.as_ref())).await?
+        let (reader, asked, canceled, events) = (self.clone(), asked.clone(), Arc::clone(canceled), events.cloned());
+        run_blocking(move || reader.lead_or_join(&asked, &canceled, priority, events.as_ref())).await?
       };
       match turn {
         Turn::Read(plan) => return Ok(plan),
         Turn::Joined(join) => {
-          if let Some(plan) = joined(join, canceled).await {
+          if let Some(plan) = joined(join, Follower::new(&self.plans, asked, priority, events, canceled)).await {
             return Ok(plan);
           }
           if canceled() {
@@ -199,10 +319,11 @@ impl PlanReader {
     }
   }
 
-  /// One turn of `read`: the plan of the memory, the reading in flight of another caller, else the plan read now, kept
-  /// before its joiners get it. A failed or canceled reading ends without a plan, so its joiners read it themselves.
-  /// Blocking
-  pub(crate) fn lead_or_join(&self, asked: &Asked, canceled: &Canceled, priority: ChildPriority, pending: Option<&Sink<ReviewPlanEvent>>) -> anyhow::Result<Turn> {
+  /// One turn of `read`: the plan of the memory, the reading in flight of another caller, else the plan read now, each
+  /// stage of it published for its joiners and sent to `events`, and the plan kept before its joiners get it. Only the
+  /// plan the reading answers is kept, never a stage. A failed or canceled reading, and one led below the app that a
+  /// window joined (`Stage::yields`), ends without a plan, so its joiners read it themselves. Blocking
+  pub(crate) fn lead_or_join(&self, asked: &Asked, canceled: &Canceled, priority: ChildPriority, events: Option<&Sink<ReviewPlanEvent>>) -> anyhow::Result<Turn> {
     if let Some(plan) = self.plans.kept.get(&asked.key) {
       return Ok(Turn::Read(plan));
     }
@@ -215,45 +336,54 @@ impl PlanReader {
       lead.finish(Arc::clone(&plan));
       return Ok(Turn::Read(plan));
     }
+    // declared after the lead: dropped before it on every way out, so the stage is gone before the flight ends
+    let staging = self.plans.stage(&asked.key, priority);
+    let stage = Arc::clone(&staging.stage);
+    // the queries of a reading that yields to a window are killed as those of one whose caller went away
+    let gone = || canceled() || stage.yields.load(Ordering::SeqCst);
     let repository_path = asked.params.repository_path.as_str();
     let cache = self.repository_state.object_cache(&self.inputs.git, repository_path);
-    let index = self.indexes.search(&**canceled, priority);
+    let index = self.indexes.search(&gone, priority);
     let sources = PlanSources {
       cache: &cache,
       file_diffs: &self.file_diffs,
       index: index.as_deref(),
     };
-    let send_pending = |plan: &ReviewPlan| {
-      if let Some(pending) = pending
+    let publish = |plan: &ReviewPlan, waits: PlanWait| {
+      stage.publish(Arc::new(plan.clone()), waits);
+      if let Some(events) = events
         && !canceled()
       {
         send(
-          pending,
+          events,
           ReviewPlanEvent::Plan {
             plan: Box::new(plan.clone()),
-            pending: true,
+            waits: Some(waits),
           },
         );
       }
     };
-    let plan = Arc::new(review_plan_of(&self.inputs.git, sources, &asked.params, asked.subject.clone(), send_pending)?);
+    let plan = Arc::new(review_plan_of(&self.inputs.git, sources, &asked.params, asked.subject.clone(), publish)?);
     if plan.is_final() {
       self.plans.kept.insert(asked.key.clone(), Arc::clone(&plan));
     }
+    drop(index);
+    drop(staging);
     lead.finish(Arc::clone(&plan));
     Ok(Turn::Read(plan))
   }
 }
 
-/// The plan of the reading `join` waits for; `None` when that reading ended without one, or `canceled` turned true
-/// first
-pub(crate) async fn joined(join: Join<Arc<ReviewPlan>>, canceled: &Canceled) -> Option<Arc<ReviewPlan>> {
+/// The plan of the reading `join` waits for; `None` when that reading ended without one, or the caller of `follower`
+/// went away first. The follower looks at the reading at once and every `CANCEL_POLL` (`Follower::look`)
+pub(crate) async fn joined(join: Join<Arc<ReviewPlan>>, mut follower: Follower<'_>) -> Option<Arc<ReviewPlan>> {
   let mut join = std::pin::pin!(join);
   loop {
+    follower.look();
     if let Ok(answer) = tokio::time::timeout(CANCEL_POLL, join.as_mut()).await {
       return answer;
     }
-    if canceled() {
+    if (follower.canceled)() {
       return None;
     }
   }
@@ -308,7 +438,7 @@ pub(crate) async fn ask_plan(reader: PlanReader, windows: &Windows, window: &Win
     &events,
     ReviewPlanEvent::Plan {
       plan: Box::new(plan.as_ref().clone()),
-      pending: false,
+      waits: None,
     },
   );
   Ok(())

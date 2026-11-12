@@ -705,7 +705,7 @@ ahead as it reads the neighbours of a commit.
 - **AND** it stays until the files, the diffs and the plan of the new changes are read
   [@test] tests/e2e/branch-review/review-plan.spec.ts (`should keep the review on screen after a sync that moved the head until the files, the diffs and the plan of the new head are read, then show them at once`)
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
-  [@test] src/lib/review-plan-answer.test.ts (`ends the read of a plan with its usages, disabled, a failure or no plan, never with a plan of other changes or one without its usages`)
+  [@test] src/lib/review-plan-answer.test.ts (`ends the read of a plan whole, disabled, a failure or no plan, never with a plan of other changes or one that still waits for the index`)
 
 ### Requirement: The stack and the commits: The new review shows in one change
 

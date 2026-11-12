@@ -21,7 +21,9 @@
 //!   git runs as the app's.
 //! - **A newer commit of the repository supersedes** the read ahead in flight: its queries are killed, and the newer one
 //!   reads what is left to read.
-//! - **One reading**: a window that asks the plan being read ahead joins that reading (`PlanReader::read`).
+//! - **It yields to a window**: a window that asks the plan being read ahead joins that reading, which then ends
+//!   without a plan, its queries killed, and the window reads the plan itself at the priority of the app
+//!   (`PlanReader::read`); accio keeps what the killed query resolved. The read ahead goes on with its next branch.
 //! - **No memory of its own**: the plans go into the memory of the plans (`ReviewPlans`), the only one of Branch Deck
 //!   (docs/design/change-review.md, decision 16): the speed comes from accio.
 
@@ -260,7 +262,8 @@ async fn read_jobs(reader: PlanReader, repository: String, ticket: Ticket, jobs:
     match reader.read(&asked, &canceled, ChildPriority::Background, None).await {
       Ok(plan) => reader.plans.prefetch.read_at(&repository, &job.branch, job.number, &plan.head),
       Err(_) if canceled() => return Ok(()),
-      Err(error) => debug!(branch = %job.branch, "Cannot read the plan ahead: {}", error.message),
+      // a failure, or a window asked the plan meanwhile and reads it itself (`Stage::yields`)
+      Err(error) => debug!(branch = %job.branch, "The plan was not read ahead: {}", error.message),
     }
   }
   Ok(())

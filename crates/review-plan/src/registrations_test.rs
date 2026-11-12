@@ -1,7 +1,7 @@
 use crate::fan_in::NO_ACCIO;
 use crate::registrations::{ClassFound, ClassRole, ContentLoading, Registered, RegisteredClass, Registration, RegistrationArea, RegistrationChange};
 use crate::test_support::{PREFIX, branch, mark, plan_of, range};
-use crate::{PlanSources, ReviewPlan, resolve_subject, review_plan_of};
+use crate::{PlanSources, PlanWait, ReviewPlan, resolve_subject, review_plan_of};
 use file_diffs::accio::{DeclarationAt, Descriptor, References, SymbolHit, SymbolIndex, TestReach};
 use file_diffs::service::FileDiffs;
 use object_cache::cache::ObjectCache;
@@ -446,6 +446,11 @@ fn the_plan_sent_while_the_index_is_asked_has_no_registration() {
     index: Some(&index),
   };
   let mut pending = None;
-  let plan = review_plan_of(repo.git_executor(), sources, &params, subject, |plan| pending = Some(plan.registrations.len())).unwrap();
+  let plan = review_plan_of(repo.git_executor(), sources, &params, subject, |plan, waits| {
+    if waits == PlanWait::Index {
+      pending = Some(plan.registrations.len());
+    }
+  })
+  .unwrap();
   assert_eq!((pending, plan.registrations.len()), (Some(0), 8));
 }

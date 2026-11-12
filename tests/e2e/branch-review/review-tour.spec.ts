@@ -7,8 +7,10 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
 import { THEME_ITEM, commitTwoTasks, cutTreeTitles, expectHeadingCard, openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { openReviewWindow } from "../helpers/review-window-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
-import { runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { nextAnswer, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -94,9 +96,9 @@ async function openLayoutPlan(page: Page, setupRepo: (template: string) => Promi
 
 /**
  * The index of the repository, as accio answers `tests --at … --tests <file>…` the code of the steps of `layout` at its
- * tip with the test files of the branch given
+ * tip with the test files of the branch given, and with `references` the usages of the places they name
  */
-function writeTestIndex(repositoryPath: string): void {
+function writeTestIndex(repositoryPath: string, references: Record<string, unknown[]> = {}): void {
   const test = (file: string, line: number, readsAs: string) => ({ file, line, declaration: `Test.${readsAs}`, reads_as: readsAs, framework: "junit4", depth: 1, class: "direct" })
   const tests = {
     // `allowed`, by the test the branch adds, which calls it
@@ -107,7 +109,7 @@ function writeTestIndex(repositoryPath: string): void {
     "src/b/Welcome.kt:6": { tests: [], complete: false },
     "src/a/Frame.kt:6": { tests: [], complete: false },
   }
-  writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ tests }))
+  writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ tests, references }))
 }
 
 /** Open every file of the contract the openings of the steps fold under the line of its sections, and wait for its quotes */
@@ -288,6 +290,56 @@ test.describe("Review tour", () => {
       await window.setViewportSize(viewport)
     },
   )
+
+  test("should show the uses left outside while the index is still asked the tests of the steps, each step saying its tests are being found, then the tests that reach it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    // `hooks`, which the first commit removes, has a call left outside the change
+    writeTestIndex(repo.path, { "src/a/Manager.kt:6": [{ file: "test/b/WelcomeTest.kt", line: 7, column: 3, snippet: "Manager().hooks()", kind: "call", resolved: "typed" }] })
+    // the index answers the tests of the steps only once released: its other answers come at once
+    await repo.holdRemoteAnswers({ hold: ["stepTests"] })
+    await syncAndWaitForBranches()
+    let answered!: Promise<unknown>
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "layout"), {
+      beforeLoad: async window => {
+        answered = nextAnswer(window, "get_review_plan")
+      },
+    })
+    await repo.arrival("stepTests")
+
+    // the plan with every answer but the tests: the use left outside is told, and the overview says what it still waits for
+    const overview = window.getByTestId("review-overview")
+    const reading = overview.getByTestId("review-overview-reading")
+    await expect(reading).toHaveText("Finding the tests of the change…")
+    const hooks = overview.getByTestId("review-plan-breakage-entry")
+    await expect(hooks).toHaveAttribute("data-name", "hooks")
+    await expect(hooks.getByTestId("review-plan-outside")).toHaveText("1 use left outside")
+    // a step with code says its tests are being found, in the contents and in its opening; one without code says nothing of them
+    const step = (number: number) => overview.getByTestId("review-contents-step").nth(number - 1)
+    await expect(step(2).getByTestId("review-contents-step-facts")).toHaveText("Finding its tests… · New API: allowed")
+    await expect(step(3).getByTestId("review-contents-step-facts")).toHaveText("Finding its tests…")
+    await expect(step(4).getByTestId("review-contents-step-facts")).toHaveText("Proven by restart.json")
+    await expect(step(1).getByTestId("review-step-finding-tests")).toHaveCount(0)
+    const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · the open keeps a stored layout", exact: true }) })
+    await expect(opening.getByTestId("review-opening-facts").getByTestId("review-step-fact")).toHaveText(["Finding its tests…", "New API: allowed"])
+
+    // the tests answer: each step shows the tests that reach it, the use left outside as it was
+    await repo.holdRemoteAnswers({ release: ["stepTests"] })
+    await answered
+    await expect(step(2).getByTestId("review-contents-step-facts")).toHaveText("Tested by ManagerTest.kt · New API: allowed")
+    await expect(opening.getByTestId("review-opening-facts").getByTestId("review-step-fact")).toHaveText([
+      "Tested by ManagerTest.kt",
+      "No test of the change reaches show",
+      "New API: allowed",
+    ])
+    await expect(window.getByTestId("review-step-finding-tests")).toHaveCount(0)
+    await expect(reading).toHaveCount(0)
+    await expect(hooks.getByTestId("review-plan-outside")).toHaveText("1 use left outside")
+  })
 
   // the ways through the steps apart from what the overview and the openings show: one test of both took 30 s under load
   test(

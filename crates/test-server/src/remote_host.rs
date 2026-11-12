@@ -74,7 +74,8 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::SubmitReview
     | HeldAnswer::Sync
     | HeldAnswer::YouTrackConfig
-    | HeldAnswer::HostDisks => None,
+    | HeldAnswer::HostDisks
+    | HeldAnswer::StepTests => None,
   }
 }
 
@@ -181,6 +182,9 @@ pub enum HeldAnswer {
   /// The reports of the hosts of `bd-host` (`TestHost::host_disks`, the fixture of `POST /repositories/{id}/host-disks`):
   /// Disk Usage measures this Mac meanwhile and shows its progress until the hosts answer
   HostDisks,
+  /// The tests of the steps of a review plan (`SymbolIndex::tests` of the fixture index, `FixtureIndexes`): the plan
+  /// shows what the other queries of the index answered until the release
+  StepTests,
 }
 
 /// The route of the fake GitHub that gives `answer`: held there
@@ -206,7 +210,8 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
     | HeldAnswer::Push
     | HeldAnswer::Sync
     | HeldAnswer::YouTrackConfig
-    | HeldAnswer::HostDisks => None,
+    | HeldAnswer::HostDisks
+    | HeldAnswer::StepTests => None,
   }
 }
 
@@ -485,7 +490,8 @@ impl RemoteHost {
         | HeldAnswer::AuthStatus
         | HeldAnswer::CliTools
         | HeldAnswer::Sync
-        | HeldAnswer::HostDisks => Arc::new(FakeGate::default()),
+        | HeldAnswer::HostDisks
+        | HeldAnswer::StepTests => Arc::new(FakeGate::default()),
       };
       if let Some(before) = held.insert(*answer, gate) {
         before.open();

@@ -1,9 +1,10 @@
-use crate::ReviewPlan;
 use crate::entries::{EntryPoint, EntryRegistration, EntrySite, ModuleEntries};
 use crate::fan_in_test::Counts;
 use crate::groups::GroupKind;
+use crate::stages_test::{HeldTests, staged};
 use crate::steps::StepTests;
 use crate::test_support::{plan_of, plan_of_range, range};
+use crate::{PlanWait, ReviewPlan};
 use file_diffs::accio::{FixtureIndex, ReachingTest, TestClass, TestReach};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -163,22 +164,25 @@ fn group_tested(tested: &StepTests) -> GroupTested<'_> {
   (proof, unreached, tested.reached)
 }
 
-/// A group of a large step knows the tests of the change that reach the code of its files and its code none reaches,
-/// as the step knows them of all of its code: a test of one group that reaches the code of another is that other's; the
-/// code of a small module a group holds is that group's; the contract and the wiring have none
-#[test]
-fn a_group_knows_the_tests_that_reach_its_code_and_its_code_none_reaches() {
-  let repo = TestRepo::new();
-  // two tests of the new module, each a test function at line 6
-  let tests = (0..2)
+/// Two tests of the new module of `media_range`, each a test function at line 6
+fn player_tests() -> Vec<(String, String)> {
+  (0..2)
     .map(|index| {
       (
         format!("gui/media/testSrc/b/PlayerTest{index}.kt"),
         format!("package b\n\nimport org.junit.Test\n\nclass PlayerTest{index} {{\n  @Test fun `plays {index}`() = Unit\n}}\n"),
       )
     })
-    .collect();
-  let (base, head) = media_range(&repo, 2, tests, false);
+    .collect()
+}
+
+/// A group of a large step knows the tests of the change that reach the code of its files and its code none reaches,
+/// as the step knows them of all of its code: a test of one group that reaches the code of another is that other's; the
+/// code of a small module a group holds is that group's; the contract and the wiring have none
+#[test]
+fn a_group_knows_the_tests_that_reach_its_code_and_its_code_none_reaches() {
+  let repo = TestRepo::new();
+  let (base, head) = media_range(&repo, 2, player_tests(), false);
   let test = |path: &str, reads_as: &str| ReachingTest {
     path: path.to_string(),
     line: 6,
@@ -223,6 +227,34 @@ fn a_group_knows_the_tests_that_reach_its_code_and_its_code_none_reaches() {
   // the step knows the same of all of its code
   assert_eq!(step.tests.reached, 2);
   assert_eq!(step.tests.unreached.len(), 8);
+}
+
+/// While the index is asked the tests of the steps, the groups of a large step that hold the code it is asked of wait
+/// for their tests as the step does; the contract and the wiring hold none of it and wait for nothing. No group waits
+/// in the plan the reading answers
+#[test]
+fn the_groups_that_hold_the_code_asked_wait_for_their_tests() {
+  let repo = TestRepo::new();
+  let (base, head) = media_range(&repo, 2, player_tests(), false);
+  let counts = Counts::of(&[]);
+  let (index, release) = HeldTests::of(&counts);
+  let waiting = |plan: &ReviewPlan| -> Vec<(GroupKind, bool)> { plan.steps.steps[1].groups.iter().map(|group| (group.kind, group.tested.awaited)).collect() };
+
+  let (stages, plan) = staged(&repo, &index, &range(&repo, &base, &head), waiting, |waits| {
+    if waits == PlanWait::Tests {
+      release.send(()).unwrap();
+    }
+  });
+  let asked = vec![
+    (GroupKind::Contract, false),
+    (GroupKind::Module, true),
+    (GroupKind::Module, true),
+    (GroupKind::Mechanical, false),
+  ];
+  assert_eq!(stages, [(PlanWait::Index, asked.clone()), (PlanWait::Tests, asked)]);
+  let step = &plan.steps.steps[1];
+  assert!(step.groups.iter().all(|group| group.tested.answered && !group.tested.awaited), "{:?}", step.groups);
+  assert!(step.tests.answered && !step.tests.awaited);
 }
 
 /// A module the change adds names what enters it, from accio at the head: a class its descriptor registers, then a

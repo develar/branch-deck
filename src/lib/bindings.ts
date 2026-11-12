@@ -5961,6 +5961,19 @@ export type Plan = {
 	approvalsSkippedBy: ApprovalsSkip | null,
 };
 
+/**  What a plan sent while the index is asked still waits for (`ReviewPlanEvent::Plan::waits`) */
+export type PlanWait = 
+/**
+ *  Every answer of the index: no entry of its API has usages yet (`BreakVerdict::Pending`), no file counts `breaks`,
+ *  it has no registrations, no new module what enters it, and no step the tests that reach its code
+ */
+"index" | 
+/**
+ *  The tests of the steps alone (`StepTests::awaited` of each step whose code is asked): the usages, the
+ *  registrations and the entry points answered and are in the plan
+ */
+"tests";
+
 /**  What a start or a restart does, in the order of its effects (the contract's `PlannedEffect`) */
 export type PlannedEffect = 
 /**  The open pull request `number` of `branch` goes from the virtual branch `from` into the target `to` (D11) */
@@ -7392,7 +7405,7 @@ export type ReviewPlan = {
 	api: ApiChange[],
 	/**
 	 *  Whether a use left outside the change breaks, over the removed and changed entries of `api` (`fan_in::verdict_of`);
-	 *  `Pending` in the plan sent while the index is asked
+	 *  `Pending` in the plan sent before the index answered (`PlanWait::Index`)
 	 */
 	verdict: BreakVerdict,
 	/**
@@ -7416,7 +7429,7 @@ export type ReviewPlan = {
 	 *  What the commits register in the platform (`registrations`): the services, extension points, listeners,
 	 *  extensions, registry keys, actions and content modules their plugin descriptors add, remove or change, read by
 	 *  accio at the base and the head; by the module of the descriptor, the descriptor, then the kind. None without accio
-	 *  (`index_note`), and in the plan sent while the index is asked
+	 *  (`index_note`), and in the plan sent before the index answered (`PlanWait::Index`)
 	 */
 	registrations: Registration[],
 	/**
@@ -7457,10 +7470,10 @@ export type ReviewPlan = {
 /**  What the plan of a window tells it, in order (`get_review_plan` of the app) */
 export type ReviewPlanEvent = 
 /**
- *  The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, no step
- *  knows the tests that reach its code, it has no registrations, and the plan with them follows
+ *  The plan as it stands; `waits` names what the index still answers, and the plan with it follows: a fact of the
+ *  plan shows when its query answered. `None` is the plan of the reading, whole
  */
-{ kind: "plan"; plan: ReviewPlan; pending: boolean } | 
+{ kind: "plan"; plan: ReviewPlan; waits: PlanWait | null } | 
 /**  The repository turns the review plan off (`branchdeck.reviewExperimental`): the window shows none */
 { kind: "disabled" };
 
@@ -7703,7 +7716,7 @@ export type ReviewStep = {
 	elsewhere: string[],
 	tests: StepTests,
 	/**
-	 *  The other steps whose code the tests of its units reach (`add_tests`), by their place in `ReviewSteps::steps`:
+	 *  The other steps whose code the tests of its units reach (`apply_tests`), by their place in `ReviewSteps::steps`:
 	 *  "Proves step 2"
 	 */
 	proves: number[],
@@ -9028,7 +9041,7 @@ export type StepGroup = {
 	tests: number,
 	end: number,
 	/**
-	 *  The tests of the change that reach the code of its files and its code none reaches (`steps::add_tests`), as
+	 *  The tests of the change that reach the code of its files and its code none reaches (`ReviewSteps::apply_tests`), as
 	 *  `ReviewStep::tests` are of the whole step: what the opening of the group says, the step's opening no more
 	 */
 	tested: StepTests,
@@ -9225,10 +9238,15 @@ export type StepTest = {
 /**  The tests that reach the code of a step */
 export type StepTests = {
 	/**
-	 *  accio answered which tests reach its code (`add_tests`); without the answer the rest is empty, and the plan's
-	 *  `index_note` says why
+	 *  accio answered which tests reach its code (`ReviewSteps::apply_tests`); without the answer the rest is empty,
+	 *  and the plan's `index_note` says why
 	 */
 	answered: boolean,
+	/**
+	 *  The index is asked its tests now, and the plan with them follows (`ReviewSteps::await_tests`): only in a plan
+	 *  sent while that query runs (`PlanWait`), never in the plan a reading answers, so `brd review-plan` prints none
+	 */
+	awaited?: boolean,
 	/**
 	 *  The tests of the change (`StepTest::unit`) that reach its code, by their file, each file and each test once, in the
 	 *  order of its code

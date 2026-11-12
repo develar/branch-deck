@@ -66,7 +66,11 @@ impl AppState {
       prefixes: self.branch_prefixes.clone(),
       repository_state: self.repository_state.clone(),
       file_diffs: file_diffs::service::FileDiffs::default(),
-      symbol_indexes: std::sync::Arc::new(FixtureIndexes),
+      symbol_indexes: std::sync::Arc::new(FixtureIndexes {
+        state: std::sync::Arc::downgrade(self),
+        repository: repository_id.to_owned(),
+        runtime: tokio::runtime::Handle::current(),
+      }),
       conflict_fix: app_api::reads::conflict_fix::ConflictFixSearch::default(),
       review_plans: app_api::reads::review_plan::ReviewPlans::default(),
       sessions: std::sync::Arc::clone(&self.sessions),
@@ -156,14 +160,100 @@ pub struct TestHosts {
   pub cli_tools: std::sync::Arc<crate::cli_tools_fixtures::CliToolsHost>,
 }
 
-/// The symbol index of a test repository is its fixture, `.git/branch-deck-accio.json` (`FixtureIndex`), as accio
-/// answers: for the symbol searches and for the fan-in of a review plan (`get_review_plan`); read at once, so a cancel
-/// has no query to kill
-pub struct FixtureIndexes;
+/// The symbol index of the test repository `repository` is its fixture, `.git/branch-deck-accio.json` (`FixtureIndex`),
+/// as accio answers: for the symbol searches and for the queries of a review plan (`get_review_plan`); read at once,
+/// but its answer of the tests of the steps, which waits while a test holds it (`HeldAnswer::StepTests`), until the
+/// release or the cancel of its search
+pub struct FixtureIndexes {
+  pub state: std::sync::Weak<AppState>,
+  /// The id of the test repository
+  pub repository: String,
+  /// The runtime of the server: a query of the tests waits there for the gate of its held answer
+  pub runtime: tokio::runtime::Handle,
+}
 
 impl app_api::reads::symbols::SymbolIndexes for FixtureIndexes {
-  fn search<'a>(&'a self, _canceled: &'a (dyn Fn() -> bool + Sync), _priority: sync_utils::child_process::ChildPriority) -> Option<Box<dyn file_diffs::accio::SymbolIndex + 'a>> {
-    Some(Box::new(file_diffs::accio::FixtureIndex))
+  fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync), _priority: sync_utils::child_process::ChildPriority) -> Option<Box<dyn file_diffs::accio::SymbolIndex + 'a>> {
+    Some(Box::new(FixtureSearch { indexes: self, canceled }))
+  }
+}
+
+/// A search of the fixture index of a test repository (`FixtureIndexes`)
+struct FixtureSearch<'a> {
+  indexes: &'a FixtureIndexes,
+  canceled: &'a (dyn Fn() -> bool + Sync),
+}
+
+impl FixtureSearch<'_> {
+  /// How often a held query of the tests asks whether its search was canceled
+  const CANCEL_POLL: std::time::Duration = std::time::Duration::from_millis(20);
+
+  /// Waits while a test holds the tests of the steps (`HeldAnswer::StepTests`), once a test started the fakes: until
+  /// the release, the deletion of the repository, or the cancel of the search, which answers `SearchCanceled`
+  fn pass_held_tests(&self) -> anyhow::Result<()> {
+    let remote = self
+      .indexes
+      .state
+      .upgrade()
+      .and_then(|state| state.repositories.get(&self.indexes.repository)?.existing_remote());
+    let Some(remote) = remote else { return Ok(()) };
+    self.indexes.runtime.block_on(async {
+      let mut pass = std::pin::pin!(remote.pass_held(crate::remote_host::HeldAnswer::StepTests));
+      loop {
+        if tokio::time::timeout(Self::CANCEL_POLL, pass.as_mut()).await.is_ok() {
+          return Ok(());
+        }
+        if (self.canceled)() {
+          return Err(file_diffs::accio::SearchCanceled.into());
+        }
+      }
+    })
+  }
+}
+
+impl file_diffs::accio::SymbolIndex for FixtureSearch<'_> {
+  fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> anyhow::Result<Option<Vec<file_diffs::accio::SymbolHit>>> {
+    file_diffs::accio::FixtureIndex.symbols(repository_root, query, revision)
+  }
+
+  fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> anyhow::Result<Option<file_diffs::accio::References>> {
+    file_diffs::accio::FixtureIndex.references(repository_root, name, revision)
+  }
+
+  fn references_at(&self, repository_root: &str, declarations: &[file_diffs::accio::DeclarationAt], revision: &str) -> anyhow::Result<Option<Vec<file_diffs::accio::References>>> {
+    file_diffs::accio::FixtureIndex.references_at(repository_root, declarations, revision)
+  }
+
+  fn references_at_resolved(
+    &self,
+    repository_root: &str,
+    declarations: &[file_diffs::accio::DeclarationAt],
+    revision: Option<&str>,
+  ) -> anyhow::Result<Option<Vec<file_diffs::accio::References>>> {
+    file_diffs::accio::FixtureIndex.references_at_resolved(repository_root, declarations, revision)
+  }
+
+  fn tests(
+    &self,
+    repository_root: &str,
+    declarations: &[file_diffs::accio::DeclarationAt],
+    given: &[String],
+    revision: &str,
+  ) -> anyhow::Result<Option<Vec<file_diffs::accio::TestReach>>> {
+    self.pass_held_tests()?;
+    file_diffs::accio::FixtureIndex.tests(repository_root, declarations, given, revision)
+  }
+
+  fn descriptors(&self, repository_root: &str, paths: &[String], revision: &str) -> anyhow::Result<Option<Vec<file_diffs::accio::Descriptor>>> {
+    file_diffs::accio::FixtureIndex.descriptors(repository_root, paths, revision)
+  }
+
+  fn surface(&self, repository_root: &str, modules: &[String], revision: &str) -> anyhow::Result<Option<Vec<file_diffs::accio::ModuleSurface>>> {
+    file_diffs::accio::FixtureIndex.surface(repository_root, modules, revision)
+  }
+
+  fn renames(&self, repository_root: &str, pairs: &[file_diffs::accio::RenamePair], base: &str, head: &str) -> anyhow::Result<Option<Vec<file_diffs::accio::RenameAnswer>>> {
+    file_diffs::accio::FixtureIndex.renames(repository_root, pairs, base, head)
   }
 }
 

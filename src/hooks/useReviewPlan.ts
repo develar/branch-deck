@@ -9,8 +9,8 @@ import { NO_PLAN, planStateOf, receivePlanEvent, settlePlanAnswer } from "@/lib/
 /*
  * The review plan of a review window (openspec/specs/branch/review-plan/spec.md, Status: Experimental): `get_review_plan` of the
  * shown part, read again when the part, its head or "Since Your Review" change, and after Mark Reviewed. Rust sends the
- * plan without the usages while it asks the index, then with them, or `disabled`: each event replaces what the hook
- * holds. One plan of the window is in flight: Rust supersedes the older one, which answers `canceled` and is dropped
+ * plan as it stands while it asks the index, with what it still waits for (every answer, then the tests of the steps
+ * alone), then the plan whole, or `disabled`: each event replaces what the hook holds. One plan of the window is in flight: Rust supersedes the older one, which answers `canceled` and is dropped
  * here.
  */
 
@@ -43,7 +43,7 @@ export function useReviewPlan(request: ReviewPlanRequest | null): ReviewPlanStat
     events.onmessage = event => {
       if (current) {
         const disabled = event.kind === "disabled"
-        const next = { ...keys, plan: disabled ? null : event.plan, pending: !disabled && event.pending, disabled, done: false, error: null }
+        const next = { ...keys, plan: disabled ? null : event.plan, waits: disabled ? null : event.waits, disabled, done: false, error: null }
         setAnswer(previous => receivePlanEvent(previous, next))
       }
     }
@@ -53,7 +53,7 @@ export function useReviewPlan(request: ReviewPlanRequest | null): ReviewPlanStat
         return
       }
       setAnswer(previous =>
-        result.status === "ok" ? settlePlanAnswer(previous, keys) : { ...keys, plan: null, pending: false, disabled: false, done: true, error: result.error.message },
+        result.status === "ok" ? settlePlanAnswer(previous, keys) : { ...keys, plan: null, waits: null, disabled: false, done: true, error: result.error.message },
       )
     })
     return () => {

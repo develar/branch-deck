@@ -67,7 +67,7 @@ pub struct StepGroup {
   pub start: u32,
   pub tests: u32,
   pub end: u32,
-  /// The tests of the change that reach the code of its files and its code none reaches (`steps::add_tests`), as
+  /// The tests of the change that reach the code of its files and its code none reaches (`ReviewSteps::apply_tests`), as
   /// `ReviewStep::tests` are of the whole step: what the opening of the group says, the step's opening no more
   pub tested: StepTests,
 }

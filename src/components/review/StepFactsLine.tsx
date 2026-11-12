@@ -12,7 +12,7 @@ import type { FactList, StepFacts } from "@/presenters/review-story"
  * opening its first eight and "and N more", a button that shows the rest in place; of a step none of whose
  * code lands, the commit that took it out, which shows its step; its units the section of another step shows ("Removes
  * hooks, shown in step 2"), each name at its place and "step 2" showing that step; the steps its tests prove ("Proves
- * step 2"); nothing without a fact. The contents set them in one line, " · " apart; an opening (`lines`) each fact on a
+ * step 2"); "Finding its tests…" in the place of its tests while Rust asks the index for them; nothing without a fact. The contents set them in one line, " · " apart; an opening (`lines`) each fact on a
  * line of its own, its tests first; every name in the code font
  */
 export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFacts; testId: string; lines?: boolean }) {
@@ -26,6 +26,14 @@ export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFac
           </span>,
         ]),
     ...facts.tests.map((fact, index) => <FactPlaces key={`tests:${fact.key}:${index}`} title={fact.words} list={fact.names} testId="review-step-tested" kind={fact.key} />),
+    // the index is asked its tests: said where they will stand, quiet as the facts are
+    ...(facts.findingTests === null
+      ? []
+      : [
+          <span key="finding-tests" data-testid="review-step-finding-tests">
+            {facts.findingTests}
+          </span>,
+        ]),
     ...(facts.line === null ? [] : [<span key="line">{facts.line}</span>]),
     ...facts.proves.map((proved, index) => (
       <StepLink key={`proves:${proved.key}`} before={index === 0 ? "Proves " : ""} words={proved.step} step={proved.stepId} title={null} testId="review-step-proves" />

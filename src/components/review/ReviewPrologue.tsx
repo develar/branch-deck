@@ -30,7 +30,7 @@ import type { ReviewPlanState } from "@/lib/review-plan-answer"
 import type { BreakageEntry, FormLine } from "@/presenters/review-plan"
 import { FORM_MARK_WORDS } from "@/presenters/review-plan"
 import type { ContentsStep, PrologueView, StoryView } from "@/presenters/review-story"
-import { presentPrologue } from "@/presenters/review-story"
+import { formatPlanWait, presentPrologue } from "@/presenters/review-story"
 import { getYouTrackKeyOfIssue, loadIssue, useIssueEntry } from "@/stores/youtrack-issues"
 
 /** The commit a review shows alone, at the top of its overview, with the actions of its heading */
@@ -65,7 +65,8 @@ export function ReviewPrologue({
   lead?: ReactNode
 }) {
   const plan = state?.plan ?? null
-  const view = plan === null ? null : presentPrologue(plan, state?.pending === true)
+  const waits = state?.waits ?? null
+  const view = plan === null ? null : presentPrologue(plan, waits)
   // the story of the commit shown alone, told before the steps of its concerns: in its heading, in place of its message
   // (the plan names a commit short, the range in full)
   const untold = view?.untold != null && commit !== null && state?.current === true && commit.commit.id.startsWith(view.untold.story.commit) ? view.untold : null
@@ -78,10 +79,12 @@ export function ReviewPrologue({
           {lead}
         </div>
       )}
-      {(state?.loading === true || state?.pending === true) && (
+      {(state?.loading === true || waits !== null) && (
+        // what is really awaited: what the plan shown still asks the index for, else the plan itself, the first one or
+        // the next one of a plan that stays whole meanwhile (after Mark Reviewed, a moved head)
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="review-overview-reading">
           <Spinner className="size-3" />
-          {plan === null ? "Reading the review plan…" : "Finding the uses left outside…"}
+          {waits === null ? "Reading the review plan…" : formatPlanWait(waits)}
         </span>
       )}
       {state?.error != null && (

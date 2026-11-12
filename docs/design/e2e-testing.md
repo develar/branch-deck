@@ -816,7 +816,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
   session's read of the rules of a base, `TestFactSources::branch_rules`), `profiles` (its read of the merge profiles,
   `TestFactSources::profiles`), `authStatus` (the status of the sign-ins: the session's read, `TestFactSources::auth`,
-  and the read of a window without a session, `get_auth_status`, held in `TestHost::before_auth_status`), `cliTools` (the tools of Settings), `hostDisks` (the
+  and the read of a window without a session, `get_auth_status`, held in `TestHost::before_auth_status`), `cliTools` (the tools of Settings), `stepTests` (the tests of the steps of a review plan, `SymbolIndex::tests` of the
+  fixture index, held in `FixtureIndexes` until the release or the cancel of its search: the plan shows its other
+  answers meanwhile), `hostDisks` (the
   reports of the hosts of `brd-host`, `TestHost::host_disks`: Disk Usage shows the progress of the walk of this Mac until
   they answer), `sync` (a sync
   run of the session, held in `TestSessionEnvironment::run_setup` before it reads anything: the session's sync runs

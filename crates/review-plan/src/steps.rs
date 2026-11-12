@@ -19,10 +19,11 @@
 //!   and names the later commit that took out the most of what it wrote (`taken_out_by`).
 //! - **The order** of a step is that of the story, but a declaration the step adds or changes the form of comes first
 //!   and the uses of it in the step right after it (`uses`); a mechanical part follows the step its concern is in.
-//! - **The tests that reach it** (`add_tests`, after the plan): per declaration of the code of a step (no test code: a
-//!   test, a fixture of its class or module, `ReviewUnit::test`; of a new file each declaration at its top), the tests of
-//!   the change that accio finds among its callers at any depth by calls a type or an import ties (`accio tests --at …
-//!   --tests <file>…`, every declaration of the plan and every test file of the change in one process). The step lists
+//! - **The tests that reach it** (`TestsAsk`, a query beside the plan, applied once it answered): per declaration of
+//!   the code of a step (no test code: a test, a fixture of its class or module, `ReviewUnit::test`; of a new file each
+//!   declaration at its top), the tests of the change that accio finds among its callers at any depth by calls a type
+//!   or an import ties (`accio tests --at … --tests <file>…`, every declaration of the plan and every test file of the
+//!   change in one process). The step lists
 //!   them by their file (a test of a new file is one too), each with what its way goes through, and a declaration none
 //!   reaches only when accio walked every way (`complete`): an answer it cut names nothing, unknown, never "no test".
 //! - **A declaration without a block of its own** (of one side, whose lines a block of another unit holds) is no stop:
@@ -88,7 +89,7 @@ pub struct ReviewSteps {
   /// Every commit of the range whose body has a block, once, oldest first: its body by the grammar of a body, its code
   /// names resolved to the units and the files (`story`)
   pub commits: Vec<StoryCommit>,
-  /// The tests of the range: the lines of each at the head and its unit, for `add_tests`
+  /// The tests of the range: the lines of each at the head and its unit, for `tests_ask` and `apply_tests`
   #[serde(skip)]
   pub range_tests: Vec<RangeTest>,
 }
@@ -102,7 +103,7 @@ pub struct RangeTest {
   pub unit: String,
 }
 
-/// A declaration of the code of a step, as `add_tests` asks about it
+/// A declaration of the code of a step, as `TestsAsk` asks about it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepCode {
   /// Its name, led by its owner when another declaration of the step has the same name
@@ -220,7 +221,7 @@ pub struct ReviewStep {
   /// stops change the most lines of it holds its row, the first of equal ones
   pub elsewhere: Vec<String>,
   pub tests: StepTests,
-  /// The other steps whose code the tests of its units reach (`add_tests`), by their place in `ReviewSteps::steps`:
+  /// The other steps whose code the tests of its units reach (`apply_tests`), by their place in `ReviewSteps::steps`:
   /// "Proves step 2"
   pub proves: Vec<u32>,
   /// The public declarations it adds or opens wider, by the `key` of their entry of `ReviewPlan::api` (kind `added`, a
@@ -247,7 +248,7 @@ pub struct ReviewStep {
   /// Its units another step's stop shows (`StepStop::joined` there), each with that step: no stop of its own shows them,
   /// so its facts name them ("Removes hooks, shown in step 2")
   pub shown_elsewhere: Vec<ShownElsewhere>,
-  /// The declarations of its code, which `add_tests` asks the tests of
+  /// The declarations of its code, which `tests_ask` asks the tests of
   #[serde(skip)]
   pub code: Vec<StepCode>,
 }
@@ -387,9 +388,15 @@ pub struct JoinedUnit {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct StepTests {
-  /// accio answered which tests reach its code (`add_tests`); without the answer the rest is empty, and the plan's
-  /// `index_note` says why
+  /// accio answered which tests reach its code (`ReviewSteps::apply_tests`); without the answer the rest is empty,
+  /// and the plan's `index_note` says why
   pub answered: bool,
+  /// The index is asked its tests now, and the plan with them follows (`ReviewSteps::await_tests`): only in a plan
+  /// sent while that query runs (`PlanWait`), never in the plan a reading answers, so `brd review-plan` prints none
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  #[cfg_attr(feature = "schemars", schemars(skip))]
+  pub awaited: bool,
   /// The tests of the change (`StepTest::unit`) that reach its code, by their file, each file and each test once, in the
   /// order of its code
   pub proof: Vec<ProofFile>,
@@ -1332,68 +1339,139 @@ fn add_test(tests: &mut Vec<StepTest>, test: &ReachingTest, unit: String, name: 
   });
 }
 
-/// Add the tests of the change that reach the code of each step at `head`, at any depth by calls a type or an import
-/// ties, asked by their places in one query with every test file of the range (`StepTests`), and to each step the other
-/// steps its tests prove (`ReviewStep::proves`); the answer is why the steps have none, `None` when the index answered or
-/// nothing was asked. With an index, a range without tests asks nothing: no test of the change reaches its code. Fails
-/// when the index was canceled
-pub fn add_tests(index: Option<&dyn SymbolIndex>, repository_path: &str, head: &str, steps: &mut ReviewSteps) -> Result<Option<String>> {
-  let places: Vec<DeclarationAt> = steps
-    .steps
-    .iter()
-    .flat_map(|step| step.code.iter().map(|code| code.at.clone()))
-    .collect::<BTreeSet<_>>()
-    .into_iter()
-    .collect();
-  if places.is_empty() {
-    return Ok(None);
+/// What the steps ask the index of their tests (`ReviewSteps::tests_ask`): the places of their code, each once, and the
+/// test files of the range. It owns both, so the query runs beside the plan and borrows nothing of it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestsAsk {
+  places: Vec<DeclarationAt>,
+  given: Vec<String>,
+}
+
+/// What a `TestsAsk` answered
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TestsAnswer {
+  /// No step has code to ask of: nothing was asked, and no step knows its tests
+  NotAsked,
+  /// The tests that reach each place asked
+  Reach(HashMap<DeclarationAt, TestReach>),
+  /// Why the steps have none: no accio, no index of the repository, a failed query
+  Note(String),
+}
+
+impl TestsAsk {
+  /// Whether the answer is a query of the index: the steps have code, the range has tests and the machine has an
+  /// index. Without tests no test of the change reaches the code, whatever the index would answer, and nothing is asked
+  pub fn asks_index(&self, index: Option<&dyn SymbolIndex>) -> bool {
+    index.is_some() && !self.places.is_empty() && !self.given.is_empty()
   }
-  let given: Vec<String> = steps.range_tests.iter().map(|test| test.path.clone()).collect::<BTreeSet<_>>().into_iter().collect();
-  let answers = if given.is_empty() && index.is_some() {
-    // no test of the change: none reaches any of its code, whatever the index would answer
-    vec![
-      TestReach {
-        complete: true,
-        ..TestReach::default()
-      };
-      places.len()
-    ]
-  } else {
-    match ask_index(index, |lenient| lenient.tests(repository_path, &places, &given, head))? {
-      Ok(answers) => answers,
-      Err(note) => return Ok(Some(note)),
+
+  /// The tests of the change that reach the code of each step at `head`, at any depth by calls a type or an import
+  /// ties, asked by their places in one query with every test file of the range (`StepTests`). With an index, a range
+  /// without tests asks nothing: no test of the change reaches its code. Fails when the index was canceled
+  pub fn ask(&self, index: Option<&dyn SymbolIndex>, repository_path: &str, head: &str) -> Result<TestsAnswer> {
+    if self.places.is_empty() {
+      return Ok(TestsAnswer::NotAsked);
     }
-  };
-  let reach_of: HashMap<&DeclarationAt, _> = places.iter().zip(&answers).collect();
-  let ReviewSteps { steps, range_tests, .. } = steps;
-  for step in steps.iter_mut() {
-    let ReviewStep { code, tests, groups, stops, .. } = step;
-    tests.answered = true;
-    // the group of each file of a large step: of its first stop outside the mechanical group
-    let mut group_of: HashMap<&str, usize> = HashMap::new();
-    for (place, group) in groups.iter_mut().enumerate() {
-      group.tested.answered = true;
-      if group.kind != GroupKind::Mechanical {
-        for stop in &stops[group.start as usize..group.end as usize] {
-          group_of.entry(stop.path.as_str()).or_insert(place);
+    let answers = if self.given.is_empty() && index.is_some() {
+      // no test of the change: none reaches any of its code, whatever the index would answer
+      vec![
+        TestReach {
+          complete: true,
+          ..TestReach::default()
+        };
+        self.places.len()
+      ]
+    } else {
+      match ask_index(index, |lenient| lenient.tests(repository_path, &self.places, &self.given, head))? {
+        Ok(answers) => answers,
+        Err(note) => return Ok(TestsAnswer::Note(note)),
+      }
+    };
+    Ok(TestsAnswer::Reach(self.places.iter().cloned().zip(answers).collect()))
+  }
+}
+
+/// The group of each file of a large step, by its place in `groups`: of its first stop outside the mechanical group
+fn group_of_paths<'a>(groups: &[StepGroup], stops: &'a [StepStop]) -> HashMap<&'a str, usize> {
+  let mut group_of: HashMap<&str, usize> = HashMap::new();
+  for (place, group) in groups.iter().enumerate() {
+    if group.kind != GroupKind::Mechanical {
+      for stop in &stops[group.start as usize..group.end as usize] {
+        group_of.entry(stop.path.as_str()).or_insert(place);
+      }
+    }
+  }
+  group_of
+}
+
+impl ReviewSteps {
+  /// What the steps ask the index of their tests: the place of each declaration of their code, once, and each test
+  /// file of the range, once
+  pub fn tests_ask(&self) -> TestsAsk {
+    let places = self
+      .steps
+      .iter()
+      .flat_map(|step| step.code.iter().map(|code| code.at.clone()))
+      .collect::<BTreeSet<_>>()
+      .into_iter()
+      .collect();
+    let given = self.range_tests.iter().map(|test| test.path.clone()).collect::<BTreeSet<_>>().into_iter().collect();
+    TestsAsk { places, given }
+  }
+
+  /// The steps wait for the index to answer their tests (`StepTests::awaited`): each step with code, and each group of
+  /// it that holds a file of that code. Of a plan sent while the query runs; `apply_tests` ends the wait
+  pub fn await_tests(&mut self) {
+    for step in &mut self.steps {
+      let ReviewStep { code, tests, groups, stops, .. } = step;
+      tests.awaited = !code.is_empty();
+      let group_of = group_of_paths(groups, stops);
+      let waiting: HashSet<usize> = code.iter().filter_map(|code| group_of.get(code.at.path.as_str()).copied()).collect();
+      for (place, group) in groups.iter_mut().enumerate() {
+        group.tested.awaited = waiting.contains(&place);
+      }
+    }
+  }
+
+  /// What the index answered of the tests of the steps (`TestsAsk::ask`) into them, and to each step the other steps
+  /// its tests prove (`ReviewStep::proves`), by their places in the steps as they are now; no step waits from now on.
+  /// The answer is why the steps have none, `None` when the index answered or nothing was asked
+  pub fn apply_tests(&mut self, answer: TestsAnswer) -> Option<String> {
+    let Self { steps, range_tests, .. } = self;
+    for step in steps.iter_mut() {
+      step.tests.awaited = false;
+      for group in &mut step.groups {
+        group.tested.awaited = false;
+      }
+    }
+    let reach_of = match answer {
+      TestsAnswer::NotAsked => return None,
+      TestsAnswer::Note(note) => return Some(note),
+      TestsAnswer::Reach(reach_of) => reach_of,
+    };
+    for step in steps.iter_mut() {
+      let ReviewStep { code, tests, groups, stops, .. } = step;
+      tests.answered = true;
+      for group in groups.iter_mut() {
+        group.tested.answered = true;
+      }
+      let group_of = group_of_paths(groups, stops);
+      for code in code.iter() {
+        // a place accio found no declaration at is neither reached nor unreached: it answered nothing of it
+        let Some(reach) = reach_of.get(&code.at).filter(|reach| !reach.unavailable) else {
+          continue;
+        };
+        // a test of a given file the change did not touch is no test of the change
+        let of_change: Vec<(&ReachingTest, String)> = reach.tests.iter().filter_map(|test| range_unit(test, range_tests).map(|unit| (test, unit))).collect();
+        record_tests(tests, code, reach.complete, &of_change);
+        if let Some(&place) = group_of.get(code.at.path.as_str()) {
+          record_tests(&mut groups[place].tested, code, reach.complete, &of_change);
         }
       }
     }
-    for code in code.iter() {
-      // a place accio found no declaration at is neither reached nor unreached: it answered nothing of it
-      let Some(reach) = reach_of.get(&code.at).filter(|reach| !reach.unavailable) else {
-        continue;
-      };
-      // a test of a given file the change did not touch is no test of the change
-      let of_change: Vec<(&ReachingTest, String)> = reach.tests.iter().filter_map(|test| range_unit(test, range_tests).map(|unit| (test, unit))).collect();
-      record_tests(tests, code, reach.complete, &of_change);
-      if let Some(&place) = group_of.get(code.at.path.as_str()) {
-        record_tests(&mut groups[place].tested, code, reach.complete, &of_change);
-      }
-    }
+    add_proves(steps);
+    None
   }
-  add_proves(steps);
-  Ok(None)
 }
 
 /// What accio answered of `code` into `tests` of a step or of a group of it: its tests of the change (`of_change`), else

@@ -72,7 +72,7 @@ use crate::modules::{ModuleShape, Modules, ModulesInput, module_shapes};
 use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
 use crate::registrations::{Registration, RegistrationsInput, changed_descriptors, registrations_of};
-use crate::steps::{ReviewSteps, StepsInput, add_tests, review_steps};
+use crate::steps::{ReviewSteps, StepsInput, review_steps};
 use crate::texts::{UiText, bundle_blobs, ui_texts};
 use crate::units::{ReviewUnit, review_units};
 use crate::whitespace::TextTokens;
@@ -167,7 +167,7 @@ pub struct ReviewPlan {
   /// outside the change first
   pub api: Vec<ApiChange>,
   /// Whether a use left outside the change breaks, over the removed and changed entries of `api` (`fan_in::verdict_of`);
-  /// `Pending` in the plan sent while the index is asked
+  /// `Pending` in the plan sent before the index answered (`PlanWait::Index`)
   pub verdict: BreakVerdict,
   /// Every file the reviewed commits change, once, at its last path (a deleted one too, none added and deleted again):
   /// the most `breaks` first, then the `untested` ones, then in tree order
@@ -183,7 +183,7 @@ pub struct ReviewPlan {
   /// What the commits register in the platform (`registrations`): the services, extension points, listeners,
   /// extensions, registry keys, actions and content modules their plugin descriptors add, remove or change, read by
   /// accio at the base and the head; by the module of the descriptor, the descriptor, then the kind. None without accio
-  /// (`index_note`), and in the plan sent while the index is asked
+  /// (`index_note`), and in the plan sent before the index answered (`PlanWait::Index`)
   pub registrations: Vec<Registration>,
   /// The texts of the UI the commits add, remove or change: the keys of the message bundles (`texts`), the bundles in
   /// tree order, then by line
@@ -211,8 +211,9 @@ pub struct ReviewPlan {
 }
 
 impl ReviewPlan {
-  /// Whether the plan is what it would be whenever it is asked: every query of the index answered (`index_note` null)
-  /// and none cut short (`ModuleEntries::cut`). Only such a plan is kept in the memory of the app
+  /// Whether the plan a reading answered (`review_plan_of`) is what it would be whenever it is asked: every query of the
+  /// index answered (`index_note` null) and none cut short (`ModuleEntries::cut`). Only such a plan is kept in the
+  /// memory of the app; never asked of a plan sent while a query runs (`PlanWait`), which is no answer of a reading
   pub fn is_final(&self) -> bool {
     self.index_note.is_none() && self.modules.iter().all(|module| module.entries.as_ref().is_none_or(|entries| !entries.cut))
   }
@@ -228,11 +229,24 @@ fn resolved(git: &GitCommandExecutor, repository_path: &str, rev: &str) -> Resul
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ReviewPlanEvent {
-  /// The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, no step
-  /// knows the tests that reach its code, it has no registrations, and the plan with them follows
-  Plan { plan: Box<ReviewPlan>, pending: bool },
+  /// The plan as it stands; `waits` names what the index still answers, and the plan with it follows: a fact of the
+  /// plan shows when its query answered. `None` is the plan of the reading, whole
+  Plan { plan: Box<ReviewPlan>, waits: Option<PlanWait> },
   /// The repository turns the review plan off (`branchdeck.reviewExperimental`): the window shows none
   Disabled,
+}
+
+/// What a plan sent while the index is asked still waits for (`ReviewPlanEvent::Plan::waits`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum PlanWait {
+  /// Every answer of the index: no entry of its API has usages yet (`BreakVerdict::Pending`), no file counts `breaks`,
+  /// it has no registrations, no new module what enters it, and no step the tests that reach its code
+  Index,
+  /// The tests of the steps alone (`StepTests::awaited` of each step whose code is asked): the usages, the
+  /// registrations and the entry points answered and are in the plan
+  Tests,
 }
 
 /// What a plan reads beside git: the caches of the diffs and the summaries, and the index of the repository for the
@@ -267,7 +281,7 @@ pub struct SinceReviewedOfRange(pub String);
 #[instrument(skip(git, sources), fields(subject = ?params.subject))]
 pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, branch_prefix: &str, params: &ReviewPlanParams) -> Result<ReviewPlan> {
   let subject = resolve_subject(git, branch_prefix, params)?;
-  review_plan_of(git, sources, params, subject, |_| {})
+  review_plan_of(git, sources, params, subject, |_, _| {})
 }
 
 /// What a plan is of, resolved: the branch, `base..head`, and the interdiff of a branch marked reviewed
@@ -408,14 +422,20 @@ fn short_id(id: &str) -> &str {
   id.get(..8).unwrap_or(id)
 }
 
-/// The plan of `subject` (`resolve_subject` of `params`): `pending` gets it once without the usages of the API and the
-/// tests of the steps, before the index is asked, when there is a query to ask; the answer is the plan with them
+/// The plan of `subject` (`resolve_subject` of `params`), a fact of it shown when its query answered: `stage` gets the
+/// plan as it stands with what it still waits for, and the answer is the plan whole.
+/// - `PlanWait::Index`, before the index is asked, when there is a query to ask: the plan of git alone.
+/// - `PlanWait::Tests`, once the usages, the registrations and the entry points answered, when the tests of the steps
+///   are a query of the index (`TestsAsk::asks_index`) that still runs: the plan with all but them. That query starts
+///   with the others and is the slow one (cold after each new tree of a branch), so it holds none of them.
+///
+/// A plan `stage` gets is no answer of a reading: only the returned one may be kept (`ReviewPlan::is_final`)
 pub fn review_plan_of(
   git: &GitCommandExecutor,
   sources: PlanSources<'_>,
   params: &ReviewPlanParams,
   subject: ResolvedSubject,
-  pending: impl FnOnce(&ReviewPlan),
+  mut stage: impl FnMut(&ReviewPlan, PlanWait),
 ) -> Result<ReviewPlan> {
   let repository_path = params.repository_path.as_str();
   let ResolvedSubject {
@@ -571,17 +591,19 @@ pub fn review_plan_of(
     || (sides.is_some() && !descriptors.is_empty())
     || modules.shapes.iter().any(|module| module.state == modules::ModuleState::Added);
   plan.modules.clone_from(&modules.shapes);
+  // what the steps ask of their tests owns its places: its query runs beside the plan for the whole reading
+  let tests_ask = plan.steps.tests_ask();
+  let tests_asked = tests_ask.asks_index(sources.index);
+  if tests_asked {
+    plan.steps.await_tests();
+  }
   if sources.index.is_some() && asks {
     (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
     with_modules(&mut plan.files, &changed, &modules);
     plan.api.clone_from(&api);
-    pending(&plan);
+    stage(&plan, PlanWait::Index);
   }
-  // the usages of the API, the tests of the steps, the descriptors of each side and what enters each new module, each one
-  // query of the index, at once
   let head = plan.head.clone();
-  let steps = &mut plan.steps;
-  let shapes = &mut plan.modules;
   let registrations_input = RegistrationsInput {
     repository_path,
     sides: sides.as_ref().map(|(base, head)| (base.as_str(), head.as_str())),
@@ -589,29 +611,43 @@ pub fn review_plan_of(
     changed: &changed,
     modules: &modules,
   };
-  let (usages, tests, registrations, entries) = std::thread::scope(|scope| {
-    let tests = scope.spawn(in_current_span(|| add_tests(sources.index, repository_path, &head, steps)));
-    let registrations = scope.spawn(in_current_span(|| registrations_of(sources.index, &registrations_input)));
-    let entries = scope.spawn(in_current_span(|| add_entries(sources.index, repository_path, &head, shapes)));
-    let usages = add_usages(sources.index, repository_path, &head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api);
-    (
-      usages,
-      tests.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the tests panicked"))),
-      registrations.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the descriptors panicked"))),
-      entries.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the entry points panicked"))),
-    )
-  });
-  let (registrations, registrations_note) = registrations?;
-  entries?;
-  plan.index_note = usages?.or(tests?).or(registrations_note);
-  // the group of a new module reads from its entry points
-  order_by_entries(&mut plan.steps.steps, &plan.modules);
-  plan.registrations = registrations;
-  (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
-  with_modules(&mut plan.files, &changed, &modules);
-  plan.verdict = verdict_of(&api);
-  plan.api = api;
-  Ok(plan)
+  // the tests of the steps, the usages of the API, the descriptors of each side and what enters each new module, each
+  // one query of the index, at once; the plan waits for the tests last, with the answers of the others in it
+  std::thread::scope(|reading| {
+    let tests = reading.spawn(in_current_span(|| tests_ask.ask(sources.index, repository_path, &head)));
+    let shapes = &mut plan.modules;
+    let (usages, registrations, entries) = std::thread::scope(|scope| {
+      let registrations = scope.spawn(in_current_span(|| registrations_of(sources.index, &registrations_input)));
+      let entries = scope.spawn(in_current_span(|| add_entries(sources.index, repository_path, &head, shapes)));
+      let usages = add_usages(sources.index, repository_path, &head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api);
+      (
+        usages,
+        registrations.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the descriptors panicked"))),
+        entries.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the entry points panicked"))),
+      )
+    });
+    let (registrations, registrations_note) = registrations?;
+    entries?;
+    let usages_note = usages?;
+    // the group of a new module reads from its entry points
+    order_by_entries(&mut plan.steps.steps, &plan.modules);
+    plan.registrations = registrations;
+    (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
+    with_modules(&mut plan.files, &changed, &modules);
+    plan.verdict = verdict_of(&api);
+    plan.api = api;
+    // decided by the ask, not by the threads: a reading whose tests are no query of the index has no such stage, and
+    // one whose query answered already has its plan whole
+    if tests_asked && !tests.is_finished() {
+      plan.index_note = usages_note.clone().or_else(|| registrations_note.clone());
+      stage(&plan, PlanWait::Tests);
+    }
+    let answer = tests.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the tests panicked")))?;
+    // after `order_by_entries`: it moves the stops of a step, never a step, so `proves` are of the final order either way
+    let tests_note = plan.steps.apply_tests(answer);
+    plan.index_note = usages_note.or(tests_note).or(registrations_note);
+    Ok(plan)
+  })
 }
 
 /// `FileFacts::module` and `FileFacts::folder` of each file
@@ -690,6 +726,8 @@ mod prose_test;
 mod registrations_test;
 #[cfg(test)]
 mod shown_test;
+#[cfg(test)]
+mod stages_test;
 #[cfg(test)]
 mod steps_test;
 #[cfg(test)]

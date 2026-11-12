@@ -9,6 +9,7 @@ import type {
   Mention,
   MentionTarget,
   MessageChange,
+  PlanWait,
   ProseChange,
   ProseForm,
   ReviewPlan,
@@ -265,6 +266,12 @@ export interface StepFacts {
    * cut
    */
   readonly tests: readonly TestFact[]
+  /**
+   * "Finding its tests…" while Rust asks the index the tests that reach its code (`StepTests.awaited` of a plan that
+   * still waits for them), the plan with them following; null otherwise: once they answered, and of a step that has
+   * no code to ask of or whose tests no index answers
+   */
+  readonly findingTests: string | null
   /** Of a step of tests: the other steps whose code its tests reach ("Proves step 2"), each showing that step */
   readonly proves: readonly { readonly key: string; readonly step: string; readonly stepId: string }[]
   /** The public declarations it adds to a module that was there ("New API:"), each at its declaration */
@@ -326,6 +333,22 @@ export interface StepFacts {
 
 /** The names of a list in a sentence (`joinNames`): "run and create", "run, create, open and 2 more" */
 const names = joinNames
+
+/** What a step says of its tests while the index is asked them (`StepFacts.findingTests`) */
+const FINDING_TESTS = "Finding its tests…"
+
+/**
+ * What the overview says while the plan it shows waits for the index (`ReviewPlanEvent.waits`): the uses left outside
+ * while nothing answered yet, the tests of the change once only they are asked
+ */
+export function formatPlanWait(waits: PlanWait): string {
+  switch (waits) {
+    case "index":
+      return "Finding the uses left outside…"
+    case "tests":
+      return "Finding the tests of the change…"
+  }
+}
 
 /** The places of a list of facts the contents name before the count of the rest, as `joinNames` does */
 const NAMED_FACTS = 3
@@ -445,6 +468,7 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
   return {
     line: parts.length === 0 ? null : parts.join(" · "),
     tests,
+    findingTests: step.tests.awaited === true ? FINDING_TESTS : null,
     proves: step.proves.flatMap(index => {
       const proved = plan.steps.steps[index]
       return proved === undefined ? [] : [{ key: proved.id, step: `step ${index + 1}`, stepId: proved.id }]
@@ -758,9 +782,10 @@ function storyOf(plan: Pick<ReviewPlan, "steps">, id: string | undefined): Story
 /**
  * The overview of `plan` (`PrologueView`), in the order Rust gave it: the headline, the story of a commit told before
  * the steps of its concerns, What Changes one header per file, the contents of the steps, Possible Breakage, what
- * changed since the review; `pending`: Rust asks the index for the usages, the plan with them follows
+ * changed since the review; `waits`: what Rust still asks the index for, the plan with it following (the usages are
+ * being found only while it is `index`)
  */
-export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueView {
+export function presentPrologue(plan: ReviewPlan, waits: PlanWait | null): PrologueView {
   const chapters = presentChapters(plan)
   const words = mentionWords(plan)
   const told = chapters.some(chapter => chapter.told)
@@ -787,7 +812,8 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
   const contract = told ? [] : presentContract(plan)
   // a repeated replacement is of the whole change: named once in the overview, its paragraphs quiet where they are quoted
   const substitutions = presentSubstitutions(plan)
-  const breakage = presentBreakage(plan.api, pending, plan.verdict)
+  // the usages are asked only while nothing of the index answered: a plan that waits for its tests has them
+  const breakage = presentBreakage(plan.api, waits === "index", plan.verdict)
   const map = presentMap(plan)
   return {
     issue: plan.brief.issue,
@@ -975,6 +1001,7 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
   const facts = {
     line: lines.length === 0 ? null : lines.join(" · "),
     tests: all.flatMap(it => it.tests),
+    findingTests: all.find(it => it.findingTests !== null)?.findingTests ?? null,
     newApi: openingList(all.flatMap(it => wholeList(it.newApi))),
     newModules: all.flatMap(it => it.newModules),
     opensWider: openingList(all.flatMap(it => wholeList(it.opensWider))),
@@ -985,7 +1012,7 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
     unproven: null,
   }
   const named = [facts.newApi, facts.opensWider, facts.moduleEdges].some(it => it.places.length > 0) || facts.newModules.length > 0
-  return facts.line === null && facts.tests.length === 0 && !named ? null : facts
+  return facts.line === null && facts.tests.length === 0 && facts.findingTests === null && !named ? null : facts
 }
 
 /** A commit of a step after the one that starts it, in its opening: one row each, the same form */
@@ -1082,7 +1109,7 @@ const NO_FACTS: FactList = { places: [], more: 0 }
  * API, what it opens wider, its new uses between modules) leaves the opening of the step (`presentGroupOpenings`)
  */
 function withoutGroupFacts(facts: StepFacts): StepFacts {
-  return { ...facts, tests: [], newApi: NO_FACTS, newModules: [], opensWider: NO_FACTS, moduleEdges: NO_FACTS, unproven: null }
+  return { ...facts, tests: [], findingTests: null, newApi: NO_FACTS, newModules: [], opensWider: NO_FACTS, moduleEdges: NO_FACTS, unproven: null }
 }
 
 /**

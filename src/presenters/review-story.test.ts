@@ -6,6 +6,7 @@ import type {
   ContractEntry,
   FileFacts,
   Mention,
+  PlanWait,
   ProseParagraph,
   ReviewPlan,
   ReviewStep,
@@ -20,7 +21,7 @@ import { plainTitle } from "@/lib/commit"
 import { joinNames } from "@/lib/text"
 import { MORE } from "@/presenters/commit-body"
 import { placeCommits } from "@/presenters/review-steps"
-import { mentionWords, presentGroupOpenings, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
+import { formatPlanWait, mentionWords, presentGroupOpenings, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { ContractFile, ContractParagraph, FactList, StepFacts, StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
 import { fileFacts, moduleShape, reviewPlan, reviewStep, shownForm, stepCommit, stepGroup } from "@/test-support/review-step"
@@ -164,7 +165,7 @@ describe("the document of a review", () => {
           ],
         },
       }),
-      false,
+      null,
     )
     expect(
       view.contract.map(it => [
@@ -222,7 +223,7 @@ describe("the document of a review", () => {
           ],
         },
       }),
-      false,
+      null,
     )
     expect(
       view.contract[0]!.entries[0]!.blocks.map(block =>
@@ -264,7 +265,7 @@ describe("the document of a review", () => {
           contract: [contract("spec/a.spec.md", null, [paragraph])],
         },
       }),
-      false,
+      null,
     )
     const presented = paragraphsOf(view.contract[0]!.entries[0]!)[0]!
     expect([presented.form, presented.substitutions]).toEqual([form, [{ start: 0, end: 3, from: "bd" }]])
@@ -353,7 +354,7 @@ describe("the document of a review", () => {
           },
         },
       ),
-      false,
+      null,
     )
     expect([view.issue, view.title, view.untold, view.source]).toEqual([null, "feature/layout", null, null])
     // the steps are told: What Changes is quoted in the opening of the step that changes it, the map names it in one line
@@ -561,7 +562,7 @@ describe("the document of a review", () => {
           commits: [],
         },
       }),
-      false,
+      null,
     )
     expect([untold.steps, untold.source, untold.issue, untold.title]).toEqual([[], null, "IJAI-1", "11111111..22222222"])
   })
@@ -586,7 +587,7 @@ describe("the document of a review", () => {
       [],
       { concerns: [task, rest] },
     )
-    const view = presentPrologue(review, false)
+    const view = presentPrologue(review, null)
     expect(view.steps.map(({ number, title }) => [number, title])).toEqual([
       [1, plainTitle("aFunction")],
       [null, plainTitle("Other changes")],
@@ -738,7 +739,7 @@ describe("the document of a review", () => {
       },
       { id: "c4", reviewedId: "r4", subject: "Tidy", state: "unchanged" as const, changes: null, messageChange: null },
     ]
-    const since = presentPrologue(plan([], [], { interdiff: { reviewedBase: "b", reviewedTip: "r4", commits, scope: null } }), false).since!
+    const since = presentPrologue(plan([], [], { interdiff: { reviewedBase: "b", reviewedTip: "r4", commits, scope: null } }), null).since!
     expect(since.summary).toBe("Since your review: 2 rewritten · 1 reworded")
     expect(since.rewritten.map(commit => [commit.text, commit.message === null ? null : commit.message.hunks.length])).toEqual([
       ["Rewritten Add the token: src/Token.kt +1 −0 · message changed", 1],
@@ -838,7 +839,7 @@ describe("the document of a review", () => {
         links: [{ from: "src/a/Reader.kt", to: "src/b/Cache.kt", symbols: [{ name: "Cache", line: 3 }], state: "added", crossModule: true, newBetweenModules: true }],
         modules: [moduleShape("src/a", "src/a"), moduleShape("src/b", "src/b")],
       }),
-      false,
+      null,
     )
     expect(contents.steps[0]!.facts.moduleEdges.places).toEqual([])
     const untold = openings.get("no-story")!
@@ -892,7 +893,7 @@ describe("the document of a review", () => {
     // what joins the parts of a task, its names code in the line of the facts
     expect(openings.get("c1")!.evidence).toEqual([{ words: "Joined by the identifier", names: ["allowed"] }])
     // each part told at one place: the lead and what names nothing in the overview
-    const prologue = presentPrologue(whole, false)
+    const prologue = presentPrologue(whole, null)
     expect(prologue.source).toBe("One commit: the steps are its tasks")
     expect(prologue.untold?.subject).toEqual(plainTitle("the open keeps the layout"))
     expect(textOf(prologue.untold!.story)).toEqual({ lead: "The open keeps the stored layout.", shown: [["", "Names nothing."]], folded: [] })
@@ -938,7 +939,7 @@ describe("the document of a review", () => {
     expect([m2.title, m2.code, m2.titleInBody, m2.commits]).toEqual([plainTitle("Update.edges"), true, false, []])
     expect(textOf(m2.story!).shown.map(([head]) => head)).toEqual(["", "Look closely:"])
     // the overview: why the steps are what they are, their titles, the Look closely in the contents of its step
-    const prologue = presentPrologue(whole, false)
+    const prologue = presentPrologue(whole, null)
     expect(prologue.source).toBe("One commit: the steps are the parts of its message")
     expect(prologue.steps.map(it => [it.title, it.code, it.lookClosely.length])).toEqual([
       [plainTitle("The marker comes from the emulator."), false, 0],
@@ -1278,5 +1279,68 @@ describe("the document of a review", () => {
     // the opening of the step leaves to them what they say of its code
     const facts = presentOpenings(whole).get("media")!.facts
     expect([facts.tests, facts.newApi.places, facts.newModules, facts.opensWider.places, facts.moduleEdges.places, facts.unproven]).toEqual([[], [], [], [], [], null])
+  })
+
+  it("says what a plan that waits for the index still finds: the uses only while nothing answered, the tests of each step Rust asks them of", () => {
+    const removed: ReviewPlan["api"][number] = {
+      path: "src/Manager.kt",
+      line: 6,
+      name: "hooks",
+      key: "a.Manager.hooks",
+      kind: "removed",
+      widened: false,
+      changes: [],
+      before: null,
+      after: null,
+      usages: null,
+    }
+    const waiting = { answered: false, awaited: true }
+    // the step of the rule has code the index is asked the tests of; the step of the story has none, so Rust marks it not
+    const rule = step("a", [commit("the rule")], [["u:rule", "src/Rule.kt"]], waiting)
+    const told = step("b", [commit("the story")], [["u:story", "tests/restart.json"]], { answered: false, scenarios: ["tests/restart.json"] })
+    const review = plan([rule, told], [], { api: [removed], verdict: "pending" })
+    const outside = (waits: PlanWait | null) => presentPrologue(review, waits).breakage.entries.map(entry => entry.outside)
+    // nothing of the index answered: the uses are being found; once only the tests are asked, a use without an answer is unknown
+    expect([outside("index"), outside("tests"), outside(null)]).toEqual([["Finding the uses…"], ["The uses are unknown"], ["The uses are unknown"]])
+    expect([formatPlanWait("index"), formatPlanWait("tests")]).toEqual(["Finding the uses left outside…", "Finding the tests of the change…"])
+
+    // a step says its tests are being found in the contents, in its opening and in the opening of its group, never as a warning
+    const finding = (facts: StepFacts) => [facts.findingTests, facts.tests, facts.unproven]
+    expect(presentPrologue(review, "tests").steps.map(it => [it.facts.findingTests, it.facts.line])).toEqual([
+      ["Finding its tests…", null],
+      [null, "Proven by restart.json"],
+    ])
+    const openings = presentOpenings(review)
+    expect([finding(openings.get("a")!.facts), finding(openings.get("b")!.facts)]).toEqual([
+      ["Finding its tests…", [], null],
+      [null, [], null],
+    ])
+    const media = step(
+      "media",
+      [commit("play the media")],
+      [
+        ["u:kind", "gui/src/Kind.kt"],
+        ["u:player", "media/src/Player.kt"],
+      ],
+      waiting,
+      {
+        groups: [
+          stepGroup("module", 0, [0, 1, 1]),
+          stepGroup("module", 1, [1, 2, 2], { tested: { answered: false, awaited: true, proof: [], reached: 0, unreached: [], scenarios: [] } }),
+        ],
+      },
+    )
+    const modules = [moduleShape("gui", "view.gui"), moduleShape("media", "view.gui.media")]
+    const grouped = plan([media], [], { modules, files: [fileFacts("gui/src/Kind.kt", 0), fileFacts("media/src/Player.kt", 1)] })
+    // the group whose code is asked says so, the other group and the opening of their step say nothing of the tests
+    expect([...presentGroupOpenings(grouped)].map(([key, opening]) => [key, opening.facts.findingTests])).toEqual([
+      ["media:0", null],
+      ["media:1", "Finding its tests…"],
+    ])
+    expect(presentOpenings(grouped).get("media")!.facts.findingTests).toBeNull()
+
+    // once the index answered (or does not answer at all), Rust marks no step: what the step showed before
+    const answered = step("a", [commit("the rule")], [["u:rule", "src/Rule.kt"]], { answered: false })
+    expect(finding(presentStepFacts(answered, plan([answered], [])))).toEqual([null, [], null])
   })
 })

@@ -37,8 +37,8 @@ fn rev_parse(path: &str, rev: &str) -> String {
 /// The review window's plan through the server's app-api, as the page asks it: Mark Reviewed keeps the branch's base and
 /// tip, a commit after it is the only one the plan since the review reads, with the usages of its changed declaration
 /// from the accio fixture of the repository (`FixtureIndex`): the one in the changed file updated, those in another
-/// file left outside, which the file breaks; the plan without the usages comes first, a plan asked again from the memory
-/// of the plans, `disabled` for a repository that turns the plan off; a branch that is gone and a range asked since its
+/// file left outside, which the file breaks; the plan without the usages comes first (it waits for the index), a plan
+/// asked again from the memory of the plans, `disabled` for a repository that turns the plan off; a branch that is gone and a range asked since its
 /// review are the caller's errors
 #[tokio::test]
 async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages() {
@@ -79,11 +79,12 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
   let subject = json!({ "kind": "branch", "name": branch, "base": base });
   let params = json!({ "repositoryPath": path, "subject": subject, "sinceReviewed": true });
   let (events, answer) = plan_events(&client, addr, &params).await;
-  // the plan without the usages while the index is asked, then with them
-  let pending: Vec<(&Value, &Value)> = events.iter().map(|event| (&event["kind"], &event["pending"])).collect();
+  // the plan without the usages while the index is asked, then whole: the range has no test, so no plan waits for
+  // the tests of its steps
+  let waits: Vec<(&Value, &Value)> = events.iter().map(|event| (&event["kind"], &event["waits"])).collect();
   assert_eq!(
-    (pending, &answer["status"]),
-    (vec![(&json!("plan"), &json!(true)), (&json!("plan"), &json!(false))], &json!("ok")),
+    (waits, &answer["status"]),
+    (vec![(&json!("plan"), &json!("index")), (&json!("plan"), &json!(null))], &json!("ok")),
     "{events:?}"
   );
   assert_eq!(events[0]["plan"]["api"][0]["usages"], Value::Null, "{events:?}");
@@ -117,7 +118,7 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
   // asked again, the plan comes from the memory of the plans whole, in one event; a repository that turns the plan off
   // gets `disabled`
   let (again, _) = plan_events(&client, addr, &params).await;
-  assert_eq!((again.len(), &again[0]["pending"], &again[0]["plan"]), (1, &json!(false), plan), "{again:?}");
+  assert_eq!((again.len(), &again[0]["waits"], &again[0]["plan"]), (1, &json!(null), plan), "{again:?}");
   review_plan_on(&path, false);
   let (off, answer) = plan_events(&client, addr, &params).await;
   assert_eq!((off, &answer["status"]), (vec![json!({ "kind": "disabled" })], &json!("ok")));

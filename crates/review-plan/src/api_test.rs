@@ -3,7 +3,7 @@ use crate::fan_in_test::{Counts, by_name, outside, typed};
 use crate::interdiff::PairState;
 use crate::shown::{FormMark, ShownForm};
 use crate::test_support::{PREFIX, branch, mark, plan_of, range};
-use crate::{PlanSources, ReviewPlan, resolve_subject, review_plan_of};
+use crate::{PlanSources, PlanWait, ReviewPlan, resolve_subject, review_plan_of};
 use file_diffs::accio::SymbolIndex;
 use file_diffs::service::FileDiffs;
 use object_cache::cache::ObjectCache;
@@ -168,7 +168,12 @@ fn the_verdict_says_whether_a_use_left_outside_breaks() {
   };
   let subject = resolve_subject(repo.git_executor(), PREFIX, &params).unwrap();
   let mut sent = None;
-  let plan = review_plan_of(repo.git_executor(), sources, &params, subject, |pending| sent = Some(pending.verdict)).unwrap();
+  let plan = review_plan_of(repo.git_executor(), sources, &params, subject, |pending, waits| {
+    if waits == PlanWait::Index {
+      sent = Some(pending.verdict);
+    }
+  })
+  .unwrap();
   assert_eq!((sent, plan.verdict), (Some(BreakVerdict::Pending), BreakVerdict::NoUseBreaks));
 }
 
