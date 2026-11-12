@@ -12,27 +12,36 @@
 //!   declares none of them (`Leftovers::undeclared`), is a rename once another file of the subject declares a name
 //!   that is not local and renamed it so. The runs its blocks have with the name read as one, kept by the pair
 //!   (`Leftovers::pending`), hold then: lines that changed in such a name alone are runs of the kind `Renamed`, and
-//!   they add runs to those of the pair and take none (`marks_renames::with_the_first`). A run that needs a name no
-//!   file of the subject declares does not hold. Labels: the tie is of the two spellings.
+//!   they add runs to those of the pair and take none (`marks_renames::with_the_first`). A run that leans on a name
+//!   no file of the subject declares does not hold. Labels: the tie is of the two spellings. Nothing else is added:
+//!   the quiet runs and the stops of a file are those of its pair, which went out with its rows.
 //! - **What the index proves** (`Subject::questions`, `IndexAnswer`): every declaration of a renamed name that is
 //!   not local is asked of the index of the repository, all in one call. A declaration is proven renamed
 //!   (`RenameProof::Confirmed`) when the index says that the two places are one declaration, that its answer is
 //!   complete, that the rename changes the meaning of no name, and when every use it lists in either tree is the
-//!   declaration, a place of the rename with its twin of the other tree listed too, a link of a doc comment, or
-//!   stands on a line that is read anyway (a changed line in no run). Every other answer, and no answer, names why
-//!   not. The places a proven declaration lists are proven, and a run whose every place is proven, by the index or,
+//!   declaration, a place of the rename with its twin of the other tree listed too, a link of a doc comment, a use
+//!   that writes no word (a positional argument that sets a property), a use by another word (an alias, an accessor)
+//!   that the other tree lists at the same place, or stands on a line that is read anyway (a changed line in no
+//!   run). Every other answer, and no answer, names why not. The places a proven declaration lists are proven, and a run whose every place is proven, by the index or,
 //!   for a local name, by the scopes of its file, is one of `SubjectMarks::confirmed`: quiet once the kind `Renamed`
 //!   is (`marks::is_quiet`). The declaration itself is in no run and stays a stop.
 //! - **Only Kotlin and Java are proven**: accio checks each tie by the scopes of the file for these two; of another
-//!   language its `complete` is the word of its resolver (its decision 2026-11-11-rename-read-in-two-trees).
+//!   language its `complete` is the word of its resolver (its decision 2026-11-11-rename-read-in-two-trees). So a
+//!   name declared in a file of another language is not asked at all: its proof is `Incomplete` without a process.
+//! - **The lines of the index are the lines of the diff** only in a text without a lone carriage return
+//!   (`Leftovers::lone_returns`): a use the index lists in a text with one is on no line the diff knows, and the
+//!   answer proves nothing (`Incomplete`).
 //!
-//! The answer of the index comes after the rows of the files (`FileDiffs::stream`), so nothing it says takes a line
-//! out of a view: a view passes a confirmed run and shows each of its lines.
+//! The answer of the index comes after the rows of the files (`FileDiffs::rename_proofs`, asked by the window that
+//! shows them), so nothing it says takes a line out of a view: a view passes a confirmed run and shows each of its
+//! lines.
 
-use crate::accio::{Access, RenameAnswer, RenamePair, RenameUses, RenamedDeclaration, Resolved};
-use crate::leftovers::Leftovers;
+use crate::accio::{Access, RenameAnswer, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
+use crate::leftovers::{Leftovers, PendingRun};
 use crate::marks::is_quiet;
 use crate::marks_renames::with_the_first;
+use crate::service::to_u32;
+use code_symbols::highlight::{Grammar, grammar_of};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -42,6 +51,11 @@ use text_diff::moves_across::{AcrossWork, FileRows, LeftRow, find_moves_across};
 /// The languages whose uses accio ties by the scopes of their files, as it names them: only of these is a complete
 /// answer a proof
 const PROVEN_LANGUAGES: [&str; 2] = ["kotlin", "java"];
+
+/// Whether the file at `path` is of a language of `PROVEN_LANGUAGES`: only a declaration of such a file is asked
+fn is_of_proven_language(path: &str) -> bool {
+  matches!(grammar_of(path), Some(Grammar::Kotlin | Grammar::KotlinScript | Grammar::Java))
+}
 
 /// A file of a subject whose content is a text: its diff, with the marks of its pair, and what the pair left
 #[derive(Debug, Clone, Copy)]
@@ -131,15 +145,12 @@ pub struct Subject<'a> {
   questions: Vec<Question>,
   /// The places of the renames that are not local, by their two names
   sites: HashMap<(&'a str, &'a str), Sites>,
+  /// The names, by the two of each, that a file of a language the index proves nothing of declares: not asked
+  unread: HashSet<(&'a str, &'a str)>,
   /// The file of each path of the old tree, and of the new one
   paths: [HashMap<&'a str, u32>; 2],
   /// What the search for the moves between the files cost and left out
   pub work: AcrossWork,
-}
-
-/// The index of a file or of a name; a subject has far fewer than 4 G of either
-fn to_u32(value: usize) -> u32 {
-  u32::try_from(value).expect("an index below 4 G")
 }
 
 /// The names of a rename, the old one first
@@ -225,6 +236,7 @@ impl<'a> Subject<'a> {
       pairs: Vec::new(),
       questions: Vec::new(),
       sites: HashMap::new(),
+      unread: HashSet::new(),
       paths: [HashMap::new(), HashMap::new()],
       work,
     };
@@ -234,6 +246,14 @@ impl<'a> Subject<'a> {
 
   /// The places of the renames that are not local, the paths of the files, and the questions for the index
   fn read_names(&mut self) {
+    // a name a file of a language the index proves nothing of declares is asked of no declaration: no answer
+    // would prove its uses
+    for facts in self.files.iter().flatten().map(|file| &file.facts) {
+      let proven = facts.old_path.is_some_and(is_of_proven_language) && facts.new_path.is_some_and(is_of_proven_language);
+      if !proven {
+        self.unread.extend(facts.diff.marks.renames.iter().filter(|rename| !rename.local).map(names_of));
+      }
+    }
     for (index, file) in self.files.iter().enumerate() {
       let Some(file) = file else { continue };
       let (index, facts) = (to_u32(index), &file.facts);
@@ -269,7 +289,13 @@ impl<'a> Subject<'a> {
         continue;
       };
       for declarations in &facts.left.declarations {
-        let Some(rename) = facts.diff.marks.renames.get(declarations.rename as usize) else {
+        let Some(rename) = facts
+          .diff
+          .marks
+          .renames
+          .get(declarations.rename as usize)
+          .filter(|rename| !self.unread.contains(&names_of(rename)))
+        else {
           continue;
         };
         for (place, [old_line, old_column, new_line, new_column]) in rename.declared.iter().zip(&declarations.places) {
@@ -288,7 +314,8 @@ impl<'a> Subject<'a> {
   }
 
   /// The declarations of the subject the index is asked of, all in one call: each by the place of its name in the
-  /// old tree and in the new one. None when the subject renamed no name that is not local
+  /// old tree and in the new one. None when the subject renamed no name that is not local in a file of a language
+  /// the index proves the uses of
   pub fn questions(&self) -> &[RenamePair] {
     &self.pairs
   }
@@ -308,6 +335,9 @@ impl<'a> Subject<'a> {
       }
     }
     let proof = |file: u32, name: Name, rename: &Rename| -> RenameProof {
+      if self.unread.contains(&names_of(rename)) {
+        return RenameProof::Incomplete;
+      }
       let Some(asked) = questions.get(&names_of(rename)) else {
         return RenameProof::Unavailable;
       };
@@ -427,6 +457,28 @@ impl<'a> Subject<'a> {
     checked
   }
 
+  /// The line of the other side that the line `line` of a side of the file `file` is, when the change left it
+  /// alone: a line of no block
+  fn same_line(&self, file: u32, new_side: bool, line: u32) -> Option<u32> {
+    let blocks = &self.files.get(file as usize)?.as_ref()?.facts.diff.blocks;
+    // the lines of a block on the side asked, and on the other one
+    let sides = |block: &DiffBlock| {
+      let (old, new) = (block.old_start..block.old_end, block.new_start..block.new_end);
+      if new_side { (new, old) } else { (old, new) }
+    };
+    let before = blocks.partition_point(|block| sides(block).0.end <= line);
+    if blocks.get(before).is_some_and(|block| sides(block).0.contains(&line)) {
+      return None;
+    }
+    Some(match before.checked_sub(1).and_then(|last| blocks.get(last)) {
+      Some(last) => {
+        let (own, other) = sides(last);
+        line - own.end + other.end
+      }
+      None => line,
+    })
+  }
+
   /// What the answer of the index says of a declaration; `listed` gets the places of renames it lists as a use in
   /// both trees
   fn verdict(&self, question: Question, answer: &RenameAnswer, listed: &mut Vec<Site>) -> RenameProof {
@@ -450,33 +502,50 @@ impl<'a> Subject<'a> {
     let mut incomplete = !answer.complete || !proven_language(&answer.old) || !proven_language(&answer.new);
     if let (Some(sites), Some(base), Some(head)) = (sites, &answer.base, &answer.head) {
       incomplete |= base.uses.len() < base.total || head.uses.len() < head.total;
-      let (base_places, head_places) = (self.places_of(base, false), self.places_of(head, true));
-      for (new_side, uses, others) in [(false, base, &head_places), (true, head, &base_places)] {
-        for used in uses.uses.iter().filter(|used| used.kind != Access::Doc) {
-          let place = self.paths[usize::from(new_side)]
-            .get(used.path.as_str())
-            .zip(used.line.checked_sub(1))
-            .map(|(file, line)| (*file, line, used.column, used.end_column));
-          let site = place.and_then(|place| if new_side { sites.new.get(&place) } else { sites.old.get(&place) });
-          match (place, site) {
-            (_, Some(site)) if *site == declaration => {}
-            (_, Some(_)) if used.resolved == Resolved::Name => incomplete = true,
-            (_, Some(site)) => match self.place_of(*site, !new_side) {
-              Some(twin) if others.contains(&twin) => {
+      let (base, head) = (self.uses_in(base, false), self.uses_in(head, true));
+      // what the uses say by where they stand
+      let (mut left, mut captured) = (false, false);
+      for (new_side, uses, others) in [(false, &base, &head), (true, &head, &base)] {
+        for (used, place) in &uses.uses {
+          let site = place
+            .map(|(file, line)| (file, line, used.column, used.end_column))
+            .and_then(|place| if new_side { sites.new.get(&place) } else { sites.old.get(&place) });
+          match (site, &used.text) {
+            (Some(site), _) if *site == declaration => {}
+            (Some(_), _) if used.resolved == Resolved::Name => incomplete = true,
+            (Some(site), _) => match self.place_of(*site, !new_side) {
+              Some(twin) if others.places.contains(&twin) => {
                 if !new_side {
                   listed.push(*site);
                 }
               }
               // the place of the other tree is no use of the declaration there: the name means something else at one
-              _ => meaning = true,
+              _ => captured = true,
             },
-            (Some((file, line, ..)), None) if self.is_read(file, new_side, line) => {}
+            (None, _) if place.is_some_and(|(file, line)| self.is_read(file, new_side, line)) => {}
+            // another word than the name (an alias, an accessor): the rename asks nothing of it where the other
+            // tree has the same word at the same place, a line the change left alone. Else nothing is known of it
+            (None, Some(word)) => {
+              let twin = match *place {
+                Some((file, line)) => self.same_line(file, new_side, line).map(|line| (Spot::File(file), line)),
+                None => used.line.checked_sub(1).map(|line| (Spot::Path(&used.path), line)),
+              };
+              let same = twin.is_some_and(|(spot, line)| others.words.contains(&(spot, line, used.column, used.end_column, word.as_str())));
+              incomplete |= !same;
+            }
             // the old name where the change left the line alone, or in a file it did not touch
-            (_, None) if !new_side => outside = true,
+            (None, None) if !new_side => left = true,
             // the new name where the change left the line alone: it named something else before
-            (_, None) => meaning = true,
+            (None, None) => captured = true,
           }
         }
+      }
+      if base.unmapped || head.unmapped {
+        // a use on a line the diff cannot name: where the others stand says nothing either
+        incomplete = true;
+      } else {
+        outside |= left;
+        meaning |= captured;
       }
     } else {
       incomplete = true;
@@ -492,21 +561,59 @@ impl<'a> Subject<'a> {
     }
   }
 
-  /// The places of the uses of a tree in the files of the subject
-  fn places_of(&self, uses: &RenameUses, new_side: bool) -> HashSet<Place> {
-    uses
-      .uses
-      .iter()
-      .filter_map(|used| {
-        Some((
-          *self.paths[usize::from(new_side)].get(used.path.as_str())?,
-          used.line.checked_sub(1)?,
-          used.column,
-          used.end_column,
-        ))
-      })
-      .collect()
+  /// The uses of a tree that a rename may ask something of, each with where it stands in the subject. A link of a
+  /// doc comment runs nothing, and a use that writes no word (the index lists it with no column between its ends: a
+  /// positional argument that sets a property, a constructor delegation) has no name to change: neither is one
+  fn uses_in<'u>(&self, uses: &'u RenameUses, new_side: bool) -> TreeUses<'u> {
+    let side = usize::from(new_side);
+    let mut read = TreeUses::default();
+    for used in uses.uses.iter().filter(|used| used.kind != Access::Doc && used.column != used.end_column) {
+      let file = self.paths[side].get(used.path.as_str()).copied();
+      let lone_return = |file: u32| {
+        self
+          .files
+          .get(file as usize)
+          .and_then(Option::as_ref)
+          .is_some_and(|file| file.facts.left.lone_returns[side])
+      };
+      let Some(line) = used.line.checked_sub(1).filter(|_| !file.is_some_and(lone_return)) else {
+        read.unmapped = true;
+        continue;
+      };
+      if let Some(file) = file {
+        read.places.insert((file, line, used.column, used.end_column));
+      }
+      if let Some(word) = &used.text {
+        let spot = file.map_or(Spot::Path(&used.path), Spot::File);
+        read.words.insert((spot, line, used.column, used.end_column, word.as_str()));
+      }
+      read.uses.push((used, file.map(|file| (file, line))));
+    }
+    read
   }
+}
+
+/// Where a use stands: in a file of the subject, by its index, or in a file the subject did not change, by its path
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Spot<'u> {
+  File(u32),
+  Path(&'u str),
+}
+
+/// The uses of a declaration in one tree (`Subject::uses_in`)
+#[derive(Debug, Default)]
+struct TreeUses<'u> {
+  /// Each with its file among the files of the subject and its line there from 0; `None` in a file the subject
+  /// did not change
+  uses: Vec<(&'u RenameUse, Option<(u32, u32)>)>,
+  /// Where those in the files of the subject stand
+  places: HashSet<Place>,
+  /// The words written in place of the name of the declaration, each by where it stands: the line from 0 and the
+  /// columns
+  words: HashSet<(Spot<'u>, u32, u32, u32, &'u str)>,
+  /// A use stands on a line the diff cannot name: in a text of the subject with a lone carriage return, whose lines
+  /// the index counts otherwise, or on no line at all
+  unmapped: bool,
 }
 
 /// What the index proved of the questions of a subject
@@ -543,14 +650,15 @@ fn uses_of(rename: &Rename) -> impl Iterator<Item = u32> + '_ {
   (0..rename.sites).filter(|place| !rename.declared.contains(place))
 }
 
-/// The runs of a file: those of its pair, and in the blocks that hold a place of a name of `used` those of the
-/// reading that read such names as one (`Leftovers::pending`), as far as every name they need is of `used`. They
-/// add runs and take none, as the second reading of a pair does
+/// The runs of a file: those of its pair, and in the blocks that hold a place of a name of `used` the runs of the
+/// kind `Renamed` of the reading that read such names as one (`Leftovers::pending`), as far as every name they lean
+/// on is of `used`. They add runs and take none, as the second reading of a pair does; and they add labels alone:
+/// no run of a kind that may be quiet without the index comes from here, so the quiet runs and the stops of the
+/// file stay those of its pair
 fn merged_runs<'a>(facts: &PairFacts<'a>, used: &[Used]) -> Cow<'a, [LineRun]> {
   let pair = &facts.diff.marks.runs;
-  let holds = |names: &[u32]| names.iter().all(|name| used.iter().any(|used| used.name == *name));
-  let applies = |block: &&crate::leftovers::PendingBlock| block.runs.iter().any(|run| !run.names.is_empty() && holds(&run.names));
-  let mut pending = facts.left.pending.iter().filter(applies).peekable();
+  let holds = |run: &&PendingRun| run.run.kind == RunKind::Renamed && !run.names.is_empty() && run.names.iter().all(|name| used.iter().any(|used| used.name == *name));
+  let mut pending = facts.left.pending.iter().filter(|block| block.runs.iter().any(|run| holds(&run))).peekable();
   if used.is_empty() || pending.peek().is_none() {
     return Cow::Borrowed(pair);
   }
@@ -563,7 +671,7 @@ fn merged_runs<'a>(facts: &PairFacts<'a>, used: &[Used]) -> Cow<'a, [LineRun]> {
     let before = from + pair[from..].partition_point(|run| run.old_start < lines.old_start);
     let inside = before + pair[before..].partition_point(|run| run.old_start < lines.old_end);
     runs.extend_from_slice(&pair[from..before]);
-    let read: Vec<LineRun> = block.runs.iter().filter(|run| holds(&run.names)).map(|run| run.run.clone()).collect();
+    let read: Vec<LineRun> = block.runs.iter().filter(holds).map(|run| run.run.clone()).collect();
     runs.extend(with_the_first(pair[before..inside].to_vec(), read));
     from = inside;
   }

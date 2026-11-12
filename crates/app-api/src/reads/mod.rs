@@ -22,4 +22,6 @@ pub mod symbols;
 #[cfg(test)]
 mod conflict_fix_test;
 #[cfg(test)]
+mod diffs_test;
+#[cfg(test)]
 mod review_prefetch_test;

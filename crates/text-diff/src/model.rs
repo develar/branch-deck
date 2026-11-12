@@ -109,7 +109,9 @@ pub struct SubjectMarks {
 
 /// One end of lines that moved between two files of a subject without a change: `len` lines from `start` of this
 /// file (0-based: old lines where they left, new lines where they stand now) are the lines from `line` of the file
-/// `file` of the subject, on its other side. Never quiet, and no line of it is hidden: both ends are read
+/// `file` of the subject, on its other side. The same lines but for the spaces and tabs at their ends; where the
+/// indentation of the file has a meaning, at the same depth too. Never quiet, and no line of it is hidden: both
+/// ends are read
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -152,7 +154,8 @@ pub struct UsedRename {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum RenameProof {
-  /// The index of the repository is being asked: the marks of the file come once more with its answer
+  /// The index of the repository is there to be asked: the window that shows the file asks it
+  /// (`get_rename_proofs`), and the marks of the file come once more with its answer
   Asked,
   /// The index answered that the two names are one declaration, that it listed every use of it in both trees, that
   /// each of them is a place of this rename in the subject or stands on a line that is read anyway, and that no name
@@ -166,7 +169,8 @@ pub enum RenameProof {
   /// The two names are not one declaration: its kind, its owner or its signature changed with the name
   OtherDeclaration,
   /// The index did not list every use, or tied one by its name alone, or reads the language of the declaration
-  /// without the scopes that would prove a use
+  /// without the scopes that would prove a use, or lists a use in a text whose lines it counts otherwise than the
+  /// diff does (a lone carriage return), or by another word that the other tree does not hold at its place
   Incomplete,
   /// No index answered: none on this machine, one that knows no such answer, no index of the repository, a subject
   /// it cannot be asked of (the working tree), or a declaration it cannot be asked by its place

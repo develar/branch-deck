@@ -30,6 +30,7 @@ targets:
   - src/lib/diff/inline-rows.ts
   - src/components/diff/DiffView.tsx
   - src/stores/file-diffs.ts
+  - src/stores/file-stream.ts
   - src/stores/blob-texts.ts
   - src/components/shared/DiffViewToggle.tsx
   - src/stores/settings/diff-view-settings.ts
@@ -37,6 +38,7 @@ targets:
   - src/lib/preview-keys.ts
   - crates/git-ops/src/cat_file_batch.rs
   - crates/file-diffs/src/service.rs
+  - crates/file-diffs/src/merge.rs
   - crates/file-diffs/src/worktree.rs
   - crates/file-diffs/src/model.rs
   - crates/text-diff/src/model.rs
@@ -291,10 +293,31 @@ opened.
   [@test] src/stores/file-diffs.test.ts (`shows each file as its content arrives, and the late scopes of a text keep the lines it expanded`)
 
 #### Scenario: The late marks of a file
-- **WHEN** the marks of a file arrive after its content, once with what the other files of its subject say and once more with the answer of the index
-- **THEN** the file has the marks of the last event in place of those of its content, with the folds and the notes a view opened of it
+- **WHEN** the marks of a file arrive after its content, with what the other files of its subject say
+- **THEN** the file has the marks of the event in place of those of its content, with the folds and the notes a view opened of it
 - **AND** the marks of a file without a text, or of one whose content never came, change nothing
+- **AND** a subject none of whose names waits for the index asks nothing of it
   [@test] src/stores/file-diffs.test.ts (`takes the marks of a late marks event in place of those of the content, and keeps what a view opened of the file`)
+
+### Requirement: Reading the diffs: The index is asked of the renamed names of a subject a view shows
+
+The read of a subject's diffs MUST end with its diffs. What the index says of the names the subject renamed
+([Quiet Changes](../quiet-changes/spec.md)) MUST be asked after it (`get_rename_proofs`), only of a subject a view
+shows, one question at a time, the subject shown last first; a question whose subject no view shows any more gives
+way. The answer MUST take the place of the marks of the files it names and keep what the views opened.
+
+#### Scenario: The read ends before the index is asked
+- **WHEN** the diffs of a subject with a name to ask of the index are read, and no view shows the subject
+- **THEN** the read is complete, what waits for its end runs, and the index is asked nothing
+- **AND** once a view shows the subject the index is asked of it, once however many views hold it
+- **AND** its answer takes the place of the marks of the files it names: the entry stays complete, its folds stay, and a view that shows it again asks nothing
+  [@test] src/stores/file-diffs.test.ts (`ends the read of a subject with its diffs, and asks the index of its renamed names once a view shows it`)
+
+#### Scenario: One question at a time
+- **WHEN** two views show two subjects, the first view goes and another shows a third subject
+- **THEN** the question of the first runs alone, gives way to the third, shown last, once no view shows the first, and the second is asked when the third answered
+- **AND** a subject whose question answered nothing or failed is not asked again until a view shows it anew
+  [@test] src/stores/file-diffs.test.ts (`asks the index of one subject at a time, the one shown last first, and lets the question of a subject no view shows give way`)
 
 ### Requirement: Reading the diffs: The app keeps the diffs of the last 8 subjects per policy
 
@@ -533,9 +556,10 @@ for a blob git cannot read. No patch text carries it.
 ### Requirement: File diffs: The diffs stream, the files in view first
 
 The diffs MUST stream: the files, then the content of each file as it is known with the marks of its pair, the files
-in view (`priorityPaths`) first, the scopes of a text the caches lacked after it. Then the marks of each file the
-others of its subject say something of ([Quiet Changes](../quiet-changes/spec.md)), in the content itself when the
-caches had every pair, and last what the index answered. A late event MUST take no row of a file.
+in view (`priorityPaths`) first, its scopes after it, then the marks of each file the others of its subject say
+something of ([Quiet Changes](../quiet-changes/spec.md)), in the content itself when the caches had every pair. The
+stream MUST ask no index and end with its last file. A late event MUST take no row, no quiet run and no stop of a
+file.
 
 #### Scenario: The order of the stream
 - **WHEN** `get_file_diffs` streams the diffs of a commit with files in view
@@ -558,19 +582,19 @@ caches had every pair, and last what the index answered. A late event MUST take 
 - **WHEN** the diffs of a commit whose files were not all in the caches are streamed
 - **THEN** each content has the marks of its pair, and after every content and every scope one `marks` event brings the marks of each file the subject says something of, with the same starts
   [@test] crates/file-diffs/src/service_test.rs (`the_marks_of_the_subject_follow_the_contents_or_come_with_them_from_the_caches`)
-  [@test] crates/test-server/src/commit_files_test.rs (`the_diffs_of_a_subject_end_with_what_its_files_say_of_each_other_and_what_the_index_answers`)
+  [@test] crates/test-server/src/commit_files_test.rs (`the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_index_is_asked_after_them`)
 
 #### Scenario: The marks of the subject with the contents
 - **WHEN** the caches have every pair of the subject
-- **THEN** the content of each file comes with the marks of the subject, and no `marks` event follows unless the index is asked
+- **THEN** the content of each file comes with the marks of the subject, and no `marks` event follows
   [@test] crates/file-diffs/src/service_test.rs (`the_marks_of_the_subject_follow_the_contents_or_come_with_them_from_the_caches`)
 
-#### Scenario: The answer of the index comes last
-- **WHEN** a subject renamed a name that is not local and an index is there
-- **THEN** the marks of its files say that the index is asked (in a `marks` event, or in the content from the caches), and its answer is one more `marks` event of each of those files, the last events of the stream
-- **AND** an index that answers nothing ends the stream with the names unavailable
-  [@test] crates/file-diffs/src/service_test.rs (`the_index_is_asked_once_of_the_names_a_subject_renamed_and_its_answer_comes_last`)
-  [@test] crates/test-server/src/commit_files_test.rs (`the_diffs_of_a_subject_end_with_what_its_files_say_of_each_other_and_what_the_index_answers`)
+#### Scenario: The stream asks no index
+- **WHEN** a subject renamed a name that is not local and an index of the repository is there
+- **THEN** the marks of its files say that the index is to be asked (in a `marks` event, or in the content from the caches), and the stream ends with them: it asked nothing
+- **AND** without an index, and for the working tree, the names are unavailable in the same events
+  [@test] crates/file-diffs/src/service_test.rs (`the_index_is_asked_after_the_diffs_of_a_subject_in_one_call_and_its_answer_is_kept`)
+  [@test] crates/test-server/src/commit_files_test.rs (`the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_index_is_asked_after_them`)
 
 ### Requirement: File diffs: The result does not depend on the load of the machine
 
@@ -596,9 +620,9 @@ its files say of each other MUST cost no git process: it is read from what the p
 ### Requirement: File diffs: The caches key a diff by its blob pair, policy and grammars
 
 The caches MUST key a diff by its blob pair, the policy and how each side is read: by its grammar, else by whether
-its indentation has a meaning; what the pair left to the other files of a subject is kept beside it under the same
-key and version, and a view knows a text with it or compares it again. The store MUST NOT keep a diff that the time
-cut short, and MUST NOT answer one made with other parsers or other rules of the names.
+its indentation has a meaning; what the pair left is kept beside it under the same key and version. The store MUST
+NOT keep a diff the time cut short, nor answer one of other parsers or rules of the names. The layout of a stored
+value MUST be pinned with the version of its store.
 
 #### Scenario: Two commits with the same blob pair
 - **WHEN** two commits change a file from the same blob to the same blob
@@ -638,9 +662,14 @@ cut short, and MUST NOT answer one made with other parsers or other rules of the
 
 #### Scenario: A diff without what it left
 - **WHEN** the store holds the diff of a pair and not what the pair left
-- **THEN** a scan answers the stored diff, and a view compares the pair again and writes both
-  [@test] crates/file-diffs/src/service_test.rs (`a_diff_stored_with_the_tokens_of_other_parsers_is_not_read`)
+- **THEN** a scan answers the stored diff and writes nothing beside it, and a view compares the pair again and writes both; the next view compares nothing
+  [@test] crates/file-diffs/src/service_test.rs (`a_diff_stored_without_what_it_left_is_compared_again_for_a_view`)
   [@test] crates/object-cache/src/cache_test.rs (`what_a_diff_left_is_read_by_the_key_of_its_diff_from_a_store_of_its_own`)
+
+#### Scenario: The layout of a stored value
+- **WHEN** a field of a stored diff, of what a pair left, or of the diff a stored merge of one side holds is added, taken away, moved or renamed
+- **THEN** the sample of the value that is pinned with the version of its store (`MODEL_VERSION`, `MERGE_MODEL_VERSION`) reads otherwise, and the version is raised with the new sample
+  [@test] crates/file-diffs/src/stored_layout_test.rs (`the_layout_of_a_stored_value_is_pinned_with_the_version_of_its_store`)
 
 ### Requirement: File diffs: The working tree is compared with HEAD
 

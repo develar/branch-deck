@@ -5,7 +5,7 @@ use crate::accio::{DeclarationAt, IndexUnavailable, References, RenameAnswer, Re
 use crate::blocks::{BlobPair, PairDiff};
 use crate::fixture_test::{RENAMED_STORE_ANSWER, REPORT, STORE, commit_all, process_counts, renamed_store, repo_path, unhurried, write};
 use crate::leftovers::Leftovers;
-use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, GetFileDiffsParams};
+use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetRenameProofsParams};
 use crate::service::{DiffLimits, FileDiffs, MODEL_VERSION, MemoryKey, diff_options, disk_key, model_version, priority_order, store_version};
 use code_symbols::highlight::Grammar;
 use code_symbols::navigate::RULES_VERSION;
@@ -103,7 +103,7 @@ fn stream_events(repo: &TestRepo, id: &str) -> Vec<FileDiffEvent> {
   };
   let mut events = Vec::new();
   unhurried()
-    .stream(repo.git_executor(), &ObjectCache::disabled(), None, &params, |event| events.push(event))
+    .stream(repo.git_executor(), &ObjectCache::disabled(), false, &params, |event| events.push(event))
     .unwrap();
   events
 }
@@ -311,7 +311,7 @@ fn the_marks_of_the_subject_follow_the_contents_or_come_with_them_from_the_cache
   let stream = || {
     let mut events = Vec::new();
     diffs
-      .stream(repo.git_executor(), &ObjectCache::disabled(), None, &params, |event| events.push(event))
+      .stream(repo.git_executor(), &ObjectCache::disabled(), false, &params, |event| events.push(event))
       .unwrap();
     events
   };
@@ -423,16 +423,17 @@ fn proofs(events: &[FileDiffEvent]) -> (Proofs, Proofs) {
   (report, store)
 }
 
-/// The names a subject renamed that are not local are asked of the index once, every declaration of the subject in
-/// one call, between the two trees of the subject; its answer is a late event of the marks of their files, after
-/// every content, also when the caches had every pair. A proven rename names its runs, which stay labels while the
-/// kind is not switched on
+/// The diffs of a subject ask no index: with one there to be asked they say so (`asked`) and end. The answer is
+/// asked for after them (`rename_proofs`), every declaration of the subject in one call between its two trees, with
+/// the pairs the caches have: no blob is read for it. It is the marks of the files it says something of; a proven
+/// rename names its runs, which stay labels while the kind is not switched on. Memory keeps an answer by its trees
+/// and its questions, so a subject shown again asks no process
 #[test]
-fn the_index_is_asked_once_of_the_names_a_subject_renamed_and_its_answer_comes_last() {
+fn the_index_is_asked_after_the_diffs_of_a_subject_in_one_call_and_its_answer_is_kept() {
   let (repo, second) = renamed_store();
   let diffs = unhurried();
   let index = RenameIndex::new(complete_answer);
-  let events_of = |source: &DiffSource| {
+  let events_of = |source: &DiffSource, asks_index: bool| {
     let params = GetFileDiffsParams {
       repository_path: repo_path(&repo).to_string(),
       source: source.clone(),
@@ -441,36 +442,77 @@ fn the_index_is_asked_once_of_the_names_a_subject_renamed_and_its_answer_comes_l
     };
     let mut events = Vec::new();
     diffs
-      .stream(repo.git_executor(), &ObjectCache::disabled(), Some(&index), &params, |event| events.push(event))
+      .stream(repo.git_executor(), &ObjectCache::disabled(), asks_index, &params, |event| events.push(event))
       .unwrap();
     events
   };
+  let counting = repo.git_executor().with_process_stats("test");
+  let proofs_of = |source: &DiffSource| {
+    let params = GetRenameProofsParams {
+      repository_path: repo_path(&repo).to_string(),
+      source: source.clone(),
+      policy: WhitespacePolicy::Default,
+    };
+    diffs.rename_proofs(&counting, &ObjectCache::disabled(), Some(&index), &params).unwrap().unwrap()
+  };
+  let proof_of = |answer: &[FileMarks]| -> Vec<(String, RenameProof)> {
+    let proof = |marks: &DiffMarks| {
+      marks
+        .subject
+        .as_ref()
+        .and_then(|subject| subject.used.first().map(|used| used.proof).or_else(|| subject.declared.first().map(|check| check.proof)))
+    };
+    answer.iter().filter_map(|file| Some((file.path.clone(), proof(&file.marks)?))).collect()
+  };
 
-  // compared: the content, the marks of the subject while the index is asked, then its answer
-  let cold = events_of(&commit(&second));
+  // compared: the content, then the marks of the subject, which say that an index is there to be asked; the read
+  // ends there and asked nothing
+  let cold = events_of(&commit(&second), true);
+  let (asked, confirmed) = (RenameProof::Asked, RenameProof::Confirmed);
+  assert_eq!(proofs(&cold), (vec![("marks", asked)], vec![("marks", asked)]));
+  assert_eq!(index.asked(), []);
+
+  // the answer: one call for the declarations of the subject, no blob read
+  let answer = proofs_of(&commit(&second));
   let pair = RenamePair {
     old: "src/Store.kt:6:5".to_string(),
     new: "src/Store.kt:6:5".to_string(),
   };
   assert_eq!(index.asked(), [(vec![pair.clone()], format!("{second}~1"), second.clone())]);
-  let (asked, confirmed) = (RenameProof::Asked, RenameProof::Confirmed);
-  assert_eq!(proofs(&cold), (vec![("marks", asked), ("marks", confirmed)], vec![("marks", asked), ("marks", confirmed)]));
-  let last = marks_events(&cold, "src/Report.kt").pop().unwrap().1;
-  assert_eq!(last.subject.as_ref().map(|subject| subject.confirmed.clone()), Some(vec![0, 1]));
+  assert_eq!(
+    process_counts(&counting),
+    [("diff-tree".to_string(), 1)],
+    "the list of the files, and the pairs from memory"
+  );
+  assert_eq!(proof_of(&answer), [("src/Report.kt".to_string(), confirmed), ("src/Store.kt".to_string(), confirmed)]);
+  let report = &answer[0].marks;
+  assert_eq!(report.subject.as_ref().map(|subject| subject.confirmed.clone()), Some(vec![0, 1]));
   assert!(
-    last.runs.iter().all(|run| run.kind == RunKind::Renamed && !run.quiet),
+    report.runs.iter().all(|run| run.kind == RunKind::Renamed && !run.quiet),
     "labels until the kind is switched on"
   );
-  assert_eq!(last.starts, report_pair_marks(&cold).starts, "the answer takes no stop while the kind is off");
+  assert_eq!(report.starts, report_pair_marks(&cold).starts, "the answer takes no stop while the kind is off");
+  // but for what the index said they are the marks the diffs gave
+  let given = marks_events(&cold, "src/Report.kt").pop().unwrap().1;
+  let without_proofs = |marks: &DiffMarks| {
+    let mut marks = marks.clone();
+    if let Some(subject) = marks.subject.as_mut() {
+      subject.confirmed.clear();
+      subject.used.iter_mut().for_each(|used| used.proof = asked);
+    }
+    marks
+  };
+  assert_eq!(without_proofs(report), given);
 
-  // from memory: the content says that the index is asked, and its answer follows; asked again, since nothing of a
-  // subject is kept
-  let warm = events_of(&commit(&second));
-  assert_eq!(
-    proofs(&warm),
-    (vec![("content", asked), ("marks", confirmed)], vec![("content", asked), ("marks", confirmed)])
-  );
-  assert_eq!(index.asked().len(), 2);
+  // from memory: the content says that the index is to be asked, and nothing of a subject was kept with a pair
+  let warm = events_of(&commit(&second), true);
+  assert_eq!(proofs(&warm), (vec![("content", asked)], vec![("content", asked)]));
+  // the answer of the same trees and the same questions is kept: asked again, it starts no process
+  assert_eq!(proofs_of(&commit(&second)), answer);
+  assert_eq!(index.asked().len(), 1);
+  // diffs read where no index is: nothing to wait for
+  let (report, _) = proofs(&events_of(&commit(&second), false));
+  assert_eq!(report, [("content", RenameProof::Unavailable)]);
 
   // a range is asked between its two commits
   let base = repo.rev_parse(&format!("{second}~1")).unwrap();
@@ -478,20 +520,23 @@ fn the_index_is_asked_once_of_the_names_a_subject_renamed_and_its_answer_comes_l
     base: base.clone(),
     head: second.clone(),
   };
-  assert_eq!(proofs(&events_of(&range)).0.last(), Some(&("marks", confirmed)));
+  assert_eq!(proofs(&events_of(&range, true)).0, [("content", asked)]);
+  assert_eq!(proof_of(&proofs_of(&range))[0].1, confirmed);
   assert_eq!(index.asked().last(), Some(&(vec![pair], base, second)));
 
   // never the working tree: it may be another by the time the index reads it, and the answer would be of other
   // texts than the ones the diffs show
   let asked_before = index.asked().len();
   repo.git(&["reset", "-q", "--soft", "HEAD~1"]);
-  assert_eq!(proofs(&events_of(&DiffSource::Uncommitted)).0, [("content", RenameProof::Unavailable)]);
+  assert_eq!(proofs(&events_of(&DiffSource::Uncommitted, true)).0, [("content", RenameProof::Unavailable)]);
+  assert_eq!(proofs_of(&DiffSource::Uncommitted), []);
   assert_eq!(index.asked().len(), asked_before);
 }
 
 /// A subject that renamed no name that is not local asks the index nothing; an index that answers no renames, one
 /// without an index of the repository and one that fails leave the names unavailable, never a failure of the diffs
-/// and never "no use"; a canceled query ends the stream
+/// and never "no use"; a canceled query answers nothing, and the names stay asked for whoever asks again. No answer
+/// but a whole one is kept
 #[test]
 fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no_diff() {
   let (repo, _, second) = corpus_of_one_change();
@@ -532,19 +577,33 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
     assert_eq!((report.used[0].proof, &report.confirmed, index.asked().len()), (RenameProof::Unavailable, &vec![], 1));
   }
 
-  // canceled: the stream ends with what it sent, the names still asked
+  // canceled: no answer, the names still asked
+  let diffs = unhurried();
+  let read = |index: &RenameIndex| {
+    let files = diffs
+      .read_checked(
+        repo.git_executor(),
+        repo_path(&repo),
+        &ObjectCache::disabled(),
+        Some(index),
+        &commit(&second),
+        WhitespacePolicy::Default,
+      )
+      .unwrap();
+    text(file(&files, "src/Report.kt")).marks.subject.clone().unwrap().used[0].proof
+  };
   let canceled = RenameIndex::new(|| Err(SearchCanceled.into()));
-  let files = unhurried()
-    .read_checked(
-      repo.git_executor(),
-      repo_path(&repo),
-      &ObjectCache::disabled(),
-      Some(&canceled),
-      &commit(&second),
-      WhitespacePolicy::Default,
-    )
-    .unwrap();
-  assert_eq!(text(file(&files, "src/Report.kt")).marks.subject.clone().unwrap().used[0].proof, RenameProof::Asked);
+  assert_eq!(read(&canceled), RenameProof::Asked);
+  let params = GetRenameProofsParams {
+    repository_path: repo_path(&repo).to_string(),
+    source: commit(&second),
+    policy: WhitespacePolicy::Default,
+  };
+  assert_eq!(diffs.rename_proofs(repo.git_executor(), &ObjectCache::disabled(), Some(&canceled), &params).unwrap(), None);
+  // neither it nor an index that did not answer left an answer behind: the next one is asked
+  assert_eq!(read(&RenameIndex::new(|| Ok(None))), RenameProof::Unavailable);
+  let answering = RenameIndex::new(complete_answer);
+  assert_eq!((read(&answering), answering.asked().len()), (RenameProof::Confirmed, 1));
 }
 
 /// A repository whose second commit changes one line of one text file
@@ -785,7 +844,7 @@ fn the_stream_lists_the_files_then_the_files_in_view_first_and_their_scopes_afte
     priority_paths: priority.to_vec(),
   };
   unhurried()
-    .stream(repo.git_executor(), &ObjectCache::disabled(), None, &params, |event| events.push(event))
+    .stream(repo.git_executor(), &ObjectCache::disabled(), false, &params, |event| events.push(event))
     .unwrap();
   let FileDiffEvent::Files { files } = &events[0] else { panic!("{:?}", events[0]) };
   let index_of = |path: &str| u32::try_from(files.iter().position(|file| file.path == path).unwrap()).unwrap();
@@ -1153,24 +1212,35 @@ fn the_tokens_of_a_blob_are_read_once_per_grammar() {
   assert!(Arc::ptr_eq(&new, &tokens_of(&second)));
 }
 
+/// A repository whose second commit wraps a call of `A.kt`: the repository, that commit and the key of the diff of
+/// the file
+fn wrapped_commit() -> (TestRepo, String, MemoryKey) {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &[("A.kt", WRAPPED.0)]);
+  let second = repo.create_commit_with_files("Wrap", &[("A.kt", WRAPPED.1)]);
+  let blob = |rev: &str| repo.rev_parse(&format!("{rev}:A.kt")).unwrap();
+  let key: MemoryKey = (diff_options(WhitespacePolicy::Default, None, "A.kt"), blob(&format!("{second}~1")), blob(&second));
+  (repo, second, key)
+}
+
+/// The pair of blobs of `A.kt` whose diff has the key `key`, as a scan asks for it
+fn pair_of(key: &MemoryKey) -> BlobPair<'_> {
+  BlobPair {
+    path: "A.kt",
+    old_path: None,
+    old_id: Some(&key.1),
+    new_id: Some(&key.2),
+  }
+}
+
 /// The store keeps a diff under a version made of the model's, of the tokens' and of the rules of the names
 /// (`store_version`): the quiet runs of a diff are proven by the tokens of the parsers that made it, and its renames
 /// by the bindings of the rules that read them, so a diff an app with other parsers or other rules stored is never
 /// answered, to a view or to a scan, and the first write of this app drops it
 #[test]
 fn a_diff_stored_with_the_tokens_of_other_parsers_is_not_read() {
-  let repo = TestRepo::new();
-  repo.create_commit_with_files("Initial", &[("A.kt", WRAPPED.0)]);
-  let second = repo.create_commit_with_files("Wrap", &[("A.kt", WRAPPED.1)]);
-  let blob = |rev: &str| repo.rev_parse(&format!("{rev}:A.kt")).unwrap();
-  let (old_id, new_id) = (blob(&format!("{second}~1")), blob(&second));
-  let key: MemoryKey = (diff_options(WhitespacePolicy::Default, None, "A.kt"), old_id.clone(), new_id.clone());
-  let pair = BlobPair {
-    path: "A.kt",
-    old_path: None,
-    old_id: Some(&old_id),
-    new_id: Some(&new_id),
-  };
+  let (repo, second, key) = wrapped_commit();
+  let pair = pair_of(&key);
   let ours = store_version(MODEL_VERSION, tokens_version(), RULES_VERSION);
   let other_tokens = store_version(MODEL_VERSION, tokens_version() ^ 1, RULES_VERSION);
   let other_names = store_version(MODEL_VERSION, tokens_version(), RULES_VERSION + 1);
@@ -1215,23 +1285,47 @@ fn a_diff_stored_with_the_tokens_of_other_parsers_is_not_read() {
     assert_eq!(answers(others, others), (vec![], vec![wrapped_run()], Some(vec![wrapped_run()]), None));
   }
   // the same store under the version of this app is answered: the readers ask by that version
-  assert_eq!(
-    answers(ours, other_tokens),
-    (vec![stale_run.clone()], vec![stale_run.clone()], Some(vec![stale_run.clone()]), None)
-  );
+  assert_eq!(answers(ours, other_tokens), (vec![stale_run.clone()], vec![stale_run.clone()], Some(vec![stale_run]), None));
+}
 
-  // a diff the store has without what it left is answered to a scan, which needs no more, and compared again for a
-  // view, which writes both: the pass over the files of a subject reads no blob
+/// What a pair left is a value of its own beside its diff, in a store of its own. A diff the store has without it
+/// (a scan wrote the diff, or the other store lost its entry) is answered to a scan, which needs no more, and
+/// compared again for a view, which writes both: the pass over the files of a subject reads no blob, so a view
+/// knows a text with what it left or not at all
+#[test]
+fn a_diff_stored_without_what_it_left_is_compared_again_for_a_view() {
+  let (repo, second, key) = wrapped_commit();
+  let pair = pair_of(&key);
+  // a diff no comparison of the pair gives: who answers it read the store
+  let stored_run = LineRun {
+    old_start: 0,
+    old_end: 6,
+    new_start: 0,
+    new_end: 7,
+    ..wrapped_run()
+  };
+  let stored = TextDiff {
+    marks: DiffMarks {
+      runs: vec![stored_run.clone()],
+      ..DiffMarks::default()
+    },
+    ..TextDiff::default()
+  };
   let cache_dir = tempfile::tempdir().unwrap();
   let cache = open_cache(&cache_dir);
-  cache.put_file_diffs(ours, &[(disk_key(&key), &stale)]);
-  let left = || cache.get_file_leftovers::<Leftovers>(ours, &[disk_key(&key)]).remove(0);
+  cache.put_file_diffs(model_version(), &[(disk_key(&key), &stored)]);
+  let left = || cache.get_file_leftovers::<Leftovers>(model_version(), &[disk_key(&key)]).remove(0);
   assert_eq!(left(), None);
   let scan = unhurried().blocks_of(repo.git_executor(), repo_path(&repo), &cache, &[pair]).unwrap();
-  assert!(matches!(&scan[0], PairDiff::Text(diff) if diff.marks.runs == [stale_run]));
-  let view = unhurried()
-    .read(repo.git_executor(), repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
-    .unwrap();
+  assert!(matches!(&scan[0], PairDiff::Text(diff) if diff.marks.runs == [stored_run]));
+  assert_eq!(left(), None, "a scan reads the diff alone, and writes nothing beside it");
+  let counting = repo.git_executor().with_process_stats("test");
+  let view = unhurried().read(&counting, repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default).unwrap();
   assert_eq!(text(&view[0]).marks.runs, [wrapped_run()]);
+  assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1), ("diff-tree".to_string(), 1)], "compared again");
   assert_eq!(left(), Some(Leftovers::default()), "a wrapped call leaves nothing to the other files");
+  // with both, the next view compares nothing
+  let counting = repo.git_executor().with_process_stats("test");
+  let again = unhurried().read(&counting, repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default).unwrap();
+  assert_eq!((text(&again[0]).marks.runs.clone(), process_counts(&counting)), (vec![wrapped_run()], vec![]));
 }

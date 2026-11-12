@@ -1,19 +1,33 @@
 // @spec openspec/specs/commit/commit-files/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { DiffFileHeader, FileDiffEvent, FileMergeEvent, FileMergeHeader, GetFileDiffsParams, GetFileMergesParams, MergeContent } from "@/lib/bindings"
+import type {
+  DiffFileHeader,
+  DiffMarks,
+  FileDiffEvent,
+  FileMarks,
+  FileMergeEvent,
+  FileMergeHeader,
+  GetFileDiffsParams,
+  GetFileMergesParams,
+  GetRenameProofsParams,
+  MergeContent,
+  RenameProof,
+} from "@/lib/bindings"
 import type { DiffContent } from "@/lib/diff/file-diff-model"
 import type { MergeSource } from "@/lib/diff/file-merge-model"
 import { getFoldLevels, getOpenNotes, sectionFoldKey, setFoldLevels, setOpenNotes } from "@/lib/diff/rows"
-import { dropFileDiffsOf, fileDiffOf, fileDiffsKey, fileDiffsStore, loadFileDiffs, MAX_CACHED_SUBJECTS, whenFileDiffsEnded } from "@/stores/file-diffs"
+import { dropFileDiffsOf, fileDiffOf, fileDiffsKey, fileDiffsStore, holdFileDiffs, loadFileDiffs, MAX_CACHED_SUBJECTS, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { fileMergeOf, fileMergesKey, fileMergesStore, loadFileMerges } from "@/stores/file-merges"
 import { block, mergeBlock, run, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 const getFileDiffs = vi.hoisted(() => vi.fn())
 const getFileMerges = vi.hoisted(() => vi.fn())
+const getRenameProofs = vi.hoisted(() => vi.fn())
+const logError = vi.hoisted(() => vi.fn())
 
 vi.mock("@tauri-apps/api/core", () => import("@/test-support/channel-mock"))
-vi.mock("@/lib/bindings", () => ({ commands: { getFileDiffs, getFileMerges } }))
-vi.mock("@/lib/errors", () => ({ logError: () => {} }))
+vi.mock("@/lib/bindings", () => ({ commands: { getFileDiffs, getFileMerges, getRenameProofs } }))
+vi.mock("@/lib/errors", () => ({ logError }))
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 vi.mock("@/lib/command", () => import("@/test-support/invoke-command-mock"))
 
@@ -39,6 +53,8 @@ beforeEach(() => {
   fileDiffsStore.setState({ byKey: new Map() })
   getFileDiffs.mockReset()
   getFileDiffs.mockImplementation(answer)
+  getRenameProofs.mockReset()
+  logError.mockReset()
 })
 
 const entryOf = (subject: Parameters<typeof fileDiffsKey>[0], policy: Parameters<typeof fileDiffsKey>[1] = "default") =>
@@ -53,6 +69,52 @@ function holdNextStream(): { events: () => Events; end: () => void } {
     return new Promise(resolve => (resolveCall = () => resolve({ status: "ok", data: null })))
   })
   return { events: () => channel!, end: () => resolveCall() }
+}
+
+/** The marks `marks` with what the other files of a subject say of the file, the name another file declares `proof` */
+function subjectMarks(marks: DiffMarks, proof: RenameProof): DiffMarks {
+  const renamed = { old: "openStore", new: "connectStore", sites: 1, local: false, declared: [], oldSites: [5, 2, 11], newSites: [5, 2, 14] }
+  return {
+    ...marks,
+    runs: [run(5, 6, 5, 6, { kind: "renamed", quiet: false })],
+    subject: {
+      movedOut: [],
+      movedIn: [{ start: 8, len: 1, file: 1, line: 3 }],
+      declared: [],
+      used: [{ rename: renamed, file: 1, line: 2, proof }],
+      confirmed: proof === "confirmed" ? [0] : [],
+    },
+  }
+}
+
+/** The text of a file of a subject as the store has it */
+function textOf(subject: Parameters<typeof fileDiffsKey>[0], path: string) {
+  const file = fileDiffOf(entryOf(subject), path)
+  return file !== undefined && file !== "pending" && file.content.kind === "text" ? file.content : null
+}
+
+/** The proof of the name `a.kt` of a subject uses */
+const proofOf = (subject: Parameters<typeof fileDiffsKey>[0]) => textOf(subject, "a.kt")?.marks.subject?.used[0]?.proof
+
+/** Reads the diffs of a subject of one file, `a.kt`, whose name another file declares is to be asked of the index */
+async function loadAsked(subject: Parameters<typeof fileDiffsKey>[0]) {
+  const text: DiffContent & { kind: "text" } = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6), block(8, 9, 8, 9)]) }
+  text.marks = subjectMarks(text.marks, "asked")
+  getFileDiffs.mockImplementationOnce(async (_params: GetFileDiffsParams, events: Events) => {
+    events.onmessage({ kind: "files", files: [header("a.kt")] })
+    events.onmessage({ kind: "content", index: 0, content: text, collapse: null })
+    return { status: "ok", data: null }
+  })
+  loadFileDiffs(subject, "default")
+  await vi.waitFor(() => expect(entryOf(subject)).toMatchObject({ kind: "loaded", complete: true }))
+  return text
+}
+
+/** Holds the next `get_rename_proofs` until the test answers it */
+function holdNextQuestion(): { answer: (data: FileMarks[] | null) => void } {
+  let resolveCall: (data: FileMarks[] | null) => void = () => {}
+  getRenameProofs.mockImplementationOnce(() => new Promise(resolve => (resolveCall = data => resolve({ status: "ok", data }))))
+  return { answer: data => resolveCall(data) }
 }
 
 async function settle() {
@@ -138,37 +200,104 @@ describe("loadFileDiffs", () => {
     setFoldLevels(text, [3])
     setOpenNotes(text, new Set([5]))
     // what the other files of the subject say of it: a run that is a label, a name another file declares, lines that
-    // moved in from another file; then what the index answered of the name
-    const renamed = { old: "openStore", new: "connectStore", sites: 1, local: false, declared: [], oldSites: [5, 2, 11], newSites: [5, 2, 14] }
-    const marksOf = (proof: "asked" | "confirmed") => ({
-      ...text.marks,
-      runs: [run(5, 6, 5, 6, { kind: "renamed", quiet: false })],
-      subject: {
-        movedOut: [],
-        movedIn: [{ start: 8, len: 1, file: 1, line: 3 }],
-        declared: [],
-        used: [{ rename: renamed, file: 1, line: 2, proof }],
-        confirmed: proof === "confirmed" ? [0] : [],
-      },
-    })
-    const marked = () => {
-      const file = fileDiffOf(entryOf(subject), "a.kt")
-      return file !== "pending" && file?.content.kind === "text" ? file.content : null
-    }
-    events().onmessage({ kind: "marks", index: 0, marks: marksOf("asked") })
-    await vi.waitFor(() => expect(marked()?.marks.subject?.used[0]?.proof).toBe("asked"))
-    events().onmessage({ kind: "marks", index: 0, marks: marksOf("confirmed") })
+    // moved in from another file
+    const marks = subjectMarks(text.marks, "unavailable")
+    events().onmessage({ kind: "marks", index: 0, marks })
     // the marks of a file without a text, and of a file whose content never came, change nothing
-    events().onmessage({ kind: "marks", index: 1, marks: marksOf("confirmed") })
-    events().onmessage({ kind: "marks", index: 7, marks: marksOf("confirmed") })
+    events().onmessage({ kind: "marks", index: 1, marks })
+    events().onmessage({ kind: "marks", index: 7, marks })
     end()
     await settle()
-    const content = marked()
+    const content = textOf(subject, "a.kt")
     expect(content).not.toBe(text)
-    expect(content?.marks).toEqual(marksOf("confirmed"))
+    expect(content?.marks).toEqual(marks)
     // the same blocks, so the stops and the rows are those of the content: the folds and the notes stay
     expect([content?.blocks, getFoldLevels(content!), [...getOpenNotes(content!)]]).toEqual([text.blocks, [3], [5]])
     expect(fileDiffOf(entryOf(subject), "bin.dat")).toMatchObject({ content: BINARY })
+    // no name of it waits for the index: nothing is asked of a view that shows it
+    holdFileDiffs(fileDiffsKey(subject, "default"))()
+    expect(getRenameProofs).not.toHaveBeenCalled()
+  })
+
+  it("ends the read of a subject with its diffs, and asks the index of its renamed names once a view shows it", async () => {
+    const subject = { kind: "commit", id: "c11" } as const
+    const text = await loadAsked(subject)
+    // the read ended with the names to be asked: what waits for its end goes on, and a subject no view shows asks nothing
+    const ended: string[] = []
+    whenFileDiffsEnded(subject, "default", () => ended.push("ended"))
+    expect([entryOf(subject), ended, getRenameProofs.mock.calls.length]).toMatchObject([{ kind: "loaded", complete: true }, ["ended"], 0])
+    setFoldLevels(textOf(subject, "a.kt")!, [3])
+
+    // a view shows it: the index is asked of the subject, once however many views hold it
+    const question = holdNextQuestion()
+    const release = holdFileDiffs(fileDiffsKey(subject, "default"))
+    const releaseOther = holdFileDiffs(fileDiffsKey(subject, "default"))
+    expect(getRenameProofs.mock.calls.map(([params]) => params as GetRenameProofsParams)).toEqual([
+      { repositoryPath: "/repo", source: { kind: "commit", id: "c11" }, policy: "default" },
+    ])
+    expect(proofOf(subject)).toBe("asked")
+    // its answer takes the place of the marks of the files it names, in the entry as it is: complete, its folds kept
+    const confirmed = subjectMarks(text.marks, "confirmed")
+    question.answer([
+      { path: "a.kt", marks: confirmed },
+      { path: "gone.kt", marks: confirmed },
+    ])
+    await vi.waitFor(() => expect(proofOf(subject)).toBe("confirmed"))
+    const content = textOf(subject, "a.kt")!
+    expect([content.marks, content.blocks, getFoldLevels(content), entryOf(subject)]).toEqual([
+      confirmed,
+      text.blocks,
+      [3],
+      { kind: "loaded", files: [{ ...header("a.kt"), content, collapse: null }], complete: true },
+    ])
+    // answered: a view that shows it again asks nothing
+    release()
+    releaseOther()
+    holdFileDiffs(fileDiffsKey(subject, "default"))()
+    expect(getRenameProofs).toHaveBeenCalledTimes(1)
+  })
+
+  it("asks the index of one subject at a time, the one shown last first, and lets the question of a subject no view shows give way", async () => {
+    const [first, second, third] = [{ kind: "commit", id: "c12" } as const, { kind: "commit", id: "c13" } as const, { kind: "commit", id: "c14" } as const]
+    const key = (subject: Parameters<typeof fileDiffsKey>[0]) => fileDiffsKey(subject, "default")
+    const texts = [await loadAsked(first), await loadAsked(second), await loadAsked(third)]
+    const asked = () => getRenameProofs.mock.calls.map(([params]) => (params as GetRenameProofsParams).source)
+    const questions = [holdNextQuestion(), holdNextQuestion(), holdNextQuestion(), holdNextQuestion()]
+
+    // two views show two subjects: the question of the first runs, the second waits for it
+    const releaseFirst = holdFileDiffs(key(first))
+    const releaseSecond = holdFileDiffs(key(second))
+    expect(asked()).toEqual([first])
+    // the first view goes and another shows the third subject: the question of the first gives way to the one shown
+    // last (the backend ends the query of a window that asks another), and answers nothing
+    releaseFirst()
+    const releaseThird = holdFileDiffs(key(third))
+    expect(asked()).toEqual([first, third])
+    questions[0]!.answer(null)
+    await Promise.resolve()
+    expect(asked()).toEqual([first, third])
+    // the third answered: the second, still shown, is asked
+    questions[1]!.answer([{ path: "a.kt", marks: subjectMarks(texts[2]!.marks, "confirmed") }])
+    await vi.waitFor(() => expect(asked()).toEqual([first, third, second]))
+    expect([proofOf(first), proofOf(second), proofOf(third)]).toEqual(["asked", "asked", "confirmed"])
+    // an answer that leaves the name of a subject still shown asked: it is not asked again until a view shows it anew
+    questions[2]!.answer([{ path: "a.kt", marks: { ...subjectMarks(texts[1]!.marks, "asked"), starts: [] } }])
+    await vi.waitFor(() => expect(textOf(second, "a.kt")?.marks.starts).toEqual([]))
+    await Promise.resolve()
+    releaseThird()
+    expect(asked()).toEqual([first, third, second])
+    releaseSecond()
+    // the first is shown again: asked again, as is the second then
+    const againFirst = holdFileDiffs(key(first))
+    expect(asked()).toEqual([first, third, second, first])
+    getRenameProofs.mockImplementationOnce(async () => ({ status: "error", error: { message: "no such commit" } }))
+    const againSecond = holdFileDiffs(key(second))
+    questions[3]!.answer([{ path: "a.kt", marks: subjectMarks(texts[0]!.marks, "unavailable") }])
+    await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(1))
+    expect(asked()).toEqual([first, third, second, first, second])
+    expect([proofOf(first), proofOf(second)]).toEqual(["unavailable", "asked"])
+    againFirst()
+    againSecond()
   })
 
   it("tells the end of a subject's read only once its stream ended: the neighbours of a review are read after it", async () => {

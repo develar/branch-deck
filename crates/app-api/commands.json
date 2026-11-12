@@ -86,6 +86,11 @@
     }
   },
   {
+    "name": "get_rename_proofs",
+    "class": "read",
+    "transport": "json"
+  },
+  {
     "name": "get_file_merges",
     "class": "read",
     "transport": {

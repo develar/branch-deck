@@ -29,14 +29,24 @@ fn diff(old: &str, new: &str) -> TextDiff {
 
 /// What the pair of `old` and `new` leaves, with the moves within it found first
 fn left(old: &str, new: &str) -> [Vec<LeftRow>; 2] {
+  left_of(old, new, false)
+}
+
+/// `left` of a file whose indentation has a meaning (`indented`) or has none
+fn left_of(old: &str, new: &str, indented: bool) -> [Vec<LeftRow>; 2] {
   let diff = diff(old, new);
-  let moves = find_moves(old, new, &diff.blocks, &[], WhitespacePolicy::Default, false);
-  left_rows(old, new, &diff.blocks, &[], &moves)
+  let moves = find_moves(old, new, &diff.blocks, &[], WhitespacePolicy::Default, indented);
+  left_rows(old, new, &diff.blocks, &[], &moves, indented)
 }
 
 /// The moves between files whose sides are the texts `pairs`, each the old and the new text of a file
 fn moves_of(pairs: &[(&str, &str)]) -> Vec<MoveAcross> {
-  let rows: Vec<[Vec<LeftRow>; 2]> = pairs.iter().map(|(old, new)| left(old, new)).collect();
+  moves_between(pairs, false)
+}
+
+/// `moves_of` between files whose indentation has a meaning (`indented`) or has none
+fn moves_between(pairs: &[(&str, &str)], indented: bool) -> Vec<MoveAcross> {
+  let rows: Vec<[Vec<LeftRow>; 2]> = pairs.iter().map(|(old, new)| left_of(old, new, indented)).collect();
   let files: Vec<FileRows<'_>> = rows.iter().map(|[old, new]| FileRows { old, new }).collect();
   find_moves_across(&files).0
 }
@@ -77,15 +87,66 @@ fn a_pair_leaves_the_lines_of_its_changes_that_no_mark_took() {
     kind: RunKind::Comments,
     quiet: false,
   };
-  let [cut, _] = left_rows(&old, &new, &diff.blocks, std::slice::from_ref(&run), &[]);
+  let [cut, _] = left_rows(&old, &new, &diff.blocks, std::slice::from_ref(&run), &[], false);
   // the three lines after the run are enough by themselves
   assert_eq!(lines_of(&cut), [(5, 8)]);
-  let [cut, _] = left_rows(&old, &new, &diff.blocks, &[LineRun { old_start: 5, old_end: 6, ..run }], &[]);
+  let [cut, _] = left_rows(&old, &new, &diff.blocks, &[LineRun { old_start: 5, old_end: 6, ..run }], &[], false);
   // a line before the run and two short ones after it are each too little
   assert_eq!(lines_of(&cut), []);
   let moved = text(&[&TITLE, &[""], &KEPT]);
   let [old_rows, new_rows] = left(&old, &moved);
   assert_eq!((lines_of(&old_rows), lines_of(&new_rows)), (vec![], vec![]), "the function moved within the file");
+}
+
+#[test]
+fn a_line_at_another_depth_is_another_line_where_the_indentation_has_a_meaning() {
+  const KEEP: &str = "def keep():\n    return 1\n\n";
+  const OTHER: &str = "def total(ledger):\n    return sum(ledger.balances())\n\n";
+  let report = |last: &str| {
+    format!("def report(ledger, account):\n    if ledger.has_account(account):\n        balance = ledger.balance(account)\n{last}return format_title(account, balance)\n")
+  };
+  // the function left one file for another, where its last line is inside the `if`: it returns nothing otherwise
+  let (flat, nested) = (report("    "), report("        "));
+  let left_file = (format!("{KEEP}{flat}"), KEEP.to_string());
+  let nested_file = (OTHER.to_string(), format!("{OTHER}{nested}"));
+  let pairs = [(left_file.0.as_str(), left_file.1.as_str()), (nested_file.0.as_str(), nested_file.1.as_str())];
+  // only the three lines at their depth are the same lines; the fourth is another, and no line of a move
+  let three = MoveAcross {
+    old_file: 0,
+    old_start: 3,
+    new_file: 1,
+    new_start: 3,
+    len: 3,
+  };
+  assert_eq!(moves_between(&pairs, true), [three]);
+  // where the indentation has none, the indent of a line is no part of it: all four lines moved
+  assert_eq!(moves_between(&pairs, false), [MoveAcross { len: 4, ..three }]);
+  // the same function whole at its depth is one move there too, and whole at another depth it is none: every line
+  // of it is nested otherwise
+  let same_file = (OTHER.to_string(), format!("{OTHER}{flat}"));
+  assert_eq!(
+    moves_between(&[pairs[0], (same_file.0.as_str(), same_file.1.as_str())], true),
+    [MoveAcross { len: 4, ..three }]
+  );
+  let deeper = flat.lines().fold(String::new(), |mut deeper, line| {
+    writeln!(deeper, "    {line}").unwrap();
+    deeper
+  });
+  let class_file = (OTHER.to_string(), format!("{OTHER}class Reports:\n{deeper}"));
+  assert_eq!(moves_between(&[pairs[0], (class_file.0.as_str(), class_file.1.as_str())], true), []);
+  // a tab is not the spaces it stands for, and a blank line has no depth: it is a line of the move at any indent
+  let spaced = "def first(ledger):\n    total = ledger.total_of_all_accounts()\n\n    return total\n";
+  let tabbed = spaced.replace("    return", "\treturn");
+  let blank = spaced.replace("\n\n", "\n        \n");
+  let whole = MoveAcross {
+    old_file: 0,
+    old_start: 0,
+    new_file: 1,
+    new_start: 0,
+    len: 4,
+  };
+  assert_eq!(moves_between(&[(spaced, ""), ("", tabbed.as_str())], true), [MoveAcross { len: 2, ..whole }]);
+  assert_eq!(moves_between(&[(spaced, ""), ("", blank.as_str())], true), [whole]);
 }
 
 #[test]

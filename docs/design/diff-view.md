@@ -83,9 +83,13 @@ flowchart LR
 The stores stay as they are:
 - `src/stores/file-diffs.ts` keeps the `FileDiff[]` of a subject under the whitespace policy. `get_file_diffs`
   streams them through a channel: the files, then the content of each file as it is known (`priorityPaths`, the file
-  a review opens at, first), then the scopes of a text the caches did not have. A file is in the entry once its
-  content arrived, and pending before (`fileDiffOf`); the late scopes replace its content and keep its fold levels.
-  Contents within 16 ms go into the store in one update.
+  a review opens at, first), then the scopes of a text the caches did not have, then the `marks` of each file that
+  the other files of its subject say something of. A file is in the entry once its content arrived, and pending
+  before (`fileDiffOf`); the late scopes and the late marks replace those of its content and keep its fold levels
+  and its open notes (`keepOpened`). Contents within 16 ms go into the store in one update. The read ends with its
+  last file. What the index of the repository says of the names the subject renamed is another read,
+  `get_rename_proofs`, which the store asks of the subjects a view holds (`useFileDiffs`), one at a time, and whose
+  answer replaces the marks of the files it names in the complete entry ("The answer is asked by the view" below).
 - `src/stores/blob-texts.ts` keeps the texts by blob id, in an LRU of 64 Mi UTF-16 units.
 
 Two changes:
@@ -227,32 +231,57 @@ rest gets a label and stays a stop.
   - *A name another file declares*: a name the pair of a file handed out is a rename of that file once another file
     of the subject declares a name that is not local and renamed it so. The tie is of the two spellings, as within
     a file: a label. The runs its pair kept for it hold then, beside the runs of the pair, which stay
-    (`with_the_first`, as the second reading of a pair); a run that needs a name no file of the subject declares
+    (`with_the_first`, as the second reading of a pair); a run that leans on a name no file of the subject declares
     does not, and its line is read. A line of such a run is taken from the rows of the moves between files: a line
     is in a run or in a move.
+  - *Labels alone.* The files of a subject are put together after the rows of each went out, so the pass adds runs
+    of the kind `renamed`, which are labels, and nothing else: the quiet runs and the stops of a file are those of
+    its pair. The third reading of a block would give more: with a name read as one, a call wrapped otherwise at
+    the end of its block is the same code up to the same token after it, a run of formatting the pair does not
+    have. Such a run is quiet, would take rows of a file already drawn, and leans on a name (the token after the
+    block) that it does not hold. So the pair keeps of that reading the runs of the kind `renamed` alone, each with
+    every name it leans on: those with a place in its lines, and the one whose place is the first token of the code
+    after its block when the run reaches the end of the block (`code_symbols::tokens::same_after` compares that
+    token).
 - **What the index proves** (`Subject::questions`, `IndexAnswer`). Every declaration of a renamed name that is not
   local is asked of accio in one call (`accio renames`, its decision 2026-11-11-rename-read-in-two-trees): whether
   the two places are one declaration, its uses in both trees, what the rename changed beyond the name. accio maps
   no line of one tree to the other; that is this reader's part. A declaration is proven renamed when the answer
   says one declaration of Kotlin or Java, complete, without a conflict, and every use it lists in either tree is
   the declaration, a place of the rename in the subject whose twin of the other tree is listed too, a link of a doc
-  comment (it runs nothing), or stands on a line that is read anyway: a changed line in no run, so a call the
+  comment (it runs nothing), a use that writes no word (accio lists a positional argument that sets a property, and
+  a constructor delegation, with no column between its ends: there is no name to change), a use by another word (an
+  alias of an import, the accessor of a property in another language) that the other tree lists at the same place
+  of a line the change left alone, or stands on a line that is read anyway: a changed line in no run, so a call the
   change added or deleted in another file stands in the way of nothing. Every other case names why not, for a view
   to word: `usesOutside` (a use the change left behind in a file it did not touch, which accio reports, or on a
   line it left alone), `otherMeaning` (a conflict of accio: a capture, an overload, an override, a declaration it
   hides or that hides it, a namesake; a use without its twin; a use of the new name on a line left alone),
   `otherDeclaration` (the kind, the owner or the signature changed with the name), `incomplete` (the answer is not
   complete, a use is tied by its name alone, more uses than listed, another language: accio ties a use by the
-  scopes of its file for Kotlin and Java only) and `unavailable` (no index, an accio without the answer, a
-  failure, a pair it could not ask, the working tree). What the index found wrong comes before what it could not
+  scopes of its file for Kotlin and Java only, so a name a file of another language declares is not asked at all;
+  a use by another word that the other tree does not hold at its place; a use in a text with a lone carriage
+  return, which the comparison counts as a line end and accio does not, so the line accio names is no line of the
+  diff) and `unavailable` (no index, an accio without the answer, a failure, a pair it could not ask, the working
+  tree). What the index found wrong comes before what it could not
   say. The places a proven declaration lists are proven, and a run whose every place is proven (by the index, or
   for a local name by the scopes of its file) is named in `confirmed`. The declaration is in no run and stays a
   stop.
-- **The answer comes last.** The index is asked after the contents went out, also when the caches had every pair,
-  so its answer is always a late event, and a late event takes no row: a view passes a confirmed run and shows each
-  of its lines, where a quiet run of the pair is shown once. That is why `confirmed` is a list of its own beside
-  `quiet`. Only a commit and a range named by their ids are asked: the working tree may be another by the time
-  accio reads it, and its answer would be of other texts than the ones shown.
+- **The answer is asked by the view.** A query of the index takes seconds on a large repository (1.8 s here, 14 s
+  warm and 41 s cold on the IntelliJ monorepo, for one declaration), and three things wait for the end of the read
+  of a subject's diffs: a review that follows its branch to a new head, the link that opened a review, and the read
+  ahead of the neighbours. So the diffs ask no index. With one on the machine, the names a subject renamed say
+  `asked`, and the read ends with its last file. The page asks then (`get_rename_proofs`), and only of a subject a
+  view shows: the store counts the views that hold an entry (`useFileDiffs`), and a subject read ahead of its view
+  has none. One question at a time, of the subject held last; a question whose subject no view shows any more
+  gives way to the next one, and the backend kills its query (one request of a kind per window, as a symbol search;
+  also once the window closes or loads again). A question that got no answer leaves the names `asked`, and the
+  subject is asked again when a view shows it again; an answer is kept in memory by the two trees and the
+  declarations asked, so that costs no process. The answer is the marks of the files it says something of, and it
+  comes after their rows: a view passes a confirmed run and shows each of its lines, where a quiet run of the pair
+  is shown once. That is why `confirmed` is a list of its own beside `quiet`. Only a commit and a range named by
+  their ids are asked: the working tree may be another by the time accio reads it, and its answer would be of
+  other texts than the ones shown.
 - **How a view reads the marks of a subject (planned: no view words them yet).** `marks.subject` is absent or
   `null` for a file the subject says nothing of. `movedOut` and `movedIn` are `{start, len, file, line}`: `len`
   lines from `start` (old lines where they left, new lines where they stand now), `file` the index of the other
@@ -262,10 +291,10 @@ rest gets a label and stays a stop.
   proof}`: a `Rename` without a declaration, its note at its first place ("Renamed openStore → connectStore ·
   declared in Store.kt"), its lines the runs of the kind `renamed` that hold its places. `declared` is `{rename,
   proof}` for the renames of `renames` that are not local, by their number. `proof` is what the note adds: `asked`
-  while the index runs (a `marks` event follows), `confirmed`, or why not. `confirmed` names the runs, by their
+  until the index answered (the store asks it for a view that shows the subject), `confirmed`, or why not. `confirmed` names the runs, by their
   numbers among `runs`, that are passed once the kind is on (`quiet` then, and the starts without them) and shown
-  line by line all the same. A `marks` event replaces the marks of its file whole; the blocks are those of the
-  content.
+  line by line all the same. A `marks` event, and the answer of the index, replace the marks of their file whole;
+  the blocks are those of the content.
 - **How a view reads a rename (planned: no view words one yet).** `renames` holds `{old, new, sites, local,
   declared, oldSites, newSites}`: place `i` is `[line, start, end]` of each text (UTF-16), in the order of the
   texts, `declared` the numbers of the places that declare the name: where the one note of the rename stands

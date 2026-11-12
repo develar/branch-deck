@@ -287,7 +287,7 @@ changes no block and is never quiet: where lines stand is behaviour.
 files of a subject are put together when their texts are gone (the service keeps the diff of a pair of blobs, and a
 subject of cached pairs reads no blob):
 
-- **What a pair leaves** (`left_rows(old, new, blocks, runs, moves)`), made where the texts are: the lines of the
+- **What a pair leaves** (`left_rows(old, new, blocks, runs, moves, indented)`), made where the texts are: the lines of the
   blocks that are a change and that no mark took, neither a run nor a move within the file, as rows of lines that
   follow each other in one block. A line is kept as the hash of the key of a move within a file (its text without
   the spaces and tabs at its ends; 0 for a blank line) with the number of its characters that are no whitespace. A
@@ -295,9 +295,15 @@ subject of cached pairs reads no blob):
   is written out in the module (FNV-1a and the finalizer of SplitMix64), not taken from a crate or the standard
   library: the hashes of two pairs are compared whenever they were made, by whichever build, so it changes only
   with the version of the diffs.
+- **Where the indentation has a meaning** (`indented`: Python, YAML, Starlark; what a move within a file is told
+  too) the indent of a line is part of its key: a line at another depth is another line. A function that another
+  file holds with its `return` inside an `if` is three lines of a move and one deleted and one added line, and a
+  block that stands whole at another depth is no move between files. A move within a file says such a line is
+  edited and by how many columns its lines were shifted (`LineMove::indent`); a move between files has no words
+  for either, and says "the same lines" only where they are. A blank line has no depth and pairs with any.
 - **The search** (`find_moves_across(files)`), a function of the rows alone: a row of the same keys, line by line,
-  on the old side of one file and on the new side of another. Exact lines only: a label on two files must not
-  guess, so an edited line ends the row (a function whose one line changed on the way is the lines before it and
+  on the old side of one file and on the new side of another. Exact lines only (at the same depth where the
+  indentation has a meaning): a label on two files must not guess, so an edited line ends the row (a function whose one line changed on the way is the lines before it and
   after it, where each is enough). Blank lines inside the row are lines of it. It counts from `MIN_ACROSS_LINES`
   (2) lines that are not blank and `MIN_ACROSS_CHARS` (48) characters that are no whitespace, twice what a move
   within a file needs and never one line: the same boilerplate stands in many files of a change.

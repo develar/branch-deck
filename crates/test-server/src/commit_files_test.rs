@@ -71,46 +71,67 @@ async fn commit_files_routes_read_the_fixture_repository() {
 
 /// The diffs of the commit of the `commit_marks` template through the server, as a page reads them: after the
 /// contents, the marks of the files that the others say something of (the title function that moved from the ledger
-/// to the report, the calls of the function the store declares and renamed), the names asked of the index; then
-/// the answer of the index of the repository, its fixture (`FixtureIndex`), as one more event of their files. A
-/// repository whose fixture answers no rename is asked all the same, and its names are unavailable then
+/// to the report, the calls of the function the store declares and renamed), the names to be asked of the index;
+/// the read ends there. Then the question of the page to the index of the repository (`get_rename_proofs`), which
+/// its fixture answers (`FixtureIndex`): the marks of those files with what it proved. A repository whose fixture
+/// answers no rename is asked all the same, and its names are unavailable then
 #[tokio::test]
-async fn the_diffs_of_a_subject_end_with_what_its_files_say_of_each_other_and_what_the_index_answers() {
+async fn the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_index_is_asked_after_them() {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (_, repository_path) = create_repository_from(&client, addr, "commit_marks").await;
   let head = GitCommandExecutor::new().execute_command(&["rev-parse", "HEAD"], &repository_path).unwrap();
-  let params = json!({ "repositoryPath": repository_path, "source": { "kind": "commit", "id": head }, "policy": "default", "priorityPaths": [] });
+  let subject = json!({ "repositoryPath": repository_path, "source": { "kind": "commit", "id": head }, "policy": "default" });
+  let mut params = subject.clone();
+  params["priorityPaths"] = json!([]);
 
-  // the events of the marks of a file, by its path: the proof of its name that is not local, and its runs confirmed
+  // the proof of the name of a file that is not local, and its runs confirmed, in marks
+  let proof_of = |marks: &Value| -> (Value, Value) {
+    let subject = &marks["subject"];
+    let proof = if subject["used"][0].is_object() {
+      &subject["used"][0]["proof"]
+    } else {
+      &subject["declared"][0]["proof"]
+    };
+    (proof.clone(), subject["confirmed"].clone())
+  };
+  // of the `marks` events of a file, by its path
   let marks_of = |events: &[Value], path: &str| -> Vec<(Value, Value)> {
     let index = events[0]["files"].as_array().unwrap().iter().position(|file| file["path"] == path).unwrap();
     events
       .iter()
       .filter(|event| event["kind"] == "marks" && event["index"] == index)
-      .map(|event| {
-        let subject = &event["marks"]["subject"];
-        let proof = if subject["used"][0].is_object() {
-          &subject["used"][0]["proof"]
-        } else {
-          &subject["declared"][0]["proof"]
-        };
-        (proof.clone(), subject["confirmed"].clone())
-      })
+      .map(|event| proof_of(&event["marks"]))
       .collect()
   };
+  // of the answer of the index, by the path of each file it says something of
+  let answered = |answer: &Value| -> Vec<(String, (Value, Value))> {
+    let files = answer.as_array().unwrap_or_else(|| panic!("no answer: {answer}"));
+    files.iter().map(|file| (file["path"].as_str().unwrap().to_string(), proof_of(&file["marks"]))).collect()
+  };
+  let of_both = |proof: &str, confirmed: Value| {
+    [
+      ("src/Report.kt".to_string(), (json!(proof), confirmed)),
+      ("src/Store.kt".to_string(), (json!(proof), json!([]))),
+    ]
+  };
 
-  // no fixture: an index that answers nothing. The files were compared, so the marks of the subject follow their
-  // contents, the names asked, and then unavailable
+  // the files were compared, so the marks of the subject follow their contents: the names are to be asked, and the
+  // read ends with them
   let events = stream(&client, addr, "get_file_diffs", params.clone()).await;
-  let unanswered = [(json!("asked"), json!([])), (json!("unavailable"), json!([]))];
-  assert_eq!(marks_of(&events, "src/Report.kt"), unanswered);
-  assert_eq!(marks_of(&events, "src/Store.kt"), unanswered);
+  let asked = [(json!("asked"), json!([]))];
+  assert_eq!(marks_of(&events, "src/Report.kt"), asked);
+  assert_eq!(marks_of(&events, "src/Store.kt"), asked);
+  assert!(matches!(events.last(), Some(event) if event["kind"] == "marks"), "the read asks no index");
   let ledger = events
     .iter()
     .find(|event| event["kind"] == "marks" && event["marks"]["subject"]["movedOut"][0].is_object())
     .unwrap();
   assert_eq!(ledger["marks"]["subject"]["movedOut"], json!([{ "start": 54, "len": 4, "file": 1, "line": 17 }]));
+
+  // no fixture: an index that answers nothing, asked all the same; the names are unavailable
+  let answer = invoke(&client, addr, "get_rename_proofs", subject.clone()).await;
+  assert_eq!(answered(&answer), of_both("unavailable", json!([])));
 
   // the index answers the rename of the store whole: its declaration and the two calls of the report, in both trees
   let used =
@@ -129,14 +150,16 @@ async fn the_diffs_of_a_subject_end_with_what_its_files_say_of_each_other_and_wh
     json!({ "renames": { "src/Store.kt:19:5": renamed } }).to_string(),
   )
   .unwrap();
-  // the pairs are in the memory of the server now: the contents say that the index is asked, its answer follows
+  let answer = invoke(&client, addr, "get_rename_proofs", subject).await;
+  assert_eq!(answered(&answer), of_both("confirmed", json!([0, 1])));
+
+  // the pairs are in the memory of the server now: the contents themselves say that the index is to be asked, and
+  // nothing of an answer was kept with them
   let events = stream(&client, addr, "get_file_diffs", params).await;
-  assert_eq!(marks_of(&events, "src/Report.kt"), [(json!("confirmed"), json!([0, 1]))]);
-  assert_eq!(marks_of(&events, "src/Store.kt"), [(json!("confirmed"), json!([]))]);
+  assert_eq!(events.iter().filter(|event| event["kind"] == "marks").count(), 0);
   let report = events
     .iter()
     .find(|event| event["kind"] == "content" && event["content"]["marks"]["subject"]["used"][0].is_object())
     .unwrap();
   assert_eq!(report["content"]["marks"]["subject"]["used"][0]["proof"], "asked");
-  assert!(matches!(events.last(), Some(event) if event["kind"] == "marks"), "the answer of the index comes last");
 }

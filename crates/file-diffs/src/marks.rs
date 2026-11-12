@@ -148,8 +148,9 @@ pub struct PairMarks {
   /// empty), by their first place: nothing of them is marked, since only the file of the declaration says what was
   /// renamed. For the pass over the files of a change, which has the declaration
   pub undeclared: Vec<Rename>,
-  /// The blocks that hold a place of an `undeclared` name, read with those names as one too: the runs they have
-  /// once another file of the subject declares the names. No run of them shares a line with a move
+  /// The blocks that hold a place of an `undeclared` name, read with those names as one too: the runs of the kind
+  /// `Renamed` they have once another file of the subject declares the names. No run of them shares a line with a
+  /// move
   pub pending: Vec<PendingBlock>,
   /// The renames of `marks.renames`, by their numbers, whose places the scopes of the file prove: a value of its
   /// body alone
@@ -235,8 +236,7 @@ pub fn marks_of(
   }
 }
 
-/// Takes the runs that share a line with one of `moves` out of `pending`, and the blocks that hold no run of a
-/// name the file declares none of then
+/// Takes the runs that share a line with one of `moves` out of `pending`, and the blocks that hold no run then
 pub(crate) fn without_moved_lines(pending: &mut Vec<PendingBlock>, moves: &[LineMove]) {
   if pending.is_empty() || moves.is_empty() {
     return;
@@ -250,7 +250,7 @@ pub(crate) fn without_moved_lines(pending: &mut Vec<PendingBlock>, moves: &[Line
         .any(|moved| meets(run.old_start..run.old_end, moved.old_lines()) || meets(run.new_start..run.new_end, moved.new_lines()))
     });
   }
-  pending.retain(|block| block.runs.iter().any(|run| !run.names.is_empty()));
+  pending.retain(|block| !block.runs.is_empty());
 }
 
 /// The runs of a pair, each quiet when its lines are proven (`has_proof`), the renames some of them were cut by, and

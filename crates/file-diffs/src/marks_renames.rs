@@ -28,9 +28,10 @@
 //!    found stays where the second aligned its lines otherwise (`with_the_first`): the second reading adds runs and
 //!    takes none.
 //!    **And once more for the names the file declares none of** (`Renames::pending`): the blocks that hold a place of
-//!    one, with those names read as one too. No run of that reading is a run of the pair: each waits, with the names
-//!    it holds, for the reader that knows whether another file of the subject declares them, which then needs no
-//!    text (`leftovers`).
+//!    one, with those names read as one too. No run of that reading is a run of the pair: those of the kind `Renamed`
+//!    that lean on such a name wait, each with the names it leans on, for the reader that knows whether another file
+//!    of the subject declares them, which then needs no text (`leftovers`); the others are dropped, since a run of
+//!    formatting that a name read as one made is a quiet run nothing of the pair proves.
 //! 5. **A run is proven** when it holds only places of local values of their bodies alone, every name of which the
 //!    scopes bind (`LocalBinding::is_of_body_alone`: a value no code outside its body may name, in a text the scopes
 //!    read whole). A place that makes more of the name than its binding (a shorthand property, a destructuring, a
@@ -44,6 +45,7 @@
 use crate::leftovers::{PendingBlock, PendingRun};
 use crate::marks::MAX_RENAME_WORK;
 use crate::marks_runs::{Asked, BlockLines, runs_of_block};
+use crate::service::to_u32;
 use code_symbols::highlight::Grammar;
 use code_symbols::navigate::{Access, NameAt, NameQuestion, NameUse, Position, Site, names_at_within, resolution_work};
 use code_symbols::tokens::{Token, TokenClass, Tokens};
@@ -372,23 +374,50 @@ impl Renames {
   }
 
   /// Reads the blocks that hold a place of a name the file declares none of once more, with those names read as one
-  /// too, beside the renames of the diff: the runs of each such block (`tokens`, `has_text` and `work` as for
-  /// `cut`), each with the names of that kind it holds a place of. A run of the kind `Renamed` that holds one is
-  /// never proven here. A block the work does not pay for, and one whose runs hold no such name, is left out: the
-  /// runs of the pair say all there is of it
+  /// too, beside the renames of the diff (`tokens`, `has_text` and `work` as for `cut`): of the runs of each such
+  /// block, those of the kind `Renamed` that lean on such a name, each with the names it leans on. It leans on a
+  /// name that has a place in its lines, and, where it reaches the end of its block, on the name whose place is the
+  /// first token of the code after the block: a run is a run there only while the code after the block reads the
+  /// same (`same_after`), and this reading made the two names of that place one. Never proven here: only the index
+  /// proves a name another file declares.
+  ///
+  /// No other run of the reading is kept. A run of formatting or of comments holds no place, so it differs from the
+  /// runs of the pair only where a name read as one let it reach an end of its block; it would be a quiet run that
+  /// leans on a name, added once the files of the subject are put together, after the rows of the file were drawn.
+  /// A block the work does not pay for, and one without such a run, is left out: the runs of the pair say all there
+  /// is of it
   pub(crate) fn pending(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64) -> Vec<PendingBlock> {
+    // the name of each place of such a name, by its token in the old text
+    let named: HashMap<usize, u32> = (0u32..)
+      .zip(&self.undeclared)
+      .flat_map(|(name, found)| found.places.iter().flatten().map(move |place| (place[0], name)))
+      .collect();
     let mut pending = Vec::new();
     self.read_again(true, blocks, tokens, has_text, work, &mut |block, read, places| {
+      let lines = &blocks[block];
+      // the name the code after the block reads the same by
+      let after = {
+        let end = tokens[0].places_in_lines(lines.old_start..lines.old_end).end;
+        let first = tokens[0].all()[end..].iter().position(|token| !token.is_comment());
+        first.and_then(|first| named.get(&(end + first)).copied())
+      };
       let runs: Vec<PendingRun> = read
         .into_iter()
-        .map(|run| {
+        .filter(|run| run.kind == RunKind::Renamed)
+        .filter_map(|run| {
           let mut names: Vec<u32> = places.in_lines(run.old_start..run.old_end).iter().filter_map(|place| place.name).collect();
+          if run.old_end == lines.old_end && run.new_end == lines.new_end {
+            names.extend(after);
+          }
           names.sort_unstable();
           names.dedup();
-          PendingRun { run, names }
+          (!names.is_empty()).then_some(PendingRun {
+            run: LineRun { quiet: false, ..run },
+            names,
+          })
         })
         .collect();
-      if runs.iter().any(|run| !run.names.is_empty()) {
+      if !runs.is_empty() {
         pending.push(PendingBlock { block: to_u32(block), runs });
       }
     });
@@ -473,11 +502,6 @@ impl Places {
     let Self(places) = self;
     &places[places.partition_point(|place| place.line < lines.start)..places.partition_point(|place| place.line < lines.end)]
   }
-}
-
-/// The number of a block or of a name; a file has far fewer than 4 G of either
-fn to_u32(value: usize) -> u32 {
-  u32::try_from(value).expect("an index below 4 G")
 }
 
 /// The runs of a block after its two readings, in the order of the lines: those of the second reading (`second`,

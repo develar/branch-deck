@@ -504,7 +504,7 @@ fn stream_of(diffs: &FileDiffs, repo: &TestRepo, commit: &str) -> (Duration, Dur
   let start = Instant::now();
   let mut first = None;
   diffs
-    .stream(repo.git_executor(), &ObjectCache::disabled(), None, &params, |event| {
+    .stream(repo.git_executor(), &ObjectCache::disabled(), false, &params, |event| {
       if matches!(event, FileDiffEvent::Content { .. }) {
         first.get_or_insert_with(|| start.elapsed());
       }
@@ -569,7 +569,7 @@ fn bench_subject_pass(c: &mut Criterion) {
         let mut diff = diff_of(old, new);
         let tokens_of = |new_side: bool| tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new);
         let pair = marks_of(&diff, old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, tokens_of);
-        let (marks, left) = Leftovers::of(&diff.blocks, pair, old, new);
+        let (marks, left) = Leftovers::of(&diff.blocks, pair, old, new, false);
         diff.marks = marks;
         (diff, left)
       })

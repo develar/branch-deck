@@ -7,12 +7,16 @@
 //!   among them.
 //! - **The names the file declares none of** (`undeclared`): they changed at every place of the file, and only the
 //!   file that declares them says whether they were renamed. With them, **the runs of their blocks read once more**
-//!   (`pending`): the blocks that hold a place of such a name, with those names read as one too. A run of them holds
-//!   once the names in it are renames of the subject, and no text is read for it then.
+//!   (`pending`): the blocks that hold a place of such a name, with those names read as one too, and of the runs of
+//!   that reading those of the kind `Renamed` that lean on such a name. A run of them holds once every name it leans
+//!   on is a rename of the subject, and no text is read for it then. No other run of that reading is kept: a run of
+//!   formatting is quiet, and the files of a subject are put together after the rows of the file were drawn.
 //! - **The declarations of the names that are not local** (`declarations`): the places the index of the repository
 //!   is asked by, in its lines and columns, made here where the texts are.
 //! - **The renames the scopes of the file prove** (`proven`): what a run that holds a local name beside a name that
 //!   is not local still needs to be proven whole.
+//! - **Whether a side ends a line with a lone carriage return** (`lone_returns`): the comparison counts it as a line
+//!   end and the index does not, so no line the index names of such a text is a line of the diff.
 //!
 //! It is a value of its own beside the diff, in memory (`MarksMemory::leftovers`) and in the `file_leftovers` store,
 //! under the key of its diff and the version of its model: a scan decodes the diff of a pair at every hit
@@ -42,10 +46,12 @@ pub struct Leftovers {
   pub declarations: Vec<Declarations>,
   /// The renames of the marks, by their numbers, whose places the scopes of the file prove
   pub proven: Vec<u32>,
+  /// Whether the old text, and the new one, ends a line with a carriage return that no line feed follows
+  pub lone_returns: [bool; 2],
 }
 
-/// The runs of one block, by its number among the blocks of the diff, read with the names the file declares none
-/// of as one name each: all of them, in the order of the lines
+/// The runs of one block, by its number among the blocks of the diff, that it has once the names the file declares
+/// none of are renames: those of the kind `Renamed` that lean on such a name, in the order of the lines
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingBlock {
   pub block: u32,
@@ -55,9 +61,12 @@ pub struct PendingBlock {
 /// A run of a `PendingBlock`: it holds when every name of `names` is a rename
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingRun {
-  /// `quiet` when its lines are proven without the index: never with a name in `names`
+  /// Of the kind `Renamed` and never `quiet`: only the index proves a name another file declares
   pub run: LineRun,
-  /// The `Leftovers::undeclared` names, by their numbers, that have a place in its lines, in order
+  /// The `Leftovers::undeclared` names, by their numbers, that the run leans on, in order, one at least: those with
+  /// a place in its lines, and the one whose place is the first token of the code after its block when the run
+  /// reaches the end of the block (it is a run there only while the code after the block reads the same,
+  /// `code_symbols::tokens::same_after`, which that name read as one makes it)
   pub names: Vec<u32>,
 }
 
@@ -73,8 +82,9 @@ pub struct Declarations {
 
 impl Leftovers {
   /// The marks of a diff with the blocks `blocks` of the texts `old` and `new`, and what the diff leaves beside
-  /// them: `pair` is what `marks_of` read of it
-  pub fn of(blocks: &[DiffBlock], pair: PairMarks, old: &str, new: &str) -> (DiffMarks, Self) {
+  /// them: `pair` is what `marks_of` read of it, `indented` whether the indentation of the file has a meaning
+  /// (`marks::pair_indented`), as `marks_of` was told
+  pub fn of(blocks: &[DiffBlock], pair: PairMarks, old: &str, new: &str, indented: bool) -> (DiffMarks, Self) {
     let PairMarks {
       marks,
       undeclared,
@@ -82,12 +92,14 @@ impl Leftovers {
       proven_renames,
       proven: _,
     } = pair;
+    let lone_returns = [has_lone_carriage_return(old), has_lone_carriage_return(new)];
     let left = Self {
-      lines: left_rows(old, new, blocks, &marks.runs, &marks.moves),
-      declarations: declarations_of(&marks.renames, old, new),
+      lines: left_rows(old, new, blocks, &marks.runs, &marks.moves, indented),
+      declarations: declarations_of(&marks.renames, [old, new], lone_returns),
       undeclared,
       pending,
       proven: proven_renames,
+      lone_returns,
     };
     (marks, left)
   }
@@ -110,11 +122,12 @@ impl Leftovers {
   }
 }
 
-/// The places the index is asked by of the declarations of the `renames` that are not local. A rename a place of
-/// which the index cannot be given is left out: its uses are never proven. So is every rename of a text with a lone
-/// carriage return, where the lines of a view are not the lines of the index
-fn declarations_of(renames: &[Rename], old: &str, new: &str) -> Vec<Declarations> {
-  if !renames.iter().any(|rename| !rename.local) || has_lone_carriage_return(old) || has_lone_carriage_return(new) {
+/// The places the index is asked by of the declarations of the `renames` that are not local, in the texts `old` and
+/// `new`. A rename a place of which the index cannot be given is left out: its uses are never proven. So is every
+/// rename of a text with a lone carriage return (`lone_returns`), where the lines of a view are not the lines of the
+/// index
+fn declarations_of(renames: &[Rename], [old, new]: [&str; 2], lone_returns: [bool; 2]) -> Vec<Declarations> {
+  if !renames.iter().any(|rename| !rename.local) || lone_returns != [false; 2] {
     return Vec::new();
   }
   let place = |text: &str, sites: &[u32], site: u32| -> Option<[u32; 2]> {
@@ -141,6 +154,9 @@ fn declarations_of(renames: &[Rename], old: &str, new: &str) -> Vec<Declarations
 
 /// Whether `text` ends a line with a carriage return that no line feed follows
 fn has_lone_carriage_return(text: &str) -> bool {
-  let bytes = text.as_bytes();
-  bytes.iter().enumerate().any(|(index, byte)| *byte == b'\r' && bytes.get(index + 1) != Some(&b'\n'))
+  // nearly every text has no carriage return at all: the search for one character is the fast one
+  text.contains('\r') && {
+    let bytes = text.as_bytes();
+    bytes.iter().enumerate().any(|(index, byte)| *byte == b'\r' && bytes.get(index + 1) != Some(&b'\n'))
+  }
 }

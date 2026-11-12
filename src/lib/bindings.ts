@@ -66,11 +66,18 @@ export const commands = {
 	 *  The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
 	 *  the files, then the content of each file as it is known, the files in view (`priority_paths`) first, then the
 	 *  marks of the files the others of the subject say something of (the lines that moved between two files, the names
-	 *  another file declares) and what the index of the repository (`accio`) answers of the names the subject renamed,
-	 *  a query killed once the page of the window went away. Through the memory cache of the app and the `file_diff`
-	 *  and `file_leftovers` stores, else one list and one `cat-file --batch`
+	 *  another file declares). Through the memory cache of the app and the `file_diff` and `file_leftovers` stores,
+	 *  else one list and one `cat-file --batch`
 	 */
 	getFileDiffs: (params: GetFileDiffsParams, events: Channel<FileDiffEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_file_diffs", { params, events })),
+	/**
+	 *  What the index of the repository (`accio`) answers of the names a subject renamed, asked by the window that
+	 *  shows the subject, after its diffs: the marks of each file the answer says something of, in place of those
+	 *  `get_file_diffs` gave. One query for every declaration of the subject, waited for as long as it runs and killed
+	 *  once the window asks of another subject, closes or loads again: no answer then, and the names stay asked. An
+	 *  answer is kept in memory by the two trees of the subject
+	 */
+	getRenameProofs: (params: GetRenameProofsParams) => typedError<FileMarks[] | null, ApiError>(__TAURI_INVOKE("get_rename_proofs", { params })),
 	/**
 	 *  The merge of each conflicting file of a cherry-pick, for the conflict view, through `events`: the files with the
 	 *  stage blob ids that `merge-tree` gives, then the content of each file as it is known, the files in view first
@@ -3267,8 +3274,8 @@ export type FetchedBaseline = {
 
 /**
  *  What `get_file_diffs` sends through its channel: `files` once, then one `content` for each file, the files in view
- *  first, a `scopes` after the `content` of a text that the caches did not have, and a `marks` for a file whose marks
- *  the other files of the subject or the index of the repository changed after its `content` went out
+ *  first, a `scopes` after the `content` of a text that the caches did not have, and, once every file is known, a
+ *  `marks` for a file whose marks the other files of the subject changed after its `content` went out
  */
 export type FileDiffEvent = 
 /**  The changed files in the order of git; `index` of the other events points into this list */
@@ -3284,8 +3291,8 @@ export type FileDiffEvent =
 /**
  *  The marks of the text of a file, in place of those its `content` brought: with what the other files of the
  *  subject say of it (`DiffMarks::subject`: the lines that moved between two files, the names another file
- *  declares), once every file is known, and once more with what the index answered of its renamed names. It adds
- *  runs that are labels, words and what a reader may pass (`starts`); it takes no row of the file away
+ *  declares), once every file is known. It adds runs that are labels and words; it takes no row of the file away,
+ *  and its quiet runs and its stops are those of the content
  */
 { kind: "marks"; index: number; marks: DiffMarks };
 
@@ -3342,6 +3349,17 @@ export type FileLink = {
 };
 
 /**
+ *  The marks of the text of a file of a subject, by its path, with what the index of the repository answered of its
+ *  renamed names (`get_rename_proofs`): in place of those its diff has. They differ from them in the proofs
+ *  (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`) and, once the kind of those
+ *  runs is quiet, in what a reader may pass (`starts`); never in a row of the file
+ */
+export type FileMarks = {
+	path: string,
+	marks: DiffMarks,
+};
+
+/**
  *  What `get_file_merges` sends through its channel: `files` once, then one `content` for each file, the files in view
  *  first, and a `scopes` after the `content` of a text merge that the caches did not have
  */
@@ -3372,7 +3390,9 @@ export type FileMergeHeader = {
 /**
  *  One end of lines that moved between two files of a subject without a change: `len` lines from `start` of this
  *  file (0-based: old lines where they left, new lines where they stand now) are the lines from `line` of the file
- *  `file` of the subject, on its other side. Never quiet, and no line of it is hidden: both ends are read
+ *  `file` of the subject, on its other side. The same lines but for the spaces and tabs at their ends; where the
+ *  indentation of the file has a meaning, at the same depth too. Never quiet, and no line of it is hidden: both
+ *  ends are read
  */
 export type FileMove = {
 	start: number,
@@ -3644,6 +3664,13 @@ export type GetRangeParams = {
 	repositoryPath: string,
 	base: string,
 	head: string,
+};
+
+/**  The parameters of `get_rename_proofs`: a subject whose diffs `get_file_diffs` gave under `policy` */
+export type GetRenameProofsParams = {
+	repositoryPath: string,
+	source: DiffSource,
+	policy: WhitespacePolicy,
 };
 
 export type GetRepositoryConfigParams = {
@@ -6927,7 +6954,10 @@ export type RenameCheck = {
  *  what a view says beside the name. Only `Confirmed` proves anything; every other one leaves the rename a label
  */
 export type RenameProof = 
-/**  The index of the repository is being asked: the marks of the file come once more with its answer */
+/**
+ *  The index of the repository is there to be asked: the window that shows the file asks it
+ *  (`get_rename_proofs`), and the marks of the file come once more with its answer
+ */
 "asked" | 
 /**
  *  The index answered that the two names are one declaration, that it listed every use of it in both trees, that
@@ -6946,7 +6976,8 @@ export type RenameProof =
 "otherDeclaration" | 
 /**
  *  The index did not list every use, or tied one by its name alone, or reads the language of the declaration
- *  without the scopes that would prove a use
+ *  without the scopes that would prove a use, or lists a use in a text whose lines it counts otherwise than the
+ *  diff does (a lone carriage return), or by another word that the other tree does not hold at its place
  */
 "incomplete" | 
 /**

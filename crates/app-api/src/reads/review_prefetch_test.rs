@@ -11,7 +11,7 @@ use crate::session::windows::Windows;
 use crate::transport::{EventSink, SinkGone, WindowId};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
-use file_diffs::accio::{DeclarationAt, References, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
+use file_diffs::accio::{DeclarationAt, References, RenameAnswer, RenamePair, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
 use file_diffs::service::FileDiffs;
 use pretty_assertions::assert_eq;
 use repository_model::branch_table::BranchTable;
@@ -29,20 +29,21 @@ use tokio::sync::mpsc;
 
 const PREFIX: &str = "jane";
 
-/// An index whose queries of the usages answer none, each recorded with the priority of its search; while it is held,
-/// a query waits until it is released or its search is canceled
+/// An index whose queries of the usages answer none and whose queries of the renames of a subject answer that it
+/// knows no such answer, each recorded with the priority of its search; while it is held, a query waits until it is
+/// released or its search is canceled
 #[derive(Default)]
-struct Index {
-  /// The revision of each query of the usages and the priority of its search, in order
-  asked: Mutex<Vec<(String, ChildPriority)>>,
-  held: AtomicBool,
+pub(crate) struct Index {
+  /// The revision of each query and the priority of its search, in order
+  pub(crate) asked: Mutex<Vec<(String, ChildPriority)>>,
+  pub(crate) held: AtomicBool,
   /// The queries the cancel of their search killed
-  killed: AtomicU32,
-  /// The revision of each query of the usages as it starts
-  started: Mutex<Option<mpsc::UnboundedSender<String>>>,
+  pub(crate) killed: AtomicU32,
+  /// The revision of each query as it starts
+  pub(crate) started: Mutex<Option<mpsc::UnboundedSender<String>>>,
 }
 
-struct Indexes(Arc<Index>);
+pub(crate) struct Indexes(pub(crate) Arc<Index>);
 
 impl SymbolIndexes for Indexes {
   fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync), priority: ChildPriority) -> Option<Box<dyn SymbolIndex + 'a>> {
@@ -60,16 +61,10 @@ struct Search<'a> {
   priority: ChildPriority,
 }
 
-impl SymbolIndex for Search<'_> {
-  fn symbols(&self, _repository_root: &str, _query: &str, _revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
-    Ok(None)
-  }
-
-  fn references(&self, _repository_root: &str, _name: &str, _revision: Option<&str>) -> anyhow::Result<Option<References>> {
-    Ok(None)
-  }
-
-  fn references_at(&self, _repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> anyhow::Result<Option<Vec<References>>> {
+impl Search<'_> {
+  /// A query of `revision`: recorded, said to have started, and held while the index is, until it is released or
+  /// the search is canceled, which kills it
+  fn query(&self, revision: &str) -> anyhow::Result<()> {
     self.index.asked.lock().unwrap_or_else(PoisonError::into_inner).push((revision.to_string(), self.priority));
     if let Some(started) = self.index.started.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
       let _ = started.send(revision.to_string());
@@ -82,6 +77,21 @@ impl SymbolIndex for Search<'_> {
       }
       std::thread::sleep(Duration::from_millis(5));
     }
+    Ok(())
+  }
+}
+
+impl SymbolIndex for Search<'_> {
+  fn symbols(&self, _repository_root: &str, _query: &str, _revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
+    Ok(None)
+  }
+
+  fn references(&self, _repository_root: &str, _name: &str, _revision: Option<&str>) -> anyhow::Result<Option<References>> {
+    Ok(None)
+  }
+
+  fn references_at(&self, _repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> anyhow::Result<Option<Vec<References>>> {
+    self.query(revision)?;
     let none = References {
       hits: Vec::new(),
       by_name: 0,
@@ -97,6 +107,11 @@ impl SymbolIndex for Search<'_> {
       ..TestReach::default()
     };
     Ok(Some(declarations.iter().map(|_| reach.clone()).collect()))
+  }
+
+  fn renames(&self, _repository_root: &str, _pairs: &[RenamePair], _base: &str, head: &str) -> anyhow::Result<Option<Vec<RenameAnswer>>> {
+    self.query(head)?;
+    Ok(None)
   }
 }
 

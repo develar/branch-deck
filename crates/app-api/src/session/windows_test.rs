@@ -56,7 +56,7 @@ fn a_call_names_the_page_of_its_window_and_a_closed_window_answers_its_fetches()
   assert_eq!(windows.open(), [] as [WindowId; 0]);
 }
 
-/// A read only the page that asked waits for (the query of the index of `get_file_diffs`) may end once its window
+/// A read only the page that asked waits for (the query of the index of `get_rename_proofs`) may end once its window
 /// shows that page no more: it closed, or loads again and shows another page
 #[test]
 fn a_window_shows_the_page_of_a_call_until_it_closes_or_loads_again() {

@@ -4,8 +4,8 @@
 #[cfg(unix)]
 use crate::accio::AccioSearch;
 use crate::accio::{
-  Access, AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, IndexUnavailable, Lenient, ReferenceHit, RenameAnswer, RenamePair, RenameUse,
-  Resolved, SearchCanceled, SurfaceDeclaration, SurfaceSite, SurfaceUse, SymbolHit, SymbolIndex,
+  Access, AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, IndexUnavailable, Lenient, OfBuild, ReferenceHit, RenameAnswer, RenamePair,
+  RenameUse, Resolved, SearchCanceled, SurfaceDeclaration, SurfaceSite, SurfaceUse, SymbolHit, SymbolIndex,
 };
 use crate::fixture_test::{RENAMED_STORE_ANSWER, renamed_store, repo_path, unhurried};
 use crate::model::{DiffContent, DiffSource};
@@ -563,6 +563,7 @@ fn the_renames_of_a_subject_are_asked_in_one_process() {
       end_column: 23,
       kind: Access::Call,
       resolved: Resolved::Import,
+      text: None,
     }
   );
   assert_eq!((head.uses[2].kind, head.uses[2].end_column), (Access::Declaration, 16));
@@ -582,7 +583,7 @@ fn the_renames_of_a_subject_are_asked_in_one_process() {
 
 /// Only an accio that says it answers `renames` as this reader reads them is asked: one without the answer (an older
 /// accio, whose `versions` names none), one of another revision of it and one whose `versions` fails answer none,
-/// and their `renames` is never started. The answer of `versions` is asked once
+/// and their `renames` is never started. The answer of `versions` is asked once of a build of accio
 #[test]
 fn an_accio_that_answers_no_renames_as_they_are_read_is_not_asked() {
   let canceled = || false;
@@ -616,6 +617,64 @@ fn an_accio_that_answers_no_renames_as_they_are_read_is_not_asked() {
     );
   }
   assert_eq!(std::fs::read_to_string(&asked).unwrap().lines().count(), 1);
+}
+
+/// What an executable says of itself is asked once of each build of it: again once its file is another, and every
+/// time while there is no file to tell a build by
+#[test]
+fn what_an_executable_says_of_itself_is_asked_once_of_each_build() {
+  let dir = tempfile::tempdir().unwrap();
+  let executable = dir.path().join("tool");
+  let said: OfBuild<u32> = OfBuild::new();
+  let asked = std::cell::Cell::new(0);
+  let ask = || {
+    asked.set(asked.get() + 1);
+    asked.get()
+  };
+  // no file yet: nothing tells one build from another
+  assert_eq!((said.of(&executable, ask), said.of(&executable, ask)), (1, 2));
+  std::fs::write(&executable, "a build").unwrap();
+  assert_eq!((said.of(&executable, ask), said.of(&executable, ask), asked.get()), (3, 3, 3));
+  // another build in its place, of another size
+  std::fs::write(&executable, "another build").unwrap();
+  assert_eq!((said.of(&executable, ask), said.of(&executable, ask), asked.get()), (4, 4, 4));
+}
+
+/// The app outlives an update of accio: what the build before said of itself is not read as the word of the new
+/// one. An accio that got the answer is asked from then on, and one whose answer is of another revision now is
+/// asked no more, though its `renames` would answer. On Unix, where the fake accio is the script that is rewritten:
+/// on Windows it is a shim beside its script, which an update of the script leaves as it is
+#[cfg(unix)]
+#[test]
+fn an_accio_updated_while_the_app_runs_is_asked_again_what_it_answers() {
+  let canceled = || false;
+  let dir = tempfile::tempdir().unwrap();
+  let (started, asked) = (dir.path().join("started"), dir.path().join("asked"));
+  let install = |versions: &str| {
+    let body = format!(
+      "if [ \"$1\" = versions ]; then echo asked >> {}; printf '%s' '{versions}'; exit 0; fi\n: > {}\nprintf '%s' '{}'",
+      shell_path(&asked),
+      shell_path(&started),
+      RENAMED_STORE_ANSWER.replace('\n', " ")
+    );
+    fake_executable(dir.path(), "accio", &body)
+  };
+  let renames = |accio: &AccioCli| accio.search(&canceled).renames(ROOT, &[store_pair()], "base", "head").unwrap().map(|answers| answers.len());
+  let versions_asked = || std::fs::read_to_string(&asked).unwrap().lines().count();
+
+  // an accio without the answer, as the app found it
+  let accio = AccioCli::at(install(r#"{"index_format":39}"#));
+  assert_eq!((renames(&accio), renames(&accio)), (None, None));
+  assert_eq!((versions_asked(), started.exists()), (1, false));
+  // updated to one that answers: asked once more, and from then on it is asked the renames
+  install(ANSWERS_RENAMES);
+  assert_eq!((renames(&accio), renames(&accio)), (Some(1), Some(1)));
+  assert_eq!(versions_asked(), 2);
+  // updated to one whose answer is of another revision: its answer would be read as the one it is not
+  std::fs::remove_file(&started).unwrap();
+  install(r#"{"answers":{"moves":1,"renames":2},"index_format":41}"#);
+  assert_eq!(renames(&accio), None);
+  assert_eq!((versions_asked(), started.exists()), (3, false));
 }
 
 /// Without a usable index of the repository accio answers `available: false` for each pair: no index, never "no use",

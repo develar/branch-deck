@@ -19,6 +19,28 @@ pub struct GetFileDiffsParams {
   pub priority_paths: Vec<String>,
 }
 
+/// The parameters of `get_rename_proofs`: a subject whose diffs `get_file_diffs` gave under `policy`
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetRenameProofsParams {
+  pub repository_path: String,
+  pub source: DiffSource,
+  pub policy: WhitespacePolicy,
+}
+
+/// The marks of the text of a file of a subject, by its path, with what the index of the repository answered of its
+/// renamed names (`get_rename_proofs`): in place of those its diff has. They differ from them in the proofs
+/// (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`) and, once the kind of those
+/// runs is quiet, in what a reader may pass (`starts`); never in a row of the file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FileMarks {
+  pub path: String,
+  pub marks: DiffMarks,
+}
+
 /// The parameters of `get_blob_texts`
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -79,8 +101,8 @@ pub struct DiffFileHeader {
 }
 
 /// What `get_file_diffs` sends through its channel: `files` once, then one `content` for each file, the files in view
-/// first, a `scopes` after the `content` of a text that the caches did not have, and a `marks` for a file whose marks
-/// the other files of the subject or the index of the repository changed after its `content` went out
+/// first, a `scopes` after the `content` of a text that the caches did not have, and, once every file is known, a
+/// `marks` for a file whose marks the other files of the subject changed after its `content` went out
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -101,8 +123,8 @@ pub enum FileDiffEvent {
   },
   /// The marks of the text of a file, in place of those its `content` brought: with what the other files of the
   /// subject say of it (`DiffMarks::subject`: the lines that moved between two files, the names another file
-  /// declares), once every file is known, and once more with what the index answered of its renamed names. It adds
-  /// runs that are labels, words and what a reader may pass (`starts`); it takes no row of the file away
+  /// declares), once every file is known. It adds runs that are labels and words; it takes no row of the file away,
+  /// and its quiet runs and its stops are those of the content
   Marks { index: u32, marks: DiffMarks },
 }
 

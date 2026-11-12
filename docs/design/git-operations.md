@@ -3311,8 +3311,8 @@ git plumbing does not depend on.
   its target. A file with a conflict compares its `ours` stage with the working tree.
 - **The stream.** `get_file_diffs` sends events through a Tauri `Channel`: `files` once (the headers in the order of
   git), then a `content` for each file, then a `scopes` for a text that the caches did not have, then a `marks` for
-  each file the others of its subject say something of, and last one more `marks` with what the index answered
-  ("The subject" below). The files in view (`priority_paths`) come first, then the others in the order of the tree,
+  each file the others of its subject say something of ("The subject" below); the read ends there and asks no
+  index ("The index" below). The files in view (`priority_paths`) come first, then the others in the order of the tree,
   for the cache reads, the blob reads and the work; the events go out as the results come. `FileDiffs::read`
   collects the same events, for the tests and the command line.
 - **The blobs and the workers.** One `cat-file --batch` reads the blobs that no cache has, at most `MAX_BLOB_BYTES`
@@ -3356,17 +3356,24 @@ git plumbing does not depend on.
   takes no row of a file and no stop. Nothing of a subject enters a cache: the same pair stands in other commits
   beside other files.
 - **The index.** The declarations of the names a subject renamed that are not local are asked of the index of the
-  repository once per subject, all in one process: `accio renames --no-build --format json --project <root> --base
-  <the old tree> --ref <the new tree> --pairs-from -`, a line `<old place><TAB><new place>` per declaration on its
-  standard input (`SymbolIndex::renames`). Only a commit and a range named by full object ids are asked (the parent
-  `<id>~1` and the commit, the base and the head), never the working tree, whose tree the index would read later
-  than the diffs; only when the subject has such a declaration; and only an accio whose `versions` says that it
-  answers `renames` at the revision this reader was written for (`RENAMES_ANSWER`; one more process, once per run of
-  the app). The answer is always a late event: the contents never wait for it. No index of the repository
-  (`available: false`), an accio without the answer, a failure and an answer of another number of pairs leave the
-  names `unavailable`; none fails the diffs. The query is killed once the page that asked went away
-  (`get_file_diffs` is a command of its window: the page of the window is another, `Windows::shows`, or a send to it
-  failed), and the stream ends there. The e2e server answers from the fixture of its repository
+  repository in a read of its own, `get_rename_proofs` (`FileDiffs::rename_proofs`), all in one process: `accio
+  renames --no-build --format json --project <root> --base <the old tree> --ref <the new tree> --pairs-from -`, a
+  line `<old place><TAB><new place>` per declaration on its standard input (`SymbolIndex::renames`). The read of the
+  diffs never waits for it: with an index on the machine the names say `asked`, and the window asks of the subject
+  it shows, after its diffs. The pairs of the subject come from the caches again (one list, no blob; a pair they
+  lost is compared again), so the question costs no git process beside the list. Only a commit and a range named by
+  full object ids are asked (the parent `<id>~1` and the commit, the base and the head), never the working tree,
+  whose tree the index would read later than the diffs; only the declarations of Kotlin and Java files, the two
+  languages whose uses accio proves; and only an accio whose `versions` says that it answers `renames` at the
+  revision this reader was written for (`RENAMES_ANSWER`; one more process, once for each build of the executable,
+  told by its size and the time it was written, as its `--version` is: the app outlives an update of accio). An
+  answer is kept in memory by the repository, the two trees and the declarations asked (16 MiB): two trees never
+  change, so a subject shown again starts no process. No index of the repository (`available: false`), an accio
+  without the answer, a failure and an answer of another number of pairs leave the names `unavailable`, and are
+  not kept; none fails a read. One question per window (`Windows::begin_rename_proofs`): a newer one supersedes the
+  one in flight, whose query is killed, as is the query of a window that closed or loads again (`Windows::shows`:
+  the page of a window that went away never says so itself); it answers nothing then, and the names stay `asked`
+  for the next question. The e2e server answers from the fixture of its repository
   (`.git/branch-deck-accio.json`, `renames` by the old place of a pair; without any, no answer).
 - **Caches.** A diff is keyed by its blob pair, the whitespace policy and how each side is read
   (`diff_options`, the one function of the views and of `blocks_of`): by its grammar, since the scopes and the marks

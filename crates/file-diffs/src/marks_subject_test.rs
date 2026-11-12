@@ -41,10 +41,11 @@ fn read(file: &File) -> (TextDiff, Leftovers) {
   let (old, new) = (file.old.as_deref().unwrap_or_default(), file.new.as_deref().unwrap_or_default());
   let mut diff = diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE);
   let grammar = pair_grammar(file.path, file.path);
-  let pair = marks_of(&diff, old, new, grammar, WhitespacePolicy::Default, pair_indented(file.path, file.path), |new_side| {
+  let indented = pair_indented(file.path, file.path);
+  let pair = marks_of(&diff, old, new, grammar, WhitespacePolicy::Default, indented, |new_side| {
     tokens(grammar?, if new_side { new } else { old }).map(Arc::new)
   });
-  let (marks, left) = Leftovers::of(&diff.blocks, pair, old, new);
+  let (marks, left) = Leftovers::of(&diff.blocks, pair, old, new, indented);
   diff.marks = marks;
   (diff, left)
 }
@@ -111,6 +112,7 @@ impl Case {
             end_column: sites[place as usize * 3 + 2],
             kind,
             resolved: Resolved::Typed,
+            text: None,
           };
           base.push(used(&rename.old_sites));
           head.push(used(&rename.new_sites));
@@ -364,6 +366,7 @@ fn used_at(path: &str, line: u32, column: u32, end_column: u32) -> RenameUse {
     end_column,
     kind: Access::Call,
     resolved: Resolved::Typed,
+    text: None,
   }
 }
 
@@ -616,9 +619,9 @@ fn pending(case: &Case, file: usize) -> Vec<(u32, Vec<String>)> {
     .collect()
 }
 
-/// A pair keeps, beside the names it declares none of, the runs their blocks have with those names read as one: all
-/// the runs of each such block, each with the names it needs, so the pass over the subject reads no text. The runs
-/// of the pair itself are as they were: nothing of such a name is a mark of its pair
+/// A pair keeps, beside the names it declares none of, the runs their blocks have with those names read as one that
+/// lean on such a name: runs of the kind `Renamed`, each with the names it leans on, so the pass over the subject
+/// reads no text. The runs of the pair itself are as they were: nothing of such a name is a mark of its pair
 #[test]
 fn a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have() {
   // each call a block of its own
@@ -629,7 +632,8 @@ fn a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have() {
   );
   assert_eq!(report.pairs[0].0.marks.runs, []);
 
-  // a call wrapped beside the line of the name: a run of formatting of the pair, and of the block read again
+  // a call wrapped beside the line of the name: a run of formatting of the pair. The block read again has it too,
+  // and keeps the run of the name alone: a run of formatting is the pair's to find
   let old = [
     "fun f(path: String) {",
     "  val store = openStore(path)",
@@ -639,10 +643,7 @@ fn a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have() {
   ];
   let new = "fun f(path: String) {\n  val store = connectStore(path)\n  check(\n    store.path.isNotEmpty(),\n    path,\n  )\n  val local = store.path\n}\n";
   let wrapped = Case::of(vec![changed("src/Use.kt", &text(&old), &new.replace("path,\n  )", "path\n  )"))]);
-  assert_eq!(
-    pending(&wrapped, 0),
-    [(0, vec!["1..2/1..2 renamed [0]".to_string(), "2..3/2..6 formatting quiet []".to_string()])]
-  );
+  assert_eq!(pending(&wrapped, 0), [(0, vec!["1..2/1..2 renamed [0]".to_string()])]);
   let runs = &wrapped.pairs[0].0.marks.runs;
   assert_eq!(
     runs.iter().map(|run| (run.old_start, run.new_start, run.kind, run.quiet)).collect::<Vec<_>>(),
@@ -671,7 +672,7 @@ fn a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have() {
     },
     PendingBlock {
       block: 2,
-      runs: vec![run(8, vec![0]), run(9, vec![])],
+      runs: vec![run(8, vec![0])],
     },
   ];
   let moved = |old_start: u32, new_start: u32| LineMove {
@@ -688,7 +689,7 @@ fn a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have() {
       block: 0,
       runs: vec![run(5, vec![0])],
     }],
-    "the second block holds no run of such a name any more"
+    "the second block holds no run any more"
   );
 }
 
@@ -723,4 +724,322 @@ fn the_declarations_are_asked_by_the_lines_and_the_characters_of_their_texts() {
   // a path that cannot stand on a line of the list of the pairs asks nothing either
   let tabbed = Case::of(vec![changed("src/a\tb/Store.kt", &store("openStore"), &store("connectStore"))]);
   assert_eq!(tabbed.marks(IndexAnswer::Asked).1, []);
+}
+
+/// Whether the run `held` holds the run `run`: of its kind, around its lines on both sides
+fn holds(held: &LineRun, run: &LineRun) -> bool {
+  held.kind == run.kind && held.old_start <= run.old_start && run.old_end <= held.old_end && held.new_start <= run.new_start && run.new_end <= held.new_end
+}
+
+/// What the subject may differ in from the marks of the pair of the file `file`, which went out with its rows:
+/// it adds runs that are labels. The quiet runs, the stops, the moves and the renames are those of the pair, every
+/// run of the pair lies in a run of its kind, and no two runs share a line
+fn assert_adds_labels_alone(case: &Case, file: usize, name: &str) {
+  let pair = &case.pairs[file].0.marks;
+  let Some(late) = case.marks(IndexAnswer::Unavailable).0[file].clone() else { return };
+  let quiet = |runs: &[LineRun]| runs.iter().filter(|run| run.quiet).cloned().collect::<Vec<_>>();
+  assert_eq!(quiet(&late.runs), quiet(&pair.runs), "the quiet runs: {name}");
+  assert_eq!((&late.starts, &late.moves, &late.renames), (&pair.starts, &pair.moves, &pair.renames), "{name}");
+  for run in &pair.runs {
+    assert!(late.runs.iter().any(|held| holds(held, run)), "a run of the pair is gone: {run:?} of {name}");
+  }
+  for run in late.runs.iter().filter(|run| !pair.runs.contains(run)) {
+    assert!(run.kind == RunKind::Renamed && !run.quiet, "a run the subject added is no label: {run:?} of {name}");
+  }
+  assert!(
+    late
+      .runs
+      .windows(2)
+      .all(|runs| runs[0].old_end <= runs[1].old_start && runs[0].new_end <= runs[1].new_start),
+    "two runs share a line: {name}"
+  );
+}
+
+/// The files of a subject are put together after the rows of each were drawn, so they add labels and nothing else:
+/// a line of formatting that is quiet only with a name read as one is no run, whoever declares the name
+#[test]
+fn the_subject_adds_labels_alone_never_a_quiet_run_or_a_stop() {
+  let store = || changed("src/Store.kt", &text(&STORE), &renamed(&STORE));
+  let report = |old: &[&str], new: &[&str]| changed("src/Report.kt", &text(old), &text(new));
+  // a call wrapped otherwise at the end of its block, before a line that changed in a name alone: with that name
+  // read as one the wrapped lines are the same code up to the same token, a run of formatting. The pair has none,
+  // and neither has the subject, whether the name after it is the one the store renamed or one no file declares
+  let wrapped = |after: [&str; 2]| {
+    let old = [
+      "fun report(path: String) {",
+      "  val c = other(openStore(a))",
+      "  call(x,",
+      "    y)",
+      "  // a note of it",
+      after[0],
+      "  keep()",
+      "}",
+    ];
+    let new = [
+      "fun report(path: String) {",
+      "  val c = other(connectStore(a))",
+      "  call(",
+      "    x, y)",
+      "  // a note of it",
+      after[1],
+      "  keep()",
+      "}",
+    ];
+    Case::of(vec![report(&old, &new), store()])
+  };
+  for (name, after, runs) in [
+    ("a name no file declares", ["  loadPath(x).use(y)", "  readPath(x).use(y)"], vec![run(1, 1)]),
+    (
+      "the name the store renamed",
+      ["  openStore(x).use(y)", "  connectStore(x).use(y)"],
+      vec![run(1, 1), run(5, 5)],
+    ),
+  ] {
+    let case = wrapped(after);
+    assert_eq!(case.pairs[0].0.marks.runs, [], "{name}");
+    assert_eq!(case.marks(IndexAnswer::Unavailable).0[0].clone().unwrap().runs, runs, "{name}");
+    assert_adds_labels_alone(&case, 0, name);
+  }
+
+  // a line of the renamed name at the end of its block is a run of the rename only while the code after the block
+  // reads the same: by a name no file of the subject declares it does not
+  let leaning = |after: [&str; 2]| {
+    let old = ["fun report(path: String) {", "  val c = other(openStore(a))", "  // a note of it", after[0], "}"];
+    let new = ["fun report(path: String) {", "  val c = other(connectStore(a))", "  // a note of it", after[1], "}"];
+    Case::of(vec![report(&old, &new), store()])
+  };
+  let unexplained = leaning(["  loadPath(x).use(y)", "  readPath(x).use(y)"]);
+  assert_eq!(
+    pending(&unexplained, 0),
+    [(0, vec!["1..2/1..2 renamed [0, 1]".to_string()]), (1, vec!["3..4/3..4 renamed [1]".to_string()])],
+    "the run of the first block leans on both names"
+  );
+  let marks = unexplained.marks(IndexAnswer::Unavailable).0[0].clone().unwrap();
+  assert_eq!(
+    (marks.runs, marks.subject.unwrap().used.len()),
+    (vec![], 1),
+    "the name is a rename of the file, its line is read"
+  );
+  let explained = leaning(["  openStore(x).use(y)", "  connectStore(x).use(y)"]);
+  assert_eq!(explained.marks(IndexAnswer::Unavailable).0[0].clone().unwrap().runs, [run(1, 1), run(3, 3)]);
+
+  // and of every report made of such statements, each changed one way or another
+  let statements: [(&[&str], &[&[&str]]); 9] = [
+    (
+      &["  val a = openStore(path)"],
+      &[
+        &["  val a = connectStore(path)"],
+        &["  val a = connectStore( path )"],
+        &["  val a =", "    connectStore(path)"],
+      ],
+    ),
+    (
+      &["  call(openStore(path), other)"],
+      &[
+        &["  call(connectStore(path), other)"],
+        &["  call(", "    connectStore(path),", "    other)"],
+        &["  call(connectStore(path),", "    other)"],
+      ],
+    ),
+    (
+      &["  call(", "    openStore(path),", "    other)"],
+      &[
+        &["  call(connectStore(path), other)"],
+        &["  call(", "    connectStore(path),", "    other)"],
+        &["  call(", "    connectStore(path), other)"],
+      ],
+    ),
+    (&["  call(x, y)"], &[&["  call(x, y)"], &["  call( x, y )"], &["  call(x,", "    y)"], &["  call(x, z)"]]),
+    (&["  call(x,", "    y)"], &[&["  call(x, y)"], &["  call(x,", "    y)"], &["  call(", "    x, y)"]]),
+    (
+      &["  val b = compute(1, 2)"],
+      &[&["  val b = compute(1, 2)"], &["  val b = compute(1,2)"], &["  val b = compute(1, 3)"]],
+    ),
+    (&["  // a note of it"], &[&["  // a note of it"], &["  // another note of it"], &["  //a note of it"]]),
+    (
+      &["  openStore(x).use(y)"],
+      &[&["  connectStore(x).use(y)"], &["  connectStore(x)", "    .use(y)"], &["  connectStore(x).use( y )"]],
+    ),
+    (&["  loadPath(x).use(y)"], &[&["  readPath(x).use(y)"], &["  readPath(x)", "    .use(y)"]]),
+  ];
+  // a generator of its own, so the cases are the same on every run
+  let mut state = 1u64;
+  let mut next = |bound: usize| {
+    state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+    usize::try_from((state >> 33) % bound as u64).unwrap()
+  };
+  let mut added = 0;
+  for case in 0..600 {
+    let (mut old, mut new) = (vec!["fun report(path: String) {"], vec!["fun report(path: String) {"]);
+    for _ in 0..2 + next(6) {
+      let (old_lines, news) = statements[next(statements.len())];
+      old.extend(old_lines);
+      new.extend(news[next(news.len())]);
+      if next(4) == 0 {
+        old.push("  keep()");
+        new.push("  keep()");
+      }
+    }
+    old.push("}");
+    new.push("}");
+    let name = format!("case {case}:\n{}\n->\n{}", old.join("\n"), new.join("\n"));
+    let case = Case::of(vec![report(&old, &new), store()]);
+    added += usize::from(
+      case.marks(IndexAnswer::Unavailable).0[0]
+        .as_ref()
+        .is_some_and(|late| late.runs != case.pairs[0].0.marks.runs),
+    );
+    assert_adds_labels_alone(&case, 0, &name);
+  }
+  assert!(added > 100, "the cases have runs to add: {added}");
+}
+
+/// A use the index lists without a word (a positional argument that sets a property: as many columns before it as
+/// after it) has no name to change, and a use by another word (an alias of an import, an accessor) that both trees
+/// hold at the same place of a line the change left alone asks nothing of the rename
+#[test]
+fn a_use_that_writes_no_word_or_the_same_other_word_in_both_trees_does_not_stand_in_the_way() {
+  // what accio answered of this very change: `Item("x", 1)` stands untouched and sets the renamed property
+  let item = |name: &str| format!("package demo\n\ndata class Item(val {name}: String, val count: Int)\n\nfun describe(item: Item): String {{\n  return item.{name}\n}}\n");
+  let other = |name: &str| format!("package demo\n\nfun show(item: Item): String {{\n  val text = item.{name}\n  return text\n}}\n");
+  let makes = |name: &str| format!("package demo\n\nfun make(): Item {{\n  return Item(\"x\", 1)\n}}\n\nfun named(): Item {{\n  return Item({name} = \"y\", count = 2)\n}}\n");
+  let case = Case::of(vec![
+    changed("src/Item.kt", &item("label"), &item("title")),
+    changed("src/Other.kt", &other("label"), &other("title")),
+    changed("src/Use.kt", &makes("label"), &makes("title")),
+  ]);
+  let uses = r#"{"total": 5, "uses": [
+    {"column": 20, "end_column": 25, "file": "src/Item.kt", "kind": "declaration", "line": 3, "resolved": "typed"},
+    {"column": 14, "end_column": 19, "file": "src/Item.kt", "kind": "read", "line": 6, "resolved": "typed"},
+    {"column": 18, "end_column": 23, "file": "src/Other.kt", "kind": "read", "line": 4, "resolved": "typed"},
+    {"column": 14, "end_column": 14, "file": "src/Use.kt", "kind": "write", "line": 4, "resolved": "typed"},
+    {"column": 14, "end_column": 19, "file": "src/Use.kt", "kind": "write", "line": 8, "resolved": "typed"}]}"#;
+  let answer: RenameAnswer = serde_json::from_str(&format!(
+    r#"{{"base": {uses}, "head": {uses}, "complete": true, "conflicts": [], "same": true,
+      "old": {{"language": "kotlin", "name": "label"}}, "new": {{"language": "kotlin", "name": "title"}}}}"#
+  ))
+  .unwrap();
+  let (marks, questions) = case.marks(IndexAnswer::Answered(std::slice::from_ref(&answer)));
+  assert_eq!(questions.len(), 1);
+  let subjects: Vec<SubjectMarks> = marks.into_iter().map(|marks| *marks.unwrap().subject.unwrap()).collect();
+  assert_eq!(subjects[0].declared[0].proof, RenameProof::Confirmed);
+  assert_eq!(
+    subjects[1..].iter().map(|subject| subject.used[0].proof).collect::<Vec<_>>(),
+    [RenameProof::Confirmed, RenameProof::Confirmed]
+  );
+
+  // a use by another word: an alias of the import of the function, in a third file whose import changed and whose
+  // call by the alias did not, one line further down in the new text
+  let case = Case::of(vec![
+    changed("src/Report.kt", &text(&REPORT), &renamed(&REPORT)),
+    changed("src/Store.kt", &text(&STORE), &renamed(&STORE)),
+    changed(
+      "src/Alias.kt",
+      "package other\n\nimport demo.openStore as open\n\nfun aliased() = open(\"a\")\n",
+      "package other\n\nimport demo.connectStore as open\nimport demo.Store\n\nfun aliased() = open(\"a\")\n",
+    ),
+  ]);
+  let complete = case.answer("openStore", "connectStore");
+  let word = |path: &str, line: u32, word: &str| RenameUse {
+    text: Some(word.to_string()),
+    ..used_at(path, line, 16, 20)
+  };
+  let with = |base: &[RenameUse], head: &[RenameUse]| {
+    let mut answer = complete.clone();
+    for (uses, more) in [(answer.base.as_mut().unwrap(), base), (answer.head.as_mut().unwrap(), head)] {
+      uses.uses.extend_from_slice(more);
+      uses.total = uses.uses.len();
+    }
+    answer
+  };
+  let confirmed = (RenameProof::Confirmed, RenameProof::Confirmed, vec![0, 1]);
+  let incomplete = (RenameProof::Incomplete, RenameProof::Incomplete, vec![]);
+  let alias = |line: u32| word("src/Alias.kt", line, "open");
+  assert_eq!(
+    proofs(&case, &with(&[alias(5)], &[alias(6)])),
+    confirmed,
+    "the same word at the same place of a line the change left alone"
+  );
+  // and in a file the change did not touch, where a line is the same line in both trees
+  let outside = word("src/Far.kt", 9, "open");
+  assert_eq!(proofs(&case, &with(std::slice::from_ref(&outside), std::slice::from_ref(&outside))), confirmed);
+
+  // nothing is known of such a word that the other tree does not hold at its place: no proof, and no verdict of
+  // what the rename changed either
+  for (name, base, head) in [
+    ("the old tree alone", vec![alias(5)], vec![]),
+    ("the new tree alone", vec![], vec![alias(6)]),
+    ("another line", vec![alias(5)], vec![alias(5)]),
+    ("another word", vec![alias(5)], vec![word("src/Alias.kt", 6, "connect")]),
+    ("another line of a file outside the change", vec![outside], vec![word("src/Far.kt", 10, "open")]),
+  ] {
+    assert_eq!(proofs(&case, &with(&base, &head)), incomplete, "{name}");
+  }
+  // a use without a word is no use of the name, wherever it stands
+  let wordless = RenameUse {
+    end_column: 9,
+    ..used_at("src/Report.kt", 5, 9, 9)
+  };
+  assert_eq!(proofs(&case, &with(std::slice::from_ref(&wordless), &[])), confirmed);
+}
+
+/// The index names a line by the line feeds before it, the diff also by a carriage return that no line feed
+/// follows: a use the index lists in a text with one is on no line the diff knows, so the answer proves nothing
+#[test]
+fn a_use_in_a_text_with_a_lone_carriage_return_proves_nothing() {
+  // a third file of the subject deletes a call of the renamed function, on a line a reader stops at anyway
+  let extra = |end: &str| {
+    changed(
+      "src/Extra.kt",
+      &format!("package demo{end}{end}fun keep(): Int = 1\n\nfun gone(path: String) {{\n  check(openStore(path).path.isNotEmpty())\n}}\n"),
+      &format!("package demo{end}{end}fun keep(): Int = 1\n"),
+    )
+  };
+  let case = |end: &str| {
+    Case::of(vec![
+      changed("src/Report.kt", &text(&REPORT), &renamed(&REPORT)),
+      changed("src/Store.kt", &text(&STORE), &renamed(&STORE)),
+      extra(end),
+    ])
+  };
+  let (plain, lone) = (case("\n"), case("\r"));
+  assert_eq!((plain.pairs[2].1.lone_returns, lone.pairs[2].1.lone_returns), ([false, false], [true, true]));
+  let mut answer = plain.answer("openStore", "connectStore");
+  let uses = answer.base.as_mut().unwrap();
+  uses.uses.push(used_at("src/Extra.kt", 5, 8, 17));
+  uses.total += 1;
+  assert_eq!(proofs(&plain, &answer), (RenameProof::Confirmed, RenameProof::Confirmed, vec![0, 1]));
+  // the same answer of the same lines: the line the index names is not the line of the diff
+  assert_eq!(proofs(&lone, &answer), (RenameProof::Incomplete, RenameProof::Incomplete, vec![]));
+  // what the index found wrong itself stays said
+  answer.conflicts.push(conflict("left"));
+  assert_eq!(proofs(&lone, &answer), (RenameProof::UsesOutside, RenameProof::UsesOutside, vec![]));
+}
+
+/// The index proves the uses of a declaration of Kotlin and of Java alone, so a name a file of another language
+/// declares is asked of no declaration, and says so at once
+#[test]
+fn a_name_declared_in_a_language_the_index_proves_nothing_of_is_not_asked() {
+  let store = |name: &str| format!("export function {name}(path: string): string {{\n  return path\n}}\n");
+  let report = |name: &str| format!("import {{ {name} }} from \"./store\"\n\nexport function report(path: string): string {{\n  return {name}(path)\n}}\n");
+  let case = Case::of(vec![
+    changed("src/report.ts", &report("openStore"), &report("connectStore")),
+    changed("src/store.ts", &store("openStore"), &store("connectStore")),
+  ]);
+  assert_eq!(case.pairs[1].0.marks.renames.len(), 1, "the store names its rename");
+  for answer in [IndexAnswer::Asked, IndexAnswer::Unavailable] {
+    let (marks, questions) = case.marks(answer);
+    assert_eq!(questions, [], "no process for an answer that proves nothing");
+    let (report, store) = (marks[0].clone().unwrap().subject.unwrap(), marks[1].clone().unwrap().subject.unwrap());
+    assert_eq!((report.used[0].proof, store.declared[0].proof), (RenameProof::Incomplete, RenameProof::Incomplete));
+  }
+  // beside a declaration of Kotlin in the same subject, which is asked
+  let mixed = Case::of(vec![
+    changed("src/store.ts", &store("openStore"), &store("connectStore")),
+    changed("src/Store.kt", &text(&STORE), &text(&STORE).replace("openStore", "attachStore")),
+  ]);
+  let (marks, questions) = mixed.marks(IndexAnswer::Asked);
+  assert_eq!(questions.len(), 1);
+  let proofs: Vec<RenameProof> = marks.into_iter().map(|marks| marks.unwrap().subject.unwrap().declared[0].proof).collect();
+  assert_eq!(proofs, [RenameProof::Incomplete, RenameProof::Asked]);
 }

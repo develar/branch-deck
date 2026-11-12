@@ -8,7 +8,7 @@ import { logError } from "@/lib/errors"
 /*
  * A store of the files that a command streams through a channel (`get_file_diffs`, `get_file_merges`): the headers
  * first, then the content of each file as it is known, then the scopes of a text the backend parsed late, and the
- * marks of a file that the other files of its subject or the index of the repository changed after its content.
+ * marks of a file that the other files of its subject changed after its content.
  */
 
 export type FileStreamEntry<F> =
@@ -43,6 +43,13 @@ export interface FileStream<F extends { path: string }, E> {
    * key is read reads once more after that read (the last `open` asked), so a change during a read is never lost.
    */
   load: (key: string, open: (channel: Channel<E>) => Promise<CommandResult<null>>, refresh?: boolean) => void
+  /**
+   * Puts what `change` gives of each file in place of the file in the complete entry of a key, a file it answers null
+   * of as it is: what another read says of the files of a stream that ended (the answer of the index of the
+   * repository of a subject's renames). An entry that is not there, or still being read, takes nothing: its read
+   * says what it is.
+   */
+  update: (key: string, change: (file: F) => F | null) => void
 }
 
 /**
@@ -173,7 +180,26 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
     }
   }
 
-  return { store, load }
+  const update = (key: string, change: (file: F) => F | null) =>
+    store.setState(state => {
+      const entry = state.byKey.get(key)
+      if (entry?.kind !== "loaded" || !entry.complete) {
+        return state
+      }
+      let changed = false
+      const files = entry.files.map(file => {
+        const next = change(file)
+        changed ||= next !== null
+        return next ?? file
+      })
+      if (!changed) {
+        return state
+      }
+      // in its place: what was read last stays the last
+      return { byKey: new Map(state.byKey).set(key, { ...entry, files }) }
+    })
+
+  return { store, load, update }
 }
 
 /**

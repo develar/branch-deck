@@ -75,10 +75,16 @@ macro_rules! for_each_command {
       /// The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
       /// the files, then the content of each file as it is known, the files in view (`priority_paths`) first, then the
       /// marks of the files the others of the subject say something of (the lines that moved between two files, the names
-      /// another file declares) and what the index of the repository (`accio`) answers of the names the subject renamed,
-      /// a query killed once the page of the window went away. Through the memory cache of the app and the `file_diff`
-      /// and `file_leftovers` stores, else one list and one `cat-file --batch`
-      read window get_file_diffs(params: file_diffs::model::GetFileDiffsParams) [channel events: file_diffs::model::FileDiffEvent] -> () = $crate::reads::diffs::get_file_diffs;
+      /// another file declares). Through the memory cache of the app and the `file_diff` and `file_leftovers` stores,
+      /// else one list and one `cat-file --batch`
+      read json get_file_diffs(params: file_diffs::model::GetFileDiffsParams) [channel events: file_diffs::model::FileDiffEvent] -> () = $crate::reads::diffs::get_file_diffs;
+
+      /// What the index of the repository (`accio`) answers of the names a subject renamed, asked by the window that
+      /// shows the subject, after its diffs: the marks of each file the answer says something of, in place of those
+      /// `get_file_diffs` gave. One query for every declaration of the subject, waited for as long as it runs and killed
+      /// once the window asks of another subject, closes or loads again: no answer then, and the names stay asked. An
+      /// answer is kept in memory by the two trees of the subject
+      read window get_rename_proofs(params: file_diffs::model::GetRenameProofsParams) -> Option<Vec<file_diffs::model::FileMarks>> = $crate::reads::diffs::get_rename_proofs;
 
       /// The merge of each conflicting file of a cherry-pick, for the conflict view, through `events`: the files with the
       /// stage blob ids that `merge-tree` gives, then the content of each file as it is known, the files in view first

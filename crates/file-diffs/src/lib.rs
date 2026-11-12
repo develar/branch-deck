@@ -52,6 +52,8 @@ mod scopes_test;
 #[cfg(test)]
 mod service_test;
 #[cfg(test)]
+mod stored_layout_test;
+#[cfg(test)]
 mod syntax_test;
 #[cfg(test)]
 mod usages_test;

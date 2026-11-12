@@ -18,10 +18,15 @@
 //!   files, the names one file declares and others use) is read from what each pair left (`leftovers`), kept beside
 //!   its diff under the same key, so no blob is read for it. When the caches have every pair, it is read before the
 //!   first content goes out, which carries it; else each content goes out as it is known and the marks of the files
-//!   the subject says something of follow in a `marks` event, once all are. Then the index of the repository is asked
-//!   of the names that are not local, every declaration of the subject in one process, and its answer is one more
-//!   `marks` event of their files: it adds words and what a reader may pass, never a row. Nothing of the subject
-//!   enters a cache: a pair is in other commits beside other files.
+//!   the subject says something of follow in a `marks` event, once all are. Nothing of the subject enters a cache: a
+//!   pair is in other commits beside other files.
+//! - **The index.** What the index of the repository says of the names a subject renamed is an answer of its own
+//!   (`FileDiffs::rename_proofs`), asked by the window that shows the subject, after its diffs: every declaration of
+//!   the subject in one process, a query of seconds on a large repository, so no read of the diffs waits for it and
+//!   a subject read ahead of its view starts none. The pairs come from the caches again; the answer is the marks of
+//!   the files it says something of, which add words and what a reader may pass, never a row. Memory keeps the
+//!   answers of the last subjects (`ANSWERS_CACHE_BYTES`) by their two trees and their questions: two trees never
+//!   change, and a subject shown again asks no process.
 //! - **Caches.** A diff is keyed by its blob pair, the whitespace policy and how each side is read (`DiffKey`,
 //!   `diff_options`): its grammar, since the scopes and the marks depend on it, `.kt` and `.kts`, `.ts`, `.tsx` and
 //!   `.js` each their own; without a grammar, whether its indentation has a meaning, which the moves depend on, so a
@@ -33,13 +38,16 @@
 //!   subject, so the result does not depend on the load of the machine or the order of the files. A diff that the time
 //!   cut short (`line_level_only` within the size limits) stays in memory only: the store never keeps it.
 
-use crate::accio::{IndexUnavailable, SearchCanceled, SymbolIndex};
+use crate::accio::{IndexUnavailable, RenameAnswer, RenamePair, SearchCanceled, SymbolIndex};
 use crate::collapse::collapse_of;
 use crate::leftovers::{LEFTOVERS_CACHE_BYTES, Leftovers};
-use crate::marks::{TOKENS_CACHE_BYTES, tokens_weight};
+use crate::marks::{TOKENS_CACHE_BYTES, pair_indented, tokens_weight};
 use crate::marks_subject::{IndexAnswer, PairFacts, Subject, facts_of};
 use crate::merge::{ConflictPath, MergeMemoryKey, merge_weight};
-use crate::model::{BlobRequest, BlobText, Collapse, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, GetFileDiffsParams, MergeContent, MergeSource};
+use crate::model::{
+  BlobRequest, BlobText, Collapse, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetRenameProofsParams, MergeContent,
+  MergeSource,
+};
 use crate::range_files::RangeFilesCache;
 use crate::scopes::scopes_of_summary;
 use crate::syntax::{SYNTAX_CACHE_BYTES, syntax_weight};
@@ -74,8 +82,9 @@ use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument, warn};
 
 /// The version of the diffs in the `file_diff` store and of what they left in the `file_leftovers` store: bump it
-/// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change
-pub const MODEL_VERSION: u32 = 11;
+/// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change.
+/// `stored_layout_test.rs` pins the layout of both with it
+pub const MODEL_VERSION: u32 = 12;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
 /// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
@@ -98,6 +107,9 @@ pub const DIFF_CACHE_BYTES: u64 = 64 << 20;
 pub const BLOB_CACHE_BYTES: u64 = 128 << 20;
 /// The merges whose conflicting paths memory keeps
 const MAX_CACHED_CONFLICTS: u64 = 256;
+/// The answers of the index that memory keeps, weighed by the uses they list: those of the subjects a window showed
+/// last, each some kilobytes, one of a name used all over a repository a megabyte
+pub const ANSWERS_CACHE_BYTES: u64 = 16 << 20;
 /// At most this many blobs in one `blob_texts`
 pub const MAX_BLOB_REQUESTS: usize = 10_000;
 
@@ -156,6 +168,24 @@ pub(crate) struct MarksMemory {
   pub(crate) tokens: Cache<(u8, String), Option<Arc<Tokens>>>,
   /// What the diff of a text pair left to the other files of its subjects (`leftovers`), under the key of its diff
   pub(crate) leftovers: Cache<MemoryKey, Arc<Leftovers>>,
+  /// What the index answered of the declarations a subject renamed (`FileDiffs::rename_proofs`)
+  pub(crate) answers: Cache<AnswersKey, Arc<Vec<RenameAnswer>>>,
+}
+
+/// The key of an answer of the index: the repository, the two trees as they were asked (full object ids, so they
+/// name the same trees for ever) and the declarations asked
+pub(crate) type AnswersKey = (String, String, String, Vec<RenamePair>);
+
+/// The weight of an answer of the index in memory, roughly in bytes
+fn answers_weight(answers: &[RenameAnswer]) -> u32 {
+  let uses: usize = answers
+    .iter()
+    .flat_map(|answer| [&answer.base, &answer.head])
+    .flatten()
+    .flat_map(|uses| &uses.uses)
+    .map(|used| 80 + used.path.len())
+    .sum();
+  u32::try_from(256 + answers.len() * 160 + uses).unwrap_or(u32::MAX)
 }
 
 impl Default for FileDiffs {
@@ -272,15 +302,34 @@ struct Pending<'a> {
 }
 
 /// The two trees the index is asked of the names a subject renamed, the old one first: of a commit and of a range
-/// named by full object ids, which name the same trees whenever they are read. `None` for the working tree, which
-/// may be another by the time the index reads it, and for a name, which may move: the answer would be of another
-/// text than the one the diffs show
+/// named by full object ids, which name the same trees whenever they are read (so an answer may be kept by them).
+/// `None` for the working tree, which may be another by the time the index reads it, and for a name, which may
+/// move: the answer would be of another text than the one the diffs show
 fn revisions_of(source: &DiffSource) -> Option<(String, String)> {
   match source {
     DiffSource::Commit { id } if is_object_id(id) => Some((format!("{id}~1"), id.clone())),
     DiffSource::Range { base, head } if is_object_id(base) && is_object_id(head) => Some((base.clone(), head.clone())),
     DiffSource::Commit { .. } | DiffSource::Range { .. } | DiffSource::Uncommitted => None,
   }
+}
+
+/// What the pass over the files of a subject reads of each of `entries`: for a file whose content is a text, its
+/// diff and what its pair left (`texts`, by the index of the file)
+fn subject_facts<'a>(entries: &'a [Entry], texts: &'a [Option<KnownText>]) -> Vec<Option<PairFacts<'a>>> {
+  entries
+    .iter()
+    .zip(texts)
+    .map(|(entry, text)| match text.as_ref().map(|(content, left)| (content.as_ref(), left.as_ref())) {
+      Some((DiffContent::Text(diff), left)) => Some(facts_of(
+        entry.old_path.as_deref(),
+        &entry.path,
+        [entry.old_id.as_deref(), entry.new_id.as_deref()],
+        diff,
+        left,
+      )),
+      _ => None,
+    })
+    .collect()
 }
 
 /// The number of worker threads: the cores but one, for the thread that reads the blobs
@@ -328,6 +377,10 @@ impl FileDiffs {
           .max_capacity(LEFTOVERS_CACHE_BYTES)
           .weigher(|_key: &MemoryKey, left: &Arc<Leftovers>| left.weight())
           .build(),
+        answers: Cache::builder()
+          .max_capacity(ANSWERS_CACHE_BYTES)
+          .weigher(|_key: &AnswersKey, answers: &Arc<Vec<RenameAnswer>>| answers_weight(answers))
+          .build(),
       }),
       limits,
       keep_scan_blobs: false,
@@ -352,7 +405,8 @@ impl FileDiffs {
   }
 
   /// `read` with the index `index` of the repository, which the names the subject renamed are asked of
-  pub fn read_checked(
+  /// (`rename_proofs`) once its diffs are read, as a window that shows the subject asks it
+  pub(crate) fn read_checked(
     &self,
     git: &GitCommandExecutor,
     repository_path: &str,
@@ -369,7 +423,7 @@ impl FileDiffs {
       policy,
       priority_paths: Vec::new(),
     };
-    self.stream(git, cache, index, &params, |event| match event {
+    self.stream(git, cache, index.is_some(), &params, |event| match event {
       FileDiffEvent::Files { files } => {
         contents = vec![None; files.len()];
         headers = files;
@@ -393,6 +447,19 @@ impl FileDiffs {
         }
       }
     })?;
+    let proofs = GetRenameProofsParams {
+      repository_path: params.repository_path,
+      source: params.source,
+      policy,
+    };
+    // without an index nothing is asked: the proofs say so already
+    let answered = if index.is_some() { self.rename_proofs(git, cache, index, &proofs)? } else { None };
+    for FileMarks { path, marks } in answered.unwrap_or_default() {
+      let content = headers.iter().position(|header| header.path == path).and_then(|index| contents[index].as_mut());
+      if let Some((DiffContent::Text(diff), _)) = content {
+        diff.marks = marks;
+      }
+    }
     Ok(
       headers
         .into_iter()
@@ -416,18 +483,11 @@ impl FileDiffs {
 
   /// The diffs of a subject as events (`FileDiffEvent`): the files, then the content of each file as it is known,
   /// `priority_paths` first, then the others in the order of the tree; then what the files of the subject say of each
-  /// other (module doc, "Subject"), in the content itself when the caches had every pair, and what `index`, the index
-  /// of the repository, answers of the names the subject renamed. A canceled query of the index ends the stream: no
-  /// one listens
-  #[instrument(skip(self, git, cache, index, params, emit), fields(repository_path = %params.repository_path, source = ?params.source))]
-  pub fn stream(
-    &self,
-    git: &GitCommandExecutor,
-    cache: &ObjectCache,
-    index: Option<&dyn SymbolIndex>,
-    params: &GetFileDiffsParams,
-    mut emit: impl FnMut(FileDiffEvent),
-  ) -> Result<()> {
+  /// other (module doc, "Subject"), in the content itself when the caches had every pair. `asks_index`: an index of
+  /// the repository is there for the names the subject renamed, so their proof is `asked` until `rename_proofs`
+  /// answers; the stream itself asks no index and ends with the last of its files
+  #[instrument(skip(self, git, cache, params, emit), fields(repository_path = %params.repository_path, source = ?params.source))]
+  pub fn stream(&self, git: &GitCommandExecutor, cache: &ObjectCache, asks_index: bool, params: &GetFileDiffsParams, mut emit: impl FnMut(FileDiffEvent)) -> Result<()> {
     let (repository_path, policy) = (params.repository_path.as_str(), params.policy);
     let entries = list_entries(git, repository_path, cache, &self.range_files, &params.source)?;
     for blob in entries.iter().filter_map(|entry| entry.worktree.as_ref()) {
@@ -464,71 +524,109 @@ impl FileDiffs {
       self.compare(git, cache, &files, &mut texts, &mut emit)?;
     }
 
-    let facts: Vec<Option<PairFacts<'_>>> = entries
-      .iter()
-      .zip(&texts)
-      .map(|(entry, text)| match text.as_ref().map(|(content, left)| (content.as_ref(), left.as_ref())) {
-        Some((DiffContent::Text(diff), left)) => Some(facts_of(
-          entry.old_path.as_deref(),
-          &entry.path,
-          [entry.old_id.as_deref(), entry.new_id.as_deref()],
-          diff,
-          left,
-        )),
-        _ => None,
-      })
-      .collect();
+    let facts = subject_facts(&entries, &texts);
     let subject = Subject::of(&facts);
     if subject.work.skipped_files > 0 || subject.work.cut {
       debug!(work = ?subject.work, "the moves between the files of the subject were not all looked for");
     }
-    // the index is asked of a subject of two trees that never change, by the declarations it renamed
-    let asked = index.zip(revisions_of(&params.source)).filter(|_| !subject.questions().is_empty());
-    let first = subject.marks(if asked.is_some() { IndexAnswer::Asked } else { IndexAnswer::Unavailable });
+    // the index can be asked of a subject of two trees that never change, by the declarations it renamed
+    let asked = asks_index && revisions_of(&params.source).is_some() && !subject.questions().is_empty();
+    let marks = subject.marks(if asked { IndexAnswer::Asked } else { IndexAnswer::Unavailable });
     if pending.is_empty() {
       // every pair was in the caches: the content of a file comes with what the subject says of it
       for &index in &order {
         let content = known[index].take().or_else(|| texts[index].as_ref().map(|(content, _)| (**content).clone()));
         let Some(mut content) = content else { continue };
-        if let (DiffContent::Text(diff), Some(marks)) = (&mut content, &first[index]) {
+        if let (DiffContent::Text(diff), Some(marks)) = (&mut content, &marks[index]) {
           diff.marks = marks.clone();
         }
         emit(content_event(index, content));
       }
     } else {
-      for (index, marks) in first.iter().enumerate() {
+      for (index, marks) in marks.into_iter().enumerate() {
         if let Some(marks) = marks {
-          emit(FileDiffEvent::Marks {
-            index: to_u32(index),
-            marks: marks.clone(),
-          });
+          emit(FileDiffEvent::Marks { index: to_u32(index), marks });
         }
       }
     }
-
-    let Some((index, (base, head))) = asked else { return Ok(()) };
-    let answers = match index.renames(repository_path, subject.questions(), &base, &head) {
-      Ok(Some(answers)) if answers.len() == subject.questions().len() => Some(answers),
-      Ok(_) => None,
-      Err(error) if error.is::<SearchCanceled>() => return Ok(()),
-      Err(error) if error.is::<IndexUnavailable>() => {
-        debug!(%error, "the index of the repository answers no rename");
-        None
-      }
-      Err(error) => {
-        warn!(error = %format!("{error:#}"), "the index of the repository did not answer the renames of the subject");
-        None
-      }
-    };
-    let last = subject.marks(answers.as_deref().map_or(IndexAnswer::Unavailable, IndexAnswer::Answered));
-    for (index, (marks, before)) in last.into_iter().zip(first).enumerate() {
-      if marks != before
-        && let Some(marks) = marks
-      {
-        emit(FileDiffEvent::Marks { index: to_u32(index), marks });
-      }
-    }
     Ok(())
+  }
+
+  /// What `index`, the index of the repository, says of the names the subject of `params` renamed: the marks of each
+  /// file it says something of, in place of those `stream` gave it (whose proofs were `asked`), by its path. Empty
+  /// when the subject has nothing to ask, `None` when the query was canceled: the proofs stay as they are, for
+  /// whoever asks again.
+  ///
+  /// Asked after the diffs of the subject: its pairs come from the caches, and a pair they lost is compared again,
+  /// silently. Every declaration goes into one process, and an answer is kept in memory by its two trees and its
+  /// questions (`ANSWERS_CACHE_BYTES`), so a subject shown again starts none. An index that does not answer (none,
+  /// one without the answer, no index of the repository, a failed query) leaves every asked proof `unavailable`: it
+  /// fails no read
+  #[instrument(skip(self, git, cache, index, params), fields(repository_path = %params.repository_path, source = ?params.source))]
+  pub fn rename_proofs(&self, git: &GitCommandExecutor, cache: &ObjectCache, index: Option<&dyn SymbolIndex>, params: &GetRenameProofsParams) -> Result<Option<Vec<FileMarks>>> {
+    let (repository_path, policy) = (params.repository_path.as_str(), params.policy);
+    // a subject of the working tree, or one named by a ref, is never asked: `stream` said so
+    let Some((base, head)) = revisions_of(&params.source) else {
+      return Ok(Some(Vec::new()));
+    };
+    let entries = list_entries(git, repository_path, cache, &self.range_files, &params.source)?;
+    let order: Vec<usize> = (0..entries.len()).collect();
+    let keys: Vec<MemoryKey> = entries.iter().map(|entry| memory_key(entry, policy)).collect();
+    let Cached { mut texts, pending, .. } = self.cached(cache, &entries, &keys, &order);
+    if !pending.is_empty() {
+      let files = Pending {
+        repository_path,
+        entries: &entries,
+        keys: &keys,
+        policy,
+        order: &pending,
+      };
+      self.compare(git, cache, &files, &mut texts, &mut |_| {})?;
+    }
+    let facts = subject_facts(&entries, &texts);
+    let subject = Subject::of(&facts);
+    let questions = subject.questions();
+    if questions.is_empty() {
+      return Ok(Some(Vec::new()));
+    }
+    let key: AnswersKey = (repository_path.to_string(), base, head, questions.to_vec());
+    let answers = match (self.marks_memory.answers.get(&key), index) {
+      (Some(answers), _) => Some(answers),
+      (None, None) => None,
+      (None, Some(index)) => match index.renames(repository_path, questions, &key.1, &key.2) {
+        Ok(Some(answers)) if answers.len() == questions.len() => {
+          let answers = Arc::new(answers);
+          self.marks_memory.answers.insert(key, Arc::clone(&answers));
+          Some(answers)
+        }
+        Ok(_) => None,
+        Err(error) if error.is::<SearchCanceled>() => return Ok(None),
+        Err(error) if error.is::<IndexUnavailable>() => {
+          debug!(%error, "the index of the repository answers no rename");
+          None
+        }
+        Err(error) => {
+          warn!(error = %format!("{error:#}"), "the index of the repository did not answer the renames of the subject");
+          None
+        }
+      },
+    };
+    let asked = subject.marks(IndexAnswer::Asked);
+    let answered = subject.marks(answers.as_deref().map_or(IndexAnswer::Unavailable, |answers| IndexAnswer::Answered(answers)));
+    Ok(Some(
+      entries
+        .iter()
+        .zip(answered)
+        .zip(asked)
+        .filter(|((_, marks), before)| marks != before)
+        .filter_map(|((entry, marks), _)| {
+          Some(FileMarks {
+            path: entry.path.clone(),
+            marks: marks?,
+          })
+        })
+        .collect(),
+    ))
   }
 
   /// What the caches have of the files `entries` with the keys `keys`, read in the order `order`: the content of a
@@ -918,7 +1016,7 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
       .marks(&diff, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
     // what the pair leaves to the other files of its subjects is read here, where its texts are; what it leaves to
     // the measurement of its proofs (`PairMarks::proven`) has no reader yet
-    let (marks, left) = Leftovers::of(&diff.blocks, pair, old_text, new_text);
+    let (marks, left) = Leftovers::of(&diff.blocks, pair, old_text, new_text, pair_indented(paths[0], paths[1]));
     diff.marks = marks;
     let left = Arc::new(left);
     // memory keeps the diff with what it left, and the stream gets both for the pass over its subject

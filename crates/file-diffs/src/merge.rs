@@ -31,8 +31,9 @@ use text_diff::model::{DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, Text
 use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument};
 
-/// The version of the merges in the `file_merge` store: bump it when `TextMerge`, the merge or the scopes change
-pub(crate) const MERGE_MODEL_VERSION: u32 = 7;
+/// The version of the merges in the `file_merge` store: bump it when `TextMerge`, `TextDiff` (a merge of one side
+/// holds a diff, with its marks), the merge or the scopes change. `stored_layout_test.rs` pins the layout with it
+pub(crate) const MERGE_MODEL_VERSION: u32 = 8;
 
 /// The memory key of a merge: the options byte and the base, left and right blob ids, empty for a missing side
 pub(crate) type MergeMemoryKey = (u8, String, String, String);
@@ -54,7 +55,7 @@ pub(crate) struct ConflictPath {
 
 /// What the store keeps of a merge: postcard needs the default enum form, not the tagged form of the views
 #[derive(Serialize, Deserialize)]
-enum StoredMerge {
+pub(crate) enum StoredMerge {
   Text(TextMerge),
   OneSided { deleted: MergeSide, diff: TextDiff },
 }

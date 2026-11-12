@@ -8,6 +8,8 @@
 //! Usages) is superseded by a newer one of its window, its cancel and its close (`WindowRequests`): windows search apart,
 //! one never cancels the search of another. The read of a review plan (`get_review_plan`) is a request of its own kind,
 //! superseded by a newer plan of its window and by its close: a symbol search and a plan never cancel each other.
+//! The question of a window to the index about the names a subject renamed (`get_rename_proofs`) is one more kind:
+//! the window asks it of the subject it shows, so a newer one supersedes it, as does its close.
 
 use crate::transport::{Call, PageId, WindowId};
 use domain_types::operation::OperationId;
@@ -16,7 +18,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-/// The windows of an app: their subscriptions, their review fetches, their symbol searches and their review plans
+/// The windows of an app: their subscriptions, their review fetches, their symbol searches, their review plans and
+/// their questions about the renames of a subject
 #[derive(Default)]
 pub struct Windows {
   subscriptions: Mutex<WindowSubscriptions>,
@@ -25,6 +28,8 @@ pub struct Windows {
   /// The plans of a scope (a branch, a range) and of a commit of the column apart: one never supersedes the other
   plans: WindowRequests,
   commit_plans: WindowRequests,
+  /// The questions to the index about the names a subject renamed
+  rename_proofs: WindowRequests,
 }
 
 /// What a plan of a window is of: a scope (a branch, a range) or a commit, each one plan at a time
@@ -55,7 +60,7 @@ impl Windows {
   }
 
   /// Whether the page of `call` is the one its window shows still: false once the window closed or loads again, so
-  /// a read that only that page waits for may end (the query of the index of `get_file_diffs`)
+  /// a read that only that page waits for may end (the query of the index of `get_rename_proofs`)
   pub fn shows(&self, call: &Call) -> bool {
     self.subscriptions().pages.get(&call.window).is_some_and(|(shown, _)| *shown == call.page)
   }
@@ -115,11 +120,19 @@ impl Windows {
     }
   }
 
-  /// `window` closed: its symbol search and its read of a review plan are superseded and forgotten
+  /// Starts a question of `window` to the index about the names a subject renamed, which supersedes the one before:
+  /// a window asks of the subject it shows
+  pub fn begin_rename_proofs(&self, window: &WindowId) -> WindowRequest {
+    self.rename_proofs.begin(window)
+  }
+
+  /// `window` closed: its symbol search, its read of a review plan and its question about the renames of a subject
+  /// are superseded and forgotten
   pub fn forget_reads(&self, window: &WindowId) {
     self.searches.forget(window);
     self.plans.forget(window);
     self.commit_plans.forget(window);
+    self.rename_proofs.forget(window);
   }
 
   /// Every window with a page or a fetch

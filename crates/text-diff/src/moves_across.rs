@@ -7,6 +7,11 @@
 //!   as the key of a move within a file (`moves.rs`: its text without the spaces and tabs at its ends), hashed, with
 //!   the number of its characters that are no whitespace: the texts are not read again when the files of a subject
 //!   are put together. A row that cannot hold a move between files by itself is not kept.
+//! - **Where the indentation has a meaning** (Python, YAML, Starlark) the indent of a line is part of its key: a line
+//!   at another depth is another line, so a block that another file holds with one line nested otherwise, or whole at
+//!   another depth, is no move between files. A move within a file says by how much its lines were shifted
+//!   (`LineMove::indent`) and which of them did not follow; a label on two files says "the same lines", and there
+//!   they are not.
 //! - **A move between files** (`find_moves_across`) is a row of lines of the same keys, line by line, on the old side
 //!   of one file and on the new side of another: exact lines only, since a label on two files must not guess. Blank
 //!   lines inside it are lines of it; it starts and ends with a line that is not blank. It counts when it holds
@@ -50,7 +55,8 @@ const BLANK: u64 = 0;
 pub struct LeftRow {
   /// Its first line, from 0
   pub start: u32,
-  /// For each line of it, the hash of its text without the spaces and tabs at its ends; 0 for a blank line
+  /// For each line of it, the hash of its text without the spaces and tabs at its ends, or without those at its end
+  /// alone where the indentation has a meaning (`left_rows`); 0 for a blank line
   pub keys: Vec<u64>,
   /// For each line of it, its characters that are no whitespace
   pub solid: Vec<u32>,
@@ -126,8 +132,9 @@ fn key_of(text: &str) -> u64 {
 /// What the diff `blocks` of `old` and `new` leaves to the other files of its subject, the old side first: the lines
 /// of its changes that are in none of `runs` (by `old_start`, each inside one block) and in none of `moves`, as rows
 /// that can each hold a move between files, in the order of the lines. The empty line after the last line end of a
-/// text is no line of it, as for a move within a file
-pub fn left_rows(old: &str, new: &str, blocks: &[DiffBlock], runs: &[LineRun], moves: &[LineMove]) -> [Vec<LeftRow>; 2] {
+/// text is no line of it, as for a move within a file. `indented`: the indentation of the file has a meaning, so
+/// the indent of a line is part of its key and a line pairs only with one at its depth
+pub fn left_rows(old: &str, new: &str, blocks: &[DiffBlock], runs: &[LineRun], moves: &[LineMove], indented: bool) -> [Vec<LeftRow>; 2] {
   let side = |text: &str, new_side: bool| -> Vec<LeftRow> {
     let mut spans = free_spans(blocks, runs, new_side);
     if spans.is_empty() {
@@ -143,8 +150,10 @@ pub fn left_rows(old: &str, new: &str, blocks: &[DiffBlock], runs: &[LineRun], m
       for line in span.lines.clone() {
         let start = starts.get(line as usize).copied().unwrap_or(text.len());
         let end = starts.get(line as usize + 1).copied().unwrap_or(text.len());
-        let trimmed = text.get(start..end).unwrap_or_default().trim_end_matches(['\n', '\r']).trim_matches(WHITESPACE);
-        keys.push(if trimmed.is_empty() { BLANK } else { key_of(trimmed) });
+        let ended = text.get(start..end).unwrap_or_default().trim_end_matches(['\n', '\r']).trim_end_matches(WHITESPACE);
+        let trimmed = ended.trim_start_matches(WHITESPACE);
+        // a blank line has no depth: it pairs with any blank line
+        keys.push(if trimmed.is_empty() { BLANK } else { key_of(if indented { ended } else { trimmed }) });
         solid.push(to_u32(trimmed.chars().filter(|character| !WHITESPACE.contains(character)).count()));
       }
       let row = LeftRow {

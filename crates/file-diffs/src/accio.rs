@@ -38,7 +38,8 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
+use std::time::SystemTime;
 use sync_utils::child_process::{ChildPriority, ChildProcessError, cached_login_shell_path, find_executable, run_child_until_superseded, windowless_command_at};
 
 /// The declarations a lookup answers at most
@@ -688,7 +689,7 @@ const fn complete_by_default() -> bool {
 /// A declaration a change may have renamed, by the place of its name in the old tree and in the new one:
 /// `<path>:<line>:<column>`, the path from the root of the repository, the line and the column from 1, the column in
 /// characters, as `--at` takes a place (`Columns::Characters`)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RenamePair {
   pub old: String,
   pub new: String,
@@ -743,7 +744,8 @@ pub struct RenameUses {
 }
 
 /// A use of a declaration: a path of its tree, a line from 1 and the zero-based UTF-16 columns of the word written
-/// there
+/// there, the two the same for a use that writes no word (a positional argument that sets a property, a constructor
+/// delegation)
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct RenameUse {
   #[serde(rename = "file")]
@@ -754,6 +756,10 @@ pub struct RenameUse {
   pub kind: Access,
   /// What ties it to the declaration: a use tied by its name alone proves nothing
   pub resolved: Resolved,
+  /// The word written there when it is not the name of the declaration: an alias of an import, the accessor of a
+  /// property in another language. A rename of the declaration asks nothing of such a word
+  #[serde(default)]
+  pub text: Option<String>,
 }
 
 /// What a rename changed beyond the name: `left` (a use the change did not rename, in a file it left alone),
@@ -854,10 +860,37 @@ impl std::error::Error for SearchCanceled {}
 /// The `accio` executable of this machine
 pub struct AccioCli {
   executable: PathBuf,
-  /// Its `Columns`, from its `--version`, asked once
-  columns: OnceLock<Columns>,
-  /// The revision of its answer of `renames`, from its `versions`, asked once; `None` for an accio without it
-  renames_answer: OnceLock<Option<u32>>,
+  /// Its `Columns`, from its `--version`
+  columns: OfBuild<Columns>,
+  /// The revision of its answer of `renames`, from its `versions`; `None` for an accio without it
+  renames_answer: OfBuild<Option<u32>>,
+}
+
+/// What an executable says of itself, asked once of each build of it: again once its file is another one, by its
+/// size and the time it was written. The app outlives an update of accio, and what the build before said (how it
+/// counts columns, which revision of an answer it gives) is not what the new one does: an answer of another
+/// revision read as the known one would be read as a proof. A file that cannot be read is asked every time
+pub(crate) struct OfBuild<T>(Mutex<Option<((SystemTime, u64), T)>>);
+
+impl<T: Copy> OfBuild<T> {
+  pub(crate) const fn new() -> Self {
+    Self(Mutex::new(None))
+  }
+
+  /// What the build of `executable` that is there now says: the known answer of it, else what `ask` answers
+  pub(crate) fn of(&self, executable: &Path, ask: impl FnOnce() -> T) -> T {
+    let build = std::fs::metadata(executable).ok().and_then(|file| Some((file.modified().ok()?, file.len())));
+    let known = *self.0.lock().unwrap_or_else(PoisonError::into_inner);
+    if let (Some(build), Some((of, said))) = (build, known)
+      && of == build
+    {
+      return said;
+    }
+    // asked without the lock: two callers that ask at once get the same answer
+    let said = ask();
+    *self.0.lock().unwrap_or_else(PoisonError::into_inner) = build.map(|build| (build, said));
+    said
+  }
 }
 
 /// The lookups of one navigation: each query runs until it answers, at `priority`, and is killed once `canceled` turns
@@ -897,8 +930,8 @@ impl AccioCli {
   const fn new(executable: PathBuf) -> Self {
     Self {
       executable,
-      columns: OnceLock::new(),
-      renames_answer: OnceLock::new(),
+      columns: OfBuild::new(),
+      renames_answer: OfBuild::new(),
     }
   }
 
@@ -915,20 +948,21 @@ impl AccioCli {
   }
 
   /// Whether this accio answers `renames` as this reader reads it (`RENAMES_ANSWER`), from `accio versions`, asked
-  /// once: its `--version` does not say it (a build from source prints the version of the last release). An accio
-  /// without the answer, one that fails and one of another revision do not
-  pub fn answers_renames(&self) -> bool {
-    let revision = self.renames_answer.get_or_init(|| {
+  /// once of each build of it (`OfBuild`): its `--version` does not say it (a build from source prints the version
+  /// of the last release). An accio without the answer, one that fails and one of another revision do not
+  pub(crate) fn answers_renames(&self) -> bool {
+    let revision = self.renames_answer.of(&self.executable, || {
       let output = windowless_command_at(&self.executable, ChildPriority::Normal).arg("versions").output().ok()?;
       let versions: serde_json::Value = serde_json::from_slice(&output.stdout).ok().filter(|_| output.status.success())?;
       versions.get("answers")?.get("renames")?.as_u64().and_then(|revision| u32::try_from(revision).ok())
     });
-    *revision == Some(RENAMES_ANSWER)
+    revision == Some(RENAMES_ANSWER)
   }
 
-  /// How this accio counts columns (`Columns::of_version` of its `--version`), asked once; `Bytes` when it answers none
+  /// How this accio counts columns (`Columns::of_version` of its `--version`), asked once of each build of it
+  /// (`OfBuild`); `Bytes` when it answers none
   pub fn columns(&self) -> Columns {
-    *self.columns.get_or_init(|| {
+    self.columns.of(&self.executable, || {
       let output = windowless_command_at(&self.executable, ChildPriority::Normal).arg("--version").output();
       output
         .ok()
@@ -1199,16 +1233,16 @@ impl SymbolIndex for AccioSearch<'_> {
 /// of `review-plan`)
 pub struct Lenient<'a> {
   index: &'a dyn SymbolIndex,
-  error: std::sync::Mutex<Option<String>>,
-  unavailable: std::sync::Mutex<Option<String>>,
+  error: Mutex<Option<String>>,
+  unavailable: Mutex<Option<String>>,
 }
 
 impl<'a> Lenient<'a> {
   pub fn new(index: &'a dyn SymbolIndex) -> Self {
     Self {
       index,
-      error: std::sync::Mutex::default(),
-      unavailable: std::sync::Mutex::default(),
+      error: Mutex::default(),
+      unavailable: Mutex::default(),
     }
   }
 
@@ -1257,7 +1291,7 @@ impl<'a> Lenient<'a> {
 
   /// Why accio has no usable index of the repository, as accio words it: none while no query was told so
   pub fn unavailable(&self) -> Option<String> {
-    self.unavailable.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    self.unavailable.lock().unwrap_or_else(PoisonError::into_inner).clone()
   }
 
   /// Why the index did not answer, as the review says it: none when it answered every query
@@ -1265,7 +1299,7 @@ impl<'a> Lenient<'a> {
     self
       .error
       .into_inner()
-      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .unwrap_or_else(PoisonError::into_inner)
       .map(|error| format!("accio did not answer: {error}"))
   }
 
@@ -1273,20 +1307,12 @@ impl<'a> Lenient<'a> {
     match result {
       Err(error) if error.is::<SearchCanceled>() => Err(error),
       Err(error) if error.is::<IndexUnavailable>() => {
-        self
-          .unavailable
-          .lock()
-          .unwrap_or_else(std::sync::PoisonError::into_inner)
-          .get_or_insert_with(|| error.to_string());
+        self.unavailable.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert_with(|| error.to_string());
         Ok(None)
       }
       Err(error) => {
         tracing::warn!(error = %format!("{error:#}"), "the index of the repository did not answer");
-        self
-          .error
-          .lock()
-          .unwrap_or_else(std::sync::PoisonError::into_inner)
-          .get_or_insert_with(|| format!("{error:#}"));
+        self.error.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert_with(|| format!("{error:#}"));
         Ok(None)
       }
       Ok(answer) => Ok(answer),
