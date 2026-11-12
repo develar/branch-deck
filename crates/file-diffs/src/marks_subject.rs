@@ -28,8 +28,8 @@
 //!   that the other tree lists at the same place, or stands on a line that is read anyway (a line of a change, in
 //!   no run and in no move). Every other answer, and no answer, names why not. The places a proven declaration lists
 //!   are proven, and a run whose every place is proven, by the index or, for a local name, by the scopes of its
-//!   file, is one of `SubjectMarks::confirmed`: quiet once the kind `Renamed` is (`marks::is_quiet`). The
-//!   declaration itself is in no run and stays a stop.
+//!   file, is one of `SubjectMarks::confirmed`: quiet, as its kind is (`marks::is_quiet`). The declaration itself
+//!   is in no run and stays a stop.
 //! - **A line a move took is read as the line it was** (`Subject::is_moved`): a view shows it as the same line at
 //!   another place, within its file or in another, and no reader asks what its names mean there. So a use on such a
 //!   line is neither read anyway nor a place of a rename: the old name on it is a use the change left behind
@@ -695,8 +695,8 @@ fn uses_of(rename: &Rename) -> impl Iterator<Item = u32> + '_ {
 /// The runs of a file: those of its pair, and in the blocks that hold a place of a name of `used` the runs of the
 /// kind `Renamed` of the reading that read such names as one (`Leftovers::pending`), as far as every name they lean
 /// on is of `used`. They add runs and take none, as the second reading of a pair does; and they add labels alone:
-/// no run of a kind that may be quiet without the index comes from here, so the quiet runs and the stops of the
-/// file stay those of its pair
+/// no run of a kind that may be quiet without the index comes from here, and none of them takes a line of a quiet
+/// run of the pair, so the quiet runs and the stops of the file stay those of its pair
 fn merged_runs<'a>(facts: &PairFacts<'a>, used: &[Used]) -> Cow<'a, [LineRun]> {
   let pair = &facts.diff.marks.runs;
   let holds = |run: &&PendingRun| run.run.kind == RunKind::Renamed && !run.names.is_empty() && run.names.iter().all(|name| used.iter().any(|used| used.name == *name));
@@ -713,7 +713,19 @@ fn merged_runs<'a>(facts: &PairFacts<'a>, used: &[Used]) -> Cow<'a, [LineRun]> {
     let before = from + pair[from..].partition_point(|run| run.old_start < lines.old_start);
     let inside = before + pair[before..].partition_point(|run| run.old_start < lines.old_end);
     runs.extend_from_slice(&pair[from..before]);
-    let read: Vec<LineRun> = block.runs.iter().filter(holds).map(|run| run.run.clone()).collect();
+    // a quiet run of the pair stays the run it is: its lines went out with the rows of the file, some of them
+    // shown once. A run of this reading that shares a line with it (the line of a renamed local it holds beside a
+    // call of the name another file declares) is none, and the line of that call is read as any changed line
+    let quiet = &pair[before..inside];
+    let meets =
+      |run: &LineRun, other: &LineRun| (run.old_start < other.old_end && other.old_start < run.old_end) || (run.new_start < other.new_end && other.new_start < run.new_end);
+    let read: Vec<LineRun> = block
+      .runs
+      .iter()
+      .filter(holds)
+      .map(|run| run.run.clone())
+      .filter(|run| !quiet.iter().any(|other| other.quiet && meets(run, other)))
+      .collect();
     runs.extend(with_the_first(pair[before..inside].to_vec(), read));
     from = inside;
   }
@@ -771,9 +783,9 @@ fn confirmed_runs(index: u32, file: &FileSubject<'_>, sites: &HashSet<Site>) -> 
     .collect()
 }
 
-/// The marks of a file of a subject as they are once the kind `Renamed` is switched on (`marks::is_quiet`): the runs
+/// The marks of a file of a subject with the kind `Renamed` switched on (`marks::is_quiet`), which it is: the runs
 /// the index confirmed (`SubjectMarks::confirmed`) quiet, and the starts of `blocks`, the blocks of its diff, that
-/// follow from them. For the measurement that decides the kind and for the tests of the proof, as
+/// follow from them. What `Subject::marks` answers, and what a measurement reads of a kind that is off, as
 /// `PairMarks::as_proven` is for the runs of a pair
 #[must_use]
 pub fn as_confirmed(marks: &DiffMarks, blocks: &[DiffBlock]) -> DiffMarks {

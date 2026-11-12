@@ -28,8 +28,10 @@
 //!   such pairs (the lines of two functions that are alike) stand in rows that are no move whatever they are.
 //! - **A move** is the longest row of a chain that starts and ends with an exact pair and holds at most a quarter of
 //!   edited lines among its lines that are not blank (`MAX_EDITED_LINES`), with the blank pairs beside it; then the
-//!   longest such rows of what is left of the chain. It counts when its exact lines hold `MIN_MOVE_CHARS` characters
-//!   that are no whitespace. What is left of a row is read again for its longest row, and that is work: a row whose
+//!   longest such rows of what is left of the chain. It counts when its exact lines that stand once among the lines
+//!   a move may take, on each side, hold `MIN_MOVE_CHARS` characters that are no whitespace: a line that stands
+//!   twice there (the same statement of two tests, the closing lines of two targets) pairs with either of its
+//!   likes as well, and a row of such lines alone names no line that moved. What is left of a row is read again for its longest row, and that is work: a row whose
 //!   longest move holds at least half of it leaves half of it at most, and a longer row of shorter moves (a list
 //!   whose every item has an edited line, moved) is read once for all of them (`Finder::many_moves`), each exact
 //!   pair asked how far a move that starts with it reaches, the longest taken first.
@@ -69,10 +71,15 @@ use std::cmp::Reverse;
 use std::collections::{BTreeSet, BinaryHeap};
 use std::ops::Range;
 
-/// The exact lines of a move hold at least this many characters that are no whitespace; to be tuned on real commits
+/// The exact lines of a move that stand once among the lines a move may take, on each side, hold at least this many
+/// characters that are no whitespace. Measured on 2,111 commits of a monorepo (docs/design/diff-view.md, "Measured on
+/// real history"): counted over every exact line, 37 % of the moves paired one of several equal lines with another
+/// (the same statement of each test of a file, the closing lines of each target of a build file), which says
+/// nothing; and of the moves left, those under 32 characters are what they say as often as the longer ones
 pub const MIN_MOVE_CHARS: usize = 24;
-/// At most this share of the lines of a move that are not blank are edited, as `(numerator, denominator)`; to be tuned
-/// on real commits
+/// At most this share of the lines of a move that are not blank are edited, as `(numerator, denominator)`. Measured
+/// with it: of 100 moves with an edited line read, the lines are the lines that left in all but four, which pair two
+/// tests of one shape
 pub const MAX_EDITED_LINES: (i64, i64) = (1, 4);
 /// A key that more new lines have than this starts no chain
 pub const MAX_KEY_CANDIDATES: usize = 16;
@@ -197,10 +204,20 @@ pub(crate) fn find_moves_within(
     }
   }
 
+  // the keys that say which line moved: one old line and one new line a move may take have them
+  let mut once: Vec<bool> = by_key.iter().map(|lines| lines.len() == 1).collect();
+  let mut old_count: Vec<u32> = vec![0; by_key.len()];
+  for line in &old_lines {
+    old_count[line.key as usize] += 1;
+  }
+  for (once, count) in once.iter_mut().zip(old_count) {
+    *once &= count == 1;
+  }
   let ends_count = policy == WhitespacePolicy::Default;
   let mut finder = Finder {
     old: old_lines,
     new: new_lines,
+    once,
     ends_count,
     nesting: ends_count && indentation_matters,
     limits: *limits,
@@ -396,7 +413,7 @@ struct Line<'t> {
 pub(crate) const WHITESPACE: [char; 2] = [' ', '\t'];
 
 /// The byte each line of `text` starts at, as the comparison counts lines: `\n`, `\r\n` and a lone `\r` end one
-pub(crate) fn line_starts(text: &str) -> Vec<usize> {
+pub fn line_starts(text: &str) -> Vec<usize> {
   let mut starts: Vec<usize> = vec![0];
   if text.contains('\r') {
     let bytes = text.as_bytes();
@@ -413,7 +430,7 @@ pub(crate) fn line_starts(text: &str) -> Vec<usize> {
 }
 
 /// The line `line` of `text` (from 0), whose lines start at `starts`, with its line end; empty past the last line
-pub(crate) fn line_text<'t>(text: &'t str, starts: &[usize], line: u32) -> &'t str {
+pub fn line_text<'t>(text: &'t str, starts: &[usize], line: u32) -> &'t str {
   let start = starts.get(line as usize).copied().unwrap_or(text.len());
   let end = starts.get(line as usize + 1).copied().unwrap_or(text.len());
   text.get(start..end).unwrap_or_default()
@@ -554,6 +571,8 @@ struct Candidate<'t> {
 struct Finder<'t> {
   old: Vec<Line<'t>>,
   new: Vec<Line<'t>>,
+  /// For each key, by its number: one old line and one new line a move may take have it
+  once: Vec<bool>,
   /// The whitespace at the ends of a line counts: the policy of the diff counts every character
   ends_count: bool,
   /// It counts and the indentation has a meaning: a line whose indent did not move as its move is an edited line
@@ -814,10 +833,12 @@ impl<'t> Finder<'t> {
   }
 
   /// The row `row` of `pairs`, which start at the old line at `old` and the new line at `new`, as a move that may
-  /// be taken, when its exact lines are long enough
+  /// be taken, when the exact lines of it that stand once on each side are long enough: a line that stands twice
+  /// among the lines a move may take says of no row that it is the one that moved
   fn found_row(&mut self, old: usize, new: usize, pairs: &[Pair], row: Range<usize>, shift: Shift<'t>) {
     let of = |kind: Pair| row.clone().filter(move |index| pairs[*index] == kind);
-    let solid: usize = of(Pair::Exact).map(|index| self.old[old + index].solid as usize).sum();
+    let lines = of(Pair::Exact).map(|index| &self.old[old + index]);
+    let solid: usize = lines.filter(|line| self.once[line.key as usize]).map(|line| line.solid as usize).sum();
     if solid >= MIN_MOVE_CHARS {
       let edited = to_u32(of(Pair::Edited).count());
       self.found.push(Reverse(Candidate {

@@ -72,7 +72,7 @@ fn counted_lines(lines: &[String]) -> u32 {
 /// line a text that is another on the other side, of the kind its sides say, with the same text between the ranges;
 /// under the policy that counts every character no whitespace at the ends of a line changed without a range, but by
 /// the indent of the move; the ends exact or blank, at most a quarter of the lines that are not blank edited in
-/// their text or their nesting, and the exact lines long enough
+/// their text or their nesting, and the exact lines that stand once among the lines a move may take long enough
 fn check(old: &str, new: &str, blocks: &TextDiff, runs: &[LineRun], moves: &[LineMove], policy: WhitespacePolicy, indentation_matters: bool) {
   let (old_lines, new_lines) = (lines_of(old), lines_of(new));
   let ends_count = policy == WhitespacePolicy::Default;
@@ -87,6 +87,20 @@ fn check(old: &str, new: &str, blocks: &TextDiff, runs: &[LineRun], moves: &[Lin
     old_taken[run.old_start as usize..run.old_end as usize].fill(true);
     new_taken[run.new_start as usize..run.new_end as usize].fill(true);
   }
+  // how often each line a move may take stands on its side, by its key: before the moves take theirs
+  let stands = |lines: &[String], taken: &[bool], new_side: bool| {
+    let mut stands: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for block in blocks.blocks.iter().filter(|block| block.kind == BlockKind::Changed) {
+      let side = if new_side { block.new_start..block.new_end } else { block.old_start..block.old_end };
+      for line in side.start..side.end.min(counted_lines(lines)) {
+        if !taken[line as usize] {
+          *stands.entry(trimmed(&lines[line as usize]).to_string()).or_default() += 1;
+        }
+      }
+    }
+    stands
+  };
+  let (old_stands, new_stands) = (stands(&old_lines, &old_taken, false), stands(&new_lines, &new_taken, true));
   let mut last_new = 0;
   // the texts of a failure, unless they are files
   let texts = if old.len() + new.len() < 4_000 {
@@ -210,13 +224,17 @@ fn check(old: &str, new: &str, blocks: &TextDiff, runs: &[LineRun], moves: &[Lin
         }
       } else {
         exact += 1;
-        solid += trimmed(old_text).chars().filter(|character| ![' ', '\t'].contains(character)).count();
+        // only a line that stands once on each side says which line moved
+        let key = trimmed(old_text);
+        if old_stands.get(key) == Some(&1) && new_stands.get(key) == Some(&1) {
+          solid += key.chars().filter(|character| ![' ', '\t'].contains(character)).count();
+        }
         shifts.push(moved_by);
       }
     }
     assert!(ends.first() == Some(&false) && ends.last() == Some(&false), "{context}: an edited line at an end");
     assert!(counted * 4 <= counted + exact, "{context}: {counted} edited of {}", counted + exact);
-    assert!(solid >= MIN_MOVE_CHARS, "{context}: {solid} characters");
+    assert!(solid >= MIN_MOVE_CHARS, "{context}: {solid} characters in the exact lines that stand once");
     // the indent of the move: the shift of every exact line where the indentation has a meaning, and of no line
     // edited in its nesting; of one of the exact lines else
     let of_move = |shift: &(bool, bool, &str)| i64::try_from(shift.2.len()).unwrap() * if shift.0 { 1 } else { -1 } == i64::from(line_move.indent);
@@ -571,26 +589,38 @@ fn a_line_a_move_rewrote_is_an_edited_line_that_differs_in_more_than_whitespace(
   }
 }
 
+/// Lines that stand at two places name no move: nothing says which of the two took them, or which of the two left.
+/// A place that holds them all is taken where the other holds only lines that stand elsewhere too
 #[test]
-fn of_two_places_the_longest_move_is_taken_then_the_first() {
+fn lines_that_stand_at_two_places_are_no_move_and_the_place_with_a_line_of_its_own_takes_them() {
   let stay = stay();
   let stay = refs(&stay);
   let old = text(&[&ALPHA, &BLANK, &stay, &["end();"]]);
-  // the function stands at two places of the new text: its lines moved to the first, the second is added lines
+  // the function stands at two places of the new text: either may be the one its lines went to
   let twice = text(&[&stay[..4], &ALPHA, &stay[4..], &ALPHA, &["end();"]]);
-  assert_eq!(show(&moves(&old, &twice)), "0..5 -> 4..9");
+  assert_eq!(show(&moves(&old, &twice)), "");
   let beside = text(&[&stay, &BLANK, &ALPHA, &["between();"], &ALPHA, &["end();"]]);
-  assert_eq!(show(&moves(&old, &beside)), "0..5 -> 9..14 blanks 0+1");
-  // it stood at two places and stands at one: the first of the old places left
+  assert_eq!(show(&moves(&old, &beside)), "");
+  // it stood at two places and stands at one: either may be the one that left
   let both = text(&[&ALPHA, &["between();"], &ALPHA, &BLANK, &stay]);
-  assert_eq!(show(&moves(&both, &text(&[&stay, &BLANK, &ALPHA]))), "0..5 -> 9..14");
-  // a part of it at the first place, all of it at the second: the longest
-  let part = text(&[&stay[..4], &[ALPHA[0], ALPHA[1], "}"], &stay[4..], &ALPHA, &["end();"]]);
-  assert_eq!(show(&moves(&old, &part)), "0..5 -> 11..16");
-  // of as many lines, the move without an edited line
-  let edited = [ALPHA[0], ALPHA[1], "  report(total, verbose);", ALPHA[3], ALPHA[4]];
+  assert_eq!(show(&moves(&both, &text(&[&stay, &BLANK, &ALPHA]))), "");
+  // its first and its last line at the first place too, all of it at the second: the lines between them stand
+  // once, and say that the second place took it
+  let part = text(&[&stay[..4], &[ALPHA[0], "}"], &stay[4..], &ALPHA, &["end();"]]);
+  assert_eq!(show(&moves(&old, &part)), "0..5 -> 10..15");
+  // with a line edited at the first place and as it was at the second: that line stands once, at the second
+  let edited = [ALPHA[0], "  let total = compute_total(items, verbose);", ALPHA[2], ALPHA[3], ALPHA[4]];
   let either = text(&[&stay[..4], &edited, &stay[4..], &ALPHA, &["end();"]]);
   assert_eq!(show(&moves(&old, &either)), "0..5 -> 13..18");
+  // the lines that stand once count, the others do not: a short line of its own among lines that stand twice is no
+  // move, a long one is
+  for (own, expected) in [("  short();", ""), ("  a_line_of_its_own_that_is_long_enough();", "0..5 -> 12..17")] {
+    let moved = [ALPHA[0], ALPHA[1], own, ALPHA[3], ALPHA[4]];
+    let copy = [ALPHA[0], ALPHA[1], ALPHA[3], ALPHA[4]];
+    let old = text(&[&moved, &BLANK, &stay, &["end();"]]);
+    let new = text(&[&stay[..4], &copy, &stay[4..], &moved, &["end();"]]);
+    assert_eq!(show(&moves(&old, &new)), expected, "{own}");
+  }
 }
 
 #[test]
@@ -997,18 +1027,21 @@ fn a_key_that_many_lines_have_starts_no_chain_and_is_a_line_of_one() {
   let (found, work) = find_moves_counted(&old, &new, &blocks, &[], WhitespacePolicy::Default, false);
   assert_eq!(show(&found), "0..10000 -> 10..10010");
   assert!(work.search < 10_200 && work.choice == 10_000 && (work.compared, work.unread) == (0, 0), "{work:?}");
-  // as many lines of a key as start a chain, and one more
-  for (copies, expected) in [(MAX_KEY_CANDIDATES, "0..16 -> 10..26"), (MAX_KEY_CANDIDATES + 1, "")] {
+  // as many lines of a key as start a chain, and one more: the pairs of the first are read, of the others none.
+  // Neither is a move: no line of them stands once
+  for (copies, read) in [(MAX_KEY_CANDIDATES, true), (MAX_KEY_CANDIDATES + 1, false)] {
     let (old, new, blocks) = moved_block(&vec!["    register(handler_of_the_same_key);".to_string(); copies]);
-    assert_eq!(show(&moves_of(&old, &new, &blocks, false)), expected, "{copies}");
+    let (found, work) = find_moves_counted(&old, &new, &blocks, &[], WhitespacePolicy::Default, false);
+    assert_eq!((show(&found).as_str(), work.search > 0), ("", read), "{copies}: {work:?}");
   }
 }
 
 #[test]
 fn the_work_of_a_search_grows_with_its_lines_and_ends_at_its_limit() {
-  // 10,000 lines of five keys, and among them fifty lines that each stand sixteen times, 625 lines apart: each of
-  // them pairs with its sixteen places, along 31 diagonals that the repeated lines follow for hundreds of lines
-  let mut lines = repeated(10_000, 5, 0, |_| String::new());
+  // 10,000 lines of five keys with a line of its own among every hundred, and among them fifty lines that each stand
+  // sixteen times, 625 lines apart: each of them pairs with its sixteen places, along 31 diagonals that the repeated
+  // lines follow for hundreds of lines
+  let mut lines = repeated(10_000, 5, 100, |index| format!("    section_{index}();"));
   for own in 0..50 {
     for copy in 0..16 {
       lines[copy * 625 + own * 5] = format!("    marker_{own}();");
@@ -1047,8 +1080,8 @@ fn the_work_of_a_search_grows_with_its_lines_and_ends_at_its_limit() {
 
 /// The file a search costs most in: every line stands sixteen times on each side and no two lines follow each other
 /// on both, so each pair of two lines of a key is a chain of its own that ends at once. The search reads
-/// `MAX_MOVE_WORK` pairs and ends, whatever the lines are, with moves that are moves and the same when asked again:
-/// the cost of a file has a ceiling of work (docs/design/diff-view.md has its time)
+/// `MAX_MOVE_WORK` pairs and ends, whatever the lines are, the same when asked again: the cost of a file has a
+/// ceiling of work (docs/design/diff-view.md has its time). It finds no move: no line of such a file stands once
 #[test]
 fn the_search_of_a_file_whose_every_line_stands_sixteen_times_ends_at_its_work() {
   const LINES: usize = 8_192;
@@ -1068,8 +1101,8 @@ fn the_search_of_a_file_whose_every_line_stands_sixteen_times_ends_at_its_work()
       work.choice <= MAX_MOVE_WORK && work.compared <= MAX_COMPARED_PAIRS && work.unread <= MAX_UNREAD_PAIRS,
       "{work:?}"
     );
-    assert!(!found.is_empty() && found.iter().all(|line_move| line_move.len <= 3), "{}", found.len());
-    check_of(&old, &new, &blocks, &found);
+    // and names no move: no line of the file stands once
+    assert!(found.is_empty(), "{}", found.len());
     assert_eq!(find_moves_counted(&old, &new, &blocks, &[], WhitespacePolicy::Default, false), (found, work));
   }
 }

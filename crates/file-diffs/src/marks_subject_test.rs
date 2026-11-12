@@ -371,15 +371,20 @@ fn a_rename_every_use_of_which_the_index_lists_is_confirmed_and_its_declaration_
   assert_eq!(store.subject.clone().unwrap().declared[0].proof, RenameProof::Confirmed);
   assert_eq!(store.subject.as_ref().unwrap().confirmed, [] as [u32; 0], "the store has no run");
 
-  // the kind is not switched on: the confirmed runs are labels, and every block a stop
-  assert!(!is_quiet(RunKind::Renamed));
-  assert_eq!(report.runs, [run(3, 3), run(7, 7)]);
-  assert_eq!(report.starts, [0, 1, 3, 1, 1, 7]);
-  // once it is: the uses are passed, the declaration is read
-  let proven = as_confirmed(&report, &case.pairs[0].0.blocks);
-  assert_eq!(proven.runs.iter().map(|run| run.quiet).collect::<Vec<_>>(), [true, true]);
-  assert_eq!(proven.starts, [] as [u32; 0]);
-  assert_eq!(as_confirmed(&store, &case.pairs[1].0.blocks).starts, [0, 1, 4]);
+  // the kind is switched on: the uses the index confirmed are passed, the declaration is read
+  assert!(is_quiet(RunKind::Renamed));
+  assert_eq!(report.runs, [LineRun { quiet: true, ..run(3, 3) }, LineRun { quiet: true, ..run(7, 7) }]);
+  assert_eq!(report.starts, [] as [u32; 0]);
+  assert_eq!(store.starts, [0, 1, 4]);
+  // and they are the marks as confirmed: nothing is left for the switch to change
+  assert_eq!(as_confirmed(&report, &case.pairs[0].0.blocks), report);
+  assert_eq!(as_confirmed(&store, &case.pairs[1].0.blocks), store);
+  // before the answer, and without one, the same runs are labels and each block is read
+  for answer in [IndexAnswer::Asked, IndexAnswer::Unavailable] {
+    let (marks, _) = case.marks(answer);
+    let report = marks[0].clone().unwrap();
+    assert_eq!((report.runs, report.starts), (vec![run(3, 3), run(7, 7)], vec![0, 1, 3, 1, 1, 7]));
+  }
 }
 
 /// The proof of the use in the report and of the declaration in the store, with `answer` of the index
@@ -775,6 +780,54 @@ fn a_name_no_file_of_the_subject_declares_and_a_line_that_needs_one_have_no_run(
   let report = marks[0].clone().unwrap();
   assert_eq!(report.runs, [run(3, 3)]);
   assert_eq!(report.subject.unwrap().used.iter().map(|used| used.rename.old.as_str()).collect::<Vec<_>>(), ["openStore"]);
+}
+
+/// A quiet run of the pair stays the run it is when the subject adds its runs: the lines of a renamed local went out
+/// with the rows of the file, shown once, and a run of the other reading that holds them beside the call of a name
+/// another file declares would make them a label again, after the rows were drawn. That run is none, and the line of
+/// the call is read as any changed line
+#[test]
+fn a_run_the_subject_adds_takes_no_line_of_a_quiet_run_of_the_pair() {
+  let lines = |open: &str, total: &str| {
+    text(&[
+      "package demo",
+      "",
+      "fun load(path: String): Int {",
+      &format!("  val store = {open}(path)"),
+      &format!("  val {total} = 1"),
+      &format!("  return use(store, {total})"),
+      "}",
+    ])
+  };
+  let loader = || changed("src/Loader.kt", &lines("openStore", "total"), &lines("connectStore", "sum"));
+  let quiet = LineRun {
+    old_start: 4,
+    old_end: 6,
+    new_start: 4,
+    new_end: 6,
+    kind: RunKind::Renamed,
+    quiet: true,
+  };
+  // alone: the two lines of the local are a quiet run, the call is read
+  let alone = Case::of(vec![loader()]);
+  assert_eq!((&alone.pairs[0].0.marks.runs, &alone.pairs[0].0.marks.starts), (&vec![quiet.clone()], &vec![0, 1, 3]));
+  // the pair kept the run the three lines are with the name of the call read as one
+  let pending: Vec<(u32, u32)> = alone.pairs[0]
+    .1
+    .pending
+    .iter()
+    .flat_map(|block| &block.runs)
+    .map(|run| (run.run.old_start, run.run.old_end))
+    .collect();
+  assert_eq!(pending, [(3, 6)]);
+
+  // beside the file that declares the name: the call is a place of its rename, the quiet run and the stop are the
+  // pair's
+  let case = Case::of(vec![loader(), changed("src/Store.kt", &text(&STORE), &renamed(&STORE))]);
+  let (marks, _) = case.marks(IndexAnswer::Unavailable);
+  let loader = marks[0].clone().unwrap();
+  assert_eq!((&loader.runs, &loader.starts), (&vec![quiet], &vec![0, 1, 3]));
+  assert_eq!(loader.subject.unwrap().used.len(), 1);
 }
 
 #[test]

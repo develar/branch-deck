@@ -14,9 +14,9 @@ use std::sync::Arc;
 use text_diff::model::{DiffBudget, LineRun, Rename, RunKind, TextDiff, diff_texts};
 use text_diff::policy::WhitespacePolicy;
 
-/// The diff of two texts of a file at `path` with its marks as they are proven (`marks_test::read_pair`: a run of a
-/// renamed name is quiet here where its proof holds, though its kind is not switched on for a view yet), and the
-/// names it leaves to the other files. The marks hold what holds of every diff (`check_marks`: the navigation is
+/// The diff of two texts of a file at `path` with its marks as they are proven (`marks_test::read_pair`: a run is
+/// quiet here where its proof holds, also one of a kind that is not switched on for a view), and the names it leaves
+/// to the other files. The marks hold what holds of every diff (`check_marks`: the navigation is
 /// asked again of each rename)
 fn read(path: &str, old: &str, new: &str) -> (TextDiff, Vec<Rename>) {
   let (diff, undeclared, _) = read_pair(path, old, new, WhitespacePolicy::Default);
@@ -107,8 +107,7 @@ fn read_renamed(path: &str, old: &str, new: &str) -> (TextDiff, String, Rename) 
 }
 
 /// A local renamed at each of its five places, in each grammar: one rename of a name bound inside a body, declared
-/// at its first place; every changed line is in a run that is proven, so with the kind switched on no block is left
-/// to read
+/// at its first place; every changed line is in a run that is proven, so no block is left to read
 #[test]
 fn a_local_renamed_at_every_place_is_proven_in_each_grammar() {
   for (path, old) in LOCALS {
@@ -170,22 +169,26 @@ fn a_local_with_a_use_left_behind_is_no_rename_in_each_grammar() {
 }
 
 /// A place on a line with another change is a place of the rename and in no run, in each grammar: that line is
-/// read, the lines that changed in the name alone are passed
+/// read. It stands between the declaration of the name and its last use, where it may give the name another value,
+/// so the lines that changed in the name alone are labels: every block is read
 #[test]
 fn a_place_on_a_line_with_another_change_is_read_in_each_grammar() {
   for (path, old) in LOCALS {
     let (diff, context, rename) = read_renamed(path, old, &old.replace("total", "sum").replace(">= 0", "> 0"));
     assert_eq!((rename.sites, rename.local), (5, true), "{context}");
     // the fourth place is the one on the line of the other change
-    let (old_line, new_line) = (rename.old_sites[9], rename.new_sites[9]);
-    assert!(diff.marks.runs.iter().all(|run| run.kind == RunKind::Renamed && run.quiet), "{context}");
+    let old_line = rename.old_sites[9];
+    assert!(
+      !diff.marks.runs.is_empty() && diff.marks.runs.iter().all(|run| run.kind == RunKind::Renamed && !run.quiet),
+      "{context}"
+    );
     assert!(
       !diff.marks.runs.iter().any(|run| run.old_start <= old_line && old_line < run.old_end),
       "{context}: the line of the other change is in a run"
     );
-    // one block is left to read, from that line on
-    let [_, 1, start] = diff.marks.starts[..] else { panic!("{context}") };
-    assert_eq!(start, new_line, "{context}");
+    // each block is read from its first line
+    let starts: Vec<u32> = (0u32..).zip(&diff.blocks).flat_map(|(index, block)| [index, 1, block.new_start]).collect();
+    assert_eq!(diff.marks.starts, starts, "{context}");
   }
 }
 
@@ -305,36 +308,167 @@ fn a_use_left_behind_a_name_taken_and_two_names_swapped_are_no_rename() {
   ]);
 }
 
-/// What a view gets of a renamed local (`marks_of`): the rename, and its runs as labels, since the kind `renamed`
-/// is not switched on (`is_quiet`): every block has its start, and the pair names each run as proven
-/// (`PairMarks::proven`). The marks as proven (`PairMarks::as_proven`) are the same runs, quiet, and no start
+/// What a view gets of a renamed local (`marks_of`): the rename and its runs, quiet, since the kind `renamed` is
+/// switched on (`is_quiet`): no block has a start. No run is left that is proven and a label all the same
+/// (`PairMarks::proven`), so the marks as proven (`PairMarks::as_proven`) are the marks of the view
 #[test]
-fn the_runs_of_a_renamed_local_are_labels_until_their_kind_is_switched_on() {
+fn the_runs_of_a_renamed_local_are_quiet_since_their_kind_is_switched_on() {
   for (path, old) in LOCALS {
     let new = old.replace("total", "sum");
     let diff = diff_texts(old, &new, WhitespacePolicy::Default, &DiffBudget::NONE);
     let grammar = grammar_of(path);
     let read = |new_side: bool| tokens(grammar?, if new_side { &new } else { old }).map(Arc::new);
     let found = marks_of(&diff, old, &new, grammar, WhitespacePolicy::Default, false, read);
-    let (shown, proven) = (&found.marks, found.as_proven(&diff.blocks));
-    assert!(!is_quiet(RunKind::Renamed) && has_proof(RunKind::Renamed));
-    assert_eq!(found.proven, (0u32..).take(shown.runs.len()).collect::<Vec<_>>(), "{path}");
-    assert_eq!((shown.renames.len(), &shown.renames), (1, &proven.renames), "{path}");
+    let shown = &found.marks;
+    assert!(is_quiet(RunKind::Renamed) && has_proof(RunKind::Renamed));
+    assert_eq!(found.proven, [] as [u32; 0], "{path}");
+    assert_eq!(*shown, found.as_proven(&diff.blocks), "{path}");
+    assert_eq!(shown.renames.len(), 1, "{path}");
     assert!(
-      !shown.runs.is_empty() && shown.runs.iter().all(|run| run.kind == RunKind::Renamed && !run.quiet),
+      !shown.runs.is_empty() && shown.runs.iter().all(|run| run.kind == RunKind::Renamed && run.quiet),
       "{path}: {:?}",
       shown.runs
     );
-    // each block is read from its first line
-    let starts: Vec<u32> = (0u32..).zip(&diff.blocks).flat_map(|(index, block)| [index, 1, block.new_start]).collect();
-    assert_eq!(shown.starts, starts, "{path}");
-    let labelled: Vec<_> = proven.runs.iter().map(|run| LineRun { quiet: false, ..run.clone() }).collect();
-    assert!(proven.runs.iter().all(|run| run.quiet) && proven.starts.is_empty() && shown.runs == labelled, "{path}");
+    // nothing of it is read
+    assert_eq!(shown.starts, [] as [u32; 0], "{path}");
   }
 }
 
-/// A place where the name is more than the name of its binding is in no run, so its line is read; the other places
-/// of the rename are proven
+/// Two locals with as many names at the same places are a rename only where a line changed in the name alone. Found
+/// on real commits (`brd commits --mark-stats`): `val isRoot = …` gone and `val nameComponent = …` in its place, each
+/// read once where the other was, is one variable in the place of another, and nothing calls it a rename
+#[test]
+fn a_local_none_of_whose_lines_changed_in_its_name_alone_is_no_rename() {
+  check_cases(&[
+    (
+      "a.kt",
+      "fun f(value: Row) {\n  val isRoot = value is Root\n  cell.add(if (isRoot) rootName else name)\n}\n",
+      "fun f(value: Row) {\n  val nameComponent = pick(value)\n  cell.add(nameComponent)\n}\n",
+      "blocks [1..3/1..3] runs [] starts [0, 1, 1]",
+    ),
+    (
+      "A.java",
+      "class A {\n  void f(Path temp) {\n    Launch v3 = parse(TEXT);\n    check(ready(v3), resolve(v3));\n  }\n}\n",
+      "class A {\n  void f(Path temp) {\n    Path checkout = temp.resolve(\"ultimate\");\n    check(checkout.resolve(\"out\"), file(checkout));\n  }\n}\n",
+      "blocks [2..4/2..4] runs [] starts [0, 1, 2] undeclared [resolve->file declared [] at 3:21 / 3:35]",
+    ),
+    (
+      "a.ts",
+      "function f(items: Item[]) {\n  const first = items[0]\n  return label(first.name)\n}\n",
+      "function f(items: Item[]) {\n  const count = items.length\n  return label(String(count))\n}\n",
+      "blocks [1..3/1..3] runs [] starts [0, 1, 1]",
+    ),
+    (
+      "a.rs",
+      "fn f(items: &[Item]) -> String {\n  let first = &items[0];\n  label(&first.name)\n}\n",
+      "fn f(items: &[Item]) -> String {\n  let count = items.len();\n  label(&count.to_string())\n}\n",
+      "blocks [1..3/1..3] runs [] starts [0, 1, 1]",
+    ),
+    // a line beside it that changed in its formatting alone is the quiet run it is without the pair of names
+    (
+      "a.kt",
+      "fun f(value: Row) {\n  val isRoot = value is Root\n  log(value, 1)\n  cell.add(if (isRoot) rootName else name)\n}\n",
+      "fun f(value: Row) {\n  val nameComponent = pick(value)\n  log(\n    value, 1\n  )\n  cell.add(nameComponent)\n}\n",
+      "blocks [1..4/1..6] runs [2..3/2..5 formatting quiet] starts [0, 1, 1]",
+    ),
+  ]);
+}
+
+/// A rename of a local is proven by the lines between its places: where every line that changed from the first of
+/// them to the last is quiet, the code that declares the name and reads it is the same code, the new name is the old
+/// variable, and each line that changed in it alone is the line it was. Where the declaration changed otherwise
+/// (found on real commits: `val subscription = subscriptions[id]` became `val channel =
+/// subscriptions[id]?.selectedChannel`), the name binds another value: `if (channel != null)` asks another question
+/// than `if (subscription != null)` did, with the same tokens, so the runs of such a rename are labels. So are they
+/// where the declaration is of several lines and a later one changed, and where a use between them changed otherwise
+#[test]
+fn a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_places() {
+  check_cases(&[
+    // the declaration got another initializer: a rename by its `if`, a label, every block read
+    (
+      "a.kt",
+      "fun f(id: String) {\n  val subscription = subscriptions[id]\n  if (subscription != null) {\n    add(\"channel\", subscription.selectedChannel)\n  }\n}\n",
+      "fun f(id: String) {\n  val channel = subscriptions[id]?.selectedChannel\n  if (channel != null) {\n    add(\"channel\", channel)\n  }\n}\n",
+      "blocks [1..4/1..4] runs [2..3/2..3 renamed] renames [subscription->channel local declared [0] at 1:6 2:6 3:19 / 1:6 2:6 3:19] starts [0, 1, 1]",
+    ),
+    // another type: what the call is given is another thing
+    (
+      "A.java",
+      "class A {\n  void f(Event event) {\n    Storage storage = event.storage();\n    log(1);\n    body(tool, storage);\n  }\n}\n",
+      "class A {\n  void f(Event event) {\n    Model model = event.model();\n    log(1);\n    body(tool, model);\n  }\n}\n",
+      "blocks [2..3/2..3, 4..5/4..5] runs [4..5/4..5 renamed] renames [storage->model local declared [0] at 2:12 4:15 / 2:10 4:15] starts [0, 1, 2, 1, 1, 4] undeclared [Storage->Model declared [] at 2:4 / 2:4] undeclared [storage->model declared [] at 2:28 / 2:24]",
+    ),
+    (
+      "a.ts",
+      "function f(id: string) {\n  const session = find(id)\n  log(1)\n  return use(session)\n}\n",
+      "function f(id: string) {\n  const conn = connect(id)\n  log(1)\n  return use(conn)\n}\n",
+      "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed] renames [session->conn local declared [0] at 1:8 3:13 / 1:8 3:13] starts [0, 1, 1, 1, 1, 3] undeclared [find->connect declared [] at 1:18 / 1:15]",
+    ),
+    (
+      "a.rs",
+      "fn f(id: &str) -> Reply {\n  let session = find(id);\n  log(1);\n  send(session)\n}\n",
+      "fn f(id: &str) -> Reply {\n  let conn = connect(id);\n  log(1);\n  send(conn)\n}\n",
+      "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed] renames [session->conn local declared [0] at 1:6 3:7 / 1:6 3:7] starts [0, 1, 1, 1, 1, 3] undeclared [find->connect declared [] at 1:16 / 1:13]",
+    ),
+    // a declaration that changed in its name alone, and its last use on a line with another change: that line is
+    // read, and the lines before it are labels
+    (
+      "a.kt",
+      "fun f(id: String) {\n  val subscription = subscriptions[id]\n  check(subscription)\n  add(subscription, 1)\n}\n",
+      "fun f(id: String) {\n  val channel = subscriptions[id]\n  check(channel)\n  add(channel, 2)\n}\n",
+      "blocks [1..4/1..4] runs [1..3/1..3 renamed] renames [subscription->channel local declared [0] at 1:6 2:8 3:6 / 1:6 2:8 3:6] starts [0, 1, 1]",
+    ),
+    // a declaration that reads the same but for another renamed local is proven with it
+    (
+      "a.kt",
+      "fun f() {\n  val first = one()\n  val second = first\n  use(second)\n}\n",
+      "fun f() {\n  val head = one()\n  val next = head\n  use(next)\n}\n",
+      "blocks [1..4/1..4] runs [1..4/1..4 renamed quiet] renames [first->head local declared [0] at 1:6 2:15 / 1:6 2:13, second->next local declared [0] at 2:6 3:6 / 2:6 3:6] starts []",
+    ),
+    // and is a label with it: `next` is given another value, through a name whose declaration changed
+    (
+      "a.kt",
+      "fun f() {\n  val first = one()\n  val second = first\n  log(1)\n  use(second)\n}\n",
+      "fun f() {\n  val head = two()\n  val next = head\n  log(1)\n  use(next)\n}\n",
+      "blocks [1..3/1..3, 4..5/4..5] runs [2..3/2..3 renamed, 4..5/4..5 renamed] renames [first->head local declared [0] at 1:6 2:15 / 1:6 2:13, second->next local declared [0] at 2:6 4:6 / 2:6 4:6] starts [0, 1, 1, 1, 1, 4] undeclared [one->two declared [] at 1:14 / 1:13]",
+    ),
+    // a declaration of several lines whose first line changed in the name alone and a later one otherwise, with a
+    // line that stays between them: found on real commits as `val scope = if (project != null) {` that became `val
+    // content = if (project != null) {` with other branches
+    (
+      "a.kt",
+      "fun f(project: Project?) {\n  val scope = if (project != null) {\n    keep()\n    \"project\"\n  } else \"app\"\n  log(1)\n  notify(scope)\n}\n",
+      "fun f(project: Project?) {\n  val content = if (project != null) {\n    keep()\n    text(project)\n  } else \"app\"\n  log(1)\n  notify(content)\n}\n",
+      "blocks [1..2/1..2, 3..4/3..4, 6..7/6..7] runs [1..2/1..2 renamed, 6..7/6..7 renamed] renames [scope->content local declared [0] at 1:6 6:9 / 1:6 6:9] starts [0, 1, 1, 1, 1, 3, 2, 1, 6]",
+    ),
+    // a line that changed after the last place of the name says nothing of it
+    (
+      "a.kt",
+      "fun f(id: String) {\n  val subscription = subscriptions[id]\n  check(subscription)\n  log(1)\n  add(1)\n}\n",
+      "fun f(id: String) {\n  val channel = subscriptions[id]\n  check(channel)\n  log(1)\n  add(2)\n}\n",
+      "blocks [1..3/1..3, 4..5/4..5] runs [1..3/1..3 renamed quiet] renames [subscription->channel local declared [0] at 1:6 2:8 / 1:6 2:8] starts [1, 1, 4]",
+    ),
+    // a blank line put between the places is no line that changed
+    (
+      "a.kt",
+      "fun f(id: String) {\n  val subscription = subscriptions[id]\n  log(1)\n  check(subscription)\n}\n",
+      "fun f(id: String) {\n  val channel = subscriptions[id]\n\n  log(1)\n  check(channel)\n}\n",
+      "blocks [1..2/1..3, 3..4/4..5] runs [1..2/1..3 renamed quiet, 3..4/4..5 renamed quiet] renames [subscription->channel local declared [0] at 1:6 3:8 / 1:6 4:8] starts []",
+    ),
+    // a parameter whose type changed with its name
+    (
+      "A.java",
+      "class A {\n  void f(boolean strict) {\n    log(1);\n    run(strict);\n  }\n}\n",
+      "class A {\n  void f(Mode mode) {\n    log(1);\n    run(mode);\n  }\n}\n",
+      "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed] renames [strict->mode local declared [0] at 1:17 3:8 / 1:14 3:8] starts [0, 1, 1, 1, 1, 3]",
+    ),
+  ]);
+}
+
+/// A place where the name is more than the name of its binding is in no run, so its line is read; and since it is a
+/// line that changed otherwise between the places of the name, the runs of the other places are labels: a pattern, a
+/// delegate or a function that takes the name may bind another value under the new name, and a shorthand, a
+/// `nameof` or a macro makes another value of it
 #[test]
 fn a_place_that_makes_more_of_its_name_than_its_binding_is_read() {
   check_cases(&[
@@ -343,71 +477,71 @@ fn a_place_that_makes_more_of_its_name_than_its_binding_is_read() {
       "a.kt",
       "fun f(pair: Pair<Int, Int>): Int {\n  val (total, rest) = pair\n  log(rest)\n  return total\n}\n",
       "fun f(pair: Pair<Int, Int>): Int {\n  val (sum, rest) = pair\n  log(rest)\n  return sum\n}\n",
-      "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed quiet] renames [total->sum local declared [0] at 1:7 3:9 / 1:7 3:9] starts [0, 1, 1]",
+      "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed] renames [total->sum local declared [0] at 1:7 3:9 / 1:7 3:9] starts [0, 1, 1, 1, 1, 3]",
     ),
     (
       "A.java",
       "class A {\n  int f(Object o) {\n    if (o instanceof Point(int total, int y)) {\n      log(y);\n      return total;\n    }\n    return 0;\n  }\n}\n",
       "class A {\n  int f(Object o) {\n    if (o instanceof Point(int sum, int y)) {\n      log(y);\n      return sum;\n    }\n    return 0;\n  }\n}\n",
-      "blocks [2..3/2..3, 4..5/4..5] runs [4..5/4..5 renamed quiet] renames [total->sum local declared [0] at 2:31 4:13 / 2:31 4:13] starts [0, 1, 2]",
+      "blocks [2..3/2..3, 4..5/4..5] runs [4..5/4..5 renamed] renames [total->sum local declared [0] at 2:31 4:13 / 2:31 4:13] starts [0, 1, 2, 1, 1, 4]",
     ),
     (
       "a.ts",
       "function f(pair: number[]) {\n  const [total, rest] = pair\n  log(rest)\n  return total\n}\n",
       "function f(pair: number[]) {\n  const [sum, rest] = pair\n  log(rest)\n  return sum\n}\n",
-      "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed quiet] renames [total->sum local declared [0] at 1:9 3:9 / 1:9 3:9] starts [0, 1, 1]",
+      "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed] renames [total->sum local declared [0] at 1:9 3:9 / 1:9 3:9] starts [0, 1, 1, 1, 1, 3]",
     ),
     (
       "a.rs",
       "fn f(pair: (i32, i32)) -> i32 {\n  let (total, rest) = pair;\n  log(rest);\n  total\n}\n",
       "fn f(pair: (i32, i32)) -> i32 {\n  let (sum, rest) = pair;\n  log(rest);\n  sum\n}\n",
-      "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed quiet] renames [total->sum local declared [0] at 1:7 3:2 / 1:7 3:2] starts [0, 1, 1]",
+      "blocks [1..2/1..2, 3..4/3..4] runs [3..4/3..4 renamed] renames [total->sum local declared [0] at 1:7 3:2 / 1:7 3:2] starts [0, 1, 1, 1, 1, 3]",
     ),
     // the name is also the property the pattern reads
     (
       "a.ts",
       "function f(props: Props) {\n  const { total } = props\n  log(total)\n  return total\n}\n",
       "function f(props: Props) {\n  const { sum } = props\n  log(sum)\n  return sum\n}\n",
-      "blocks [1..4/1..4] runs [2..4/2..4 renamed quiet] renames [total->sum local declared [0] at 1:10 2:6 3:9 / 1:10 2:6 3:9] starts [0, 1, 1]",
+      "blocks [1..4/1..4] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 1:10 2:6 3:9 / 1:10 2:6 3:9] starts [0, 1, 1]",
     ),
     // and the property an object gets
     (
       "a.ts",
       "function f() {\n  const total = 1\n  log(total)\n  return { total }\n}\n",
       "function f() {\n  const sum = 1\n  log(sum)\n  return { sum }\n}\n",
-      "blocks [1..4/1..4] runs [1..3/1..3 renamed quiet] renames [total->sum local declared [0] at 1:8 2:6 3:11 / 1:8 2:6 3:11] starts [0, 1, 3]",
+      "blocks [1..4/1..4] runs [1..3/1..3 renamed] renames [total->sum local declared [0] at 1:8 2:6 3:11 / 1:8 2:6 3:11] starts [0, 1, 1]",
     ),
     (
       "a.rs",
       "fn f(p: Point) -> i32 {\n  let Point { total } = p;\n  log(total);\n  total\n}\n",
       "fn f(p: Point) -> i32 {\n  let Point { sum } = p;\n  log(sum);\n  sum\n}\n",
-      "blocks [1..4/1..4] runs [2..4/2..4 renamed quiet] renames [total->sum local declared [0] at 1:14 2:6 3:2 / 1:14 2:6 3:2] starts [0, 1, 1]",
+      "blocks [1..4/1..4] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 1:14 2:6 3:2 / 1:14 2:6 3:2] starts [0, 1, 1]",
     ),
     (
       "a.rs",
       "fn f() -> Point {\n  let total = 1;\n  log(total);\n  Point { total }\n}\n",
       "fn f() -> Point {\n  let sum = 1;\n  log(sum);\n  Point { sum }\n}\n",
-      "blocks [1..4/1..4] runs [1..3/1..3 renamed quiet] renames [total->sum local declared [0] at 1:6 2:6 3:10 / 1:6 2:6 3:10] starts [0, 1, 3]",
+      "blocks [1..4/1..4] runs [1..3/1..3 renamed] renames [total->sum local declared [0] at 1:6 2:6 3:10 / 1:6 2:6 3:10] starts [0, 1, 1]",
     ),
     (
       "A.cs",
       "class A {\n  object F() {\n    int total = 1;\n    Log(total);\n    return new { total };\n  }\n}\n",
       "class A {\n  object F() {\n    int sum = 1;\n    Log(sum);\n    return new { sum };\n  }\n}\n",
-      "blocks [2..5/2..5] runs [2..4/2..4 renamed quiet] renames [total->sum local declared [0] at 2:8 3:8 4:17 / 2:8 3:8 4:17] starts [0, 1, 4]",
+      "blocks [2..5/2..5] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 2:8 3:8 4:17 / 2:8 3:8 4:17] starts [0, 1, 2]",
     ),
     // among the tokens of a macro, and a name a format string captures: no token of its own
     (
       "a.rs",
       "fn f() -> i32 {\n  let total = 1;\n  println!(\"{}\", total);\n  println!(\"{total}\");\n  total\n}\n",
       "fn f() -> i32 {\n  let sum = 1;\n  println!(\"{}\", sum);\n  println!(\"{sum}\");\n  sum\n}\n",
-      "blocks [1..5/1..5] runs [1..2/1..2 renamed quiet, 4..5/4..5 renamed quiet] renames [total->sum local declared [0] at 1:6 2:17 3:13 4:2 / 1:6 2:17 3:13 4:2] starts [0, 1, 2]",
+      "blocks [1..5/1..5] runs [1..2/1..2 renamed, 4..5/4..5 renamed] renames [total->sum local declared [0] at 1:6 2:17 3:13 4:2 / 1:6 2:17 3:13 4:2] starts [0, 1, 1]",
     ),
     // a call of a value: only the types tell whether it is the local
     (
       "a.kt",
       "fun f() {\n  val total = { 1 }\n  log(total)\n  total()\n}\n",
       "fun f() {\n  val sum = { 1 }\n  log(sum)\n  sum()\n}\n",
-      "blocks [1..4/1..4] runs [1..3/1..3 renamed quiet] renames [total->sum local declared [0] at 1:6 2:6 3:2 / 1:6 2:6 3:2] starts [0, 1, 3]",
+      "blocks [1..4/1..4] runs [1..3/1..3 renamed] renames [total->sum local declared [0] at 1:6 2:6 3:2 / 1:6 2:6 3:2] starts [0, 1, 1]",
     ),
     // the delegate of a property gets its name where it is declared: the key the map is read by, the name a task
     // is registered under
@@ -415,46 +549,46 @@ fn a_place_that_makes_more_of_its_name_than_its_binding_is_read() {
       "a.kt",
       "fun f(m: Map<String, Int>): Int {\n  val total by m\n  println(total)\n  return total\n}\n",
       "fun f(m: Map<String, Int>): Int {\n  val sum by m\n  println(sum)\n  return sum\n}\n",
-      "blocks [1..4/1..4] runs [2..4/2..4 renamed quiet] renames [total->sum local declared [0] at 1:6 2:10 3:9 / 1:6 2:10 3:9] starts [0, 1, 1]",
+      "blocks [1..4/1..4] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 1:6 2:10 3:9 / 1:6 2:10 3:9] starts [0, 1, 1]",
     ),
     (
       "build.gradle.kts",
       "tasks {\n  val integrationTest by registering(Test::class) {\n    group = \"verification\"\n  }\n  check {\n    dependsOn(integrationTest)\n  }\n}\n",
       "tasks {\n  val integTest by registering(Test::class) {\n    group = \"verification\"\n  }\n  check {\n    dependsOn(integTest)\n  }\n}\n",
-      "blocks [1..2/1..2, 5..6/5..6] runs [5..6/5..6 renamed quiet] renames [integrationTest->integTest local declared [0] at 1:6 5:14 / 1:6 5:14] starts [0, 1, 1]",
+      "blocks [1..2/1..2, 5..6/5..6] runs [5..6/5..6 renamed] renames [integrationTest->integTest local declared [0] at 1:6 5:14 / 1:6 5:14] starts [0, 1, 1, 1, 1, 5]",
     ),
     (
       "a.kt",
       "class A {\n  init {\n    val total by lazy { 1 }\n    use(total)\n  }\n}\n",
       "class A {\n  init {\n    val sum by lazy { 1 }\n    use(sum)\n  }\n}\n",
-      "blocks [2..4/2..4] runs [3..4/3..4 renamed quiet] renames [total->sum local declared [0] at 2:8 3:8 / 2:8 3:8] starts [0, 1, 2]",
+      "blocks [2..4/2..4] runs [3..4/3..4 renamed] renames [total->sum local declared [0] at 2:8 3:8 / 2:8 3:8] starts [0, 1, 2]",
     ),
     // a function and a class written without a name take the name of the variable they are given to
     (
       "a.ts",
       "function f() {\n  const total = () => 1\n  log(total)\n  return total\n}\n",
       "function f() {\n  const sum = () => 1\n  log(sum)\n  return sum\n}\n",
-      "blocks [1..4/1..4] runs [2..4/2..4 renamed quiet] renames [total->sum local declared [0] at 1:8 2:6 3:9 / 1:8 2:6 3:9] starts [0, 1, 1]",
+      "blocks [1..4/1..4] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 1:8 2:6 3:9 / 1:8 2:6 3:9] starts [0, 1, 1]",
     ),
     (
       "a.js",
       "function f() {\n  const Total = class {}\n  log(Total)\n  return Total\n}\n",
       "function f() {\n  const Sum = class {}\n  log(Sum)\n  return Sum\n}\n",
-      "blocks [1..4/1..4] runs [2..4/2..4 renamed quiet] renames [Total->Sum local declared [0] at 1:8 2:6 3:9 / 1:8 2:6 3:9] starts [0, 1, 1]",
+      "blocks [1..4/1..4] runs [2..4/2..4 renamed] renames [Total->Sum local declared [0] at 1:8 2:6 3:9 / 1:8 2:6 3:9] starts [0, 1, 1]",
     ),
     // inside a `with`, the name may be a property of the object
     (
       "a.js",
       "function f(o) {\n  const total = 1\n  with (o) {\n    use(total)\n  }\n  return total\n}\n",
       "function f(o) {\n  const sum = 1\n  with (o) {\n    use(sum)\n  }\n  return sum\n}\n",
-      "blocks [1..2/1..2, 3..4/3..4, 5..6/5..6] runs [1..2/1..2 renamed quiet, 5..6/5..6 renamed quiet] renames [total->sum local declared [0] at 1:8 3:8 5:9 / 1:8 3:8 5:9] starts [1, 1, 3]",
+      "blocks [1..2/1..2, 3..4/3..4, 5..6/5..6] runs [1..2/1..2 renamed, 5..6/5..6 renamed] renames [total->sum local declared [0] at 1:8 3:8 5:9 / 1:8 3:8 5:9] starts [0, 1, 1, 1, 1, 3, 2, 1, 5]",
     ),
     // the spelling of the name is a value
     (
       "A.cs",
       "class A {\n  string F() {\n    int total = 1;\n    Log(total);\n    return nameof(total);\n  }\n}\n",
       "class A {\n  string F() {\n    int sum = 1;\n    Log(sum);\n    return nameof(sum);\n  }\n}\n",
-      "blocks [2..5/2..5] runs [2..4/2..4 renamed quiet] renames [total->sum local declared [0] at 2:8 3:8 4:18 / 2:8 3:8 4:18] starts [0, 1, 4]",
+      "blocks [2..5/2..5] runs [2..4/2..4 renamed] renames [total->sum local declared [0] at 2:8 3:8 4:18 / 2:8 3:8 4:18] starts [0, 1, 2]",
     ),
   ]);
 }
@@ -768,13 +902,15 @@ fn lines_of_formatting_beside_a_renamed_name_are_a_run_of_their_own() {
       "fun f(): Int {\n  log(1,\n    2)\n  val sum = 1\n  return sum\n}\n",
       "blocks [1..4/1..5] runs [1..2/1..3 formatting quiet, 2..4/3..5 renamed quiet] renames [total->sum local declared [0] at 2:6 3:9 / 3:6 4:9] starts []",
     ),
-    // lines indented inside a new `if`, one of them with the name: the reading starts at the `if`
+    // lines indented inside a new `if`, one of them with the name: the indented lines are passed. The `if` stands
+    // between the declaration of the name and its last use, so the lines of the name are labels, and the reading
+    // starts at the first of them
     (
       "A.java",
       &indented_old,
       &indented_new,
-      "blocks [2..16/2..18] runs [2..3/2..3 renamed quiet, 3..9/4..10 formatting quiet, 9..10/10..11 renamed quiet, 10..15/11..16 formatting quiet, 15..16/17..18 renamed quiet] \
-       renames [total->sum local declared [0] at 2:8 9:8 15:11 / 2:8 10:10 17:11] starts [0, 1, 3]",
+      "blocks [2..16/2..18] runs [2..3/2..3 renamed, 3..9/4..10 formatting quiet, 9..10/10..11 renamed, 10..15/11..16 formatting quiet, 15..16/17..18 renamed] \
+       renames [total->sum local declared [0] at 2:8 9:8 15:11 / 2:8 10:10 17:11] starts [0, 1, 2]",
     ),
     // two calls wrapped, each before a line of the name
     (
@@ -833,15 +969,16 @@ fn lines_of_formatting_beside_a_renamed_name_are_a_run_of_their_own() {
 /// The two readings of a block align its tokens each by itself: with the names read as one, a line with three places
 /// pairs with itself, where the tokens of the texts paired the call that changed places with it. What the first
 /// reading proved stays, and the run of the second that crosses it is none: the lines of the places are read, from
-/// the old one
+/// the old one. They stand between the declaration of the name and its last use, so the two lines that changed in
+/// the name alone are labels
 #[test]
 fn a_run_of_the_first_reading_stays_where_the_second_aligns_the_lines_otherwise() {
   check_cases(&[(
     "a.kt",
     "fun f(): Int {\n  val total = 1\n  keep()\n  a(total, total, total)\n  b(1, 2)\n  keep()\n  return total\n}\n",
     "fun f(): Int {\n  val sum = 1\n  keep()\n  b(1,\n    2)\n  a(sum, sum, sum)\n  keep()\n  return sum\n}\n",
-    "blocks [1..2/1..2, 3..5/3..6, 6..7/7..8] runs [1..2/1..2 renamed quiet, 4..5/3..5 formatting quiet, 6..7/7..8 renamed quiet] \
-     renames [total->sum local declared [0] at 1:6 3:4 3:11 3:18 6:9 / 1:6 5:4 5:9 5:14 7:9] starts [1, 0, 3]",
+    "blocks [1..2/1..2, 3..5/3..6, 6..7/7..8] runs [1..2/1..2 renamed, 4..5/3..5 formatting quiet, 6..7/7..8 renamed] \
+     renames [total->sum local declared [0] at 1:6 3:4 3:11 3:18 6:9 / 1:6 5:4 5:9 5:14 7:9] starts [0, 1, 1, 1, 0, 3, 2, 1, 7]",
   )]);
 
   // the runs of a block, each `old lines / new lines` of its kind
@@ -883,7 +1020,8 @@ fn a_run_of_the_first_reading_stays_where_the_second_aligns_the_lines_otherwise(
 }
 
 /// A line whose comment changed with its name is no run of either kind: its code is not the same without the rename,
-/// and its comment is not the same with it
+/// and its comment is not the same with it. Where that line declares the name, no run says that the declaration reads
+/// the same, and the lines that read the name are labels
 #[test]
 fn a_comment_that_changed_beside_a_renamed_name_is_read() {
   check_cases(&[
@@ -891,7 +1029,7 @@ fn a_comment_that_changed_beside_a_renamed_name_is_read() {
       "a.kt",
       "fun f(): Int {\n  val total = 1 // the total\n  return total\n}\n",
       "fun f(): Int {\n  val sum = 1 // the sum\n  return sum\n}\n",
-      "blocks [1..3/1..3] runs [2..3/2..3 renamed quiet] renames [total->sum local declared [0] at 1:6 2:9 / 1:6 2:9] starts [0, 1, 1]",
+      "blocks [1..3/1..3] runs [2..3/2..3 renamed] renames [total->sum local declared [0] at 1:6 2:9 / 1:6 2:9] starts [0, 1, 1]",
     ),
     // a comment on a line of its own is a run of comments, as without a rename
     (
@@ -905,7 +1043,7 @@ fn a_comment_that_changed_beside_a_renamed_name_is_read() {
       "a.kt",
       "fun f(): Int {\n  // the total\n  val total = 1 // x\n  return total\n}\n",
       "fun f(): Int {\n  // the sum\n  val sum = 1 // y\n  return sum\n}\n",
-      "blocks [1..4/1..4] runs [1..2/1..2 comments, 3..4/3..4 renamed quiet] renames [total->sum local declared [0] at 2:6 3:9 / 2:6 3:9] starts [0, 1, 1]",
+      "blocks [1..4/1..4] runs [1..2/1..2 comments, 3..4/3..4 renamed] renames [total->sum local declared [0] at 2:6 3:9 / 2:6 3:9] starts [0, 1, 1]",
     ),
   ]);
 }

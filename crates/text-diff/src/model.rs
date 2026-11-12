@@ -102,8 +102,8 @@ pub struct SubjectMarks {
   /// the kind `Renamed` among `DiffMarks::runs`
   pub used: Vec<UsedRename>,
   /// The runs of `DiffMarks::runs`, by their numbers, that hold a place of a name that is not local and whose every
-  /// place is proven: by the index for such a name, by the scopes of the file for a local one. Quiet once their kind
-  /// is; they came after the rows of the file, so a view passes them and still shows each of their lines
+  /// place is proven: by the index for such a name, by the scopes of the file for a local one. Quiet; they came
+  /// after the rows of the file, so a view passes them and still shows each of their lines
   pub confirmed: Vec<u32>,
 }
 
@@ -282,6 +282,18 @@ pub struct Rename {
   /// Flat `[line, start, end]` of each place: the 0-based line and the UTF-16 offsets inside it, the end exclusive
   pub old_sites: Vec<u32>,
   pub new_sites: Vec<u32>,
+}
+
+impl Rename {
+  /// The lines of its places on each side, the old one first, from the first place to the last: what lies between
+  /// the declaration of the name and its last use
+  pub fn spans(&self) -> [Range<u32>; 2] {
+    let span = |sites: &[u32]| {
+      let lines = || sites.as_chunks::<3>().0.iter().map(|site| site[0]);
+      lines().min().map_or(0..0, |first| first..lines().max().unwrap_or(first) + 1)
+    };
+    [span(&self.old_sites), span(&self.new_sites)]
+  }
 }
 
 /// A block of changed lines

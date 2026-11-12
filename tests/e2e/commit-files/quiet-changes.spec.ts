@@ -16,16 +16,7 @@ import {
   renamedNames,
   scrollDiffsTo,
 } from "../helpers/diff-helpers"
-import {
-  answerStoreRename,
-  codeOf,
-  expectScopesShown,
-  findInReview,
-  MARKS_SUBJECT,
-  openLedgerPreview,
-  openMarksReview as openReview,
-  switchRenamedOn,
-} from "../helpers/marks-helpers"
+import { answerStoreRename, codeOf, expectScopesShown, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview as openReview } from "../helpers/marks-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { openPlanWindow, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
@@ -35,10 +26,10 @@ import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `commit_marks` template (`MARKS_SUBJECT`): in src/Ledger.kt (11 blocks) the call of `Entry` is wrapped over
-// three lines (a quiet run of formatting, the one block with nothing to read), the comment of `largest` is worded
-// again (a run of comments, a label), a local is renamed, functions move and `isEmpty` really changes; src/Report.kt
-// has three blocks, src/Store.kt one. The stops of Ledger.kt are read from the page, never pinned: the blocks its
-// moved lines left are no stops either
+// three lines (a quiet run of formatting), the comment of `largest` is worded again (a run of comments, a label), a
+// local is renamed at its three lines (three quiet runs of a renamed name), functions move and `isEmpty` really
+// changes; src/Report.kt has three blocks, src/Store.kt one. The stops of Ledger.kt are read from the page, never
+// pinned: the blocks its moved lines left are no stops either
 const SUBJECT = MARKS_SUBJECT
 const OLD_CALL = "    val entry = Entry(account, amount, note)"
 const NEW_CALL = ["    val entry = Entry(", "      account, amount, note", "    )"]
@@ -53,8 +44,8 @@ async function scrollDiffsUpTo(code: Locator, target: Locator): Promise<void> {
 const LEDGER_CHANGES = 11
 
 /**
- * What `count` (the count of a file beside its lines: "10 to read") says is left to read of Ledger.kt: fewer than its
- * blocks, since the wrapped call is none of them, and its hover says it in full
+ * What `count` (the count of a file beside its lines: "5 to read") says is left to read of Ledger.kt: fewer than its
+ * blocks, since the wrapped call and the lines of the renamed local are none of them, and its hover says it in full
  */
 async function ledgerStops(count: Locator): Promise<number> {
   await expect(count).toHaveText(/^\d+ to read$/)
@@ -162,6 +153,11 @@ async function pressBackThrough(page: Page, code: Locator, shown: readonly Shown
 /** The kinds of a row of changed lines to read: no unchanged line, no row of words, no line of a quiet run that Inline shows once */
 const READ_KINDS = ["added", "deleted", "inline", "changed"]
 
+/** The rows among `rows` that hold a line of a quiet run of formatting: the file has quiet lines of a renamed name too */
+function formatted(rows: Locator): Locator {
+  return rows.filter({ has: quietSides(rows.page(), undefined, "formatting") })
+}
+
 test.describe("The marks of a diff in the preview of a commit", () => {
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("commit_marks")
@@ -171,7 +167,7 @@ test.describe("The marks of a diff in the preview of a commit", () => {
   test("Inline shows a wrapped call once, played down after its note, and a click on the note shows and hides its old line", async ({ page }) => {
     const { ledger } = await openLedgerPreview(page)
     // the three new lines of the call, once: neither inserted nor unchanged, in the quiet colour, without their old line
-    const once = diffRows(ledger, "once")
+    const once = formatted(diffRows(ledger, "once"))
     await expect.poll(() => codeOf(once)).toEqual(NEW_CALL)
     await expect(quietSides(once)).toHaveCount(3)
     await expect(diffSides(once).first()).toHaveAttribute("data-cell", "once")
@@ -193,7 +189,7 @@ test.describe("The marks of a diff in the preview of a commit", () => {
     const old = diffRows(ledger, "deleted", { hasText: "Entry(account, amount, note)" })
     await expect.poll(() => codeOf(old)).toEqual([OLD_CALL])
     await expect(quietSides(old)).toHaveAttribute("data-cell", "deleted")
-    await expect.poll(() => codeOf(diffRows(ledger, "added").filter({ has: page.locator('[data-tint="quiet"]') }))).toEqual(NEW_CALL)
+    await expect.poll(() => codeOf(formatted(diffRows(ledger, "added")))).toEqual(NEW_CALL)
     await expect(once).toHaveCount(0)
 
     // a second click hides it again
@@ -229,16 +225,18 @@ test.describe("The marks of a diff in the preview of a commit", () => {
     await expect(note).toHaveText("Formatting only · 3 lines")
     await expect(note).not.toHaveAttribute("aria-expanded")
     // the old line, then the three new ones, each of its type and quiet; the lines of a block to read keep their colour
-    const quiet = diffRows(ledger).filter({ has: page.locator('[data-tint="quiet"]') })
+    const quiet = formatted(diffRows(ledger))
     await expect.poll(() => codeOf(quiet)).toEqual([OLD_CALL, ...NEW_CALL])
-    await expect.poll(() => quietSides(ledger).evaluateAll(sides => sides.map(side => side.getAttribute("data-cell")))).toEqual(["deleted", "inserted", "inserted", "inserted"])
+    await expect
+      .poll(() => quietSides(ledger, undefined, "formatting").evaluateAll(sides => sides.map(side => side.getAttribute("data-cell"))))
+      .toEqual(["deleted", "inserted", "inserted", "inserted"])
     await expect(diffRows(ledger, "once")).toHaveCount(0)
     await expect(quietSides(diffRows(ledger, "added", { hasText: "fun describe(entry: Entry): String {" }))).toHaveCount(0)
 
     await preview.getByRole("button", { name: "Split", exact: true }).click()
     await expect(note).not.toHaveAttribute("aria-expanded")
     // the old line beside the first new one, the two other new lines beside a filled old side
-    const split = diffRows(ledger, "changed").filter({ has: page.locator('[data-tint="quiet"]') })
+    const split = formatted(diffRows(ledger, "changed"))
     await expect(split).toHaveCount(3)
     await expect.poll(() => codeOf(quietSides(split, 0))).toEqual([OLD_CALL])
     await expect.poll(() => codeOf(quietSides(split, 1))).toEqual(NEW_CALL)
@@ -365,13 +363,8 @@ test.describe("The marks of a diff in the review window", () => {
     }
     // the comment worded again is a stop, a label: its note stands above the line, in view
     expect(ledger.find(stop => stop.text.includes("entry with the largest amount."))).toMatchObject({ kind: "inline", above: "note" })
-    // the lines of the renamed local are labels until their kind is switched on, so each is a stop, at the line: the
-    // first under the one note of the rename, the others where they stand, with no note of their own
-    expect(ledger.filter(stop => stop.text.includes("totalsum")).map(stop => [stop.text, stop.kind, stop.above])).toEqual([
-      ["    var totalsum = 0L", "inline", "note"],
-      ["        totalsum += entry.amount", "inline", "context"],
-      ["    return totalsum", "inline", "context"],
-    ])
+    // the lines of the renamed local changed in its name alone, three quiet runs: none is a stop, in either spelling
+    expect(ledger.filter(stop => /\b(sum|total)\b/.test(stop.text))).toEqual([])
     // the real change is one, and the last stop is the one of the last file
     expect(ledger.filter(stop => stop.text.includes("fun isEmpty(): Boolean = entries."))).toHaveLength(1)
     expect(shown.at(-1)).toMatchObject({ path: "src/Store.kt" })
@@ -391,8 +384,6 @@ test.describe("The marks of a diff in the review window", () => {
   }) => {
     await setupRepo("commit_marks")
     await syncAndWaitForBranches()
-    // the answers of the engine with the kind `renamed` switched on: the three lines of `sum` are quiet runs
-    await switchRenamedOn(page)
     const { window, code, position } = await openReview(page, "ledger", SUBJECT)
     const header = code.getByTestId("review-file-header").filter({ hasText: "Ledger.kt" })
     // eleven blocks: the wrapped call, the two blocks moved lines left and the three lines of the name are no stops
@@ -416,7 +407,7 @@ test.describe("The marks of a diff in the review window", () => {
     const once = diffRows(code, "once").filter({ has: renamedNames(page) })
     await scrollDiffsTo(code, once.filter({ hasText: "return sum" }))
     await expect.poll(() => codeOf(once)).toEqual(["    var sum = 0L", "        sum += entry.amount", "    return sum"])
-    await expect(quietSides(once)).toHaveCount(3)
+    await expect(quietSides(once, undefined, "renamed")).toHaveCount(3)
   })
 
   test("N and P pass the uses of a name another file declares once the index proved them and their runs are quiet, and the file counts them out; the lines stay on screen", async ({
@@ -428,9 +419,6 @@ test.describe("The marks of a diff in the review window", () => {
     // the index of the repository answers the rename of the store whole: every use of the name is a place of the commit
     answerStoreRename(repo.path)
     await syncAndWaitForBranches()
-    // the answers of the engine with the kind `renamed` switched on: the two calls of the report are quiet runs once
-    // the index proved them
-    await switchRenamedOn(page)
     const { window, code, position } = await openReview(page, "ledger", SUBJECT)
     const header = code.getByTestId("review-file-header").filter({ hasText: "Report.kt" })
     // three blocks in the report: the two calls are passed, the lines that came from the ledger are read
@@ -734,7 +722,7 @@ test.describe("The marks of a diff in the review window", () => {
     const copyRun = async (): Promise<string | null> => {
       await code.evaluate(element => {
         const from = element.querySelector("[data-testid=diff-row][data-tone=remark][data-quiet]")!
-        const cells = [...element.querySelectorAll('[data-testid=diff-side][data-tint="quiet"] [data-testid=diff-code]')]
+        const cells = [...element.querySelectorAll('[data-testid=diff-side][data-tint="quiet"][data-run="formatting"] [data-testid=diff-code]')]
         const range = document.createRange()
         range.setStart(from, 0)
         range.setEnd(cells.at(-1)!, cells.at(-1)!.childNodes.length)
@@ -747,7 +735,7 @@ test.describe("The marks of a diff in the review window", () => {
     await note.click()
     await expect(note).toHaveAttribute("aria-expanded", "true")
     // the old line is painted: the copy takes it with the new ones
-    await expect.poll(() => codeOf(diffRows(code, "deleted").filter({ has: quietSides(page) }))).toEqual([OLD_CALL])
+    await expect.poll(() => codeOf(formatted(diffRows(code, "deleted")))).toEqual([OLD_CALL])
     expect(await copyRun()).toBe([OLD_CALL, ...NEW_CALL].join("\n"))
   })
 })
@@ -788,9 +776,10 @@ test.describe("The marks of a diff in a review with its plan", () => {
  */
 async function expectQuietColour(page: Page, theme: "light" | "dark"): Promise<void> {
   const { ledger } = await openLedgerPreview(page)
-  await expect(diffRows(ledger, "once")).toHaveCount(3)
-  // the background of the first element of each kind, and the colour the token of the theme names
-  const { token, once, note, inserted, context } = await ledger.evaluate(element => {
+  await expect(formatted(diffRows(ledger, "once"))).toHaveCount(3)
+  // the background of the first element of each kind, and the colour the token of the theme names; the line of a
+  // change is one of the function that moved up, the first lines of the file
+  const { token, once, note, changed, context } = await ledger.evaluate(element => {
     const background = (selector: string) => getComputedStyle(element.querySelector(selector)!).backgroundColor
     const probe = document.createElement("div")
     probe.style.background = "var(--diff-quiet)"
@@ -801,12 +790,12 @@ async function expectQuietColour(page: Page, theme: "light" | "dark"): Promise<v
       token: named,
       once: background('[data-testid=diff-side][data-cell="once"]'),
       note: background("[data-testid=diff-row][data-tone=remark][data-quiet]"),
-      inserted: background('[data-testid=diff-side][data-cell="inserted"]'),
+      changed: background('[data-testid=diff-side][data-cell="moved"]'),
       context: background('[data-testid=diff-side][data-cell="context"]'),
     }
   })
   expect([once, note]).toEqual([token, token])
-  expect([inserted, context]).not.toContain(token)
+  expect([changed, context]).not.toContain(token)
   // the first channel of the colour: light on the light card, dark on the dark one
   expect(Number(/\d+/.exec(token)![0]) > 128 ? "light" : "dark").toBe(theme)
 }

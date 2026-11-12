@@ -734,7 +734,7 @@ test.describe("The marks of a subject that come after the rows of a file were sh
       answerStoreRename(repo.path)
       // the report says nothing of its subject until the index answered, as where its pair had to be compared, and the
       // answer is held; with the kind `renamed` switched on, the answer makes the two calls quiet
-      await lateSubjectMarks(page, "src/Report.kt", { renamedOn: true })
+      await lateSubjectMarks(page, "src/Report.kt")
       const release = await holdCommand(page, "get_rename_proofs")
       await syncAndWaitForBranches()
       const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)

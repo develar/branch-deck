@@ -17,18 +17,18 @@ import {
   renamedNames,
   scrollDiffsTo,
 } from "../helpers/diff-helpers"
-import { codeOf, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview, switchRenamedOn } from "../helpers/marks-helpers"
+import { codeOf, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview } from "../helpers/marks-helpers"
 import { openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { openPlanWindow, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the renames of the `commit_marks` template (`MARKS_SUBJECT`). In src/Ledger.kt the local `total` of `balance` is
 // `sum` at its three places, each on a line that changed in nothing else: its declaration at the new line 28, a use at
-// 31 and one at 34. In src/Store.kt the function `openStore` is `connectStore`: a name that is not local, declared
-// there and used in src/Report.kt alone, which declares none of it. The runs of a renamed name are labels until a
-// measurement switches their kind on, so every such line is read and no note opens. What a view shows of a quiet run
-// of a rename is tested on the answers of the engine with that kind switched on (`switchRenamedOn`): the three lines
-// of `sum` are quiet then, and their blocks nothing to read
+// 31 and one at 34. Nothing else changed between them, so the three lines are quiet runs of a renamed name, and their
+// blocks nothing to read. In src/Store.kt the function `openStore` is `connectStore`: a name that is not local,
+// declared there and used in src/Report.kt alone, which declares none of it: labels, until the index of the
+// repository proves every use. A local whose runs are labels is the one of src/Tally.kt, a change built in the test
+// (`tally`): the same three lines, with a line between them that really changed
 const NOTE = "Renamed total → sum · 3 sites"
 const NEW_LINES = ["    var sum = 0L", "        sum += entry.amount", "    return sum"]
 const OLD_LINES = NEW_LINES.map(line => line.replace("sum", "total"))
@@ -49,6 +49,49 @@ function siteRows(scope: Locator, kind?: "inline" | "deleted" | "added" | "chang
 /** The card of Ledger.kt in the diffs of a review: the sites of `sum` are its, those of the function the store renamed another file's */
 function ledgerOf(code: Locator): Locator {
   return code.getByRole("region", { name: "src/Ledger.kt" })
+}
+
+// src/Tally.kt of a change built in the test: the local `total` of `above` is `sum` at its three places, on the lines
+// the template has them on (`NEW_LINES`), and the check between its declaration and its last use really changed. So
+// the name may hold another value where it is read, and its three lines are runs that are labels: each is read. The
+// file also has the real change of the template, `isEmpty`
+const tally = (renamed: boolean) => {
+  const name = renamed ? "sum" : "total"
+  return `package ledger
+
+class Tally(private val entries: List<Entry>) {
+  // Sums the amounts above a limit.
+  fun above(limit: Long): Long {
+    var ${name} = 0L
+    for (entry in entries) {
+      check(entry.amount ${renamed ? ">=" : ">"} limit)
+      if (entry.account.isNotEmpty()) {
+        ${name} += entry.amount
+      }
+    }
+    return ${name}
+  }
+
+  fun isEmpty(): Boolean = entries.${renamed ? "none" : "isEmpty"}()
+}
+`
+}
+
+const TALLY_SUBJECT = "the tally is a sum"
+
+/** The change of src/Tally.kt, the one commit of the branch `tally` */
+async function commitTally(repo: TestRepositoryBuilder): Promise<void> {
+  await repo.commit("Add the tally", { "src/Tally.kt": tally(false) }, 1704120600)
+  await repo.pushInTerminal("master")
+  await repo.commit(`(tally) ${TALLY_SUBJECT}`, { "src/Tally.kt": tally(true) }, 1704121200)
+}
+
+/** The diff of Tally.kt in the preview of its commit: its row of the tree of the files, which holds its diff */
+async function openTallyPreview(page: Page): Promise<{ preview: Locator; file: Locator }> {
+  await expandBranch(page, findBranchRow(page, "tally"))
+  const preview = await openCommitPreview(page, getBranchCommitRow(page, "tally", TALLY_SUBJECT))
+  const file = await openFileOf(await openCommitFilesSection(preview), "Tally.kt", "fun above(limit: Long): Long {")
+  return { preview, file }
 }
 
 /** What only the line of each site of `sum` holds, in the order of the lines: its declaration, the use in the loop, the result */
@@ -166,16 +209,16 @@ async function findOldName(page: Page, window: Locator, code: Locator): Promise<
   return found
 }
 
-test.describe("The renames of a diff in the preview of a commit", () => {
+test.describe("The renames of a diff that are labels in the preview of a commit", () => {
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("commit_marks")
+    await commitTally(await setupRepo("simple"))
     await syncAndWaitForBranches()
   })
 
   test("Inline names a rename once, before the line of its declaration, and shows each site as one row, the old name struck through before the new one, both in the mark of a renamed name", async ({
     page,
   }) => {
-    const { ledger } = await openLedgerPreview(page)
+    const { file: ledger } = await openTallyPreview(page)
     // one note for the three sites, in plain words: every line of a label is read, so it opens nothing
     await expectPlainWords(await shownNote(ledger))
     // each line of the name is the row of its two lines: nothing of a line that is read is left out
@@ -209,7 +252,7 @@ test.describe("The renames of a diff in the preview of a commit", () => {
   })
 
   test("Unified and Split keep both lines of each site of a rename, the old name and the new one in the mark of a renamed name", async ({ page }) => {
-    const { preview, ledger } = await openLedgerPreview(page)
+    const { preview, file: ledger } = await openTallyPreview(page)
     await inLayout(preview, ledger, "Unified")
     // each site is its old line, then its new one, lines to read: the name alone is marked, as renamed, on both
     await expectBothLinesStacked(ledger)
@@ -218,6 +261,13 @@ test.describe("The renames of a diff in the preview of a commit", () => {
     await inLayout(preview, ledger, "Split")
     // a row a site: the old name in the old column, the new one in the new column
     await expect(quietSides(await expectBothLinesBeside(ledger))).toHaveCount(0)
+  })
+})
+
+test.describe("The renames of a diff in the preview of a commit", () => {
+  test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("commit_marks")
+    await syncAndWaitForBranches()
   })
 
   test("a name that is not local is named at its declaration, which is read, and once in a file that only uses it, each use in the mark of a renamed name", async ({ page }) => {
@@ -250,10 +300,9 @@ test.describe("The renames of a diff in the preview of a commit", () => {
 })
 
 test.describe("The quiet runs of a renamed local in the preview of a commit", () => {
-  test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("commit_marks")
     await syncAndWaitForBranches()
-    await switchRenamedOn(page)
   })
 
   test("Inline shows each line of a quiet rename once, the new name in its mark, and the one note of the rename shows and hides the old line of every site", async ({ page }) => {
@@ -272,7 +321,7 @@ test.describe("The quiet runs of a renamed local in the preview of a commit", ()
     const once = siteRows(ledger, "once")
     await expect.poll(() => codeOf(once)).toEqual(NEW_LINES)
     await expect(siteRows(ledger)).toHaveCount(3)
-    await expect(quietSides(once)).toHaveCount(3)
+    await expect(quietSides(once, undefined, "renamed")).toHaveCount(3)
     await expect(diffSides(once).first()).toHaveAttribute("data-cell", "once")
     await expect(diffSides(once).first()).toHaveAttribute("data-run", "renamed")
     await expect(renamedNames(once)).toHaveText(["sum", "sum", "sum"])
@@ -328,12 +377,12 @@ test.describe("The renames of a diff in the review window", () => {
     "the find for the old name of a rename marks it where a row shows it: struck through in the rows of Inline, in the old lines of Unified, and never in the new name",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupRepo("commit_marks")
+      await commitTally(await setupRepo("simple"))
       await syncAndWaitForBranches()
-      const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
+      const { window, code } = await openMarksReview(page, "tally", TALLY_SUBJECT)
       // Inline strikes the old name through at each site: three results, each in its row
       const { field, count } = await findOldName(page, window, code)
-      const rows = siteRows(ledgerOf(code), "inline")
+      const rows = siteRows(code, "inline")
       await expect.poll(() => codeOf(rows)).toEqual(PAIR_LINES)
       await expect(findMarks(rows)).toHaveText(["total", "total", "total"])
       await expect(rows.locator(`${STRUCK_NAME}[data-hit]`)).toHaveCount(3)
@@ -367,17 +416,16 @@ test.describe("The renames of a diff in the review window", () => {
       await field.fill("total")
       await window.getByRole("button", { name: "Unified", exact: true }).click()
       await expect(count).toHaveText("3 results")
-      await expect(findMarks(siteRows(ledgerOf(code), "deleted"))).toHaveText(["total", "total", "total"])
-      await expect(findMarks(siteRows(ledgerOf(code), "added"))).toHaveCount(0)
+      await expect(findMarks(siteRows(code, "deleted"))).toHaveText(["total", "total", "total"])
+      await expect(findMarks(siteRows(code, "added"))).toHaveCount(0)
     },
   )
 })
 
 test.describe("The quiet runs of a renamed local in the review window", () => {
-  test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("commit_marks")
     await syncAndWaitForBranches()
-    await switchRenamedOn(page)
   })
 
   // the focus stays with the diffs through a click on a button the paint replaces, and the key of the notes from the
@@ -481,7 +529,7 @@ test.describe("The quiet runs of a renamed local in the review window", () => {
 test.describe("The renames of a diff in a review with its plan", () => {
   test("a rename whose declaration starts the block of a change says its words in the heading of that change", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("simple")
-    // the local `sum` of `total` is `all` at its two places, two lines of one block
+    // the local `sum` of `total` is `all` at its two places, two lines of one block: a quiet run
     const total = (name: string) =>
       `class Total {\n  fun total(items: List<Int>): Int {\n    val ${name} = items.fold(0) { a, b -> a + b }\n    return ${name}\n  }\n\n  fun other() = 1\n}\n`
     await repo.commit("Add the total", { "src/Total.kt": total("sum") }, 1704120600)
@@ -495,20 +543,23 @@ test.describe("The renames of a diff in a review with its plan", () => {
     await expect(notes).toHaveText(["total — body changed · Renamed sum → all · 2 sites"])
     await expect(notes.getByTestId("diff-unit-heading")).toHaveText("total — body changed")
     await expect(remarks(notes, "renamed")).toHaveText("Renamed sum → all · 2 sites")
+    // the two lines changed in the name alone: shown once, the new name in its mark, no old name struck through
+    await expect.poll(() => codeOf(diffRows(code, "once"))).toEqual(["    val all = items.fold(0) { a, b -> a + b }", "    return all"])
     await expect(renamedNames(code)).toHaveText(["all", "all"])
-    await expect(code.locator(STRUCK_NAME)).toHaveText(["sum", "sum"])
+    await expect(code.locator(STRUCK_NAME)).toHaveCount(0)
   })
 })
 
 // src/Pairs.kt of a change built in the test. In `sums` three locals are renamed, each declared on a line of one block
 // (`low`, `high`, `both`), so one note names the three; in `pair` two are (`left`, `right`), `left` on a line with
-// another change, after a line that really changed: the declaration is the second line of its lines
+// another change, after a line that really changed: the declaration is the second line of its lines. The result of
+// `sums` really changes too, on the line of `both`, so the three names are labels as the two of `pair` are
 const pairs = (names: { low: string; high: string; both: string; left: string; right: string }, scale: number) => `class Pairs(private val items: List<Int>) {
   fun sums(limit: Int): Int {
     val ${names.low} = items.filter { it < limit }
     val ${names.high} = items.filter { it >= limit }
     val ${names.both} = ${names.low} + ${names.high}
-    return ${names.both}.sum()
+    return ${names.both}.sum() * ${scale}
   }
 
   fun pair(first: Int, second: Int): Int {
@@ -574,11 +625,12 @@ test.describe("The note of a block that declares several renamed names", () => {
 
 // src/Count.kt of a change built in the test: the local `total` of `count` is `sum` at three places. Its declaration
 // and the call after it are one block, the call wrapped over two lines (one run of two old lines and three new ones);
-// forty lines are added below, more than a view shows; the last place is the result, in a block of its own
+// forty calls below are wrapped too, eighty lines of formatting, more than a view shows; the last place is the result,
+// in a block of its own. Nothing but quiet lines changed between the places, so the lines of the name are quiet
 const count = (renamed: boolean) => {
   const name = renamed ? "sum" : "total"
   const call = renamed ? "    log(extra,\n      sum)" : "    log(extra, total)"
-  const checks = renamed ? Array.from({ length: 40 }, (_, at) => `    check(extra > ${at})\n`).join("") : ""
+  const checks = Array.from({ length: 40 }, (_, at) => (renamed ? `    check(items,\n      ${at})\n` : `    check(items, ${at})\n`)).join("")
   return `class Count(private val items: List<Int>) {
   fun count(extra: Int): Int {
     val ${name} = items.size
@@ -594,14 +646,18 @@ ${checks}    val last = items.last()
 }
 
 test.describe("A quiet rename whose places are far apart, one in lines wrapped otherwise", () => {
-  /** The review of the change of src/Count.kt with the kind `renamed` switched on: its window and its diffs */
+  /** The review of the change of src/Count.kt: its window and its diffs */
   async function openCountReview(page: Page, repo: TestRepositoryBuilder, sync: () => Promise<unknown>) {
     await repo.commit("Add the count", { "src/Count.kt": count(false) }, 1704120600)
     await repo.pushInTerminal("master")
     await repo.commit("(count) the count is a sum", { "src/Count.kt": count(true) }, 1704121200)
     await sync()
-    await switchRenamedOn(page)
     return openMarksReview(page, "count", "the count is a sum")
+  }
+
+  /** The rows of the lines of the name that the diffs show once: the wrapped calls between them are shown once too */
+  function onceOfName(code: Locator): Locator {
+    return diffRows(code, "once").filter({ has: quietSides(code.page(), undefined, "renamed") })
   }
 
   // the key of the notes from the diffs, the focus kept across a paint: WebKit differs there
@@ -610,7 +666,7 @@ test.describe("A quiet rename whose places are far apart, one in lines wrapped o
     const diffs = code.locator("[aria-label='Changes of the commit']")
     const note = remarks(code, "renamed")
     await expect(note).toHaveAccessibleName("Renamed total to sum, 3 sites: Show the 3 old lines")
-    // the result, forty added lines below the note of its rename: shown once, and the note is out of view
+    // the result, eighty lines of wrapped calls below the note of its rename: shown once, and the note is out of view
     const result = diffRows(code, "once", { hasText: "return sum + first + last" })
     await scrollDiffsTo(code, result)
     await result.scrollIntoViewIfNeeded()
@@ -621,7 +677,7 @@ test.describe("A quiet rename whose places are far apart, one in lines wrapped o
     await page.keyboard.press("h")
     const old = diffRows(code, "deleted", { hasText: "return total + first + last" })
     await expect(old).toBeInViewport()
-    await expect(diffRows(code, "once")).toHaveCount(0)
+    await expect(onceOfName(code)).toHaveCount(0)
     expect((await rowAbove(diffRows(code, "added", { hasText: "return sum + first + last" }))).code).toBe("    return total + first + last")
     await expect(diffs).toBeFocused()
     // H again, from the lines the note showed: they go
@@ -639,9 +695,10 @@ test.describe("A quiet rename whose places are far apart, one in lines wrapped o
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const { window, code } = await openCountReview(page, await setupRepo("simple"), syncAndWaitForBranches)
-      // the run of the declaration and the wrapped call: two old lines shown once by three new ones
-      const once = diffRows(code, "once")
-      await expect.poll(() => codeOf(once)).toEqual(["    val sum = items.size", "    log(extra,", "      sum)", "    return sum + first + last"])
+      // the run of the declaration and the wrapped call: two old lines shown once by three new ones; the result is
+      // eighty rows below them
+      const once = onceOfName(code)
+      await expect.poll(async () => (await codeOf(once)).slice(0, 3)).toEqual(["    val sum = items.size", "    log(extra,", "      sum)"])
       const [declared, wrapped, argument] = [once.filter({ hasText: "val sum" }), once.filter({ hasText: "log(extra," }), once.filter({ hasText: "sum)" })]
       // the old name: one result a place; the second is the argument of the call, found at the row of the new line
       // that holds its new name, the third row of the run, never at the first
@@ -680,13 +737,13 @@ test.describe("A quiet rename whose places are far apart, one in lines wrapped o
 })
 
 /**
- * The mark of a renamed name in the preview of the template, in the theme of the page: on the pale colour of its
+ * The mark of a renamed name in the preview of the tally, a label, in the theme of the page: on the pale colour of its
  * inserted line it has a colour of its own, which is neither the colour of that line nor the full colour of an
  * inserted range, and a dotted line along its lower edge, so it does not rest on its colour; the old name that the
  * row strikes through before it has the same colour
  */
 async function expectRenamedMark(page: Page, theme: "light" | "dark"): Promise<void> {
-  const { ledger } = await openLedgerPreview(page)
+  const { file: ledger } = await openTallyPreview(page)
   const name = renamedNames(siteRows(ledger)).first()
   await scrollDiffsTo(ledger, name)
   const real = diffRows(ledger, "inline", { hasText: "fun isEmpty(): Boolean" })
@@ -723,7 +780,7 @@ test.describe("The mark of a renamed name in the light theme", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setupRepo("commit_marks")
+    await commitTally(await setupRepo("simple"))
     await syncAndWaitForBranches()
     await expectRenamedMark(page, "light")
   })
@@ -733,7 +790,7 @@ test.describe("The mark of a renamed name in the dark theme", () => {
   test.use({ colorScheme: "dark" })
 
   test("a renamed name has a colour of its own and a dotted line under it in the dark theme, never the colour of a change", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("commit_marks")
+    await commitTally(await setupRepo("simple"))
     await syncAndWaitForBranches()
     await expectRenamedMark(page, "dark")
   })

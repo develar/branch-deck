@@ -8,7 +8,8 @@
 //! - `need_command`: `brd need`, the branches a branch declares land before it (`history_rewrite::needs`)
 //! - `check_command`: `brd check`, the trial sync and builds of a plan
 //! - `suggest`: `brd suggest`, the clustering of commit-clustering checked by `brd check`
-//! - `commits`, `block_patch`, `symbol_stats`: `brd commits`, its patches and its symbol statistics
+//! - `commits`, `block_patch`, `symbol_stats`, `mark_stats`: `brd commits`, its patches, its symbol statistics and the
+//!   measurement of the marks of the diffs
 //! - `describe`, `group_plan`: `brd describe`, and the plans and descriptions a rewrite reads
 //! - `mark_reviewed_command`: `brd mark-reviewed`, the reviewed pair of a branch (`review_plan::mark_reviewed`)
 //! - `review_plan_command`: `brd review-plan`, the plan of a review and the interdiff since the reviewed pair
@@ -22,6 +23,7 @@ pub mod describe;
 pub mod fold_command;
 pub mod group_plan;
 pub mod mark_reviewed_command;
+pub mod mark_stats;
 pub mod move_hunk_command;
 pub mod need_command;
 pub mod park_command;
@@ -43,6 +45,8 @@ mod describe_test;
 mod fold_test;
 #[cfg(test)]
 mod mark_reviewed_test;
+#[cfg(test)]
+mod mark_stats_test;
 #[cfg(test)]
 mod move_hunk_test;
 #[cfg(test)]

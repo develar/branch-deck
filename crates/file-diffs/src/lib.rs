@@ -11,6 +11,7 @@ pub mod collapse;
 pub mod declarations;
 pub mod leftovers;
 pub mod marks;
+pub mod marks_measure;
 mod marks_renames;
 mod marks_runs;
 pub mod marks_subject;
@@ -35,6 +36,8 @@ mod collapse_test;
 mod declarations_test;
 #[cfg(test)]
 mod fixture_test;
+#[cfg(test)]
+mod marks_measure_test;
 #[cfg(test)]
 mod marks_renames_test;
 #[cfg(test)]

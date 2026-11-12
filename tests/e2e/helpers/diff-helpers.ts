@@ -159,9 +159,13 @@ export function remarkHits(scope: Locator | Page): Locator {
   return scope.getByTestId("diff-remark-hits")
 }
 
-/** The cells of the lines of a quiet run of the marks, which are played down (`data-tint="quiet"`), of a side when given */
-export function quietSides(scope: Locator | Page, side?: number): Locator {
-  return scope.locator(`${diffSideSelector(side)}[data-tint="quiet"]`)
+/**
+ * The cells of the lines of a quiet run of the marks, which are played down (`data-tint="quiet"`), of a side when
+ * given, and of the runs of one kind when given (`data-run`: a file may hold quiet lines of formatting and of a
+ * renamed name)
+ */
+export function quietSides(scope: Locator | Page, side?: number, run?: "formatting" | "renamed"): Locator {
+  return scope.locator(`${diffSideSelector(side)}[data-tint="quiet"]${run === undefined ? "" : `[data-run=${run}]`}`)
 }
 
 /**

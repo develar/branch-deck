@@ -163,6 +163,8 @@ pub struct FileDiffs {
   pub(crate) limits: DiffLimits,
   /// `blocks_of` keeps the blobs it reads in `blobs` (`for_scans`)
   pub(crate) keep_scan_blobs: bool,
+  /// The diffs are made without their marks (`without_marks`)
+  pub(crate) marks_off: bool,
   /// The files of the ranges: the list of a review (`get_range_files`) and its diffs (`stream`) run one `diff-tree`
   pub range_files: RangeFilesCache,
 }
@@ -307,6 +309,38 @@ struct Pending<'a> {
   order: &'a [usize],
 }
 
+/// The stream of a subject collected (`FileDiffs::collect`): the header of each file and its content, with why a
+/// view starts it collapsed
+#[derive(Default)]
+pub(crate) struct Collected {
+  headers: Vec<DiffFileHeader>,
+  contents: Vec<Option<(DiffContent, Option<Collapse>)>>,
+}
+
+impl Collected {
+  /// The files of the subject, in the order of git
+  pub(crate) fn into_files(self) -> Vec<DiffFile> {
+    self
+      .headers
+      .into_iter()
+      .zip(self.contents)
+      .map(|(header, content)| {
+        // every file gets a content; one left out would be a bug, shown as missing rather than failing the subject
+        let (content, collapse) = content.unwrap_or_else(|| (DiffContent::Missing, collapse_of(&header.path, &DiffContent::Missing)));
+        DiffFile {
+          path: header.path,
+          old_path: header.old_path,
+          status: header.status,
+          old_id: header.old_id,
+          new_id: header.new_id,
+          content,
+          collapse,
+        }
+      })
+      .collect()
+  }
+}
+
 /// The two trees the index is asked of the names a subject renamed, the old one first: of a commit and of a range
 /// named by full object ids, which name the same trees whenever they are read (so an answer may be kept by them).
 /// `None` for the working tree, which may be another by the time the index reads it, and for a name, which may
@@ -390,7 +424,19 @@ impl FileDiffs {
       }),
       limits,
       keep_scan_blobs: false,
+      marks_off: false,
       range_files: RangeFilesCache::default(),
+    }
+  }
+
+  /// An instance whose diffs have no marks, for the measurement of what the marks cost alone (`marks_measure`,
+  /// `brd commits --mark-stats --no-marks`): no tokens, no runs, no renames, no moves, nothing left to the subject,
+  /// each block a stop. It reads and writes no store of the diffs (`stream` gives it a cache that keeps nothing), so
+  /// no view ever reads a diff of it; compare it with an instance that has no store either
+  pub fn without_marks() -> Self {
+    Self {
+      marks_off: true,
+      ..Self::default()
     }
   }
 
@@ -421,70 +467,83 @@ impl FileDiffs {
     source: &DiffSource,
     policy: WhitespacePolicy,
   ) -> Result<Vec<DiffFile>> {
-    let mut headers = Vec::new();
-    let mut contents: Vec<Option<(DiffContent, Option<Collapse>)>> = Vec::new();
     let params = GetFileDiffsParams {
       repository_path: repository_path.to_string(),
       source: source.clone(),
       policy,
       priority_paths: Vec::new(),
     };
-    self.stream(git, cache, index.is_some(), &params, |event| match event {
-      FileDiffEvent::Files { files } => {
-        contents = vec![None; files.len()];
-        headers = files;
-      }
-      FileDiffEvent::Content { index, content, collapse } => contents[index as usize] = Some((content, collapse)),
-      FileDiffEvent::Marks { index, marks } => {
-        if let Some((DiffContent::Text(diff), _)) = &mut contents[index as usize] {
-          diff.marks = marks;
+    let mut read = self.collect(git, cache, index.is_some(), &params, &mut |_| {})?;
+    self.answer_proofs(git, cache, index, &params, &mut read)?;
+    Ok(read.into_files())
+  }
+
+  /// The stream of the subject of `params` collected: the header of each file and its content with the scopes and
+  /// the marks that followed it; `seen` is told of each event as it comes
+  pub(crate) fn collect(
+    &self,
+    git: &GitCommandExecutor,
+    cache: &ObjectCache,
+    asks_index: bool,
+    params: &GetFileDiffsParams,
+    seen: &mut dyn FnMut(&FileDiffEvent),
+  ) -> Result<Collected> {
+    let mut read = Collected::default();
+    self.stream(git, cache, asks_index, params, |event| {
+      seen(&event);
+      match event {
+        FileDiffEvent::Files { files } => {
+          read.contents = vec![None; files.len()];
+          read.headers = files;
         }
-      }
-      FileDiffEvent::Scopes {
-        index,
-        old_scopes,
-        new_scopes,
-        import_blocks,
-      } => {
-        if let Some((DiffContent::Text(diff), _)) = &mut contents[index as usize] {
-          diff.old_scopes = old_scopes;
-          diff.new_scopes = new_scopes;
-          diff.import_blocks = import_blocks;
+        FileDiffEvent::Content { index, content, collapse } => read.contents[index as usize] = Some((content, collapse)),
+        FileDiffEvent::Marks { index, marks } => {
+          if let Some((DiffContent::Text(diff), _)) = &mut read.contents[index as usize] {
+            diff.marks = marks;
+          }
+        }
+        FileDiffEvent::Scopes {
+          index,
+          old_scopes,
+          new_scopes,
+          import_blocks,
+        } => {
+          if let Some((DiffContent::Text(diff), _)) = &mut read.contents[index as usize] {
+            diff.old_scopes = old_scopes;
+            diff.new_scopes = new_scopes;
+            diff.import_blocks = import_blocks;
+          }
         }
       }
     })?;
+    Ok(read)
+  }
+
+  /// Asks `index` of the names the subject of `params` renamed (`rename_proofs`) and puts the marks it answers into
+  /// the files of `read`; without an index nothing is asked: the proofs say so already
+  pub(crate) fn answer_proofs(
+    &self,
+    git: &GitCommandExecutor,
+    cache: &ObjectCache,
+    index: Option<&dyn SymbolIndex>,
+    params: &GetFileDiffsParams,
+    read: &mut Collected,
+  ) -> Result<()> {
+    if index.is_none() {
+      return Ok(());
+    }
     let proofs = GetRenameProofsParams {
-      repository_path: params.repository_path,
-      source: params.source,
-      policy,
+      repository_path: params.repository_path.clone(),
+      source: params.source.clone(),
+      policy: params.policy,
     };
-    // without an index nothing is asked: the proofs say so already
-    let answered = if index.is_some() { self.rename_proofs(git, cache, index, &proofs)? } else { None };
-    for FileMarks { path, marks } in answered.unwrap_or_default() {
-      let content = headers.iter().position(|header| header.path == path).and_then(|index| contents[index].as_mut());
+    for FileMarks { path, marks } in self.rename_proofs(git, cache, index, &proofs)?.unwrap_or_default() {
+      let content = read.headers.iter().position(|header| header.path == path).and_then(|index| read.contents[index].as_mut());
       if let Some((DiffContent::Text(diff), _)) = content {
         diff.marks = marks;
       }
     }
-    Ok(
-      headers
-        .into_iter()
-        .zip(contents)
-        .map(|(header, content)| {
-          // every file gets a content; one left out would be a bug, shown as missing rather than failing the subject
-          let (content, collapse) = content.unwrap_or_else(|| (DiffContent::Missing, collapse_of(&header.path, &DiffContent::Missing)));
-          DiffFile {
-            path: header.path,
-            old_path: header.old_path,
-            status: header.status,
-            old_id: header.old_id,
-            new_id: header.new_id,
-            content,
-            collapse,
-          }
-        })
-        .collect(),
-    )
+    Ok(())
   }
 
   /// The diffs of a subject as events (`FileDiffEvent`): the files, then the content of each file as it is known,
@@ -495,6 +554,9 @@ impl FileDiffs {
   #[instrument(skip(self, git, cache, params, emit), fields(repository_path = %params.repository_path, source = ?params.source))]
   pub fn stream(&self, git: &GitCommandExecutor, cache: &ObjectCache, asks_index: bool, params: &GetFileDiffsParams, mut emit: impl FnMut(FileDiffEvent)) -> Result<()> {
     let (repository_path, policy) = (params.repository_path.as_str(), params.policy);
+    // diffs without marks are for a measurement alone: no store keeps one, and none is read in their place
+    let no_store = self.marks_off.then(ObjectCache::disabled);
+    let cache = no_store.as_ref().unwrap_or(cache);
     let entries = list_entries(git, repository_path, cache, &self.range_files, &params.source)?;
     for blob in entries.iter().filter_map(|entry| entry.worktree.as_ref()) {
       self.blobs.insert(blob.id().to_string(), Arc::clone(blob));
@@ -1024,13 +1086,19 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
     let BudgetedDiff { mut diff, out_of_time } = diff_texts_in(old_text, new_text, context.policy, &budget);
     // the marks before the content: they change the rows of the file
     let paths = [entry.old_path.as_deref().unwrap_or(&entry.path), &entry.path];
-    let pair = context
-      .service
-      .marks(&diff, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
-    // what the pair leaves to the other files of its subjects is read here, where its texts are; what it leaves to
-    // the measurement of its proofs (`PairMarks::proven`) has no reader yet
-    let (marks, left) = Leftovers::of(&diff.blocks, pair, old_text, new_text, pair_indented(paths[0], paths[1]));
-    diff.marks = marks;
+    let left = if context.service.marks_off {
+      // the comparison alone, each block a stop, as it gave them
+      Leftovers::default()
+    } else {
+      let pair = context
+        .service
+        .marks(&diff, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
+      // what the pair leaves to the other files of its subjects is read here, where its texts are; what it leaves to
+      // the measurement of its proofs (`PairMarks::proven`) is read again by that measurement (`marks_measure`)
+      let (marks, left) = Leftovers::of(&diff.blocks, pair, old_text, new_text, pair_indented(paths[0], paths[1]));
+      diff.marks = marks;
+      left
+    };
     let left = Arc::new(left);
     // memory keeps the diff with what it left, and the stream gets both for the pass over its subject
     let keep = |diff: &TextDiff| {

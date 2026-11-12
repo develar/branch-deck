@@ -38,6 +38,7 @@ use bd_rewrite::companion_command::{CompanionArgs, CompanionCommand, companion};
 use bd_rewrite::describe::{DescribeArgs, describe};
 use bd_rewrite::fold_command::{FoldArgs, fold};
 use bd_rewrite::mark_reviewed_command::{MarkReviewedArgs, mark_reviewed};
+use bd_rewrite::mark_stats::mark_stats;
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use bd_rewrite::need_command::{NeedArgs, need};
 use bd_rewrite::park_command::{ParkArgs, UnparkArgs, park, unpark};
@@ -549,6 +550,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       .and_then(|output| printed(out, &output)),
     Command::Status(args) => context().and_then(|context| status(&context, args, environment)).and_then(|output| printed(out, &output)),
     Command::Commits(args) if args.symbol_stats => context().and_then(|context| symbol_stats(&context, args.sample)).and_then(|output| printed(out, &output)),
+    Command::Commits(args) if args.marks.mark_stats => context().and_then(|context| mark_stats(&context, &args.marks)).and_then(|output| printed(out, &output)),
     Command::Commits(args) if args.brief => context().and_then(|context| commits_brief(&context, args)).and_then(|output| printed(out, &output)),
     Command::Commits(args) => context().and_then(|context| commits(&context, args)).and_then(|output| printed(out, &output)),
     // with --sync, a conflict changes only the exit code, as for `brd sync`

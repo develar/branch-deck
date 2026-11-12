@@ -9447,8 +9447,8 @@ export type SubjectMarks = {
 	used: UsedRename[],
 	/**
 	 *  The runs of `DiffMarks::runs`, by their numbers, that hold a place of a name that is not local and whose every
-	 *  place is proven: by the index for such a name, by the scopes of the file for a local one. Quiet once their kind
-	 *  is; they came after the rows of the file, so a view passes them and still shows each of their lines
+	 *  place is proven: by the index for such a name, by the scopes of the file for a local one. Quiet; they came
+	 *  after the rows of the file, so a view passes them and still shows each of their lines
 	 */
 	confirmed: number[],
 };

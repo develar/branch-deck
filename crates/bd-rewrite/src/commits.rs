@@ -1,4 +1,5 @@
 use crate::block_patch::{PatchFile, read_patches};
+use crate::mark_stats::MarkStatsArgs;
 use bd_core::branch_view::read_grouping;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
@@ -60,6 +61,9 @@ pub struct CommitsArgs {
   /// With --symbol-stats: the symbols-only edges of each evidence to list for a human to label
   #[arg(long, hide = true, value_name = "N", default_value_t = 40, requires = "symbol_stats")]
   pub sample: usize,
+  /// --mark-stats (hidden) and its options: what the marks of the diffs find on each commit
+  #[command(flatten)]
+  pub marks: MarkStatsArgs,
 }
 
 /// What `brd commits` and `brd commits --brief` start with

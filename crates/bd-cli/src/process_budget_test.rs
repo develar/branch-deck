@@ -29,6 +29,7 @@ use bd_rewrite::commits::commits;
 // jscpd:ignore-end
 use bd_rewrite::fold_command::{FoldArgs, fold};
 use bd_rewrite::mark_reviewed_command::{MarkReviewedArgs, mark_reviewed};
+use bd_rewrite::mark_stats::mark_stats;
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, move_hunk};
 use bd_rewrite::review_plan_command::{ReviewPlanArgs, ReviewPlanOutput, review_plan};
 use bd_rewrite::reword_command::{RewordArgs, reword};
@@ -218,6 +219,46 @@ fn commits_with_the_prefix_of_the_config() {
       ("rev-parse", 2),
     ],
   );
+}
+
+/// `brd commits --mark-stats`: the commits ahead of the baseline as `brd commits` lists them, then each commit as a
+/// view reads it: the list of its files and one read of its blobs. Of a range, its two ends and one walk instead of
+/// the grouping; the range whole is one list and one read
+#[test]
+fn mark_stats_read_the_files_and_the_blobs_of_each_commit_once() {
+  // each form in a repository of its own: the object cache of the first would answer the lists of the next
+  let stats = |args: &[&str]| {
+    let repo = repo_with_branches();
+    let context = context_with_the_config_prefix(&repo);
+    let Command::Commits(args) = Cli::parse_from([&["brd", "commits", "--mark-stats"], args].concat()).command else {
+      unreachable!("brd commits parses as Command::Commits")
+    };
+    let output = mark_stats(&context, &args.marks).unwrap();
+    (context, output.subjects)
+  };
+  // the grouping of `brd commits`, and a `diff-tree` and a `cat-file` for each of the three commits
+  let (context, subjects) = stats(&[]);
+  assert_eq!(subjects, 3);
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 4),
+      ("config", 1),
+      ("diff-tree", 3),
+      ("for-each-ref", 1),
+      ("log", 1),
+      ("remote", 1),
+      ("rev-parse", 2),
+    ],
+  );
+  // a range: its two ends and one walk, no grouping
+  let (context, subjects) = stats(&["--range", "origin/master..HEAD"]);
+  assert_eq!(subjects, 3);
+  assert_processes(&context, &[("cat-file", 3), ("config", 1), ("diff-tree", 3), ("rev-list", 1), ("rev-parse", 3)]);
+  // the range whole: one list of its files, one read of their blobs
+  let (context, subjects) = stats(&["--range", "origin/master..HEAD", "--whole"]);
+  assert_eq!(subjects, 1);
+  assert_processes(&context, &[("cat-file", 1), ("config", 1), ("diff-tree", 1), ("rev-parse", 3)]);
 }
 
 /// `brd check --build` of two paths, which the tree of each branch is extracted with: one `archive` per branch, one

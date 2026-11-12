@@ -20,14 +20,16 @@
 //!   whose inner ranges ran out of their time (`line_level_only` within the size) has the runs of its blocks: the
 //!   same blocks have the same marks on every machine and under every load.
 //! - **Quiet** is decided for a kind in one place, `is_quiet`: a kind is switched on there once a sample of its runs
-//!   of real ranges was read and held no change of behaviour. Until then its runs are labels: `PairMarks::proven`
-//!   names those whose proof holds (`has_proof`), and `PairMarks::as_proven` gives the marks as they will be: what
-//!   that measurement reads, and what the tests of a proof ask.
+//!   of real ranges was read and held no change of behaviour (`brd commits --mark-stats`, `marks_measure`;
+//!   docs/design/diff-view.md, "Measured on real history"). The runs of a kind that is off are labels:
+//!   `PairMarks::proven` names those whose proof holds (`has_proof`), and `PairMarks::as_proven` gives the marks as
+//!   they would be: what such a measurement reads. Formatting and the renamed names are on; comments have no proof.
 //! - **Renames** (`marks_renames`) are read from the names the alignment of the tokens put at one place and proven by
 //!   the bindings of both texts; the blocks that hold a place of one are then read again with the two names read as
 //!   one, which adds the runs of the lines that hold a place and takes no run the first reading found: a line that
-//!   changed in its formatting alone is a line of formatting beside a rename too. A run of a renamed name is proven
-//!   only for a value of its body alone, and its kind is not switched on yet: every run of it is a label.
+//!   changed in its formatting alone is a line of formatting beside a rename too. A name bound inside a body is a
+//!   rename only where a line changed in it alone, and its runs are proven, and so quiet, only for a value of its
+//!   body alone with nothing but quiet lines changed between its places.
 //! - **What the pair leaves** (`PairMarks::undeclared`, `pending`, `proven_renames`; `leftovers`): the names that
 //!   changed at every place of the file, which declares none of them, with the runs their blocks would have were
 //!   they renames. The pass over the files of the subject (`marks_subject`) knows whether another file declares
@@ -86,8 +88,15 @@ impl FileDiffs {
   /// the `texts`. The tokens of a side are read once per blob and grammar and kept in memory: the next pair with the
   /// blob (the next commit of a branch, another whitespace policy) parses nothing
   pub(crate) fn marks(&self, diff: &TextDiff, policy: WhitespacePolicy, paths: [&str; 2], ids: [Option<&str>; 2], texts: [&str; 2]) -> PairMarks {
+    self.marks_told(diff, policy, paths, ids, texts, &|_| {})
+  }
+
+  /// `marks`, telling `asked` of each side whose tokens the marks read (`true` the new one): a file none is read of
+  /// answered the question before the tokens with no at every block
+  pub(crate) fn marks_told(&self, diff: &TextDiff, policy: WhitespacePolicy, paths: [&str; 2], ids: [Option<&str>; 2], texts: [&str; 2], asked: &dyn Fn(bool)) -> PairMarks {
     let grammar = pair_grammar(paths[0], paths[1]);
     marks_of(diff, texts[0], texts[1], grammar, policy, pair_indented(paths[0], paths[1]), |new_side| {
+      asked(new_side);
       let (side, grammar) = (usize::from(new_side), grammar?);
       match ids[side] {
         Some(id) => self
@@ -105,13 +114,15 @@ impl FileDiffs {
 /// label wherever it is marked, and one that is, is quiet where its lines are proven (`has_proof`).
 ///
 /// A kind is switched on by a measurement, never by its proof alone: a sample of its proven runs of real ranges of a
-/// large repository, read by a person, with no change of behaviour among them (`PairMarks::proven` names the runs).
-/// `Renamed` waits for it: the scopes its proof reads are read without types and without the other files
-/// (openspec/specs/commit/name-bindings/spec.md, Open Questions)
+/// large repository, read by a person, with no change of behaviour among them (`PairMarks::proven` names the runs,
+/// `brd commits --mark-stats --mark-sample` prints them). Measured (docs/design/diff-view.md, "Measured on real
+/// history"): 200 runs of formatting and 145 runs of a renamed local held none, the latter once a rename is proven
+/// only where nothing but quiet lines changed between its places (`marks_renames::Renames::prove`): before that
+/// rule, the lines of a variable that another one took the place of read as a rename
 pub const fn is_quiet(kind: RunKind) -> bool {
   match kind {
-    RunKind::Formatting => true,
-    RunKind::Renamed | RunKind::Comments => false,
+    RunKind::Formatting | RunKind::Renamed => true,
+    RunKind::Comments => false,
   }
 }
 
@@ -156,7 +167,8 @@ pub struct PairMarks {
   /// body alone
   pub proven_renames: Vec<u32>,
   /// The runs of `marks.runs`, by their numbers, that are proven and are labels all the same, since their kind is not
-  /// switched on (`is_quiet`): what the measurement that decides the kind reads a sample of
+  /// switched on (`is_quiet`): what the measurement that decides the kind reads a sample of. None while every kind
+  /// with a proof is on
   pub proven: Vec<u32>,
 }
 
@@ -288,8 +300,19 @@ pub(crate) fn runs_of(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, a
   if let Some([old_tokens, new_tokens]) = &tokens
     && !candidates.is_empty()
   {
-    let found = renames_of(old.grammar, [old.text, new.text], [old_tokens, new_tokens], &diff.blocks, &candidates);
-    found.cut(&diff.blocks, [old_tokens, new_tokens], &has_text(old, new), &mut work, &mut runs);
+    let mut found = renames_of(old.grammar, [old.text, new.text], [old_tokens, new_tokens], &diff.blocks, &candidates);
+    // a name bound inside a body none of whose lines changed in it alone is no rename: the blocks are read again
+    // without it, from their first reading and with the work it left
+    let (first, paid) = (runs.clone(), work);
+    loop {
+      found.cut(&diff.blocks, [old_tokens, new_tokens], &has_text(old, new), &mut work, &mut runs);
+      if !found.keep_the_named(&runs, old_tokens) {
+        break;
+      }
+      runs.clone_from(&first);
+      work = paid;
+    }
+    found.prove(&diff.blocks, &has_text(old, new), &mut runs);
     pair.pending = found.pending(&diff.blocks, [old_tokens, new_tokens], &has_text(old, new), &mut work);
     pair.proven_renames = (0u32..).zip(&found.found).filter(|(_, found)| found.proven).map(|(number, _)| number).collect();
     pair.renames = found.found.into_iter().map(|found| found.rename).collect();

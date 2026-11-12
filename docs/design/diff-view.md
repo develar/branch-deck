@@ -1,7 +1,7 @@
 # Diff View: Our Own Renderer on the Blocks of the Engine
 
 **Status:** Implemented  
-**Updated:** 2026-11-11  
+**Updated:** 2026-11-12  
 **Tags:** [ui, diff, highlighting, virtualization, performance]
 
 **What runs and what is planned.** The steps of the Migration run: the row model, the layout, the highlight worker,
@@ -118,8 +118,8 @@ rest gets a label and stays a stop.
 | a file without a grammar | no | no: its block of whitespace stays the pale stop it is; it has its moves |
 | moved lines (`moves`) | yes | never: where lines stand is behaviour. The lines are read where they stand now, and are nothing to read where they left |
 | lines moved between two files (`subject.movedOut`, `movedIn`) | yes, at both ends | never, and no line of them is hidden: both ends are read |
-| a renamed name (`renamed`, `renames`) | yes | not yet: a label until its measurement. Proven are the lines that changed in the name alone, for a value of its body alone, every name of which the scopes bind: a variable, a parameter that no call may name and no annotation or macro may read, in a text the scopes read whole. Never the declaration of a name that is not local, never a place that makes more of the name than its binding |
-| a renamed name that is not local, in the file that declares it and in the files that use it (`subject.declared`, `used`) | yes | not yet, and then only its uses, where the index of the repository lists every use of the declaration in both trees and each is a place of the rename (`subject.confirmed`). The declaration is always read |
+| a renamed name (`renamed`, `renames`) | yes | yes, where proven: the lines that changed in the name alone, for a value of its body alone, every name of which the scopes bind (a variable, a parameter that no call may name and no annotation or macro may read, in a text the scopes read whole), with nothing but quiet lines changed between its places. Never the declaration of a name that is not local, never a place that makes more of the name than its binding |
+| a renamed name that is not local, in the file that declares it and in the files that use it (`subject.declared`, `used`) | yes | only its uses, where the index of the repository lists every use of the declaration in both trees and each is a place of the rename (`subject.confirmed`). The declaration is always read |
 
 - **The marks change no block.** They are a field beside the blocks: `runs` (rows of lines inside one block that
   changed in one way alone), `moves` (the lines that moved within the file), `renames` (the names the change renamed
@@ -171,7 +171,8 @@ rest gets a label and stays a stop.
   sides): its parts that hold a place are runs of the kind `renamed`, those that hold none the runs of formatting
   they are without the rename, the blank lines between the two with the formatting. Forty lines indented inside a
   new `if`, one of them a use of the renamed local, are two quiet runs around one line of the rename, whether that
-  rename is proven, a label until its measurement or a label for good (a member, a parameter a call may name). The
+  rename is proven or a label (a member, a parameter a call may name, and this local too: the `if` stands between
+  its places). The
   second reading adds runs and takes none (`marks_renames::with_the_first`): the two readings align the tokens of a
   block each by itself, and where a line stands twice they may pair it with two lines (the names read as one pair a
   line of three places with itself, where the tokens as they are paired the call that changed places with it).
@@ -192,24 +193,40 @@ rest gets a label and stays a stop.
   a name whose spelling is a value where the code runs: the declaration of a Kotlin property with a delegate
   (`val integrationTest by registering(…)` registers a task of that name, `val total by map` reads the key
   "total"), a variable that is given a function or a class written without a name, which takes it
-  (`const total = () => 1`). The reader stops at that line, where the behaviour changes, and the uses of the name
-  stay proven (`Site` of the navigation, anything but `Plain`). A name that no body binds (a member, a declaration of the file) is every name of its
+  (`const total = () => 1`). The reader stops at that line, where the behaviour changes (`Site` of the navigation,
+  anything but `Plain`), and the other lines of the name are labels: a line that is read stands between its places
+  (below). A name that no body binds (a member, a declaration of the file) is every name of its
   spelling, tied by nothing but that: with its declaration in the file it is a rename whose uses are labels and
   whose declaration is in no run; the pass over the files of its subject asks the index of the repository (accio)
   whether every use is one of them. Declared in another file, it is no rename of this pair: nothing is marked, and
   the pair hands the name out with its places (`PairMarks::undeclared`) and the runs its blocks have were it a
   rename (`PairMarks::pending`), which that pass reads.
-- **Proven is not yet quiet.** A kind of run is passed only after its measurement (the rule at the top of this
-  section): a sample of its proven runs of real ranges, read by a person, with no change of behaviour among them.
-  The proof of a rename reads scopes without types and without the other files, and its first review found changes
-  it had passed (the delegate, the branch of `#if`, the two `#[cfg]`, the `eval`: each is a rule above now). So
-  `is_quiet` says no for `renamed`, every run of it is a label with its note, and every block of it a stop.
-  `has_proof` names the kinds that can be proven; the marks of a pair name the runs that are proven and labels all
-  the same (`PairMarks::proven`), and `PairMarks::as_proven` gives the marks with those runs quiet: what the
-  measurement samples, and what the tests of a proof read (they also ask that a view gets the same marks with the
-  kind as labels). Switching the kind on is one line of `is_quiet`; the uses of a name that is not local that the
-  index confirmed (`SubjectMarks::confirmed`, `marks_subject::as_confirmed`) are proven runs of the same kind and
-  become quiet with it, not before.
+- **A local is a rename only where a line says so** (`Renames::keep_the_named`). Two bindings with as many names
+  at the same places are one variable under two names only where a line changed in the name alone, a run of the
+  kind `renamed`. Where every line of them changed otherwise too (`val isRoot = …` read once, and `val
+  nameComponent = …` read once where it was), one variable took the place of another: nothing is marked, and the
+  blocks are read again without the pair, since a run may lean on a name read as one beside it. On real commits
+  half of the local renames the places alone made were such pairs ("Measured on real history" below).
+- **A rename is proven by the lines between its places** (`Renames::prove`). From the first place of a name to its
+  last, every line that changed must be quiet: in a run of formatting, in a run of proven renames, or blank. Then
+  the code that declares the name and reads it is the same code but for names that are the same variables, and the
+  new name is the old variable. A declaration that got another initializer or another type binds another value
+  under the new name: `val subscription = subscriptions[id]` became `val channel =
+  subscriptions[id]?.selectedChannel`, and `if (channel != null)`, the same tokens, asks another question. The
+  scopes give no extent of a declaration (its initializer may stand on later lines), so the rule is of every line
+  up to the last place: a use with another change, a statement added between them, an `if` they were indented
+  into, each makes the runs of the name labels. Two renames in the lines of each other (`val next = head`) are
+  proven together or not at all: the rule is asked until no rename leans on one that is none.
+- **Quiet by a measurement.** A kind of run is passed only once a sample of its proven runs of real ranges was read
+  by a person, with no change of behaviour among them (`is_quiet`, the one place; "Measured on real history"
+  below). Formatting and the renamed names are on. `has_proof` names the kinds that can be proven; of a kind that
+  is off the marks of a pair name the runs that are proven and labels all the same (`PairMarks::proven`), and
+  `PairMarks::as_proven` gives the marks with those runs quiet: what such a measurement samples, and what the tests
+  of a proof read. The uses of a name that is not local that the index confirmed (`SubjectMarks::confirmed`,
+  `marks_subject::as_confirmed`) are quiet runs of the same kind. The proof of a rename reads scopes without types
+  and without the other files; its reviews and its measurement each found a class of change it had passed (the
+  delegate, the branch of `#if`, the two `#[cfg]`, the `eval`, the variable in the place of another): each is a
+  rule above now.
 - **What a pair leaves** (`leftovers.rs`). A pair of blobs is what the caches keep, and it stands in many commits
   beside other files, so nothing of a subject may enter it. What the other files of a subject need of a pair is made
   where its texts are, in its worker, and kept beside its diff (in memory and in the `file_leftovers` store, under
@@ -328,15 +345,16 @@ rest gets a label and stays a stop.
 - **How a view reads a rename.** `renames` holds `{old, new, sites, local, declared, oldSites, newSites}`: place
   `i` is `[line, start, end]` of each text (UTF-16), in the order of the texts, `declared` the numbers of the places
   that declare the name: where the one note of the rename stands ("Renamed total → sum · 12 sites"). The runs of the
-  kind `renamed` say which lines changed in the name alone, and `quiet` which of them are passed: none while the
-  kind is off. A view draws the name at every place in a mark of its own, never as a change, names the rename once
+  kind `renamed` say which lines changed in the name alone, and `quiet` which of them are passed: those of a proven
+  rename, and none of a kind that is off. A view draws the name at every place in a mark of its own, never as a change, names the rename once
   and gives its runs no note of their own; what it shows once and what N and P pass it reads from `quiet` and
   `starts`, so the switch of the kind changes no code of the page ("The sites of a rename" under "The row model").
   A place in no run is on a line that is read as it is, its name in the mark all the same.
 - **Moves need no grammar.** The lines that one block deletes and another block adds are a move
   (`text_diff::moves::find_moves`, [Text Diff Engine](text-diff.md#moves)): the same lines by their text without the
   whitespace at their ends, with at most a quarter of edited lines between exact ones, from 24 characters of exact
-  lines, the longest first, each line in one move. Every pair of texts has them, read after its runs, whose lines no
+  lines that stand once among the changed lines of each side (a line that stands twice there pairs with either of
+  its likes), the longest first, each line in one move. Every pair of texts has them, read after its runs, whose lines no
   move takes. The whitespace at the ends of a line follows the policy of the diff: where every character counts, a
   line indented otherwise than its move, or with other whitespace after its text, is an edited line with that
   whitespace as a range. The review plan names a declaration that moved whole the same way, "Moved", and folds it
@@ -521,7 +539,9 @@ lines, not with their square, and the time with the work.
   content of the file, where the comparison itself gives up after 1 s. At 262,144 pairs the same file costs some
   50 to 90 ms on one core, whatever its lines are: the two lines of a pair of other keys are read for their
   likeness, and that read counts as work by their length. A file under the limit is not affected: 10,000 lines of
-  five keys with fifty lines that stand sixteen times each are one move at 173,000 pairs read.
+  five keys, a line of its own among every hundred, with fifty lines that stand sixteen times each are one move at
+  173,000 pairs read. The file that costs most names no move now (no line of it stands once), and is still read to
+  the limit: the search reads the pairs before it knows what they are.
 - **Every read of a pair is work, and a chain of many short moves is read once.** The longest row of a chain was
   found by reading what was left of the chain again after each move, and that read was no work: a chain whose
   moves are a line or two each (a list of YAML moved and indented again by other columns a level, where each
@@ -545,6 +565,105 @@ lines, not with their square, and the time with the work.
   with the narrowest intervals: 43 ms to the first content without a move and 46 ms with the moves, a difference
   inside its noise (± 1.5 ms); the other four runs differ from each other by more than the cases do. A first
   content waits for the moves of its own file alone: 5 µs for a file of 165 lines, 0.1 ms for one of 3,300.
+
+#### Measured on real history
+
+`brd commits --mark-stats --range <base>..<head>` (hidden; `crates/bd-rewrite/src/mark_stats.rs`,
+`FileDiffs::measure`) reads each commit of a range as a view of it reads it, through the stream of the app, and
+counts what the marks find; `--mark-sample <N>` prints N marks of each kind with the lines of both sides, `--whole`
+reads the range as one subject, `--no-marks` the same subjects without any mark, `--index` asks accio of the names
+that are not local. It was run on the monorepo of IntelliJ (read only, `--no-cache`): 6,316 commits (4,235 with a
+file of Kotlin, 1,043 of Java, 420 of C#), and 2,111 of them again after each rule below; and on the last 1,500
+commits of this repository (887 with Rust, 697 with TypeScript, 359 with TSX). Every file's marks were read once
+more from its texts and were the marks its view got (`differ`: 0).
+
+| | monorepo, 2,111 commits | Branch Deck, 1,500 commits |
+|---|---|---|
+| text files with a change; of a grammar; parsed for their marks | 22,304; 14,826; 8,391 (57 %) | 25,023; 17,528; 12,015 (69 %) |
+| blocks of changed lines | 92,910 | 104,278 |
+| stops of N and P | 90,981: 1,929 fewer (2.1 %) | 104,000: 278 fewer (0.3 %) |
+| runs of formatting, all quiet; their old lines, which Inline shows no more | 4,899; 15,061 of 223,555 (6.7 %) | 1,510; 5,995 of 253,998 (2.4 %) |
+| runs of comments (labels) | 2,024 | 8,649 |
+| runs of a renamed name; quiet | 704; 24 | 518; 45 |
+| renames of a local; proven | 185; 16 | 230; 26 |
+| names that are not local: declared in the file, used in it | 474, 227 | 451, 151 |
+| moves within a file; of one line; with an edited line | 1,056; 587; 60 | 2,073; 1,180; 92 |
+| moves between two files; their lines | 1,375; 11,104 | 2,139; 17,615 |
+
+So the quiet kinds take few stops away (a block is passed only when every line of it is quiet: C# lost 27 % of its
+stops to one reformatted tree, Kotlin and Java 0.9 % each), and what they take is real: the lines Inline shows once.
+Most of what the marks say is a label: a comment, a move, a name.
+
+**The audit: what was read, and what it changed.**
+
+- *Formatting*: 200 quiet runs read, 100 of the monorepo (Java 39, C# 36, Kotlin 24, TypeScript 1) and 100 of this
+  repository (Rust 55, TypeScript 20, TSX 19, others 6). 190 are the same lines at another indent, in languages
+  where the indent has no meaning; 10 are calls and lambdas wrapped or joined (`@Test` on the line of its `fun`, a
+  lambda body on lines of its own, a chain broken by rustfmt). None can change what the program does: the tokens
+  are the leaves of the same tree. The lines of a raw string that were indented with their code are no run, each
+  line of it a token of other bytes; the run ends at the line of its `"""`. Formatting stays quiet.
+- *A renamed local, as its first proof had it* (a value of its body alone, the same places on both sides): 100
+  proven runs read, and more than a third were no rename. A variable had taken the place of another, used where
+  the other was: `val subscription = subscriptions[id]` and `if (subscription != null)` had become `val channel =
+  subscriptions[id]?.selectedChannel` and `if (channel != null)`; `booth.use(project, sessionId, …)` had become
+  `booth.use(project, conn, …)`. The line is the same tokens with another value in them. Of 374 local renames on
+  2,111 commits, 189 had no line at all that changed in the name alone (`val isRoot = …` gone, `val nameComponent =
+  …` in its place): a label that was not true. Two rules came of it, each with a table test of the cases
+  (`a_local_none_of_whose_lines_changed_in_its_name_alone_is_no_rename`,
+  `a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_places`): a local is a rename only
+  where a line changed in it alone (185 are left), and it is proven only where nothing but quiet lines changed
+  between its places. A rule of the declaration alone (its line changed in the name alone) was tried first and kept
+  62 of 158 runs; five of its 46 renames were declarations of several lines whose later lines had changed (`val
+  scope = if (project != null) {` with other branches), which the lines between the places catch.
+- *A renamed local, as it is proven now*: every proven run of 6,316 commits of the monorepo, 100 (Kotlin 66, Java
+  20, C# 14), and of 1,500 commits of this repository, 45 (TypeScript 23, Rust 19, TSX 3), read: parameters,
+  locals, loop and lambda variables, a `catch (e …)` that became `catch (_ …)`, a named argument whose value was
+  renamed and whose name was not. None changes behaviour. The kind `renamed` is switched on.
+- *A name that is not local, confirmed by the index* (`--index`, 45 commits of the monorepo with such a name): of
+  643 names 279 were confirmed (43 %), 265 are another declaration, 49 change what another name means, 24 are used
+  outside the change, 26 were not all checked; the answer took 13 s at the median and 40 s at most, after the
+  diffs, as designed. 106 of the 149 confirmed runs read (classes, functions, constants and properties at their
+  imports and their uses): the lines changed in the name alone. They are quiet with their kind; the declaration is
+  read whatever the index says.
+- *Moves within a file*: 100 of one line, 40 with an edited line, 90 of the ones dropped below and 20 more with
+  their lines around them read. The lines are the lines that left in every one: a label is true by how it is
+  found. But of 1,712 moves, 641 (434 of the 1,021 of one line) held no line that stands once among the changed
+  lines of its file: the same statement of each test of a file that was wrapped into a block (`val ref =
+  getMQReferenceAtCaret()` three times, each "moved" to one of the three), the closing lines of each target of a
+  build file, the records of a report in JSON, 21 lines each. Which of the equal lines moved where, nothing says,
+  and no number of characters tells such a pair from a move (they hold up to 290). So a move counts the characters
+  of its exact lines that stand once on each side (`text_diff::moves`): 1,056 moves are left, every one told by a
+  line of its own, and the 24 characters stand: of the 95 moves under 32 characters the ones read are an argument
+  that changed places, an item of a list, a statement moved into a branch. The quarter of edited lines stands
+  too: the 40 read are functions that moved with an argument or a name changed, but for four that paired two
+  tests of one shape, which the lines that stand once now leave out.
+- *Moves between two files*: 100 read, and 37 of those under 64 characters. Nearly all stand between two files
+  that share a larger move (a file split, a class moved to a file of its own): the short ones are what an edit cut
+  off that move. The 48 characters and the two lines stand.
+
+**What the marks cost a real subject** (the Mac Studio, a release build, a load of 8 to 12 of its 20 cores, the
+median of seven reads without a store, `--whole`, with the marks and with `--no-marks`):
+
+| subject of the monorepo | first content: marks, none | end of the stream: marks, none |
+|---|---|---|
+| a commit of 1,667 files, 2,900 blocks | 330 ms, 325 ms | 438 ms, 432 ms |
+| a commit of 264 files, 470 blocks | 239 ms, 237 ms | 301 ms, 290 ms |
+| a commit of 239 files, 395 blocks | 235 ms, 232 ms | 265 ms, 258 ms |
+| a commit of 183 files, 3,193 blocks | 242 ms, 238 ms | 283 ms, 275 ms |
+| a range of 700 commits: 5,239 files, 20,303 blocks (the fastest read of seven: the load rose to 29 under the reads without marks) | 940 ms, 940 ms | 1,668 ms, 1,544 ms |
+
+The first content of a commit of the monorepo is its `diff-tree` (some 220 ms of a tree of 1.5 million files); the
+marks add 2 to 5 ms to it, inside the spread of the reads, and 6 to 11 ms (2 to 4 %) to the end of the stream of a
+commit, 124 ms (8 %) to that of 700 commits read as one subject. The first rows of a view wait for nothing more than they did, so the question before the tokens stays as it is and no
+parse moves to a later event. On 2,111 commits read one after another here, under load, a commit is at its first
+content after 170 ms at the median and at its end after 176 ms; a commit of this repository after 24 ms and 36 ms.
+
+The benchmark after the rules of this measurement (`marks_bench`, the Studio at a load of 16 to 22, against the
+tables above at a load of 4 to 21): the 60 renamed locals of a file cost 49 ms with the parses and 44 ms with the
+tokens in memory (46 and 39), the files at the limit of their names 54, 51 and 93 ms (55, 51 and 94), the moves of
+10,000 lines 0.32 ms with no line moved and 0.40 ms with 40 functions moved (0.26 and 0.33), the file a search
+costs most in 47 to 79 ms (51 to 94). The proof by the lines between the places and the count of the lines that
+stand once cost nothing a benchmark tells from the load of its machine.
 
 ### The row model
 
@@ -740,13 +859,10 @@ segments are as before.
     and every range it hides, so ⌥-click and `noteOfLine` (the reveal of a name in a hidden line) take it as any
     note. The rows of the lines a note hides or shows carry its key (`LinesPart.note`, `partsNoteOfRow`), so H
     takes the note for a line of it in view, wherever the note stands ("Keys" below).
-  - *Until the kind is switched on* every run of a renamed name is a label: its lines are lines of their block,
-    read and never shown once, with the name in its mark, and the note is plain words. The quiet form is tested in
-    a browser all the same, on the answers of the engine with the kind switched on: `switchRenamedOn` of
-    `tests/e2e/helpers/marks-helpers.ts` lets `get_file_diffs` run on the test server and rewrites its answer on
-    the way (the runs of a renamed local quiet, their blocks without a start, as `PairMarks::as_proven` answers),
-    which is a rewrite of the answer of the server and no page answer
-    ([E2E Testing](e2e-testing.md)). It goes with the switch; its tests stay.
+  - *A run of a renamed name that is a label* (a member, a parameter a call may name, a local with a line that
+    really changed between its places) shows its lines as lines of their block, read and never shown once, with the
+    name in its mark, and its note is plain words. The E2E tests of the quiet form read the local of the
+    `commit_marks` template, those of a label a change they build (`tally` of `renamed-names.spec.ts`).
 - **In a section of a review** the heading of a change is the first part of its block (no segment of its own). A run,
   an end of a move or the note of a rename that starts the block says its words in that row, after the heading, and
   opens from there.
@@ -1511,8 +1627,8 @@ of the test that reads it (`test_support::readings_unlike_the_compiler`) are jav
 tsc's; the Starlark fixture checks itself when run as Python. A new rule of scope starts as a line of such a file.
 The differences that are left need types, another file or the flow of the code;
 [Name Bindings](../../openspec/specs/commit/name-bindings/spec.md) lists them. The renames of a diff read these
-answers ([Marks](#marks)), and the quiet of a rename waits for its measurement on real ranges: `is_quiet` of the
-marks says no for the kind until then. A stored diff holds the renames those answers allowed, so the rules of the
+answers ([Marks](#marks)); the runs they prove are quiet since their measurement on real ranges ("Measured on
+real history"). A stored diff holds the renames those answers allowed, so the rules of the
 names have a version (`navigate::RULES_VERSION`, bumped with any rule that changes an answer) in the version the
 store keeps the diffs under (`file_diffs::service::model_version`): a scope that was fixed takes its renames with it.
 

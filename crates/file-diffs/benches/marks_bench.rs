@@ -12,8 +12,7 @@
 //! - `changed`: a name of a member changed, which may be a rename: both sides are parsed for their tokens and, since
 //!   the name stands where another stood, for their names; the file declares neither, so nothing is marked;
 //! - `renamed`: a local renamed at its four places, so both sides are parsed for their tokens and their names, and
-//!   the blocks are cut again: every changed block is a run of the rename (a label while its kind is off, so every
-//!   block is still read: the cost is the same);
+//!   the blocks are cut again: every changed block is a quiet run of the rename;
 //! - `indented`: every function indented again, a name changed in the first: 300 blocks, one of them with a line to
 //!   read beside its run.
 

@@ -1583,12 +1583,13 @@ fn the_marks_template_has_each_case_in_a_block_of_its_own() {
       // out, the comment, `isEmpty`, `describe` moved out, `reportTitle` moved out. `accounts` moved with the blank
       // line that was before it and is after it now; `describe` moved with the one after it, was indented and has an
       // edited line. The blocks the two left have no start. The three of the local `total`, which is `sum` now, are
-      // each a run of a renamed name: a label with its start, until the kind is switched on (`is_quiet`)
+      // each a run of a renamed name, quiet: nothing but the name changed between its places, and no block of them
+      // has a start
       "blocks [5..5/5..10, 6..7/11..14, 11..11/18..25, 13..14/27..28, 16..17/30..31, 19..20/33..34, 21..26/35..35, 27..28/36..37, 32..33/41..42, 45..52/54..54, 53..58/55..55] \
-       runs [6..7/11..14 formatting quiet, 13..14/27..28 renamed, 16..17/30..31 renamed, 19..20/33..34 renamed, 27..28/36..37 comments] \
+       runs [6..7/11..14 formatting quiet, 13..14/27..28 renamed quiet, 16..17/30..31 renamed quiet, 19..20/33..34 renamed quiet, 27..28/36..37 comments] \
        moves [22..26->5..9 blanks 1+0, 45..52->18..25 indent +2 edited 1] \
        renames [total->sum local declared [0] at 13:8 16:8 19:11 / 27:8 30:8 33:11] \
-       starts [0, 1, 5, 2, 1, 18, 3, 1, 27, 4, 1, 30, 5, 1, 33, 7, 1, 36, 8, 1, 41, 10, 0, 53] \
+       starts [0, 1, 5, 2, 1, 18, 7, 1, 36, 8, 1, 41, 10, 0, 53] \
        moved out [54..58->1:17]"
         .to_string(),
     ),

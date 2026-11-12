@@ -1,7 +1,7 @@
 # Text Diff Engine
 
 **Status:** Implemented (the engine of every diff and merge the app shows)
-**Updated:** 2026-11-11
+**Updated:** 2026-11-12
 **Tags:** [diff, comparison, intellij, port]
 
 ## Problem
@@ -206,7 +206,13 @@ changes no block and is never quiet: where lines stand is behaviour.
   and whose edited pairs are at most a quarter of its pairs that are not blank (`MAX_EDITED_LINES`; an exact pair
   counts 1, an edited one -3, and the longest row whose count is not negative is found in one pass), with the blank
   pairs beside it; then the same of what is left of the chain before it and after it. It counts when its exact lines
-  hold `MIN_MOVE_CHARS` (24) characters that are no whitespace: one long line is a move, a `}` and a `return` are not.
+  that stand once hold `MIN_MOVE_CHARS` (24) characters that are no whitespace: one long line is a move, a `}` and a
+  `return` are not.
+- **A line that stands once** has a key no other line a move may take has on its side, the old one and the new one
+  (`Finder::once`). Lines that stand twice pair with either of their likes: the same statement of three tests that
+  were wrapped into a block is found "moved" from each test to each, and no length tells such a row from a move.
+  On real commits 641 of 1,712 moves were such rows ([Diff View](diff-view.md#measured-on-real-history)). They
+  still belong to a move a line of its own tells: the function that moved takes its `}` with it.
 - **What is left of a row is read again**, and that is work. A move of at least half of its row leaves half of it
   at most, so such rows cost twice their pairs. A row of many short moves does not: a list of YAML whose items
   moved and were indented again by other columns a level, or a list of calls with an edited line in each, is one

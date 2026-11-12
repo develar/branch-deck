@@ -92,10 +92,9 @@ rules in one line each and links here.
   template before a view asks (`{ outside: true }`: a use the commit left alone). Marks that come after the rows of
   a file: `lateSubjectMarks(page, path)` makes the diff of that file say nothing of its subject, and
   `holdCommand(page, "get_rename_proofs")` holds the answer that brings its marks, until the test read the rows
-  before it. A quiet run of a renamed name, which
-  the engine gives as a label until its kind is switched on, is read on the answers of the server rewritten on the
-  way (`switchRenamedOn(page)` of `marks-helpers.ts`, before the diffs are asked for; the runs the index proved are
-  quiet then too). The painter adds a row to the page as a
+  before it. A quiet run of a renamed name is the local of the `commit_marks` template (`total` → `sum`); a run of a
+  renamed name that is a label is a change the test builds, with a line that really changed between the places of
+  the name (`commitTally` of `renamed-names.spec.ts`). The painter adds a row to the page as a
   scroll brings it near, so the order of the page is the order of the paints: read the code of rows in the order of
   their files by `codeOf(rows)` of `marks-helpers.ts` (`data-file`, `data-row`), never by the order of a locator, and
   find one row among several by its text (`rows.filter({ hasText })`), never by `nth`. A row is found by what it

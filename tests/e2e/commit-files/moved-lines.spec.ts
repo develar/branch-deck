@@ -825,7 +825,7 @@ async function expectMovedColour(page: Page, theme: "light" | "dark"): Promise<v
         '[data-testid=diff-side][data-cell="moved"]:not([data-tint])',
         '[data-testid=diff-side][data-cell="moved"][data-tint="pale"]',
         "[data-testid=diff-row][data-tone=remark][data-move]",
-        '[data-testid=diff-side][data-cell="inserted"]',
+        '[data-testid=diff-side][data-cell="once"]',
         '[data-testid=diff-side][data-cell="context"]',
         "[data-testid=diff-row][data-tone=remark][data-quiet]",
       ].map(railed),

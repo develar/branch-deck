@@ -429,7 +429,7 @@ fn proofs(events: &[FileDiffEvent]) -> (Proofs, Proofs) {
 /// The diffs of a subject ask no index: with one there to be asked they say so (`asked`) and end. The answer is
 /// asked for after them (`rename_proofs`), every declaration of the subject in one call between its two trees, with
 /// the pairs the caches have: no blob is read for it. It is the marks of the files it says something of; a proven
-/// rename names its runs, which stay labels while the kind is not switched on. Memory keeps an answer by its trees
+/// rename names its runs, which are quiet with the answer and labels before it. Memory keeps an answer by its trees
 /// and its questions, so a subject shown again asks no process
 #[test]
 fn the_index_is_asked_after_the_diffs_of_a_subject_in_one_call_and_its_answer_is_kept() {
@@ -490,19 +490,20 @@ fn the_index_is_asked_after_the_diffs_of_a_subject_in_one_call_and_its_answer_is
   assert_eq!(proof_of(&answer), [("src/Report.kt".to_string(), confirmed), ("src/Store.kt".to_string(), confirmed)]);
   let report = &answer[0].marks;
   assert_eq!(report.subject.as_ref().map(|subject| subject.confirmed.clone()), Some(vec![0, 1]));
-  assert!(
-    report.runs.iter().all(|run| run.kind == RunKind::Renamed && !run.quiet),
-    "labels until the kind is switched on"
-  );
-  assert_eq!(report.starts, report_pair_marks(&cold).starts, "the answer takes no stop while the kind is off");
-  // but for what the index said they are the marks the diffs gave
+  // the calls the index confirmed are passed: they were labels with a start each while it was to be asked
   let given = marks_events(&cold, "src/Report.kt").pop().unwrap().1;
+  assert!(given.runs.iter().all(|run| run.kind == RunKind::Renamed && !run.quiet), "{:?}", given.runs);
+  assert!(report.runs.iter().all(|run| run.kind == RunKind::Renamed && run.quiet), "{:?}", report.runs);
+  assert_eq!((given.starts.len(), report.starts.len()), (report_pair_marks(&cold).starts.len(), given.starts.len() - 6));
+  // but for what the index said they are the marks the diffs gave
   let without_proofs = |marks: &DiffMarks| {
     let mut marks = marks.clone();
     if let Some(subject) = marks.subject.as_mut() {
       subject.confirmed.clear();
       subject.used.iter_mut().for_each(|used| used.proof = asked);
     }
+    marks.runs.iter_mut().for_each(|run| run.quiet = false);
+    marks.starts.clone_from(&given.starts);
     marks
   };
   assert_eq!(without_proofs(report), given);
@@ -1198,13 +1199,13 @@ fn the_renames_of_a_text_come_with_its_content() {
     new_start: line,
     new_end: line + 1,
     kind: RunKind::Renamed,
-    quiet: false,
+    quiet: true,
   };
-  // the three lines of the local are runs of its rename, labels until the kind is switched on (`is_quiet`): each
-  // block is read
+  // the three lines of the local are runs of its rename, quiet: nothing between its places changed but its name,
+  // and no block of them is read
   let expected = DiffMarks {
     runs: vec![run(1), run(3), run(5)],
-    starts: vec![0, 1, 1, 1, 1, 3, 2, 1, 5],
+    starts: Vec::new(),
     renames: vec![Rename {
       old: "total".to_string(),
       new: "sum".to_string(),

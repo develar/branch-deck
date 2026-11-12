@@ -1,6 +1,6 @@
 ---
 name: Quiet Changes
-description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, proven by the bindings of both sides for a value of its body alone and labels until a measurement switches their kind on, the lines that moved within a file, exact, indented or with a few edited lines, never quiet, what the files of a subject say of each other (the lines that moved between two files, labels at both ends, the names one file declares and another uses, and what the index of the repository proves of them), the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, a rename named once at its declaration with its name in a mark of its own at every site, a move between two files with a note at each end that names the other file and shows it, a name another file declares named once where it is used with the file that declares it, what the index proved of a rename after the words of its note, the row at the top of a view kept as marks come late, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour, the colour of a move and the mark of a renamed name.
+description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, a local one only where a line changed in it alone, proven by the bindings of both sides for a value of its body alone with nothing but quiet lines changed between its places, and quiet then, the lines that moved within a file, exact, indented or with a few edited lines, told by a line that stands once and never quiet, what the files of a subject say of each other (the lines that moved between two files, labels at both ends, the names one file declares and another uses, and what the index of the repository proves of them), the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, the measurement on real commits that switches a kind on (`brd commits --mark-stats`), and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, a rename named once at its declaration with its name in a mark of its own at every site, a move between two files with a note at each end that names the other file and shows it, a name another file declares named once where it is used with the file that declares it, what the index proved of a rename after the words of its note, the row at the top of a view kept as marks come late, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour, the colour of a move and the mark of a renamed name.
 style: plain-1
 targets:
   - crates/text-diff/src/model.rs
@@ -12,6 +12,8 @@ targets:
   - crates/file-diffs/src/marks_runs.rs
   - crates/file-diffs/src/marks_renames.rs
   - crates/file-diffs/src/marks_subject.rs
+  - crates/file-diffs/src/marks_measure.rs
+  - crates/bd-rewrite/src/mark_stats.rs
   - crates/file-diffs/src/leftovers.rs
   - crates/file-diffs/src/accio.rs
   - crates/object-cache/src/file_diff.rs
@@ -42,7 +44,7 @@ targets:
 # Quiet Changes
 
 Status: Implemented
-Date: 2026-11-11
+Date: 2026-11-12
 
 ## Purpose
 
@@ -50,17 +52,17 @@ A reviewer reads every changed block of a diff, also the one that only wrapped a
 forty lines inside a new `if`. Such lines can be passed, but only when they provably are no change of the program: a
 reviewer who passes a quiet block that hid a change has reviewed nothing. This spec is what the diff says of its own
 blocks, decided in Rust for every view: which lines changed in their formatting alone (quiet), which in their
-comments alone (a label), which names the change renamed and which lines changed in such a name alone (a label;
-proven for a value of its body alone, which a reader will pass once a measurement of real ranges switched the kind
-on), which lines moved within the file (a label: where lines stand is behaviour), what the files of a subject say
+comments alone (a label), which names the change renamed and which lines changed in such a name alone (quiet for
+a value of its body alone where nothing but quiet lines changed between its places, a label else), which lines moved
+within the file (a label: where lines stand is behaviour), what the files of a subject say
 of each other (the group Subject: the lines that moved from one file to another and the names one file declares and
 another uses, labels, and what the index of the repository proves of such a name), and where the reading of each
 block starts; and what a view draws of it (the group Views): a note before the lines of each run, a quiet run played
 down, the lines of a move in a colour of their own with a note at each end that shows the other, the stops of N and P
 and the count of what is left to read. The page words what Rust decided and decides nothing. A rename is named once
 in the rows of a file ("Renamed total → sum · 12 sites" before its declaration) and its name is drawn in a mark of
-its own at every site, never as a change; a run of a renamed name is read as any label until its kind is switched
-on, and shown once in Inline from then, with no change of the page. Of the marks of a subject a view draws a move
+its own at every site, never as a change; a quiet run of a renamed name is shown once in Inline, as one of
+formatting is, and one that is a label is read as any label. Of the marks of a subject a view draws a move
 between two files as a note at each end that names the other file and its line ("Moved to Report.kt:18", a button
 that shows it where a view shows that file) and the lines in the colour of a move, every one in every layout; a name
 another file declares as a rename of the file that uses it, named once with that file ("Renamed … · declared in
@@ -75,8 +77,8 @@ and tints, and the row at the top of the view stays where it is
   ([Equal by Tokens](../equal-by-tokens/spec.md)), for a renamed name once its two spellings are read as one, which
   the bindings of both texts allow only for a value of its body alone ([Name Bindings](../name-bindings/spec.md)).
   And only of a kind a measurement has switched on: a sample of its proven runs of real ranges, read by a person,
-  with no change of behaviour among them. The runs of a renamed name wait for theirs as labels. Everything else is a
-  label or nothing, and stays a stop.
+  with no change of behaviour among them (the group Measurement). Formatting and the renamed names are on.
+  Everything else is a label or nothing, and stays a stop.
 - One source of where a reader stops, `starts`, for the navigation of changes and the count of what is left to read.
 - The marks change no block: the scans, the patches and the review plan read the blocks they read before.
 - The same marks of the same blocks on every machine and under every load: limits by work, never by time.
@@ -110,16 +112,19 @@ and tints, and the row at the top of the view stays where it is
   (`formatting`, `comments`, `renamed`).
 - **A rename** is one binding of each text with the same places, under two names: a declaration inside a body with
   every name bound to it (`local`), else every name of a spelling that no body binds. **A place** of it is a name
-  of the binding in each text; a place whose line changed in nothing else is in a run of the kind `renamed`.
+  of the binding in each text; a place whose line changed in nothing else is in a run of the kind `renamed`. A
+  name bound inside a body is a rename only where such a line is: else one variable took the place of another.
 - **Quiet** is a run that provably changes no behaviour: what the navigation of changes passes and the Inline view
   shows by its new lines alone. Whether a kind is quiet is decided in one function (`is_quiet`); a run that is not
   quiet is a label. **Proven** is a run whose lines are shown to be the same program (`has_proof`: every run of
-  formatting, a run of a renamed name whose places are values of their bodies alone); a proven run is quiet once its
-  kind is switched on; until then the pair names it (`PairMarks::proven`), and `PairMarks::as_proven` gives the
-  marks as they are then.
+  formatting; a run of a renamed name whose places are of values of their bodies alone, with nothing but quiet lines
+  changed from the first place of each to its last); a proven run is quiet when its kind is switched on, as both
+  kinds are; of a kind that is off the pair names it (`PairMarks::proven`), and `PairMarks::as_proven` gives the
+  marks as they would be.
 - **A move** is a row of lines one block deletes and another block adds: the same lines by their text without the
   whitespace at their ends, with at most a quarter of edited lines between exact ones, and the blank lines that left
-  with them counted beside them. Never quiet: the lines are read where they stand now, and are nothing to read where
+  with them counted beside them; told by its exact lines that stand once among the changed lines of each side: a
+  line that stands twice there says of no row that it is the one that moved. Never quiet: the lines are read where they stand now, and are nothing to read where
   they left. Under the policy that counts every character, whitespace at an end of a line that changed otherwise
   than the move says is a range of an edited line.
 - **A subject** is what a view shows the diffs of: a commit, a range, the working tree. **What a pair leaves** is
@@ -288,13 +293,13 @@ run, where the reader stops.
 
 A rename MUST be one binding of each text with the same places: as many names on both sides, name `i` of the old text
 in the block of name `i` of the new one and nowhere the alignment of the tokens put another name, the declarations at
-the same places. A name bound inside a body is `local`; any other is every name of its spelling that no body binds.
+the same places. A name bound inside a body is `local`, and a rename only where a line changed in it alone; any other is every name of its spelling that no body binds.
 A rename MUST name its two names, its places on both sides and which of them declare it.
 
 #### Scenario: A local in each grammar
 - **WHEN** a local of a function is renamed at its five places, in Kotlin, a Kotlin script, Java, C#, Starlark, Rust, TypeScript, TSX and JavaScript
 - **THEN** the diff has one rename, `local`, of five places, declared at its first
-- **AND** every changed line is in a run of the kind `renamed` that is proven: with the kind switched on, no block has a start
+- **AND** every changed line is in a run of the kind `renamed` that is proven and quiet: no block has a start
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_local_renamed_at_every_place_is_proven_in_each_grammar`)
 
 #### Scenario: The places
@@ -309,13 +314,19 @@ A rename MUST name its two names, its places on both sides and which of them dec
 
 #### Scenario: With the content
 - **WHEN** the diffs of a commit that renames a local stream, and are read again from memory and from the store of another app
-- **THEN** the content of the file has the rename and its three runs, labels with a start each, before the event of its scopes, the same at each read
+- **THEN** the content of the file has the rename and its three runs, quiet, and no start, before the event of its scopes, the same at each read
   [@test] crates/file-diffs/src/service_test.rs (`the_renames_of_a_text_come_with_its_content`)
 
 #### Scenario: The template of the marks
 - **WHEN** the diffs of the `commit_marks` template are read
-- **THEN** `Ledger.kt` has the rename of its local `total` with three places, each a run that is a label with its start, and `Store.kt` the rename of `openStore` with its declaration alone, which is read
+- **THEN** `Ledger.kt` has the rename of its local `total` with three places, each a quiet run whose block has no start, and `Store.kt` the rename of `openStore` with its declaration alone, which is read
   [@test] crates/file-diffs/src/marks_test.rs (`the_marks_template_has_each_case_in_a_block_of_its_own`)
+
+#### Scenario: One variable in the place of another
+- **WHEN** a local is gone and another stands at each of its places, every line of them changed otherwise too (`val isRoot = …` read once, `val nameComponent = …` read once where it was), in Kotlin, Java, TypeScript and Rust
+- **THEN** the diff has no rename and no run of a renamed name, and every block its start
+- **AND** a call wrapped beside those lines is the quiet run of formatting it is without them
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_local_none_of_whose_lines_changed_in_its_name_alone_is_no_rename`)
 
 ### Requirement: Renames: A use left behind, a name taken and two names swapped are no rename
 
@@ -343,7 +354,7 @@ read.
 
 #### Scenario: A line with another change
 - **WHEN** a local is renamed at its five places and the line of one of them changes in an operator too, in each grammar
-- **THEN** the rename has its five places, the line of the other change is in no run and starts the reading of its block, and the other lines are proven runs
+- **THEN** the rename has its five places, the line of the other change is in no run, and the other lines are runs that are labels, that line standing between the places of the name: every block is read from its first line
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_place_on_a_line_with_another_change_is_read_in_each_grammar`)
 
 #### Scenario: Wrapped lines
@@ -353,7 +364,7 @@ read.
 
 #### Scenario: A comment that changed
 - **WHEN** the comment at the end of the line of a place changes with the name
-- **THEN** the line is in no run and is read; a comment on a line of its own is a run of comments beside the run of the rename, also beside such a line
+- **THEN** the line is in no run and is read, and where it declares the name the lines that read it are labels; a comment on a line of its own is a run of comments beside the run of the rename, also beside such a line
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_comment_that_changed_beside_a_renamed_name_is_read`)
 
 ### Requirement: Renames: A run of a renamed name takes no line of formatting
@@ -365,14 +376,15 @@ that shares a line with it without holding it, or crosses it, is none.
 
 #### Scenario: Lines of formatting beside the name
 - **WHEN** a call is wrapped between or before the lines of a renamed local, two calls are wrapped each before a line of it, or twelve statements are indented inside a new `if`, one of them a use of the local
-- **THEN** the wrapped calls and the indented lines are quiet runs of formatting, each row of lines of the name between them is a run of the kind `renamed`, and the reading of the last block starts at the `if`
+- **THEN** the wrapped calls and the indented lines are quiet runs of formatting, and each row of lines of the name between them is a run of the kind `renamed`, quiet beside the wrapped calls
+- **AND** beside the new `if`, a line that is read between the places of the name, the lines of the name are labels and the reading of the block starts at the first of them
 - **AND** a blank line put before or after the wrapped call is in its run of formatting
 - **AND** beside a rename that is a label for good (the use of a member, a parameter a call may name, a local of a C# file with an `#if`, a local of a text with a syntax error) the wrapped call is a quiet run of formatting too, and the reading of the block starts at the line of the name
   [@test] crates/file-diffs/src/marks_renames_test.rs (`lines_of_formatting_beside_a_renamed_name_are_a_run_of_their_own`)
 
 #### Scenario: The two readings pair the lines otherwise
 - **WHEN** a line with three places of a renamed local changes places with a call that is wrapped: the tokens of the texts pair the call, and with the names read as one the line of the places pairs with itself
-- **THEN** the wrapped call is the quiet run of formatting the first reading found, and the line of the places is in no run and is read
+- **THEN** the wrapped call is the quiet run of formatting the first reading found, and the line of the places is in no run and is read, so the two other lines of the name are labels
 - **AND** of the runs of two readings, a run of the second that holds a run of the first in its kind stays with it, and one that shares a line with a run of the first it does not hold, or crosses it, is none
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_run_of_the_first_reading_stays_where_the_second_aligns_the_lines_otherwise`)
 
@@ -383,10 +395,10 @@ that shares a line with it without holding it, or crosses it, is none.
 
 ### Requirement: Renames: A run of a renamed name is quiet only for a value of its body alone
 
-A run of the kind `renamed` MUST be proven, and so quiet once its kind is, only when every place in it is of a name
-bound inside a body that is a value of that body alone on both sides, every name of which the scopes bind: a
-variable, a parameter no call may name and no annotation or attribute macro may read, the variable of a loop, a
-`catch` or a lambda, in a text the scopes read whole. Any other rename MUST have runs that are labels.
+A run of the kind `renamed` MUST be proven, and so quiet, only when every place in it is of a name bound inside a
+body that is a value of that body alone on both sides, every name of which the scopes bind, and when from the first
+place of that name to its last every line that changed is quiet: in a run of formatting, in a run of proven renames,
+or blank. Any other rename MUST have runs that are labels.
 
 #### Scenario: A local other code may name
 - **WHEN** a parameter of a named function of Kotlin, C# or Starlark, a Java parameter under an annotation a framework may read, a Rust parameter under an attribute macro, or a function declared in a body is renamed
@@ -406,19 +418,24 @@ variable, a parameter no call may name and no annotation or attribute macro may 
 - **AND** the marks are the same with and without the question before the tokens
   [@test] crates/file-diffs/src/marks_test.rs (`the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
 
-### Requirement: Renames: The runs of a renamed name are labels until their kind is switched on
+#### Scenario: The lines between the places
+- **WHEN** the declaration of a renamed local got another initializer or another type, on its line or on a later line of it, a use of it stands on a line with another change, or a local it is given to is renamed with it, in Kotlin, Java, TypeScript and Rust
+- **THEN** the lines that changed in the name alone are labels, each read: the name may hold another value there
+- **AND** a line that changed after the last place of the name, and a blank line put between its places, leave its runs quiet; two locals renamed in the lines of each other are proven together, or labels together
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_rename_of_a_local_is_proven_where_only_quiet_lines_changed_between_its_places`)
 
-The kind `renamed` MUST NOT be quiet before a measurement of real ranges has read a sample of its proven runs and
-found no change of behaviour among them: until `is_quiet` switches it on, every run of it MUST be a label and every
-block of it a stop. The pair MUST name the proven runs that are labels so (`PairMarks::proven`), and the marks of
-a view MUST be the marks as they are proven (`PairMarks::as_proven`) but for the quiet of those runs and the starts
-that follow.
+### Requirement: Renames: The kind of a renamed name is quiet, switched on by its measurement
+
+A kind of run MUST be quiet only once a measurement of real ranges has read a sample of its proven runs and found no
+change of behaviour among them (`is_quiet`): `formatting` and `renamed` are. Of a kind that is off every run MUST be
+a label, and the pair MUST name its proven runs (`PairMarks::proven`): the marks of a view are the marks as proven
+(`PairMarks::as_proven`) but for the quiet of those runs and the starts that follow.
 
 #### Scenario: A renamed local as a view gets it
 - **WHEN** a local renamed at its five places is read as a view reads it, in each grammar
-- **THEN** the diff has the rename and its runs, none of them quiet and each named as proven, and every block its start at its first line
-- **AND** as proven the same runs are quiet, and no block has a start
-  [@test] crates/file-diffs/src/marks_renames_test.rs (`the_runs_of_a_renamed_local_are_labels_until_their_kind_is_switched_on`)
+- **THEN** the diff has the rename and its runs, quiet, and no block has a start
+- **AND** the pair names no run as proven and a label: the marks as proven are the marks of the view
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`the_runs_of_a_renamed_local_are_quiet_since_their_kind_is_switched_on`)
 
 #### Scenario: Every diff of the tests
 - **WHEN** the files of the corpus are edited at random, or have a name renamed, and each diff is read as proven and as a view reads it
@@ -430,16 +447,16 @@ that follow.
 A place where the name is more than the name of its binding MUST be a place of the rename and in no run: a shorthand
 property, a pattern that takes a value apart, a name only the types or what runs tell apart, a name whose spelling is
 a value where the code runs (`nameof`, a delegate, the name a function takes), a name among the tokens of a macro or
-captured by a format string. The other places of the rename keep their runs.
+captured by a format string. The other places of the rename keep their runs, as labels: a line that is read stands between them.
 
 #### Scenario: Such places
 - **WHEN** a local declared by a destructuring, a record pattern, an array pattern or a tuple pattern, read by a shorthand property of TypeScript, Rust or C#, passed to a macro, captured by a format string, called as a value or spelled by `nameof` is renamed
-- **THEN** the line of that place is in no run and is read, and the lines of its other places are proven runs
+- **THEN** the line of that place is in no run and is read, and the lines of its other places are runs that are labels
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
 
 #### Scenario: A name that is a value where the code runs
 - **WHEN** a Kotlin local declared with a delegate is renamed (`val total by map`, `val integrationTest by registering(…)` of a build script, `by lazy` in an `init`), or a local of TypeScript or JavaScript that is given a function or a class written without a name (`const total = () => 1`, `const Total = class {}`)
-- **THEN** the line of its declaration is in no run and is read: the delegate reads another key, the task is registered under another name, the function has another `name`; the lines of its uses are proven runs
+- **THEN** the line of its declaration is in no run and is read: the delegate reads another key, the task is registered under another name, the function has another `name`; the lines of its uses are runs that are labels
 - **AND** a use of a JavaScript local inside the body of a `with` is in no run and is read: there the name may be a property of the object
   [@test] crates/file-diffs/src/marks_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
 
@@ -466,11 +483,11 @@ of its subject, with the runs its blocks have were it a rename.
 
 ### Requirement: Moves: Lines deleted in one block and added in another are a move
 
-Rows of lines that one block of a diff deletes and another block adds MUST be a move (`moves`), found from the lines
-of the two texts alone: the same lines by their key, the text of a line without the spaces and tabs at its ends, the
-whitespace inside it kept; a blank line pairs with any blank line. A move MUST count only when its exact lines hold
-24 characters that are no whitespace, and its two ends MUST lie in two blocks. The empty last line of a text MUST be
-no line of a move.
+Rows of lines that one block of a diff deletes and another adds MUST be a move (`moves`), found from the lines
+alone: the same lines by their key, the text of a line without the spaces and tabs at its ends; a blank line pairs
+with any blank one. A move MUST count only when its exact lines that stand once on each side, among the lines a move
+may take, hold 24 characters that are no whitespace, and its ends MUST lie in two blocks. The empty last line of a
+text MUST be no line of a move.
 
 #### Scenario: A function at another place
 - **WHEN** a function stands below another function now, with the blank line after it
@@ -527,6 +544,13 @@ no line of a move.
 - **AND** each range of an edited line is a text that is another on the other side, of the kind its two sides say, with the same text between the ranges: none is empty on both sides
 - **AND** where every character counts, no whitespace at an end of a line changed without a range, but by the indent of the move
   [@test] crates/text-diff/src/moves_test.rs (`the_moves_of_any_texts_are_moves`, `the_moves_of_moved_lines_are_moves`)
+
+#### Scenario: Lines that stand at two places
+- **WHEN** deleted lines stand at two places of the new text, or lines of two old places at one
+- **THEN** the diff has no move: nothing says which place took them, or which of the two left
+- **AND** a place with all the lines takes them where the other holds only lines that stand elsewhere too, and so does the place that holds a line as it was where the other holds it edited
+- **AND** of the exact lines of a move only those that stand once on each side count: a short line of its own among lines that stand twice is no move, a long one is
+  [@test] crates/text-diff/src/moves_test.rs (`lines_that_stand_at_two_places_are_no_move_and_the_place_with_a_line_of_its_own_takes_them`)
 
 ### Requirement: Moves: A move says the columns its lines were indented by
 
@@ -588,12 +612,6 @@ A line of a side MUST be in one move at most. Of the moves the lines allow, the 
 one with fewer edited lines, then the first by its new and its old lines; what is left of a move that shares lines
 with a taken one is asked again. The moves MUST be a function of the two texts, the blocks, the runs, the whitespace
 policy of the diff and whether the indentation of the file has a meaning, in the order of their new lines.
-
-#### Scenario: Two places
-- **WHEN** deleted lines stand at two places of the new text, or lines of two old places at one
-- **THEN** the first place takes them, and the other lines are added or deleted lines
-- **AND** a place with all the lines is taken before one with a part of them, and one without an edited line before one with it
-  [@test] crates/text-diff/src/moves_test.rs (`of_two_places_the_longest_move_is_taken_then_the_first`)
 
 #### Scenario: What is left of a longer move
 - **WHEN** three functions leave one block, the first two for one place and the last two for another
@@ -777,7 +795,8 @@ files before it takes no part, a line that stands at more than 16 places starts 
 A name that changed at every place of a file that declares none of them MUST be a rename of that file once another
 file of the subject declares a name that is not local and renamed it so (`subject.used`). The lines that changed in
 such a name alone MUST be runs of the kind `renamed`, labels, beside the runs of the pair; a line that leans on a
-name no file declares is in none. The pass MUST add labels alone: the quiet runs and the starts stay the pair's.
+name no file declares, or stands in a quiet run of the pair, is in none. The pass MUST add labels alone: the quiet
+runs and the starts stay the pair's.
 
 #### Scenario: The calls of a renamed function
 - **WHEN** a store renames its function and a report calls it at two places
@@ -801,6 +820,12 @@ name no file declares is in none. The pass MUST add labels alone: the quiet runs
 - **AND** the quiet runs, the starts, the moves and the renames of the file are those of its pair, every run of the pair lies in a run of its kind, and every run the subject added is of the kind `renamed` and no quiet one
 - **AND** a line of the renamed name at the end of its block is a run only when the name after the block is one a file of the subject renamed too
   [@test] crates/file-diffs/src/marks_subject_test.rs (`the_subject_adds_labels_alone_never_a_quiet_run_or_a_stop`)
+
+#### Scenario: A quiet run of the pair
+- **WHEN** a file calls a function another file renamed on the line before the two lines of a renamed local, which are a quiet run of its pair
+- **THEN** the run the three lines are with the name of the call read as one is none: the two lines stay the quiet run they are, and the line of the call is read, the first of its block
+- **AND** the file names the rename of the call with its place
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_run_the_subject_adds_takes_no_line_of_a_quiet_run_of_the_pair`)
 
 ### Requirement: Subject: The file that declares a renamed name says how far the rename reaches
 
@@ -880,8 +905,8 @@ proven MUST be named (`subject.confirmed`).
 
 #### Scenario: Every use is a place of the rename
 - **WHEN** the index lists the declaration and the two calls of the report as the uses of the function in both trees, complete and without a conflict
-- **THEN** the name of the report and the declaration of the store are `confirmed`, the two runs of the report are named as confirmed and stay labels while the kind `renamed` is off, and every block is a stop
-- **AND** with the kind switched on the runs are quiet and the report has no start left, and the block of the declaration keeps its start
+- **THEN** the name of the report and the declaration of the store are `confirmed`, the two runs of the report are named as confirmed and are quiet, the report has no start left, and the block of the declaration keeps its start
+- **AND** while the index is asked, and without an answer, the same runs are labels and every block is a stop
   [@test] crates/file-diffs/src/marks_subject_test.rs (`a_rename_every_use_of_which_the_index_lists_is_confirmed_and_its_declaration_stays_a_stop`)
 
 #### Scenario: A use on a line that is read anyway
@@ -1055,18 +1080,18 @@ pair of other keys is apart.
 - **WHEN** 10,000 lines of eight keys move
 - **THEN** no line starts a move and the search reads no pair of lines
 - **AND** with a line of its own among every hundred, the lines are one move, each pair read once
-- **AND** 16 lines of one key are a move, 17 are none
+- **AND** of 16 lines of one key the pairs are read, of 17 none; neither is a move, no line of them standing once
   [@test] crates/text-diff/src/moves_test.rs (`a_key_that_many_lines_have_starts_no_chain_and_is_a_line_of_one`)
 
 #### Scenario: The work of a search
-- **WHEN** 10,000 lines of five keys move, among them fifty lines that each stand sixteen times
+- **WHEN** 10,000 lines of five keys with a line of its own among every hundred move, among them fifty lines that each stand sixteen times
 - **THEN** the lines are one move, found with fewer than twenty pairs of lines read a line, within the limit, the same when asked again
 - **AND** a search that reaches its limit ends with the moves found until then, and so the choice among them
   [@test] crates/text-diff/src/moves_test.rs (`the_work_of_a_search_grows_with_its_lines_and_ends_at_its_limit`)
 
 #### Scenario: The file a search costs most in
 - **WHEN** every line of a file stands sixteen times on each side and no two lines follow each other on both, the lines nothing alike or alike but for a number
-- **THEN** the search ends at its limit of pairs read (a pair of two lines read for their likeness counts by their length too), with moves that are moves, the same when asked again
+- **THEN** the search ends at its limit of pairs read (a pair of two lines read for their likeness counts by their length too), the same when asked again, and finds no move: no line of such a file stands once
   [@test] crates/text-diff/src/moves_test.rs (`the_search_of_a_file_whose_every_line_stands_sixteen_times_ends_at_its_work`)
 
 #### Scenario: A chain of many short moves
@@ -1252,7 +1277,7 @@ key after its words, and to a screen reader, only where the key works: the previ
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`H shows the old lines of the notes in view and hides them again, from the diffs and from the tree of the files`, `Inline shows a wrapped call once, played down after its note, and a click on the note shows and hides its old line`)
 
 #### Scenario: A line whose note is out of view
-- **GIVEN** the review of a change whose renamed local has its last place forty added lines below its declaration, with the kind `renamed` switched on
+- **GIVEN** the review of a change whose renamed local has its last place eighty lines of wrapped calls below its declaration, every line between them quiet
 - **WHEN** the view shows that last place, the note of the rename out of view, and the user presses H twice
 - **THEN** the first press shows the old line of the place above its new one, the second hides it again, the diffs keeping the focus
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`H shows and hides the old line of a quiet site whose note is out of view`)
@@ -1569,14 +1594,13 @@ with its plan and a block another section shows.
   [@test] src/lib/diff/block-parts.test.ts (`cuts the lines of no run at the ends of the moves, each on its own side, and reads a block from its first line no move took`)
 
 #### Scenario: The lines of a renamed name
-- **WHEN** the user presses N through Ledger.kt of the `commit_marks` template, whose renamed local is three runs that are labels, and when the rows of such runs are built quiet
-- **THEN** each of the three lines is a stop, at the line: the first under the note of the rename, the others after an unchanged line
+- **WHEN** the rows of a renamed local whose three runs are labels are built, and of one whose runs are quiet
+- **THEN** as labels each of the three lines is a stop, at the line: the first under the note of the rename, the others after an unchanged line
 - **AND** quiet, none of them is a stop, and the three blocks still count among the changes of the file
-  [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`N and P stop where the reading of a block starts and pass the wrapped call; the header counts the same stops`)
   [@test] src/lib/diff/rows.test.ts (`names a rename once in the rows of a file, before the lines of its declaration, and gives its other sites no note`, `shows the lines of a quiet rename once in Inline, which N and P pass, and opens them all by the one note of the rename`)
 
 #### Scenario: The lines of a renamed name, quiet
-- **GIVEN** the review of the template with the kind `renamed` switched on
+- **GIVEN** the review of the `commit_marks` template, whose renamed local is three quiet runs
 - **WHEN** the user presses N through it, then P
 - **THEN** N stops five times in Ledger.kt, at no line of the name: from `describe`, which moved, straight to the comment worded again; then three times in Report.kt and once in Store.kt
 - **AND** P goes back through the same stops, and the three lines of the name show once, played down
@@ -1590,7 +1614,7 @@ with its plan and a block another section shows.
   [@test] src/lib/diff/rows.test.ts (`reads the lines that left for another file where they left: a stop of N and P, every line a row after the note, in Inline too`, `stops N and P at each use of the name while the index proved nothing, and passes the uses it proved, which stay on screen played down`)
 
 #### Scenario: The uses of a name the index proved
-- **GIVEN** the review of the template with the kind `renamed` switched on, the index of the repository answering that every use of the function the store renamed is a place of the commit
+- **GIVEN** the review of the template, the index of the repository answering that every use of the function the store renamed is a place of the commit
 - **WHEN** the user presses N through it, then P
 - **THEN** N stops five times in Ledger.kt, once in Report.kt, at the block the lines of `reportTitle` stand in and at no call of the name, and once in Store.kt, at the declaration
 - **AND** P goes back through the same stops, and the two calls show as they were, each the row of its two lines, played down, both names in their mark, under a note that opens nothing
@@ -1604,18 +1628,18 @@ read", in full in its hover and its description ("10 of 11 changes to read"). A 
 
 #### Scenario: The row of a file
 - **WHEN** the preview of the `commit_marks` template lists its files
-- **THEN** Ledger.kt says how many of its eleven changes are left to read ("8 to read"), fewer than all, and in full in its hover and its description ("8 of 11 changes to read"): the wrapped call and the two blocks its moved functions left are none of them
+- **THEN** Ledger.kt says how many of its eleven changes are left to read ("5 to read"), fewer than all, and in full in its hover and its description ("5 of 11 changes to read"): the wrapped call, the three lines of the renamed local and the two blocks its moved functions left are none of them
 - **AND** Report.kt, whose every block is a stop, says nothing
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`the row of a file says how many of its changes are left to read, and nothing where every change is read`)
   [@test] src/lib/diff/view-files.test.ts (`counts the stops of N and P among the changes of a file where some change is quiet, and nothing where every change is read`, `counts no block without a line: the stand-in of a use a change left outside is no change`)
 
 #### Scenario: The header of a card
 - **WHEN** the review of the template, and of a file of quiet runs alone, shows its cards
-- **THEN** the header of Ledger.kt and its row in the tree say the same count ("8 to read"), the header and the row of the other file "Nothing to read"
+- **THEN** the header of Ledger.kt and its row in the tree say the same count ("5 to read"), the header and the row of the other file "Nothing to read"
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`N and P stop where the reading of a block starts and pass the wrapped call; the header counts the same stops`, `N and P pass a file whose every change is a quiet run, which says that nothing of it is to read`)
 
 #### Scenario: A rename that is quiet
-- **GIVEN** the answers of the engine for the `commit_marks` template with the kind `renamed` switched on
+- **GIVEN** the `commit_marks` template, whose renamed local is three quiet runs
 - **WHEN** the preview lists its files, and the review shows its cards
 - **THEN** the row of Ledger.kt, its row in the tree of the review and the header of its card say "5 to read", in full "5 of 11 changes to read": the three blocks of the name are no more left to read
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`Inline shows each line of a quiet rename once, the new name in its mark, and the one note of the rename shows and hides the old line of every site`)
@@ -2155,8 +2179,8 @@ played down; their note opens nothing.
   [@test] src/lib/diff/block-parts.test.ts (`shows a quiet run of a rename once in Inline, without a note of its own, until the note of the rename is opened; Unified and Split keep both lines`)
   [@test] src/lib/diff/row-cells.test.ts (`draws the name on a line of a quiet run, which shows no other range: once in Inline, on both lines elsewhere and under an opened note`)
 
-#### Scenario: The local of the template, its kind switched on
-- **GIVEN** the answers of the engine for the `commit_marks` template with the kind `renamed` switched on: the three runs of `sum` quiet, their blocks without a start
+#### Scenario: The local of the template
+- **GIVEN** the `commit_marks` template: the three runs of `sum` quiet, their blocks without a start
 - **WHEN** the preview shows Ledger.kt in Inline, the note is clicked twice, then in Unified and in Split
 - **THEN** Inline shows each of the three lines once, quiet, `sum` in its mark and nothing struck through, under the one note, a button named "Renamed total to sum, 3 sites: Show the 3 old lines" that names no key
 - **AND** the click shows the old line of each site before its new one, quiet, `total` in its mark, in its block and in the two others; the second click hides them
@@ -2164,7 +2188,7 @@ played down; their note opens nothing.
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`Inline shows each line of a quiet rename once, the new name in its mark, and the one note of the rename shows and hides the old line of every site`, `Unified and Split keep both lines of each site of a quiet rename, played down, the name in its mark on both, under a note that opens nothing`)
 
 #### Scenario: The note in a review
-- **GIVEN** the review of the template with the kind `renamed` switched on
+- **GIVEN** the review of the `commit_marks` template
 - **WHEN** the note of the rename is clicked twice, ⌥-clicked twice, and H is pressed twice with it in view
 - **THEN** the note names the key H; each first press shows the three old lines, each second hides them, the diffs keeping the focus
 - **AND** the ⌥-click opens the note of the wrapped call with it, and closes both
@@ -2182,7 +2206,7 @@ played down; their note opens nothing.
   [@test] src/lib/diff/block-parts.test.ts (`opens a quiet run by one note alone, the note of the first rename with a site in it; a note with no run of its own is plain words`, `names the renames whose notes stand in one block in one note, at the first of their sites, and any other in its own`)
 
 #### Scenario: A rename whose runs are labels
-- **WHEN** the engine gives the runs of the renamed local of the template as labels, as it does until their kind is switched on
+- **WHEN** a renamed local has a line that really changed between its places, so its three runs are labels (a change built in the test)
 - **THEN** no line of them is shown once or played down, and the note is plain words
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`Inline names a rename once, before the line of its declaration, and shows each site as one row, the old name struck through before the new one, both in the mark of a renamed name`)
   [@test] src/lib/diff/block-parts.test.ts (`shows a run of a rename that is a label as the lines of its block, the note before the lines of the declaration alone`)
@@ -2220,7 +2244,7 @@ line), the hits are in it.
   [@test] src/lib/diff/find.test.ts (`counts every hit of an old line whose code is not the code of the new lines, which no engine gives, at the first row of the run`)
 
 #### Scenario: A step in the review, a run wrapped otherwise
-- **GIVEN** the review of a change whose renamed local is the argument of a call that the change wraps over two lines, with the kind `renamed` switched on
+- **GIVEN** the review of a change whose renamed local is the argument of a call that the change wraps over two lines, its runs quiet
 - **WHEN** the user finds the old name and steps twice, finds `(extra, `, a text the wrap took the space of, steps, finds `log(extra`, then opens the note of the rename
 - **THEN** the old name counts three results, and the second step marks the new name on the third row of the run, the row of its new line
 - **AND** `(extra, ` is one result, marked on `(extra,` of the row that shows the call; `log(extra` is one result, of the new line; the note counts none of them
@@ -2233,13 +2257,13 @@ line), the hits are in it.
   [@test] src/lib/diff/find.test.ts (`finds the old name in its own lines where they show: under the opened note of Inline, in Unified and on the old side of Split`)
 
 #### Scenario: A step in the review
-- **WHEN** the user finds `total` in the review of the template in Inline, presses Enter twice, finds text of a new line, then switches to Unified
+- **WHEN** the user finds `total` in the review of a renamed local whose runs are labels, in Inline, presses Enter twice, finds text of a new line, then switches to Unified
 - **THEN** the find counts three results, each marked in the struck-through `total` of its row; the first step marks the first as the current hit, in view, the second the next, and no `sum` is a hit
 - **AND** in Unified the three results are marked in the old lines
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`the find for the old name of a rename marks it where a row shows it: struck through in the rows of Inline, in the old lines of Unified, and never in the new name`)
 
 #### Scenario: A step in the review, the runs quiet
-- **GIVEN** the review of the template with the kind `renamed` switched on
+- **GIVEN** the review of the `commit_marks` template
 - **WHEN** the user finds `total`, presses Enter twice, opens the note of the rename, closes it, then finds text of a new line
 - **THEN** the find counts three results, each marked on the `sum` of the line shown once, whose hover says what it was; the first step marks the first as the current hit, in view, the second the next, and the note counts no hit
 - **AND** under the opened note the three hits are in `total` of the old lines, none in a new line; the text of a new line is found in the line shown once
@@ -2510,6 +2534,55 @@ own scroll anchoring MUST be off in that scroller only while it holds such a vie
   [@test] src/lib/diff/rows.test.ts (`keeps the row at the top of a view at its line while the notes come above it`)
   [@test] src/lib/diff/layout.test.ts (`keeps a top below the rows of the last file from the end of its rows: rows that come above it move it by as much, and nothing of the file is brought back into view`)
 
+### Requirement: Measurement: A subject is measured as a view reads it
+
+A measurement (`FileDiffs::measure`) MUST read a subject through the stream a view reads and give each file as the
+view gets it, with the time to the first content and to the end, the texts of both sides, whether its tokens were
+read, which runs are proven whatever their kind, the starts once every proven run is passed, and what of the marks
+read again from the texts differs. Diffs made without marks (`FileDiffs::without_marks`) MUST enter no store.
+
+#### Scenario: The template of the marks
+- **WHEN** the commit of the `commit_marks` template is measured
+- **THEN** its files are those a view reads, the first content came before the end, and `Ledger.kt` has its two texts, its tokens read, the wrapped call and the three lines of the renamed local proven and the comment not, and five starts with the proven runs passed
+- **AND** the marks read again are the marks of the view in every file, and the calls of the name another file declares are proven by no index
+  [@test] crates/file-diffs/src/marks_measure_test.rs (`a_measured_subject_is_what_a_view_reads_with_its_texts_its_proofs_and_its_times`)
+
+#### Scenario: Without the marks
+- **WHEN** the same commit is measured without its marks, with a store
+- **THEN** every file has no run, no move, no rename and nothing of its subject, a start at each block, and no entry in the store
+- **AND** a view that reads the commit next gets its marks
+  [@test] crates/file-diffs/src/marks_measure_test.rs (`a_subject_read_without_marks_has_a_stop_at_each_block_and_no_store_keeps_it`)
+
+### Requirement: Measurement: `brd commits --mark-stats` counts the marks of real commits and prints a sample of each kind
+
+`brd commits --mark-stats` (hidden) MUST measure each commit ahead of the baseline, each commit of `--range
+<base>..<head>`, or that range whole (`--whole`), and print, in all and by grammar, the blocks, the stops, the stops
+with every proven run passed, the runs of each kind, the moves, the renames by their proof and the times; with
+`--mark-sample <N>` N marks of each kind with the lines of both sides, with `--no-marks` the subjects without marks.
+It MUST write the object cache only.
+
+#### Scenario: The counts and the sample
+- **WHEN** `brd commits --mark-stats --mark-sample 2` runs on the `commit_marks` template
+- **THEN** it prints one subject of Kotlin, the quiet kinds and the thresholds of the moves, fifteen blocks of three files and nine stops, the runs of each kind with those that are quiet and proven, the two moves by their size, the renames with what proves them, the move between two files and the times
+- **AND** the sample holds two marks of a kind at most, each with its file, its lines of both sides and the lines around them: the wrapped call, a move with its edited line marked, a rename from its first place to its last, the lines that left for another file
+  [@test] crates/bd-rewrite/src/mark_stats_test.rs (`the_mark_stats_of_a_commit_count_each_kind_and_print_a_sample_of_their_lines`)
+
+#### Scenario: A range
+- **WHEN** it runs with `--range origin/master..HEAD`, with `--whole` too, with an empty range, and with a range that is no two revisions
+- **THEN** the commits of the range are the subjects, with the counts of the commits ahead of the baseline; the range whole is one subject named by its two ends; an empty range has none
+- **AND** a range of one revision, or of one that is no commit, is refused as invalid arguments
+  [@test] crates/bd-rewrite/src/mark_stats_test.rs (`the_subjects_are_the_commits_of_a_range_or_the_range_whole`)
+
+#### Scenario: Without the marks
+- **WHEN** it runs with `--no-marks`
+- **THEN** every block is a stop, no kind has a run, the sample is empty, and a run with the marks after it counts nine stops again
+  [@test] crates/bd-rewrite/src/mark_stats_test.rs (`the_mark_stats_without_the_marks_have_a_stop_at_each_block`)
+
+#### Scenario: The processes
+- **WHEN** it runs on three commits ahead of the baseline, on their range, and on the range whole
+- **THEN** each commit costs one `diff-tree` and one `cat-file` beside the grouping of `brd commits`; a range costs its two ends and one walk in place of the grouping; the range whole one list and one read
+  [@test] crates/bd-cli/src/process_budget_test.rs (`mark_stats_read_the_files_and_the_blobs_of_each_commit_once`)
+
 ## User Experience
 
 - A note: the kind in `font-medium`, then ` · ` and the new lines of the run, in the font of the text, muted, at the
@@ -2592,8 +2665,9 @@ own scroll anchoring MUST be off in that scroller only while it holds such a vie
 `pnpm e2e tests/e2e/commit-files/quiet-changes.spec.ts tests/e2e/commit-files/moved-lines.spec.ts
 tests/e2e/commit-files/renamed-names.spec.ts tests/e2e/commit-files/subject-marks.spec.ts` for the views
 (`pnpm e2e:webkit` with the same files for the focus after a jump and a click on a note, and for the scroll a view
-keeps as marks come late). The tests of a quiet run of a renamed name read the answers of the engine with that kind
-switched on (`switchRenamedOn`). The tests of the marks of a subject (`subject-marks.spec.ts`) read the index of the
+keeps as marks come late). The tests of a quiet run of a renamed name read the local of the template; those of a
+rename that is a label a change built in the test (`tally` of `renamed-names.spec.ts`: the same three lines, with a
+line between them that really changed). The tests of the marks of a subject (`subject-marks.spec.ts`) read the index of the
 repository from the fixture of the test server (`answerStoreRename` writes `.git/branch-deck-accio.json`, which
 `FixtureIndex` answers `get_rename_proofs` by), and hold that answer where they read the rows before it
 (`lateSubjectMarks`, `holdCommand`).
@@ -2601,7 +2675,8 @@ repository from the fixture of the test server (`answerStoreRename` writes `.git
 `-p text-diff -E 'test(/model_test|moves_test|moves_across_test/)'`; the pass over a subject through the service and
 the index: `-p file-diffs -E 'test(/service_test|accio_test/)'` (one test asks the accio of the machine, when it
 answers `renames`, of a repository it indexes under a home of its own); the question of a window to the index:
-`-p app-api -E 'test(/diffs_test/)'`.
+`-p app-api -E 'test(/diffs_test/)'`; the measurement: `-p file-diffs -E 'test(/marks_measure_test/)'` and
+`-p bd-rewrite -E 'test(/mark_stats_test/)'`.
 `MARKS_EDITS=600 cargo nextest run --release -p file-diffs -E 'test(the_marks_of_edited_files)'` edits each file of
 the corpus 600 times (12 by default), `MARKS_RENAMES=200 … -E 'test(the_renames_of_files)'` renames a word of each
 200 times, alone and beside edits (twice by default). The E2E template of the marks is `commit_marks` (`crates/test-utils/src/repo_template.rs`):
@@ -2615,19 +2690,25 @@ limits and a subject of 200 files through the service, with renamed locals and m
 in
 [Diff View](../../../../docs/design/diff-view.md#marks).
 
+`brd commits --mark-stats --range <base>..<head> [--mark-sample <N>] [--no-marks] [--index]` (hidden) reads real
+commits as a view reads them: what each kind of mark finds, how many stops go, what a read costs with the marks and
+without them, and a sample of each kind for a person to read. What it found on 6,316 commits of a monorepo and on
+1,500 of Branch Deck, and what that decided (the two quiet kinds, the rule of a rename, the lines that tell a
+move), is in [Diff View](../../../../docs/design/diff-view.md#measured-on-real-history).
+
 ## Open Questions / Risks
 
-- Quiet is switched on for formatting. The kind `renamed` waits for its measurement: a sample of its proven runs
-  (`PairMarks::proven`) of real ranges of a large repository, read by a person. `is_quiet` switches it on when the
-  sample holds no change of behaviour; the three places of the local of the `commit_marks` template are passed then
-  ("5 to read" of `Ledger.kt`), and the uses of a name that is not local follow with the pass that confirms them.
-  The same measurement may switch a kind off.
-- The engine gives no quiet run of a renamed name yet, so what a view shows of one (the line once in Inline, the
-  note of the rename as the button that opens every such run, N and P passing it, the find) is tested in a browser
-  on the answers of the engine rewritten on the way (`switchRenamedOn` of `tests/e2e/helpers/marks-helpers.ts`: the
-  runs of a renamed local quiet, their blocks without a start, what `PairMarks::as_proven` answers for the
-  template). The rewrite knows whole blocks alone and reads `Rename.local` as the proof, which holds for the
-  template and not for every rename. It goes with the switch of the kind, and its tests then read the engine.
+- Quiet is switched on for formatting and for the renamed names, each by its measurement
+  ([Diff View](../../../../docs/design/diff-view.md#measured-on-real-history)): 200 runs of formatting and 145 runs
+  of a renamed local of real commits read, none a change of behaviour. The same measurement may switch a kind off:
+  `is_quiet` is the one place, and a kind that is off has its proven runs as labels again.
+- A rename of a local is proven by the lines between its places, since the scopes give no extent of a declaration:
+  a statement indented into a new `if` between them, or a use with one more argument, makes its lines labels though
+  the name holds what it held. The lines of the statement that declares the name would say exactly what must read
+  the same. A change after the last place of a name, in a declaration of several lines that ends below it, is
+  passed over: such a name has one place, its declaration, and no line that reads it.
+- A name that is not local is a rename by its places alone, whatever its lines changed in: only the index says
+  whether it is one declaration (`otherDeclaration` in two of five answers of the measurement).
 - The place "declared in Store.kt" has no key: G is the key of the moves, and one key for both would take whichever
   note comes first in view. A click and Go to Declaration of the menu of the code on the note show it; without a
   pointer the declaration is reached by its file in the tree of the files, where its note stands.
@@ -2667,16 +2748,13 @@ in
   splits a block the comparison by lines keeps whole); its marks are those of its blocks, and memory keeps it for the
   run ([Commit Files](../commit-files/spec.md#requirement-file-diffs-the-result-does-not-depend-on-the-load-of-the-machine)).
 
-- The runs the index confirms (`subject.confirmed`) are quiet with the kind `renamed`, not before: the same
-  measurement samples them. accio ties a use by the scopes of its file for Kotlin and Java only, and the type of a
-  chain past its first name, the overload a call binds and the receiver of a lambda are still the word of its
-  resolver (its decision 2026-11-11-rename-read-in-two-trees): what the sample must show before the kind is on.
+- The runs the index confirms (`subject.confirmed`) are quiet as the kind `renamed` is: 106 of them, of 45
+  commits of a monorepo, were read with no change of behaviour among them. accio ties a use by the scopes of its
+  file for Kotlin and Java only, and the type of a chain past its first name, the overload a call binds and the
+  receiver of a lambda are still the word of its resolver (its decision 2026-11-11-rename-read-in-two-trees): a
+  sample says so, no proof. The declaration of such a name is read whatever the index says.
 - The answer of the index comes after the rows of a file: a view that passes a confirmed run still shows each of its
   lines, where a quiet run of the pair is shown once. The same run reads otherwise by where its proof came from.
-- What a view shows of a run the index proved (played down, passed, every line kept) is tested in a browser on the
-  answers of the engine rewritten on the way, as the quiet runs of a local are (`switchRenamedOn` makes the runs
-  `SubjectMarks.confirmed` lists quiet too, what `as_confirmed` answers); on the engine as it is such a run is a
-  label with the words of its proof. It goes with the switch of the kind.
 - The server sends the marks of a subject right after the contents of its files, in one answer that a test cannot
   stop between two of its events. The tests of marks that come late make the diff of one file say nothing of its
   subject (`lateSubjectMarks`: what its content says where its pair had to be compared) and hold the answer of the
@@ -2714,14 +2792,15 @@ in
 - Where the indentation has a meaning, a block that another file holds whole at another depth (a function that
   became a method) is no move between files: a move between files has no word for the shift a move within a file
   names (`indent`).
-- The 48 characters and the two lines of a move between files are first values. The same lines in two files of a
+- The 48 characters and the two lines of a move between files stand as measured. The same lines in two files of a
   change (a licence header, generated code) that leave one and enter the other are a move to the first: a label.
 - A line renamed in the last line of its file, with lines added after it, is no run: the last token of a text is
   the same token only as the last ([Equal by Tokens](../equal-by-tokens/spec.md)).
-- The 24 characters of a move and its quarter of edited lines are first values, to be set by the same measurement.
-  A move is a label, so a wrong one costs a reader a look, never a change passed unread.
-- A move whose every line has a key that more than 16 changed lines of the new text have is not found (a table of
-  rows that repeat): a line of its own in it starts it.
+- The 24 characters of a move and its quarter of edited lines stand as measured, the characters counted over the
+  lines that stand once. A move is a label, so a wrong one costs a reader a look, never a change passed unread.
+- A move none of whose lines stands once among the changed lines of both sides is not found: a table of rows that
+  repeat, a function that moved while its copy was added, the same statement that left each of several tests for
+  another place of it. Nothing says which line moved where; each is read as a deleted and an added line.
 - The whitespace inside a line counts in a move under every policy: under `Ignore` a moved line with other
   whitespace inside is an edited line of its move. Only the whitespace at the ends of a line follows the policy.
 - A line that is the same in every character and stayed at its indent while its move shifted is an edited line
