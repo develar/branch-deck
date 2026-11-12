@@ -87,6 +87,10 @@ impl DialogHost for TauriDesktop {
     use tauri_plugin_dialog::DialogExt;
     self.0.dialog().file().set_title(title).blocking_pick_folder().map(|folder| folder.to_string())
   }
+
+  fn has_folder_dialog(&self) -> bool {
+    true
+  }
 }
 
 impl RestartHost for TauriDesktop {

@@ -323,6 +323,9 @@ pub struct PageTitleBar<'a> {
   #[serde(flatten)]
   pub title_bar: &'a TitleBar,
   pub check_for_updates: bool,
+  /// The host has a folder dialog (`DialogHost::has_folder_dialog`): the page offers Open Repository… and Add
+  /// Companion…; the desktop app always has it
+  pub folder_dialog: bool,
 }
 
 /// The line of the initialization script that tells the page how it draws the title bar (`title_bar`)
@@ -330,8 +333,9 @@ pub fn title_bar_script() -> String {
   let page = PageTitleBar {
     title_bar: title_bar(),
     check_for_updates: cfg!(feature = "auto-update"),
+    folder_dialog: true,
   };
-  let json = serde_json::to_string(&page).unwrap_or_else(|_| r#"{"kind":"native","checkForUpdates":false}"#.to_owned());
+  let json = serde_json::to_string(&page).unwrap_or_else(|_| r#"{"kind":"native","checkForUpdates":false,"folderDialog":true}"#.to_owned());
   format!("window.__BD_TITLE_BAR__ = {json};")
 }
 

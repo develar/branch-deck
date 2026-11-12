@@ -22,6 +22,11 @@ impl MirrorView {
     Self { view }
   }
 
+  /// The view as the patches so far made it
+  pub const fn view(&self) -> &RepositoryView {
+    &self.view
+  }
+
   /// The state of the mirror: the view, its version with it
   pub fn state(&self) -> Value {
     serde_json::to_value(&self.view).unwrap_or_else(|_| json!({}))

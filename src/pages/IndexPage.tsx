@@ -17,6 +17,7 @@ import { KeptViewContext } from "@/hooks/useCloseWhenViewHides"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useRepositoryConfigChanges } from "@/hooks/useRepositoryConfigChanges"
+import { useRevealBranchEvent } from "@/hooks/useRevealBranchEvent"
 import { useReviewRuns } from "@/hooks/useReviewRuns"
 import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
 import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
@@ -157,6 +158,8 @@ export function IndexPage() {
   useSetupTracking({ readTools: true })
   // the review window: the actions it asks to run at the rows of their subjects (the forms of a row)
   useReviewRuns()
+  // Show in Branch Deck of a notification of the IDE
+  useRevealBranchEvent()
   // "Activity" of every window: the log of the selected repository in the side panel, or in its window, and what the
   // window asks for
   const area = useRef<HTMLDivElement>(null)

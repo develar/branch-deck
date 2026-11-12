@@ -13,7 +13,7 @@ import { paletteCommands, paletteGroups } from "@/lib/command-palette"
 import type { PaletteCommand, PaletteCommandGroup } from "@/lib/command-palette"
 import { logError } from "@/lib/errors"
 import { kbdLabel } from "@/lib/menu"
-import { updatesItself } from "@/lib/title-bar"
+import { hasFolderDialog, updatesItself } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { getSelectedBranches, requestReveal, selectBranches } from "@/stores/commit-move"
 import { openDiskUsageDialog } from "@/stores/disk-usage-dialog"
@@ -115,7 +115,7 @@ export function CommandPalette() {
           showMainView("reviews")
         },
         ...(repositoryPath !== undefined && repositoryPath !== "" && { showDiskUsage: () => openDiskUsageDialog(repositoryPath) }),
-        openRepository: { reason: isSyncing ? "Wait for the sync to finish" : null, run: () => void browseRepository() },
+        ...(hasFolderDialog && { openRepository: { reason: isSyncing ? "Wait for the sync to finish" : null, run: () => void browseRepository() } }),
       })
     : []
   const groups = paletteGroups(commands, text, startsWith)

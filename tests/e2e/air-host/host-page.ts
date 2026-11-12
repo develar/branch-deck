@@ -217,10 +217,25 @@ function bridgeOf(info: HostView): AppBridge {
   return bridge
 }
 
+/** The views of one instance: the tool window of the app file (`main`, `place: toolWindow`) */
+const SINGLE_VIEWS = new Set(["main"])
+
+/** The instances whose place the IDE hides (another tab, a hidden tool window) */
+const hidden = new Set<string>()
+
 async function openView(view: string, key: string | null, params: Record<string, unknown>, title: string | null): Promise<string> {
-  const existing = key === null ? undefined : [...views.values()].find(open => open.info.view === view && open.info.key === key)
+  const existing = [...views.values()].find(open => open.info.view === view && (key === null ? SINGLE_VIEWS.has(view) : open.info.key === key))
   if (existing !== undefined) {
     existing.frame.dataset.focused = "true"
+    // the place of an instance the IDE hid shows again
+    if (hidden.delete(existing.info.instance)) {
+      await app.notify("x-air-app/viewShown", {
+        instance: existing.info.instance,
+        view,
+        ...(existing.info.key !== null && { key: existing.info.key }),
+        params: existing.info.params,
+      })
+    }
     return existing.info.instance
   }
   const count = (counts.get(view) ?? 0) + 1
@@ -347,6 +362,28 @@ async function runAction(action: string, tool: string): Promise<unknown> {
   })
 }
 
+/** The IDE hides the place of `instance`: another tab shows, its frame stays */
+async function hideView(instance: string): Promise<void> {
+  hidden.add(instance)
+  await app.notify("x-air-app/viewHidden", { instance })
+}
+
+/**
+ * A click on the action `index` of the last notification `brd mcp` asked for: the IDE runs its `run`, a call of its tool
+ * with the origin action, or the open of its view; the answer of the call, or the instance of the view
+ */
+async function runNotificationAction(index: number): Promise<unknown> {
+  const notification = [...calls].reverse().find(call => call.method === "x-air-app/notify")
+  const run = (notification?.params.actions as { run: Record<string, unknown> }[] | undefined)?.[index]?.run
+  if (run === undefined) {
+    throw new Error(`No notification of brd has the action ${index}`)
+  }
+  if (typeof run.view === "string") {
+    return openView(run.view, (run.key as string | undefined) ?? null, (run.params as Record<string, unknown> | undefined) ?? {}, null)
+  }
+  return app.request("tools/call", { name: run.tool, arguments: run.arguments ?? {}, _meta: { "x-air-app": { origin: "action", app: APP } } })
+}
+
 /** What a test reads and does (`fake-host.ts`) */
 const host = {
   calls: () => calls,
@@ -361,7 +398,9 @@ const host = {
     }
   },
   close: closeView,
+  hide: hideView,
   runAction,
+  runNotificationAction,
   ready: (async () => {
     await app.request("initialize", {
       protocolVersion: "2025-06-18",

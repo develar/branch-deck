@@ -190,6 +190,11 @@ describe("The shim of the page in the IDE", () => {
     new target.Notification("Safe Push failed", { body: "feature" })
     await settle()
     expect(host.last()).toMatchObject(desktop("plugin:notification|notify", { options: { title: "Safe Push failed", body: "feature" } }))
+    // the news a notification tells goes to brd with it, which gives it the action of the news
+    const news = { repositoryPath: "/repo", news: 4 }
+    new target.Notification("Safe Push of feature failed", { body: "feature → master", extra: news } as NotificationOptions)
+    await settle()
+    expect(host.last()).toMatchObject(desktop("plugin:notification|notify", { options: { title: "Safe Push of feature failed", body: "feature → master", extra: news } }))
     // Escape in a review closes its window: brd asks the IDE to close the place
     void tauri("plugin:window|close", { label: "review" })
     await settle()

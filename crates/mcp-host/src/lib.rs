@@ -8,6 +8,7 @@
 //! - `mirror`: a `ViewPatch` of a session as one change of a mirror, by the table rule of Air.
 //! - `hosts`: the hosts of app-api in the IDE: the events, the windows as views, and the hosts that do nothing.
 //! - `link`: the one queue of the messages brd writes, and its requests to the IDE.
+//! - `notices`: the failure of a robot as a notification of the IDE, whose action reveals its branch.
 //! - `projects`: the Git roots of the project as the recent projects of the views, the root the main view shows first.
 //! - `resources`: the page and the files of the Air build, built into the binary.
 //! - `process`: the context of the process on the services of the app and its data directories, and the stdio loop.
@@ -15,6 +16,7 @@
 pub mod hosts;
 pub mod link;
 pub mod mirror;
+pub mod notices;
 pub mod process;
 pub mod projects;
 pub mod resources;

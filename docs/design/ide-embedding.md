@@ -129,7 +129,8 @@ sequenceDiagram
   built. The seed of the main view from the frame of its session is `app_api::app::warm_start::seed`, which the init
   script of the app and `bd_bootstrap` both take.
 - `crates/mcp-host` (`brd mcp`, `branch-deck cli mcp`; on Windows `brd.exe mcp`): `server.rs` the connection and its
-  methods, `mirror.rs` the patch as one change, `hosts.rs` the hosts of app-api, `link.rs` the one ordered queue of
+  methods, `mirror.rs` the patch as one change, `hosts.rs` the hosts of app-api, `notices.rs` the notifications of the
+  IDE, `link.rs` the one ordered queue of
   what brd writes, `resources.rs` the files of `dist-air/` built into the binary by `build.rs` (a stub page without
   them; a new build of the page is picked up as the directory changes), `process.rs` the stdio loop and the context on
   `org.develar.branch-deck`. `crates/bd-cli/src/architecture_test.rs` admits it to `app-api` and keeps Tauri out of it.
@@ -146,7 +147,10 @@ sequenceDiagram
   is gone from a session that closed.
 - **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
-  params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native"}`.
+  params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native", checkForUpdates: false,
+  folderDialog: false}`: the dialog host of brd has no folder dialog (`DialogHost::has_folder_dialog`), so the page
+  offers no Open Repository… beside its selector or in the command palette and no Add Companion…; the roots of the
+  project are its repositories.
 - **The desktop of the page**: an event the page emits for the other windows is `bd_invoke` of
   `plugin:event|emit {event, payload, target}`, which brd tells the views (`x-air-app/event`, with the instance of the
   window `target` names). The page sets the badge, the progress and its notifications only through brd, by `bd_invoke`
@@ -157,6 +161,16 @@ sequenceDiagram
   view the event `open_command_palette` as the menu of the desktop app does, and Branch Deck Settings opens the view
   `settings` in the IDE alone. `plugin:window|close` of a page is `x-air-app/closeView` of its instance. A change of
   the Git roots of the project is the event `roots-changed` to the main view.
+- **The notifications** (`notices.rs`): the failure of a robot, a news that a patch of a mirror brings, is
+  `x-air-app/notify` from brd itself while the main view is not shown (`viewHidden` after its `viewShown`) and "Safe
+  Push failures" of Settings is on, worded in Rust ("Safe Push of auth failed" / "auth → master", or "… needs review"),
+  with the action Show in Branch Deck: `run: {tool: "reveal_branch", arguments: {repositoryPath, branchName}}`, the
+  branch of the robot or the root of its whole stack. The IDE runs it with the origin `action`; brd asks `openView` of
+  `main` (the IDE shows the tool window and answers its instance) and tells that instance `reveal-branch`, which the
+  page reveals as Go to of the palette does (`useRevealBranchEvent`). The page's own notification of a news
+  (`announce` while its frame has no focus) carries `extra: {repositoryPath, news}`: brd leaves it out when it told
+  that news, and else gives it the kind and the action of the news, so a failure is one notification of the IDE and
+  it opens its branch. Another notification of the page (a review request, a merge) stays as the page words it.
 - **The repositories of the main view** (`projects.rs`): the views see the Git roots of the project as their recent
   projects (`recentProjects`), the root the main view shows first, each with what the recent projects of the settings
   keep of it: in the snapshot of `bd_bootstrap`, in each `settings_changed` and in the answers that carry changes

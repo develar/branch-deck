@@ -4,6 +4,8 @@ import { IDE_THEMES, openFakeIde } from "../air-host/fake-host"
 import type { FakeIde } from "../air-host/fake-host"
 import type { HostContextTheme } from "../air-host/host-page"
 import { expect } from "../fixtures/base-test"
+import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { moveClockUntil } from "../helpers/sync-helpers"
 import { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed } from "../helpers/wait-helpers"
 
@@ -103,6 +105,18 @@ test.describe("Branch Deck in the IDE", () => {
     await expect(settings.getByTestId("ide-app")).toHaveCount(0)
   })
 
+  test("the main view in the IDE offers no Open Repository, as the IDE has no folder dialog: the roots of the project are the repositories of its selector", async ({ ide }) => {
+    const main = ide.frame("main:1")
+    // the selector of the roots shows, without the folder button beside it
+    await expect(main.getByRole("combobox")).toBeVisible()
+    await expect(main.getByTestId("browse-repository-button")).toHaveCount(0)
+    // nor does the command palette offer it, beside its other commands
+    await ide.runAction("command-palette", "open_command_palette")
+    const palette = main.getByTestId("command-palette")
+    await expect(palette.getByRole("option", { name: "Activity Window" })).toBeVisible()
+    await expect(palette.getByRole("option", { name: "Open Repository…" })).toHaveCount(0)
+  })
+
   test("the selector of the main view lists the Git roots of the project, and the root picked shows again at the next start of the project", async ({ page, repo }) => {
     const other = new TestRepositoryBuilder().useTemplate("simple")
     await other.init()
@@ -123,6 +137,37 @@ test.describe("Branch Deck in the IDE", () => {
     } finally {
       await other.cleanup()
     }
+  })
+
+  test("a Safe Push that fails while the IDE shows another tab is a notification of the IDE, whose action shows the branch in the tool window", async ({ page, repo }) => {
+    const running = robot("feature", "robot-feature")
+    await repo.setPatronus(availableRobots(running))
+    const ide = await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path })
+    const row = await syncedFeatureRow(ide)
+    await expect(row.getByTestId("patronus-chip")).toBeVisible()
+
+    // another tab shows: the tool window is hidden when the robot fails
+    await ide.hideView("main:1")
+    await repo.setPatronus(availableRobots({ ...running, status: "failure", finishTime: 1704189000 }))
+    const notifications = async () => (await ide.calls()).filter(call => call.method === "x-air-app/notify")
+    await moveClockUntil(repo, 5 * 60_000, async () => (await notifications()).length > 0)
+    expect(await notifications()).toEqual([
+      {
+        method: "x-air-app/notify",
+        params: {
+          title: "Safe Push of feature failed",
+          body: "feature → master",
+          kind: "error",
+          actions: [{ text: "Show in Branch Deck", run: { tool: "reveal_branch", arguments: { repositoryPath: repo.path, branchName: "feature" } } }],
+        },
+      },
+    ])
+
+    // Show in Branch Deck: brd asks the IDE to show the tool window, and the main view reveals the branch in it
+    await ide.runNotificationAction(0)
+    await expect(row).toBeFocused()
+    expect((await ide.calls()).filter(call => call.method === "x-air-app/openView")).toEqual([{ method: "x-air-app/openView", params: { view: "main" } }])
+    expect((await ide.views()).map(view => view.instance)).toEqual(["main:1"])
   })
 
   test("the page shows the theme of the IDE and follows its switch from Light to Dark without a reload", async ({ ide }) => {

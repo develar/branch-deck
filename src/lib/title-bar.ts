@@ -7,7 +7,8 @@
  * - `native`: the system title bar above the row, on Linux where a custom one doesn't fit (WSL, a tiling window
  *   manager, an unknown desktop) and where the user asked for it (`reason`); in E2E without one.
  *
- * With every kind the backend says whether the build updates itself (`checkForUpdates`, `PageTitleBar`)
+ * With every kind the backend says whether the build updates itself (`checkForUpdates`, `PageTitleBar`) and whether
+ * the host has a folder dialog (`folderDialog`, `DialogHost::has_folder_dialog`)
  */
 export type TitleBar = (
   | { readonly kind: "overlay"; readonly doubleClick: DoubleClickAction }
@@ -25,6 +26,11 @@ export type TitleBar = (
 ) & {
   /** The build updates itself (the `auto-update` feature): ☰ and the command palette offer Check for Updates… */
   readonly checkForUpdates: boolean
+  /**
+   * The host has a folder dialog: the repository selector, the command palette and Settings → Landing offer Open
+   * Repository… and Add Companion…; false in the IDE, whose roots name the repositories. Offered unless false
+   */
+  readonly folderDialog?: boolean
 }
 
 export type WindowButton = "minimize" | "maximize" | "close"
@@ -57,3 +63,6 @@ export const hasCustomTitleBar = titleBar.kind === "custom"
  * menu (☰) and the command palette offer Check for Updates…, as the native menu does
  */
 export const updatesItself = titleBar.checkForUpdates
+
+/** The host has a folder dialog, as the backend says: Open Repository… and Add Companion… pick a folder in it */
+export const hasFolderDialog = titleBar.folderDialog !== false

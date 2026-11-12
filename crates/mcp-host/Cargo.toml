@@ -20,6 +20,8 @@ git-executor = { path = "../git-executor" }
 # the view of a mirror, applied as the page's store applies a patch (`repository_model::patch::apply_patch`)
 repository-model = { path = "../repository-model" }
 sync-utils = { path = "../sync-utils" }
+# the name of a push mode in a notification of the IDE (`sync_core::patronus_start::push_mode_name`)
+sync-core = { path = "../sync-core" }
 # the bytes of a raw command and a binary file of the page in base64
 base64 = "0.23.1"
 # the app data directory of the app (`org.develar.branch-deck`)

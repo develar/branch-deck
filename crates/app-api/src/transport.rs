@@ -214,6 +214,10 @@ pub trait DialogHost: Send + Sync {
   /// The folder the user picked in the dialog titled `title`, none when canceled. Blocking (a modal dialog): call within
   /// `run_blocking`
   fn pick_folder(&self, title: &str) -> Option<String>;
+
+  /// The host has the dialog: the page offers Open Repository… and Add Companion…; none in the IDE, whose roots name
+  /// the repositories (`folderDialog` of the title bar of the page)
+  fn has_folder_dialog(&self) -> bool;
 }
 
 /// The native menus: the main menu of the app and the window manager's menu of a window

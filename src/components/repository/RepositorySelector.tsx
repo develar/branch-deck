@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { FieldGroup } from "@/components/layout/FieldGroup"
 import { pathForms, resolveHomeDir, tildePath } from "@/lib/home-path"
 import { formatRelativeTime } from "@/lib/time"
+import { hasFolderDialog } from "@/lib/title-bar"
 import { projectSections } from "@/presenters/repository-links"
 import type { ProjectItem, ProjectSection } from "@/presenters/repository-links"
 import { useBranchSyncField } from "@/stores/branch-sync"
@@ -107,17 +108,20 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          disabled={disabled}
-          aria-label="Open Repository"
-          className={cn(hasError && "border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive")}
-          data-testid="browse-repository-button"
-          onClick={() => void browseRepository()}
-        >
-          <FolderSearchIcon />
-        </Button>
+        {/* the folder dialog of the host; none in the IDE, whose roots are the repositories of the selector */}
+        {hasFolderDialog && (
+          <Button
+            variant="outline"
+            size="icon-sm"
+            disabled={disabled}
+            aria-label="Open Repository"
+            className={cn(hasError && "border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive")}
+            data-testid="browse-repository-button"
+            onClick={() => void browseRepository()}
+          >
+            <FolderSearchIcon />
+          </Button>
+        )}
       </TooltipTrigger>
       <TooltipContent>{pathValidation.error || "Select a Git repository to manage branches"}</TooltipContent>
     </Tooltip>

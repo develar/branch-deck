@@ -404,6 +404,10 @@ impl DialogHost for TestDesktop {
       Pick::Canceled => None,
     }
   }
+
+  fn has_folder_dialog(&self) -> bool {
+    true
+  }
 }
 
 impl MenuHost for TestDesktop {

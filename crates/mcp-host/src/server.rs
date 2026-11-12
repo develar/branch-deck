@@ -5,14 +5,15 @@
 //! - **Tools**: `bd_invoke {command, args}` runs one command of app-api by its name (`app_api::dispatch`) for the window
 //!   of the instance of the call, the events of its channel as `x-air-app/callEvent {callId, event}` (the id of the
 //!   call), each before the answer; `bd_bootstrap {view}` gives what the page takes before its main; `sync` and
-//!   `open_command_palette` are the actions of the app file (Sync Virtual Branches, Branch Deck Command Palette). Each is
-//!   only for the app, and a call of the origin `agent` is refused. A cancel stops a read and leaves no answer; a write
+//!   `open_command_palette` are the actions of the app file (Sync Virtual Branches, Branch Deck Command Palette), and
+//!   `reveal_branch` the action of a notification of brd (`notices.rs`). Each is only for the app, and a call of the
+//!   origin `agent` is refused. A cancel stops a read and leaves no answer; a write
 //!   runs to its end, its answer left out.
 //! - **Mirrors** (`mirror.rs`): `x-air-app/subscribe` of a repository subscribes its session once for every view of it,
 //!   under a window of its own (`mirror:<path>`), so the close of one view ends no other's mirror; the last
-//!   `x-air-app/unsubscribe` ends it.
-//! - **Places**: `x-air-app/viewShown` records the params of an instance, `x-air-app/viewClosed` forgets its page and its
-//!   window (`AppContext::forget_window`); the end of a WebSocket never reaches brd.
+//!   `x-air-app/unsubscribe` ends it. The news a patch brings are told by the IDE's notifications (`notices.rs`).
+//! - **Places**: `x-air-app/viewShown` records the params of an instance, `x-air-app/viewHidden` that the IDE hides it,
+//!   `x-air-app/viewClosed` forgets its page and its window (`AppContext::forget_window`); the end of a WebSocket never reaches brd.
 //! - **Roots**: the repositories are the Git roots of the project (`roots/list`, asked at the start and on
 //!   `notifications/roots/list_changed`), which the views see as their recent projects; the main view shows the root
 //!   picked last for these roots, else the first (`projects.rs`).
@@ -23,6 +24,7 @@
 use crate::hosts::{Instances, MAIN_VIEW, McpEvents, desktop, label_of, view_of};
 use crate::link::{INTERNAL_ERROR, INVALID_PARAMS, Link, METHOD_NOT_FOUND, NO_CONSENT, Reply};
 use crate::mirror::MirrorView;
+use crate::notices::{Notices, REVEAL_BRANCH_EVENT, REVEAL_BRANCH_TOOL};
 use crate::projects::{Projects, RECENT_PROJECTS_KEY, merged};
 use crate::resources;
 use app_api::context::AppContext;
@@ -49,9 +51,6 @@ use tracing::Instrument;
 pub const X_AIR_APP_VERSION: &str = "1.0.0";
 /// The version of MCP brd answers
 const PROTOCOL_VERSION: &str = "2025-06-18";
-
-/// The title bar of a page in the IDE: the place of the view is the IDE's, the page draws none of its own
-const TITLE_BAR: &str = r#"{"kind":"native","checkForUpdates":false}"#;
 
 /// One connection of air-ide with brd: what its messages go through, and the instances of its views, which the hosts of
 /// the context it serves share (`events`, `desktop`)
@@ -90,10 +89,12 @@ impl Connection {
   /// Serves the messages of `incoming`, each one JSON-RPC message, in `ctx`, until it ends; then every window of the
   /// connection is forgotten (`AppContext::forget_windows`): its subscriptions end
   pub async fn serve(self, ctx: Arc<AppContext>, mut incoming: mpsc::UnboundedReceiver<String>) {
+    let notices = Arc::new(Notices::new(Arc::clone(&self.link), Arc::clone(&self.instances), Arc::clone(&ctx.settings)));
     let server = Arc::new(Server {
       ctx: Arc::clone(&ctx),
       link: self.link,
       instances: self.instances,
+      notices,
       projects: self.projects,
       bootstrapped: AtomicBool::new(false),
       calls: Mutex::default(),
@@ -148,6 +149,8 @@ struct Server {
   ctx: Arc<AppContext>,
   link: Arc<Link>,
   instances: Arc<Instances>,
+  /// The notifications of the news of the mirrors
+  notices: Arc<Notices>,
   /// The commands that run for calls of tools, by the id of the call
   calls: Mutex<HashMap<String, Running>>,
   /// The mirrors, by the path of their repository
@@ -232,7 +235,7 @@ impl Server {
         self.instances.closed(instance);
         self.ctx.forget_window(&WindowId::new(label_of(instance)));
       }
-      "x-air-app/viewHidden" => {}
+      "x-air-app/viewHidden" => self.instances.hidden(params["instance"].as_str().unwrap_or_default()),
       _ => tracing::debug!(method, "a notification brd does not know"),
     }
   }
@@ -337,10 +340,37 @@ impl Server {
         self.ctx.events.emit_to(&WindowId::main(), COMMAND_PALETTE_TOOL, Value::Null);
         self.link.respond(&id, json!({ "content": [], "structuredContent": { "value": null } }));
       }
+      // Show in Branch Deck of a notification of brd: the main view shows, and reveals the branch
+      Some(REVEAL_BRANCH_TOOL) => {
+        self.reveal_branch(&arguments);
+        self.link.respond(&id, json!({ "content": [], "structuredContent": { "value": null } }));
+      }
       name => self
         .link
         .fail(&id, INVALID_PARAMS, &format!("Branch Deck has no tool {}", name.unwrap_or_default()), "unknownTool"),
     }
+  }
+
+  /// Asks the IDE to show the main view, then tells the instance it answered to reveal the branch of `arguments`
+  /// (`{repositoryPath, branchName}`), which the page does when it shows that repository
+  fn reveal_branch(&self, arguments: &Value) {
+    let payload = json!({ "repositoryPath": arguments["repositoryPath"], "branchName": arguments["branchName"] });
+    let answer = self.link.request("x-air-app/openView", Some(json!({ "view": MAIN_VIEW })));
+    let link = Arc::clone(&self.link);
+    tokio::spawn(
+      async move {
+        match answer.await {
+          Ok(Ok(result)) => {
+            if let Some(instance) = result["instance"].as_str() {
+              link.notify("x-air-app/event", json!({ "instance": instance, "event": REVEAL_BRANCH_EVENT, "payload": payload }));
+            }
+          }
+          Ok(Err(error)) => tracing::warn!(%error, "the IDE shows no main view"),
+          Err(_) => {}
+        }
+      }
+      .in_current_span(),
+    );
   }
 
   /// Runs the command of `arguments` for the window of `instance`, the events of its channel as call events of `id`
@@ -409,7 +439,8 @@ impl Server {
 
   /// What the desktop does beside the commands, which the page asks through `bd_invoke` by the plugin call of Tauri it
   /// makes in the desktop app: an event the page emits goes to the views of the app (to one window with a target), the
-  /// badge and the progress of the Dock mark the tool window, a notification of the OS is one of the IDE, and the close
+  /// badge and the progress of the Dock mark the tool window, a notification of the OS is one of the IDE (none of a news
+  /// brd told itself, `Notices::page_notification`), and the close
   /// of the window of `instance` (Escape in a review or a dialog) closes its place. None for a command of app-api
   fn host_command(&self, command: &str, args: &Value, instance: Option<&str>) -> Option<Value> {
     match command {
@@ -430,15 +461,9 @@ impl Server {
         self.link.ask("x-air-app/setProgress", json!({ "view": MAIN_VIEW, "fraction": fraction }));
       }
       "plugin:notification|notify" => {
-        let options = &args["options"];
-        let mut notification = json!({ "title": options["title"].as_str().unwrap_or("Branch Deck") });
-        if let Some(body) = options["body"].as_str() {
-          notification["body"] = Value::String(body.to_owned());
+        if let Some(notification) = self.notices.page_notification(&args["options"]) {
+          self.link.ask("x-air-app/notify", notification);
         }
-        if let Some(actions) = options.get("actions").filter(|actions| actions.is_array()) {
-          notification["actions"] = actions.clone();
-        }
-        self.link.ask("x-air-app/notify", notification);
       }
       "plugin:window|close" | "plugin:window|destroy" => {
         if let Some(instance) = instance {
@@ -493,7 +518,9 @@ impl Server {
     } else if let Value::Object(values) = &mut values {
       values.insert(RECENT_PROJECTS_KEY.to_owned(), self.projects.seen(&Value::Null));
     }
-    let title_bar: Value = serde_json::from_str(TITLE_BAR).unwrap_or(Value::Null);
+    // the place of the view is the IDE's, the page draws no title bar of its own; the app updates with the desktop app,
+    // and the roots of the project name the repositories where the host has no folder dialog
+    let title_bar = json!({ "kind": "native", "checkForUpdates": false, "folderDialog": self.ctx.desktop.dialog.has_folder_dialog() });
     let shown = instance.and_then(|instance| self.instances.params(instance)).unwrap_or_else(|| json!({}));
     let (warm_frame, init_data) = if view == MAIN_VIEW || instance.is_some_and(|instance| view_of(instance) == MAIN_VIEW) {
       let repository = self.main_repository();
@@ -541,6 +568,7 @@ impl Server {
       mirror: path.clone(),
       slot: Arc::clone(&slot),
       link: Arc::clone(&self.link),
+      notices: Arc::clone(&self.notices),
     });
     let call = self.ctx.call(window.as_str());
     let args = app_api::commands::subscribe_view::Args {
@@ -629,7 +657,8 @@ const SYNC_TOOL: &str = "sync";
 const COMMAND_PALETTE_TOOL: &str = "open_command_palette";
 
 /// The tools of Branch Deck, each only for the app (`_meta.ui.visibility`), so no agent sees one: `bd_invoke` and
-/// `bd_bootstrap` for the page, and the tool of each action of the app file for the IDE
+/// `bd_bootstrap` for the page, the tool of each action of the app file for the IDE, and the tool of the action of a
+/// notification of brd
 fn tools() -> Value {
   let app_only = json!({ "ui": { "visibility": ["app"] } });
   let no_arguments = json!({ "type": "object", "properties": {} });
@@ -656,6 +685,16 @@ fn tools() -> Value {
       "name": COMMAND_PALETTE_TOOL,
       "description": "Opens the command palette of the main view (Branch Deck Command Palette).",
       "inputSchema": no_arguments,
+      "_meta": app_only,
+    },
+    {
+      "name": REVEAL_BRANCH_TOOL,
+      "description": "Shows the main view and reveals a branch of its repository in it (Show in Branch Deck of a notification).",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "repositoryPath": { "type": "string" }, "branchName": { "type": "string" } },
+        "required": ["repositoryPath", "branchName"],
+      },
       "_meta": app_only,
     },
   ])
@@ -714,11 +753,12 @@ impl EventSink<Value> for CallEvents {
   }
 }
 
-/// The patches of the session of a mirror, as its changes
+/// The patches of the session of a mirror, as its changes, and the news they bring, as the notifications of the IDE
 struct MirrorPatches {
   mirror: String,
   slot: Arc<Mutex<Slot>>,
   link: Arc<Link>,
+  notices: Arc<Notices>,
 }
 
 impl EventSink<ViewPatch> for MirrorPatches {
@@ -727,11 +767,19 @@ impl EventSink<ViewPatch> for MirrorPatches {
     let mut slot = locked(&self.slot);
     match &mut *slot {
       Slot::Waiting(patches) => patches.push(patch),
-      Slot::Live(view) => match view.apply(patch) {
-        Ok(ops) if ops.is_empty() => {}
-        Ok(ops) => self.link.notify("x-air-app/viewChanged", json!({ "mirror": self.mirror, "ops": ops })),
-        Err(error) => tracing::warn!(%error, mirror = self.mirror, "a patch of the session does not apply to its mirror"),
-      },
+      Slot::Live(view) => {
+        // the news of a patch before the answer of the subscription are in its first view: none is told
+        let news = patch.changes.news.clone();
+        match view.apply(patch) {
+          Ok(ops) => {
+            if !ops.is_empty() {
+              self.link.notify("x-air-app/viewChanged", json!({ "mirror": self.mirror, "ops": ops }));
+            }
+            self.notices.tell(view.view(), &self.mirror, &news);
+          }
+          Err(error) => tracing::warn!(%error, mirror = self.mirror, "a patch of the session does not apply to its mirror"),
+        }
+      }
       Slot::Ended => return Err(SinkGone),
     }
     Ok(())

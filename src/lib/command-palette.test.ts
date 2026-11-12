@@ -68,6 +68,13 @@ describe("paletteCommands", () => {
     expect(commands.filter(command => command.kbds !== undefined).map(command => command.id)).toEqual(["app:sync_branches", "app:update_project", "app:open_settings"])
   })
 
+  it("offers no Open Repository… where the host has no folder dialog", () => {
+    const { openRepository: _, ...withoutDialog } = sources()
+    const ids = paletteCommands(withoutDialog).map(command => command.id)
+    expect(ids).toContain("app:sync_branches")
+    expect(ids).not.toContain("repository:open")
+  })
+
   it("keeps one entry per id, the first source's", () => {
     const commands = paletteCommands(
       sources({
@@ -129,7 +136,7 @@ describe("paletteCommands", () => {
     byId.get("app:update_project")!.run()
     expect(runAppCommand).toHaveBeenCalledWith("update_project")
     byId.get("repository:open")!.run()
-    expect(given.openRepository.run).toHaveBeenCalled()
+    expect(given.openRepository?.run).toHaveBeenCalled()
   })
 })
 

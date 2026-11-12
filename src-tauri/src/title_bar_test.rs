@@ -160,8 +160,16 @@ mod decision {
 
   #[test]
   fn the_page_gets_one_json_object() {
-    // whether the build updates itself goes with every kind: ☰ and the command palette offer Check for Updates…
-    let json = |title_bar: &crate::title_bar::TitleBar, check_for_updates: bool| serde_json::to_string(&crate::title_bar::PageTitleBar { title_bar, check_for_updates }).unwrap();
+    // whether the build updates itself goes with every kind: ☰ and the command palette offer Check for Updates…; the
+    // desktop app has the folder dialog of Open Repository…
+    let json = |title_bar: &crate::title_bar::TitleBar, check_for_updates: bool| {
+      serde_json::to_string(&crate::title_bar::PageTitleBar {
+        title_bar,
+        check_for_updates,
+        folder_dialog: true,
+      })
+      .unwrap()
+    };
     let custom = crate::title_bar::TitleBar::Custom {
       controls: crate::title_bar::WindowControls {
         start: vec![Close],
@@ -173,15 +181,21 @@ mod decision {
     };
     assert_eq!(
       json(&custom, true),
-      r#"{"kind":"custom","controls":{"start":["close"],"end":[],"style":"gnome"},"doubleClick":"toggle-maximize","cornerRadius":12,"checkForUpdates":true}"#
+      r#"{"kind":"custom","controls":{"start":["close"],"end":[],"style":"gnome"},"doubleClick":"toggle-maximize","cornerRadius":12,"checkForUpdates":true,"folderDialog":true}"#
     );
     let overlay = crate::title_bar::TitleBar::Overlay {
       double_click: DoubleClick::ToggleMaximize,
     };
-    assert_eq!(json(&overlay, true), r#"{"kind":"overlay","doubleClick":"toggle-maximize","checkForUpdates":true}"#);
+    assert_eq!(
+      json(&overlay, true),
+      r#"{"kind":"overlay","doubleClick":"toggle-maximize","checkForUpdates":true,"folderDialog":true}"#
+    );
     let native = crate::title_bar::TitleBar::Native { reason: NativeReason::TilingWm };
-    assert_eq!(json(&native, true), r#"{"kind":"native","reason":"tiling-wm","checkForUpdates":true}"#);
-    assert_eq!(json(&native, false), r#"{"kind":"native","reason":"tiling-wm","checkForUpdates":false}"#);
+    assert_eq!(json(&native, true), r#"{"kind":"native","reason":"tiling-wm","checkForUpdates":true,"folderDialog":true}"#);
+    assert_eq!(
+      json(&native, false),
+      r#"{"kind":"native","reason":"tiling-wm","checkForUpdates":false,"folderDialog":true}"#
+    );
   }
 }
 

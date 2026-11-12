@@ -15,7 +15,7 @@ use app_settings::windows::MAIN_WINDOW;
 use domain_types::error::ApiError;
 use domain_types::update::{UpdateInfo, UpdateStatus};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tracing::Instrument;
 
@@ -35,6 +35,8 @@ struct InstancesState {
   params: HashMap<String, Value>,
   /// The instance of each sub-window brd opened, by its window id
   opened: HashMap<String, String>,
+  /// The instances whose place the IDE hides (`viewHidden`), until it shows them again
+  hidden: HashSet<String>,
 }
 
 /// The view of the instance `instance` (`review` of `review:3`)
@@ -54,14 +56,28 @@ impl Instances {
 
   /// The IDE shows `instance` with `params`
   pub fn shown(&self, instance: &str, params: Value) {
-    self.state().params.insert(instance.to_owned(), params);
+    let mut state = self.state();
+    state.hidden.remove(instance);
+    state.params.insert(instance.to_owned(), params);
+  }
+
+  /// The IDE hides the place of `instance` (another tab, a hidden tool window); it stays open
+  pub fn hidden(&self, instance: &str) {
+    self.state().hidden.insert(instance.to_owned());
   }
 
   /// The place of `instance` closed
   pub fn closed(&self, instance: &str) {
     let mut state = self.state();
     state.params.remove(instance);
+    state.hidden.remove(instance);
     state.opened.retain(|_, opened| opened != instance);
+  }
+
+  /// The IDE shows the main view: open, and not hidden
+  pub fn main_shown(&self) -> bool {
+    let state = self.state();
+    state.params.keys().any(|instance| view_of(instance) == MAIN_VIEW && !state.hidden.contains(instance))
   }
 
   /// The params `instance` is shown with
@@ -236,6 +252,11 @@ impl DialogHost for Nothing {
   /// No folder dialog: the roots of the project name the repositories
   fn pick_folder(&self, _title: &str) -> Option<String> {
     None
+  }
+
+  /// The page offers no Open Repository… and no Add Companion…
+  fn has_folder_dialog(&self) -> bool {
+    false
   }
 }
 

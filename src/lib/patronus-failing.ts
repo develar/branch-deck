@@ -53,7 +53,7 @@ export function watchFailingRobots(): () => void {
  */
 export function tellRobotNews(repositoryPath: string, news: readonly News[]): void {
   const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
-  for (const { event } of news) {
+  for (const { id, event } of news) {
     // the other news are of the review requests and the approvals
     if (event.kind !== "robotMerged" && event.kind !== "robotFailed") {
       continue
@@ -67,7 +67,7 @@ export function tellRobotNews(repositoryPath: string, news: readonly News[]): vo
       announceMerge(key, robot, event.closes)
     } else if (!announcedFailures.has(robot.id)) {
       announcedFailures.add(robot.id)
-      void announceFailed(key, robot, event.needsReview === true, repository?.watched[robot.id])
+      void announceFailed(key, robot, event.needsReview === true, repository?.watched[robot.id], id)
     }
   }
 }
@@ -99,12 +99,12 @@ export function formatFailedRobotToast(
 
 /**
  * A robot failed (the news of the session): a toast with its next step and "Open in Patronus", in Activity, and the OS notification of "Safe Push
- * failures" in the background. The step is "Copy Prompt for Agent", "Restart Safe Push" when only the CI failed (its
+ * failures" in the background, which names the news (`brd mcp` in the IDE gives it the action that shows the branch). The step is "Copy Prompt for Agent", "Restart Safe Push" when only the CI failed (its
  * builds never started, `infrastructure`), or the pull request for the review. A robot told failing while it ran is told
  * no second time: its Activity entry says it finished, and its toast, while still open, says in place that it failed.
  * The toast is the robot's (`showRobotEventToast`): it takes the place of the start's, and a restart takes its place.
  */
-async function announceFailed(key: string, robot: PatronusRobot, needsReview: boolean, label: string | undefined): Promise<void> {
+async function announceFailed(key: string, robot: PatronusRobot, needsReview: boolean, label: string | undefined, newsId: number): Promise<void> {
   const [repositoryPath] = key.split("\n") as [string, string]
   const toldFailing = announced.has(robot.id)
   if (toldFailing) {
@@ -122,7 +122,9 @@ async function announceFailed(key: string, robot: PatronusRobot, needsReview: bo
     return
   }
   recordRobotNews(repositoryPath, title, description, robot)
-  announce("patronusFailures", { title, body: description }, () => showFailedToast(repositoryPath, robot, needsReview, kind, title, description, false))
+  announce("patronusFailures", { title, body: description, news: { repositoryPath, id: newsId } }, () =>
+    showFailedToast(repositoryPath, robot, needsReview, kind, title, description, false),
+  )
 }
 
 function showFailedToast(

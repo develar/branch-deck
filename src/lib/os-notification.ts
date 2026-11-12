@@ -19,6 +19,17 @@ const kindSwitches: Readonly<Record<NotificationKind, AppSettingsSwitch>> = {
   approvals: "notifyApprovals",
 }
 
+/**
+ * What an OS notification says; `news` names the news of a session it tells, which the host of the page in the IDE
+ * (`brd mcp`) knows: it gives the notification the action that opens its object, or leaves it out when it told the
+ * news itself (openspec/specs/repository/ide-embedding/spec.md)
+ */
+export interface OsNotification {
+  readonly title: string
+  readonly body: string
+  readonly news?: { readonly repositoryPath: string; readonly id: number }
+}
+
 /** The permission of the app to show OS notifications: never asked, refused in the system settings, or granted */
 export type NotificationPermissionState = "notAsked" | "denied" | "granted"
 
@@ -76,7 +87,7 @@ async function isAppFocused(): Promise<boolean> {
  * Tells news: `showToast` at once while a Branch Deck window has the focus; else the OS notification of `kind` (when
  * Settings lets it) now and `showToast` on the next focus of the main window
  */
-export function announce(kind: NotificationKind, notification: { title: string; body: string }, showToast: () => void): void {
+export function announce(kind: NotificationKind, notification: OsNotification, showToast: () => void): void {
   if (windowFocused) {
     showToast()
     return
@@ -88,7 +99,7 @@ export function announce(kind: NotificationKind, notification: { title: string; 
       return
     }
     deferredToasts.push(showToast)
-    void notifyOs(kind, notification.title, notification.body)
+    void notifyOs(kind, notification)
   })
 }
 
@@ -100,7 +111,7 @@ function isKindEnabled(kind: NotificationKind): boolean {
  * Sends an OS notification of `kind` unless Settings turned it off. Asks for the permission on the first notification,
  * never at startup; a notification is an extra, it never fails.
  */
-async function notifyOs(kind: NotificationKind, title: string, body: string): Promise<void> {
+async function notifyOs(kind: NotificationKind, { title, body, news }: OsNotification): Promise<void> {
   if (!isKindEnabled(kind)) {
     return
   }
@@ -113,7 +124,7 @@ async function notifyOs(kind: NotificationKind, title: string, body: string): Pr
       }
     }
     if (permissionGranted) {
-      sendNotification({ title, body })
+      sendNotification({ title, body, ...(news !== undefined && { extra: { repositoryPath: news.repositoryPath, news: news.id } }) })
     }
   } catch {
     // no notification plugin (the E2E mock), or the OS refused

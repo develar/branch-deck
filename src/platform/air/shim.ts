@@ -344,19 +344,20 @@ export class AirPage {
 
   /**
    * The notification plugin of Tauri sends through the browser's `Notification`: in the IDE it is the plugin call of
-   * Tauri's own `Notification`, which `brd mcp` asks the IDE to show
+   * Tauri's own `Notification`, which `brd mcp` asks the IDE to show, with the action of the news its `extra` names
    */
   private answerNotifications(target: Window): void {
-    const notify = (title: string, body: string | undefined) =>
-      this.runCommand("plugin:notification|notify", { options: { title, ...(body !== undefined && { body }) } }).catch(() => null)
+    // `extra` of the options of Tauri names the news a notification tells, for brd to give it its action
+    const notify = (title: string, body: string | undefined, extra: unknown) =>
+      this.runCommand("plugin:notification|notify", { options: { title, ...(body !== undefined && { body }), ...(extra !== undefined && { extra }) } }).catch(() => null)
     class IdeNotification {
       static readonly permission: NotificationPermission = "granted"
       static requestPermission(): Promise<NotificationPermission> {
         return Promise.resolve("granted")
       }
       onclick: (() => void) | null = null
-      constructor(title: string, options: NotificationOptions = {}) {
-        void notify(title, options.body)
+      constructor(title: string, options: NotificationOptions & { readonly extra?: unknown } = {}) {
+        void notify(title, options.body, options.extra)
       }
       close(): void {}
       addEventListener(): void {}

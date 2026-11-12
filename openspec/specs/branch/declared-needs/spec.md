@@ -684,8 +684,8 @@ worktrees name the same repository.
 ### Requirement: Companion repositories: One writer writes both sides
 
 `brd companion add <path> [--name]`, `brd companion remove <name>`, the section Companions of Settings → Landing (the
-tab of the repository) and its Add Companion… (the folder dialog, named by the directory) and Remove MUST write both
-sides through one writer (`repository_config::write_companion`).
+tab of the repository) and its Add Companion… (the folder dialog, named by the directory; none where the host has no
+folder dialog, the IDE) and Remove MUST write both sides through one writer (`repository_config::write_companion`).
 
 #### Scenario: Add and remove in brd
 - **WHEN** `brd companion add <path> [--name]` or `brd companion remove <name>` runs
@@ -910,7 +910,8 @@ branches a need names come with the sync.
 - `brd need auth docs`, `brd need auth --remove docs`; `brd status` → `landing_needs: [{code: "unlanded_need", …}]`;
   `brd safe-push auth` → `unlanded_need`, `--allow-unlanded` only on the user's word.
 - Settings → Landing, the tab of the repository, section Companions: the list (name, path, "Not readable: …"), Add Companion… (the folder dialog), Remove; empty:
-  "No companion repositories. A need can name a branch of another repository once you add one here."; of a companion:
+  "No companion repositories. A need can name a branch of another repository once you add one here." (in the IDE, which
+  offers no Add Companion…: "… once you add one in the Branch Deck app."); of a companion:
   "A companion of app: a need here names its branches as app:branch. Add companions there."
 - `brd companion add ../ci-config`, `brd need deploy ci-config:prepare`, `brd status --companions`.
 - The menu of a row: "Add Need…" → the form "What lands before JIRA-456", chips of the other branches → Enter → toast

@@ -5,12 +5,14 @@ import { addCompanion, removeCompanion } from "@/hooks/useConfigWrite"
 import type { RepositoryConfigRead } from "@/hooks/useRepositoryConfig"
 import type { RepositoryConfig } from "@/lib/bindings"
 import { repositoryName } from "@/lib/repository-config"
+import { hasFolderDialog } from "@/lib/title-bar"
 
 /**
  * "Companions" (openspec/specs/branch/declared-needs/spec.md#companion-repositories): the repositories whose branches a need of
  * this one names as `companion:branch` (`brd need`), each with its path and why it can not be read; Add Companion… picks
  * one with the folder dialog, named by its directory, Remove takes it back, both sides of both repositories as
- * `brd companion` writes them. A companion lists its primary instead: companions are added there
+ * `brd companion` writes them. A companion lists its primary instead: companions are added there. Where the host has
+ * no folder dialog (the IDE) the desktop app adds them
  */
 export function CompanionsSetting({ path, config, showWritten }: { path: string; config: RepositoryConfig; showWritten: RepositoryConfigRead["showWritten"] }) {
   const [writing, setWriting] = useState(false)
@@ -29,7 +31,7 @@ export function CompanionsSetting({ path, config, showWritten }: { path: string;
     <div className="flex flex-col gap-2">
       {config.companions.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-testid="companions-empty">
-          No companion repositories. A need can name a branch of another repository once you add one here.
+          {`No companion repositories. A need can name a branch of another repository once you add one ${hasFolderDialog ? "here" : "in the Branch Deck app"}.`}
         </p>
       ) : (
         <ul className="flex flex-col gap-1" aria-label="Companion repositories">
@@ -55,11 +57,13 @@ export function CompanionsSetting({ path, config, showWritten }: { path: string;
           ))}
         </ul>
       )}
-      <div>
-        <Button size="xs" variant="outline" disabled={writing || path === ""} onClick={() => run(() => addCompanion(path, showWritten))}>
-          Add Companion…
-        </Button>
-      </div>
+      {hasFolderDialog && (
+        <div>
+          <Button size="xs" variant="outline" disabled={writing || path === ""} onClick={() => run(() => addCompanion(path, showWritten))}>
+            Add Companion…
+          </Button>
+        </div>
+      )}
       <p className="text-xs text-muted-foreground">
         {"A need names a branch of one as "}
         <InlineCode>name:branch</InlineCode>

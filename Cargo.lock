@@ -4096,6 +4096,7 @@ dependencies = [
  "repository-model",
  "serde",
  "serde_json",
+ "sync-core",
  "sync-utils",
  "tempfile",
  "tokio",

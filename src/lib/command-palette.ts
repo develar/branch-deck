@@ -55,9 +55,9 @@ export interface PaletteSources {
   readonly showDiskUsage?: () => void
   /**
    * The folder button of the repository selector: the folder dialog, and the repository picked in it; `reason` why it
-   * waits, as the selector does while a sync runs
+   * waits, as the selector does while a sync runs; none where the host has no folder dialog (the IDE)
    */
-  readonly openRepository: { readonly reason: string | null; readonly run: () => void }
+  readonly openRepository?: { readonly reason: string | null; readonly run: () => void }
 }
 
 /**
@@ -110,14 +110,18 @@ export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
       ? []
       : [{ id: "reviews:link", label: "Add Pull Request by Link…", group: "Commands" as const, icon: LinkIcon, run: sources.addPullRequestByLink }]),
     ...(sources.showDiskUsage === undefined ? [] : [{ id: "disk:usage", label: "Show Disk Usage…", group: "Commands" as const, icon: HardDriveIcon, run: sources.showDiskUsage }]),
-    {
-      id: "repository:open",
-      label: "Open Repository…",
-      group: "Commands",
-      icon: FolderSearchIcon,
-      ...(sources.openRepository.reason !== null && { disabled: true, description: sources.openRepository.reason }),
-      run: sources.openRepository.run,
-    },
+    ...(sources.openRepository === undefined
+      ? []
+      : [
+          {
+            id: "repository:open",
+            label: "Open Repository…",
+            group: "Commands" as const,
+            icon: FolderSearchIcon,
+            ...(sources.openRepository.reason !== null && { disabled: true, description: sources.openRepository.reason }),
+            run: sources.openRepository.run,
+          },
+        ]),
     ...MENU_COMMANDS.flatMap(id => {
       const item = menus.map(groups => findMenuItem(groups, id)).find(found => found !== undefined)
       if (item === undefined) {

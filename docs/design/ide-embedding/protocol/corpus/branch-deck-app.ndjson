@@ -5,9 +5,9 @@
 {"comment":"brd asks the roots of the project at once, and it shows the first Git root of them until the user picks another."}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":1,"method":"roots/list"}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"roots":[{"uri":"file://${repo}","name":"repo"}]}}}
-{"comment":"Four tools, each only for the app, so no agent sees one: bd_invoke and bd_bootstrap for the page, sync and open_command_palette for the actions of the app file."}
+{"comment":"Five tools, each only for the app, so no agent sees one: bd_invoke and bd_bootstrap for the page, sync and open_command_palette for the actions of the app file, reveal_branch for the action of a notification of brd."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"bd_invoke","description":"${any}","inputSchema":{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"object"}},"required":["command"]},"_meta":{"ui":{"visibility":["app"]}}},{"name":"bd_bootstrap","description":"${any}","inputSchema":{"type":"object","properties":{"view":{"type":"string"}},"required":["view"]},"_meta":{"ui":{"visibility":["app"]}}},{"name":"sync","description":"${any}","inputSchema":{"type":"object","properties":{}},"_meta":{"ui":{"visibility":["app"]}}},{"name":"open_command_palette","description":"${any}","inputSchema":{"type":"object","properties":{}},"_meta":{"ui":{"visibility":["app"]}}}]}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"bd_invoke","description":"${any}","inputSchema":{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"object"}},"required":["command"]},"_meta":{"ui":{"visibility":["app"]}}},{"name":"bd_bootstrap","description":"${any}","inputSchema":{"type":"object","properties":{"view":{"type":"string"}},"required":["view"]},"_meta":{"ui":{"visibility":["app"]}}},{"name":"sync","description":"${any}","inputSchema":{"type":"object","properties":{}},"_meta":{"ui":{"visibility":["app"]}}},{"name":"open_command_palette","description":"${any}","inputSchema":{"type":"object","properties":{}},"_meta":{"ui":{"visibility":["app"]}}},{"name":"reveal_branch","description":"${any}","inputSchema":{"type":"object","properties":{"repositoryPath":{"type":"string"},"branchName":{"type":"string"}},"required":["repositoryPath","branchName"]},"_meta":{"ui":{"visibility":["app"]}}}]}}}
 {"comment":"The page of a view and each file of the Air build are resources built into the binary."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"ui://branch-deck/main"}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":3,"result":{"contents":[{"uri":"ui://branch-deck/main","mimeType":"text/html;profile=mcp-app","text":"${any}"}]}}}
@@ -67,8 +67,14 @@
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":18,"result":{"content":[],"structuredContent":{"value":null}}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":5,"result":{}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewClosed","params":{"instance":"review:2"}}}
+{"comment":"Show in Branch Deck, the action of a notification of brd, calls reveal_branch with the origin action: brd asks the IDE to show the main view and answers; the IDE answers the instance it shows, and brd tells it to reveal the branch."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"reveal_branch","arguments":{"repositoryPath":"${repo}","branchName":"feature"},"_meta":{"x-air-app":{"origin":"action","app":"branch-deck"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":6,"method":"x-air-app/openView","params":{"view":"main"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":19,"result":{"content":[],"structuredContent":{"value":null}}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":6,"result":{"instance":"main:1"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"instance":"main:1","event":"reveal-branch","payload":{"repositoryPath":"${repo}","branchName":"feature"}}}}
 {"comment":"The life of the place reaches the window registry: viewClosed forgets the page and the window of the instance."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewHidden","params":{"instance":"main:1"}}}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":19,"method":"x-air-app/unsubscribe","params":{"instance":"main:1"}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":19,"result":{}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":20,"method":"x-air-app/unsubscribe","params":{"instance":"main:1"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":20,"result":{}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewClosed","params":{"instance":"main:1"}}}

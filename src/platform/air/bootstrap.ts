@@ -40,6 +40,7 @@ export function applyBootstrap(target: Window, bootstrap: Bootstrap): void {
       target.__SUB_WINDOW_OPEN__ = init.open
     }
   }
-  // the IDE draws the frame of every place: the row of the page is no title bar, and the app updates with the desktop app
-  target.__BD_TITLE_BAR__ = bootstrap.titleBar ?? { kind: "native", checkForUpdates: false }
+  // the IDE draws the frame of every place: the row of the page is no title bar, the app updates with the desktop app,
+  // and the roots of the project name the repositories
+  target.__BD_TITLE_BAR__ = bootstrap.titleBar ?? { kind: "native", checkForUpdates: false, folderDialog: false }
 }
