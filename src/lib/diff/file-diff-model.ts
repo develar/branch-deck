@@ -6,12 +6,36 @@ import type { DiffSubject } from "@/lib/commit-files"
  * engine, the texts apart by blob id, no patch text.
  */
 
-export type { BlockKind, DiffBlock, DiffContent, DiffMarks, LineEndKind, LineEnds, LineMove, LineRun, Rename, RunKind, Scope, TextDiff, WhitespacePolicy } from "@/lib/bindings"
+export type {
+  BlockKind,
+  DiffBlock,
+  DiffContent,
+  DiffMarks,
+  FileMove,
+  LineEndKind,
+  LineEnds,
+  LineMove,
+  LineRun,
+  Rename,
+  RenameProof,
+  RunKind,
+  Scope,
+  SubjectMarks,
+  TextDiff,
+  UsedRename,
+  WhitespacePolicy,
+} from "@/lib/bindings"
 
 /** A changed file with its content, once the stream gave it, and why the views start it collapsed (Rust's `collapse_of`) */
 export interface FileDiff extends DiffFileHeader {
   content: DiffContent
   collapse: Collapse | null
+  /**
+   * The paths of the files of its subject, in the order of the stream that gave it (`get_file_diffs`, the order of
+   * git): what the marks of the subject name another file by (`FileMove.file`, `UsedRename.file` of
+   * `DiffMarks.subject`). The same list for every file of a stream; absent for a diff of no stream
+   */
+  subjectPaths?: readonly string[]
 }
 
 /**

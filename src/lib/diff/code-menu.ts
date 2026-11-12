@@ -19,9 +19,10 @@ export interface CodeMenuContext {
    * The end of a move the menu opened on, a line of a move or the note at its end: which end it is, what shows the
    * other one, and the key of the view that does the same, given only where the key takes the note of this end (null
    * where the view has no such key, or the key takes another note). Null on a row of no move: the menu has no such
-   * item
+   * item. `file`: of a move between two files of the subject the name of the file of the other end, which the hover
+   * of the item says; null or absent for a move within the file
    */
-  moveEnd: { readonly at: "source" | "destination"; readonly go: () => void; readonly key: string | null } | null
+  moveEnd: { readonly at: "source" | "destination"; readonly go: () => void; readonly key: string | null; readonly file?: string | null } | null
 }
 
 export function codeMenuItems({ name, goToDeclaration, findUsages, moveEnd }: CodeMenuContext): MenuItem[] {
@@ -53,7 +54,7 @@ export function codeMenuItems({ name, goToDeclaration, findUsages, moveEnd }: Co
       label: MOVE_END_LABEL,
       icon: ArrowUpDownIcon,
       ...(moveEnd.key !== null && { kbds: [moveEnd.key.toLowerCase()] }),
-      description: describeMoveEnd(moveEnd.at),
+      description: describeMoveEnd(moveEnd.at, moveEnd.file ?? null),
       onSelect: () => moveEnd.go(),
     })
   }

@@ -1,8 +1,8 @@
 // @spec openspec/specs/commit/quiet-changes/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { LineMove } from "@/lib/bindings"
-import { describeMoveEnd, describeRenamedName, describeToRead, formatHiddenMatches, formatToRead, MOVE_END_LABEL, presentRemark } from "@/presenters/diff-marks"
-import type { RenamedName } from "@/presenters/diff-marks"
+import { describeMoveEnd, describeRenamedName, describeToRead, fileNameAmong, formatHiddenMatches, formatToRead, MOVE_END_LABEL, presentRemark } from "@/presenters/diff-marks"
+import type { OtherFile, RenamedName } from "@/presenters/diff-marks"
 
 const lines = (oldStart: number, oldEnd: number, newStart: number, newEnd: number) =>
   [
@@ -18,6 +18,7 @@ describe("presentRemark", () => {
       target: null,
       detail: "3 lines",
       more: null,
+      reach: [],
       name: "Formatting only, 3 lines",
       toggle: null,
     })
@@ -58,9 +59,10 @@ describe("the words of a move", () => {
     expect(source(false)).toEqual({
       label: "14 lines moved",
       renamed: null,
-      target: { words: "to line 210", name: "Go to line 210, where the lines stand now" },
+      target: { words: "to line 210", name: "Go to line 210, where the lines stand now", jump: true },
       detail: "",
       more: null,
+      reach: [],
       name: "14 lines moved to line 210",
       toggle: "Show the 14 old lines",
     })
@@ -90,9 +92,10 @@ describe("the words of a move", () => {
     expect(destination()).toEqual({
       label: "Moved",
       renamed: null,
-      target: { words: "from line 120", name: "Go to line 120, where the lines were" },
+      target: { words: "from line 120", name: "Go to line 120, where the lines were", jump: true },
       detail: "",
       more: null,
+      reach: [],
       name: "Moved from line 120",
       toggle: null,
     })
@@ -106,6 +109,65 @@ describe("the words of a move", () => {
       "Show where the moved lines stand now",
       "Show where the moved lines were",
     ])
+    // of a move between two files, with the file of the other end
+    expect([describeMoveEnd("source", "Report.kt"), describeMoveEnd("destination", "Ledger.kt")]).toEqual([
+      "Show where the moved lines stand now, in Report.kt",
+      "Show where the moved lines were, in Ledger.kt",
+    ])
+  })
+})
+
+describe("the words of a move between two files", () => {
+  const report: OtherFile = { path: "src/Report.kt", name: "Report.kt", shown: true }
+  const ledger: OtherFile = { path: "src/Ledger.kt", name: "Ledger.kt", shown: true }
+  // four lines left the old lines 54..58 of the ledger for the new lines 17..21 of the report
+  const moved: LineMove = { oldStart: 54, newStart: 17, len: 4, indent: 0, blanksBefore: 0, blanksAfter: 0, edited: [], oldRanges: [], newRanges: [] }
+  const source = (file: OtherFile) => presentRemark({ kind: "moved", lines: lines(54, 58, 60, 60), open: null, move: { at: "source", move: moved, other: [17, 21], file } })
+  const destination = (file: OtherFile) =>
+    presentRemark({ kind: "moved", lines: lines(20, 20, 17, 21), open: null, move: { at: "destination", move: moved, other: [54, 58], file } })
+
+  it("names the file and the first line of the other end at both ends, and counts no line: every line of the move shows", () => {
+    expect(source(report)).toEqual({
+      label: "Moved",
+      renamed: null,
+      target: { words: "to Report.kt:18", name: "Go to line 18 of src/Report.kt, where the lines stand now", jump: true },
+      detail: "",
+      more: null,
+      reach: [],
+      name: "Moved to line 18 of src/Report.kt",
+      toggle: null,
+    })
+    expect(destination(ledger)).toEqual({
+      label: "Moved",
+      renamed: null,
+      target: { words: "from Ledger.kt:55", name: "Go to line 55 of src/Ledger.kt, where the lines were", jump: true },
+      detail: "",
+      more: null,
+      reach: [],
+      name: "Moved from line 55 of src/Ledger.kt",
+      toggle: null,
+    })
+  })
+
+  it("says the same words of an end in a file the view does not show, as words that show nothing", () => {
+    const hidden = source({ ...report, shown: false })
+    expect([hidden.label, hidden.target]).toEqual(["Moved", { words: "to Report.kt:18", name: "Line 18 of src/Report.kt, where the lines stand now", jump: false }])
+    expect(destination({ ...ledger, shown: false }).target).toEqual({ words: "from Ledger.kt:55", name: "Line 55 of src/Ledger.kt, where the lines were", jump: false })
+  })
+
+  it("names a file among the files of its subject by its name, with the directories that tell it from another of that name", () => {
+    const paths = ["src/Ledger.kt", "src/api/Report.kt", "src/impl/Report.kt", "tools/src/impl/Report.kt", "Report.kt", "README.md"]
+    expect(paths.map((_, index) => fileNameAmong(paths, index))).toEqual([
+      "Ledger.kt",
+      "api/Report.kt",
+      "src/impl/Report.kt",
+      "tools/src/impl/Report.kt",
+      // a file at the root that every other of its name ends with: its whole path, the shortest that is its own
+      "Report.kt",
+      "README.md",
+    ])
+    // a file the list does not hold has no name
+    expect(fileNameAmong(paths, 9)).toBe("")
   })
 })
 
@@ -123,6 +185,7 @@ describe("the words of a rename", () => {
       target: null,
       detail: "",
       more: null,
+      reach: [],
       name: "Renamed total to sum, 12 sites",
       toggle: null,
     })
@@ -165,6 +228,68 @@ describe("the words of a rename", () => {
 
   it("says what a renamed name of a line was on the new side, and what it became on the old one", () => {
     expect([describeRenamedName("new", total), describeRenamedName("old", total)]).toEqual(["Renamed from total", "Renamed to sum"])
+  })
+
+  const store: OtherFile = { path: "src/Store.kt", name: "Store.kt", shown: true }
+  const open: RenamedName = { old: "openStore", new: "connectStore", sites: 2, proof: "asked", declared: { file: store, line: 18 } }
+
+  it("says after a rename which file of the subject declares the name, a button that shows it where the view shows that file", () => {
+    expect(note([open])).toMatchObject({
+      renamed: [{ old: "openStore", new: "connectStore", sites: "2 sites" }],
+      reach: [
+        { rename: 0, of: null, declared: { words: "declared in Store.kt", name: "Go to the declaration of connectStore in src/Store.kt", jump: true }, proof: "asked", said: "" },
+      ],
+      name: "Renamed openStore to connectStore, 2 sites, declared in Store.kt",
+    })
+    // a file the view does not show: the same words, which show nothing
+    expect(note([{ ...open, declared: { file: { ...store, shown: false }, line: 18 } }]).reach[0]?.declared).toEqual({
+      words: "declared in Store.kt",
+      name: "connectStore is declared in src/Store.kt",
+      jump: false,
+    })
+  })
+
+  it("says how far the index proved a rename: every use in the change, uses outside it, another meaning, more than the name, not all checked", () => {
+    const said = (proof: RenamedName["proof"]) => note([{ ...total, proof }]).reach.map(it => [it.proof, it.said])
+    expect([said("confirmed"), said("usesOutside"), said("otherMeaning"), said("otherDeclaration"), said("incomplete")]).toEqual([
+      [["confirmed", "all uses in this change"]],
+      [["usesOutside", "uses outside this change"]],
+      [["otherMeaning", "changes what another name means"]],
+      [["otherDeclaration", "more than the name changed"]],
+      [["incomplete", "uses not all checked"]],
+    ])
+    // nothing to tell while the index is still to be asked, where none answers, and of a name it is not asked of
+    expect([said("asked"), said("unavailable"), said(null), said(undefined)]).toEqual([[], [], [], []])
+    // with the file that declares it, in the words of the note and in its name
+    expect(note([{ ...open, proof: "confirmed" }])).toMatchObject({
+      reach: [{ declared: { words: "declared in Store.kt" }, proof: "confirmed", said: "all uses in this change" }],
+      name: "Renamed openStore to connectStore, 2 sites, declared in Store.kt, all uses in this change",
+    })
+    expect(note([{ ...total, proof: "usesOutside" }]).name).toBe("Renamed total to sum, 12 sites, uses outside this change")
+  })
+
+  it("tells of which rename of a note of several the subject speaks, by its new name, and of a counted one in its line of the hover", () => {
+    const two = note([total, { ...open, proof: "confirmed" }])
+    expect(two.reach).toEqual([
+      {
+        rename: 1,
+        of: "connectStore",
+        declared: { words: "declared in Store.kt", name: "Go to the declaration of connectStore in src/Store.kt", jump: true },
+        proof: "confirmed",
+        said: "all uses in this change",
+      },
+    ])
+    expect(two.name).toBe("Renamed total to sum, 12 sites, and openStore to connectStore, 2 sites, declared in Store.kt, all uses in this change")
+    // three: the first is worded with what the subject says of it; the counted ones say theirs where they are listed
+    const three = note([{ ...total, proof: "usesOutside" }, count, { ...open, proof: "incomplete" }])
+    expect([three.reach.map(it => [it.rename, it.of, it.said]), three.more]).toEqual([
+      [[0, "sum", "uses outside this change"]],
+      {
+        words: "and 2 more",
+        names: "count → size · 3 sites\nopenStore → connectStore · 2 sites · declared in Store.kt · uses not all checked",
+        said: ": count to size, 3 sites; openStore to connectStore, 2 sites, declared in Store.kt, uses not all checked",
+      },
+    ])
   })
 
   it("words a run of the kind renamed that names no rename by its kind, as any run", () => {

@@ -95,7 +95,8 @@ export type MoveEndName = "source" | "destination"
 
 /**
  * The rows of the notes at the ends of the moves in `scope` ("5 lines moved to line 6", "Moved from line 22 ·
- * re-indented"), of one end when given (`data-move`); the row a jump to an end landed on has `data-landed`
+ * re-indented"; of a move between two files "Moved to Report.kt:18", "Moved from Ledger.kt:55"), of one end when
+ * given (`data-move`); the row a jump to an end landed on has `data-landed`
  */
 export function moveNotes(scope: Locator | Page, at?: MoveEndName): Locator {
   return scope.locator(`${diffRowSelector("note")}${at === undefined ? "[data-move]" : `[data-move=${at}]`}`)
@@ -103,15 +104,39 @@ export function moveNotes(scope: Locator | Page, at?: MoveEndName): Locator {
 
 /**
  * The buttons of the notes of the moves in `scope` that show the other end of their move ("to line 6", "from line
- * 22"); in a review the one the key of the moves takes names the key (`aria-keyshortcuts`)
+ * 22", "to Report.kt:18"); in a review the one the key of the moves takes names the key (`aria-keyshortcuts`). The
+ * place of an end in a file the view does not show is plain words, no button (`movePlaces`)
  */
 export function moveTargets(scope: Locator | Page): Locator {
   return scope.getByTestId("diff-move-target")
 }
 
+/** The one button of a place that names the key of the moves (`aria-keyshortcuts`): the note the key takes now */
+export function keyedMoveTargets(scope: Locator | Page): Locator {
+  return scope.locator("[data-testid=diff-move-target][aria-keyshortcuts]")
+}
+
+/** Back and Forward of the diffs: Chromium of the tests says it runs on Windows (Ctrl+Alt+← and →), WebKit on macOS (⌘[ and ⌘]) */
+export function diffHistoryKeys(browserName: string): { back: string; forward: string } {
+  return browserName === "webkit" ? { back: "Meta+BracketLeft", forward: "Meta+BracketRight" } : { back: "Control+Alt+ArrowLeft", forward: "Control+Alt+ArrowRight" }
+}
+
+/** The places the notes of the moves in `scope` name in plain words: the other end is in a file the view does not show */
+export function movePlaces(scope: Locator | Page): Locator {
+  return scope.getByTestId("diff-move-place")
+}
+
 /** The cells of the lines of a move (`data-cell="moved"`), of one end and of a side when given */
 export function movedSides(scope: Locator | Page, at?: MoveEndName, side?: number): Locator {
   return scope.locator(`${diffSideSelector(side)}[data-cell="moved"]${at === undefined ? "" : `[data-move=${at}]`}`)
+}
+
+/**
+ * The cells of the lines of a move between two files of the subject (`data-across`: the other end is in the file the
+ * note names), of one end and of a side when given
+ */
+export function acrossSides(scope: Locator | Page, at?: MoveEndName, side?: number): Locator {
+  return scope.locator(`${diffSideSelector(side)}[data-cell="moved"][data-across]${at === undefined ? "" : `[data-move=${at}]`}`)
 }
 
 /** The hits of the find in the old lines a note stands for, named after its words ("1 match in the old line"); `data-hit` says whether the current one is among them */

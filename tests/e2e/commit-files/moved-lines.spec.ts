@@ -5,6 +5,7 @@ import {
   changedParts,
   copiedByKey,
   deletedParts,
+  diffHistoryKeys,
   diffLineNumbers,
   diffRows,
   diffSides,
@@ -12,6 +13,7 @@ import {
   findMarks,
   horizontalBars,
   joinedText,
+  keyedMoveTargets,
   movedSides,
   moveNotes,
   moveTargets,
@@ -48,9 +50,23 @@ const DESCRIBE = [
   "",
 ]
 
-/** The rows of the lines of a move in `scope`, of one end: where they left or where they stand now */
+/**
+ * The rows of the lines of a move within the file in `scope`, of one end: where they left or where they stand now. The
+ * lines that moved to another file of the commit (`reportTitle` of the template, `data-across`) are none of them:
+ * subject-marks.spec.ts reads those
+ */
 function movedRows(scope: Locator, at: "source" | "destination"): Locator {
-  return diffRows(scope).filter({ has: scope.page().locator(`[data-cell="moved"][data-move=${at}]`) })
+  return diffRows(scope).filter({ has: scope.page().locator(`[data-cell="moved"][data-move=${at}]:not([data-across])`) })
+}
+
+/** The notes at the ends of the moves within the file in `scope`, of one end: none that names another file of the commit */
+function ownMoveNotes(scope: Locator, at: "source" | "destination"): Locator {
+  return moveNotes(scope, at).filter({ hasNotText: "Report.kt" })
+}
+
+/** The cells of the lines of a move within the file in `scope`, of one end and of a side */
+function ownMovedSides(scope: Locator, at: "source" | "destination", side: number): Locator {
+  return movedSides(scope, at, side).and(scope.page().locator(":not([data-across])"))
 }
 
 /** The note where the lines of `accounts()` left, and the one where they stand now */
@@ -71,16 +87,6 @@ async function expectLandedOn(note: Locator): Promise<void> {
 async function expectLandedAloneOn(scope: Locator, note: Locator): Promise<void> {
   await expectLandedOn(note)
   await expect(scope.locator("[data-landed]")).toHaveCount(1)
-}
-
-/** Back and Forward of the diffs: Chromium of the tests says it runs on Windows (Ctrl+Alt+← and →), WebKit on macOS (⌘[ and ⌘]) */
-function historyKeys(browserName: string): { back: string; forward: string } {
-  return browserName === "webkit" ? { back: "Meta+BracketLeft", forward: "Meta+BracketRight" } : { back: "Control+Alt+ArrowLeft", forward: "Control+Alt+ArrowRight" }
-}
-
-/** The one button of a place that names the key of the moves: the note the key takes now */
-function keyedTargets(scope: Locator): Locator {
-  return scope.locator("[data-testid=diff-move-target][aria-keyshortcuts]")
 }
 
 /** The key the item of a menu shows, a `Kbd` after its label */
@@ -166,7 +172,7 @@ test.describe("The moves of a diff in the preview of a commit", () => {
     const { source } = accountsNotes(ledger)
     await scrollDiffsTo(ledger, source)
     await expect(source).toHaveText("5 lines moved to line 6")
-    await expect(moveNotes(ledger, "source")).toHaveText(["5 lines moved to line 6", "7 lines moved to line 19"])
+    await expect(ownMoveNotes(ledger, "source")).toHaveText(["5 lines moved to line 6", "7 lines moved to line 19"])
     await expect(movedRows(ledger, "source")).toHaveCount(0)
     const toggle = ledger.getByRole("button", { name: /^5 lines moved to line 6: / })
     await expect(toggle).toHaveAccessibleName("5 lines moved to line 6: Show the 5 old lines")
@@ -201,10 +207,10 @@ test.describe("The moves of a diff in the preview of a commit", () => {
     await expect.poll(() => joinedText(changedParts(edited))).toBe(" ")
     // where they left: every line after its note, deleted rows of the move; the notes are plain words
     const { source } = accountsNotes(ledger)
-    await scrollDiffsTo(ledger, moveNotes(ledger, "source").last())
+    await scrollDiffsTo(ledger, ownMoveNotes(ledger, "source").last())
     // into the view: the rows around it are painted then, the lines after both notes
-    await moveNotes(ledger, "source").last().scrollIntoViewIfNeeded()
-    await expect(moveNotes(ledger, "source")).toHaveText(["5 lines moved to line 6", "7 lines moved to line 19"])
+    await ownMoveNotes(ledger, "source").last().scrollIntoViewIfNeeded()
+    await expect(ownMoveNotes(ledger, "source")).toHaveText(["5 lines moved to line 6", "7 lines moved to line 19"])
     await expect(ledger.getByRole("button", { name: /lines moved to line \d+: / })).toHaveCount(0)
     await expect.poll(() => codeOf(movedRows(ledger, "source"))).toEqual(["", ...ACCOUNTS, ...DESCRIBE_WAS])
     await expect.poll(() => movedRows(ledger, "source").evaluateAll(rows => new Set(rows.map(row => row.getAttribute("data-kind"))).size)).toBe(1)
@@ -223,10 +229,10 @@ test.describe("The moves of a diff in the preview of a commit", () => {
       .first()
     await expect(diffSides(standsRow, 0)).toHaveAttribute("data-cell", "filler")
     // where they left: on the old side, the new side filled; their note over the old column
-    await scrollDiffsTo(ledger, moveNotes(ledger, "source").last())
-    await moveNotes(ledger, "source").last().scrollIntoViewIfNeeded()
+    await scrollDiffsTo(ledger, ownMoveNotes(ledger, "source").last())
+    await ownMoveNotes(ledger, "source").last().scrollIntoViewIfNeeded()
     await expect(source).toHaveAttribute("data-over", "old")
-    await expect.poll(() => codeOf(movedSides(ledger, "source", 0))).toEqual(["", ...ACCOUNTS, ...DESCRIBE_WAS])
+    await expect.poll(() => codeOf(ownMovedSides(ledger, "source", 0))).toEqual(["", ...ACCOUNTS, ...DESCRIBE_WAS])
     await expect(movedSides(ledger, "source", 1)).toHaveCount(0)
     const leftRow = diffRows(ledger, "changed")
       .filter({ has: page.locator('[data-cell="moved"][data-move=source]') })
@@ -299,16 +305,16 @@ test.describe("The moves of a diff in the review window", () => {
   test("a click on the place a note names jumps to the other end of the move, Back returns and Forward goes there again", { tag: "@webkit" }, async ({ page, browserName }) => {
     const { code, diffs } = await openLedgerReview(page)
     const { source, destination } = accountsNotes(code)
-    const { back, forward } = historyKeys(browserName)
+    const { back, forward } = diffHistoryKeys(browserName)
     // in a review the button of the note the key takes names the key: here the first note of a move in view
     await expect(moveTargets(destination)).toHaveAttribute("aria-keyshortcuts", "G")
-    await expect(keyedTargets(code)).toHaveText(["from line 22"])
+    await expect(keyedMoveTargets(code)).toHaveText(["from line 22"])
 
     await moveTargets(destination).click()
     await expectLandedOn(source)
     await expect(destination).not.toBeInViewport()
     // the note the view landed on names the key now
-    await expect(keyedTargets(code)).toHaveText(["to line 6"])
+    await expect(keyedMoveTargets(code)).toHaveText(["to line 6"])
     // the diffs have the focus: their keys work at the place shown
     await expect(diffs).toBeFocused()
     await page.keyboard.press(back)
@@ -340,17 +346,21 @@ test.describe("The moves of a diff in the review window", () => {
     await expectLandedOn(destination)
     await expect(source).not.toBeInViewport()
     // each press is a jump: Back returns along them
-    await page.keyboard.press(historyKeys(browserName).back)
+    await page.keyboard.press(diffHistoryKeys(browserName).back)
     await expectLandedOn(source)
 
-    // with no note of a move in view the key moves nothing: Report.kt stays, and N goes on from its top
-    await window.getByRole("treeitem", { name: "Report.kt" }).click()
-    await expect(position).toHaveText("File 2 / 3")
+    // with no note of a move in view the key moves nothing: Store.kt, the last card, stays at the top with its one
+    // change in view, and nothing is marked as a row a jump landed on
+    await window.getByRole("treeitem", { name: "Store.kt" }).click()
+    await expect(position).toHaveText("File 3 / 3")
+    const declaration = diffRows(code, "inline", { hasText: "connectStore(path: String): Store {" })
+    await expect(declaration).toBeInViewport()
+    // the last note of a move above it, where the lines that came from the ledger stand in the report, is out of view
+    await expect(moveNotes(code, "destination").filter({ hasText: "from Ledger.kt:55" })).not.toBeInViewport()
     await diffs.focus()
     await page.keyboard.press("g")
-    await page.keyboard.press("n")
-    await expect(diffRows(code, "inline", { hasText: "connectStore(path)" }).first()).toBeInViewport()
-    await expect(position).toHaveText("File 2 / 3")
+    await expect(position).toHaveText("File 3 / 3")
+    await expect(declaration).toBeInViewport()
     await expect(code.locator("[data-landed]")).toHaveCount(0)
   })
 
@@ -417,7 +427,7 @@ test.describe("The moves of a diff in the review window", () => {
     await item.click()
     await expectLandedOn(destination)
     // on a line of the other move in view the item names no key: the key takes the note the view landed on
-    await expect(keyedTargets(code)).toHaveText(["from line 22"])
+    await expect(keyedMoveTargets(code)).toHaveText(["from line 22"])
     await diffRows(code, "added", { hasText: "return text.trim()" }).click({ button: "right" })
     await expect(item).toBeVisible()
     await expect(itemKey(item)).toHaveCount(0)
@@ -461,7 +471,7 @@ test.describe("The moves of a diff in the review window", () => {
       await expect(item).toHaveCount(0)
       await page.keyboard.press("Escape")
       await expectClosed(menu)
-      await expect(keyedTargets(code)).toHaveText(["to line 6"])
+      await expect(keyedMoveTargets(code)).toHaveText(["to line 6"])
     },
   )
 
@@ -562,7 +572,7 @@ test.describe("The moves of a commit a test makes, in the review window", () => 
     }
 
     // four notes in view, one hint: the first note of a move in view is the one the key takes
-    await expect(keyedTargets(code)).toHaveText(["from line 8"])
+    await expect(keyedMoveTargets(code)).toHaveText(["from line 8"])
     await keyInMenuOf("alphaTimeoutMilliseconds", "G")
     await keyInMenuOf("betaRetryCountMaximum", null)
 
@@ -570,9 +580,9 @@ test.describe("The moves of a commit a test makes, in the review window", () => 
     // though the first note is still in view above it
     await window.getByRole("treeitem", { name: "Config.kt" }).click()
     await page.keyboard.press("n")
-    await expect(keyedTargets(code)).toHaveText(["from line 8"])
+    await expect(keyedMoveTargets(code)).toHaveText(["from line 8"])
     await page.keyboard.press("n")
-    await expect(keyedTargets(code)).toHaveText(["from line 9"])
+    await expect(keyedMoveTargets(code)).toHaveText(["from line 9"])
     await expect(alpha.stands).toBeInViewport()
     await keyInMenuOf("betaRetryCountMaximum", "G")
     await keyInMenuOf("alphaTimeoutMilliseconds", null)
@@ -581,19 +591,19 @@ test.describe("The moves of a commit a test makes, in the review window", () => 
     await diffs.focus()
     await page.keyboard.press("g")
     await expectLandedOn(beta.left)
-    await expect(keyedTargets(code)).toHaveText(["to line 6"])
+    await expect(keyedMoveTargets(code)).toHaveText(["to line 6"])
     await page.keyboard.press("g")
     await expectLandedOn(beta.stands)
-    await expect(keyedTargets(code)).toHaveText(["from line 9"])
+    await expect(keyedMoveTargets(code)).toHaveText(["from line 9"])
 
     // Back and Forward land too: after a click on the place of the first move and Back, the key goes on from the
     // note Back returned to, never from the one the click landed on
     await moveTargets(alpha.stands).click()
     await expectLandedOn(alpha.left)
-    await expect(keyedTargets(code)).toHaveText(["to line 4"])
-    await page.keyboard.press(historyKeys(browserName).back)
+    await expect(keyedMoveTargets(code)).toHaveText(["to line 4"])
+    await page.keyboard.press(diffHistoryKeys(browserName).back)
     await expectLandedOn(alpha.stands)
-    await expect(keyedTargets(code)).toHaveText(["from line 8"])
+    await expect(keyedMoveTargets(code)).toHaveText(["from line 8"])
     await page.keyboard.press("g")
     await expectLandedOn(alpha.left)
     await expect(alpha.stands).not.toHaveAttribute("data-landed")
@@ -659,7 +669,7 @@ test.describe("The moves of a diff in a review with its plan", () => {
     await expect(heading).toHaveText("compute — body changed · Moved from line 121 · 1 line edited")
     await expect(heading).toHaveAttribute("data-tone", "unit")
     await expect(heading.getByTestId("diff-unit-heading")).toHaveText("compute — body changed")
-    await expect(keyedTargets(code)).toHaveText(["from line 121"])
+    await expect(keyedMoveTargets(code)).toHaveText(["from line 121"])
 
     // a click on the place: the note where the lines left, marked, the diffs holding the focus
     await moveTargets(heading).click()
@@ -686,7 +696,7 @@ test.describe("The moves of a diff in a review with its plan", () => {
     turnOnReviewPlan(repo)
     const window = await openPlanWindow(page, syncAndWaitForBranches, "store")
     const code = window.getByTestId("commit-review-code")
-    const { back, forward } = historyKeys(browserName)
+    const { back, forward } = diffHistoryKeys(browserName)
     // the lines moved as they were: nothing of them to read, so their section stands folded at the end, no note shown
     await expect(moveNotes(code)).toHaveCount(0)
     const expand = code.getByRole("button", { name: "Expand Store.kt" })

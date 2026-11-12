@@ -31,10 +31,23 @@ function withMarks(file: FileDiff, marks: DiffMarks): FileDiff | null {
   return { ...file, content }
 }
 
+/** The paths of the headers of a stream, one list for all its files (`FileDiff.subjectPaths`) */
+const pathsOfHeaders = new WeakMap<readonly DiffFileHeader[], readonly string[]>()
+
+function subjectPathsOf(headers: readonly DiffFileHeader[]): readonly string[] {
+  let paths = pathsOfHeaders.get(headers)
+  if (paths === undefined) {
+    paths = headers.map(header => header.path)
+    pathsOfHeaders.set(headers, paths)
+  }
+  return paths
+}
+
 const stream = createFileStream<DiffFileHeader, DiffContent, FileDiff, FileDiffEvent>(
   MAX_CACHED_SUBJECTS,
   "Cannot read the diffs of the files",
-  (header, event) => ({ ...header, content: event.content, collapse: event.collapse }),
+  // with the files of its subject: the marks of the subject name another file by its place among them
+  (header, event, headers) => ({ ...header, content: event.content, collapse: event.collapse, subjectPaths: subjectPathsOf(headers) }),
   (file, event) => {
     if (file.content.kind !== "text") {
       return null

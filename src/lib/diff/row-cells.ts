@@ -37,7 +37,7 @@ export interface RowCells {
    * (`renamed`) is a range of its own kind, `RENAMED_RANGE`, in place of the ranges of the engine inside it
    */
   ranges: (row: LineRow, side: number) => readonly number[] | null
-  /** The sites of the renames on a line of a side, in the order of their columns (`TextDiff.marks.renames`); none in a merge */
+  /** The sites of the renames on a line of a side, in the order of their columns (`namedRenames`: those the file declares and those another file does); none in a merge */
   renamed: (side: number, line: number) => readonly RenameSite[]
   /** The run of a renamed name (`LineRun.kind` `renamed`) that holds a line of the new side; null for a line of none, and in a merge */
   renamedRun: (line: number) => LineRun | null
@@ -127,24 +127,25 @@ export function diffCells(diff: TextDiff, mode: DiffViewMode, oneSide: number | 
       if (block === undefined || block.kind === "ignored" || line == null) {
         return null
       }
-      const named = sitesOfLine(sites, side, line)
-      // the ranges of a quiet line are whitespace between the same tokens: nothing in it is strong but a renamed name
-      if (row.tint === "quiet") {
-        return nonEmpty(withSites(null, named) ?? undefined)
-      }
       if (row.move !== null) {
-        // the ranges of line i of the move, both lists empty when no line of it has one; none for a blank line beside it
+        // the ranges of line i of the move, both lists empty when no line of it has one; none for a blank line beside
+        // it, nor for a line that moved between two files
         const { move } = row.move
         return nonEmpty(side === OLD ? move.oldRanges[line - move.oldStart] : move.newRanges[line - move.newStart])
       }
-      const own = side === OLD ? block.oldRanges[line - block.oldStart] : block.newRanges[line - block.newStart]
       const [oldLine, newLine] = [row.lines[OLD], row.lines[NEW]]
       if (row.kind === "inline" && oldLine != null && newLine != null) {
-        // one row for the pair: the names both lines hold at one site are one range of both
+        // one row for the pair: the names both lines hold at one site are one range of both. A quiet pair is of a run
+        // of a renamed name the index proved, which keeps both its lines: the names alone, as on any line of such a run
         return nonEmpty(
           pairRanges(diff, [oldLine, newLine], block.oldRanges[oldLine - block.oldStart] ?? [], block.newRanges[newLine - block.newStart] ?? [])[side === OLD ? 0 : 1],
         )
       }
+      // the ranges of a quiet line are whitespace between the same tokens: nothing in it is strong but a renamed name
+      if (row.tint === "quiet") {
+        return nonEmpty(withSites(null, sitesOfLine(sites, side, line)) ?? undefined)
+      }
+      const own = side === OLD ? block.oldRanges[line - block.oldStart] : block.newRanges[line - block.newStart]
       return nonEmpty(lineRanges(diff, side, line, own ?? null) ?? undefined)
     },
     renamed: (side, line) => sitesOfLine(sites, side, line),

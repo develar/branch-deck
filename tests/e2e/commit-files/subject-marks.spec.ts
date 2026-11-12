@@ -1,0 +1,628 @@
+// @spec openspec/specs/commit/quiet-changes/spec.md
+import { readFileSync, writeFileSync } from "node:fs"
+import path from "node:path"
+import type { Locator, Page } from "@playwright/test"
+import { test, expect } from "../fixtures/test-fixtures"
+import { findBranchRow } from "../helpers/branch-helpers"
+import {
+  acrossSides,
+  diffHistoryKeys,
+  diffRows,
+  diffSides,
+  keyedMoveTargets,
+  moveNotes,
+  movePlaces,
+  moveTargets,
+  remarks,
+  renamedNames,
+  scrollDiffsTo,
+} from "../helpers/diff-helpers"
+import { answerStoreRename, codeOf, lateSubjectMarks, MARKS_SUBJECT, openLedgerPreview, openMarksReview } from "../helpers/marks-helpers"
+import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
+import { nextAnswer } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { expectClosed, holdCommand, resizeReportsDelivered } from "../helpers/wait-helpers"
+
+// what the files of the commit of the `commit_marks` template say of each other. `reportTitle` moves from the end of
+// src/Ledger.kt to the end of src/Report.kt as it is: its four lines leave the old lines 55 to 58 of the ledger for the
+// new lines 18 to 21 of the report (the blank line before them is no line of the move). src/Store.kt declares
+// `openStore` and renames it to `connectStore`; the report calls it at its lines 5 and 11 and declares none
+const TITLE = ["fun reportTitle(ledger: Ledger, account: String): String {", "  val balance = ledger.balance(account)", '  return "Report for $account: $balance"', "}"]
+const CALL = "    val store = openStoreconnectStore(path)"
+const DECLARATION = "fun openStoreconnectStore(path: String): Store {"
+
+/** The rows of the lines of a move between two files in `scope`, of one end: where they left or where they stand now */
+function movedRows(scope: Locator, at: "source" | "destination"): Locator {
+  return diffRows(scope).filter({ has: acrossSides(scope.page(), at) })
+}
+
+/** The note where the lines of `reportTitle` left the ledger (`left`), and the one where they stand in the report (`stands`) */
+function titleNotes(scope: Locator): { left: Locator; stands: Locator } {
+  return { left: moveNotes(scope, "source").filter({ hasText: "to Report.kt:18" }), stands: moveNotes(scope, "destination").filter({ hasText: "from Ledger.kt:55" }) }
+}
+
+/** The file a note of renames names as the one that declares a name ("declared in Store.kt"): a button where the view shows that file */
+function declaredIn(scope: Locator | Page): Locator {
+  return scope.getByTestId("diff-rename-declared")
+}
+
+/** What the index of the repository proved of a rename, after the words of its note ("all uses in this change"); `data-proof` is its answer */
+function proofs(scope: Locator | Page): Locator {
+  return scope.getByTestId("diff-rename-proof")
+}
+
+/** The view went to `row`: it is marked as the row the jump landed on, alone, and in view */
+async function expectLandedOn(scope: Locator, row: Locator): Promise<void> {
+  await expect(row).toHaveAttribute("data-landed", "")
+  await expect(row).toBeInViewport()
+  await expect(scope.locator("[data-landed]")).toHaveCount(1)
+}
+
+/** The row of a file in the tree of the files of a preview, which holds its diff once it is open */
+function fileRow(preview: Locator, name: string): Locator {
+  return preview.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name })
+}
+
+/** Opens the diff of a file of the preview under its row, by a click on its name */
+async function openFile(preview: Locator, name: string): Promise<Locator> {
+  const row = fileRow(preview, name)
+  await row.getByText(name).click()
+  await expect(row).toHaveAttribute("aria-expanded", "true")
+  return row
+}
+
+/**
+ * How far the top of `row` is below the top of `view`, in whole px. The painter replaces the element of a row as its
+ * tokens arrive: a row that is no element of the page at the moment it is measured is measured again
+ */
+async function topIn(view: Locator, row: Locator): Promise<number> {
+  let top = Number.NaN
+  await expect
+    .poll(async () => {
+      const [outer, inner] = [await view.boundingBox(), await row.boundingBox()]
+      top = outer === null || inner === null ? Number.NaN : Math.round(inner.y - outer.y)
+      return Number.isNaN(top)
+    })
+    .toBe(false)
+  return top
+}
+
+/** The height of `row` in px, measured again while the painter replaces its element */
+async function heightOf(row: Locator): Promise<number> {
+  let height = Number.NaN
+  await expect
+    .poll(async () => {
+      height = (await row.boundingBox())?.height ?? Number.NaN
+      return Number.isNaN(height)
+    })
+    .toBe(false)
+  return height
+}
+
+test.describe("The marks of a subject in the preview of a commit", () => {
+  test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("commit_marks")
+    await syncAndWaitForBranches()
+  })
+
+  test("the lines that moved to another file show at both ends in every layout, in the colour of a move, each end under a note that names the file and the line of the other", async ({
+    page,
+  }) => {
+    const { preview, ledger } = await openLedgerPreview(page)
+    const report = await openFile(preview, "Report.kt")
+    const { left } = titleNotes(ledger)
+    const { stands } = titleNotes(report)
+    for (const [mode, kinds] of [
+      ["Inline", ["deleted", "added"]],
+      ["Unified", ["deleted", "added"]],
+      ["Split", ["changed", "changed"]],
+    ] as const) {
+      await preview.getByRole("button", { name: mode, exact: true }).click()
+      // where the lines left: a note of plain words that opens nothing, then every line, in Inline too
+      await scrollDiffsTo(ledger, left)
+      await left.scrollIntoViewIfNeeded()
+      await expect(left).toHaveText("Moved to Report.kt:18")
+      await expect(remarks(left, "moved")).not.toHaveAttribute("aria-expanded")
+      await expect.poll(() => codeOf(acrossSides(ledger, "source"))).toEqual(TITLE)
+      // rows of deleted lines of the move, each as it was: none pale, none edited on the way
+      await expect(movedRows(ledger, "source").and(diffRows(page, kinds[0]))).toHaveCount(4)
+      await expect(acrossSides(ledger, "source").and(page.locator("[data-tint]"))).toHaveCount(0)
+      // where they stand now: the same four lines, after their note
+      await report.getByText("Report.kt").first().scrollIntoViewIfNeeded()
+      await scrollDiffsTo(report, stands)
+      await stands.scrollIntoViewIfNeeded()
+      await expect(stands).toHaveText("Moved from Ledger.kt:55")
+      await expect(remarks(stands, "moved")).not.toHaveAttribute("aria-expanded")
+      await expect.poll(() => codeOf(acrossSides(report, "destination"))).toEqual(TITLE)
+      await expect(movedRows(report, "destination").and(diffRows(page, kinds[1]))).toHaveCount(4)
+      if (mode === "Split") {
+        // a column per side: each note over the column of its lines, the other one filled beside them
+        await expect(left).toHaveAttribute("data-over", "old")
+        await expect(stands).toHaveAttribute("data-over", "new")
+        await expect(acrossSides(ledger, "source", 0)).toHaveCount(4)
+        await expect(acrossSides(ledger, "source", 1)).toHaveCount(0)
+        await expect(acrossSides(report, "destination", 1)).toHaveCount(4)
+        await expect(acrossSides(report, "destination", 0)).toHaveCount(0)
+        await expect(diffSides(movedRows(ledger, "source").first(), 1)).toHaveAttribute("data-cell", "filler")
+      }
+    }
+  })
+
+  test("a click on the file and the line a note of a move names opens the diff of that file under its row and shows the other end there, and the note there shows the first again", async ({
+    page,
+  }) => {
+    const { preview, ledger } = await openLedgerPreview(page)
+    const report = fileRow(preview, "Report.kt")
+    await expect(report).toHaveAttribute("aria-expanded", "false")
+    const { left } = titleNotes(ledger)
+    await scrollDiffsTo(ledger, left)
+    // the place is a button, named by the file and the line it shows; no key in a preview
+    const to = moveTargets(left)
+    await expect(to).toHaveText("to Report.kt:18")
+    await expect(to).toHaveAccessibleName("Go to line 18 of src/Report.kt, where the lines stand now")
+    await expect(to).not.toHaveAttribute("aria-keyshortcuts")
+
+    await to.click()
+    // the row of the report opened its diff, which shows the note where the lines stand, marked
+    await expect(report).toHaveAttribute("aria-expanded", "true")
+    const { stands } = titleNotes(report)
+    await expectLandedOn(preview, stands)
+    await expect.poll(() => codeOf(acrossSides(report, "destination"))).toEqual(TITLE)
+    // and from there back to where they left, in the diff that is open already
+    const from = moveTargets(stands)
+    await expect(from).toHaveText("from Ledger.kt:55")
+    await expect(from).toHaveAccessibleName("Go to line 55 of src/Ledger.kt, where the lines were")
+    await from.click()
+    await expectLandedOn(preview, left)
+    // once more, into the diff that stayed open: the same place asked again is shown again
+    await moveTargets(left).click()
+    await expectLandedOn(preview, stands)
+    // closed and opened again by its row, the diff of the report is a diff as any: no place is asked of it
+    await report.getByText("Report.kt").first().click()
+    await expect(report).toHaveAttribute("aria-expanded", "false")
+    await report.getByText("Report.kt").first().click()
+    await expect(report).toHaveAttribute("aria-expanded", "true")
+    await expect(diffRows(report, "inline").first()).toBeVisible()
+    await expect(preview.locator("[data-landed]")).toHaveCount(0)
+  })
+
+  test("the note of a name another file declares names that file, and a click on it opens the diff of that file at the declaration, the new name selected", async ({ page }) => {
+    const { preview } = await openLedgerPreview(page)
+    const report = await openFile(preview, "Report.kt")
+    // one note for the two calls, at the first of them: the name is declared in no line of this file
+    const note = diffRows(report, "note").filter({ has: remarks(page, "renamed") })
+    await expect(note).toHaveText("Renamed openStore → connectStore · 2 sites · declared in Store.kt")
+    await expect.poll(() => codeOf(diffRows(report, "inline"))).toEqual([CALL, CALL])
+    // each call draws the name in the mark of a renamed name, never as a change
+    await expect(renamedNames(report).filter({ hasText: "connectStore" })).toHaveCount(2)
+    const store = fileRow(preview, "Store.kt")
+    await expect(store).toHaveAttribute("aria-expanded", "false")
+
+    const declared = declaredIn(note)
+    await expect(declared).toHaveAccessibleName("Go to the declaration of connectStore in src/Store.kt")
+    await declared.click()
+    await expect(store).toHaveAttribute("aria-expanded", "true")
+    const declaration = diffRows(store, "inline", { hasText: "connectStore(path: String): Store {" })
+    await expect(declaration).toBeInViewport()
+    await expect.poll(async () => (await selectedInDiffs(page)).text).toBe("connectStore")
+    // the file that declares the name says so in its own note, which names no other file
+    await expect(diffRows(store, "note").filter({ has: remarks(page, "renamed") })).toHaveText("Renamed openStore → connectStore · 1 site")
+    await expect.poll(() => codeOf(declaration)).toEqual([DECLARATION])
+  })
+})
+
+test.describe("What the index of the repository proved of a rename, in the preview of a commit", () => {
+  /** The notes of the rename in the report, which uses the name, and in the store, which declares it, once the index answered */
+  async function openRenameNotes(page: Page): Promise<{ used: Locator; declared: Locator }> {
+    const answered = nextAnswer(page, "get_rename_proofs")
+    const { preview } = await openLedgerPreview(page)
+    const report = await openFile(preview, "Report.kt")
+    const store = await openFile(preview, "Store.kt")
+    await answered
+    const note = (file: Locator) => diffRows(file, "note").filter({ has: remarks(page, "renamed") })
+    return { used: note(report), declared: note(store) }
+  }
+
+  test("a note says after its words that every use of the name is in the change, where the name is declared and where it is used", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("commit_marks")
+    answerStoreRename(repo.path)
+    await syncAndWaitForBranches()
+    const { used, declared } = await openRenameNotes(page)
+    await expect(used).toHaveText("Renamed openStore → connectStore · 2 sites · declared in Store.kt · all uses in this change")
+    await expect(declared).toHaveText("Renamed openStore → connectStore · 1 site · all uses in this change")
+    await expect(proofs(used)).toHaveAttribute("data-proof", "confirmed")
+    await expect(proofs(declared)).toHaveAttribute("data-proof", "confirmed")
+  })
+
+  test("a note says that the name is used outside the change where the index lists a use the change left alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("commit_marks")
+    answerStoreRename(repo.path, { outside: true })
+    await syncAndWaitForBranches()
+    const { used, declared } = await openRenameNotes(page)
+    await expect(used).toHaveText("Renamed openStore → connectStore · 2 sites · declared in Store.kt · uses outside this change")
+    await expect(declared).toHaveText("Renamed openStore → connectStore · 1 site · uses outside this change")
+    await expect(proofs(declared)).toHaveAttribute("data-proof", "usesOutside")
+  })
+
+  test("a note says nothing of the uses of a name where no index answers: the rename is named, and each use is read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("commit_marks")
+    await syncAndWaitForBranches()
+    const { used, declared } = await openRenameNotes(page)
+    // the index answered that it knows nothing: the notes are what they were before it was asked
+    await expect(used).toHaveText("Renamed openStore → connectStore · 2 sites · declared in Store.kt")
+    await expect(declared).toHaveText("Renamed openStore → connectStore · 1 site")
+    await expect(proofs(page)).toHaveCount(0)
+  })
+})
+
+test.describe("The marks of a subject in the review window", () => {
+  test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("commit_marks")
+    await syncAndWaitForBranches()
+  })
+
+  /** The review of the commit of the marks, the note where `reportTitle` left the ledger in view at the end of its card */
+  async function openTitleReview(page: Page): Promise<{ window: Locator; code: Locator; diffs: Locator; left: Locator; stands: Locator }> {
+    const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
+    const { left, stands } = titleNotes(code)
+    await scrollDiffsTo(code, left)
+    await left.scrollIntoViewIfNeeded()
+    return { window, code, diffs: code.locator("[aria-label='Changes of the commit']"), left, stands }
+  }
+
+  // the focus goes to the diffs as the button pressed scrolls out of the painted rows, and the keys of the view work on: WebKit differs there
+  test(
+    "a click on the place a note names jumps to the other end in the other file, into a card that is collapsed too; Back returns and Forward goes there again",
+    { tag: "@webkit" },
+    async ({ page, browserName }) => {
+      const { code, diffs, left, stands } = await openTitleReview(page)
+      const { back, forward } = diffHistoryKeys(browserName)
+      // the card of the report is collapsed: none of its rows is there
+      await code.getByRole("button", { name: "Collapse Report.kt" }).click()
+      await expect(stands).toHaveCount(0)
+      await left.scrollIntoViewIfNeeded()
+
+      await moveTargets(left).click()
+      // the card opened, and the note where the lines stand is marked; it names the key of the moves now
+      await expectLandedOn(code, stands)
+      await expect(code.getByRole("button", { name: "Collapse Report.kt" })).toBeVisible()
+      await expect(keyedMoveTargets(code)).toHaveText(["from Ledger.kt:55"])
+      await expect.poll(() => codeOf(acrossSides(code, "destination"))).toEqual(TITLE)
+      // the diffs have the focus: their keys work at the place shown
+      await expect(diffs).toBeFocused()
+      await page.keyboard.press(back)
+      await expectLandedOn(code, left)
+      await page.keyboard.press(forward)
+      await expectLandedOn(code, stands)
+      // the jump back by the note there is a jump of its own: Back returns to where the lines stand
+      await moveTargets(stands).click()
+      await expectLandedOn(code, left)
+      await expect(diffs).toBeFocused()
+      await page.keyboard.press(back)
+      await expectLandedOn(code, stands)
+    },
+  )
+
+  // the key from the diffs after a jump, the focus it keeps there: WebKit differs there
+  test("G jumps from the note of a move between two files to its other end in the other file and back", { tag: "@webkit" }, async ({ page, browserName }) => {
+    const { window, code, diffs, left, stands } = await openTitleReview(page)
+    // the report at the top: the note where the lines stand is the one note of a move in view, and names the key
+    await window.getByRole("treeitem", { name: "Report.kt" }).click()
+    await expect(stands).toBeInViewport()
+    await expect(keyedMoveTargets(code)).toHaveText(["from Ledger.kt:55"])
+    await diffs.focus()
+
+    await page.keyboard.press("g")
+    await expectLandedOn(code, left)
+    await expect(keyedMoveTargets(code)).toHaveText(["to Report.kt:18"])
+    await expect(diffs).toBeFocused()
+    // from the note the jump landed on: back to where the lines stand
+    await page.keyboard.press("g")
+    await expectLandedOn(code, stands)
+    // each press is a jump: Back returns along them
+    await page.keyboard.press(diffHistoryKeys(browserName).back)
+    await expectLandedOn(code, left)
+  })
+
+  test("the menu of the code on a line that moved between two files shows its other end in the other file", async ({ page }) => {
+    const { window, code, left, stands } = await openTitleReview(page)
+    const item = page.getByRole("menuitem", { name: "Go to Other End of Move" })
+    await window.getByRole("treeitem", { name: "Report.kt" }).click()
+    await expect(stands).toBeInViewport()
+
+    // on a line where the lines stand now: the item, with the key of the review, which takes the note of this move
+    await diffRows(code, "added", { hasText: "val balance = ledger.balance(account)" }).click({ button: "right" })
+    await expect(item).toBeVisible()
+    await expect(item.locator("[data-slot=kbd]")).toHaveText("G")
+    await item.click()
+    await expectLandedOn(code, left)
+    // and on the note where they left
+    await left.click({ button: "right", position: { x: 40, y: 8 } })
+    await item.click()
+    await expectLandedOn(code, stands)
+  })
+
+  // the name a jump selects in another card, and Back to the name it left: the selection of the view differs in WebKit
+  test(
+    "a click on the file that declares a name shows the declaration there with the new name selected, and Back returns to the use",
+    { tag: "@webkit" },
+    async ({ page, browserName }) => {
+      const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
+      await window.getByRole("treeitem", { name: "Report.kt" }).click()
+      const note = diffRows(code, "note").filter({ has: declaredIn(page) })
+      await expect(note).toHaveText("Renamed openStore → connectStore · 2 sites · declared in Store.kt")
+      const call = diffRows(code, "inline", { hasText: "connectStore(path)" }).first()
+      const declaration = diffRows(code, "inline", { hasText: "connectStore(path: String): Store {" })
+
+      await declaredIn(note).click()
+      await expect(declaration).toBeInViewport()
+      await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "connectStore", path: "src/Store.kt" })
+      await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
+      // Back: the first call of the name in the report, where the note stands, its name selected
+      await page.keyboard.press(diffHistoryKeys(browserName).back)
+      await expect(call).toBeInViewport()
+      await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "connectStore", path: "src/Report.kt" })
+      await page.keyboard.press(diffHistoryKeys(browserName).forward)
+      await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "connectStore", path: "src/Store.kt" })
+    },
+  )
+})
+
+/**
+ * A commit of the branch `accounts` that moves `describeAccount` from the end of src/Accounts.kt (its four lines leave
+ * the old lines 7 to 10) to the end of src/Names.kt (the new lines 5 to 8), and changes six files more: eight files,
+ * so the review has the search of its files
+ */
+async function commitMovedDescription(repo: TestRepositoryBuilder): Promise<void> {
+  const describe = 'fun describeAccount(account: Account): String {\n  val name = account.name.trim()\n  return "Account $name of ${account.owner}"\n}\n'
+  const accounts = "package demo\n\nclass Accounts {\n  val all = mutableListOf<Account>()\n}\n"
+  const names = 'package demo\n\nval separator = ", "\n'
+  const fillers = (value: (at: number) => number) =>
+    Object.fromEntries(Array.from({ length: 6 }, (_, at) => [`src/Filler${at}.kt`, `package demo\n\nval filler${at} = ${value(at)}\n`]))
+  await repo.commit("Add the accounts", { "src/Accounts.kt": `${accounts}\n${describe}`, "src/Names.kt": names, ...fillers(at => at) }, 1704120600)
+  await repo.pushInTerminal("master")
+  await repo.commit(
+    "(accounts) the description moves to the names",
+    { "src/Accounts.kt": accounts, "src/Names.kt": `${names}\n${describe}`, ...fillers(at => at + 100) },
+    1704121200,
+  )
+}
+
+test.describe("The marks of a subject in a review that does not show every file", () => {
+  test("a note names the other end of a move in plain words while the review does not show its file: no button, no key, no item of the menu; shown again, it is a button", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("simple")
+    await commitMovedDescription(repo)
+    await syncAndWaitForBranches()
+    const { window, code } = await openMarksReview(page, "accounts", "the description moves to the names")
+    const search = window.getByRole("textbox", { name: "Filter files" })
+    const files = window.getByRole("tree", { name: "Changed files" }).locator("[role=treeitem]:not([aria-expanded])")
+    await expect(files).toHaveCount(8)
+    const left = moveNotes(code, "source").filter({ hasText: "to Names.kt:5" })
+    const stands = moveNotes(code, "destination").filter({ hasText: "from Accounts.kt:7" })
+    await expect(left).toHaveText("Moved to Names.kt:5")
+    await expect(moveTargets(left)).toHaveText("to Names.kt:5")
+    await expect(moveTargets(left)).toHaveAttribute("aria-keyshortcuts", "G")
+
+    // the search hides the file the lines stand in: the same words, which show nothing
+    await search.fill("Accounts")
+    await expect(files).toHaveCount(1)
+    await expect(left).toHaveText("Moved to Names.kt:5")
+    await expect(movePlaces(left)).toHaveText("to Names.kt:5")
+    await expect(movePlaces(left)).toHaveAttribute("title", "Line 5 of src/Names.kt, where the lines stand now")
+    await expect(moveTargets(code)).toHaveCount(0)
+    await expect(acrossSides(code, "source")).toHaveCount(4)
+    // the key of the moves takes no note, and the menu of the code has no item for the move
+    const diffs = code.locator("[aria-label='Changes of the commit']")
+    await diffs.focus()
+    await page.keyboard.press("g")
+    await diffRows(code, "deleted", { hasText: "val name = account.name.trim()" }).click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Go to Declaration" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Go to Other End of Move" })).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expectClosed(page.getByRole("menu"))
+    await expect(code.locator("[data-landed]")).toHaveCount(0)
+    await expect(left).toBeInViewport()
+
+    // every file again: the place is the button it was, and shows the other end in its file
+    await search.fill("")
+    await expect(files).toHaveCount(8)
+    await expect(movePlaces(code)).toHaveCount(0)
+    await moveTargets(left).click()
+    await expectLandedOn(code, stands)
+    await expect
+      .poll(() => codeOf(acrossSides(code, "destination")))
+      .toEqual(["fun describeAccount(account: Account): String {", "  val name = account.name.trim()", '  return "Account $name of ${account.owner}"', "}"])
+  })
+})
+
+test.describe("The marks of a subject in the uncommitted changes", () => {
+  test("a click on the place a note of a move names in another file of the list opens that file and shows the other end in its diff, and the note there shows the first again", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("commit_marks")
+    // in the working tree, the function the store declares moves to the end of the report: its three lines leave the
+    // lines 19 to 21 of the store for the lines 23 to 25 of the report
+    const moved = "fun connectStore(path: String): Store {\n  return Store(path)\n}\n"
+    const file = (name: string) => path.join(repo.path, "src", name)
+    writeFileSync(file("Store.kt"), readFileSync(file("Store.kt"), "utf8").replace(`\n${moved}`, ""))
+    writeFileSync(file("Report.kt"), `${readFileSync(file("Report.kt"), "utf8")}\n${moved}`)
+    await syncAndWaitForBranches()
+    await openContextMenu(page, findBranchRow(page, "ledger"))
+    await clickContextMenuItem(page, "Amend Changes…")
+    const card = page.getByTestId("uncommitted-changes-card")
+    const item = (name: string) => card.getByTestId("file-diff").filter({ has: page.getByRole("button", { name: `src/${name}`, exact: true }) })
+    const header = (name: string) => card.getByRole("button", { name: `src/${name}`, exact: true })
+    const [store, report] = [item("Store.kt"), item("Report.kt")]
+    await expect(header("Report.kt")).toHaveAttribute("aria-expanded", "false")
+
+    await header("Store.kt").click()
+    const left = moveNotes(store, "source")
+    await expect(left).toHaveText("Moved to Report.kt:23")
+    await expect.poll(() => codeOf(acrossSides(store, "source"))).toEqual(moved.trimEnd().split("\n"))
+    await moveTargets(left).click()
+    // the item of the report opened, and its diff shows the note where the lines stand, marked
+    await expect(header("Report.kt")).toHaveAttribute("aria-expanded", "true")
+    const stands = moveNotes(report, "destination")
+    await expect(stands).toHaveText("Moved from Store.kt:19")
+    await expectLandedOn(card, stands)
+    await expect.poll(() => codeOf(acrossSides(report, "destination"))).toEqual(moved.trimEnd().split("\n"))
+    // and back, into the diff that is open
+    await moveTargets(stands).click()
+    await expectLandedOn(card, left)
+  })
+})
+
+test.describe("The marks of a subject that come after the rows of a file were shown", () => {
+  /** The row of the second line of `reportTitle` where it stands in the report: below the two notes the marks of the subject add to that file */
+  const balanceRow = (scope: Locator) => diffRows(scope, "added", { hasText: "val balance = ledger.balance(account)" })
+
+  /**
+   * Puts `row` at the top of `view`, the scroller it is in (a pixel below it at most), and waits until the view heard
+   * of the scroll. The painter replaces the element of a row as its tokens arrive, so a
+   * scroll asked of an element that just left the page moves nothing: asked again until the row stands there
+   */
+  async function standAt(view: Locator, row: Locator): Promise<void> {
+    await expect(async () => {
+      await row.evaluate(element => element.scrollIntoView({ block: "start" }))
+      expect(Math.abs(await topIn(view, row))).toBeLessThan(2)
+    }).toPass()
+    // the scroll event of the frame is delivered: the views read the row at their top by it
+    await resizeReportsDelivered(view.page())
+  }
+
+  /**
+   * `row` stays where it is in `view`, the scroller it is in, while `change` adds two rows of words above the row at
+   * the top of the view: the view scrolled by the height of the two rows, the row not at all
+   */
+  async function expectStaysThrough(view: Locator, row: Locator, change: () => Promise<void>): Promise<void> {
+    const before = await topIn(view, row)
+    const scrolled = await view.evaluate(element => element.scrollTop)
+    const rowHeight = await heightOf(row)
+    await change()
+    await expect.poll(() => view.evaluate(element => element.scrollTop)).toBe(scrolled + 2 * rowHeight)
+    expect(await topIn(view, row)).toBe(before)
+  }
+
+  // the scroll of the view at the moment its rows are laid out again: the engines differ in what they keep by themselves
+  test(
+    "the notes they add come above the row a reader has at the top of a review, which stays where it is, and the uses the index proved keep their rows, played down",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("commit_marks")
+      answerStoreRename(repo.path)
+      // the report says nothing of its subject until the index answered, as where its pair had to be compared, and the
+      // answer is held; with the kind `renamed` switched on, the answer makes the two calls quiet
+      await lateSubjectMarks(page, "src/Report.kt", { renamedOn: true })
+      const release = await holdCommand(page, "get_rename_proofs")
+      await syncAndWaitForBranches()
+      const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
+      const view = code.getByTestId("diff-view")
+      const report = code.getByRole("region", { name: "src/Report.kt" })
+      await window.getByRole("treeitem", { name: "Report.kt" }).click()
+      // as the content of the file gave it: the calls and the added lines are changes as any, under no note
+      await expect.poll(() => codeOf(diffRows(report, "inline"))).toEqual([CALL, CALL])
+      await expect(diffRows(report, "note")).toHaveCount(0)
+      await expect(acrossSides(report)).toHaveCount(0)
+      await expect(report.getByTestId("review-file-to-read")).toHaveCount(0)
+      const row = balanceRow(report)
+      await standAt(view, row)
+      // the two notes come, both above the row at the top: the view moves by their two rows, the row not at all
+      await expectStaysThrough(view, row, async () => {
+        const answered = nextAnswer(page, "get_rename_proofs")
+        release()
+        await answered
+      })
+      await expect(acrossSides(row, "destination")).toHaveCount(1)
+      // the calls the index proved are passed now: one change of three is left to read
+      await expect(report.getByTestId("review-file-to-read")).toHaveText("1 to read")
+      // back at the top of the file: both notes, and every row of a line that was there, the calls with both names
+      await window.getByRole("treeitem", { name: "Report.kt" }).click()
+      await expect(diffRows(report, "note")).toHaveText(["Renamed openStore → connectStore · 2 sites · declared in Store.kt · all uses in this change", "Moved from Ledger.kt:55"])
+      const calls = diffRows(report, "inline")
+      await expect.poll(() => codeOf(calls)).toEqual([CALL, CALL])
+      await expect.poll(() => diffSides(calls).evaluateAll(sides => sides.map(side => side.getAttribute("data-tint")))).toEqual(["quiet", "quiet"])
+      await expect(diffRows(report, "once")).toHaveCount(0)
+      await expect.poll(() => codeOf(acrossSides(report, "destination"))).toEqual(TITLE)
+    },
+  )
+
+  /**
+   * The preview of the commit of the marks while the marks of the subject of the report are late: the diffs of the
+   * report and of the store open under the one of the ledger, every line of the store shown, so the preview is tall
+   * enough below the report for the report to lie above the view, and for a row of it to stand at the top. `answer`
+   * lets the answer of the index arrive, with the marks of the report
+   */
+  async function openLatePreview(
+    page: Page,
+    repositoryPath: string,
+    syncAndWaitForBranches: () => Promise<unknown>,
+  ): Promise<{ body: Locator; report: Locator; store: Locator; answer: () => Promise<void> }> {
+    answerStoreRename(repositoryPath)
+    await lateSubjectMarks(page, "src/Report.kt")
+    const release = await holdCommand(page, "get_rename_proofs")
+    await syncAndWaitForBranches()
+    const { preview } = await openLedgerPreview(page)
+    const report = await openFile(preview, "Report.kt")
+    await expect(diffRows(report, "note")).toHaveCount(0)
+    const store = await openFile(preview, "Store.kt")
+    await store.getByTestId("diff-fold").click({ modifiers: ["Alt"] })
+    const answer = async () => {
+      const answered = nextAnswer(page, "get_rename_proofs")
+      release()
+      await answered
+    }
+    return { body: preview.getByTestId("commit-preview-body"), report, store, answer }
+  }
+
+  // the scroll of the scroller around the diffs of a preview, which each diff moves by its own part: WebKit keeps nothing by itself
+  test(
+    "the notes they add to a diff of a preview that lies above the one a reader has on screen leave the row at the top of the view where it is",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("commit_marks")
+      const { body, report, store, answer } = await openLatePreview(page, repo.path, syncAndWaitForBranches)
+      // at the end of the preview the report lies above the view, whole
+      const row = diffRows(store, "context", { hasText: "private val lines = mutableListOf<String>()" })
+      await expect(row).toBeVisible()
+      await expect
+        .poll(() =>
+          body.evaluate(element => {
+            element.scrollTop = element.scrollHeight
+            return element.scrollTop + element.clientHeight >= element.scrollHeight - 1
+          }),
+        )
+        .toBe(true)
+      await resizeReportsDelivered(page)
+      const [reportBox, bodyBox] = [await report.boundingBox(), await body.boundingBox()]
+      expect(reportBox!.y + reportBox!.height).toBeLessThanOrEqual(bodyBox!.y)
+      // the report grows by its two notes above the view: the preview scrolls by as much, and the row stays
+      await expectStaysThrough(body, row, answer)
+      await expect(proofs(store)).toHaveText("all uses in this change")
+      await report.getByText("Report.kt").first().scrollIntoViewIfNeeded()
+      await expect(diffRows(report, "note")).toHaveText(["Renamed openStore → connectStore · 2 sites · declared in Store.kt · all uses in this change", "Moved from Ledger.kt:55"])
+    },
+  )
+
+  test(
+    "the notes they add to the diff a reader has on screen in a preview come above its top row, which stays where it is",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("commit_marks")
+      const { body, report, answer } = await openLatePreview(page, repo.path, syncAndWaitForBranches)
+      const row = balanceRow(report)
+      await standAt(body, row)
+      await expectStaysThrough(body, row, answer)
+      await expect(acrossSides(row, "destination")).toHaveCount(1)
+    },
+  )
+})

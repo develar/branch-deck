@@ -1,4 +1,5 @@
 import { SubjectFileDiff } from "@/components/conflict/SubjectFileDiffList"
+import type { DeclarationPlace, DiffViewElsewhere } from "@/components/diff/DiffView"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { CommitFile } from "@/lib/bindings"
@@ -11,13 +12,17 @@ export interface InlineCommitFileDiffProps {
   diffs: FileDiffsEntry | undefined
   file: CommitFile
   diffViewMode: DiffViewMode
+  /** The diffs under the other rows of the tree: what shows a place of another file of the commit that a note of this diff names */
+  elsewhere?: DiffViewElsewhere
+  /** A place of this file that a note of another diff of the tree named: shown once the diff is there */
+  shownPlace?: DeclarationPlace
 }
 
 /**
  * The diff of a file under its row in the files of a commit: the tree reads the diffs of all files (one
  * `get_file_diffs`), an expanded file reads its two texts by blob id.
  */
-export function InlineCommitFileDiff({ diffs, file, diffViewMode }: InlineCommitFileDiffProps) {
+export function InlineCommitFileDiff({ diffs, file, diffViewMode, elsewhere, shownPlace }: InlineCommitFileDiffProps) {
   if (diffs?.kind === "error") {
     return (
       <div className="p-4">
@@ -31,5 +36,5 @@ export function InlineCommitFileDiff({ diffs, file, diffViewMode }: InlineCommit
   if (diff === "pending") {
     return <LoadingLine className="p-4">Loading diff…</LoadingLine>
   }
-  return <SubjectFileDiff file={{ path: file.path, status: file.status }} diff={diff} diffViewMode={diffViewMode} />
+  return <SubjectFileDiff file={{ path: file.path, status: file.status }} diff={diff} diffViewMode={diffViewMode} elsewhere={elsewhere} shownPlace={shownPlace} />
 }

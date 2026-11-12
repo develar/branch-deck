@@ -15,7 +15,7 @@ import type { MeasuredHeights } from "@/components/diff/use-measured-heights"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import type { BlobRequest, CommitFile, DeclarationSite, ReviewTitle } from "@/lib/bindings"
 import { noteKey } from "@/lib/diff/block-parts"
-import type { MoveEnd } from "@/lib/diff/block-parts"
+import type { MoveEnd, RenameNote } from "@/lib/diff/block-parts"
 import { codeMenuItems, codeMenuKeyPoint } from "@/lib/diff/code-menu"
 import type { FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
 import { PROLOGUE_SECTION } from "@/lib/diff/file-map"
@@ -60,6 +60,7 @@ import type { MenuItem } from "@/lib/menu"
 import { isMenuKey, openMenuByKey } from "@/lib/menu-key"
 import { isMac } from "@/lib/platform"
 import { formatCollapse } from "@/presenters/collapse"
+import { fileNameAmong } from "@/presenters/diff-marks"
 import type { StoryMark } from "@/presenters/review-story"
 import { blobTextsStore, putDerivedText, requestBlobTexts } from "@/stores/blob-texts"
 import type { BlobTextEntry } from "@/stores/blob-texts"
@@ -221,7 +222,8 @@ export interface DiffViewHandle {
    * view, the one note that shows the hint of the key: the note of the end the view stands at while it is in view
    * (where a jump, Back or Forward landed, the note N or P stopped under), else the first one, so two presses go
    * there and back; the end it starts from is kept for Back. A note is in view when its row is whole below the stuck
-   * header. Nothing changes when no such note is in view
+   * header. The other end of a move between two files is in the file it names: the key takes its note where the view
+   * shows that file. Nothing changes when no such note is in view
    */
   jumpMove: () => void
   /**
@@ -294,6 +296,19 @@ export interface DiffViewProps {
   onFindUsages?: (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean, from: DeclarationPlace) => void
   /** A place shown once the view mounts: the declaration a view of a file outside the review opens at */
   initialPlace?: DeclarationPlace
+  /**
+   * A place the surface around the view asks it to show (`revealDeclaration` as a prop, for a view that mounts with
+   * it): shown once the view shows its file, and again whenever the prop is another object. The other end of a move
+   * between two files, or the declaration of a name, that another view of the same subject jumped to (`elsewhere`)
+   */
+  shownPlace?: DeclarationPlace
+  /**
+   * The other views of the files of the same subject, where each file has a view of its own (the diffs under the rows
+   * of the tree of a commit's files): whether one of them can show a file, by its path, and the call that shows a
+   * place there. A note that names a place of another file of the subject ("Moved to Report.kt:12", "declared in
+   * Store.kt") is a button where this view shows that file itself or `shows` says so, else plain words
+   */
+  elsewhere?: DiffViewElsewhere
   /** Back with no jump left to return along: the view of a file outside the review closes */
   onHistoryEnd?: () => void
   /** A file shown by itself, not a change: no tint of an added file */
@@ -343,6 +358,12 @@ export interface DiffViewProps {
   moveKey?: string
   /** The files are the uncommitted changes: the new side is read by its path in the working tree */
   worktree?: boolean
+}
+
+/** What shows the files of a subject that a view does not show itself (`DiffViewProps.elsewhere`) */
+export interface DiffViewElsewhere {
+  readonly shows: (path: string) => boolean
+  readonly show: (place: DeclarationPlace) => void
 }
 
 interface ViewMetrics {
@@ -523,6 +544,31 @@ function sectionOf(files: readonly PreparedFile[], path: string, at?: { side: nu
   return showing < 0 ? first : showing
 }
 
+/**
+ * Another file of the subject of a file as its notes name it (`PainterFile.otherFile`), by its index among `paths`
+ * (`FileDiff.subjectPaths`): its path, its name among them, and whether a view can show a place of it (`reaches`).
+ * Undefined for a file of no subject
+ */
+function otherFileOf(paths: readonly string[] | undefined, reaches: (path: string) => boolean): PainterFile["otherFile"] {
+  if (paths === undefined) {
+    return undefined
+  }
+  return index => {
+    const path = paths[index]
+    return path === undefined ? null : { path, name: fileNameAmong(paths, index), shown: reaches(path) }
+  }
+}
+
+/** The paths of the other files of its subject that the marks of a diff name: where its lines went or came from, where a name it uses is declared */
+function namedFilesOf(diff: FileDiff | undefined): string[] {
+  const subject = diff?.content.kind === "text" ? diff.content.marks.subject : null
+  const paths = diff?.subjectPaths
+  if (subject == null || paths === undefined) {
+    return []
+  }
+  return [...subject.movedOut, ...subject.movedIn, ...subject.used].flatMap(named => paths[named.file] ?? [])
+}
+
 /** The file of git's list a merge stands for in a header */
 function mergeStandIn(path: string): CommitFile {
   return { path, status: "modified", oldPath: null, additions: 0, deletions: 0, binary: false, oldId: null, newId: null, submodule: false }
@@ -559,6 +605,8 @@ export function DiffView({
   onGoToDeclaration,
   onFindUsages,
   initialPlace,
+  shownPlace,
+  elsewhere,
   onHistoryEnd,
   plain = false,
 }: DiffViewProps) {
@@ -854,6 +902,26 @@ export function DiffView({
     }
   }, [find.open, textHits, currentHit])
 
+  // the files the view shows: a note that names a place of one of them is a button that shows it
+  const shownPaths = useMemo(() => new Set(prepared.map(file => file.path)), [prepared])
+  // what shows the files beside the view, as the last render gave it: read when a note is painted or pressed
+  const elsewhereNow = useRef(elsewhere)
+  useLayoutEffect(() => {
+    elsewhereNow.current = elsewhere
+  })
+  // which of the files the notes of the view name the views beside it show: the rows are painted again when one of
+  // these answers changes, never because the surface around the view rendered again
+  const elsewhereKey =
+    elsewhere === undefined
+      ? ""
+      : prepared
+          .map(file =>
+            namedFilesOf(file.diff)
+              .map(path => (elsewhere.shows(path) ? "1" : "0"))
+              .join(""),
+          )
+          .join(",")
+
   // the painter gets the model before the paint, so the anchor keeps its place in the new layout
   useLayoutEffect(() => {
     const painterFiles = prepared.map((file, index): PainterFile => ({
@@ -865,9 +933,10 @@ export function DiffView({
       paths: file.paths,
       worktreePaths: file.worktreePaths,
       codeWidths: codeWidthsOf(file, width, metrics.columnWidth, split),
+      otherFile: otherFileOf(file.diff?.subjectPaths, path => shownPaths.has(path) || elsewhereNow.current?.shows(path) === true),
     }))
     painter.setModel({ files: painterFiles, layout, softWraps, textMetrics: metrics.text, hits: hitLines, notesKey, moveKey })
-  }, [painter, prepared, layout, softWraps, metrics, width, hitLines, split, notesKey, moveKey])
+  }, [painter, prepared, shownPaths, elsewhereKey, layout, softWraps, metrics, width, hitLines, split, notesKey, moveKey])
 
   // the hit a step chose: a third of the viewport below the header; a text hit waits until its folds open
   useLayoutEffect(() => {
@@ -1253,29 +1322,72 @@ export function DiffView({
   }
 
   /**
+   * Shows a place a note names (the other end of a move, the declaration of a name another file declares), from the
+   * place `from` of the note: in this view where it shows the file of the place, and `from` is then the place Back
+   * returns to where the view has Back; else in the view of that file beside this one (`elsewhere`), which has none.
+   * Nothing where neither shows the file: the note is plain words there
+   */
+  const showPlace = (place: DeclarationPlace, from: DeclarationPlace) => {
+    if (sectionOf(prepared, place.path) >= 0) {
+      if (navigates) {
+        history.current.back.push(from)
+        history.current.forward = []
+      }
+      revealPlace(place)
+    } else if (elsewhere?.shows(place.path) === true) {
+      elsewhere.show(place)
+    }
+  }
+
+  /** The path of the file of the other end of a move: the file itself, or of a move between two files the one it names */
+  const otherPathOf = (file: PreparedFile, end: MoveEnd): string | undefined => (end.file === null ? file.path : file.diff?.subjectPaths?.[end.file])
+
+  /** Whether the view can show the other end of a move from `file`: in a file it shows, or one a view beside it shows */
+  const reachesMove = (file: PreparedFile | undefined, end: MoveEnd): boolean => {
+    const path = file === undefined ? undefined : otherPathOf(file, end)
+    return path !== undefined && (shownPaths.has(path) || elsewhere?.shows(path) === true)
+  }
+
+  /**
    * Shows the other end of a move from one of its ends (a click on the place its note names, the key of the moves, the
    * item of the menu of the code): the note of that end a third of the viewport below the header, marked, the file
-   * open. Where the view has Back, this end is the place it returns to. Both ends are in one file, of a review maybe
-   * in two of its sections
+   * open. Where the view has Back, this end is the place it returns to. Both ends of a move within a file are in that
+   * file, of a review maybe in two of its sections; the other end of a move between two files is in the file its note
+   * names
    */
   const jumpMove = (file: PreparedFile | undefined, end: MoveEnd) => {
-    if (file === undefined) {
+    const other = file === undefined ? undefined : otherPathOf(file, end)
+    if (file === undefined || other === undefined) {
       return
     }
     // the first line of an end, the blank lines that moved with the lines among them: what its note stands before
-    const place = (at: MoveEnd["at"], [line]: readonly [number, number]): DeclarationPlace => ({
-      path: file.path,
+    const place = (path: string, at: MoveEnd["at"], [line]: readonly [number, number]): DeclarationPlace => ({
+      path,
       side: at === "source" ? "old" : "new",
       line,
       column: 0,
       endColumn: 0,
       wholeLine: true,
     })
-    if (navigates) {
-      history.current.back.push(place(end.at, end.lines))
-      history.current.forward = []
+    showPlace(place(other, end.at === "source" ? "destination" : "source", end.other), place(file.path, end.at, end.lines))
+  }
+
+  /**
+   * Shows the declaration of a name that another file of the subject declares, from the note of its rename in this
+   * file (a click on "declared in Store.kt"): the new name selected in its line there, the site the note stands at
+   * the place Back returns to
+   */
+  const jumpDeclaration = (file: PreparedFile | undefined, note: RenameNote, at: number) => {
+    const rename = note.renames[at]
+    const declared = note.reach[at]?.declared
+    const path = declared == null ? undefined : file?.diff?.subjectPaths?.[declared.file]
+    if (file === undefined || rename === undefined || declared == null || path === undefined) {
+      return
     }
-    revealPlace(place(end.at === "source" ? "destination" : "source", end.other))
+    const name = (where: string, line: number): DeclarationPlace => ({ path: where, side: "new", line, column: 0, endColumn: 0, name: rename.new })
+    // the first site of the rename in this file, where its note stands or a line of its block
+    const site = rename.newSites[0] ?? note.lines[NEW]
+    showPlace(name(path, declared.line), name(file.path, site))
   }
 
   /**
@@ -1343,6 +1455,7 @@ export function DiffView({
       onFold: (index, fold, all) => (all ? expandAll(prepared[index]) : expandFold(prepared[index], fold)),
       onNoteToggle: (index, note, all) => toggleNote(prepared[index], note, all),
       onMoveJump: (index, end) => jumpMove(prepared[index], end),
+      onDeclarationJump: (index, note, rename) => jumpDeclaration(prepared[index], note, rename),
       onNote: (index, note) => {
         const target = prepared[index]?.section?.targets.get(note.block)
         const shown = target === undefined ? -1 : layout.indexOf(target)
@@ -1532,15 +1645,27 @@ export function DiffView({
     const target = word === null ? null : siteOf(word)
     // the end of a move the menu opened on: a line of a move or the note at its end; of a menu key the line of a move
     // the selection starts in
-    const moved = keyed === null ? painter.moveAt(at.x, at.y) : painter.moveAtSelection()
+    const found = keyed === null ? painter.moveAt(at.x, at.y) : painter.moveAtSelection()
+    // an end in another file of the subject that no view shows has no other end to show here
+    const moved = found !== null && reachesMove(prepared[found.file], found.end) ? found : null
     // the key of the moves does the same only from the note it takes now: the item names it there alone
     const keyOfMove = moved !== null && moveKey !== undefined && painter.keyedMove()?.end === moved.end ? moveKey : null
+    const movedFile = moved === null ? undefined : prepared[moved.file]
+    const paths = movedFile?.diff?.subjectPaths
     setCodeMenu(
       codeMenuItems({
         name: target === null ? null : word!.text,
         goToDeclaration: () => goTo(word, at),
         findUsages: onFindUsages === undefined ? null : () => goTo(word, at, onFindUsages),
-        moveEnd: moved === null ? null : { at: moved.end.at, go: () => jumpMove(prepared[moved.file], moved.end), key: keyOfMove },
+        moveEnd:
+          moved === null
+            ? null
+            : {
+                at: moved.end.at,
+                go: () => jumpMove(movedFile, moved.end),
+                key: keyOfMove,
+                file: moved.end.file === null || paths === undefined ? null : fileNameAmong(paths, moved.end.file),
+              },
       }),
     )
   }
@@ -1569,6 +1694,15 @@ export function DiffView({
       revealInitial(initialPlace)
     }
   }, [layout, prepared, initialPlace])
+
+  // a place the surface around the view asks for: once its file is laid out, and again for another one
+  const askedPlace = useRef<DeclarationPlace | null>(null)
+  useLayoutEffect(() => {
+    if (shownPlace !== undefined && askedPlace.current !== shownPlace && sectionOf(prepared, shownPlace.path) >= 0) {
+      askedPlace.current = shownPlace
+      revealInitial(shownPlace)
+    }
+  }, [layout, prepared, shownPlace])
 
   // the place a reveal waits for: scrolled to a third of the viewport below the header, then its name selected
   useLayoutEffect(() => {
@@ -2250,6 +2384,7 @@ const EMPTY_CALLBACKS: PainterCallbacks = {
   onNote: () => {},
   onNoteToggle: () => {},
   onMoveJump: () => {},
+  onDeclarationJump: () => {},
   onFirstScreen: () => {},
   onWidthsCorrected: () => {},
 }

@@ -46,6 +46,11 @@ function siteRows(scope: Locator, kind?: "inline" | "deleted" | "added" | "chang
   return diffRows(scope, kind).filter({ has: scope.page().locator(RENAMED_NAME) })
 }
 
+/** The card of Ledger.kt in the diffs of a review: the sites of `sum` are its, those of the function the store renamed another file's */
+function ledgerOf(code: Locator): Locator {
+  return code.getByRole("region", { name: "src/Ledger.kt" })
+}
+
 /** What only the line of each site of `sum` holds, in the order of the lines: its declaration, the use in the loop, the result */
 const SITE_TEXTS = ["var ", "+= entry.amount", "return "] as const
 
@@ -215,7 +220,7 @@ test.describe("The renames of a diff in the preview of a commit", () => {
     await expect(quietSides(await expectBothLinesBeside(ledger))).toHaveCount(0)
   })
 
-  test("a name that is not local is named at its declaration, which is read; a file that only uses the name shows its change as any", async ({ page }) => {
+  test("a name that is not local is named at its declaration, which is read, and once in a file that only uses it, each use in the mark of a renamed name", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, "ledger"))
     const preview = await openCommitPreview(page, getBranchCommitRow(page, "ledger", MARKS_SUBJECT))
     const tree = await openCommitFilesSection(preview)
@@ -229,16 +234,17 @@ test.describe("The renames of a diff in the preview of a commit", () => {
     await expect(declaration.locator(STRUCK_NAME)).toHaveText(["openStore"])
     await expect(editedParts(declaration)).toHaveCount(0)
     expect(await kindAbove(declaration)).toBe("note")
-    // Report.kt calls the function and declares none of it: no note of its diff words the rename (the renames across
-    // the files of a change are the pass over the change), and the calls are changes
+    // Report.kt calls the function and declares none of it: the files of the commit say that the store declares the
+    // name, so the report names the rename once, at its first call, and draws the name at both calls in the mark of a
+    // renamed name, never as a change (subject-marks.spec.ts: the file the note names, what the index proved)
     const report = await openFileOf(tree, "Report.kt", "class Report(private val ledger: Ledger) {")
-    await expect(remarks(report, "renamed").filter({ hasText: "→" })).toHaveCount(0)
-    const calls = diffRows(report, "inline", { hasText: "connectStore(path)" })
+    await expect(remarks(report, "renamed")).toHaveText(["Renamed openStore → connectStore · 2 sites"])
+    const calls = siteRows(report, "inline")
     await expect(calls).toHaveCount(2)
-    await expect(renamedNames(report)).toHaveCount(0)
-    await expect(report.locator(STRUCK_NAME)).toHaveCount(0)
+    await expect(renamedNames(calls)).toHaveText(["connectStore", "connectStore"])
+    await expect(calls.locator(STRUCK_NAME)).toHaveText(["openStore", "openStore"])
+    await expect(editedParts(calls)).toHaveCount(0)
     expect(await joinedText(deletedParts(calls.first()))).toBe("openStore")
-    expect(await joinedText(editedParts(calls.first()))).toBe("connectStore")
   })
 })
 
@@ -326,7 +332,7 @@ test.describe("The renames of a diff in the review window", () => {
       const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
       // Inline strikes the old name through at each site: three results, each in its row
       const { field, count } = await findOldName(page, window, code)
-      const rows = siteRows(code, "inline")
+      const rows = siteRows(ledgerOf(code), "inline")
       await expect.poll(() => codeOf(rows)).toEqual(PAIR_LINES)
       await expect(findMarks(rows)).toHaveText(["total", "total", "total"])
       await expect(rows.locator(`${STRUCK_NAME}[data-hit]`)).toHaveCount(3)
@@ -360,8 +366,8 @@ test.describe("The renames of a diff in the review window", () => {
       await field.fill("total")
       await window.getByRole("button", { name: "Unified", exact: true }).click()
       await expect(count).toHaveText("3 results")
-      await expect(findMarks(siteRows(code, "deleted"))).toHaveText(["total", "total", "total"])
-      await expect(findMarks(siteRows(code, "added"))).toHaveCount(0)
+      await expect(findMarks(siteRows(ledgerOf(code), "deleted"))).toHaveText(["total", "total", "total"])
+      await expect(findMarks(siteRows(ledgerOf(code), "added"))).toHaveCount(0)
     },
   )
 })
@@ -384,7 +390,7 @@ test.describe("The quiet runs of a renamed local in the review window", () => {
     await expect(note).toHaveAttribute("aria-expanded", "false")
     // in a review the note names the key that opens it
     await expect(note).toHaveAttribute("aria-keyshortcuts", "H")
-    const [once, old] = [siteRows(code, "once"), siteRows(code, "deleted")]
+    const [once, old] = [siteRows(ledgerOf(code), "once"), siteRows(ledgerOf(code), "deleted")]
     await expect.poll(() => codeOf(once)).toEqual(NEW_LINES)
 
     // a click: the three old lines show, the declaration's under the note and the two others in their own blocks; the
@@ -433,7 +439,7 @@ test.describe("The quiet runs of a renamed local in the review window", () => {
       const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
       // no row shows `total`: each site is found at the row of its new line, one result a site
       const { field, count } = await findOldName(page, window, code)
-      const once = siteRows(code, "once")
+      const once = siteRows(ledgerOf(code), "once")
       await expect.poll(() => codeOf(once)).toEqual(NEW_LINES)
       // the hit is marked on the new name, which says what it stands for; the first one is the current hit, in view
       await expect(findMarks(once)).toHaveText(["sum", "sum", "sum"])
@@ -454,7 +460,7 @@ test.describe("The quiet runs of a renamed local in the review window", () => {
       // the note opened: the old lines show, and each hit is in the old name of its line, never in the new one
       await note.click()
       await expect(note).toHaveAttribute("aria-expanded", "true")
-      const [old, added] = [siteRows(code, "deleted"), siteRows(code, "added")]
+      const [old, added] = [siteRows(ledgerOf(code), "deleted"), siteRows(ledgerOf(code), "added")]
       await expect.poll(() => codeOf(old)).toEqual(OLD_LINES)
       await expect(count).toHaveText(/^\d of 3$/)
       await expect(findMarks(old)).toHaveText(["total", "total", "total"])

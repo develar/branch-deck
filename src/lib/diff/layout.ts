@@ -94,7 +94,16 @@ export interface ScrollAnchor {
    * is in its opening or in the space above it. So an opening that grows grows downwards, below the top
    */
   opening?: true
-  /** The pixels from the top of the anchor (the row, the start of the section, or the file) to the top of the viewport */
+  /**
+   * The offset is from the end of the rows of the file, the last one: the top is below them (a view that lies above
+   * the viewport of the scroller it is a block of, the space past the end of a document). So rows that come or go
+   * above keep what is below the file where it is
+   */
+  below?: true
+  /**
+   * The pixels from the top of the anchor (the row, the start of the section, the file, or the end of its rows) to the
+   * top of the viewport
+   */
   offset: number
 }
 
@@ -446,6 +455,10 @@ export class DiffLayout {
     if (rows === null || rows.rowCount === 0 || scrollTop < rowsTop) {
       return { key, offset: scrollTop - this.offsets[file]! }
     }
+    // below the rows of the last file: held by their end, however many rows there are
+    if (scrollTop >= rowsTop + this.rowsHeight(file)) {
+      return { key, below: true, offset: scrollTop - rowsTop - this.rowsHeight(file) }
+    }
     let index = this.rowAt(file, scrollTop)
     let row = fileRowAt(rows, index)
     // a row of words that stands for no line is held by the row after it: the lines its words are about
@@ -483,6 +496,9 @@ export class DiffLayout {
       return this.sectionStart(file) + Math.min(anchor.offset, this.openingHeight(file))
     }
     const rows = this.files[file]!.rows
+    if (anchor.below === true) {
+      return this.offsets[file]! + this.rowsOffset(file) + this.rowsHeight(file) + anchor.offset
+    }
     if (anchor.line === undefined || rows === null || rows.rowCount === 0) {
       return this.offsets[file]! + Math.min(anchor.offset, this.fileHeight(file))
     }
@@ -515,17 +531,24 @@ export function moveHandOf(key: string, end: MoveEnd): MoveHand {
  * The note of a move the key of the moves takes in a view at `scrollTop`, `viewHeight` high: the one at the end the
  * view stands at (`hand`: where a jump, Back or Forward landed, or the note N or P stopped under) while that note is
  * in view (`rowInView`), else the first note of a move in view. So one note answers the key at a time, the one that
- * shows its hint, and two presses go to the other end and back also where both ends are in view. Null with no note of
- * a move in view
+ * shows its hint, and two presses go to the other end and back also where both ends are in view. `takes`: whether the
+ * view can show the other end of a note (an end in another file of the subject that the view does not show is plain
+ * words: the key passes it). Null with no such note of a move in view
  */
-export function moveNoteOfKey(layout: DiffLayout, scrollTop: number, viewHeight: number, hand: MoveHand | null): { file: number; end: MoveEnd; row: number } | null {
+export function moveNoteOfKey(
+  layout: DiffLayout,
+  scrollTop: number,
+  viewHeight: number,
+  hand: MoveHand | null,
+  takes: (file: number, end: MoveEnd) => boolean = () => true,
+): { file: number; end: MoveEnd; row: number } | null {
   if (layout.files.length === 0) {
     return null
   }
   const at = hand === null ? -1 : layout.indexOf(hand.key)
   const held =
     at < 0 ? undefined : layout.files[at]!.rows?.moveNotes.find(({ end }) => hand !== null && (end.at === "source" ? OLD : NEW) === hand.side && end.lines[0] === hand.line)
-  if (held !== undefined && layout.rowInView(at, held.row, scrollTop, viewHeight)) {
+  if (held !== undefined && takes(at, held.end) && layout.rowInView(at, held.row, scrollTop, viewHeight)) {
     return { file: at, ...held }
   }
   const top = scrollTop + layout.stickyTop + layout.metrics.headerHeight
@@ -542,9 +565,11 @@ export function moveNoteOfKey(layout: DiffLayout, scrollTop: number, viewHeight:
         high = middle
       }
     }
-    const note = notes[low]
-    if (note !== undefined && layout.rowInView(file, note.row, scrollTop, viewHeight)) {
-      return { file, ...note }
+    // the first of them in view that the key can take
+    for (let next = low; next < notes.length && layout.rowInView(file, notes[next]!.row, scrollTop, viewHeight); next++) {
+      if (takes(file, notes[next]!.end)) {
+        return { file, ...notes[next]! }
+      }
     }
   }
   return null

@@ -10,6 +10,10 @@ import { RANGE_STRIDE, RENAMED_RANGE } from "@/lib/diff/line-parts"
  * line with another change, in no run) is Rust's to say and is read from the runs, never from here. On a line of such
  * a run the names are all that changed (the same tokens but for them), so nothing else of it is marked: what the
  * engine marked beside a name there is the same code, joined to the name by its word diff or spaced otherwise.
+ *
+ * A name that another file of the subject declares and this file uses at every place (`SubjectMarks.used`) is a
+ * rename of the file as any other, without a declaration in it: its sites are drawn the same, and its note stands at
+ * its first site (`namedRenames`).
  */
 
 const OLD = 0
@@ -18,7 +22,7 @@ const NEW = 1
 /** A site of a rename on a line of a side: where the name stands, and the same site on the other side */
 export interface RenameSite {
   readonly rename: Rename
-  /** The place of the rename among `TextDiff.marks.renames` */
+  /** The place of the rename among the renames a view names in the file (`namedRenames`) */
   readonly index: number
   /** The number of the site among the places of its rename, from 0 */
   readonly place: number
@@ -34,8 +38,29 @@ export interface RenameSite {
 export interface RenameSites {
   /** The sites of each side by line, each line's in the order of its columns */
   readonly byLine: readonly ReadonlyMap<number, readonly RenameSite[]>[]
-  /** The sites of each rename of `TextDiff.marks.renames` on the new side, by their number */
+  /** The sites of each rename of `namedRenames` on the new side, by their number */
   readonly ofRename: readonly (readonly RenameSite[])[]
+}
+
+// one list per diff: every reader of the sites of a file with a used name asks
+const renamesOfDiffs = new WeakMap<TextDiff, readonly Rename[]>()
+
+/**
+ * The renames a view names in a file, in one order: those the file declares (`TextDiff.marks.renames`, each by its
+ * number there), then the names another file of the subject declares and this one uses at every place
+ * (`SubjectMarks.used`), which declare none here
+ */
+export function namedRenames(diff: TextDiff): readonly Rename[] {
+  const used = diff.marks.subject?.used ?? []
+  if (used.length === 0) {
+    return diff.marks.renames
+  }
+  let renames = renamesOfDiffs.get(diff)
+  if (renames === undefined) {
+    renames = [...diff.marks.renames, ...used.map(it => it.rename)]
+    renamesOfDiffs.set(diff, renames)
+  }
+  return renames
 }
 
 const NO_SITES: readonly RenameSite[] = []
@@ -46,7 +71,7 @@ const sitesOfDiffs = new WeakMap<TextDiff, RenameSites>()
 
 /** The sites of the renames of a diff; the places a rename names on one side alone, which no engine gives, are left out */
 export function renameSites(diff: TextDiff): RenameSites {
-  const { renames } = diff.marks
+  const renames = namedRenames(diff)
   if (renames.length === 0) {
     return NONE
   }

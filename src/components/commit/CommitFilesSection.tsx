@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { InlineCommitFileDiff } from "@/components/commit/InlineCommitFileDiff"
+import type { DeclarationPlace, DiffViewElsewhere } from "@/components/diff/DiffView"
 import { FileTree } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
@@ -9,7 +10,7 @@ import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitFiles } from "@/lib/bindings"
 import { withEngineCounts } from "@/lib/diff/view-files"
-import { buildFileTree, getInitiallyCollapsed, toggleInSet } from "@/lib/file-tree"
+import { buildFileTree, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
 import { getFilesOfCommit, loadFilesOfCommit, toggleCommitFilesSection, useFilesOfCommit, useIsCommitFilesSectionOpen } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs } from "@/stores/file-diffs"
 import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
@@ -24,8 +25,9 @@ export interface CommitFilesSectionProps {
 
 /**
  * The files of a commit in its preview, after the message: closed at first, "› Files 4" (the header, F and the footer
- * button open it), open grouped by directory, a file expands to its diff. Nothing of the files is read or rendered
- * while it is closed.
+ * button open it), open grouped by directory, a file expands to its diff; a note of a diff that names a place of
+ * another file of the commit expands that file and shows the place. Nothing of the files is read or rendered while it
+ * is closed.
  */
 export function CommitFilesSection({ commitId, fileCount, onReviewFile }: CommitFilesSectionProps) {
   const titleId = useId()
@@ -107,7 +109,27 @@ function CommitFileTree({ commitFiles, onReviewFile }: { commitFiles: CommitFile
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => getInitiallyCollapsed(nodes, commitFiles.files.length))
   const [expandedFiles, setExpandedFiles] = useState<ReadonlySet<string>>(() => new Set())
   const toggleDirectory = useCallback((key: string) => setCollapsed(previous => toggleInSet(previous, key)), [])
-  const toggleFile = useCallback((key: string) => setExpandedFiles(previous => toggleInSet(previous, key)), [])
+  // a place of another file of the commit that a note of a diff names (the other end of a move between two files, the
+  // file that declares a renamed name): the row of that file shows, its diff opens under it and shows the place
+  const [shownPlace, setShownPlace] = useState<DeclarationPlace | null>(null)
+  const toggleFile = useCallback((key: string) => {
+    setExpandedFiles(previous => toggleInSet(previous, key))
+    // a diff the user closes and opens again shows its top: the place a note asked of it before is asked no more
+    setShownPlace(previous => (previous?.path === key ? null : previous))
+  }, [])
+  const elsewhere = useMemo(
+    (): DiffViewElsewhere => ({
+      // the key of the row of a file is its path
+      shows: path => files.some(file => file.path === path),
+      show: place => {
+        setCollapsed(previous => revealInTree(previous, place.path, nodes))
+        setExpandedFiles(previous => (previous.has(place.path) ? previous : new Set(previous).add(place.path)))
+        // a new object each time: the same place asked again is shown again
+        setShownPlace({ ...place })
+      },
+    }),
+    [files, nodes],
+  )
 
   return (
     <FileTree
@@ -118,7 +140,9 @@ function CommitFileTree({ commitFiles, onReviewFile }: { commitFiles: CommitFile
       onToggleDirectory={toggleDirectory}
       expandedFiles={expandedFiles}
       onToggleFile={toggleFile}
-      renderFileContent={(file: CommitFile) => <InlineCommitFileDiff diffs={diffs} file={file} diffViewMode={diffViewMode} />}
+      renderFileContent={(file: CommitFile) => (
+        <InlineCommitFileDiff diffs={diffs} file={file} diffViewMode={diffViewMode} elsewhere={elsewhere} shownPlace={shownPlace?.path === file.path ? shownPlace : undefined} />
+      )}
       onOpenFile={(file: CommitFile) => onReviewFile(file.path)}
     />
   )

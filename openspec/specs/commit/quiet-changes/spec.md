@@ -1,6 +1,6 @@
 ---
 name: Quiet Changes
-description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, proven by the bindings of both sides for a value of its body alone and labels until a measurement switches their kind on, the lines that moved within a file, exact, indented or with a few edited lines, never quiet, what the files of a subject say of each other (the lines that moved between two files, labels at both ends, the names one file declares and another uses, and what the index of the repository proves of them), the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, a rename named once at its declaration with its name in a mark of its own at every site, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour, the colour of a move and the mark of a renamed name.
+description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, proven by the bindings of both sides for a value of its body alone and labels until a measurement switches their kind on, the lines that moved within a file, exact, indented or with a few edited lines, never quiet, what the files of a subject say of each other (the lines that moved between two files, labels at both ends, the names one file declares and another uses, and what the index of the repository proves of them), the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, a rename named once at its declaration with its name in a mark of its own at every site, a move between two files with a note at each end that names the other file and shows it, a name another file declares named once where it is used with the file that declares it, what the index proved of a rename after the words of its note, the row at the top of a view kept as marks come late, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour, the colour of a move and the mark of a renamed name.
 style: plain-1
 targets:
   - crates/text-diff/src/model.rs
@@ -34,6 +34,9 @@ targets:
   - src/lib/diff/layout.ts
   - src/lib/review-keys.ts
   - src/stores/file-diffs.ts
+  - src/stores/file-stream.ts
+  - src/components/commit/CommitFilesSection.tsx
+  - src/components/conflict/SubjectFileDiffList.tsx
 ---
 
 # Quiet Changes
@@ -57,10 +60,14 @@ down, the lines of a move in a colour of their own with a note at each end that 
 and the count of what is left to read. The page words what Rust decided and decides nothing. A rename is named once
 in the rows of a file ("Renamed total → sum · 12 sites" before its declaration) and its name is drawn in a mark of
 its own at every site, never as a change; a run of a renamed name is read as any label until its kind is switched
-on, and shown once in Inline from then, with no change of the page. Of the marks of a subject nothing is drawn yet
-but the runs it adds, each under the note of its kind: the words of a move between files ("Moved to Report.kt:12")
-and of a name another file declares ("Renamed … · declared in Store.kt"), with what the index said of it, are the
-next stage of [Diff View](../../../../docs/design/diff-view.md#marks).
+on, and shown once in Inline from then, with no change of the page. Of the marks of a subject a view draws a move
+between two files as a note at each end that names the other file and its line ("Moved to Report.kt:18", a button
+that shows it where a view shows that file) and the lines in the colour of a move, every one in every layout; a name
+another file declares as a rename of the file that uses it, named once with that file ("Renamed … · declared in
+Store.kt"); and after the words of a rename that is not local what the index proved of its uses ("all uses in this
+change", "uses outside this change"). Those marks come after the rows of a file were shown: they add rows of words
+and tints, and the row at the top of the view stays where it is
+([Diff View](../../../../docs/design/diff-view.md#marks)).
 
 ## Goals
 
@@ -80,18 +87,19 @@ next stage of [Diff View](../../../../docs/design/diff-view.md#marks).
   lines a move took, each behind a note that opens; the old lines of the quiet runs of a rename behind its one note.
 - A rename is said once: one note for all its sites in a file, and at each site the name in a mark that is no
   colour of a change.
-- The two ends of a move are one step apart: the note at each end shows the other.
+- The two ends of a move are one step apart: the note at each end shows the other, in another file too where a
+  view shows that file.
+- What comes after the rows of a file were shown moves nothing a reader has on screen: it adds words and tints.
 - No new setting: the marks are drawn in every layout as the layout shows lines.
 
 ## Non-goals
 
 - A run in a file of no grammar (Python, Go, YAML, Markdown): its block of whitespace stays the pale stop it is. It
   has its moves.
-- A move between two files of a commit, and a move that the comparison shows as one block: lines that cross no line
-  that stays.
-- A rename across files: a name the file does not declare is handed out unmarked, for the pass over the files of a
-  change. The uses of a name that is not local stay labels until that pass confirms them. A name renamed in lines
-  that moved.
+- A move that the comparison shows as one block: lines that cross no line that stays.
+- A name another file declares that the file does not rename at every place alike (a use added or deleted beside
+  the renamed ones): its calls are read as changes. A name renamed in lines that moved.
+- A jump to a file no view shows: the place is plain words there, and the search of a review is not cleared for it.
 - A block with a side of no lines: an added comment is an added line.
 - The one-sided diffs of a conflict: they have their starts and no runs.
 - The marks in the patches of `brd` for agents.
@@ -125,7 +133,10 @@ next stage of [Diff View](../../../../docs/design/diff-view.md#marks).
 - **A start** is the line the reading of a block starts at: its first line that is in no quiet run and, of its old
   lines, that no move took.
 - **A note** is a row of words between the lines of a diff that says what the lines after it changed in, at an end
-  of a move where its other end is, or which names the change renamed there. **A site** of a rename in a view is a
+  of a move where its other end is (a line of the file, or of another file of the subject), or which names the
+  change renamed there, with the file that declares a name the file only uses and what the index proved of it. **A
+  place** of a note is where its words lead: the other end of a move, the declaration of a name; a button where a
+  view shows the file of the place, plain words where none does. **A site** of a rename in a view is a
   place of it on a line of a side, with its twin, the same place on the other side. **A stop** is where N and P land: the row of a start in the layout.
 - **The ends of a move**: where its lines left (its old lines, in the block that deletes them) and where they stand
   now (its new lines, in the block that adds them).
@@ -1450,8 +1461,8 @@ their note is opened and where every line stays. A note gives no text.
 A line of a quiet run MUST say what it is to a screen reader after its type ("inserted, formatting only"), and a
 renamed name "renamed" before it, once a name. A note that opens MUST be a button named by its words and by what a
 press does, with its expanded state; a note of renames MUST say the renames it counts. A line of a move MUST say
-which end of it the line is at and that it was edited on the way, and the place its note names is a button named by
-where it goes.
+its end, and that it was edited on the way or that its other end is in another file; the place its note names is a
+button named by where it goes.
 
 #### Scenario: The wrapped call
 - **WHEN** Inline shows the wrapped call
@@ -1483,13 +1494,20 @@ where it goes.
 - **THEN** its text holds the two it counts after the count, in words no eye sees, as the name of a note that opens holds them
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a note words both renames of a block that declares two, the first of three with the count of the others, and stands right above the line of its declaration`)
 
+#### Scenario: A move between two files
+- **WHEN** the preview shows the lines `reportTitle` left in Ledger.kt and the lines it stands at in Report.kt
+- **THEN** their lines carry the end of the move and that the other end is in another file, which the generated content reads out: "moved to another file", "moved here from another file"
+- **AND** the places are the buttons "Go to line 18 of src/Report.kt, where the lines stand now" and "Go to line 55 of src/Ledger.kt, where the lines were"; the file that declares a name is the button "Go to the declaration of connectStore in src/Store.kt"
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the lines that moved to another file show at both ends in every layout, in the colour of a move, each end under a note that names the file and the line of the other`, `a click on the file and the line a note of a move names opens the diff of that file under its row and shows the other end there, and the note there shows the first again`, `the note of a name another file declares names that file, and a click on it opens the diff of that file at the declaration, the new name selected`)
+  [@test] src/presenters/diff-marks.test.ts (`names the file and the first line of the other end at both ends, and counts no line: every line of the move shows`, `names the action that shows the other end of a move, and says where it goes from each end`)
+
 ### Requirement: Views: N and P stop where the reading of a block starts
 
-N and P MUST stop only at the starts of a diff: at the first row of lines of what is read from the line `starts`
-names. Rust cuts a block by its quiet runs alone, so lines deleted before a label are read from the first of them,
-and one column shows the old lines of a part first; the lines a move took end what is read before them. A block
-without a start is passed, and so are a block of the imports alone in a review with its plan and a block another
-section shows.
+N and P MUST stop only at the starts of a diff: the first row of lines of what is read from the line `starts`
+names. Rust cuts a block by its quiet runs alone, so lines deleted before a label are read from their first, and
+one column shows the old lines of a part first. Lines a move took within the file end what is read before them;
+lines that left for another file are read. A block without a start is passed, as are the imports alone of a review
+with its plan and a block another section shows.
 
 #### Scenario: The stops of the template
 - **WHEN** the user presses N through the review of the `commit_marks` template, then P
@@ -1546,6 +1564,20 @@ section shows.
 - **THEN** N stops five times in Ledger.kt, at no line of the name: from `describe`, which moved, straight to the comment worded again; then three times in Report.kt and once in Store.kt
 - **AND** P goes back through the same stops, and the three lines of the name show once, played down
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`N and P pass the lines of a renamed local once its runs are quiet, and the file counts three changes fewer to read`)
+
+#### Scenario: The lines that moved between two files
+- **WHEN** the rows of a block whose lines left for another file are built in each layout, of a block that is those lines alone, and of the block the lines stand in
+- **THEN** the block is read from its first line, a moved one too: the stop is the row of that line, under the note where the block starts with the move, and the lines that came from another file are read where they stand
+- **AND** in the review of the template the last stop of Report.kt is the block the lines of `reportTitle` stand in
+  [@test] src/lib/diff/block-parts.test.ts (`reads the lines that left for another file: the reading of their block starts at its first line, a moved one too`)
+  [@test] src/lib/diff/rows.test.ts (`reads the lines that left for another file where they left: a stop of N and P, every line a row after the note, in Inline too`, `stops N and P at each use of the name while the index proved nothing, and passes the uses it proved, which stay on screen played down`)
+
+#### Scenario: The uses of a name the index proved
+- **GIVEN** the review of the template with the kind `renamed` switched on, the index of the repository answering that every use of the function the store renamed is a place of the commit
+- **WHEN** the user presses N through it, then P
+- **THEN** N stops five times in Ledger.kt, once in Report.kt, at the block the lines of `reportTitle` stand in and at no call of the name, and once in Store.kt, at the declaration
+- **AND** P goes back through the same stops, and the two calls show as they were, each the row of its two lines, played down, both names in their mark, under a note that opens nothing
+  [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`N and P pass the uses of a name another file declares once the index proved them and their runs are quiet, and the file counts them out; the lines stay on screen`)
 
 ### Requirement: Views: A file says how many of its changes are left to read
 
@@ -1811,9 +1843,9 @@ nothing with no such note in view, and it MUST be the key of no action of the wi
 
 #### Scenario: The key from the tree and from the diffs
 - **GIVEN** the review of the `commit_marks` template at the top of Ledger.kt, the focus on its row of the tree
-- **WHEN** the user presses G twice, then Back, then shows Report.kt and presses G and N
+- **WHEN** the user presses G twice, then Back, then shows Store.kt and presses G
 - **THEN** the first press shows the note where `accounts()` left, marked, and gives the diffs the focus; the second returns to the note where it stands now; Back returns along the second jump
-- **AND** in Report.kt, which has no note of a move, G moves nothing: N goes on from the top of the file
+- **AND** at Store.kt, which has no note of a move, with no such note in view, G moves nothing
   [@test] tests/e2e/commit-files/moved-lines.spec.ts (`G jumps from the note of a move in view to its other end and back, from the tree of the files and from the diffs`)
 
 #### Scenario: The hint of the key
@@ -1842,6 +1874,17 @@ nothing with no such note in view, and it MUST be the key of no action of the wi
 - **WHEN** the rows of a file with a move are built in each layout
 - **THEN** the notes at both ends are listed with their rows, in the order of the rows
   [@test] src/lib/diff/rows.test.ts (`stops N and P where the lines stand now and never where they left, and lists the notes of both ends`)
+
+#### Scenario: A move between two files
+- **GIVEN** the review of the template at Report.kt, where the note of the lines that came from Ledger.kt is the one note of a move in view
+- **WHEN** the user presses G twice, then Back
+- **THEN** the button "from Ledger.kt:55" names the key; the first press shows the note where the lines left in Ledger.kt, marked, whose button "to Report.kt:18" names the key then; the second returns to Report.kt; Back returns along the second jump
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`G jumps from the note of a move between two files to its other end in the other file and back`)
+
+#### Scenario: A note the key cannot take
+- **WHEN** the note of the key is asked of a layout whose first note in view names an end the view cannot show, or whose every note does, and with the view standing at such an end
+- **THEN** it is the next note in view whose other end the view shows, of the next file where the first has none, and none where no note can be taken
+  [@test] src/lib/diff/layout.test.ts (`passes a note of a move whose other end the view cannot show: the key takes the next one in view that it can, at the end the view stands at too`)
 
 ### Requirement: Views: The menu of the code on a line of a move shows its other end
 
@@ -1907,7 +1950,7 @@ own.
 #### Scenario: A name that is not local
 - **WHEN** the preview shows Store.kt of the template, whose function `openStore` is `connectStore`, declared there
 - **THEN** the note "Renamed openStore → connectStore · 1 site" stands before the line of the declaration, which is read
-  [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a name that is not local is named at its declaration, which is read; a file that only uses the name shows its change as any`)
+  [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a name that is not local is named at its declaration, which is read, and once in a file that only uses it, each use in the mark of a renamed name`)
 
 #### Scenario: A section of a review that does not show the declaration
 - **WHEN** the rows are those of a section of a review that shows two sites of a rename and not the block of its declaration
@@ -1975,8 +2018,8 @@ more"; of three or more the first, the others counted ("and 2 more"), listed on 
 The name at a site of a rename MUST be drawn in the mark of a renamed name on both sides, in every layout, on a
 quiet line, a line that is read and a line with another change, whose other ranges stay. No range of the engine
 inside the name is drawn; on a line of a run of a renamed name the names MUST be the only ranges. Its hover MUST say
-what it was ("Renamed from total") or, on the old side, what it became. A name the file does not declare is no
-rename of its marks and shows as any change.
+what it was ("Renamed from total") or, on the old side, what it became. A name another file of the subject declares
+is drawn the same at each of its uses.
 
 #### Scenario: The sites in every layout
 - **WHEN** the preview shows the three sites of `total` of the template in Inline, Unified and Split
@@ -2012,9 +2055,10 @@ rename of its marks and shows as any change.
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`Inline names a rename once, before the line of its declaration, and shows each site as one row, the old name struck through before the new one, both in the mark of a renamed name`)
 
 #### Scenario: A file that only uses the name
-- **WHEN** the preview shows Report.kt of the template, which calls `connectStore` and declares none of it
-- **THEN** no note of it words a rename and no name is in the mark of one: each call is a change, `openStore` struck through before `connectStore`
-  [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a name that is not local is named at its declaration, which is read; a file that only uses the name shows its change as any`)
+- **WHEN** the preview shows Report.kt of the template, which calls `connectStore` twice and declares none of it, while Store.kt of the same commit declares it
+- **THEN** one note words the rename, "Renamed openStore → connectStore · 2 sites", and each call has `connectStore` in the mark of a renamed name, `openStore` struck through before it in the same mark, and no other changed part
+  [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a name that is not local is named at its declaration, which is read, and once in a file that only uses it, each use in the mark of a renamed name`)
+  [@test] src/lib/diff/rename-sites.test.ts (`are renames of the file after those it declares, in one list, the same list whenever it is asked`, `have their sites as any rename, by their number in that list, and their lines show the names alone`)
 
 ### Requirement: Views: The row of a pair of Inline strikes the old name of a rename through, in its mark
 
@@ -2173,6 +2217,219 @@ underlines a reassigned variable.
 - **AND** the dotted line is a layer of its background, which a changed range has none of
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a renamed name has a colour of its own and a dotted line under it in the light theme, never the colour of a change`, `a renamed name has a colour of its own and a dotted line under it in the dark theme, never the colour of a change`)
 
+### Requirement: Views: A move between two files has a note at each end that names the other file
+
+A view MUST draw a move between two files of a subject at both its ends: a note that says "Moved to Report.kt:18"
+where the lines left and "Moved from Ledger.kt:55" where they stand now, then the lines, in the colour of a move.
+Every layout MUST show every line of both ends, Inline too, and the note opens nothing. The file is named by its
+name, with as many of its directories as tell it from another file of the subject of that name.
+
+#### Scenario: The function that moved to the report
+- **WHEN** the preview shows Ledger.kt and Report.kt of the `commit_marks` template in Inline, in Unified and in Split
+- **THEN** the four lines `reportTitle` left show after the note "Moved to Report.kt:18", deleted lines of the move, none pale, and the four lines it stands at after the note "Moved from Ledger.kt:55"
+- **AND** neither note is a button that opens; in Split each lies over the column of its lines, the other column filled beside the lines
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the lines that moved to another file show at both ends in every layout, in the colour of a move, each end under a note that names the file and the line of the other`)
+
+#### Scenario: The ends of a block
+- **WHEN** the marks of a subject name lines of a file that left for another file, or came from one, and the parts of their block are made in each layout
+- **THEN** the block has an end of the move with its lines, the lines of the other end and the file they are in; the note stands before the lines, which show whatever notes are open, each old line at a row of its own
+- **AND** lines no block holds whole, no line, and lines of a block the policy ignores give no end; beside a move within the file the ends of a side stand in the order of their lines, and a block is cut at such an end as at an end of any move
+- **AND** a block of the imports alone that a review plays down draws no such end: its lines stay the pale lines they are
+  [@test] src/lib/diff/block-parts.test.ts (`gives the block of the lines an end of the move, which names the file and the lines of the other end; none for lines no block holds whole`, `shows every line of both ends in every layout, Inline too, after a note that opens nothing`, `cuts the lines of a block at an end of a move between two files as at an end of any move: each side up to it, the note, its lines, then the rest`, `draws no end of a move between two files in a block a view plays down, and every end elsewhere`)
+  [@test] src/lib/diff/rows.test.ts (`reads the lines that left for another file where they left: a stop of N and P, every line a row after the note, in Inline too`)
+
+#### Scenario: The cells of the lines
+- **WHEN** the cells of the lines of a move between two files are asked in each layout, in blocks that have inner ranges of their own
+- **THEN** each is a line of a move in the full colour, at the end it is at, with no range; in Split the other side is filled
+  [@test] src/lib/diff/row-cells.test.ts (`types a line of a move between two files as a line of a move at both ends in every layout, in the full colour, with no range`)
+
+#### Scenario: The words of the note
+- **WHEN** a note at an end of a move between two files is worded, and files of one name in several directories are named
+- **THEN** it says "Moved" and "to Report.kt:18" or "from Ledger.kt:55", the first line of the other end as a reader counts, and counts no line
+- **AND** a file is "Report.kt", or "api/Report.kt" beside "impl/Report.kt": the shortest end of its path that no other path of the subject ends with
+  [@test] src/presenters/diff-marks.test.ts (`names the file and the first line of the other end at both ends, and counts no line: every line of the move shows`, `names a file among the files of its subject by its name, with the directories that tell it from another of that name`)
+
+#### Scenario: The files a note names
+- **WHEN** the diffs of a subject are read, the content of its second file first, then its scopes and the marks of its subject
+- **THEN** each file has the paths of the files of the subject in the order of the stream, one list for all of them, which the marks of the subject name another file by, whatever content came first
+  [@test] src/stores/file-diffs.test.ts (`gives each file the paths of the files of its subject in the order of the stream, whatever content came first and whatever came after it`)
+
+### Requirement: Views: The place a note names in another file shows it there
+
+The place a note of a move between two files names MUST be a button that shows the other end in its file, the note
+there marked. In a review window the card of that file opens and the end the jump left is kept for Back; where each
+file has a view of its own (the preview of a commit, the uncommitted changes) the diff of that file opens and shows
+it. G and the menu of the code MUST take the note as the note of any move.
+
+#### Scenario: A click in the preview of a commit
+- **GIVEN** the preview of the commit of the template with the diff of Ledger.kt open and the one of Report.kt closed
+- **WHEN** the user clicks "to Report.kt:18", then "from Ledger.kt:55" in the diff that opened, then "to Report.kt:18" again
+- **THEN** the row of Report.kt opens its diff, which shows the note where the lines stand, marked; the second click shows the note where they left, marked; the third the first again
+- **AND** the buttons are named "Go to line 18 of src/Report.kt, where the lines stand now" and "Go to line 55 of src/Ledger.kt, where the lines were", and name no key
+- **AND** the diff of Report.kt, closed and opened again by its row, shows its top: the place a note asked of it before is asked no more
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a click on the file and the line a note of a move names opens the diff of that file under its row and shows the other end there, and the note there shows the first again`)
+
+#### Scenario: A click in a review window
+- **GIVEN** the review of the template with the card of Report.kt collapsed
+- **WHEN** the user clicks "to Report.kt:18" in Ledger.kt, presses Back and Forward, clicks "from Ledger.kt:55" and presses Back
+- **THEN** the card of Report.kt opens with the note where the lines stand marked, the diffs focused; Back returns to the note in Ledger.kt, Forward goes there again, and the jump back is a jump of its own
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a click on the place a note names jumps to the other end in the other file, into a card that is collapsed too; Back returns and Forward goes there again`)
+
+#### Scenario: The menu of the code
+- **WHEN** the menu of the code opens on a line `reportTitle` stands at in Report.kt, and on the note where its lines left in Ledger.kt
+- **THEN** it has "Go to Other End of Move", with the key of the review where the key takes that note, and the item shows the other end in the other file
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the menu of the code on a line that moved between two files shows its other end in the other file`)
+  [@test] src/presenters/diff-marks.test.ts (`names the action that shows the other end of a move, and says where it goes from each end`)
+
+#### Scenario: The uncommitted changes
+- **GIVEN** a working tree that moves a function from Store.kt to the end of Report.kt, in the list of the uncommitted changes with Store.kt open
+- **WHEN** the user clicks "to Report.kt:23", then "from Store.kt:19"
+- **THEN** the item of Report.kt opens and its diff shows the note where the lines stand, marked; the second click shows the note where they left
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a click on the place a note of a move names in another file of the list opens that file and shows the other end in its diff, and the note there shows the first again`)
+
+### Requirement: Views: A place in a file no view shows is plain words
+
+Where no view shows the file a note names (the search or the owner of a review hides it), the note MUST say the same
+words as plain text: no button, with the file and the line in full on a hover. G MUST pass such a note and the menu
+of the code MUST have no item of its move. Shown again, the place is a button.
+
+#### Scenario: A file the search of a review hides
+- **GIVEN** the review of a commit of eight files that moves a function from Accounts.kt to Names.kt
+- **WHEN** the user types "Accounts" into the search of the files, presses G, opens the menu of the code on a moved line, then clears the search
+- **THEN** the note in Accounts.kt still says "Moved to Names.kt:5", plain words with the hover "Line 5 of src/Names.kt, where the lines stand now"; no place of the diffs is a button, G moves nothing and the menu has no item of the move
+- **AND** with every file shown the place is a button again, and a click shows the note in Names.kt
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note names the other end of a move in plain words while the review does not show its file: no button, no key, no item of the menu; shown again, it is a button`)
+
+#### Scenario: The words and the key
+- **WHEN** a note is worded whose file the view does not show, and the note of the key is asked of a layout with such notes
+- **THEN** the words are the same and say that they show nothing; the key takes the next note in view whose other end the view shows
+  [@test] src/presenters/diff-marks.test.ts (`says the same words of an end in a file the view does not show, as words that show nothing`)
+  [@test] src/lib/diff/layout.test.ts (`passes a note of a move whose other end the view cannot show: the key takes the next one in view that it can, at the end the view stands at too`)
+
+### Requirement: Views: A name another file declares is named once where it is used, with that file
+
+A file that uses a name another file of the subject declares and renamed MUST name the rename once, at its first
+site in the rows, with "declared in Store.kt" after its sites, and draw the name at each site as any renamed name.
+Where a view shows that file the words MUST be a button that shows the declaration, the new name selected, the site
+kept for Back; else plain words.
+
+#### Scenario: The calls of the report
+- **WHEN** the preview shows Report.kt of the template, and the user clicks "declared in Store.kt"
+- **THEN** one note stands above the first call, "Renamed openStore → connectStore · 2 sites · declared in Store.kt", and each call has the name in the mark of a renamed name
+- **AND** the click opens the diff of Store.kt at the declaration with `connectStore` selected; the note there says "Renamed openStore → connectStore · 1 site" and names no file
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the note of a name another file declares names that file, and a click on it opens the diff of that file at the declaration, the new name selected`)
+
+#### Scenario: The declaration in a review, and Back
+- **WHEN** the user clicks "declared in Store.kt" in the review of the template, then presses Back and Forward
+- **THEN** the declaration shows in the card of Store.kt with `connectStore` selected, the diffs focused; Back selects the name at the first call in Report.kt, Forward the declaration again
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a click on the file that declares a name shows the declaration there with the new name selected, and Back returns to the use`)
+
+#### Scenario: The note of a used name
+- **WHEN** the notes of the renames of a file are made whose two calls of a name another file declares are runs of a renamed name, in a section that shows them all and in one that does not show the first
+- **THEN** the name has one note, at its first site in the rows, with the file and the line of its declaration; both runs are named by it and have no note of their own
+- **AND** a local of the file named in the same block shares the note, each rename with what the subject says of it
+  [@test] src/lib/diff/block-parts.test.ts (`gives a name another file declares one note, at its first site in the rows, with the file and the line of its declaration and what the index proved`, `says of a name the file declares what the index proved of it, by its number among the renames of the file, and nothing of a local`)
+  [@test] src/presenters/diff-marks.test.ts (`says after a rename which file of the subject declares the name, a button that shows it where the view shows that file`)
+
+### Requirement: Views: The note of a rename says how far the index proved it
+
+The note of a rename that is not local MUST say after its words what the index of the repository answered of its
+uses, where the name is declared and where it is used: "all uses in this change" for a proof, else "uses outside
+this change", "changes what another name means", "more than the name changed" or "uses not all checked". It MUST
+say nothing while the index is still to be asked and where none answers.
+
+#### Scenario: Every use in the change
+- **GIVEN** the template, the index answering that the declaration of the store and its two calls are every use of the name in both trees
+- **WHEN** the preview shows Report.kt and Store.kt, once the index answered
+- **THEN** the notes say "Renamed openStore → connectStore · 2 sites · declared in Store.kt · all uses in this change" and "Renamed openStore → connectStore · 1 site · all uses in this change"
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note says after its words that every use of the name is in the change, where the name is declared and where it is used`)
+
+#### Scenario: A use the change left alone
+- **GIVEN** the same, the index listing a call of the old name in a file the commit did not change
+- **WHEN** the preview shows the two files
+- **THEN** both notes end with "uses outside this change"
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note says that the name is used outside the change where the index lists a use the change left alone`)
+
+#### Scenario: No index
+- **WHEN** the index of the repository answers nothing of the name
+- **THEN** the notes are what they were before it was asked, and say nothing of the uses
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`a note says nothing of the uses of a name where no index answers: the rename is named, and each use is read`)
+
+#### Scenario: The words of each answer
+- **WHEN** a note of one rename, of two and of three is worded with each answer of the index
+- **THEN** each answer has its words, none for a name still to be asked, without an index or that the index is not asked of
+- **AND** in a note of several renames the words name the rename they are about by its new name; a rename the note counts says them in its line of the hover and to a screen reader
+  [@test] src/presenters/diff-marks.test.ts (`says how far the index proved a rename: every use in the change, uses outside it, another meaning, more than the name, not all checked`, `tells of which rename of a note of several the subject speaks, by its new name, and of a counted one in its line of the hover`)
+
+### Requirement: Views: A run the index proved is passed and keeps every line
+
+A quiet run of a renamed name that the index of the repository proved (`SubjectMarks.confirmed`) MUST be played
+down and passed by N and P, and MUST keep every line in every layout: Inline shows the row of its pair with both
+names in their mark, as it shows a label, never the line once, and no note opens it. The same run reads the same
+whenever its proof came.
+
+#### Scenario: The rows of a proven run
+- **WHEN** the parts and the cells of two calls of a name another file declares are made before the index answered, as labels, and after, as quiet runs the subject lists as proven, in each layout
+- **THEN** the rows are the same rows of the same lines, in the quiet tint; in Inline the row of the pair, whose ranges are the two names alone
+- **AND** no note opens them, the note of their rename hides none of their lines, and the widest row of Inline counts their pairs
+  [@test] src/lib/diff/block-parts.test.ts (`keeps every line of the run in every layout, played down, with no note that opens: the row of the pair in Inline too`)
+  [@test] src/lib/diff/row-cells.test.ts (`draws the names alone in the row of a pair of a quiet run that Inline keeps whole, as in the lines of the run elsewhere`)
+
+#### Scenario: A quiet run the pair proved
+- **WHEN** the same runs are quiet without the list of the subject, a local the scopes of the file prove
+- **THEN** Inline shows each line once under the note that opens them, as before
+  [@test] src/lib/diff/block-parts.test.ts (`shows a quiet run of the same kind once in Inline where the index did not prove it late: the pair says it with the content`)
+
+### Requirement: Views: Marks that come after the rows of a file take no row of a line
+
+The marks of a subject that come after the rows of a file were shown (what its files say of each other, once they
+were compared; the answer of the index) MUST add rows of words and tints alone: every line that had a row keeps
+one, in every layout, and nothing of them opens. A block they cut shows part by part, as any block the marks cut:
+its lines may group anew around the note, each with its row.
+
+#### Scenario: The rows before and after
+- **WHEN** the rows of a file are built from its content alone, then with the marks of its subject, then with the answer of the index that proves its two calls, in each layout
+- **THEN** the rows of the lines are the same each time, in the same order, and two rows of words came: the note of the rename above its first call and the note where the moved lines stand
+- **AND** no note of them is a note that opens
+  [@test] src/lib/diff/rows.test.ts (`adds rows of words alone to the rows the content of the file gave: every row of a line stays, the same line in the same order, in every layout`, `stops N and P at each use of the name while the index proved nothing, and passes the uses it proved, which stay on screen played down`)
+
+#### Scenario: A block a mark of the subject cuts
+- **WHEN** three lines became three others the engine does not pair, and the second old line stands in another file now
+- **THEN** one column shows the first old line and the new lines, then the note and the line that left, then the last old line, where it showed the old lines and then the new ones
+- **AND** every line of the block has the one row it had, in each layout
+  [@test] src/lib/diff/rows.test.ts (`regroups the lines of a block that a mark of the subject cuts around its note, part by part, each line with the one row it had`)
+
+### Requirement: Views: The row at the top of a view stays where it is as marks come late
+
+A view MUST keep the row at its top where it is while the marks of a subject add rows above it. A view that scrolls
+itself keeps its anchor; a view that is a block of another scroller MUST move that scroller by the rows that came
+above its top row, by all of them when the view lies above the viewport, each view by its own part.
+
+#### Scenario: A review window
+- **GIVEN** the review of the template whose Report.kt says nothing of its subject until the index answers, a line of `reportTitle` at the top of the diffs
+- **WHEN** the answer comes with the marks of the file, the two calls proven
+- **THEN** the diffs scroll by the two rows of the notes that came above, and the line stays where it was; the file counts one change of three to read
+- **AND** at the top of the file both notes show, and each call is the row of two lines it was, played down
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the notes they add come above the row a reader has at the top of a review, which stays where it is, and the uses the index proved keep their rows, played down`)
+
+#### Scenario: A diff of a preview above the view
+- **GIVEN** the preview of the commit with the diffs of its three files open, scrolled to its end, so the diff of Report.kt lies above the view
+- **WHEN** the marks of Report.kt come
+- **THEN** the preview scrolls by the two rows the diff above grew by, and the line of Store.kt at its top stays where it was
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the notes they add to a diff of a preview that lies above the one a reader has on screen leave the row at the top of the view where it is`)
+
+#### Scenario: The diff of a preview a reader has on screen
+- **GIVEN** the same preview with a line of `reportTitle` in Report.kt at its top
+- **WHEN** the marks of Report.kt come
+- **THEN** the preview scrolls by the two rows of the notes, and the line stays where it was, a line of the move now
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the notes they add to the diff a reader has on screen in a preview come above its top row, which stays where it is`)
+
+#### Scenario: The anchor of a view
+- **WHEN** the row of a line is asked before and after the notes came above it, and the top of a view below the rows of its last file is kept across a layout with more rows
+- **THEN** the line has the row it had plus the notes above it, never a note; a top below the rows is held from their end, so it moves by the rows that came
+  [@test] src/lib/diff/rows.test.ts (`keeps the row at the top of a view at its line while the notes come above it`)
+  [@test] src/lib/diff/layout.test.ts (`keeps a top below the rows of the last file from the end of its rows: rows that come above it move it by as much, and nothing of the file is brought back into view`)
+
 ## User Experience
 
 - A note: the kind in `font-medium`, then ` · ` and the new lines of the run, in the font of the text, muted, at the
@@ -2210,6 +2467,14 @@ underlines a reassigned variable.
   opens, so with several notes in view the hint says which one G takes. The item of the menu of the code: "Go to Other
   End of Move", with the key where the menu opened on that end, its hover "Show where the moved lines stand now" or
   "Show where the moved lines were".
+- The note at an end of a move between two files: "Moved" in `font-medium`, then the place of the other end, its
+  file and its line: "to Report.kt:18", "from Ledger.kt:55". The file is its name, with as many of its directories
+  as tell it from another file of the subject of that name ("api/Report.kt"). Its row and its lines have the colour
+  and the rail of a move. Where a view shows that file the place is a button as the place of any move, named "Go to
+  line 18 of src/Report.kt, where the lines stand now" or "Go to line 55 of src/Ledger.kt, where the lines were";
+  where none does, plain words in the same colour, their hover "Line 18 of src/Report.kt, where the lines stand
+  now". To a screen reader a line says "moved to another file" or "moved here from another file". The item of the
+  menu of the code is the one of any move, its hover "Show where the moved lines stand now, in Report.kt".
 - The row a jump lands on: a ring of `--ring` that fades in 1.6 s; it stays until the next scroll, press or key
   where the OS asks for reduced motion.
 - The note of a rename: "Renamed" in `font-medium`, the old and the new spelling in the font of the code and the
@@ -2219,6 +2484,17 @@ underlines a reassigned variable.
   others, a line each ("count → size · 3 sites"), and which says them to a screen reader. It stands right above the
   line of its declaration. Where it opens (Inline, a quiet run of its renames) it is a button as any note that
   opens, named "Renamed total to sum, 12 sites: Show the 4 old lines", with the key H in a review.
+- After the words of the note of a rename, what the subject says of it, muted, each part after ` · `: the file that
+  declares a name the file only uses, "declared in Store.kt", a button with the dotted line of a place where a view
+  shows that file (named "Go to the declaration of connectStore in src/Store.kt"), plain words where none does
+  (their hover "connectStore is declared in src/Store.kt"); then what the index proved of its uses: "all uses in
+  this change", "uses outside this change", "changes what another name means", "more than the name changed", "uses
+  not all checked"; nothing while the index is still to be asked and where none answers. In a note of two renames
+  the new name of the rename they are about stands before these words, in the font of the code; a rename the note
+  counts says them in its line of the hover. The name of a note that opens holds them: "Renamed openStore to
+  connectStore, 2 sites, declared in Store.kt, all uses in this change".
+- A use of a name the index proved, once the runs of a renamed name are quiet: its lines as they were, on the quiet
+  colour, both names in their mark; N and P pass it and the file counts it out of what is left to read.
 - A renamed name: the quiet colour a step nearer the text and a dotted line along its lower edge
   ([UI Theme](../../../../docs/design/ui-theme.md#diffs)), on both sides in every layout. Its hover: "Renamed from
   total" on the new side, "Renamed to sum" on the old one. To a screen reader: "renamed" before the name, once. The
@@ -2231,9 +2507,13 @@ underlines a reassigned variable.
 
 `pnpm test:unit src/lib/diff src/stores/file-diffs.test.ts src/presenters/diff-marks.test.ts` and
 `pnpm e2e tests/e2e/commit-files/quiet-changes.spec.ts tests/e2e/commit-files/moved-lines.spec.ts
-tests/e2e/commit-files/renamed-names.spec.ts` for the views
-(`pnpm e2e:webkit` with the same files for the focus after a jump and a click on a note). The tests of a quiet run
-of a renamed name read the answers of the engine with that kind switched on (`switchRenamedOn`).
+tests/e2e/commit-files/renamed-names.spec.ts tests/e2e/commit-files/subject-marks.spec.ts` for the views
+(`pnpm e2e:webkit` with the same files for the focus after a jump and a click on a note, and for the scroll a view
+keeps as marks come late). The tests of a quiet run of a renamed name read the answers of the engine with that kind
+switched on (`switchRenamedOn`). The tests of the marks of a subject (`subject-marks.spec.ts`) read the index of the
+repository from the fixture of the test server (`answerStoreRename` writes `.git/branch-deck-accio.json`, which
+`FixtureIndex` answers `get_rename_proofs` by), and hold that answer where they read the rows before it
+(`lateSubjectMarks`, `holdCommand`).
 `cargo nextest run -p file-diffs -E 'test(/marks_test|marks_renames_test|marks_subject_test/)'` and
 `-p text-diff -E 'test(/model_test|moves_test|moves_across_test/)'`; the pass over a subject through the service and
 the index: `-p file-diffs -E 'test(/service_test|accio_test/)'` (one test asks the accio of the machine, when it
@@ -2307,6 +2587,27 @@ in
   resolver (its decision 2026-11-11-rename-read-in-two-trees): what the sample must show before the kind is on.
 - The answer of the index comes after the rows of a file: a view that passes a confirmed run still shows each of its
   lines, where a quiet run of the pair is shown once. The same run reads otherwise by where its proof came from.
+- What a view shows of a run the index proved (played down, passed, every line kept) is tested in a browser on the
+  answers of the engine rewritten on the way, as the quiet runs of a local are (`switchRenamedOn` makes the runs
+  `SubjectMarks.confirmed` lists quiet too, what `as_confirmed` answers); on the engine as it is such a run is a
+  label with the words of its proof. It goes with the switch of the kind.
+- The server sends the marks of a subject right after the contents of its files, in one answer that a test cannot
+  stop between two of its events. The tests of marks that come late make the diff of one file say nothing of its
+  subject (`lateSubjectMarks`: what its content says where its pair had to be compared) and hold the answer of the
+  index, which brings its marks whole: the same replacement of the marks of a file, late.
+- A mark of the subject that cuts a block (a line that left for another file among lines that changed, a call of a
+  renamed name among other changed lines) regroups the lines of that block around its note in one column, part by
+  part, as the same marks show it when they come with the content. The row at the top of the view stays; the other
+  lines of that one block may change places once, as the marks come.
+- A move between two files with an end in a block of the imports alone that a review plays down is not drawn at
+  that end; its other end, in another file, is drawn if its block is read, and a jump from it lands on the row of
+  the line. A file knows nothing of the blocks of another: only the view of both could draw such a move at neither.
+- The note where a name is declared says how many places of its own file hold it and what the index proved, not how
+  many files use it: a file knows what the subject says of itself alone.
+- A jump from a note into a file of a preview or of the uncommitted changes has no Back: those views have none. The
+  note of the other end goes back.
+- The row at the top of a view is read at a scroll: a mark that comes in the frame of a scroll, before the views
+  heard of it, is held by the row the view had before that scroll.
 - A use of the renamed name with another word written (an accessor of a Kotlin property in Java, an alias) on a
   line the change left alone is a use outside the change to this reader, though it still names the declaration: such
   a rename stays a label.

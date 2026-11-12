@@ -1,5 +1,7 @@
+import { writeFileSync } from "node:fs"
+import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
-import type { DiffBlock, DiffMarks } from "../../../src/lib/bindings"
+import type { DiffBlock, DiffMarks, FileMarks } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/base-test"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "./branch-helpers"
 import { expectOverviewLaidOut } from "./diff-helpers"
@@ -81,23 +83,27 @@ export async function findInReview(window: Locator, code: Locator, text: string)
 }
 
 /** The marks of a diff as the stream of `get_file_diffs` carries them, and the lines of a block (`DiffMarks`, `DiffBlock` of the bindings) */
-type StreamMarks = Pick<DiffMarks, "runs" | "renames" | "starts">
+type StreamMarks = Pick<DiffMarks, "runs" | "renames" | "starts" | "subject">
 type StreamBlock = Pick<DiffBlock, "oldStart" | "oldEnd" | "newStart" | "newEnd">
 
 /**
  * The marks of a file as the engine gives them once the kind `renamed` is switched on (`is_quiet` of
- * crates/file-diffs/src/marks.rs, which `PairMarks::as_proven` answers today): a run of a renamed name whose sites are
- * of locals alone is quiet, and a block whose every line is in a quiet run has no line to start its reading at. A run
- * with a site of a name that is not local, or of a name another file declares, stays the label it is. Only whole
+ * crates/file-diffs/src/marks.rs, which `PairMarks::as_proven` answers today, and `as_confirmed` of marks_subject.rs
+ * for what the index proved): a run of a renamed name whose sites are of locals alone is quiet, so is a run the
+ * subject lists as confirmed (`SubjectMarks.confirmed`: a name that is not local, every use of which the index of the
+ * repository proved), and a block whose every line is in a quiet run has no line to start its reading at. Any other
+ * run with a site of a name that is not local, or of a name another file declares, stays the label it is. Only whole
  * blocks: a block such a run leaves lines of would start at another line, which Rust alone says
  */
 function withRenamedOn(marks: StreamMarks, blocks: readonly StreamBlock[]): void {
   const linesOf = (local: boolean) => new Set(marks.renames.filter(rename => rename.local === local).flatMap(rename => rename.newSites.filter((_, at) => at % 3 === 0)))
   const [local, other] = [linesOf(true), linesOf(false)]
+  const confirmed = new Set((marks.subject?.confirmed ?? []).map(number => marks.runs[number]))
   const switched = new Set<number>()
   for (const run of marks.runs) {
     const lines = Array.from({ length: run.newEnd - run.newStart }, (_, at) => run.newStart + at)
-    if (run.kind === "renamed" && !run.quiet && lines.some(line => local.has(line)) && !lines.some(line => other.has(line))) {
+    const proven = confirmed.has(run) || (lines.some(line => local.has(line)) && !lines.some(line => other.has(line)))
+    if (run.kind === "renamed" && !run.quiet && proven) {
       run.quiet = true
       blocks.forEach((block, index) => {
         if (block.newStart <= run.newStart && run.newEnd <= block.newEnd) {
@@ -122,36 +128,149 @@ function withRenamedOn(marks: StreamMarks, blocks: readonly StreamBlock[]): void
 }
 
 /**
- * The answers of `get_file_diffs` in `page`, and in the windows it shows, as the engine gives them once the kind
- * `renamed` is switched on (`withRenamedOn`): the command runs on the server, on the real engine, and its answer is
- * rewritten on the way, the marks of each file in its `content` event and in a later `marks` event of it. Until that
- * switch a run of a renamed name is a label, so what a view shows of a quiet one has no other way into a browser; with
- * the switch this goes and its tests stay
+ * The marks of a file as its content gives them where its pair had to be compared, before the files of its subject say
+ * anything of it: without what they say (`subject`) and without the runs they add, the lines that changed in a name
+ * another file declares alone (`SubjectMarks.used`). Only where no such run holds a site of a rename of the file
+ * itself, which the pair may have cut by itself
  */
-export async function switchRenamedOn(page: Page): Promise<void> {
+function withoutSubject(marks: StreamMarks): void {
+  const used = new Set((marks.subject?.used ?? []).flatMap(it => it.rename.newSites.filter((_, at) => at % 3 === 0)))
+  const own = new Set(marks.renames.flatMap(rename => rename.newSites.filter((_, at) => at % 3 === 0)))
+  marks.runs = marks.runs.filter(run => {
+    const lines = Array.from({ length: run.newEnd - run.newStart }, (_, at) => run.newStart + at)
+    if (run.kind !== "renamed" || !lines.some(line => used.has(line))) {
+      return true
+    }
+    if (lines.some(line => own.has(line))) {
+      throw new Error("a run of a name another file declares holds a rename of the file too: only Rust says what the pair alone gives")
+    }
+    return false
+  })
+  marks.subject = null
+}
+
+/** How the answers of the marks of a subject are rewritten on their way to the page (`rewriteMarks`) */
+interface MarksRewrite {
+  /** The kind `renamed` is switched on (`withRenamedOn`) */
+  readonly renamedOn: boolean
+  /**
+   * The file, by its path, whose diff says nothing of its subject until the index answered (`withoutSubject`): the
+   * marks of the subject come for it after the rows of its content were shown
+   */
+  readonly late: string | null
+}
+
+/**
+ * The answers of `get_file_diffs` and of `get_rename_proofs` in `page`, and in the windows it shows, rewritten on
+ * their way: the commands run on the test server, on the real engine, and the marks of each file change in the
+ * `content` event of its diff, in a later `marks` event of it, and in the answer of the index. No page answer of a
+ * read: the server answered
+ */
+async function rewriteMarks(page: Page, { renamedOn, late }: MarksRewrite): Promise<void> {
+  // the blocks of each file a diff of the page brought, by its path: what the starts of its marks are counted by
+  const blocksOf = new Map<string, readonly StreamBlock[]>()
   await page.route("**/invoke/get_file_diffs", async route => {
     const response = await route.fetch()
-    const blocks = new Map<number, readonly StreamBlock[]>()
+    const paths: string[] = []
     // the events of the channel, one a line of the stream (`invoke.rs`)
     const body = (await response.text())
       .split("\n")
-      .map(line => {
+      .flatMap(line => {
         if (!line.startsWith("data:")) {
-          return line
+          return [line]
         }
         const message = JSON.parse(line.slice("data:".length)) as {
-          progress?: { kind: string; index: number; content?: { kind: string; blocks: StreamBlock[]; marks: StreamMarks }; marks?: StreamMarks }
+          progress?: {
+            kind: string
+            index: number
+            files?: { path: string }[]
+            content?: { kind: string; blocks: StreamBlock[]; marks: StreamMarks }
+            marks?: StreamMarks
+          }
         }
         const event = message.progress
-        if (event?.kind === "content" && event.content?.kind === "text") {
-          blocks.set(event.index, event.content.blocks)
-          withRenamedOn(event.content.marks, event.content.blocks)
-        } else if (event?.kind === "marks" && event.marks !== undefined) {
-          withRenamedOn(event.marks, blocks.get(event.index) ?? [])
+        if (event?.kind === "files") {
+          paths.push(...(event.files ?? []).map(file => file.path))
         }
-        return `data: ${JSON.stringify(message)}`
+        const file = event === undefined ? undefined : paths[event.index]
+        if (event?.kind === "content" && event.content?.kind === "text" && file !== undefined) {
+          blocksOf.set(file, event.content.blocks)
+          if (file === late) {
+            withoutSubject(event.content.marks)
+          }
+          if (renamedOn) {
+            withRenamedOn(event.content.marks, event.content.blocks)
+          }
+        } else if (event?.kind === "marks" && event.marks !== undefined && file !== undefined) {
+          if (file === late) {
+            // what the other files say of it comes with the answer of the index
+            return []
+          }
+          if (renamedOn) {
+            withRenamedOn(event.marks, blocksOf.get(file) ?? [])
+          }
+        }
+        return [`data: ${JSON.stringify(message)}`]
       })
       .join("\n")
     await route.fulfill({ response, body })
   })
+  if (renamedOn) {
+    await page.route("**/invoke/get_rename_proofs", async route => {
+      const response = await route.fetch()
+      const answer = (await response.json()) as FileMarks[] | { data: FileMarks[] | null } | null
+      const files = Array.isArray(answer) ? answer : (answer?.data ?? [])
+      for (const file of files) {
+        withRenamedOn(file.marks, blocksOf.get(file.path) ?? [])
+      }
+      await route.fulfill({ response, json: answer })
+    })
+  }
+}
+
+/**
+ * The answers of `get_file_diffs` and of `get_rename_proofs` in `page`, and in the windows it shows, as the engine
+ * gives them once the kind `renamed` is switched on (`withRenamedOn`). Until that switch a run of a renamed name is a
+ * label, so what a view shows of a quiet one has no other way into a browser; with the switch this goes and its tests
+ * stay
+ */
+export async function switchRenamedOn(page: Page): Promise<void> {
+  await rewriteMarks(page, { renamedOn: true, late: null })
+}
+
+/**
+ * The marks of the subject come late for the file `path` in `page`: its diff says nothing of its subject, as where
+ * its pair had to be compared (`withoutSubject`), and they come whole with the answer of the index of the repository,
+ * which `holdCommand(page, "get_rename_proofs")` holds for as long as a test reads the rows before it. The server
+ * sends the marks of a subject right after the contents, in one answer, which a test cannot stop between two of its
+ * events: this is that late event, held. `renamedOn` as `switchRenamedOn`
+ */
+export async function lateSubjectMarks(page: Page, path: string, { renamedOn = false }: { renamedOn?: boolean } = {}): Promise<void> {
+  await rewriteMarks(page, { renamedOn, late: path })
+}
+
+/**
+ * What the index of the repository answers of the function the store of the `commit_marks` template declares and
+ * renamed (`openStore` to `connectStore`, src/Store.kt, used twice in src/Report.kt), as accio answers
+ * (`accio renames`, `RenameAnswer` of crates/file-diffs/src/accio.rs): the fixture of the test server
+ * (`FixtureIndex`), written into the repository at `repositoryPath` before a view asks. Its declaration and its two
+ * calls in both trees, every use a place of the rename: a proof. With `outside` a call more of the old name in the
+ * old tree, in a file the commit left alone: the rename is proven no more, and the name is used outside the change
+ */
+export function answerStoreRename(repositoryPath: string, { outside = false }: { outside?: boolean } = {}): void {
+  const use = (file: string, line: number, column: number, end: number, kind: string) => ({ file, line, column, end_column: end, kind, resolved: "import" })
+  // the name is 9 characters in the old tree and 12 in the new one; a file the commit left alone still calls the old one
+  const uses = (length: number, more: ReturnType<typeof use>[] = []) => {
+    const listed = [
+      use("src/Report.kt", 5, 16, 16 + length, "call"),
+      use("src/Report.kt", 11, 16, 16 + length, "call"),
+      use("src/Store.kt", 19, 4, 4 + length, "declaration"),
+      ...more,
+    ]
+    return { total: listed.length, uses: listed }
+  }
+  const kotlin = { language: "kotlin" }
+  const base = uses(9, outside ? [use("src/Main.kt", 3, 14, 23, "call")] : [])
+  const renamed = { same: true, complete: true, old: kotlin, new: kotlin, base, head: uses(12), conflicts: [] }
+  writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ renames: { "src/Store.kt:19:5": renamed } }))
 }

@@ -6,7 +6,7 @@ import { diffCells, fileLayoutOf, mergeCells, oneSideOf } from "@/lib/diff/row-c
 import { buildFileRows, buildMergeRows, EXPANDED, LEFT, MIDDLE, NEW, OLD, RIGHT, rowAt } from "@/lib/diff/rows"
 import type { LineRow } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, mergeBlock, move, rename, run, textDiff, textMerge } from "@/test-support/diff-blocks"
+import { block, fileMove, mergeBlock, move, rename, run, subjectMarks, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 const lineRow = (row: ReturnType<typeof rowAt>): LineRow => {
   if (row.kind === "fold" || row.kind === "note") {
@@ -157,6 +157,53 @@ describe("diffCells", () => {
     expect([opened.kind, opened.lines, inline.cell(opened, OLD), inline.ranges(opened, OLD)]).toEqual(["deleted", [21, null], "moved", [4, 9, 2]])
   })
 
+  it("types a line of a move between two files as a line of a move at both ends in every layout, in the full colour, with no range", () => {
+    // two lines left this file for another one, and two came from a third; the blocks have ranges of their own, which
+    // compare the lines with lines they have nothing to do with
+    const left = block(5, 7, 5, 5, {
+      oldRanges: [
+        [1, 2, 1],
+        [1, 2, 1],
+      ],
+    })
+    const stands = block(20, 20, 18, 20, {
+      newRanges: [
+        [0, 3, 0],
+        [0, 3, 0],
+      ],
+    })
+    const diff = textDiff(30, 30, [left, stands], { subject: subjectMarks({ movedOut: [fileMove(5, 2, 1, 40)], movedIn: [fileMove(18, 2, 2, 7)] }) })
+    const rowsOf = (mode: "inline" | "unified" | "split") => {
+      const rows = buildFileRows(diff, mode, [EXPANDED, EXPANDED, EXPANDED])
+      return Array.from({ length: rows.rowCount }, (_, row) => rowAt(rows, row)).flatMap(row => (row.kind === "note" || row.kind === "fold" || row.move === null ? [] : [row]))
+    }
+    for (const mode of ["inline", "unified"] as const) {
+      const cells = diffCells(diff, mode)
+      expect(
+        rowsOf(mode).map(row => [
+          row.kind,
+          row.lines,
+          row.tint,
+          row.move!.at,
+          cells.cell(row, row.kind === "deleted" ? OLD : NEW),
+          cells.ranges(row, row.kind === "deleted" ? OLD : NEW),
+        ]),
+      ).toEqual([
+        ["deleted", [5, null], "full", "source", "moved", null],
+        ["deleted", [6, null], "full", "source", "moved", null],
+        ["added", [null, 18], "full", "destination", "moved", null],
+        ["added", [null, 19], "full", "destination", "moved", null],
+      ])
+    }
+    const split = diffCells(diff, "split")
+    expect(rowsOf("split").map(row => [row.lines, split.cell(row, OLD), split.cell(row, NEW), split.ranges(row, OLD), split.ranges(row, NEW)])).toEqual([
+      [[5, null], "moved", "filler", null, null],
+      [[6, null], "moved", "filler", null, null],
+      [[null, 18], "filler", "moved", null, null],
+      [[null, 19], "filler", "moved", null, null],
+    ])
+  })
+
   it("shows a file with one side as that side alone in every layout, with its line numbers, as IntelliJ's one-sided viewer", () => {
     // an added file: no old blob; a deleted one: no new blob; a changed one has both
     expect([oneSideOf({ oldId: null, newId: "b" }), oneSideOf({ oldId: "a", newId: null }), oneSideOf({ oldId: "a", newId: "b" })]).toEqual([NEW, OLD, null])
@@ -251,6 +298,33 @@ describe("the names a change renamed in the cells of a diff", () => {
     expect(cellsOf(true, "unified").slice(0, 2)).toEqual(both)
     expect(cellsOf(true, "inline", [1]).slice(0, 2)).toEqual(both)
     expect(cellsOf(true, "split")[0]).toEqual(["changed quiet", [4, 9, R], [4, 7, R]])
+  })
+
+  it("draws the names alone in the row of a pair of a quiet run that Inline keeps whole, as in the lines of the run elsewhere", () => {
+    // `val store = openStore(path)` is `val store = connectStore(path)`: a call of a function another file declares,
+    // which the index proved after the rows were shown; the engine marked the whole word and a space after it
+    const call = block(4, 5, 4, 5, { inlinePairs: true, oldRanges: [[16, 26, 2]], newRanges: [[16, 29, 2]] })
+    const open = rename("openStore", "connectStore", [[4, 16, 4, 16]], { local: false, declared: [] })
+    const diff = textDiff(10, 10, [call], {
+      runs: [run(4, 5, 4, 5, { kind: "renamed", quiet: true })],
+      subject: subjectMarks({ used: [{ rename: open, file: 2, line: 18, proof: "confirmed" }], confirmed: [0] }),
+    })
+    const cellsIn = (mode: DiffViewMode) => {
+      const rows = buildFileRows(diff, mode, [EXPANDED, EXPANDED])
+      const cells = diffCells(diff, mode)
+      return Array.from({ length: rows.rowCount }, (_, row) => rowAt(rows, row)).flatMap(row =>
+        row.kind === "note" || row.kind === "fold" || row.kind === "context"
+          ? []
+          : [[`${row.kind} ${row.tint}`, cells.cell(row, row.kind === "deleted" ? OLD : NEW), cells.ranges(row, OLD), cells.ranges(row, NEW)]],
+      )
+    }
+    // Inline: the row of the pair, both names, each one range of its own kind; never the line once
+    expect(cellsIn("inline")).toEqual([["inline quiet", "inserted", [16, 25, R], [16, 28, R]]])
+    expect(cellsIn("unified")).toEqual([
+      ["deleted quiet", "deleted", [16, 25, R], null],
+      ["added quiet", "inserted", null, [16, 28, R]],
+    ])
+    expect(cellsIn("split")).toEqual([["changed quiet", "modified", [16, 25, R], [16, 28, R]]])
   })
 
   it("marks the names alone on a line of a run of a renamed name, a label too: what the engine marked between two names there is the same code", () => {

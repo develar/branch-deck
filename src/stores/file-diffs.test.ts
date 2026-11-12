@@ -135,7 +135,11 @@ describe("loadFileDiffs", () => {
       { repositoryPath: "/repo", source: { kind: "commit", id: "c1" }, policy: "default", priorityPaths: ["src/a.kt"] },
       { repositoryPath: "/repo", source: { kind: "commit", id: "c1" }, policy: "ignore", priorityPaths: [] },
     ])
-    expect(entryOf({ kind: "commit", id: "c1" }, "ignore")).toEqual({ kind: "loaded", files: [{ ...header("c1"), content: BINARY, collapse: { kind: "noText" } }], complete: true })
+    expect(entryOf({ kind: "commit", id: "c1" }, "ignore")).toEqual({
+      kind: "loaded",
+      files: [{ ...header("c1"), content: BINARY, collapse: { kind: "noText" }, subjectPaths: ["c1"] }],
+      complete: true,
+    })
   })
 
   it("shows each file as its content arrives, and the late scopes of a text keep the lines it expanded", async () => {
@@ -158,6 +162,32 @@ describe("loadFileDiffs", () => {
     expect(labelled !== "pending" && labelled?.content.kind === "text" ? [labelled.content.newScopes, getFoldLevels(labelled.content)] : null).toEqual([scopes, [3]])
     // the stream ended without the content of a.kt: the engine has none for it
     expect(fileDiffOf(entryOf(subject), "a.kt")).toBeUndefined()
+  })
+
+  it("gives each file the paths of the files of its subject in the order of the stream, whatever content came first and whatever came after it", async () => {
+    const { events, end } = holdNextStream()
+    const subject = { kind: "commit", id: "c15" } as const
+    loadFileDiffs(subject, "default")
+    events().onmessage({ kind: "files", files: [header("src/Ledger.kt"), header("src/Report.kt"), header("src/Store.kt")] })
+    const text: DiffContent & { kind: "text" } = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6), block(8, 9, 8, 9)]) }
+    // the second file first: the entry holds it alone, and it still names the first one by its place in the stream
+    events().onmessage({ kind: "content", index: 1, content: text, collapse: null })
+    const paths = ["src/Ledger.kt", "src/Report.kt", "src/Store.kt"]
+    const pathsOf = (path: string) => {
+      const file = fileDiffOf(entryOf(subject), path)
+      return file === undefined || file === "pending" ? file : file.subjectPaths
+    }
+    await vi.waitFor(() => expect([pathsOf("src/Report.kt"), pathsOf("src/Ledger.kt")]).toEqual([paths, "pending"]))
+    // its scopes and the marks of its subject replace its content, never the files it names
+    events().onmessage({ kind: "scopes", index: 1, oldScopes: [], newScopes: [], importBlocks: [] })
+    events().onmessage({ kind: "marks", index: 1, marks: subjectMarks(text.marks, "asked") })
+    events().onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
+    end()
+    await settle()
+    expect(textOf(subject, "src/Report.kt")?.marks.subject?.movedIn).toEqual([{ start: 8, len: 1, file: 1, line: 3 }])
+    // one list for all the files of the stream
+    expect(pathsOf("src/Report.kt")).toEqual(paths)
+    expect(pathsOf("src/Ledger.kt")).toBe(pathsOf("src/Report.kt"))
   })
 
   it("keeps the notes a view opened across the late scopes of a text, and the folds and the notes of its sections", async () => {
@@ -248,7 +278,7 @@ describe("loadFileDiffs", () => {
       confirmed,
       text.blocks,
       [3],
-      { kind: "loaded", files: [{ ...header("a.kt"), content, collapse: null }], complete: true },
+      { kind: "loaded", files: [{ ...header("a.kt"), content, collapse: null, subjectPaths: ["a.kt"] }], complete: true },
     ])
     // answered: a view that shows it again asks nothing
     release()
@@ -343,9 +373,19 @@ describe("loadFileDiffs", () => {
         }),
     )
     loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
-    expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("uncommitted"), content: BINARY, collapse: { kind: "noText" } }], complete: true })
+    expect(entryOf(UNCOMMITTED)).toEqual({
+      kind: "loaded",
+      files: [{ ...header("uncommitted"), content: BINARY, collapse: { kind: "noText" }, subjectPaths: ["uncommitted"] }],
+      complete: true,
+    })
     release()
-    await vi.waitFor(() => expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("next"), content: BINARY, collapse: { kind: "noText" } }], complete: true }))
+    await vi.waitFor(() =>
+      expect(entryOf(UNCOMMITTED)).toEqual({
+        kind: "loaded",
+        files: [{ ...header("next"), content: BINARY, collapse: { kind: "noText" }, subjectPaths: ["next"] }],
+        complete: true,
+      }),
+    )
   })
 
   it("reads the uncommitted changes once more after a refresh asked during a read, never dropping it", async () => {
@@ -367,7 +407,11 @@ describe("loadFileDiffs", () => {
     loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
     release()
     await vi.waitFor(() =>
-      expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("changed"), content: BINARY, collapse: { kind: "noText" } }], complete: true }),
+      expect(entryOf(UNCOMMITTED)).toEqual({
+        kind: "loaded",
+        files: [{ ...header("changed"), content: BINARY, collapse: { kind: "noText" }, subjectPaths: ["changed"] }],
+        complete: true,
+      }),
     )
     // one read after the one that ran, for both refreshes
     expect(getFileDiffs).toHaveBeenCalledTimes(2)

@@ -81,10 +81,21 @@ rules in one line each and links here.
   (`data-tint="quiet"`), `remarkHits(scope)` the hits of the find a note names (`diff-remark-hits`); of a move,
   `moveNotes(scope, end)` are the rows of the notes at its ends (`data-move`: `source`, `destination`; `data-landed`
   on the one a jump landed on), `moveTargets(scope)` the buttons of the places they name (`diff-move-target`; the
-  one the key of the moves takes has `aria-keyshortcuts`),
-  `movedSides(scope, end, side)` the cells of its lines (`data-cell="moved"`). A quiet run of a renamed name, which
+  one the key of the moves takes has `aria-keyshortcuts`: `keyedMoveTargets(scope)`), `movePlaces(scope)` the places
+  that are plain words because no view shows their file (`diff-move-place`),
+  `movedSides(scope, end, side)` the cells of its lines (`data-cell="moved"`), `acrossSides(scope, end, side)` those
+  of a move between two files (`data-across`); Back and Forward of the diffs are `diffHistoryKeys(browserName)`. Of
+  what the files of a commit say of each other: the file a note names as the one that declares a name is
+  `diff-rename-declared` (a button where a view shows that file), what the index proved `diff-rename-proof`
+  (`data-proof`). The index of the repository answers from the fixture of the test server:
+  `answerStoreRename(repo.path)` of `marks-helpers.ts` writes the answer for the rename of the `commit_marks`
+  template before a view asks (`{ outside: true }`: a use the commit left alone). Marks that come after the rows of
+  a file: `lateSubjectMarks(page, path)` makes the diff of that file say nothing of its subject, and
+  `holdCommand(page, "get_rename_proofs")` holds the answer that brings its marks, until the test read the rows
+  before it. A quiet run of a renamed name, which
   the engine gives as a label until its kind is switched on, is read on the answers of the server rewritten on the
-  way (`switchRenamedOn(page)` of `marks-helpers.ts`, before the diffs are asked for). The painter adds a row to the page as a
+  way (`switchRenamedOn(page)` of `marks-helpers.ts`, before the diffs are asked for; the runs the index proved are
+  quiet then too). The painter adds a row to the page as a
   scroll brings it near, so the order of the page is the order of the paints: read the code of rows in the order of
   their files by `codeOf(rows)` of `marks-helpers.ts` (`data-file`, `data-row`), never by the order of a locator, and
   find one row among several by its text (`rows.filter({ hasText })`), never by `nth`. A row is found by what it
@@ -93,7 +104,11 @@ rules in one line each and links here.
   rows anew, which drops a selection: a test that selects in them waits for `expectScopesShown(code, path)`. The
   painter also replaces the element of a row as its tokens arrive: what a test reads of a row and its neighbours it
   reads in one step of the page (`evaluateAll`, as `codeOf`), never with `evaluate` on a row found a step before,
-  whose element may have left the page. The painter draws
+  whose element may have left the page. For the same reason a scroll asked of a row (`scrollIntoView` in the page)
+  may be asked of an element that just left it and move nothing: ask until the row stands where it should
+  (`toPass`), measure a row by a box that is there (`boundingBox` is null for a moment), and before a test reads
+  what a view keeps across a new layout, let the scroll event reach the views (`resizeReportsDelivered(page)`: two
+  frames). The painter draws
   only the rows around the view: `scrollDiffsTo(scope, target)` scrolls a view in the scroller of its parent (the
   preview of a commit) until a row far below is painted. A part is an
   element per token of the syntax: read a text over several by `joinedText`. Code that runs in the page takes the

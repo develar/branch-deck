@@ -1,8 +1,21 @@
 // @spec openspec/specs/commit/quiet-changes/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { RENAMED_RANGE } from "@/lib/diff/line-parts"
-import { pairedWithSites, renamedRunOf, renameSites, runUnits, sameUnits, sitesOfLine, unitFrom, unitsIn, withSites } from "@/lib/diff/rename-sites"
-import { block, rename, run, textDiff } from "@/test-support/diff-blocks"
+import {
+  lineRanges,
+  namedRenames,
+  pairedWithSites,
+  pairRanges,
+  renamedRunOf,
+  renameSites,
+  runUnits,
+  sameUnits,
+  sitesOfLine,
+  unitFrom,
+  unitsIn,
+  withSites,
+} from "@/lib/diff/rename-sites"
+import { block, rename, run, subjectMarks, textDiff } from "@/test-support/diff-blocks"
 
 const OLD = 0
 const NEW = 1
@@ -45,6 +58,56 @@ describe("renameSites", () => {
     const lopsided = textDiff(4, 4, [block(1, 2, 1, 2)], { renames: [{ ...rename("a", "b", [[1, 0, 1, 0]]), oldSites: [1, 0, 1, 3, 0, 1] }] })
     expect(renameSites(lopsided).ofRename[0]!.length).toBe(1)
     expect(sitesOfLine(renameSites(lopsided), OLD, 3)).toEqual([])
+  })
+})
+
+describe("the names another file of the subject declares", () => {
+  // the file renames its local `total`, and calls a function at two lines that another file of the subject declares
+  // and renamed: the lines of the calls are runs of the kind `renamed`
+  const open = rename(
+    "openStore",
+    "connectStore",
+    [
+      [4, 16, 4, 16],
+      [10, 16, 10, 16],
+    ],
+    { local: false, declared: [] },
+  )
+  const total = rename("total", "sum", [[2, 4, 2, 4]])
+  const using = textDiff(20, 20, [block(2, 3, 2, 3), block(4, 5, 4, 5), block(10, 11, 10, 11)], {
+    renames: [total],
+    runs: [run(4, 5, 4, 5, { kind: "renamed", quiet: false }), run(10, 11, 10, 11, { kind: "renamed", quiet: false })],
+    subject: subjectMarks({ used: [{ rename: open, file: 2, line: 18, proof: "asked" }] }),
+  })
+
+  it("are renames of the file after those it declares, in one list, the same list whenever it is asked", () => {
+    expect(namedRenames(using)).toEqual([total, open])
+    expect(namedRenames(using)).toBe(namedRenames(using))
+    // a file that uses no such name: the renames of its marks themselves
+    const own = textDiff(20, 20, [block(2, 3, 2, 3)], { renames: [total] })
+    expect([namedRenames(own), namedRenames(textDiff(20, 20, [block(2, 3, 2, 3)], { renames: [total], subject: subjectMarks() }))]).toEqual([own.marks.renames, [total]])
+    expect(namedRenames(own)).toBe(own.marks.renames)
+  })
+
+  it("have their sites as any rename, by their number in that list, and their lines show the names alone", () => {
+    const sites = renameSites(using)
+    expect(sites.ofRename.map(places => places.map(site => [site.index, site.line, site.start, site.end]))).toEqual([
+      [[0, 2, 4, 7]],
+      [
+        [1, 4, 16, 28],
+        [1, 10, 16, 28],
+      ],
+    ])
+    expect(sitesOfLine(sites, OLD, 10).map(site => [site.rename.old, site.start, site.end, site.twin.line])).toEqual([["openStore", 16, 25, 10]])
+    // a line of a run of such a name: the name in its mark, nothing of what the engine marked in the line
+    expect([lineRanges(using, NEW, 4, [16, 28, 2, 30, 31, 2]), lineRanges(using, OLD, 4, [16, 25, 2])]).toEqual([
+      [16, 28, R],
+      [16, 25, R],
+    ])
+    expect(pairRanges(using, [10, 10], [16, 25, 2], [16, 28, 2])).toEqual([
+      [16, 25, R],
+      [16, 28, R],
+    ])
   })
 })
 

@@ -16,7 +16,16 @@ import {
   renamedNames,
   scrollDiffsTo,
 } from "../helpers/diff-helpers"
-import { codeOf, expectScopesShown, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview as openReview, switchRenamedOn } from "../helpers/marks-helpers"
+import {
+  answerStoreRename,
+  codeOf,
+  expectScopesShown,
+  findInReview,
+  MARKS_SUBJECT,
+  openLedgerPreview,
+  openMarksReview as openReview,
+  switchRenamedOn,
+} from "../helpers/marks-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { openPlanWindow, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
@@ -117,17 +126,18 @@ async function pressToStop(page: Page, code: Locator, key: "n" | "p", from: Show
 }
 
 /**
- * N from the top of Ledger.kt through every stop of the review of the template: `stops` in Ledger.kt, the three of
- * Report.kt and the one of Store.kt. Each stop is the first row of lines to read of its block, four rows below the
- * header of its file: a changed line after a row that is none (an unchanged line, a note, a line shown once), further
- * down than the last. The rows shown, in their order
+ * N from the top of Ledger.kt through every stop of the review of the template: `stops` in Ledger.kt, those of
+ * Report.kt (`report`: its three blocks, each a stop while the index proved nothing of the name it uses) and the one
+ * of Store.kt. Each stop is the first row of lines to read of its block, four rows below the header of its file: a
+ * changed line after a row that is none (an unchanged line, a note, a line shown once), further down than the last.
+ * The rows shown, in their order
  */
-async function pressThroughStops(page: Page, window: Locator, code: Locator, stops: number): Promise<ShownRow[]> {
+async function pressThroughStops(page: Page, window: Locator, code: Locator, stops: number, report = 3): Promise<ShownRow[]> {
   await window.getByRole("treeitem", { name: "Ledger.kt" }).click()
   await code.locator("[aria-label='Changes of the commit']").focus()
   const position = window.getByTestId("review-position")
   const shown: ShownRow[] = []
-  for (const file of [...Array.from({ length: stops }, () => 1), 2, 2, 2, 3]) {
+  for (const file of [...Array.from({ length: stops }, () => 1), ...Array.from({ length: report }, () => 2), 3]) {
     const stop = await pressToStop(page, code, "n", shown.at(-1) ?? null)
     await expect(position).toHaveText(`File ${file} / 3`)
     // the one stop of Store.kt, the last card, shows with the card at the top: the document ends there
@@ -407,6 +417,54 @@ test.describe("The marks of a diff in the review window", () => {
     await scrollDiffsTo(code, once.filter({ hasText: "return sum" }))
     await expect.poll(() => codeOf(once)).toEqual(["    var sum = 0L", "        sum += entry.amount", "    return sum"])
     await expect(quietSides(once)).toHaveCount(3)
+  })
+
+  test("N and P pass the uses of a name another file declares once the index proved them and their runs are quiet, and the file counts them out; the lines stay on screen", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("commit_marks")
+    // the index of the repository answers the rename of the store whole: every use of the name is a place of the commit
+    answerStoreRename(repo.path)
+    await syncAndWaitForBranches()
+    // the answers of the engine with the kind `renamed` switched on: the two calls of the report are quiet runs once
+    // the index proved them
+    await switchRenamedOn(page)
+    const { window, code, position } = await openReview(page, "ledger", SUBJECT)
+    const header = code.getByTestId("review-file-header").filter({ hasText: "Report.kt" })
+    // three blocks in the report: the two calls are passed, the lines that came from the ledger are read
+    await expect(header.getByTestId("review-file-to-read")).toHaveText("1 to read")
+    await expect(header.getByTestId("review-file-to-read")).toHaveAttribute("title", "1 of 3 changes to read")
+    await expect(window.getByRole("treeitem", { name: "Report.kt" }).getByTestId("file-to-read")).toHaveText("1 to read")
+    // the declaration of the name is read whatever the index says: the one change of the store is a stop, no count
+    await expect(code.getByTestId("review-file-header").filter({ hasText: "Store.kt" }).getByTestId("review-file-to-read")).toHaveCount(0)
+
+    // five stops in Ledger.kt, one in Report.kt, the one of Store.kt
+    const shown = await pressThroughStops(page, window, code, 5, 1)
+    const [report, store] = shown.slice(5)
+    // the stop of the report is the block of the added lines, at the blank line before the lines that moved in; no
+    // stop is a call of the name, in either spelling
+    expect(report).toMatchObject({ path: "src/Report.kt", kind: "added", text: "" })
+    expect(shown.filter(stop => /\b(openStore|connectStore)\(path\)/.test(stop.text))).toEqual([])
+    // the last card shows at the top where the document ends: its one stop is the declaration, which is in view
+    expect(store).toMatchObject({ path: "src/Store.kt", end: true })
+    await expect(diffRows(code, "inline", { hasText: "connectStore(path: String): Store {" })).toBeInViewport()
+    await pressBackThrough(page, code, shown)
+    await expect(position).toHaveText("File 1 / 3")
+    // the calls the keys passed are there, each the row of its two lines as it was, played down, both names in the
+    // mark of a renamed name
+    await window.getByRole("treeitem", { name: "Report.kt" }).click()
+    const calls = diffRows(code, "inline", { hasText: "connectStore(path)" })
+    await expect.poll(() => codeOf(calls)).toEqual(["    val store = openStoreconnectStore(path)", "    val store = openStoreconnectStore(path)"])
+    await expect(quietSides(calls)).toHaveCount(2)
+    await expect(renamedNames(calls)).toHaveText(["connectStore", "connectStore"])
+    await expect(deletedParts(calls)).toHaveText(["openStore", "openStore"])
+    await expect(diffRows(code.getByRole("region", { name: "src/Report.kt" }), "once")).toHaveCount(0)
+    // the one note of the rename is plain words: no line of it is hidden for a note to open
+    const note = remarks(code.getByRole("region", { name: "src/Report.kt" }), "renamed")
+    await expect(note).toHaveText("Renamed openStore → connectStore · 2 sites")
+    await expect(note).not.toHaveAttribute("aria-expanded")
   })
 
   test("N stops at the first line a block deletes before a comment worded again, never at the comment below them", async ({ page, setupRepo, syncAndWaitForBranches }) => {

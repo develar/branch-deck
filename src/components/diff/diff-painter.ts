@@ -1,4 +1,4 @@
-import type { MoveEnd, Remark } from "@/lib/diff/block-parts"
+import type { MoveEnd, Remark, RenameNote } from "@/lib/diff/block-parts"
 import { copyFile, copyText } from "@/lib/diff/copy-text"
 import type { CopyFile, CopyPoint } from "@/lib/diff/copy-text"
 import { lineKey } from "@/lib/diff/find"
@@ -19,6 +19,7 @@ import { blobText } from "@/lib/diff/view-files"
 import { wrapBreaks } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
 import { describeRenamedName, formatHiddenMatches, presentRemark } from "@/presenters/diff-marks"
+import type { OtherFile, RemarkFacts } from "@/presenters/diff-marks"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 
 /*
@@ -43,6 +44,12 @@ export interface PainterFile {
   worktreePaths: readonly (string | null)[]
   /** The width of the code of each side, in CSS px, for the soft wraps */
   codeWidths: readonly number[]
+  /**
+   * Another file of the subject of the file, by its index among the files of the subject (`FileDiff.subjectPaths`), as
+   * a note names it: its path, its name among them, whether the view can show a place of it. Null for an index the
+   * subject has no file at; absent for a file of no subject
+   */
+  otherFile?: (index: number) => OtherFile | null
 }
 
 /** A word of code in the view: where it is in the model, and its text */
@@ -98,8 +105,16 @@ export interface PainterCallbacks {
    * note of the file follows it
    */
   onNoteToggle: (file: number, note: NoteRow, all: boolean) => void
-  /** A click on the place a note of a move names ("to line 210"): the other end of the move shows, from this end of it */
+  /**
+   * A click on the place a note of a move names ("to line 210", "to Report.kt:12"): the other end of the move shows,
+   * from this end of it
+   */
   onMoveJump: (file: number, end: MoveEnd) => void
+  /**
+   * A click on the file a note of renames names as the one that declares a name ("declared in Store.kt"): the
+   * declaration shows, from the site the note stands at; `rename` is the number of the rename among those of the note
+   */
+  onDeclarationJump: (file: number, note: RenameNote, rename: number) => void
   /** The rows of the first screen are painted with their texts; the tokens of their pages are there or overdue */
   onFirstScreen: () => void
   /** A wrapped line came out wider in the DOM than measured: the widths are corrected, the heights need a layout */
@@ -305,6 +320,11 @@ export class DiffPainter {
   attach(root: HTMLElement, subscribeTexts: (listener: () => void) => () => void, scrollParent: HTMLElement | null = null): void {
     this.root = root
     this.scrollParent = scrollParent
+    if (scrollParent !== null) {
+      // the views keep what a reader has on screen in place themselves (`setModel`), in every engine alike: the
+      // scroller must not move it a second time (diff-view.css)
+      scrollParent.dataset.dvScrollParent = ""
+    }
     const scroller = root
     const onScroll = (event: Event) => {
       if (event.target === scroller && scrollParent === null) {
@@ -410,15 +430,27 @@ export class DiffPainter {
     }
   }
 
-  /** A new model: the anchor of the old layout keeps its place in the new one, then every row is painted again */
+  /**
+   * A new model: the anchor of the old layout keeps its place in the new one, then every row is painted again. A view
+   * that scrolls itself goes to where its anchor is now. A view that is a block of the scroller of its parent moves
+   * that scroller by as much as its anchor moved in it: by the rows that came or went above the row at the top of the
+   * viewport, or by all of them when the view lies above the viewport (its anchor is the end of its rows). Each view
+   * of a scroller adds its own part, in whatever order they get their models, so what a reader has on screen stays
+   * where it is though several views above it change at once
+   */
   setModel(model: PainterModel): void {
     const previous = this.model
     this.model = model
-    // a view below the top of the viewport grows downwards: only one scrolled into keeps its anchor
+    // a view below the top of the viewport grows downwards: only one scrolled into, or past, keeps its anchor
     if (this.root !== null && previous !== null && previous.layout !== model.layout && this.anchor !== null && this.viewTop() > 0) {
       const top = model.layout.scrollTopOf(this.anchor)
-      if (top !== null) {
+      if (top !== null && this.scrollParent === null) {
         this.setViewTop(top)
+      } else if (top !== null) {
+        const was = previous.layout.scrollTopOf(this.anchor)
+        if (was !== null && was !== top) {
+          this.scrollParent!.scrollTop += top - was
+        }
       }
     }
     this.clearRows()
@@ -527,8 +559,9 @@ export class DiffPainter {
     const { layout } = model
     const top = this.viewTop()
     const height = this.viewHeight()
-    // a view below the viewport, or above it, paints no rows
+    // a view below the viewport, or above it, paints no rows; one above it is held by the end of its rows
     if (top + height < 0 || top > layout.height) {
+      this.anchor = top > layout.height ? layout.anchorAt(top) : this.anchor
       return
     }
     this.anchor = layout.anchorAt(Math.max(top, 0))
@@ -792,9 +825,13 @@ export class DiffPainter {
     const half = element("div", "dv-half", "diff-side")
     half.dataset.side = String(side)
     half.dataset.cell = cell
-    // a line of a move: which end of it the line is at, for a screen reader (diff-view.css)
+    // a line of a move: which end of it the line is at, and whether the other end is in another file, for a screen
+    // reader (diff-view.css)
     if (move !== null && cell === "moved") {
       half.dataset.move = move.at
+      if (move.file !== null) {
+        half.dataset.across = ""
+      }
     }
     if (tint !== "full" && cell !== "context" && cell !== "filler") {
       half.dataset.tint = tint
@@ -869,13 +906,17 @@ export class DiffPainter {
    * (`PainterModel.notesKey`) its hint; the hits of the find in the old lines it stands for are named after its
    * words. The note at an end of a move names the other end after its words ("14 lines moved" "to line 210"), a
    * button that shows it, then what else happened to the lines ("re-indented"); the hint of the key of the moves is
-   * on the button of the one note the key takes (`markMoveKey`). The note of renames sets the two spellings of each
+   * on the button of the one note the key takes (`markMoveKey`). The other end of a move between two files is named by
+   * its file and its line ("Moved" "to Report.kt:12"), plain words where the view cannot show that file. The note of renames sets the two spellings of each
    * rename it words in the font of the code ("Renamed total → sum · 12 sites") and counts the others ("and 2 more"),
    * which a hover lists and a screen reader hears after the count, in a note of plain words as in the name of one
-   * that opens. Not focusable, as a fold: a review has hundreds, and the keys reach them
+   * that opens; after its words, what the subject says of each rename worded: the file that declares it ("declared in
+   * Store.kt", a button that shows the declaration where the view can show that file) and what the index of the
+   * repository proved of its uses ("all uses in this change"). Not focusable, as a fold: a review has hundreds, and
+   * the keys reach them
    */
   private remark(file: number, note: NoteRow, remark: Remark): Node[] {
-    const { label, renamed, target, detail, more, name, toggle } = presentRemark(remark)
+    const { label, renamed, target, detail, more, reach, name, toggle } = presentRemark(this.factsOf(file, remark))
     const words = element(toggle === null ? "span" : "button", toggle === null ? "dv-remark" : "dv-remark dv-remark-button", "diff-remark")
     words.dataset.kind = remark.kind
     if (toggle !== null) {
@@ -912,7 +953,18 @@ export class DiffPainter {
       )
     }
     const parts: Node[] = [words]
-    const reach = said("dv-remark-detail", ` · ${detail}`)
+    const reaching = said("dv-remark-detail", ` · ${detail}`)
+    /** The words of a place another row or another file shows: a button of its own beside the one that opens the note */
+    const place = (text: string, hover: string, testId: string) => {
+      const jump = element("button", "dv-remark-target", testId)
+      jump.setAttribute("type", "button")
+      jump.tabIndex = -1
+      jump.dataset.file = String(file)
+      jump.textContent = text
+      jump.setAttribute("aria-label", hover)
+      jump.title = hover
+      return jump
+    }
     if (renamed !== null) {
       if (more !== null) {
         // the renames named after the ones worded: counted, each told on a hover, and to a screen reader after the count
@@ -921,20 +973,41 @@ export class DiffPainter {
         others.append(said("sr-only", more.said))
         words.append(others)
       }
+      // what the subject says of each rename worded, after the words of the note: where another file declares it, a
+      // button that shows the declaration where the view can, and what the index proved of its uses
+      for (const told of reach) {
+        parts.push(said("dv-remark-detail", " · "))
+        if (told.of !== null) {
+          parts.push(said("dv-remark-name", told.of), document.createTextNode(" "))
+        }
+        if (told.declared !== null) {
+          if (told.declared.jump) {
+            const jump = place(told.declared.words, told.declared.name, "diff-rename-declared")
+            jump.dataset.rename = String(told.rename)
+            parts.push(jump)
+          } else {
+            const plain = said("dv-remark-detail", told.declared.words, "diff-rename-declared")
+            plain.title = told.declared.name
+            parts.push(plain)
+          }
+        }
+        if (told.said !== "") {
+          const proof = said("dv-remark-detail", told.declared === null ? told.said : ` · ${told.said}`, "diff-rename-proof")
+          proof.dataset.proof = told.proof ?? ""
+          parts.push(proof)
+        }
+      }
     } else if (target === null) {
-      words.append(reach)
+      words.append(reaching)
     } else {
-      // the other end of the move: a button of its own beside the one that opens the note, each with its key
-      const jump = element("button", "dv-remark-target", "diff-move-target")
-      jump.setAttribute("type", "button")
-      jump.tabIndex = -1
-      jump.dataset.file = String(file)
-      jump.textContent = target.words
-      jump.setAttribute("aria-label", target.name)
-      jump.title = target.name
-      parts.push(document.createTextNode(" "), jump)
+      // the other end of the move: a button that shows it, with its key; plain words for an end in a file the view
+      // does not show
+      const other = target.jump ? place(target.words, target.name, "diff-move-target") : said("dv-remark-detail", target.words, "diff-move-place")
+      // plain words say in full which file and line they mean, on a hover
+      other.title = target.name
+      parts.push(document.createTextNode(" "), other)
       if (detail !== "") {
-        parts.push(reach)
+        parts.push(reaching)
       }
     }
     // the hits in the old lines the note stands for: the find lands on the note, which says how many it holds
@@ -955,6 +1028,43 @@ export class DiffPainter {
     hit.textContent = formatHiddenMatches(matches, oldEnd - oldStart)
     parts.push(hit)
     return parts
+  }
+
+  /**
+   * A remark as its presenter words it (`RemarkFacts`): with the file of the other end of a move between two files,
+   * and of each rename what the subject says of it, the file that declares it among it, each file as the view knows it
+   * (`PainterFile.otherFile`)
+   */
+  private factsOf(file: number, remark: Remark): RemarkFacts {
+    const other = (index: number): OtherFile => this.model?.files[file]?.otherFile?.(index) ?? UNKNOWN_FILE
+    const { move, renames } = remark
+    return {
+      kind: remark.kind,
+      lines: remark.lines,
+      open: remark.open,
+      move: move === null ? null : { at: move.at, move: move.move, other: move.other, file: move.file === null ? null : other(move.file) },
+      renames:
+        renames === null
+          ? null
+          : {
+              renames: renames.renames.map((rename, at) => {
+                const reach = renames.reach[at]
+                return {
+                  old: rename.old,
+                  new: rename.new,
+                  sites: rename.sites,
+                  proof: reach?.proof ?? null,
+                  declared: reach?.declared == null ? null : { file: other(reach.declared.file), line: reach.declared.line },
+                }
+              }),
+              hides: renames.hides,
+            },
+    }
+  }
+
+  /** Whether the view can show the other end of a move: an end of the file itself, or one in a file the view shows a place of */
+  private reaches(file: number, end: MoveEnd): boolean {
+    return end.file === null || this.model?.files[file]?.otherFile?.(end.file)?.shown === true
   }
 
   /**
@@ -1451,7 +1561,7 @@ export class DiffPainter {
    */
   keyedMove(): { file: number; end: MoveEnd; row: number } | null {
     const model = this.model
-    return model === null || this.root === null ? null : moveNoteOfKey(model.layout, this.viewTop(), this.viewHeight(), this.moveHand)
+    return model === null || this.root === null ? null : moveNoteOfKey(model.layout, this.viewTop(), this.viewHeight(), this.moveHand, (file, end) => this.reaches(file, end))
   }
 
   /**
@@ -1463,7 +1573,7 @@ export class DiffPainter {
   private markMoveKey(top: number, height: number): void {
     const model = this.model
     const key = model?.moveKey
-    const taken = model === null || key === undefined ? null : moveNoteOfKey(model.layout, top, height, this.moveHand)
+    const taken = model === null || key === undefined ? null : moveNoteOfKey(model.layout, top, height, this.moveHand, (file, end) => this.reaches(file, end))
     const button = taken === null ? null : (this.painted.get(taken.file)?.get(taken.row)?.element.querySelector<HTMLElement>(".dv-remark-target") ?? null)
     if (button === this.keyedMoveButton) {
       return
@@ -1746,8 +1856,13 @@ export class DiffPainter {
       this.keepFocus()
       this.callbacks.onFold(file, value, event.altKey)
     } else if (value.kind === "note" && button.classList.contains("dv-remark-target")) {
-      // the place a note of a move names: the other end of the move
-      if (value.remark?.move != null) {
+      if (button.dataset.rename !== undefined) {
+        // the file a note of renames names as the one that declares a name: the declaration there
+        if (value.remark?.renames != null) {
+          this.callbacks.onDeclarationJump(file, value.remark.renames, Number(button.dataset.rename))
+        }
+      } else if (value.remark?.move != null) {
+        // the place a note of a move names: the other end of the move
         this.callbacks.onMoveJump(file, value.remark.move)
       }
     } else if (value.kind === "note" && value.remark !== null && value.remark.open !== null) {
@@ -1765,6 +1880,9 @@ export class DiffPainter {
     }
   }
 }
+
+/** A file of the subject the view knows nothing of: named without a name, never shown */
+const UNKNOWN_FILE: OtherFile = { path: "another file", name: "another file", shown: false }
 
 /** What the part at column `start` of a line of a side is of a renamed name (`NamePart`); null where no site of `named` holds the column */
 function renamedPart(named: readonly RenameSite[], side: number, start: number): NamePart | null {

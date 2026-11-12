@@ -25,7 +25,7 @@ import {
 } from "@/lib/diff/rows"
 import type { FileRows, FoldRow, Heading, LineRow, Row } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, mergeBlock, move, NESTED_SCOPES, rename, run, textDiff, textMerge } from "@/test-support/diff-blocks"
+import { block, fileMove, mergeBlock, move, NESTED_SCOPES, rename, run, startsOf, subjectMarks, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 /**
  * A row as text: `4:4` context, `-4` deleted, `+4` added, `~4:4` inline, `4|_` split, `=_:4` ignored, `1x4` a line
@@ -901,6 +901,126 @@ describe("the renames of a diff in its rows", () => {
     expect(named(played)).toEqual(["-10 whitespace", "+10 whitespace", "remark renamed 30-30 total>sum", "-30", "+30", "-50", "+50"])
     // without the plan the block is a block as any: the note is at the declaration
     expect(named(whole(label, "unified"))[0]).toBe("remark renamed 10-10 total>sum")
+  })
+})
+
+describe("what the other files of a subject say of a file, in its rows", () => {
+  // the report of a subject: two calls of a function another file declares and renamed, each alone on its line, and
+  // five lines added at its end, of which the last four stood in another file
+  const blocks = () => [block(4, 5, 4, 5, { inlinePairs: true }), block(10, 11, 10, 11, { inlinePairs: true }), block(16, 16, 16, 21)]
+  const open = rename(
+    "openStore",
+    "connectStore",
+    [
+      [4, 16, 4, 16],
+      [10, 16, 10, 16],
+    ],
+    { local: false, declared: [] },
+  )
+  const calls = (quiet: boolean) => [run(4, 5, 4, 5, { kind: "renamed", quiet }), run(10, 11, 10, 11, { kind: "renamed", quiet })]
+  // as the pair of its two texts says it: nothing of the subject
+  const alone = textDiff(16, 21, blocks())
+  // with what the files of the subject say of each other, the index still to be asked: labels alone
+  const told = textDiff(16, 21, blocks(), {
+    runs: calls(false),
+    subject: subjectMarks({ movedIn: [fileMove(17, 4, 0, 54)], used: [{ rename: open, file: 2, line: 18, proof: "asked" }] }),
+  })
+  // with the answer of the index, once the kind of such a run is switched on: the two runs quiet, their blocks no stop
+  const proven: typeof told = {
+    ...told,
+    marks: {
+      ...told.marks,
+      runs: calls(true),
+      starts: startsOf(blocks(), calls(true)),
+      subject: subjectMarks({ movedIn: [fileMove(17, 4, 0, 54)], used: [{ rename: open, file: 2, line: 18, proof: "confirmed" }], confirmed: [0, 1] }),
+    },
+  }
+  /** The rows of lines of a layout, each by its kind and its lines: what a reader has on screen beside the rows of words */
+  const lineRows = (rows: FileRows) =>
+    Array.from({ length: rows.rowCount }, (_, index) => rowAt(rows, index)).flatMap(row =>
+      row.kind === "note" || row.kind === "fold" ? [] : [`${row.kind} ${row.lines.join(",")}`],
+    )
+
+  it("adds rows of words alone to the rows the content of the file gave: every row of a line stays, the same line in the same order, in every layout", () => {
+    for (const mode of ["inline", "unified", "split"] as const) {
+      const before = whole(alone, mode)
+      // the marks of the subject, then the answer of the index: what comes after the rows were shown
+      for (const later of [told, proven]) {
+        const after = whole(later, mode)
+        expect(lineRows(after)).toEqual(lineRows(before))
+        // two rows of words more: the note of the rename at its first site, the note where the moved lines stand
+        expect(after.rowCount).toBe(before.rowCount + 2)
+      }
+    }
+    expect(changed(whole(told, "inline"))).toEqual([
+      "remark renamed 4-4",
+      "~4:4",
+      "~10:10",
+      "+16",
+      "remark moved 16-16 destination",
+      "+17 here",
+      "+18 here",
+      "+19 here",
+      "+20 here",
+    ])
+    // nothing of it opens: no note of a late mark hides a line
+    expect([whole(told, "inline").notes, whole(proven, "inline").notes]).toEqual([[], []])
+  })
+
+  it("regroups the lines of a block that a mark of the subject cuts around its note, part by part, each line with the one row it had", () => {
+    // three lines became three others, which the engine does not pair; the old line 11 stands in another file now
+    const cut = () => [block(10, 13, 10, 13)]
+    const before = textDiff(20, 20, cut())
+    const after = textDiff(20, 20, cut(), { subject: subjectMarks({ movedOut: [fileMove(11, 1, 1, 30)] }) })
+    // one column: the old lines, then the new ones; cut at the end of the move, the lines before it of both sides
+    // come first, then the note and its line, then the rest
+    expect(changed(whole(before, "unified"))).toEqual(["-10", "-11", "-12", "+10", "+11", "+12"])
+    expect(changed(whole(after, "unified"))).toEqual(["-10", "+10", "+11", "+12", "remark moved 11-11 source", "-11 away", "-12"])
+    for (const mode of ["inline", "unified", "split"] as const) {
+      // the same lines, each in one row, whatever their order in the block
+      const lines = (rows: FileRows, side: number) =>
+        Array.from({ length: rows.rowCount }, (_, index) => rowAt(rows, index))
+          .flatMap(row => (row.kind === "note" || row.kind === "fold" || row.block < 0 ? [] : [row.lines[side] ?? -1]))
+          .filter(line => line >= 0)
+          .toSorted((one, other) => one - other)
+      expect([lines(whole(after, mode), OLD), lines(whole(after, mode), NEW)]).toEqual([lines(whole(before, mode), OLD), lines(whole(before, mode), NEW)])
+      expect(lines(whole(after, mode), OLD)).toEqual([10, 11, 12])
+    }
+  })
+
+  it("keeps the row at the top of a view at its line while the notes come above it", () => {
+    // the view stands at the second call (the new line 10), then at the first of the moved lines (the new line 17)
+    const [before, after] = [whole(alone, "inline"), whole(told, "inline")]
+    expect([rowOfLine(before, NEW, 10), rowOfLine(after, NEW, 10)]).toEqual([10, 11])
+    expect([rowOfLine(before, NEW, 17), rowOfLine(after, NEW, 17)]).toEqual([17, 19])
+    // the row of the line itself, never the note that came above it
+    expect([describeRow(rowAt(after, 11)), describeRow(rowAt(after, 19)), describeRow(rowAt(after, 18))]).toEqual(["~10:10", "+17 here", "remark moved 16-16 destination"])
+  })
+
+  it("stops N and P at each use of the name while the index proved nothing, and passes the uses it proved, which stay on screen played down", () => {
+    const stops = (rows: FileRows) => rows.changeStarts.map(row => describeRow(rowAt(rows, row)))
+    // labels: each call is read, and the lines that came from another file are read where they stand
+    expect([stops(whole(told, "inline")), whole(told, "inline").changes]).toEqual([["~4:4", "~10:10", "+16"], 3])
+    // proven: the calls are no stop; their rows are the rows they were, in the quiet tint
+    const rows = whole(proven, "inline")
+    expect([stops(rows), rows.changes]).toEqual([["+16"], 3])
+    const call = rowAt(rows, rowOfLine(rows, NEW, 10)) as LineRow
+    expect([call.kind, call.lines, call.tint, call.run]).toEqual(["inline", [10, 10], "quiet", "renamed"])
+    // a jump to the end of the move that stands here lands on its note, the row right above its first line
+    expect([rowOfPlace(rows, NEW, 17), rows.moveNotes.map(note => [note.end.at, note.end.file, note.row])]).toEqual([18, [["destination", 0, 18]]])
+  })
+
+  it("reads the lines that left for another file where they left: a stop of N and P, every line a row after the note, in Inline too", () => {
+    // the ledger of the subject: a blank line and four lines deleted at its end, which stand in the report now
+    const ledger = textDiff(58, 53, [block(53, 58, 53, 53)], { subject: subjectMarks({ movedOut: [fileMove(54, 4, 1, 17)] }) })
+    for (const mode of ["inline", "unified"] as const) {
+      const rows = whole(ledger, mode)
+      expect(changed(rows)).toEqual(["-53", "remark moved 54-54 source", "-54 away", "-55 away", "-56 away", "-57 away"])
+      expect(rows.changeStarts.map(row => describeRow(rowAt(rows, row)))).toEqual(["-53"])
+      // no old line is behind a note: each is found at its own row, and a jump to the end lands on its note
+      expect([noteOfLine(rows, 54), rowOfLine(rows, OLD, 55), rowOfPlace(rows, OLD, 54)]).toEqual([null, 56, 54])
+    }
+    expect(changed(whole(ledger, "split"))).toEqual(["53|_", "remark moved 54-54 source", "54|_ away", "55|_ away", "56|_ away", "57|_ away"])
   })
 })
 

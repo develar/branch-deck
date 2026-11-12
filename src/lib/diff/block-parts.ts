@@ -1,5 +1,5 @@
-import type { DiffBlock, LineMove, LineRun, Rename, RunKind, TextDiff } from "@/lib/diff/file-diff-model"
-import { renameSites, sitesOfLine } from "@/lib/diff/rename-sites"
+import type { DiffBlock, FileMove, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff } from "@/lib/diff/file-diff-model"
+import { namedRenames, renameSites, sitesOfLine } from "@/lib/diff/rename-sites"
 import type { RenameSite } from "@/lib/diff/rename-sites"
 import type { Heading, LineRow, LineRowKind, LineTint, NoteRow } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
@@ -8,8 +8,9 @@ import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
  * The parts of a block of a diff by its marks (docs/design/diff-view.md, "The parts of a block"): Rust says which rows
  * of lines of a block changed in one way alone (`TextDiff.marks.runs`), which lines moved within the file
  * (`TextDiff.marks.moves`: the old lines of a move in the block they left, its new lines in the block they stand in
- * now) and which names the change renamed (`TextDiff.marks.renames`), and a block shows part by part, in the order
- * of both sides. A part is a row of words (the heading of the block in a section of a review, what the diff says of
+ * now) and which names the change renamed (`TextDiff.marks.renames`), and what the other files of the subject say of
+ * the file (`TextDiff.marks.subject`: the lines that moved to or from another file, the names another file declares,
+ * what the index of the repository proved of a name), and a block shows part by part, in the order of both sides. A part is a row of words (the heading of the block in a section of a review, what the diff says of
  * the lines after it) or rows of lines in one shape. Every function of rows.ts that maps the rows of a block to its
  * lines goes through here, so a view never counts the rows of a block by its line counts.
  */
@@ -19,11 +20,17 @@ const OLD = 0
 const NEW = 1
 
 /**
- * An end of a move (`TextDiff.marks.moves`) in the block that holds it: `source` where its lines left, the old lines
- * of the move, nothing to read there; `destination` where they stand now, its new lines, read there
+ * An end of a move in the block that holds it: `source` where its lines left, the old lines of the move;
+ * `destination` where they stand now, its new lines, read there. Of a move within the file (`TextDiff.marks.moves`)
+ * the lines that left are nothing to read. Of a move between two files of the subject (`SubjectMarks.movedOut`,
+ * `movedIn`: `file`) the other end is in that file: both ends are read, and no layout leaves a line of either out
  */
 export interface MoveEnd {
   readonly at: "source" | "destination"
+  /**
+   * The move. Of a move between files, as a move within a file is said: its old lines are lines of the file they
+   * left and its new lines of the file they stand in, exact lines (none edited, no range, no blank line beside them)
+   */
   readonly move: LineMove
   /**
    * The lines of the end on its side, the blank lines that moved with them (`blanksBefore`, `blanksAfter`) among
@@ -36,8 +43,16 @@ export interface MoveEnd {
    * Rust reads them once (`LineMove::old_lines`, `new_lines`)
    */
   readonly other: readonly [number, number]
-  /** The index of the block that holds the other end: a view that does not draw the move there draws it nowhere (`drawnMarks`) */
+  /**
+   * The index of the block that holds the other end: a view that does not draw the move there draws it nowhere
+   * (`drawnMarks`); -1 for an end in another file, whose blocks this diff does not know
+   */
   readonly otherBlock: number
+  /**
+   * Of a move between two files of the subject, the file of the other end by its index among the files of the subject
+   * (`FileDiff.subjectPaths`): `other` are lines of that file. Null for a move within the file
+   */
+  readonly file: number | null
 }
 
 /** The marks of one block of a diff: its runs, and the ends of the moves it holds */
@@ -55,10 +70,35 @@ export interface BlockMarks {
    * an insertion in another
    */
   readonly apart: readonly (readonly [number, number])[]
+  /**
+   * The quiet runs of the diff that every layout keeps every line of (`SubjectMarks.confirmed`): runs of a renamed
+   * name that the index of the repository proved after the rows of the file were shown. A reader passes them and they
+   * are played down, but Inline shows them as it shows a label, never once: an answer that comes late takes no row
+   */
+  readonly kept: ReadonlySet<LineRun>
 }
 
+const NO_RUNS: ReadonlySet<LineRun> = new Set()
+
 /** A block the marks say nothing of */
-export const NO_MARKS: BlockMarks = { runs: [], sources: [], destinations: [], apart: [] }
+export const NO_MARKS: BlockMarks = { runs: [], sources: [], destinations: [], apart: [], kept: NO_RUNS }
+
+/**
+ * What the other files of the subject and the index of the repository say of a rename a note names
+ * (`TextDiff.marks.subject`)
+ */
+export interface RenameReach {
+  /**
+   * What the index said of the uses of the name (`RenameProof`); null where it is not asked: a name bound inside a
+   * body, a diff of no subject
+   */
+  readonly proof: RenameProof | null
+  /**
+   * Of a name another file of the subject declares (`UsedRename`): that file, by its index among the files of the
+   * subject (`FileDiff.subjectPaths`), and the new line of the declaration there. Null for a name this file declares
+   */
+  readonly declared: { readonly file: number; readonly line: number } | null
+}
 
 /**
  * The note of the renames a view names at a block (`renameNotesOf`): one note for a rename in the rows of a file, at
@@ -73,12 +113,14 @@ export interface RenameNote {
   readonly key: number
   /** The renames it names, in the order of their sites in the block: the note words them, a list too long cut (`presentRemark`) */
   readonly renames: readonly Rename[]
+  /** What the subject says of each of `renames`, in their order: where another file declares it, what the index proved of it */
+  readonly reach: readonly RenameReach[]
   /** The site it stands at: its line on each side */
   readonly lines: readonly [number, number]
   /**
    * The old lines of the quiet runs it opens (`RenameNotes.ofRun`), [start, end) each, in their order: what Inline
    * shows once, by the new lines, until the note is opened. Empty where it opens none: every line of its renames is
-   * read, or the note of another rename opens their runs
+   * read or kept by every layout (`BlockMarks.kept`), or the note of another rename opens their runs
    */
   readonly hides: readonly (readonly [number, number])[]
 }
@@ -224,7 +266,10 @@ export function marksByBlock(diff: TextDiff): readonly BlockMarks[] {
   if (known !== undefined) {
     return known
   }
-  const { runs, moves } = diff.marks
+  const { runs, moves, subject } = diff.marks
+  // the runs the index proved after the rows were shown: one set for the blocks of the diff
+  const confirmed = subject?.confirmed ?? []
+  const kept = confirmed.length === 0 ? NO_RUNS : new Set(confirmed.flatMap(number => runs[number] ?? []))
   let next = 0
   const byBlock = diff.blocks.map(block => {
     const own: LineRun[] = []
@@ -253,7 +298,7 @@ export function marksByBlock(diff: TextDiff): readonly BlockMarks[] {
         newLine = run.newEnd
       }
     }
-    return { runs: own, sources: [] as MoveEnd[], destinations: [] as MoveEnd[], apart: [] as (readonly [number, number])[] }
+    return { runs: own, sources: [] as MoveEnd[], destinations: [] as MoveEnd[], apart: [] as (readonly [number, number])[], kept }
   })
   // the names that stand on two lines a block does not pair
   for (const places of renameSites(diff).ofRename) {
@@ -279,13 +324,29 @@ export function marksByBlock(diff: TextDiff): readonly BlockMarks[] {
     const stands: readonly [number, number] = [Math.max(move.newStart - move.blanksAfter, newStart), Math.min(move.newStart + move.len + move.blanksBefore, newEnd)]
     const sources = byBlock[from]!.sources
     sorted &&= sources.length === 0 || sources.at(-1)!.lines[0] <= left[0]
-    sources.push({ at: "source", move, lines: left, other: stands, otherBlock: to })
-    byBlock[to]!.destinations.push({ at: "destination", move, lines: stands, other: left, otherBlock: from })
+    sources.push({ at: "source", move, lines: left, other: stands, otherBlock: to, file: null })
+    byBlock[to]!.destinations.push({ at: "destination", move, lines: stands, other: left, otherBlock: from, file: null })
   }
-  // the moves come by their new lines: the ends of the old side of a block are put in the order of its old lines
+  // the lines that moved to or from another file of the subject: an end each, in the block that holds its lines
+  const across = (at: MoveEnd["at"], { start, len, file, line }: FileMove) => {
+    const block = blockOf(diff.blocks, at === "source" ? OLD : NEW, start, len)
+    if (block < 0) {
+      return
+    }
+    const [oldStart, newStart] = at === "source" ? [start, line] : [line, start]
+    const move: LineMove = { oldStart, newStart, len, indent: 0, blanksBefore: 0, blanksAfter: 0, edited: [], oldRanges: [], newRanges: [] }
+    const ends = at === "source" ? byBlock[block]!.sources : byBlock[block]!.destinations
+    sorted &&= ends.length === 0 || ends.at(-1)!.lines[0] <= start
+    ends.push({ at, move, lines: [start, start + len], other: [line, line + len], otherBlock: -1, file })
+  }
+  subject?.movedOut.forEach(moved => across("source", moved))
+  subject?.movedIn.forEach(moved => across("destination", moved))
+  // the moves come by their new lines, those between files after them: the ends of each side of a block are put in
+  // the order of its lines
   if (!sorted) {
-    for (const { sources } of byBlock) {
+    for (const { sources, destinations } of byBlock) {
       sources.sort((a, b) => a.lines[0] - b.lines[0])
+      destinations.sort((a, b) => a.lines[0] - b.lines[0])
     }
   }
   marksOfDiffs.set(diff, byBlock)
@@ -301,7 +362,8 @@ const marksOfDiffs = new WeakMap<TextDiff, readonly BlockMarks[]>()
  * drawn at both ends or at neither. The block that is played down shows its lines as it did, pale, with no note of a
  * move; the block of the other end shows the lines of the move as its other lines, each with its row in every layout:
  * no line behind a note whose other end the view does not draw, no edited line whose change shows nowhere. The same
- * marks where nothing is left out
+ * marks where nothing is left out. An end of a move between two files in a block that is played down is not drawn
+ * either; its other end is in another file, which says by itself what it draws
  */
 export function drawnMarks(marks: BlockMarks, index: number, played: ReadonlySet<number>): BlockMarks {
   if (played.size === 0 || (marks.sources.length === 0 && marks.destinations.length === 0)) {
@@ -315,20 +377,30 @@ export function drawnMarks(marks: BlockMarks, index: number, played: ReadonlySet
 }
 
 /**
- * The notes of the renames of a diff (`TextDiff.marks.renames`) as the rows of a view name them. `shown`: the blocks
- * the rows show (a section of a review shows some blocks of its file, the others one row each); `played`: the blocks
- * they play down (the imports alone, in a review with its plan). A rename has one note: at its declaration, or, where
- * the rows do not show that block, at its first site in a block they show, one that is not played down before one
- * that is. The renames whose notes stand in one block share one note, at the first of those sites. A rename with no
- * site in the rows has none. A run of the kind `renamed` gets the note of the first rename with a site in it, the one
- * note that opens it
+ * The notes of the renames of a diff as the rows of a view name them: the renames the file declares
+ * (`TextDiff.marks.renames`) and the names another file of the subject declares and this one uses
+ * (`SubjectMarks.used`). `shown`: the blocks the rows show (a section of a review shows some blocks of its file, the
+ * others one row each); `played`: the blocks they play down (the imports alone, in a review with its plan). A rename
+ * has one note: at its declaration, or, where the rows do not show that block or the file does not declare the name,
+ * at its first site in a block they show, one that is not played down before one that is. The renames whose notes
+ * stand in one block share one note, at the first of those sites. A rename with no site in the rows has none. A run
+ * of the kind `renamed` gets the note of the first rename with a site in it, the one note that opens it
  */
 export function renameNotesOf(diff: TextDiff, shown: (block: number) => boolean = () => true, played: ReadonlySet<number> = NO_BLOCKS): RenameNotes {
-  const { renames } = diff.marks
+  const renames = namedRenames(diff)
   if (renames.length === 0) {
     return NO_RENAME_NOTES
   }
   const sites = renameSites(diff)
+  const { subject } = diff.marks
+  /** What the subject says of rename `index` of `namedRenames`: of a name the file declares what the index proved, of one it uses also where it is declared */
+  const reachOf = (index: number): RenameReach => {
+    const used = subject?.used[index - diff.marks.renames.length]
+    if (used !== undefined) {
+      return { proof: used.proof, declared: { file: used.file, line: used.line } }
+    }
+    return { proof: subject?.declared.find(check => check.rename === index)?.proof ?? null, declared: null }
+  }
   const blockAt = (site: RenameSite) => {
     const block = blockOf(diff.blocks, NEW, site.line, 1)
     return block >= 0 && shown(block) ? block : -1
@@ -351,7 +423,13 @@ export function renameNotesOf(diff: TextDiff, shown: (block: number) => boolean 
   for (const [block, at] of standing) {
     at.sort((one, other) => one.line - other.line || one.start - other.start)
     const first = at[0]!
-    const note = { key: first.twin.line, renames: at.map(site => site.rename), lines: [first.twin.line, first.line] as const, hides: [] }
+    const note = {
+      key: first.twin.line,
+      renames: at.map(site => site.rename),
+      reach: at.map(site => reachOf(site.index)),
+      lines: [first.twin.line, first.line] as const,
+      hides: [],
+    }
     byBlock.set(block, note)
     for (const site of at) {
       ofRename.set(site.index, note)
@@ -375,7 +453,8 @@ export function renameNotesOf(diff: TextDiff, shown: (block: number) => boolean 
       }
       if (owner !== undefined) {
         ofRun.set(run, owner)
-        if (run.quiet) {
+        // a quiet run that every layout keeps whole hides no line for a note to open
+        if (run.quiet && !marks.kept.has(run)) {
           owner.hides.push([run.oldStart, run.oldEnd])
         }
       }
@@ -450,6 +529,11 @@ function nextEnd(ends: readonly MoveEnd[], at: number, cursor: number, limit: nu
  * the block. In Inline that note opens the old lines of the quiet runs that are its to open (`RenameNotes.ofRun`).
  * Lines the engine pairs that hold a name on two lines it does not pair (`BlockMarks.apart`) show apart, as lines it
  * does not pair.
+ *
+ * An end of a move between two files of the subject (`MoveEnd.file`) is a note and its lines in every layout, Inline
+ * too: the note names the other file and hides nothing, and the lines that left are lines to read. A quiet run that
+ * the index of the repository proved (`BlockMarks.kept`) is played down and keeps every line in Inline too, as a
+ * label does: what comes after the rows of a file were shown adds words and a tint, never takes a row.
  */
 export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, { mode, tint, open, heading, renames = NO_RENAME_NOTES }: PartsOptions): BlockParts {
   const parts: BlockPart[] = []
@@ -520,9 +604,9 @@ export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, {
       const left = nextEnd(marks.sources, source, oldLine, oldEnd)
       const stands = nextEnd(marks.destinations, destination, newLine, newEnd)
       if (left !== null && left.start === oldLine) {
-        // where lines left: only Inline hides them, behind the note, which opens
+        // where lines left: only Inline hides them, behind the note, which opens; never those that left for another file
         const end = marks.sources[left.at]!
-        const shown = mode === "inline" ? open.has(left.start) : null
+        const shown = mode === "inline" && end.file === null ? open.has(left.start) : null
         note({
           kind: "moved",
           quiet: false,
@@ -622,9 +706,10 @@ export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, {
     between(oldLine, run.oldStart, newLine, run.newStart)
     // the note of a rename the rows name with a site in the run: it says what the run is, and it alone opens it
     const named = renames.ofRun.get(run)
-    // only Inline hides lines: the old ones of a quiet run, behind its own note or the one of its rename
+    // only Inline hides lines: the old ones of a quiet run, behind its own note or the one of its rename; never those
+    // of a run every layout keeps whole
     const key = named?.key ?? run.oldStart
-    const opens = mode === "inline" && run.quiet ? { key, open: open.has(key) } : null
+    const opens = mode === "inline" && run.quiet && !marks.kept.has(run) ? { key, open: open.has(key) } : null
     if (named === undefined) {
       note({
         kind: run.kind,
@@ -847,9 +932,9 @@ export function partsRowOfLine(parts: BlockParts, side: number, line: number): n
  * shows the old lines of a part before its new ones. So the stop is the first row of lines of what Rust reads there:
  * from the part that shows the line back over the parts of no quiet run (lines to read, the note of a label) to the
  * one after the last quiet run. Lines deleted before a comment worded again are read from their first row, though
- * Rust names the comment, the first new line. The lines a move took are nothing to read either (Rust starts a block
- * at a line no move took): they end what is read before them as a quiet run does. The row count when no part shows
- * the line
+ * Rust names the comment, the first new line. The lines a move within the file took are nothing to read either (Rust
+ * starts a block at a line no such move took): they end what is read before them as a quiet run does; the lines that
+ * left for another file are read. The row count when no part shows the line
  */
 export function partsStopRow(parts: BlockParts, side: number, line: number): number {
   // the first part of lines to read since the last quiet run
@@ -858,7 +943,7 @@ export function partsStopRow(parts: BlockParts, side: number, line: number): num
     if (part.kind !== "lines") {
       continue
     }
-    if (part.run !== null || part.move?.at === "source") {
+    if (part.run !== null || (part.move?.at === "source" && part.move.file === null)) {
       first = -1
     } else if (first < 0) {
       first = at

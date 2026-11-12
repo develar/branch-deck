@@ -298,19 +298,26 @@ rest gets a label and stays a stop.
   is shown once. That is why `confirmed` is a list of its own beside `quiet`. Only a commit and a range named by
   their ids are asked: the working tree may be another by the time accio reads it, and its answer would be of
   other texts than the ones shown.
-- **How a view reads the marks of a subject (planned: no view words them yet).** `marks.subject` is absent or
-  `null` for a file the subject says nothing of. `movedOut` and `movedIn` are `{start, len, file, line}`: `len`
-  lines from `start` (old lines where they left, new lines where they stand now), `file` the index of the other
-  file among the files of the subject (the order of `files`), `line` the first line there; a note at each end
-  ("Moved to Report.kt:12", "Moved from Ledger.kt:54") and the colour of a move, every line shown in every view. A
-  file out of the view (a section of a review that leaves it out) is just words. `used` is `{rename, file, line,
-  proof}`: a `Rename` without a declaration, its note at its first place ("Renamed openStore → connectStore ·
-  declared in Store.kt"), its lines the runs of the kind `renamed` that hold its places. `declared` is `{rename,
-  proof}` for the renames of `renames` that are not local, by their number. `proof` is what the note adds: `asked`
-  until the index answered (the store asks it for a view that shows the subject), `confirmed`, or why not. `confirmed` names the runs, by their
-  numbers among `runs`, that are passed once the kind is on (`quiet` then, and the starts without them) and shown
-  line by line all the same. A `marks` event, and the answer of the index, replace the marks of their file whole;
-  the blocks are those of the content.
+- **How a view reads the marks of a subject.** `marks.subject` is absent or `null` for a file the subject says
+  nothing of. `movedOut` and `movedIn` are `{start, len, file, line}`: `len` lines from `start` (old lines where
+  they left, new lines where they stand now), `file` the index of the other file among the files of the subject,
+  `line` the first line there. The store gives each file the paths of those files in the order of the stream
+  (`FileDiff.subjectPaths`, one list for all the files of a stream: the entry holds only the files whose content
+  came, so an index into it would name another file while the stream runs). `marksByBlock` makes each an end of a
+  move in the block that holds its lines (`MoveEnd.file`), so a view draws it as the end of any move, but for two
+  things: no layout leaves a line of it out, and the lines that left are read ("The ends of a move" under "The row
+  model"). `used` is `{rename, file, line, proof}`: a `Rename` without a declaration, one of the renames a view
+  names in the file (`namedRenames`: those of `renames`, then these), its note at its first site, its lines the runs
+  of the kind `renamed` that hold its places. `declared` is `{rename, proof}` for the renames of `renames` that are
+  not local, by their number. The note of a rename carries what the subject says of each of its renames
+  (`RenameNote.reach`: the file and the line of the declaration of a used name, the `proof`), which the presenter
+  words after the words of the note: "declared in Store.kt · all uses in this change"; nothing for `asked` and
+  `unavailable`. `confirmed` names the runs, by their numbers among `runs`, that are passed once the kind is on
+  (`quiet` then, and the starts without them): a view plays them down and keeps every line of them
+  (`BlockMarks.kept`: Inline shows such a run as a label, the row of its pair, never once, and no note opens it),
+  whenever the proof came. A `marks` event, and the answer of the index, replace the marks of their file whole; the
+  blocks are those of the content, so the rows of the lines stay and rows of words come ("The row at the top as
+  marks come late" under Layout).
 - **How a view reads a rename.** `renames` holds `{old, new, sites, local, declared, oldSites, newSites}`: place
   `i` is `[line, start, end]` of each text (UTF-16), in the order of the texts, `declared` the numbers of the places
   that declare the name: where the one note of the rename stands ("Renamed total → sum · 12 sites"). The runs of the
@@ -631,6 +638,15 @@ segments are as before.
   side cuts the other at the same line, so the lines beside a move keep their pairs and a line whose pair moved
   shows alone. Every line of a block shows once whatever the marks say, by its own row or behind the note that
   stands for it (a property test over random blocks, runs and moves, valid or not).
+  - *An end of a move between two files* (`MoveEnd.file`: the index of the file of the other end among the files
+    of the subject) is in the block of its lines as any end, and its move is said as a move within a file is: the
+    old lines of the file they left, the new lines of the file they stand in, exact. Its note says "Moved" and the
+    place, "to Report.kt:18" or "from Ledger.kt:55" (the file by `fileNameAmong`: its name, with the directories
+    that tell it from another file of the subject of that name). Every layout shows the note and then every line,
+    Inline too: the note opens nothing, since the other end is in another file and both ends are read; so the
+    lines that left are no end of what is read before them (`partsStopRow`), and Rust takes no start for them. A
+    block of the imports alone that a review plays down draws no such end (`drawnMarks`); the other end is another
+    file's, which draws its own.
   - *The note* of an end is a remark of the kind `moved` with its `MoveEnd`: "14 lines moved to line 210" where
     the lines left, "Moved from line 120 · re-indented · 1 line edited" where they stand now (`presentRemark`). A
     line is named by the first line of the other end (`MoveEnd.other`), as a reader counts, the blank lines that
@@ -1031,6 +1047,22 @@ had at its top before it, so the note pressed left the view. With wraps on, a re
 computes the files in view and paints them. It computes the other files in idle slices, and keeps the anchor at each
 step.
 
+**The row at the top as marks come late.** The marks of a subject come after the rows of a file were shown: what
+its files say of each other once they were compared (a `marks` event), then the answer of the index, seconds later.
+They add rows of words (the note of a move between two files, the note of a used name) and tints, and take no row
+of a line, so the anchor above keeps the row at the top where it is: a view that scrolls itself sets its `scrollTop`
+to the new offset of its anchor. A view that is a block of the scroller of its parent (the diff under a row of the
+tree of a preview) cannot set that scroller to a place of its own: several such views change in one commit, and
+each knows its own rows alone. So each moves the scroller by as much as its own anchor moved between the two
+layouts (`setModel`: `scrollTopOf` of the new layout less that of the old one): by the rows that came above the row
+at the top where the reader is in the view, and by all of them where the view lies above the viewport, whose anchor
+is the end of its rows (`ScrollAnchor.below`; before, such a view was held by its last row, so a diff above the one
+on screen that grew pulled the preview back to itself). The parts add up in whatever order the views get their
+models. The engine's own anchoring is off on that scroller too (the painter marks it, `data-dv-scroll-parent`), or
+an engine that anchors by itself would move it a second time. A mark of the subject that cuts a block (a line that
+left for another file among lines that changed) regroups the lines of that one block around its note, as the same
+marks show it when they come with the content; the row at the top still holds.
+
 With soft wraps off, only a fold, a collapse or a new row height changes a height. Between them the rows never move.
 
 **Limits (planned).** Browsers limit the height of an element: about 16 million px in some engines, which is about 800,000
@@ -1085,14 +1117,17 @@ A component selects narrow slices of the stores, as `AGENTS.md` asks.
 **Row elements.** A row is a `div` with `data-row`, `data-kind` (`context`, `added`, `deleted`, `inline`, `once`,
 `fold`, `note`) and `data-tint` (`pale`, `whitespace` or `quiet`) on a half that is not in the full tint; a quiet half
 has `data-run`, the kind of its run, a half of a line of a move `data-cell="moved"` and `data-move`, its end (`source`,
-`destination`). A part of a renamed name has `data-change="3"` and its hover (`title`), the old name an Inline row
+`destination`), and `data-across` where its other end is in another file of the subject. A part of a renamed name has `data-change="3"` and its hover (`title`), the old name an Inline row
 strikes through `data-renamed` beside `data-inline-deleted`; the part a renamed name starts with has
 `data-name-start`; the renames a note counts beside the ones it words are `diff-remark-more`, with theirs as its
 hover and, visually hidden, as its words for a screen reader. A note has `data-tone` (`unit`, `elsewhere`, `remark`) and, before the lines of a
 quiet run, `data-quiet`; the words of a remark are `diff-remark`, a `button` with `aria-expanded` where the note opens.
 The note at an end of a move has `data-move` too, with a column per side `data-over` (`old`, `new`: the column it
 lies over), and the place it names is `diff-move-target`, a `button`, with `aria-keyshortcuts` and `data-key` on the
-one the key of the moves takes; the row a jump landed on has `data-landed`. A row holds a gutter cell per line number (`aria-hidden`, not
+one the key of the moves takes (`diff-move-place`, plain words, where no view shows the file of the place); the row
+a jump landed on has `data-landed`. After the words of the note of a rename, the file that declares a name the file
+only uses is `diff-rename-declared` (a `button` with `data-rename`, the number of the rename in the note, where a
+view shows that file) and what the index proved of its uses `diff-rename-proof` (`data-proof`). A row holds a gutter cell per line number (`aria-hidden`, not
 selectable) and a code cell. In Split, the row holds a half per side. A gutter has a fixed width: the digits of the
 largest line number of the file.
 
@@ -1571,6 +1606,22 @@ jump to a declaration keeps its name, and Back and Forward keep the line the vie
 selected (`landedPlace`); the diffs take the focus, so the keys go on. In the preview of a commit, a block of the
 scroller of its parent, the jump scrolls that scroller, keeps no history and moves no focus.
 
+**A place in another file.** The other end of a move between two files, and the declaration of a name another file
+declares ("declared in Store.kt" after the words of its rename, `jumpDeclaration`: a place with the new name, which
+the reveal selects in its line), are places of another file of the subject. `showPlace` of `DiffView` shows one
+where a view shows that file. A review window shows every file in one view: the reveal opens the card and the fold
+as for any place, and the place the jump left is kept for Back. In the preview of a commit and in the uncommitted
+changes each file has a view of its own, in the scroller around them: the view asks the surface
+(`DiffViewProps.elsewhere`: `shows(path)`, `show(place)`), which opens the row of that file (`CommitFileTree`: the
+directories above it, then its diff; `SubjectFileDiffList`: its item) and hands the place to the view of that file
+(`shownPlace`: shown once the view shows the file, and again when the prop is another object, so the same place
+asked twice is shown twice; the surface forgets it when the user closes that file, so a diff opened again shows its
+top). Where no view shows the file (the search or the owner chip of a review hides it), the
+painter draws the place as plain words with the file and the line in full as their hover
+(`PainterFile.otherFile(index).shown`), the key of the moves passes that note (`moveNoteOfKey` with `takes`) and the
+menu of the code has no item for it. The painter is told which files the views beside it show by a key of those
+answers (`elsewhereKey`), not by the identity of `elsewhere`: a surface that renders again repaints no row.
+
 **Find in the review.** ⌘F (Ctrl+F off macOS) in a review window opens a find bar above the document
 (`DiffFindBar.tsx`, labelled "Find in the review"). It combines two searches into one hit list:
 - The mounted DOM text of the prologue, each opening and the epilogue (`find-text.ts`), in document order around the
@@ -1648,8 +1699,12 @@ one pass over the texts it has. A review of many large files can make it a slice
   opens, a `button` named by them as one sentence and by what a press does ("Renamed total to sum, 12 sites: Show
   the 4 old lines").
 - A line of a move says which end it is at, and that it was edited on the way ("moved away", "moved here, edited on
-  the way"), by `data-move` and its tint. The place its note names is a `button` named by where it goes ("Go to
-  line 210, where the lines stand now"); the one the key of the review takes names that key (`aria-keyshortcuts`).
+  the way"), by `data-move` and its tint; of a move between two files, that its other end is in another file
+  ("moved to another file", "moved here from another file", `data-across`). The place its note names is a `button`
+  named by where it goes ("Go to line 210, where the lines stand now", "Go to line 18 of src/Report.kt, where the
+  lines stand now"); the one the key of the review takes names that key (`aria-keyshortcuts`). The file that
+  declares a renamed name is a `button` too ("Go to the declaration of connectStore in src/Store.kt"). A place no
+  view shows is plain text with the same words, and a hover that says the file and the line in full.
 - The colours have the contrast of the app's tokens. No scroll is animated when the OS asks for reduced motion.
 
 ### One component for every view
@@ -1910,6 +1965,29 @@ next. Its one round at a load of 65 to 100 had frames with an empty row in the f
 2 and 1 in Split) and a quarter to a third fewer scroll events than a calmer round; the round after it, at 66 to
 29, had none: a browser starved of frames, not rows that were not there. The 450 ms of the 200 files are still to be read on a
 quiet machine.
+
+**With the marks of a subject (2026-11-12).** The commits of the benchmark hold no mark of a subject: what the views
+of those marks cost a diff without one is what the benchmark guards (the ends of the moves between two files are
+ends of the block they are in, a set of the runs the index proved is asked once a diff, a name another file declares
+is one more rename of its file). The views against their parent commit, in turns on the developer Mac (WebKit, 5
+runs each, in the order views, parent, views; a load of 5 to 13, the quietest of this work; the median, then the
+fastest run):
+
+| metric | the parent | the views, two rounds | target |
+|---|---|---|---|
+| 200 files, first rows after ready (Inline, Split) | 264, 288 ms | 262, 292 ms; 263, 275 ms | ≤ 350 ms |
+| 200 files, highlighted, Inline (median, fastest) | 471, 448 ms | 474, 429 ms; 478, 471 ms | ≤ 450 ms |
+| 200 files, highlighted, Split (median, fastest) | 528, 514 ms | 581, 560 ms; 514, 512 ms | — |
+| 10k lines, first rows (Inline, Split) | 239, 245 ms | 237, 248 ms; 238, 242 ms | ≤ 300 ms |
+| 10k lines, highlighted (Inline, Split) | 260, 286 ms | 264, 351 ms; 257, 283 ms | ≤ 400 ms |
+| 200 files, expand a fold, highlighted (Inline, Split) | 93, 105 ms | 77, 105 ms; 88, 90 ms | in the same frame |
+| scroll, 20 viewports/s, a scroll event p95 (200 files, 10k lines; Inline, Split) | 3, 3; 4, 4 ms | 3, 3; 4, 4 ms | ≤ 4 ms |
+| DOM nodes of the view (200 files, 10k lines; Split) | 633, 624; 960, 985 | 633, 624; 960, 985 | ≤ 4,000 |
+
+No frame had an empty row and no long task followed the first rows. Inline is within every target by its fastest
+run in the first round, and reads what its parent reads in each: the highlighted time of the 200 files, the one that
+rises with the load, was 448 ms at its fastest on the parent and 429 and 471 ms on the views (the Split of the first
+round opened its window in 200 ms where the others took 154: the load of that minute, before any row).
 
 Two rules keep a scroll event short in WebKit. React mounts the sections three viewports around the view, the ones
 ahead in a transition, so a scroll event mounts a section only when its frame needs it; and a section is a memoized

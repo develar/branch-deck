@@ -54,13 +54,14 @@ export interface FileStream<F extends { path: string }, E> {
 
 /**
  * A file stream that keeps the last `maxEntries` complete reads. `fileOf` gives the file of its header and its
- * `content` event; `scopesOf` the file with the scopes of a `scopes` event, null when the file has no text; `marksOf`
- * the file with the marks of a `marks` event, likewise, for a stream that sends them.
+ * `content` event, with the headers of its stream (the files an `index` of its events names); `scopesOf` the file
+ * with the scopes of a `scopes` event, null when the file has no text; `marksOf` the file with the marks of a `marks`
+ * event, likewise, for a stream that sends them.
  */
 export function createFileStream<H extends { path: string }, C, F extends H & { content: C }, E extends FileStreamEvent<H, C>>(
   maxEntries: number,
   failure: string,
-  fileOf: (header: H, event: Extract<E, { kind: "content" }>) => F,
+  fileOf: (header: H, event: Extract<E, { kind: "content" }>, headers: readonly H[]) => F,
   scopesOf: (file: F, event: Extract<E, { kind: "scopes" }>) => F | null,
   marksOf?: (file: F, event: Extract<E, { kind: "marks" }>) => F | null,
 ): FileStream<F, E> {
@@ -126,8 +127,8 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
           break
         case "content": {
           const header = headers?.[event.index]
-          if (header !== undefined) {
-            files[event.index] = fileOf(header, event as Extract<E, { kind: "content" }>)
+          if (header !== undefined && headers !== null) {
+            files[event.index] = fileOf(header, event as Extract<E, { kind: "content" }>, headers)
             schedule()
           }
           break

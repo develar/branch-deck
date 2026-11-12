@@ -22,6 +22,15 @@
   outline: none;
 }
 
+/*
+ * The scroller such views are blocks of (the painter marks it): each view moves it by the rows that come or go above
+ * the row a reader has at the top, as a view that scrolls itself keeps its own anchor, so the engine must not anchor
+ * the scroll a second time where it does that by itself
+ */
+[data-dv-scroll-parent] {
+  overflow-anchor: none;
+}
+
 /* why a file shows no rows, or how its line ends changed: one row under the header */
 .dv-notice {
   height: var(--dv-row-height, 20px);
@@ -698,6 +707,15 @@
   content: "" / "moved here, edited on the way";
 }
 
+/* a line of a move between two files of the subject (`data-across`): its other end is in the file its note names */
+[data-cell="moved"][data-move="source"][data-across] > .dv-code::before {
+  content: "" / "moved to another file";
+}
+
+[data-cell="moved"][data-move="destination"][data-across] > .dv-code::before {
+  content: "" / "moved here from another file";
+}
+
 .dv-fold-button {
   display: flex;
   gap: 2ch;
@@ -898,6 +916,16 @@
   font-family: var(--font-sans);
 }
 
+/*
+ * What follows the words of a note in its row: where another file declares a renamed name, what the index of the
+ * repository proved of its uses, the place of the other end of a move in a file the view does not show. As muted as
+ * the words before it
+ */
+.dv-note-label > .dv-remark-detail {
+  white-space: pre;
+  color: var(--muted-foreground);
+}
+
 .dv-remark-label {
   font-weight: 500;
 }
@@ -938,8 +966,9 @@
 }
 
 /*
- * The place the note of a move names, its other end ("to line 210", "from line 120"): a button that shows it, with
- * the dotted line of a place a fold names (`.dv-fold-target`)
+ * The place a note names: the other end of a move ("to line 210", "from line 120", "to Report.kt:12") or the file that
+ * declares a renamed name ("declared in Store.kt"): a button that shows it, with the dotted line of a place a fold
+ * names (`.dv-fold-target`)
  */
 .dv-remark-target {
   font-family: var(--font-sans);

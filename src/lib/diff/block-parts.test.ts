@@ -22,7 +22,7 @@ import {
 import type { BlockMarks, PartsOptions, RenameNotes } from "@/lib/diff/block-parts"
 import type { LineRun, TextDiff } from "@/lib/diff/file-diff-model"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, move, rename, run, textDiff } from "@/test-support/diff-blocks"
+import { block, fileMove, move, rename, run, subjectMarks, textDiff } from "@/test-support/diff-blocks"
 
 const OLD = 0
 const NEW = 1
@@ -181,17 +181,24 @@ describe("the marks of a diff", () => {
   })
 })
 
+/**
+ * The rows of the parts of a block with moves as text: a note by its kind, the lines it stands for, whether it opens
+ * and its end, of a move between two files the file of its other end too ("source file 1"); a line by its kind, its
+ * lines, its tint and the end of its move
+ */
+const moveRowsOf = (parts: ReturnType<typeof blockParts>) =>
+  Array.from({ length: parts.rowCount }, (_, row) => {
+    const value = partsRow(parts, row)
+    if (value.kind === "note") {
+      const { remark } = value
+      const end = remark!.move === null ? "" : ` ${remark!.move.at}${remark!.move.file === null ? "" : ` file ${remark!.move.file}`}`
+      return `note ${remark!.kind} ${value.lines[OLD]!.join("-")}${remark!.open === null ? "" : remark!.open ? " open" : " closed"}${end}`
+    }
+    return `${value.kind} ${value.lines.map(line => line ?? "_").join(",")}${value.tint === "full" ? "" : ` ${value.tint}`}${value.move === null ? "" : ` ${value.move.at}`}`
+  })
+
 describe("the ends of the moves of a block", () => {
-  /** The rows of the parts as text: a note by its kind and the lines it stands for, a line by its kind, its lines, its tint and the end of its move */
-  const rowsOf = (parts: ReturnType<typeof blockParts>) =>
-    Array.from({ length: parts.rowCount }, (_, row) => {
-      const value = partsRow(parts, row)
-      if (value.kind === "note") {
-        const { remark } = value
-        return `note ${remark!.kind} ${value.lines[OLD]!.join("-")}${remark!.open === null ? "" : remark!.open ? " open" : " closed"}${remark!.move === null ? "" : ` ${remark!.move.at}`}`
-      }
-      return `${value.kind} ${value.lines.map(line => line ?? "_").join(",")}${value.tint === "full" ? "" : ` ${value.tint}`}${value.move === null ? "" : ` ${value.move.at}`}`
-    })
+  const rowsOf = moveRowsOf
   // four lines leave the old lines 20..24 and stand at the new lines 5..9: the block they left deletes them alone, the
   // block they stand in adds them alone
   const left = block(20, 24, 24, 24)
@@ -908,5 +915,243 @@ describe("the notes of the renames of a diff", () => {
     // and so do the rows that name no rename (the pairs of the widest row of Inline)
     const quiet = local(true)
     expect(rowsOf(quiet, 1, "inline", [], NO_RENAME_NOTES)).toEqual(["remark renamed closed quiet 1+0", "once _,6 quiet renamed"])
+  })
+})
+
+describe("the ends of the moves between two files of a subject", () => {
+  const rowsOf = moveRowsOf
+  // a blank line and the four lines of a function leave the end of the ledger (the old lines 53..58): the four lines
+  // stand in the report, file 1 of the subject, from its line 17
+  const left = block(53, 58, 44, 44)
+  const ledger = textDiff(58, 44, [left], { subject: subjectMarks({ movedOut: [fileMove(54, 4, 1, 17)] }) })
+  // the report adds a blank line and those four lines after its last line: they stood in the ledger, file 0, from its line 54
+  const stands = block(16, 16, 16, 21)
+  const report = textDiff(16, 21, [stands], { subject: subjectMarks({ movedIn: [fileMove(17, 4, 0, 54)] }) })
+
+  it("gives the block of the lines an end of the move, which names the file and the lines of the other end; none for lines no block holds whole", () => {
+    const [from] = marksByBlock(ledger)
+    expect(from!.sources.map(end => [end.at, end.lines, end.other, end.otherBlock, end.file])).toEqual([["source", [54, 58], [17, 21], -1, 1]])
+    const [to] = marksByBlock(report)
+    expect(to!.destinations.map(end => [end.at, end.lines, end.other, end.otherBlock, end.file])).toEqual([["destination", [17, 21], [54, 58], -1, 0]])
+    // the move as a move within a file is said: the old lines of the file they left, the new lines of the file they
+    // stand in, exact lines
+    expect([from!.sources[0]!.move, to!.destinations[0]!.move]).toEqual([move(54, 17, 4), move(54, 17, 4)])
+    // lines that reach out of their block, lines of no block, no line, and lines of a block the policy ignores
+    for (const stray of [fileMove(55, 4, 1, 17), fileMove(10, 2, 1, 17), fileMove(54, 0, 1, 17), fileMove(30, 1, 1, 17)]) {
+      const marks = marksByBlock(textDiff(58, 44, [block(30, 31, 30, 31, { kind: "ignored" }), left], { subject: subjectMarks({ movedOut: [stray] }) }))
+      expect(marks.map(it => it.sources.length)).toEqual([0, 0])
+    }
+    // beside a move within the file, the ends of a side of a block in the order of its lines
+    const both = textDiff(40, 40, [block(5, 5, 5, 9), block(20, 26, 24, 24)], { moves: [move(24, 5, 2)], subject: subjectMarks({ movedOut: [fileMove(20, 3, 2, 7)] }) })
+    expect(marksByBlock(both)[1]!.sources.map(end => [end.lines, end.file])).toEqual([
+      [[20, 23], 2],
+      [[24, 26], null],
+    ])
+    // a diff of no subject, and a subject that says nothing of the file, add no end
+    expect([marksByBlock(textDiff(58, 44, [left]))[0]!.sources, marksByBlock(textDiff(58, 44, [left], { subject: subjectMarks() }))[0]!.sources]).toEqual([[], []])
+  })
+
+  it("shows every line of both ends in every layout, Inline too, after a note that opens nothing", () => {
+    const from = marksByBlock(ledger)[0]!
+    // where the lines left: the blank line of no move, the note, the four lines; in one column and in two
+    const stacked = ["deleted 53,_", "note moved 54-54 source file 1", "deleted 54,_ source", "deleted 55,_ source", "deleted 56,_ source", "deleted 57,_ source"]
+    expect(rowsOf(blockParts(left, 0, from, options("inline")))).toEqual(stacked)
+    expect(rowsOf(blockParts(left, 0, from, options("unified")))).toEqual(stacked)
+    expect(rowsOf(blockParts(left, 0, from, options("split")))).toEqual(stacked.map(row => row.replace("deleted", "changed")))
+    // a note of Inline that hides nothing is no note that opens, whatever the open notes say
+    const inline = blockParts(left, 0, from, options("inline", [54]))
+    expect([rowsOf(inline), partsNotes(inline), partsNoteOfRow(inline, 3)]).toEqual([stacked, [], null])
+    // every old line has its own row: none is found at the note
+    expect([53, 54, 57, 58].map(line => partsRowOfLine(inline, OLD, line))).toEqual([0, 2, 5, 6])
+    // where they stand now: the same, by the new lines
+    const to = marksByBlock(report)[0]!
+    const added = ["added _,16", "note moved 16-16 destination file 0", "added _,17 destination", "added _,18 destination", "added _,19 destination", "added _,20 destination"]
+    expect(rowsOf(blockParts(stands, 0, to, options("inline")))).toEqual(added)
+    expect(rowsOf(blockParts(stands, 0, to, options("unified")))).toEqual(added)
+    expect(rowsOf(blockParts(stands, 0, to, options("split")))).toEqual(added.map(row => row.replace("added", "changed")))
+    // the notes of both ends are notes of a move: what the key of the moves takes, and where a jump lands
+    expect([
+      partsMoveNotes(inline).map(note => [note.end.at, note.end.file, note.row]),
+      partsMoveNotes(blockParts(stands, 0, to, options("inline"))).map(note => note.row),
+    ]).toEqual([[["source", 1, 1]], [1]])
+  })
+
+  it("reads the lines that left for another file: the reading of their block starts at its first line, a moved one too", () => {
+    // Rust takes no start for a move between files: the block is read from its first old line, the blank one
+    expect(ledger.marks.starts).toEqual([0, 0, 53])
+    const from = marksByBlock(ledger)[0]!
+    for (const mode of ["inline", "unified", "split"] as const) {
+      expect(partsStopRow(blockParts(left, 0, from, options(mode)), OLD, 53)).toBe(0)
+    }
+    // a block that is the moved lines alone: the stop is the first of them, the row under the note
+    const whole = textDiff(58, 54, [block(54, 58, 54, 54)], { subject: subjectMarks({ movedOut: [fileMove(54, 4, 1, 17)] }) })
+    const parts = blockParts(whole.blocks[0]!, 0, marksByBlock(whole)[0]!, options("inline"))
+    expect([whole.marks.starts, partsStopRow(parts, OLD, 54), rowsOf(parts)[0]]).toEqual([[0, 0, 54], 1, "note moved 54-54 source file 1"])
+    // lines that left for another file before a line that changed: Rust names the new line, and the block is read
+    // from the first of the lines that left, the row under their note; the same lines taken by a move within the
+    // file end what is read before them, and the block is read from the line after them
+    const mixed = block(20, 23, 20, 21)
+    const across = textDiff(40, 38, [mixed], { subject: subjectMarks({ movedOut: [fileMove(20, 2, 1, 7)] }) })
+    const inside = textDiff(40, 40, [block(5, 5, 5, 7), block(22, 25, 22, 23)], { moves: [move(22, 5, 2)] })
+    expect([across.marks.starts, inside.marks.starts]).toEqual([
+      [0, 1, 20],
+      [0, 1, 5, 1, 1, 22],
+    ])
+    const read = blockParts(mixed, 0, marksByBlock(across)[0]!, options("unified"))
+    expect([rowsOf(read), partsStopRow(read, NEW, 20)]).toEqual([["note moved 20-20 source file 1", "deleted 20,_ source", "deleted 21,_ source", "deleted 22,_", "added _,20"], 1])
+    const passed = blockParts(inside.blocks[1]!, 1, marksByBlock(inside)[1]!, options("unified"))
+    expect([rowsOf(passed), partsStopRow(passed, NEW, 22)]).toEqual([["note moved 22-22 source", "deleted 22,_ source", "deleted 23,_ source", "deleted 24,_", "added _,22"], 3])
+  })
+
+  it("draws no end of a move between two files in a block a view plays down, and every end elsewhere", () => {
+    const diff = textDiff(40, 40, [block(2, 4, 2, 2), block(20, 24, 22, 22)], { subject: subjectMarks({ movedOut: [fileMove(2, 2, 1, 7), fileMove(20, 4, 1, 30)] }) })
+    const marks = marksByBlock(diff)
+    const played = new Set([0])
+    expect([drawnMarks(marks[0]!, 0, played).sources, drawnMarks(marks[1]!, 1, played)]).toEqual([[], marks[1]])
+    expect(drawnMarks(marks[0]!, 0, new Set())).toBe(marks[0])
+  })
+
+  it("cuts the lines of a block at an end of a move between two files as at an end of any move: each side up to it, the note, its lines, then the rest", () => {
+    // five old lines and three new ones; the old lines 21 and 22 stand in another file now
+    const changed = block(20, 25, 20, 23)
+    const diff = textDiff(40, 38, [changed], { subject: subjectMarks({ movedOut: [fileMove(21, 2, 3, 0)] }) })
+    expect(rowsOf(blockParts(changed, 0, marksByBlock(diff)[0]!, options("unified")))).toEqual([
+      "deleted 20,_",
+      "added _,20",
+      "added _,21",
+      "added _,22",
+      "note moved 21-21 source file 3",
+      "deleted 21,_ source",
+      "deleted 22,_ source",
+      "deleted 23,_",
+      "deleted 24,_",
+    ])
+    // every line of the block has one row, in every layout
+    for (const mode of ["inline", "unified", "split"] as const) {
+      const parts = blockParts(changed, 0, marksByBlock(diff)[0]!, options(mode))
+      const lines = Array.from({ length: parts.rowCount }, (_, row) => partsRow(parts, row)).flatMap(row => (row.kind === "note" ? [] : [row.lines]))
+      expect([lines.flatMap(([line]) => line ?? []).toSorted((a, b) => a - b), lines.flatMap(([, line]) => line ?? []).toSorted((a, b) => a - b)]).toEqual([
+        [20, 21, 22, 23, 24],
+        [20, 21, 22],
+      ])
+    }
+  })
+})
+
+describe("a quiet run the index proved after the rows were shown", () => {
+  // two calls of a function another file declares, each on a line of its own block: runs of the kind `renamed`
+  const blocks = () => [block(4, 5, 4, 5, { inlinePairs: true }), block(10, 11, 10, 11, { inlinePairs: true })]
+  const used = rename(
+    "openStore",
+    "connectStore",
+    [
+      [4, 16, 4, 16],
+      [10, 16, 10, 16],
+    ],
+    { local: false, declared: [] },
+  )
+  const runs = (quiet: boolean) => [run(4, 5, 4, 5, { kind: "renamed", quiet }), run(10, 11, 10, 11, { kind: "renamed", quiet })]
+  const proofs = (proof: "asked" | "confirmed", quiet: boolean, confirmed: number[]) =>
+    textDiff(20, 20, blocks(), { runs: runs(quiet), subject: subjectMarks({ used: [{ rename: used, file: 2, line: 18, proof }], confirmed }) })
+  /** The lines of the rows of a block of a diff in a layout: each by its kind, its lines and its tint; a note as "note" */
+  const linesOf = (diff: TextDiff, index: number, mode: DiffViewMode) => {
+    const parts = blockParts(diff.blocks[index]!, index, marksByBlock(diff)[index]!, { ...options(mode), renames: renameNotesOf(diff) })
+    return Array.from({ length: parts.rowCount }, (_, row) => {
+      const value = partsRow(parts, row)
+      return value.kind === "note"
+        ? `note${value.remark?.open == null ? "" : " opens"}${value.remark?.quiet === true ? " quiet" : ""}`
+        : `${value.kind} ${value.lines.map(line => line ?? "_").join(",")} ${value.tint}`
+    })
+  }
+
+  it("keeps every line of the run in every layout, played down, with no note that opens: the row of the pair in Inline too", () => {
+    const asked = proofs("asked", false, [])
+    // the answer of the index, the kind switched on: the two runs quiet, and listed as confirmed
+    const confirmed = proofs("confirmed", true, [0, 1])
+    expect(marksByBlock(confirmed).map(it => [...it.kept])).toEqual([confirmed.marks.runs, confirmed.marks.runs])
+    for (const mode of ["inline", "unified", "split"] as const) {
+      // the same rows of the same lines before and after the answer: the tint alone differs
+      const before = [linesOf(asked, 0, mode), linesOf(asked, 1, mode)]
+      const after = [linesOf(confirmed, 0, mode), linesOf(confirmed, 1, mode)]
+      expect(after).toEqual(before.map(rows => rows.map(row => row.replace(/ (full|pale)$/, " quiet").replace(/^note$/, "note quiet"))))
+    }
+    expect(linesOf(confirmed, 0, "inline")).toEqual(["note quiet", "inline 4,4 quiet"])
+    expect(linesOf(confirmed, 1, "inline")).toEqual(["inline 10,10 quiet"])
+    // no note opens them, and the one of the rename hides none of their lines
+    const notes = renameNotesOf(confirmed)
+    expect([
+      [...notes.byBlock.values()].map(note => note.hides),
+      partsNotes(blockParts(confirmed.blocks[0]!, 0, marksByBlock(confirmed)[0]!, { ...options("inline"), renames: notes })),
+    ]).toEqual([[[]], []])
+    // the pair of each run is a row of two lines whatever notes are open: the widest row of Inline counts it
+    expect(inlinePairsOf(confirmed.blocks[1]!, 1, marksByBlock(confirmed)[1]!).map(pair => pair.lines)).toEqual([[10, 10]])
+  })
+
+  it("shows a quiet run of the same kind once in Inline where the index did not prove it late: the pair says it with the content", () => {
+    // the same runs quiet without the list of the subject (a local the scopes of the file prove): Inline shows each once
+    const local = textDiff(20, 20, blocks(), {
+      runs: runs(true),
+      renames: [
+        rename("total", "sum", [
+          [4, 16, 4, 16],
+          [10, 16, 10, 16],
+        ]),
+      ],
+    })
+    expect([linesOf(local, 0, "inline"), linesOf(local, 1, "inline")]).toEqual([["note opens quiet", "once _,4 quiet"], ["once _,10 quiet"]])
+    // a number of the list that names no run keeps nothing
+    const stray = textDiff(20, 20, blocks(), { runs: runs(true), subject: subjectMarks({ confirmed: [7] }) })
+    expect(marksByBlock(stray)[0]!.kept.size).toBe(0)
+  })
+})
+
+describe("the notes of the renames another file of the subject declares", () => {
+  const blocks = () => [block(4, 5, 4, 5, { inlinePairs: true }), block(10, 11, 10, 11, { inlinePairs: true }), block(14, 15, 14, 15, { inlinePairs: true })]
+  const sites = [
+    [4, 16, 4, 16],
+    [10, 16, 10, 16],
+  ] as const
+  const open = rename("openStore", "connectStore", sites, { local: false, declared: [] })
+  const labels = [run(4, 5, 4, 5, { kind: "renamed", quiet: false }), run(10, 11, 10, 11, { kind: "renamed", quiet: false })]
+  const using = (proof: "asked" | "confirmed" | "usesOutside") =>
+    textDiff(20, 20, blocks(), { runs: labels, subject: subjectMarks({ used: [{ rename: open, file: 2, line: 18, proof }] }) })
+
+  it("gives a name another file declares one note, at its first site in the rows, with the file and the line of its declaration and what the index proved", () => {
+    const notes = renameNotesOf(using("asked"))
+    expect([...notes.byBlock].map(([at, note]) => [at, note.key, note.renames, note.reach, note.lines, note.hides])).toEqual([
+      [0, 4, [open], [{ proof: "asked", declared: { file: 2, line: 18 } }], [4, 4], []],
+    ])
+    // both its runs are named by that note: neither has a note of its own
+    const diff = using("confirmed")
+    const confirmed = renameNotesOf(diff)
+    const [note] = [...confirmed.byBlock.values()]
+    expect([diff.marks.runs.map(one => confirmed.ofRun.get(one) === note), note!.reach]).toEqual([[true, true], [{ proof: "confirmed", declared: { file: 2, line: 18 } }]])
+    // a section that does not show the first block: the note at the next site
+    expect([...renameNotesOf(using("asked"), index => index !== 0).byBlock.keys()]).toEqual([1])
+  })
+
+  it("says of a name the file declares what the index proved of it, by its number among the renames of the file, and nothing of a local", () => {
+    // a local of the first block, and a function the file declares in the third, which the index was asked of
+    const total = rename("total", "sum", [[4, 2, 4, 2]])
+    const declared = rename("openStore", "connectStore", [[14, 4, 14, 4]], { local: false })
+    const diff = textDiff(20, 20, blocks(), { renames: [total, declared], subject: subjectMarks({ declared: [{ rename: 1, proof: "usesOutside" }] }) })
+    expect([...renameNotesOf(diff).byBlock].map(([at, note]) => [at, note.renames.map(it => it.new), note.reach])).toEqual([
+      [0, ["sum"], [{ proof: null, declared: null }]],
+      [2, ["connectStore"], [{ proof: "usesOutside", declared: null }]],
+    ])
+    // the renames of a file and the names it uses in one note, each with what the subject says of it, in the order of their sites
+    const mixed = textDiff(20, 20, [block(4, 6, 4, 6, { inlinePairs: true })], {
+      renames: [rename("total", "sum", [[5, 2, 5, 2]])],
+      subject: subjectMarks({ used: [{ rename: rename("openStore", "connectStore", [[4, 16, 4, 16]], { local: false, declared: [] }), file: 2, line: 18, proof: "confirmed" }] }),
+    })
+    expect([...renameNotesOf(mixed).byBlock.values()].map(note => [note.renames.map(it => it.new), note.reach])).toEqual([
+      [
+        ["connectStore", "sum"],
+        [
+          { proof: "confirmed", declared: { file: 2, line: 18 } },
+          { proof: null, declared: null },
+        ],
+      ],
+    ])
   })
 })

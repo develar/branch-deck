@@ -156,13 +156,20 @@ describe("DiffLayout", () => {
     expect([wrapped.rowHeight(0, 5), wrapped.rowHeight(0, 7), wrapped.rowHeight(0, 24), wrapped.rowTop(0, 8)]).toEqual([20, 60, 20, 36 + 10 * 20])
   })
 
-  it("gives the key of the moves one note: the one at the end the view stands at while it is in view, else the first note of a move in view", () => {
-    // `a`: three lines leave the old lines 20..23 for the new lines 5..8, and two the old lines 12..14 for the new
-    // lines 28..30; `b`: one line leaves the old line 9 for the new line 2. Rows of 20 px under headers of 36 px
+  /**
+   * Two files with moves, every line shown. `a`: three lines leave the old lines 20..23 for the new lines 5..8, and two
+   * the old lines 12..14 for the new lines 28..30; `b`: one line leaves the old line 9 for the new line 2. Rows of 20 px
+   * under headers of 36 px
+   */
+  const movesLayout = () => {
     const two = textDiff(40, 40, [block(5, 5, 5, 8), block(12, 14, 15, 15), block(20, 23, 21, 21), block(30, 30, 28, 30)], { moves: [move(20, 5, 3), move(12, 28, 2)] })
     const one = textDiff(12, 12, [block(2, 2, 2, 3), block(9, 10, 10, 10)], { moves: [move(9, 2, 1)] })
     const levels = [EXPANDED, EXPANDED, EXPANDED, EXPANDED, EXPANDED]
-    const layout = new DiffLayout([file("a", buildFileRows(two, "inline", levels)), file("b", buildFileRows(one, "inline", levels))], METRICS)
+    return new DiffLayout([file("a", buildFileRows(two, "inline", levels)), file("b", buildFileRows(one, "inline", levels))], METRICS)
+  }
+
+  it("gives the key of the moves one note: the one at the end the view stands at while it is in view, else the first note of a move in view", () => {
+    const layout = movesLayout()
     const notes = layout.files[0]!.rows!.moveNotes
     expect(notes.map(note => [note.end.at, note.row, note.end.lines[0]])).toEqual([
       ["destination", 5, 5],
@@ -207,6 +214,24 @@ describe("DiffLayout", () => {
     const second = layout.offsets[1]!
     expect(taken(second - 100, 400)).toEqual([1, "destination", 2])
     expect([taken(layout.rowTop(0, 29) - 36, 60), taken(0, 100), moveNoteOfKey(new DiffLayout([], METRICS), 0, 400, null)]).toEqual([null, null, null])
+  })
+
+  it("passes a note of a move whose other end the view cannot show: the key takes the next one in view that it can, at the end the view stands at too", () => {
+    // the notes of `a` at the rows 5, 16, 23 and 31, the note of `b` after them
+    const layout = movesLayout()
+    const notes = layout.files[0]!.rows!.moveNotes
+    const taken = (shown: (file: number, row: number) => boolean, hand: Parameters<typeof moveNoteOfKey>[3] = null) => {
+      const note = moveNoteOfKey(layout, 0, 2000, hand, (at, end) => shown(at, layout.files[at]!.rows!.moveNotes.find(it => it.end === end)!.row))
+      return note === null ? null : [note.file, note.row]
+    }
+    // the first note cannot be shown: the second; none of `a` can: the first of `b`; none at all: no note
+    expect([taken((_, row) => row !== 5), taken(at => at === 1), taken(() => false)]).toEqual([[0, 16], [1, 2], null])
+    // the end the view stands at is taken first only where it can be shown
+    const landed = moveHandOf("a", notes[2]!.end)
+    expect([taken(() => true, landed), taken((_, row) => row !== 23, landed)]).toEqual([
+      [0, 23],
+      [0, 5],
+    ])
   })
 
   it("gives the rows of a file that are in view: whole below the header stuck at the top, and above the end of the view", () => {
@@ -286,6 +311,29 @@ describe("DiffLayout", () => {
     expect(layout.scrollTopOf({ key: "a", offset: 12 })).toBe(12)
     expect(layout.scrollTopOf({ key: "gone", offset: 12 })).toBeNull()
     expect(layout.scrollTopOf({ key: "a", line: { side: NEW, line: 3 }, offset: 4 })).toBe(36 + 4)
+  })
+
+  it("keeps a top below the rows of the last file from the end of its rows: rows that come above it move it by as much, and nothing of the file is brought back into view", () => {
+    // a view without headers that lies above the viewport of the scroller it is a block of: 12 rows of 20 px, the top
+    // of the viewport 75 px below their end
+    const embedded = { rowHeight: 20, headerHeight: 0 }
+    const rows = buildFileRows(ONE_CHANGE, "unified")
+    const layout = new DiffLayout([file("a", rows)], embedded)
+    expect([rows.rowCount, layout.height]).toEqual([12, 240])
+    const below = layout.anchorAt(315)!
+    expect(below).toEqual({ key: "a", below: true, offset: 75 })
+    expect(layout.scrollTopOf(below)).toBe(315)
+    // right at the end of the rows too; a pixel above it the last row, a fold, holds the top by its first line
+    expect([layout.anchorAt(240), layout.anchorAt(239)]).toEqual([
+      { key: "a", below: true, offset: 0 },
+      { key: "a", line: { side: NEW, line: 25 }, offset: 19 },
+    ])
+    // the file shows all its lines: 29 rows more above the top, which moves by their height
+    const grown = new DiffLayout([file("a", buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED]))], embedded)
+    expect([grown.height, grown.scrollTopOf(below)]).toEqual([820, 895])
+    // of two files the top at the end of the first is held by the file after it, as before; below the last one by its end
+    const two = new DiffLayout([file("a", rows), file("b", rows)], embedded)
+    expect([two.anchorAt(240)?.key, two.anchorAt(540)]).toEqual(["b", { key: "b", below: true, offset: 60 }])
   })
 })
 
