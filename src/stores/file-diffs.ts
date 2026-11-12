@@ -124,7 +124,9 @@ export function loadFileDiffs(subject: FileDiffSubject, policy: WhitespacePolicy
  * `asked` in the marks of a file), and the page asks it of the subjects a view shows: one question at a time, of the
  * subject held last. A subject read ahead of its view asks nothing; a question whose subject no view shows any more
  * gives way to the next (the backend kills its query), and a subject shown again is asked again. The answer is the
- * marks of the files it says something of, which take the place of theirs.
+ * marks of the files it says something of, which take the place of theirs. A question that gave way ends later than
+ * the one that took its place starts, maybe of the same subject shown again: its end is told from the end of the
+ * running one by the question (`question`), never by its key, and says nothing of what runs.
  */
 
 /** What `get_file_diffs` was asked of each key the store keeps: what the index is asked of its subject by */
@@ -133,6 +135,8 @@ const questions = new Map<string, GetRenameProofsParams>()
 const holders = new Map<string, number>()
 /** The key whose question runs */
 let asking: string | null = null
+/** The number of the question that runs, or of the last one that ran: each question has its own */
+let question = 0
 /** The keys whose question ended without an answer for every name: not asked again until a view holds them anew */
 const unanswered = new Set<string>()
 /** Whether a complete entry has a name the index is there to be asked of, by the entry */
@@ -201,6 +205,8 @@ function askIndex(): void {
   const key = next
   // the question of a subject no view shows gives way: the backend ends it as this one starts
   asking = key
+  question += 1
+  const asked = question
   void invokeCommand(() => commands.getRenameProofs(params)).then(result => {
     if (result.status === "error") {
       logError("Cannot ask the index of the renames of the files", result.error)
@@ -211,14 +217,16 @@ function askIndex(): void {
         return answered === undefined ? null : withMarks(file, answered)
       })
     }
+    if (asked !== question) {
+      // it gave way to a later question, maybe of this subject again: that one runs, and says what it leaves asked
+      return
+    }
     // an answer that left a name asked is none to ask for again: not before a view shows the subject anew
     if (wantsIndex(fileDiffsStore.getState().byKey.get(key))) {
       unanswered.add(key)
     }
     // the question ends here, after its answer is in the store: the store says each change to `askIndex`
-    if (asking === key) {
-      asking = null
-    }
+    asking = null
     askIndex()
   })
 }

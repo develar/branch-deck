@@ -117,6 +117,19 @@ function holdNextQuestion(): { answer: (data: FileMarks[] | null) => void } {
   return { answer: data => resolveCall(data) }
 }
 
+/** Three subjects read with a name to ask of the index, and four questions of it held: what was asked, in its order */
+async function threeAsked(...ids: [string, string, string]) {
+  const subjects = ids.map(id => ({ kind: "commit", id }) as const) as [{ kind: "commit"; id: string }, { kind: "commit"; id: string }, { kind: "commit"; id: string }]
+  const texts = [await loadAsked(subjects[0]), await loadAsked(subjects[1]), await loadAsked(subjects[2])]
+  return {
+    subjects,
+    key: (subject: Parameters<typeof fileDiffsKey>[0]) => fileDiffsKey(subject, "default"),
+    texts,
+    asked: () => getRenameProofs.mock.calls.map(([params]) => (params as GetRenameProofsParams).source),
+    questions: [holdNextQuestion(), holdNextQuestion(), holdNextQuestion(), holdNextQuestion()],
+  }
+}
+
 async function settle() {
   await vi.waitFor(() => {
     expect([...fileDiffsStore.getState().byKey.values()].every(entry => entry.kind !== "loading" && (entry.kind !== "loaded" || entry.complete))).toBe(true)
@@ -288,11 +301,8 @@ describe("loadFileDiffs", () => {
   })
 
   it("asks the index of one subject at a time, the one shown last first, and lets the question of a subject no view shows give way", async () => {
-    const [first, second, third] = [{ kind: "commit", id: "c12" } as const, { kind: "commit", id: "c13" } as const, { kind: "commit", id: "c14" } as const]
-    const key = (subject: Parameters<typeof fileDiffsKey>[0]) => fileDiffsKey(subject, "default")
-    const texts = [await loadAsked(first), await loadAsked(second), await loadAsked(third)]
-    const asked = () => getRenameProofs.mock.calls.map(([params]) => (params as GetRenameProofsParams).source)
-    const questions = [holdNextQuestion(), holdNextQuestion(), holdNextQuestion(), holdNextQuestion()]
+    const { subjects, key, texts, asked, questions } = await threeAsked("c12", "c13", "c14")
+    const [first, second, third] = subjects
 
     // two views show two subjects: the question of the first runs, the second waits for it
     const releaseFirst = holdFileDiffs(key(first))
@@ -328,6 +338,32 @@ describe("loadFileDiffs", () => {
     expect([proofOf(first), proofOf(second)]).toEqual(["unavailable", "asked"])
     againFirst()
     againSecond()
+  })
+
+  it("keeps the question of a subject shown again running when the question it gave way for ends after it started", async () => {
+    const { subjects, key, texts, asked, questions } = await threeAsked("c15", "c16", "c17")
+    const [first, second, third] = subjects
+
+    // a view shows the first subject, then the second, then the first again, before the first question ended
+    holdFileDiffs(key(first))()
+    holdFileDiffs(key(second))()
+    const releaseFirst = holdFileDiffs(key(first))
+    expect(asked()).toEqual([first, second, first])
+    // the questions that gave way end now, without an answer: the question of the first subject still runs, so the
+    // subject another view shows waits for it
+    questions[0]!.answer(null)
+    questions[1]!.answer(null)
+    await settle()
+    const releaseThird = holdFileDiffs(key(third))
+    expect(asked()).toEqual([first, second, first])
+    // its answer is taken, and only then the third is asked
+    questions[2]!.answer([{ path: "a.kt", marks: subjectMarks(texts[0]!.marks, "confirmed") }])
+    await vi.waitFor(() => expect(asked()).toEqual([first, second, first, third]))
+    expect([proofOf(first), proofOf(second), proofOf(third)]).toEqual(["confirmed", "asked", "asked"])
+    questions[3]!.answer([{ path: "a.kt", marks: subjectMarks(texts[2]!.marks, "confirmed") }])
+    await vi.waitFor(() => expect(proofOf(third)).toBe("confirmed"))
+    releaseFirst()
+    releaseThird()
   })
 
   it("tells the end of a subject's read only once its stream ended: the neighbours of a review are read after it", async () => {

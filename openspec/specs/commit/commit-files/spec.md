@@ -322,6 +322,12 @@ way. The answer MUST take the place of the marks of the files it names and keep 
 - **AND** a subject whose question answered nothing or failed is not asked again until a view shows it anew
   [@test] src/stores/file-diffs.test.ts (`asks the index of one subject at a time, the one shown last first, and lets the question of a subject no view shows give way`)
 
+#### Scenario: A subject shown again before its first question ended
+- **GIVEN** a view showed a subject, then another, then the first again, before the question of the first, which gave way, ended
+- **WHEN** the questions that gave way end without an answer
+- **THEN** the question of the subject shown again still runs: a subject another view shows waits for it, and its answer is taken
+  [@test] src/stores/file-diffs.test.ts (`keeps the question of a subject shown again running when the question it gave way for ends after it started`)
+
 ### Requirement: Reading the diffs: The app keeps the diffs of the last 8 subjects per policy
 
 The app MUST keep the diffs of the last 8 subjects per policy, and drop the ranges of a closed review.
