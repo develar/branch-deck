@@ -1908,7 +1908,8 @@ fn with_session_holds<T>(facts: &FactStore, read: impl FnOnce(crate::derive::Hol
 /// What holds the push of the stack branch of a whole stack is decided of the table and the robots as they are now
 /// (`derive::stack_hold_now`), never as a view derived for another table says it, by the push view of air and the rules of
 /// its push alike: every branch of it landed only while each of them is what landed (air-child has a commit since);
-/// a member parked since the view keeps it local; its own robot only while it runs (it finished since the view)
+/// a member parked since the view keeps it local, and one unparked since keeps it no more; a stack branch the sync built
+/// since goes; its own robot only while it runs (it finished since the view)
 #[test]
 fn the_stack_branch_is_held_of_the_table_as_it_is_never_as_a_view_of_another_one_says() {
   let every_branch = ["air", "air-child", "air-side"];
@@ -1928,6 +1929,19 @@ fn the_stack_branch_is_held_of_the_table_as_it_is_never_as_a_view_of_another_one
     member: "air-child".to_string(),
   };
   assert_eq!(air_stack_branch_along(&state, &facts), (held(&parked), held(&parked)), "parked since the view");
+  // a view from when air-child was parked: unparked since, nothing holds it
+  let (state, facts) = air_stack_session(air_stack_view(&[], Some(parked)), Vec::new(), &[], false);
+  assert_eq!(air_stack_branch_along(&state, &facts), (along.clone(), along.clone()), "unparked since the view");
+  // a view from when the sync could not build the stack branch: built since
+  let not_built = Reason::StackNotBuilt {
+    root: "air".to_string(),
+    state: StackBranchState::Conflict,
+    blocked_by: None,
+    conflict: None,
+    error: None,
+  };
+  let (state, facts) = air_stack_session(air_stack_view(&[], Some(not_built)), Vec::new(), &[], false);
+  assert_eq!(air_stack_branch_along(&state, &facts), (along.clone(), along.clone()), "built since the view");
 
   let running = stack_held("air", "whole");
   let session = |status| air_stack_session(air_stack_view(&[], Some(running.clone())), vec![whole_robot(status)], &[], false);
