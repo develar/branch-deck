@@ -18,13 +18,14 @@
 
 use crate::accio::SymbolIndex;
 use crate::model::{BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, GetFileDiffsParams};
+use crate::reading::{proven_runs, proven_starts};
 use crate::service::FileDiffs;
 use anyhow::Result;
 use code_tokens::Grammar;
 use diff_marks::marks::{pair_grammar, pair_indented};
 use diff_marks::model::DiffMarks;
 use git_executor::git_command_executor::GitCommandExecutor;
-use line_diff::model::{LineMove, LineRun, starts_of};
+use line_diff::model::{LineMove, LineRun};
 use line_diff::moves::{MoveThresholds, find_moves_under};
 use object_cache::cache::ObjectCache;
 use std::cell::Cell;
@@ -214,19 +215,8 @@ impl FileDiffs {
     } else {
       Some("runs")
     };
-    let mut proven: Vec<bool> = shown.runs.iter().map(|run| run.quiet).collect();
-    for run in pair.proven.iter().filter_map(|run| pair.marks.runs.get(*run as usize)) {
-      if let Some(at) = find(run) {
-        proven[at] = true;
-      }
-    }
-    for run in shown.subject.iter().flat_map(|subject| &subject.confirmed) {
-      if let Some(proven) = proven.get_mut(*run as usize) {
-        *proven = true;
-      }
-    }
-    let passed: Vec<LineRun> = shown.runs.iter().zip(&proven).map(|(run, proven)| LineRun { quiet: *proven, ..run.clone() }).collect();
-    measured.proven_starts = starts_of(&values.blocks, &passed, &shown.moves);
+    let proven = proven_runs(&shown, &pair);
+    measured.proven_starts = proven_starts(&values.blocks, &shown, &proven);
     measured.proven = proven;
     measured.proven_renames = pair.proven_renames;
     if let Some(thresholds) = thresholds {

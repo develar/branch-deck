@@ -1,6 +1,5 @@
 import type { CommitFile } from "@/lib/bindings"
-import { readingOf } from "@/lib/diff/block-parts"
-import type { DiffContent, FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
+import type { DiffContent, DiffReading, FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
 import { languageOfPath } from "@/lib/diff/file-languages"
 import type { FileMerge, MergeContent } from "@/lib/diff/file-merge-model"
 import type { FileRows } from "@/lib/diff/rows"
@@ -23,8 +22,8 @@ export type CountedFile = CommitFile & {
   /** Of each block the policy ignores the most of a side: "1 line hidden by Whitespace"; absent for none */
   readonly hiddenLines?: number
   /**
-   * What is left to read of its changes (`readingOf`: the stops of N and P among its blocks of changed lines), where
-   * that is fewer than all of them: "2 to read"; absent where every change is a stop
+   * What is left to read of its changes (Rust's `FileDiff.reading`: the stops of N and P among its blocks of changed
+   * lines), where that is fewer than all of them: "2 to read"; absent where every change is a stop
    */
   readonly toRead?: { readonly toRead: number; readonly changes: number }
 }
@@ -38,17 +37,23 @@ export type CountedFile = CommitFile & {
 export function withEngineCounts(files: readonly CommitFile[], diffs: readonly FileDiff[] | undefined, quietImports = false): CountedFile[] {
   const byPath = new Map(diffs?.map(diff => [diff.path, diff]))
   return files.map(file => {
-    const content = byPath.get(file.path)?.content
+    const diff = byPath.get(file.path)
+    const content = diff?.content
     const additions = content?.kind === "text" ? content.additions : 0
     const deletions = content?.kind === "text" ? content.deletions : 0
     const hiddenLines = content?.kind === "text" ? hiddenLinesOf(content) : 0
-    const reading = content?.kind === "text" ? readingOf(content, quietImports) : null
-    const toRead = reading !== null && reading.toRead < reading.changes ? reading : null
+    const toRead = diff?.reading == null ? null : fewerToRead(diff.reading, quietImports)
     if (additions === file.additions && deletions === file.deletions && hiddenLines === 0 && toRead === null) {
       return file
     }
     return { ...file, additions, deletions, ...(hiddenLines > 0 && { hiddenLines }), ...(toRead !== null && { toRead }) }
   })
+}
+
+/** What Rust says is left to read of a file where that is fewer than its changes; null where every change is a stop */
+function fewerToRead(reading: DiffReading, quietImports: boolean): CountedFile["toRead"] | null {
+  const toRead = quietImports ? reading.toReadPastImports : reading.toRead
+  return toRead < reading.changes ? { toRead, changes: reading.changes } : null
 }
 
 /** The changed lines the policy hides in `diff`: of each ignored block the most of a side, as a fold counts them */

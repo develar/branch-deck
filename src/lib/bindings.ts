@@ -2411,6 +2411,26 @@ export type DiffMarks = {
 	subject?: SubjectMarks | null,
 };
 
+/**
+ *  What is left to read of the diff of a text: its blocks of changed lines and how many of them have a start, all of
+ *  them and those past the blocks of the imports alone. Sent with the content of a file and with each event that
+ *  changes its starts or its blocks of the imports (`FileDiffEvent`); never stored, it follows from the diff
+ */
+export type DiffReading = {
+	/**
+	 *  The blocks of changed lines (`is_change_block`): a block the whitespace policy ignores is none, and the
+	 *  stand-in of a use a change left outside, which has no line, is none either
+	 */
+	changes: number,
+	/**  The blocks with a start: the stops of N and P */
+	toRead: number,
+	/**
+	 *  The blocks with a start that are not of the imports alone (`TextDiff::import_blocks`): what a review with its
+	 *  plan, which passes those too, leaves to read
+	 */
+	toReadPastImports: number,
+};
+
 /**  The commits a review compares: the old side (the parent, the base of a range) and the new one */
 export type DiffRevisions = {
 	old: string | null,
@@ -3320,18 +3340,21 @@ export type FileDiffEvent =
 /**
  *  The content of a file, and why the views start it collapsed (`collapse_of`). A `TextDiff` that the caches did not
  *  have comes with empty scopes, which a `scopes` event of the same file fills later: the parse costs more than the
- *  comparison
+ *  comparison. `reading`: what is left to read of a text (`DiffReading::of`), `None` for a file that is no text
  */
-{ kind: "content"; index: number; content: DiffContent; collapse: Collapse | null } | 
-/**  The scopes of the text of a file, for the labels of its hunks, and its blocks of the imports alone */
-{ kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[]; importBlocks: number[] } | 
+{ kind: "content"; index: number; content: DiffContent; collapse: Collapse | null; reading: DiffReading | null } | 
+/**
+ *  The scopes of the text of a file, for the labels of its hunks, and its blocks of the imports alone, with what is
+ *  left to read of it past them
+ */
+{ kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[]; importBlocks: number[]; reading: DiffReading } | 
 /**
  *  The marks of the text of a file, in place of those its `content` brought: with what the other files of the
  *  subject say of it (`DiffMarks::subject`: the lines that moved between two files, the names another file
- *  declares), once every file is known. It adds runs that are labels and words; it takes no row of the file away,
- *  and its quiet runs and its stops are those of the content
+ *  declares), once every file is known, and what is left to read of it with them. It adds runs that are labels and
+ *  words; it takes no row of the file away, and its quiet runs and its stops are those of the content
  */
-{ kind: "marks"; index: number; marks: DiffMarks };
+{ kind: "marks"; index: number; marks: DiffMarks; reading: DiffReading };
 
 /**  The facts of a changed file */
 export type FileFacts = {
@@ -3389,11 +3412,13 @@ export type FileLink = {
  *  The marks of the text of a file of a subject, by its path, with what the index of the repository answered of its
  *  renamed names (`get_rename_proofs`): in place of those its diff has. They differ from them in the proofs
  *  (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`), which are quiet, and so in
- *  what a reader may pass (`starts`); never in a row of the file
+ *  what a reader may pass (`starts`, and so `reading`); never in a row of the file
  */
 export type FileMarks = {
 	path: string,
 	marks: DiffMarks,
+	/**  What is left to read of the text with these marks */
+	reading: DiffReading,
 };
 
 /**

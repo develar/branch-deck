@@ -18,6 +18,7 @@ pub mod model;
 mod outside_place;
 pub mod patch;
 pub mod range_files;
+pub mod reading;
 mod scopes;
 pub mod service;
 pub mod syntax;
@@ -48,6 +49,8 @@ mod merge_test;
 mod outside_place_test;
 #[cfg(test)]
 mod patch_test;
+#[cfg(test)]
+mod reading_test;
 #[cfg(test)]
 mod scopes_test;
 #[cfg(test)]

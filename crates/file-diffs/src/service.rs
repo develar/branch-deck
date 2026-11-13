@@ -50,6 +50,7 @@ use crate::model::{
   MergeSource,
 };
 use crate::range_files::RangeFilesCache;
+use crate::reading::DiffReading;
 use crate::scopes::scopes_of_summary;
 use crate::syntax::{SYNTAX_CACHE_BYTES, syntax_weight};
 use crate::worktree::{read_worktree_blob, uncommitted_entries};
@@ -538,8 +539,8 @@ impl FileDiffs {
           read.contents = vec![None; files.len()];
           read.headers = files;
         }
-        FileDiffEvent::Content { index, content, collapse } => read.contents[index as usize] = Some((content, collapse)),
-        FileDiffEvent::Marks { index, marks } => {
+        FileDiffEvent::Content { index, content, collapse, .. } => read.contents[index as usize] = Some((content, collapse)),
+        FileDiffEvent::Marks { index, marks, .. } => {
           if let Some((DiffContent::Text(diff), _)) = &mut read.contents[index as usize] {
             diff.marks = marks;
           }
@@ -549,6 +550,7 @@ impl FileDiffs {
           old_scopes,
           new_scopes,
           import_blocks,
+          ..
         } => {
           if let Some((DiffContent::Text(diff), _)) = &mut read.contents[index as usize] {
             diff.old_scopes = old_scopes;
@@ -579,7 +581,7 @@ impl FileDiffs {
       source: params.source.clone(),
       policy: params.policy,
     };
-    for FileMarks { path, marks } in self.rename_proofs(git, cache, index, &proofs)?.unwrap_or_default() {
+    for FileMarks { path, marks, .. } in self.rename_proofs(git, cache, index, &proofs)?.unwrap_or_default() {
       let content = read.headers.iter().position(|header| header.path == path).and_then(|index| read.contents[index].as_mut());
       if let Some((DiffContent::Text(diff), _)) = content {
         diff.marks = marks;
@@ -612,6 +614,7 @@ impl FileDiffs {
     let content_event = |index: usize, content: DiffContent| FileDiffEvent::Content {
       index: to_u32(index),
       collapse: collapse_of(&entries[index].path, &content),
+      reading: reading_of(&content),
       content,
     };
 
@@ -656,7 +659,12 @@ impl FileDiffs {
     } else {
       for (index, marks) in marks.into_iter().enumerate() {
         if let Some(marks) = marks {
-          emit(FileDiffEvent::Marks { index: to_u32(index), marks });
+          let reading = reading_with(texts[index].as_ref(), &marks);
+          emit(FileDiffEvent::Marks {
+            index: to_u32(index),
+            marks,
+            reading,
+          });
         }
       }
     }
@@ -717,11 +725,14 @@ impl FileDiffs {
         .iter()
         .zip(answered)
         .zip(asked)
-        .filter(|((_, marks), before)| marks != before)
-        .filter_map(|((entry, marks), _)| {
+        .zip(&texts)
+        .filter(|(((_, marks), before), _)| marks != before)
+        .filter_map(|(((entry, marks), _), text)| {
+          let marks: DiffMarks = marks?.into();
           Some(FileMarks {
             path: entry.path.clone(),
-            marks: marks?.into(),
+            reading: reading_with(text.as_ref(), &marks),
+            marks,
           })
         })
         .collect(),
@@ -1136,6 +1147,7 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
     Outcome::Event(FileDiffEvent::Content {
       index: to_u32(index),
       collapse: collapse_of(&entry.path, &content),
+      reading: reading_of(&content),
       content,
     })
   };
@@ -1216,6 +1228,7 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
         old_scopes: diff.old_scopes.clone(),
         new_scopes: diff.new_scopes.clone(),
         import_blocks: diff.import_blocks.clone(),
+        reading: DiffReading::of(&diff),
       }));
       keep(&diff);
       send(Outcome::Store {
@@ -1379,6 +1392,23 @@ fn digit_run(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
     run.push(digit);
   }
   run
+}
+
+/// What is left to read of `content`, a text; `None` for a file that is no text
+fn reading_of(content: &DiffContent) -> Option<DiffReading> {
+  match content {
+    DiffContent::Text(diff) => Some(DiffReading::of(diff)),
+    _ => None,
+  }
+}
+
+/// What is left to read of the text of `known`, the diff of a file, with `marks` in place of its own; nothing of a
+/// file that is no text, which has no marks
+fn reading_with(known: Option<&KnownText>, marks: &DiffMarks) -> DiffReading {
+  match known.map(|(content, _)| &**content) {
+    Some(DiffContent::Text(diff)) => DiffReading::of_starts(diff, &marks.starts),
+    _ => DiffReading::default(),
+  }
 }
 
 /// A file index or a line index; the subjects and the texts are far below 4 G

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type {
   DiffFileHeader,
   DiffMarks,
+  DiffReading,
   FileDiffEvent,
   FileMarks,
   FileMergeEvent,
@@ -39,13 +40,17 @@ function header(path: string): DiffFileHeader {
 
 const BINARY: DiffContent = { kind: "binary" }
 
+/** What Rust says is left to read of a text of two changes: both of them, and one once a proof passes the other */
+const EVERY_STOP: DiffReading = { changes: 2, toRead: 2, toReadPastImports: 2 }
+const ONE_TO_READ: DiffReading = { changes: 2, toRead: 1, toReadPastImports: 1 }
+
 const UNCOMMITTED = { kind: "uncommitted", repositoryPath: "/repo" } as const
 
 /** The answer of a subject: its one file, binary, as the backend streams it */
 async function answer(params: GetFileDiffsParams, events: Events) {
   const path = params.source.kind === "commit" ? params.source.id : params.source.kind
   events.onmessage({ kind: "files", files: [header(path)] })
-  events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
+  events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" }, reading: null })
   return { status: "ok", data: null }
 }
 
@@ -102,7 +107,7 @@ async function loadAsked(subject: Parameters<typeof fileDiffsKey>[0]) {
   text.marks = subjectMarks(text.marks, "asked")
   getFileDiffs.mockImplementationOnce(async (_params: GetFileDiffsParams, events: Events) => {
     events.onmessage({ kind: "files", files: [header("a.kt")] })
-    events.onmessage({ kind: "content", index: 0, content: text, collapse: null })
+    events.onmessage({ kind: "content", index: 0, content: text, collapse: null, reading: EVERY_STOP })
     return { status: "ok", data: null }
   })
   loadFileDiffs(subject, "default")
@@ -150,7 +155,7 @@ describe("loadFileDiffs", () => {
     ])
     expect(entryOf({ kind: "commit", id: "c1" }, "ignore")).toEqual({
       kind: "loaded",
-      files: [{ ...header("c1"), content: BINARY, collapse: { kind: "noText" }, subjectPaths: ["c1"] }],
+      files: [{ ...header("c1"), content: BINARY, collapse: { kind: "noText" }, reading: null, subjectPaths: ["c1"] }],
       complete: true,
     })
   })
@@ -164,15 +169,21 @@ describe("loadFileDiffs", () => {
     expect([entryOf(subject), fileDiffOf(entryOf(subject), "a.kt")]).toEqual([{ kind: "loaded", files: [], complete: false }, "pending"])
 
     const text: DiffContent = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6)]) }
-    events().onmessage({ kind: "content", index: 1, content: text, collapse: null })
+    events().onmessage({ kind: "content", index: 1, content: text, collapse: null, reading: EVERY_STOP })
     await vi.waitFor(() => expect(fileDiffOf(entryOf(subject), "b.kt")).toMatchObject({ path: "b.kt", content: text }))
     setFoldLevels(text, [3])
     const scopes = [{ startLine: 0, endLine: 10, label: "class B" }]
-    events().onmessage({ kind: "scopes", index: 1, oldScopes: [], newScopes: scopes, importBlocks: [] })
+    // its block of the imports alone, with what is left to read past it
+    const reading = { changes: 1, toRead: 1, toReadPastImports: 0 }
+    events().onmessage({ kind: "scopes", index: 1, oldScopes: [], newScopes: scopes, importBlocks: [0], reading })
     end()
     await settle()
     const labelled = fileDiffOf(entryOf(subject), "b.kt")
-    expect(labelled !== "pending" && labelled?.content.kind === "text" ? [labelled.content.newScopes, getFoldLevels(labelled.content)] : null).toEqual([scopes, [3]])
+    expect(labelled !== "pending" && labelled?.content.kind === "text" ? [labelled.content.newScopes, getFoldLevels(labelled.content), labelled.reading] : null).toEqual([
+      scopes,
+      [3],
+      reading,
+    ])
     // the stream ended without the content of a.kt: the engine has none for it
     expect(fileDiffOf(entryOf(subject), "a.kt")).toBeUndefined()
   })
@@ -184,7 +195,7 @@ describe("loadFileDiffs", () => {
     events().onmessage({ kind: "files", files: [header("src/Ledger.kt"), header("src/Report.kt"), header("src/Store.kt")] })
     const text: DiffContent & { kind: "text" } = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6), block(8, 9, 8, 9)]) }
     // the second file first: the entry holds it alone, and it still names the first one by its place in the stream
-    events().onmessage({ kind: "content", index: 1, content: text, collapse: null })
+    events().onmessage({ kind: "content", index: 1, content: text, collapse: null, reading: EVERY_STOP })
     const paths = ["src/Ledger.kt", "src/Report.kt", "src/Store.kt"]
     const pathsOf = (path: string) => {
       const file = fileDiffOf(entryOf(subject), path)
@@ -192,9 +203,9 @@ describe("loadFileDiffs", () => {
     }
     await vi.waitFor(() => expect([pathsOf("src/Report.kt"), pathsOf("src/Ledger.kt")]).toEqual([paths, "pending"]))
     // its scopes and the marks of its subject replace its content, never the files it names
-    events().onmessage({ kind: "scopes", index: 1, oldScopes: [], newScopes: [], importBlocks: [] })
-    events().onmessage({ kind: "marks", index: 1, marks: subjectMarks(text.marks, "asked") })
-    events().onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
+    events().onmessage({ kind: "scopes", index: 1, oldScopes: [], newScopes: [], importBlocks: [], reading: EVERY_STOP })
+    events().onmessage({ kind: "marks", index: 1, marks: subjectMarks(text.marks, "asked"), reading: EVERY_STOP })
+    events().onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" }, reading: null })
     end()
     await settle()
     expect(textOf(subject, "src/Report.kt")?.marks.subject?.movedIn).toEqual([{ start: 8, len: 1, file: 1, line: 3 }])
@@ -209,14 +220,14 @@ describe("loadFileDiffs", () => {
     loadFileDiffs(subject, "default")
     events().onmessage({ kind: "files", files: [header("a.kt")] })
     const text: DiffContent = { kind: "text", ...textDiff(10, 12, [block(5, 6, 5, 8)], { runs: [run(5, 6, 5, 8)] }) }
-    events().onmessage({ kind: "content", index: 0, content: text, collapse: null })
+    events().onmessage({ kind: "content", index: 0, content: text, collapse: null, reading: EVERY_STOP })
     await vi.waitFor(() => expect(fileDiffOf(entryOf(subject), "a.kt")).toMatchObject({ content: text }))
     // the note of the quiet run opened before the scopes came, and a fold and the note in a section of a review
     setOpenNotes(text, new Set([5]))
     const section = sectionFoldKey(text, "a.kt#1")
     setFoldLevels(section, [2])
     setOpenNotes(section, new Set([5]))
-    events().onmessage({ kind: "scopes", index: 0, oldScopes: [], newScopes: [{ startLine: 0, endLine: 12, label: "class A" }], importBlocks: [] })
+    events().onmessage({ kind: "scopes", index: 0, oldScopes: [], newScopes: [{ startLine: 0, endLine: 12, label: "class A" }], importBlocks: [], reading: EVERY_STOP })
     end()
     await settle()
     const labelled = fileDiffOf(entryOf(subject), "a.kt")
@@ -237,26 +248,28 @@ describe("loadFileDiffs", () => {
     loadFileDiffs(subject, "default")
     events().onmessage({ kind: "files", files: [header("a.kt"), header("bin.dat")] })
     const text: DiffContent = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6), block(8, 9, 8, 9)]) }
-    events().onmessage({ kind: "content", index: 0, content: text, collapse: null })
-    events().onmessage({ kind: "content", index: 1, content: BINARY, collapse: { kind: "noText" } })
+    events().onmessage({ kind: "content", index: 0, content: text, collapse: null, reading: EVERY_STOP })
+    events().onmessage({ kind: "content", index: 1, content: BINARY, collapse: { kind: "noText" }, reading: null })
     await vi.waitFor(() => expect(fileDiffOf(entryOf(subject), "a.kt")).toMatchObject({ content: text }))
     setFoldLevels(text, [3])
     setOpenNotes(text, new Set([5]))
     // what the other files of the subject say of it: a run that is a label, a name another file declares, lines that
     // moved in from another file
     const marks = subjectMarks(text.marks, "unavailable")
-    events().onmessage({ kind: "marks", index: 0, marks })
+    events().onmessage({ kind: "marks", index: 0, marks, reading: ONE_TO_READ })
     // the marks of a file without a text, and of a file whose content never came, change nothing
-    events().onmessage({ kind: "marks", index: 1, marks })
-    events().onmessage({ kind: "marks", index: 7, marks })
+    events().onmessage({ kind: "marks", index: 1, marks, reading: ONE_TO_READ })
+    events().onmessage({ kind: "marks", index: 7, marks, reading: ONE_TO_READ })
     end()
     await settle()
     const content = textOf(subject, "a.kt")
     expect(content).not.toBe(text)
     expect(content?.marks).toEqual(marks)
+    // with what Rust says is left to read with them
+    expect(fileDiffOf(entryOf(subject), "a.kt")).toMatchObject({ reading: ONE_TO_READ })
     // the same blocks, so the stops and the rows are those of the content: the folds and the notes stay
     expect([content?.blocks, getFoldLevels(content!), [...getOpenNotes(content!)]]).toEqual([text.blocks, [3], [5]])
-    expect(fileDiffOf(entryOf(subject), "bin.dat")).toMatchObject({ content: BINARY })
+    expect(fileDiffOf(entryOf(subject), "bin.dat")).toMatchObject({ content: BINARY, reading: null })
     // no name of it waits for the index: nothing is asked of a view that shows it
     holdFileDiffs(fileDiffsKey(subject, "default"))()
     expect(getRenameProofs).not.toHaveBeenCalled()
@@ -282,8 +295,8 @@ describe("loadFileDiffs", () => {
     // its answer takes the place of the marks of the files it names, in the entry as it is: complete, its folds kept
     const confirmed = subjectMarks(text.marks, "confirmed")
     question.answer([
-      { path: "a.kt", marks: confirmed },
-      { path: "gone.kt", marks: confirmed },
+      { path: "a.kt", marks: confirmed, reading: ONE_TO_READ },
+      { path: "gone.kt", marks: confirmed, reading: ONE_TO_READ },
     ])
     await vi.waitFor(() => expect(proofOf(subject)).toBe("confirmed"))
     const content = textOf(subject, "a.kt")!
@@ -291,7 +304,7 @@ describe("loadFileDiffs", () => {
       confirmed,
       text.blocks,
       [3],
-      { kind: "loaded", files: [{ ...header("a.kt"), content, collapse: null, subjectPaths: ["a.kt"] }], complete: true },
+      { kind: "loaded", files: [{ ...header("a.kt"), content, collapse: null, reading: ONE_TO_READ, subjectPaths: ["a.kt"] }], complete: true },
     ])
     // answered: a view that shows it again asks nothing
     release()
@@ -317,11 +330,11 @@ describe("loadFileDiffs", () => {
     await Promise.resolve()
     expect(asked()).toEqual([first, third])
     // the third answered: the second, still shown, is asked
-    questions[1]!.answer([{ path: "a.kt", marks: subjectMarks(texts[2]!.marks, "confirmed") }])
+    questions[1]!.answer([{ path: "a.kt", marks: subjectMarks(texts[2]!.marks, "confirmed"), reading: EVERY_STOP }])
     await vi.waitFor(() => expect(asked()).toEqual([first, third, second]))
     expect([proofOf(first), proofOf(second), proofOf(third)]).toEqual(["asked", "asked", "confirmed"])
     // an answer that leaves the name of a subject still shown asked: it is not asked again until a view shows it anew
-    questions[2]!.answer([{ path: "a.kt", marks: { ...subjectMarks(texts[1]!.marks, "asked"), starts: [] } }])
+    questions[2]!.answer([{ path: "a.kt", marks: { ...subjectMarks(texts[1]!.marks, "asked"), starts: [] }, reading: EVERY_STOP }])
     await vi.waitFor(() => expect(textOf(second, "a.kt")?.marks.starts).toEqual([]))
     await Promise.resolve()
     releaseThird()
@@ -332,7 +345,7 @@ describe("loadFileDiffs", () => {
     expect(asked()).toEqual([first, third, second, first])
     getRenameProofs.mockImplementationOnce(async () => ({ status: "error", error: { message: "no such commit" } }))
     const againSecond = holdFileDiffs(key(second))
-    questions[3]!.answer([{ path: "a.kt", marks: subjectMarks(texts[0]!.marks, "unavailable") }])
+    questions[3]!.answer([{ path: "a.kt", marks: subjectMarks(texts[0]!.marks, "unavailable"), reading: EVERY_STOP }])
     await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(1))
     expect(asked()).toEqual([first, third, second, first, second])
     expect([proofOf(first), proofOf(second)]).toEqual(["unavailable", "asked"])
@@ -357,10 +370,10 @@ describe("loadFileDiffs", () => {
     const releaseThird = holdFileDiffs(key(third))
     expect(asked()).toEqual([first, second, first])
     // its answer is taken, and only then the third is asked
-    questions[2]!.answer([{ path: "a.kt", marks: subjectMarks(texts[0]!.marks, "confirmed") }])
+    questions[2]!.answer([{ path: "a.kt", marks: subjectMarks(texts[0]!.marks, "confirmed"), reading: EVERY_STOP }])
     await vi.waitFor(() => expect(asked()).toEqual([first, second, first, third]))
     expect([proofOf(first), proofOf(second), proofOf(third)]).toEqual(["confirmed", "asked", "asked"])
-    questions[3]!.answer([{ path: "a.kt", marks: subjectMarks(texts[2]!.marks, "confirmed") }])
+    questions[3]!.answer([{ path: "a.kt", marks: subjectMarks(texts[2]!.marks, "confirmed"), reading: EVERY_STOP }])
     await vi.waitFor(() => expect(proofOf(third)).toBe("confirmed"))
     releaseFirst()
     releaseThird()
@@ -375,7 +388,7 @@ describe("loadFileDiffs", () => {
     whenFileDiffsEnded(shown, "default", prefetch)
     // the files and a content arrived: the shown stream still runs, the neighbour waits
     events().onmessage({ kind: "files", files: [header("a.kt"), header("b.kt")] })
-    events().onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
+    events().onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" }, reading: null })
     await vi.waitFor(() => expect(fileDiffOf(entryOf(shown), "a.kt")).toMatchObject({ path: "a.kt" }))
     expect(getFileDiffs.mock.calls.map(([params]) => (params as GetFileDiffsParams).source)).toEqual([shown])
     end()
@@ -403,7 +416,7 @@ describe("loadFileDiffs", () => {
         new Promise(resolve => {
           events.onmessage({ kind: "files", files: [header("next")] })
           release = () => {
-            events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
+            events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" }, reading: null })
             resolve({ status: "ok", data: null })
           }
         }),
@@ -411,14 +424,14 @@ describe("loadFileDiffs", () => {
     loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
     expect(entryOf(UNCOMMITTED)).toEqual({
       kind: "loaded",
-      files: [{ ...header("uncommitted"), content: BINARY, collapse: { kind: "noText" }, subjectPaths: ["uncommitted"] }],
+      files: [{ ...header("uncommitted"), content: BINARY, collapse: { kind: "noText" }, reading: null, subjectPaths: ["uncommitted"] }],
       complete: true,
     })
     release()
     await vi.waitFor(() =>
       expect(entryOf(UNCOMMITTED)).toEqual({
         kind: "loaded",
-        files: [{ ...header("next"), content: BINARY, collapse: { kind: "noText" }, subjectPaths: ["next"] }],
+        files: [{ ...header("next"), content: BINARY, collapse: { kind: "noText" }, reading: null, subjectPaths: ["next"] }],
         complete: true,
       }),
     )
@@ -436,7 +449,7 @@ describe("loadFileDiffs", () => {
     // the files change during the read: the form asks again, twice
     getFileDiffs.mockImplementationOnce(async (_params: GetFileDiffsParams, events: Events) => {
       events.onmessage({ kind: "files", files: [header("changed")] })
-      events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
+      events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" }, reading: null })
       return { status: "ok", data: null }
     })
     loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
@@ -445,7 +458,7 @@ describe("loadFileDiffs", () => {
     await vi.waitFor(() =>
       expect(entryOf(UNCOMMITTED)).toEqual({
         kind: "loaded",
-        files: [{ ...header("changed"), content: BINARY, collapse: { kind: "noText" }, subjectPaths: ["changed"] }],
+        files: [{ ...header("changed"), content: BINARY, collapse: { kind: "noText" }, reading: null, subjectPaths: ["changed"] }],
         complete: true,
       }),
     )

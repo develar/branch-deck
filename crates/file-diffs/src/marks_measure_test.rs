@@ -2,7 +2,7 @@
 //! the texts, the proofs and the times, and the same subject without any mark.
 
 use crate::accio::FixtureIndex;
-use crate::fixture_test::unhurried;
+use crate::fixture_test::{confirmed_messages, unhurried};
 use crate::marks_measure::{MeasuredFile, MeasuredSubject};
 use crate::model::{DiffContent, DiffSource};
 use crate::service::{FileDiffs, diff_options, disk_key, model_version};
@@ -123,10 +123,7 @@ fn a_subject_read_without_marks_has_a_stop_at_each_block_and_no_store_keeps_it()
 /// difference, counts them proven, and the stops they were are gone
 #[test]
 fn a_run_the_index_confirmed_is_proven_and_the_marks_read_again_are_those_of_the_view() {
-  let repo = test_utils::git_test_utils::TestRepo::new();
-  let messages = "package demo\n\nprivate fun outOfSync(): String {\n  return \"out of sync\"\n}\n\nfun first() = outOfSync()\n\nfun second(): String {\n  return outOfSync()\n}\n";
-  repo.create_commit("Initial", "src/Messages.kt", messages);
-  let head = repo.create_commit("Rename", "src/Messages.kt", &messages.replace("outOfSync", "updateLock"));
+  let (repo, head) = confirmed_messages();
   let source = DiffSource::Commit { id: head };
   let (git, path, cache) = (repo.git_executor(), repo.path_str(), ObjectCache::disabled());
 
@@ -136,20 +133,7 @@ fn a_run_the_index_confirmed_is_proven_and_the_marks_read_again_are_those_of_the
   let text = messages.text.as_ref().unwrap();
   assert_eq!((text.differs, text.proven.as_slice(), diff.marks.starts.len() / 3), (None, &[false, false][..], 3));
 
-  // the index lists the declaration and its two calls in both trees
-  let used = |line: u32, column: u32, end: u32, kind: &str| serde_json::json!({ "file": "src/Messages.kt", "line": line, "column": column, "end_column": end, "kind": kind, "resolved": "typed" });
-  let uses = |length: u32| {
-    serde_json::json!({ "total": 3, "uses": [
-      used(3, 12, 12 + length, "declaration"), used(7, 14, 14 + length, "call"), used(10, 9, 9 + length, "call"),
-    ] })
-  };
-  let kotlin = serde_json::json!({ "language": "kotlin" });
-  let renamed = serde_json::json!({ "same": true, "complete": true, "old": kotlin, "new": kotlin, "base": uses(9), "head": uses(10), "conflicts": [] });
-  std::fs::write(
-    repo.path().join(".git/branch-deck-accio.json"),
-    serde_json::json!({ "renames": { "src/Messages.kt:3:13": renamed } }).to_string(),
-  )
-  .unwrap();
+  // the index lists the declaration and its two calls in both trees (`confirmed_messages`)
   let measured = unhurried().measure(git, path, &cache, Some(&FixtureIndex), &source, Exact, None).unwrap();
   assert!(measured.index.is_some());
   let (messages, diff) = file(&measured, "src/Messages.kt");

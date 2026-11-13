@@ -19,6 +19,8 @@ function fileOf(target: DeclarationTarget): DiffViewFile {
     newId: blobId,
     // a view of one file opened on purpose: it never starts collapsed
     collapse: null,
+    // no file of the counts
+    reading: null,
     content: {
       kind: "text",
       oldLineCount: 1,

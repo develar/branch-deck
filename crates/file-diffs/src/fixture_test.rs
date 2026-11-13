@@ -72,6 +72,30 @@ pub(crate) fn renamed_store() -> (TestRepo, String) {
   (repo, second)
 }
 
+/// A repository of two commits: `src/Messages.kt` with a private function and its two calls, then the function
+/// renamed, and the answer of the fixture index (`FixtureIndex`) that lists the declaration and both calls in both
+/// trees. The repository and the second commit
+pub(crate) fn confirmed_messages() -> (TestRepo, String) {
+  let repo = TestRepo::new();
+  let messages = "package demo\n\nprivate fun outOfSync(): String {\n  return \"out of sync\"\n}\n\nfun first() = outOfSync()\n\nfun second(): String {\n  return outOfSync()\n}\n";
+  repo.create_commit("Initial", "src/Messages.kt", messages);
+  let head = repo.create_commit("Rename", "src/Messages.kt", &messages.replace("outOfSync", "updateLock"));
+  let used = |line: u32, column: u32, end: u32, kind: &str| serde_json::json!({ "file": "src/Messages.kt", "line": line, "column": column, "end_column": end, "kind": kind, "resolved": "typed" });
+  let uses = |length: u32| {
+    serde_json::json!({ "total": 3, "uses": [
+      used(3, 12, 12 + length, "declaration"), used(7, 14, 14 + length, "call"), used(10, 9, 9 + length, "call"),
+    ] })
+  };
+  let kotlin = serde_json::json!({ "language": "kotlin" });
+  let renamed = serde_json::json!({ "same": true, "complete": true, "old": kotlin, "new": kotlin, "base": uses(9), "head": uses(10), "conflicts": [] });
+  std::fs::write(
+    repo.path().join(".git/branch-deck-accio.json"),
+    serde_json::json!({ "renames": { "src/Messages.kt:3:13": renamed } }).to_string(),
+  )
+  .unwrap();
+  (repo, head)
+}
+
 /// What `accio renames --pair src/Store.kt:6:5 src/Store.kt:6:5` answered of the two commits of `renamed_store`
 /// (accio 0.29.0 built from its main at 500917d9f, answer revision 1 with `final`), as it wrote it but for the white
 /// space

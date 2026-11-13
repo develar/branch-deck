@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { useStore } from "zustand"
 import { commands } from "@/lib/bindings"
-import type { DiffContent, DiffFileHeader, DiffMarks, FileDiffEvent, GetRenameProofsParams } from "@/lib/bindings"
+import type { DiffContent, DiffFileHeader, DiffMarks, DiffReading, FileDiffEvent, FileMarks, GetRenameProofsParams } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { withoutIds } from "@/lib/commit-files"
 import { diffSourceOf, fileDiffSubjectId } from "@/lib/diff/file-diff-model"
@@ -18,17 +18,18 @@ export type FileDiffsEntry = FileStreamEntry<FileDiff>
 export const MAX_CACHED_SUBJECTS = 8
 
 /**
- * The file with `marks` in place of the marks of its text, null for a file without one. The marks of a file whole, as
- * the other files of its subject or the index of the repository changed them after its content: they add runs that
- * are labels, words and what a reader may pass, never a row, so what the views opened of the diff stays open
+ * The file with `marks` in place of the marks of its text and what Rust says is left to read with them, null for a
+ * file without one. The marks of a file whole, as the other files of its subject or the index of the repository
+ * changed them after its content: they add runs that are labels, words and what a reader may pass, never a row, so
+ * what the views opened of the diff stays open
  */
-function withMarks(file: FileDiff, marks: DiffMarks): FileDiff | null {
+function withMarks(file: FileDiff, marks: DiffMarks, reading: DiffReading): FileDiff | null {
   if (file.content.kind !== "text") {
     return null
   }
   const content: DiffContent = { ...file.content, marks }
   keepOpened(file.content, content)
-  return { ...file, content }
+  return { ...file, content, reading }
 }
 
 /** The paths of the headers of a stream, one list for all its files (`FileDiff.subjectPaths`) */
@@ -47,7 +48,7 @@ const stream = createFileStream<DiffFileHeader, DiffContent, FileDiff, FileDiffE
   MAX_CACHED_SUBJECTS,
   "Cannot read the diffs of the files",
   // with the files of its subject: the marks of the subject name another file by its place among them
-  (header, event, headers) => ({ ...header, content: event.content, collapse: event.collapse, subjectPaths: subjectPathsOf(headers) }),
+  (header, event, headers) => ({ ...header, content: event.content, collapse: event.collapse, reading: event.reading, subjectPaths: subjectPathsOf(headers) }),
   (file, event) => {
     if (file.content.kind !== "text") {
       return null
@@ -55,9 +56,9 @@ const stream = createFileStream<DiffFileHeader, DiffContent, FileDiff, FileDiffE
     const content: DiffContent = { ...file.content, oldScopes: event.oldScopes, newScopes: event.newScopes, importBlocks: event.importBlocks }
     // the same diff with its labels: what the views opened of it stays open, its folds and its notes
     keepOpened(file.content, content)
-    return { ...file, content }
+    return { ...file, content, reading: event.reading }
   },
-  (file, event) => withMarks(file, event.marks),
+  (file, event) => withMarks(file, event.marks, event.reading),
 )
 
 /** By `fileDiffsKey`, the least recently loaded first */
@@ -211,10 +212,10 @@ function askIndex(): void {
     if (result.status === "error") {
       logError("Cannot ask the index of the renames of the files", result.error)
     } else if (result.data !== null) {
-      const marks = new Map(result.data.map(file => [file.path, file.marks]))
+      const answers = new Map<string, FileMarks>(result.data.map(file => [file.path, file]))
       stream.update(key, file => {
-        const answered = marks.get(file.path)
-        return answered === undefined ? null : withMarks(file, answered)
+        const answered = answers.get(file.path)
+        return answered === undefined ? null : withMarks(file, answered.marks, answered.reading)
       })
     }
     if (asked !== question) {

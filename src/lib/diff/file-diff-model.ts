@@ -1,4 +1,4 @@
-import type { Collapse, DiffContent, DiffFileHeader, DiffSource } from "@/lib/bindings"
+import type { Collapse, DiffContent, DiffFileHeader, DiffReading, DiffSource } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 
 /*
@@ -11,6 +11,7 @@ export type {
   DiffBlock,
   DiffContent,
   DiffMarks,
+  DiffReading,
   FileMove,
   LineEndKind,
   LineEnds,
@@ -31,6 +32,12 @@ export type {
 export interface FileDiff extends DiffFileHeader {
   content: DiffContent
   collapse: Collapse | null
+  /**
+   * What is left to read of its text, as Rust counts it with each event of the stream that changes it (`DiffReading`:
+   * its blocks of changed lines and those with a start, past the blocks of the imports alone too); null for a file
+   * that is no text, and for a diff the page makes, which no view counts
+   */
+  reading: DiffReading | null
   /**
    * The paths of the files of its subject, in the order of the stream that gave it (`get_file_diffs`, the order of
    * git): what the marks of the subject name another file by (`FileMove.file`, `UsedRename.file` of

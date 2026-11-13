@@ -21,6 +21,7 @@ targets:
   - crates/file-diffs/src/marks.rs
   - crates/file-diffs/src/bindings.rs
   - crates/file-diffs/src/marks_measure.rs
+  - crates/file-diffs/src/reading.rs
   - crates/bd-rewrite/src/mark_stats.rs
   - crates/file-diffs/src/accio.rs
   - crates/object-cache/src/file_diff.rs
@@ -1644,7 +1645,7 @@ with its plan and a block another section shows.
 - **THEN** the stop is the first row of lines since the last quiet run before that line: an old line where one column shows the old lines of the part first
 - **AND** a block of quiet lines alone has no stop, and a start that names no line of its block stops at the last row of the block
   [@test] src/lib/diff/rows.test.ts (`stops N and P where Rust starts the reading of a block, at the first row of that part, never at a block of quiet lines alone`, `starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`, `plays down a block of the imports alone in a review: pale, and N and P pass it; elsewhere it is a change as any`)
-  [@test] src/lib/diff/block-parts.test.ts (`reads the stops as Rust gives them, and counts them against the blocks of changed lines`, `gives each row by its part, and the row of each line of a side`)
+  [@test] src/lib/diff/block-parts.test.ts (`reads the stops as Rust gives them, and passes a block of the imports alone in a review with its plan`, `gives each row by its part, and the row of each line of a side`)
 
 #### Scenario: Lines deleted before a label
 - **GIVEN** a block that deletes six lines and words the comment of the line after them again, a run of comments, so Rust names the comment, the first new line of the block
@@ -1699,13 +1700,22 @@ with its plan and a block another section shows.
 Where a file shows its counts (its row in the tree of the files, the header of its card in a review), it MUST say how
 many of its blocks of changed lines are stops of N and P, where they are fewer than all: "10 to read", "Nothing to
 read", in full in its hover and its description ("10 of 11 changes to read"). A card counts the stops of its section.
+The count of a whole file MUST be Rust's (`DiffReading`), which the page words.
+
+#### Scenario: Rust counts what is left to read
+- **WHEN** the blocks of a diff are a block of the imports alone, a quiet run and a real change; every block a stop; a block the policy ignores; a block without a line; lines deleted alone
+- **THEN** its reading is three changes, two to read, one past the imports; three of three; one change; no change; one of one
+- **AND** the reading is sent with the content of a text and with each event that changes its starts or its blocks of the imports: each event of the stream of the `commit_marks` template brings the reading of its file as the page has it after the event, and Ledger.kt ends with five of its eleven changes to read, Report.kt with every change
+- **AND** the marks the index answers come with their reading: the declaration alone is left to read of a renamed private function and its two calls
+  [@test] crates/file-diffs/src/reading_test.rs (`the_reading_of_a_diff_counts_its_starts_among_its_blocks_of_changed_lines`, `every_event_of_the_stream_brings_the_reading_of_its_file_as_it_stands_then`, `the_marks_the_index_answers_come_with_what_is_left_to_read`)
+  [@test] src/stores/file-diffs.test.ts (`shows each file as its content arrives, and the late scopes of a text keep the lines it expanded`, `takes the marks of a late marks event in place of those of the content, and keeps what a view opened of the file`)
 
 #### Scenario: The row of a file
 - **WHEN** the preview of the `commit_marks` template lists its files
 - **THEN** Ledger.kt says how many of its eleven changes are left to read ("5 to read"), fewer than all, and in full in its hover and its description ("5 of 11 changes to read"): the wrapped call, the three lines of the renamed local and the two blocks its moved functions left are none of them
 - **AND** Report.kt, whose every block is a stop, says nothing
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`the row of a file says how many of its changes are left to read, and nothing where every change is read`)
-  [@test] src/lib/diff/view-files.test.ts (`counts the stops of N and P among the changes of a file where some change is quiet, and nothing where every change is read`, `counts no block without a line: the stand-in of a use a change left outside is no change`)
+  [@test] src/lib/diff/view-files.test.ts (`takes what Rust says is left to read of a file where some change is quiet, and nothing where every change is read`, `counts no block without a line: the stand-in of a use a change left outside is no change`)
 
 #### Scenario: The header of a card
 - **WHEN** the review of the template, and of a file of quiet runs alone, shows its cards

@@ -743,6 +743,8 @@ function ghostFile(key: string, path: string, ghost: { line: number; heading: He
     newId: blobId,
     // a view of one file opened on purpose: it never starts collapsed
     collapse: null,
+    // no file of the counts: N and P pass it, as its empty start says
+    reading: null,
     content: {
       kind: "text",
       oldLineCount: lineCount,

@@ -15,7 +15,6 @@ import {
   partsRow,
   partsRowOfLine,
   partsStopRow,
-  readingOf,
   renameJumpOf,
   renameNotesOf,
   stopsOf,
@@ -150,7 +149,7 @@ describe("the marks of a diff", () => {
     expect(marksByBlock(diff)).toBe(marksByBlock(diff))
   })
 
-  it("reads the stops as Rust gives them, and counts them against the blocks of changed lines", () => {
+  it("reads the stops as Rust gives them, and passes a block of the imports alone in a review with its plan", () => {
     const diff = textDiff(30, 32, [block(1, 2, 1, 2), block(10, 11, 10, 13), block(20, 21, 22, 23), block(25, 26, 27, 28, { kind: "ignored" })], {
       runs: [run(10, 11, 10, 13)],
       importBlocks: [0],
@@ -160,10 +159,6 @@ describe("the marks of a diff", () => {
       [2, { side: NEW, line: 22 }],
     ])
     expect([...stopsOf(diff, true).keys()]).toEqual([2])
-    expect([readingOf(diff), readingOf(diff, true)]).toEqual([
-      { toRead: 2, changes: 3 },
-      { toRead: 1, changes: 3 },
-    ])
   })
 
   it("lists the pairs of lines that are one row each in Inline", () => {

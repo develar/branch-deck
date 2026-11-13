@@ -158,6 +158,8 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
       newId,
       // as the backend's `collapse_of` says it: over 1,000 changed lines a file starts collapsed
       collapse: additions + deletions > 1000 ? { kind: "large", changed: additions + deletions } : null,
+      // as the backend's `DiffReading` counts it: every block a change, those with a start to read
+      reading: { changes: blocks.length, toRead: starts.length / 3, toReadPastImports: starts.length / 3 },
       content: {
         kind: "text",
         // the engine counts the empty line after the final line end, and the one line of an empty text

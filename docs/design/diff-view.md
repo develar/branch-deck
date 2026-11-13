@@ -128,8 +128,15 @@ rest gets a label and stays a stop.
 - **One source of the stops.** `starts` names, for each block with something to read, the line its reading starts
   at (`line_diff::model::starts_of`): the first line outside its quiet runs that, of its old lines, no move took. A
   block without an entry has nothing to read. The navigation of changes and the count of what is left to read take
-  only this (`stopsOf` of `src/lib/diff/block-parts.ts`); the runs, the moves and the renames are for drawing. What
-  a view draws of the runs is "The parts of a block" below.
+  only this: the page's `stopsOf` (`src/lib/diff/block-parts.ts`) for where N and P stop, Rust's `DiffReading`
+  (`crates/file-diffs/src/reading.rs`) for the count of a file; the runs, the moves and the renames are for drawing.
+  What a view draws of the runs is "The parts of a block" below.
+- **The count is Rust's.** `DiffReading` counts the blocks of changed lines of a diff and those with a start, all of
+  them and those past the blocks of the imports alone, which a review with its plan passes too. It goes with every
+  event of the stream that changes it (the `content` of a text, its `scopes`, the `marks` of its subject, the marks
+  the index answers) and is never stored: it follows from the diff, so no version of a store moves with it. The
+  page keeps it on `FileDiff.reading` and words it; one count in Rust is what a sum over a pull request or a stack
+  adds up. The proven starts a measurement reads (`proven_runs`, `proven_starts`) are counted by the same type.
 - **With the content.** The marks change the rows a view draws (the Inline view shows the new lines of a quiet run
   alone), so marks that came after the content would move a file already drawn. They are made in the worker of the
   file before its `content` goes out; the scopes still come after it. What only the other files of the subject
@@ -1031,9 +1038,10 @@ segments are as before.
   quiet run does, so a block that starts with them is read from the line after them, and where the lines stand now
   the stop is the first of them, under their note. Which lines are read is Rust's, which row shows them first is
   the layout's.
-  `FileRows.changes` counts the blocks of changed lines (`isChangeBlock`), and a file says
-  "10 to read" beside its counts where its stops are fewer (`readingOf`, `formatToRead`): its row in the tree of the
-  files (`withEngineCounts`) and the header of its card in a review, which counts the stops of its section.
+  `FileRows.changes` counts the blocks of changed lines of the rows (`isChangeBlock`), and a file says
+  "10 to read" beside its counts where its stops are fewer (`formatToRead`): its row in the tree of the files, by
+  Rust's `DiffReading` (`withEngineCounts`), and the header of its card in a review, which counts the stops of the
+  rows of its section.
 - **A run in no block and a move with an end in none**, which no engine gives, are left out (`marksByBlock`): every
   line of every block shows whatever the marks say.
 

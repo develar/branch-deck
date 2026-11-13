@@ -290,7 +290,7 @@ fn marks_events(events: &[FileDiffEvent], path: &str) -> Vec<(&'static str, Diff
         content: DiffContent::Text(diff),
         ..
       } if *index == file => Some(("content", diff.marks.clone())),
-      FileDiffEvent::Marks { index, marks } if *index == file => Some(("marks", marks.clone())),
+      FileDiffEvent::Marks { index, marks, .. } if *index == file => Some(("marks", marks.clone())),
       _ => None,
     })
     .collect()

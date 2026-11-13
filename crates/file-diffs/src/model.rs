@@ -1,5 +1,6 @@
 //! The types that the app reads (specta): what a diff compares, the diff of each file, and the texts of blobs.
 
+use crate::reading::DiffReading;
 use generated_files::names::GeneratedName;
 use object_cache::commit_files::FileStatus;
 use serde::{Deserialize, Serialize};
@@ -31,13 +32,15 @@ pub struct GetRenameProofsParams {
 /// The marks of the text of a file of a subject, by its path, with what the index of the repository answered of its
 /// renamed names (`get_rename_proofs`): in place of those its diff has. They differ from them in the proofs
 /// (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`), which are quiet, and so in
-/// what a reader may pass (`starts`); never in a row of the file
+/// what a reader may pass (`starts`, and so `reading`); never in a row of the file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FileMarks {
   pub path: String,
   pub marks: DiffMarks,
+  /// What is left to read of the text with these marks
+  pub reading: DiffReading,
 }
 
 /// The parameters of `get_blob_texts`
@@ -110,21 +113,28 @@ pub enum FileDiffEvent {
   Files { files: Vec<DiffFileHeader> },
   /// The content of a file, and why the views start it collapsed (`collapse_of`). A `TextDiff` that the caches did not
   /// have comes with empty scopes, which a `scopes` event of the same file fills later: the parse costs more than the
-  /// comparison
-  Content { index: u32, content: DiffContent, collapse: Option<Collapse> },
-  /// The scopes of the text of a file, for the labels of its hunks, and its blocks of the imports alone
+  /// comparison. `reading`: what is left to read of a text (`DiffReading::of`), `None` for a file that is no text
+  Content {
+    index: u32,
+    content: DiffContent,
+    collapse: Option<Collapse>,
+    reading: Option<DiffReading>,
+  },
+  /// The scopes of the text of a file, for the labels of its hunks, and its blocks of the imports alone, with what is
+  /// left to read of it past them
   #[serde(rename_all = "camelCase")]
   Scopes {
     index: u32,
     old_scopes: Vec<Scope>,
     new_scopes: Vec<Scope>,
     import_blocks: Vec<u32>,
+    reading: DiffReading,
   },
   /// The marks of the text of a file, in place of those its `content` brought: with what the other files of the
   /// subject say of it (`DiffMarks::subject`: the lines that moved between two files, the names another file
-  /// declares), once every file is known. It adds runs that are labels and words; it takes no row of the file away,
-  /// and its quiet runs and its stops are those of the content
-  Marks { index: u32, marks: DiffMarks },
+  /// declares), once every file is known, and what is left to read of it with them. It adds runs that are labels and
+  /// words; it takes no row of the file away, and its quiet runs and its stops are those of the content
+  Marks { index: u32, marks: DiffMarks, reading: DiffReading },
 }
 
 /// Why the views start a file collapsed: its header is enough to know it is there, its chevron expands it

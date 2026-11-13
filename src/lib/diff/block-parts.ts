@@ -1113,7 +1113,7 @@ const NO_NOTES: ReadonlySet<number> = new Set()
  * The stops of a diff by block, in the order of its blocks: the line the reading of each block starts at, as Rust
  * says it (`TextDiff.marks.starts`, flat `[block, side, line]`). A block without one has nothing to read; with
  * `quietImports` (a review with its plan) a block of the imports alone is no stop either. The one source of where N
- * and P stop and of the count of what is left to read
+ * and P stop; the count of what is left to read of a file is Rust's (`FileDiff.reading`), from the same starts
  */
 export function stopsOf(diff: TextDiff, quietImports = false): Map<number, { readonly side: number; readonly line: number }> {
   const stops = new Map<number, { side: number; line: number }>()
@@ -1129,12 +1129,4 @@ export function stopsOf(diff: TextDiff, quietImports = false): Map<number, { rea
 /** A block of changed lines: one the whitespace policy does not ignore, with a line (the stand-in of a use left outside has none) */
 export function isChangeBlock(block: DiffBlock): boolean {
   return block.kind !== "ignored" && (block.oldStart < block.oldEnd || block.newStart < block.newEnd)
-}
-
-/**
- * What is left to read of a diff: its stops (`stopsOf`) among its blocks of changed lines. The words are the
- * presenter's (`formatToRead`)
- */
-export function readingOf(diff: TextDiff, quietImports = false): { readonly toRead: number; readonly changes: number } {
-  return { toRead: stopsOf(diff, quietImports).size, changes: diff.blocks.filter(isChangeBlock).length }
 }
