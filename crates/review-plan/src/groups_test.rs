@@ -271,7 +271,21 @@ fn a_new_module_names_what_enters_it_and_its_group_starts_with_their_files() {
     5,
     serde_json::json!([{ "file": "gui/src/a/Embed0.kt", "line": 3, "label": "type", "resolved": "typed", "test": false }]),
   );
-  flags["used_by"] = serde_json::json!([{ "file": "gui/src/a/Embed0.kt", "line": 3 }]);
+  flags["used_by"] = serde_json::json!([{ "file": "gui/src/a/Embed0.kt", "line": 3, "test": false }]);
+  // entered from test code alone, as `used_by` says
+  let mut tested = declaration(
+    "PlayerTest0",
+    3,
+    serde_json::json!([{ "file": "gui/testSrc/a/BoxTest.kt", "line": 3, "label": "call", "resolved": "typed", "test": true }]),
+  );
+  tested["used_by"] = serde_json::json!([{ "file": "gui/testSrc/a/BoxTest.kt", "line": 3, "test": true }]);
+  // the uses a `--limit` cut show one by the name alone, `used_by` a file of other code that resolves it: an entry
+  let mut cut = declaration(
+    "Player2",
+    5,
+    serde_json::json!([{ "file": "gui/src/a/Embed1.kt", "line": 4, "label": "call", "resolved": "name", "test": false }]),
+  );
+  cut["used_by"] = serde_json::json!([{ "file": "gui/src/a/Embed2.kt", "line": 3, "test": false }]);
   let surface = serde_json::json!({
     "module": "gui/media",
     "complete": true,
@@ -280,7 +294,8 @@ fn a_new_module_names_what_enters_it_and_its_group_starts_with_their_files() {
       flags,
       // by the name alone, and from test code: no entry
       declaration("Player0", 5, serde_json::json!([{ "file": "gui/src/a/Embed1.kt", "line": 3, "label": "call", "resolved": "name", "test": false }])),
-      declaration("PlayerTest0", 3, serde_json::json!([{ "file": "gui/testSrc/a/BoxTest.kt", "line": 3, "label": "call", "resolved": "typed", "test": true }])),
+      tested,
+      cut,
     ],
   });
   std::fs::write(
@@ -319,6 +334,18 @@ fn a_new_module_names_what_enters_it_and_its_group_starts_with_their_files() {
           registered: None,
           used_by: vec![EntrySite {
             path: "gui/src/a/Embed0.kt".to_string(),
+            line: 3
+          }],
+        },
+        EntryPoint {
+          name: "Player2".to_string(),
+          qualified: Some("b.Player2".to_string()),
+          kind: "class".to_string(),
+          path: "gui/media/src/b/Player2.kt".to_string(),
+          line: 5,
+          registered: None,
+          used_by: vec![EntrySite {
+            path: "gui/src/a/Embed2.kt".to_string(),
             line: 3
           }],
         },

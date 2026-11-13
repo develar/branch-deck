@@ -109,8 +109,9 @@ pub(crate) fn add_entries(index: Option<&dyn SymbolIndex>, repository_path: &str
   Ok(())
 }
 
-/// The entry point a declaration is: of a registration or of a use resolved from the code outside the module, not by
-/// the name alone nor from test code
+/// The entry point a declaration is: of a registration or of a file outside the module that resolves a use of it
+/// (`used_by`), not by the name alone nor from test code. Never from `uses`, which `--limit` cuts and which list the
+/// uses tied by the name and those of tests before a later resolved one
 fn entry_point(declaration: &SurfaceDeclaration) -> Option<EntryPoint> {
   let resolved = |resolved: &Option<String>| resolved.as_deref() != Some("name");
   let registered = declaration
@@ -123,11 +124,11 @@ fn entry_point(declaration: &SurfaceDeclaration) -> Option<EntryPoint> {
       path: it.file.clone(),
       line: it.line,
     });
-  let entered = registered.is_some() || declaration.uses.iter().any(|it| it.label != "descriptor" && !it.test && resolved(&it.resolved));
+  let descriptors: Vec<&str> = declaration.uses.iter().filter(|it| it.label == "descriptor").map(|it| it.file.as_str()).collect();
+  let entered = registered.is_some() || declaration.used_by.iter().any(|site| !site.test && !descriptors.contains(&site.file.as_str()));
   if !entered {
     return None;
   }
-  let descriptors: Vec<&str> = declaration.uses.iter().filter(|it| it.label == "descriptor").map(|it| it.file.as_str()).collect();
   Some(EntryPoint {
     name: declaration.name.clone(),
     qualified: declaration.qualified.clone(),

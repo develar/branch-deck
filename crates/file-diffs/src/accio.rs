@@ -55,6 +55,11 @@ const REFERENCES_LIMIT: &str = "100";
 /// accio raises it when a field of the answer changes its meaning or `complete` promises something else: an accio
 /// of another revision, like one without the command, is not asked, since its answer would be read as a proof
 pub const RENAMES_ANSWER: u32 = 1;
+/// The revision of the answer of `accio surface` this reader was written for (`answers.surface`): from 2 a file of
+/// `used_by` says whether it is a test's, and the order is registrations, then the files that resolve a declaration
+/// (JetBrains/accio#748). An accio of another revision is not asked: `entry_point` decides what enters a module from
+/// `used_by`, which an accio before 2 gives without `test`
+pub const SURFACE_ANSWER: u32 = 2;
 /// The tests a lookup answers at most, per declaration: the given tests of a change reach one declaration by the
 /// hundred (97 tests of 7 files for one place of idea-1)
 const TESTS_LIMIT: &str = "1000";
@@ -402,6 +407,9 @@ pub struct SurfaceDeclaration {
 pub struct SurfaceSite {
   pub file: String,
   pub line: u32,
+  /// The file is test code (`surface` answer 2)
+  #[serde(default)]
+  pub test: bool,
 }
 
 /// A use of a declaration of a module from outside it
@@ -707,8 +715,15 @@ pub struct AccioCli {
   executable: PathBuf,
   /// Its `Columns`, from its `--version`
   columns: OfBuild<Columns>,
-  /// The revision of its answer of `renames`, from its `versions`; `None` for an accio without it
-  renames_answer: OfBuild<Option<u32>>,
+  /// The revisions of the answers it gives, from its `versions`
+  answers: OfBuild<Answers>,
+}
+
+/// The revisions of the answers an accio gives (`answers` of `accio versions`); `None` for one it gives none of
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Answers {
+  renames: Option<u32>,
+  surface: Option<u32>,
 }
 
 /// What an executable says of itself, asked once of each build of it: again once its file is another one, by its
@@ -776,7 +791,7 @@ impl AccioCli {
     Self {
       executable,
       columns: OfBuild::new(),
-      renames_answer: OfBuild::new(),
+      answers: OfBuild::new(),
     }
   }
 
@@ -796,12 +811,33 @@ impl AccioCli {
   /// once of each build of it (`OfBuild`): its `--version` does not say it (a build from source prints the version
   /// of the last release). An accio without the answer, one that fails and one of another revision do not
   pub(crate) fn answers_renames(&self) -> bool {
-    let revision = self.renames_answer.of(&self.executable, || {
-      let output = windowless_command_at(&self.executable, ChildPriority::Normal).arg("versions").output().ok()?;
-      let versions: serde_json::Value = serde_json::from_slice(&output.stdout).ok().filter(|_| output.status.success())?;
-      versions.get("answers")?.get("renames")?.as_u64().and_then(|revision| u32::try_from(revision).ok())
-    });
-    revision == Some(RENAMES_ANSWER)
+    self.answers().renames == Some(RENAMES_ANSWER)
+  }
+
+  /// Whether this accio answers `surface` as this reader reads it (`SURFACE_ANSWER`), as `answers_renames` asks
+  pub(crate) fn answers_surface(&self) -> bool {
+    self.answers().surface == Some(SURFACE_ANSWER)
+  }
+
+  /// The revisions of the answers of this accio, from `accio versions`, asked once of each build of it (`OfBuild`);
+  /// none of an accio without them and of one whose `versions` fails
+  fn answers(&self) -> Answers {
+    self.answers.of(&self.executable, || {
+      let Some(output) = windowless_command_at(&self.executable, ChildPriority::Normal)
+        .arg("versions")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+      else {
+        return Answers::default();
+      };
+      let versions: Option<serde_json::Value> = serde_json::from_slice(&output.stdout).ok();
+      let revision = |name: &str| versions.as_ref()?.get("answers")?.get(name)?.as_u64().and_then(|revision| u32::try_from(revision).ok());
+      Answers {
+        renames: revision("renames"),
+        surface: revision("surface"),
+      }
+    })
   }
 
   /// How this accio counts columns (`Columns::of_version` of its `--version`), asked once of each build of it
@@ -1019,6 +1055,9 @@ impl SymbolIndex for AccioSearch<'_> {
   fn surface(&self, repository_root: &str, modules: &[String], revision: &str) -> Result<Option<Vec<ModuleSurface>>> {
     if modules.is_empty() {
       return Ok(Some(Vec::new()));
+    }
+    if !self.accio.answers_surface() {
+      return Ok(None);
     }
     let mut command = windowless_command_at(&self.accio.executable, self.priority);
     command.args([

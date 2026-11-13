@@ -267,8 +267,13 @@ fn the_entry_points_of_the_new_modules_of_a_side_are_read_in_one_process() {
   let dir = tempfile::tempdir().unwrap();
   let args = dir.path().join("args");
   let answer = r#"[{"module":"gui/media","checked":75,"complete":true,"quality":"structural","unresolved":0,"declarations":[{"file":"gui/media/src/PlayersImpl.kt","line":31,"kind":"class","name":"PlayersImpl","qualified":"a.media.PlayersImpl","total":1,"files":0,"unresolved":0,"used_by":[{"file":"gui/media/resources/media.xml","line":23}],"uses":[{"file":"gui/media/resources/media.xml","line":23,"label":"descriptor","role":"services.implementation","point":"com.intellij.applicationService","of":"a.gui.Players","resolved":"typed","test":false}]}]},{"module":"tools","checked":3,"complete":false,"quality":"structural","unresolved":2,"note":"the budget of 15s ran out: 4 declarations not asked","declarations":[]}]"#;
-  let executable = fake_executable(dir.path(), "accio", &format!("printf '%s\\n' \"$@\" > {}\nprintf '%s\\n' '{answer}'", shell_path(&args)));
-  let accio = AccioCli::at(executable);
+  let started = dir.path().join("started");
+  let accio = fake_accio_with_versions(
+    dir.path(),
+    &started,
+    ANSWERS_SURFACE,
+    &format!("printf '%s\\n' \"$@\" > {}\nprintf '%s\\n' '{answer}'", shell_path(&args)),
+  );
   let canceled = || false;
   let search = accio.search(&canceled);
   let modules = ["gui/media".to_string(), "tools".to_string()];
@@ -288,7 +293,8 @@ fn the_entry_points_of_the_new_modules_of_a_side_are_read_in_one_process() {
       qualified: Some("a.media.PlayersImpl".to_string()),
       used_by: vec![SurfaceSite {
         file: "gui/media/resources/media.xml".to_string(),
-        line: 23
+        line: 23,
+        test: false,
       }],
       uses: vec![SurfaceUse {
         file: "gui/media/resources/media.xml".to_string(),
@@ -494,6 +500,34 @@ fn fake_accio_with_versions(dir: &Path, started: &Path, versions: &str, then: &s
 }
 
 const ANSWERS_RENAMES: &str = r#"{"answers":{"moves":1,"renames":1},"index_format":40}"#;
+
+const ANSWERS_SURFACE: &str = r#"{"answers":{"moves":1,"renames":1,"surface":2},"index_format":40}"#;
+
+/// Only an accio that says it answers `surface` as this reader reads it (`SURFACE_ANSWER`) is asked: one without the
+/// answer, one of the revision before `used_by` said which file is a test's and one whose `versions` fails answer none,
+/// and their `surface` is never started. `renames` and `surface` read one answer of `versions`
+#[test]
+fn an_accio_that_answers_no_surface_as_it_is_read_is_not_asked() {
+  let canceled = || false;
+  let modules = ["gui/media".to_string()];
+  for versions in [r#"{"index_format":39}"#, ANSWERS_RENAMES, r#"{"answers":{"renames":1,"surface":1}}"#, "not json"] {
+    let dir = tempfile::tempdir().unwrap();
+    let started = dir.path().join("started");
+    let accio = fake_accio_with_versions(dir.path(), &started, versions, "exit 2");
+    assert!(!accio.answers_surface(), "{versions}");
+    assert_eq!(accio.search(&canceled).surface(ROOT, &modules, "head").unwrap(), None, "{versions}");
+    assert!(!started.exists(), "{versions}");
+  }
+  let dir = tempfile::tempdir().unwrap();
+  let asked = dir.path().join("asked");
+  let body = format!(
+    "if [ \"$1\" = versions ]; then echo asked >> {}; printf '%s' '{ANSWERS_SURFACE}'; exit 0; fi\nexit 2",
+    shell_path(&asked)
+  );
+  let accio = AccioCli::at(fake_executable(dir.path(), "accio", &body));
+  assert!(accio.answers_surface() && accio.answers_renames());
+  assert_eq!(std::fs::read_to_string(&asked).unwrap().lines().count(), 1);
+}
 
 fn store_pair() -> RenamePair {
   RenamePair {
