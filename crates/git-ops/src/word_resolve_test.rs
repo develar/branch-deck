@@ -3,13 +3,13 @@
 
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::word_resolve::{NotResolved, WordResolveOutcome, resolve_by_words};
+use line_diff::model::DiffBudget;
+use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, git_command};
-use text_diff::apply::compose_merge;
+use text_diff::compose::compose_merge;
 use text_diff::merge_model::merge_texts;
-use text_diff::model::DiffBudget;
-use text_diff::policy::WhitespacePolicy;
 
 /// The merge of theirs onto ours with the base, as `merge-tree --write-tree -z` gives it; it must conflict
 fn merge_tree(repo: &TestRepo, base: &str, ours: &str, theirs: &str) -> MergeTreeOutput {
@@ -238,7 +238,7 @@ fn the_mode_that_one_side_changes_is_kept() {
 /// A conflict that only a resolve ignoring whitespace, the line ends too, would take stays the conflict of git: such a
 /// resolve joins lines into one that no side has (`b\nb` and `a b\n\n` of `b` into `ab\nb`, `a b` and `b\nx y z\n}` of
 /// `b\n` into `a bx y z\n}`), or merges a final line end removed beside a removed last line; the resolve by words takes
-/// the default policy alone (`text_diff::merge_resolve_util::try_resolve_by_default`)
+/// the default policy alone (`line_diff::merge_resolve_util::try_resolve_by_default`)
 #[test]
 fn a_conflict_that_only_ignoring_whitespace_resolves_stays_the_conflict_of_git() {
   for (base, ours, theirs) in [("b", "b\nb", "a b\n\n"), ("b\n", "a b", "b\nx y z\n}"), ("}\n", "}", "")] {
@@ -250,7 +250,7 @@ fn a_conflict_that_only_ignoring_whitespace_resolves_stays_the_conflict_of_git()
 
 /// Two insertions at the end of a file, which git conflicts on, stay the conflict of git: the merge pairs the empty line
 /// after the final line end of the base only with its like, so the blank line of one side and the line of the other are
-/// one conflict, never two insertions on two sides of that line (`text_diff::last_line`)
+/// one conflict, never two insertions on two sides of that line (`line_diff::last_line`)
 #[test]
 fn two_insertions_at_the_end_of_a_file_stay_the_conflict_of_git() {
   for (base, ours, theirs) in [

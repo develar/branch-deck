@@ -25,15 +25,15 @@ use file_diffs::marks::{MAX_BLOCK_TOKENS, MAX_RENAME_WORK, MAX_TOKEN_EDITS, mark
 use file_diffs::marks_subject::{IndexAnswer, PairFacts, Subject};
 use file_diffs::model::{DiffSource, FileDiffEvent, GetFileDiffsParams};
 use file_diffs::service::{DiffLimits, FileDiffs};
+use line_diff::model::{BlockKind, DiffBlock, DiffBudget, TextDiff, diff_texts};
+use line_diff::moves::{MAX_KEY_CANDIDATES, MAX_MOVE_LINES, MAX_MOVE_WORK, find_moves, find_moves_counted};
+use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use std::fmt::Write as _;
 use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use test_utils::git_test_utils::TestRepo;
-use text_diff::model::{BlockKind, DiffBlock, DiffBudget, TextDiff, diff_texts};
-use text_diff::moves::{MAX_KEY_CANDIDATES, MAX_MOVE_LINES, MAX_MOVE_WORK, find_moves, find_moves_counted};
-use text_diff::policy::WhitespacePolicy;
 
 /// How a function of the generated file differs from its first state
 #[derive(Clone, Copy, PartialEq, Eq)]

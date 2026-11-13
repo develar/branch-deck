@@ -7,11 +7,11 @@ use crate::leftovers::{Leftovers, PendingBlock, PendingRun};
 use crate::marks::{is_quiet, marks_of, pair_grammar, pair_indented, without_moved_lines};
 use crate::marks_subject::{IndexAnswer, PairFacts, Subject, as_confirmed};
 use code_symbols::tokens::tokens;
+use line_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, LineMove, LineRun, RenameProof, RunKind, SubjectMarks, TextDiff, diff_texts};
+use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 use test_log::test;
-use text_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, LineMove, LineRun, RenameProof, RunKind, SubjectMarks, TextDiff, diff_texts};
-use text_diff::policy::WhitespacePolicy;
 
 /// A file of a case: its path and its two texts, `None` for a side it does not exist on
 struct File {

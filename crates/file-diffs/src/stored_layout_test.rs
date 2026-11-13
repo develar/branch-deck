@@ -7,10 +7,10 @@
 use crate::leftovers::Leftovers;
 use crate::merge::{MERGE_MODEL_VERSION, StoredMerge};
 use crate::service::MODEL_VERSION;
+use line_diff::model::TextDiff;
 use pretty_assertions::assert_eq;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use text_diff::model::TextDiff;
 
 /// The diff of a pair in the `file_diff` store (`MODEL_VERSION`), and inside a one-sided merge of the `file_merge`
 /// store (`MERGE_MODEL_VERSION`)

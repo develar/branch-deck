@@ -3,13 +3,13 @@
 use crate::blocks::BlobPair;
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::patch::{BlockPatch, block_patches};
+use line_diff::apply::{BlockId, apply_blocks};
+use line_diff::model::{BlockKind, DiffBudget, diff_texts};
+use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-use text_diff::apply::{BlockId, apply_blocks};
-use text_diff::model::{BlockKind, DiffBudget, diff_texts};
-use text_diff::policy::WhitespacePolicy;
 
 fn patches(old: &str, new: &str) -> Vec<(String, String, String)> {
   let diff = diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE);
@@ -53,7 +53,7 @@ fn the_header_names_the_scope() {
   let old = "class A {\n  fun a() {\n    one()\n  }\n  fun b() = 2\n}\n";
   let new = "class A {\n  fun a() {\n    ONE()\n  }\n}\n";
   let diff = diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE);
-  let scope = |start_line: u32, end_line: u32, label: &str| text_diff::model::Scope {
+  let scope = |start_line: u32, end_line: u32, label: &str| line_diff::model::Scope {
     start_line,
     end_line,
     label: label.to_string(),

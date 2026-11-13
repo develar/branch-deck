@@ -1,89 +1,23 @@
-//! Line, word and char comparison of two texts, ported and modified from the diff of IntelliJ Platform (Apache License
-//! 2.0, see `NOTICE`). The modules keep the structure of their Kotlin sources, one module per source file, so that a
-//! later change of the source can be compared with the port.
+//! The wire model of the diffs of the app: what the backend sends as JSON and the views read, in `src/lib/bindings.ts`.
+//! Branch Deck's own, over `line-diff`, which compares the texts and whose types are the values.
 //!
-//! The texts are UTF-16 code units (`text::Utf16Text`), as in the source: the offsets of a result are UTF-16 offsets.
-//! The entry point of a diff view is `provider::compare_lines_inner`; the model of the app is `model::diff_texts`.
+//! - **The types of a diff** (`model`): `line-diff`'s, declared again here by the macros that declare them there
+//!   (`line_diff::diff_model!`, `whitespace_policy!`, `line_end_kind!`) with `specta::Type`, so the bindings of the app
+//!   describe them from one text: the same fields, names and documentation, and the same serde layout. A value is
+//!   always `line-diff`'s; a type of the app that holds one names its description here
+//!   (`#[specta(type = text_diff::model::TextDiff)]`). Only with the `specta` feature.
+//! - **The merge of three texts** (`merge_model`): the blocks of a merge with their kind, the sides that changed them
+//!   and their resolution, the wire model of a conflict; and its result on the bytes of the three texts (`compose`),
+//!   which the sync commits when the words resolve it.
 
-pub mod apply;
-pub mod by_char;
-pub mod by_line;
-pub mod by_word;
-pub mod cancellation;
-pub mod change_corrector;
-pub mod character_utils;
-pub mod chunk_optimizer;
-pub mod comparison_merge_util;
-pub mod comparison_util;
-pub mod fragments;
-pub mod inline;
-pub mod iterables;
-pub mod last_line;
-pub mod lcs;
-pub mod line_fragment_splitter;
-pub mod line_offsets;
-pub mod manager;
-pub mod merge_conflict_type;
+pub mod compose;
 pub mod merge_model;
-pub mod merge_range;
-pub mod merge_range_util;
-pub mod merge_resolve_util;
+#[cfg(feature = "specta")]
 pub mod model;
-pub mod moves;
-pub mod moves_across;
-pub mod policy;
-pub mod provider;
-pub mod range;
-pub mod side;
-pub mod text;
-pub mod text_lines;
-pub mod trim_util;
 
 #[cfg(test)]
-mod apply_test;
-#[cfg(test)]
-mod blocks_comparison_util_test;
-#[cfg(test)]
-mod char_comparison_merge_util_test;
-#[cfg(test)]
-mod char_comparison_util_test;
-#[cfg(test)]
-mod comparison_merge_util_test_base;
-#[cfg(test)]
-mod comparison_util_auto_test;
-#[cfg(test)]
-mod comparison_util_test;
-#[cfg(test)]
-mod comparison_util_test_base;
-#[cfg(test)]
-mod ignore_comparison_util_test;
-#[cfg(test)]
-mod inline_test;
-#[cfg(test)]
-mod line_comparison_merge_util_test;
-#[cfg(test)]
-mod line_comparison_util_test;
-#[cfg(test)]
-mod line_uplifter_test;
+mod compose_test;
 #[cfg(test)]
 mod merge_model_test;
 #[cfg(test)]
-mod merge_resolve_util_test;
-#[cfg(test)]
-mod model_test;
-#[cfg(test)]
-mod moves_across_test;
-#[cfg(test)]
-mod moves_test;
-#[cfg(test)]
-mod split_comparison_util_test;
-#[cfg(test)]
 mod test_support;
-#[cfg(test)]
-mod text_lines_test;
-#[cfg(test)]
-mod trim_util_test;
-#[cfg(test)]
-mod word_comparison_util_test;
-#[cfg(test)]
-mod word_merge_comparison_util_test;

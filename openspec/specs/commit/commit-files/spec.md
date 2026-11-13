@@ -42,9 +42,9 @@ targets:
   - crates/file-diffs/src/blocks.rs
   - crates/file-diffs/src/worktree.rs
   - crates/file-diffs/src/model.rs
-  - crates/text-diff/src/model.rs
-  - crates/text-diff/src/provider.rs
-  - crates/text-diff/src/last_line.rs
+  - crates/line-diff/src/model.rs
+  - crates/line-diff/src/provider.rs
+  - crates/line-diff/src/last_line.rs
   - crates/object-cache/src/file_diff.rs
   - crates/app-api/src/reads/blobs.rs
   - crates/test-utils/src/repo_template.rs
@@ -451,20 +451,20 @@ file is a change of that blank line, and the counts of a file differ by the line
 - **WHEN** a commit adds a method to a class and, after its closing brace, a blank line and two declarations
 - **THEN** the diff shows the blank line added, and the file counts +9 −0 under every whitespace policy, as
   `git diff --numstat` does
-  [@test] crates/text-diff/src/model_test.rs (`the_empty_last_line_pairs_only_with_the_empty_last_line`)
+  [@test] crates/line-diff/src/model_test.rs (`the_empty_last_line_pairs_only_with_the_empty_last_line`)
   [@test] crates/trial-check/src/diff_scan_test.rs (`read_commit_diffs_gives_git_counts_beside_the_engines`)
 
 #### Scenario: A blank line added or removed at the end of a file
 - **WHEN** a commit adds a blank line at the end of a file or removes one, with any line end, or an empty file gets lines
 - **THEN** the diff shows that blank line added or removed and counts it, pale under Ignore Whitespace and cut off
   under Ignore Whitespace and Blank Lines as any blank line
-  [@test] crates/text-diff/src/model_test.rs (`the_empty_last_line_pairs_only_with_the_empty_last_line`)
+  [@test] crates/line-diff/src/model_test.rs (`the_empty_last_line_pairs_only_with_the_empty_last_line`)
 
 #### Scenario: Any two texts
 - **WHEN** any two texts are compared, under any whitespace policy
 - **THEN** the lines of all their blocks, without the empty line after a final line end, differ by the lines the file
   grew by
-  [@test] crates/text-diff/src/model_test.rs (`blocks_partition_both_texts`)
+  [@test] crates/line-diff/src/model_test.rs (`blocks_partition_both_texts`)
 
 ### Requirement: Reading the diffs: The counts of a file mark the lines the policy ignores
 
@@ -751,7 +751,7 @@ counts.
 - **WHEN** the scopes of the text are read from its summary
 - **THEN** each scope starts and ends at the lines the diff shows its declaration at
   [@test] crates/file-diffs/src/service_test.rs (`the_imports_and_the_scopes_of_a_text_with_a_lone_cr_are_at_the_lines_of_the_diffs`)
-  [@test] crates/text-diff/src/text_lines_test.rs (`the_lines_of_a_summary_are_named_the_same_way_among_the_lines_of_the_diffs`, `the_lines_of_a_text_are_those_of_the_diffs`)
+  [@test] crates/line-diff/src/text_lines_test.rs (`the_lines_of_a_summary_are_named_the_same_way_among_the_lines_of_the_diffs`, `the_lines_of_a_text_are_those_of_the_diffs`)
 
 ### Requirement: File diffs: The views build the hunks from the blocks and the texts
 
@@ -1465,7 +1465,7 @@ without a line beside it.
 - **WHEN** a changed line has changed ranges, also without a line beside it
 - **THEN** the line is cut at each bound of a changed range of the engine, not by a word diff
   [@test] src/lib/diff/line-parts.test.ts (`cuts a line at each run of the tokens and each bound of a changed range`)
-  [@test] crates/text-diff/src/model_test.rs (`an_inserted_word_is_typed_and_marks_its_empty_side`)
+  [@test] crates/line-diff/src/model_test.rs (`an_inserted_word_is_typed_and_marks_its_empty_side`)
 
 ### Requirement: Files section: The tints of a block are IntelliJ's
 
@@ -1695,25 +1695,25 @@ sides but for whitespace. A block of other lines MUST show in Inline line by lin
 - **WHEN** Inline shows its block
 - **THEN** the block shows line by line, as in Unified, with its ranges: the change of the line end has its sides in lines apart, so the second lines are no pair
 - **AND** the deleted row shows the argument the old line lost
-  [@test] crates/text-diff/src/model_test.rs (`a_change_across_a_line_end_leaves_a_block_without_inline_pairs`)
+  [@test] crates/line-diff/src/model_test.rs (`a_change_across_a_line_end_leaves_a_block_without_inline_pairs`)
   [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show a call wrapped again line by line in Inline, and find the argument it lost`)
 
 #### Scenario: A line end that moves under Ignore Whitespace
 - **GIVEN** a block under Ignore Whitespace whose word goes up a line without a change of its own
 - **WHEN** the engine pairs its lines
 - **THEN** the block has no pairs, though the ranges of its lines align: the text between them is not the same
-  [@test] crates/text-diff/src/model_test.rs (`a_line_end_that_moves_under_ignore_leaves_a_block_without_inline_pairs`)
+  [@test] crates/line-diff/src/model_test.rs (`a_line_end_that_moves_under_ignore_leaves_a_block_without_inline_pairs`)
 
 #### Scenario: Another indent under Trim Whitespace
 - **GIVEN** a line indented again and edited, under Trim Whitespace
 - **WHEN** the engine pairs its lines
 - **THEN** they are a pair, the text before its change longer in the new line
-  [@test] crates/text-diff/src/model_test.rs (`a_reindented_and_edited_line_is_a_pair_under_trim`)
+  [@test] crates/line-diff/src/model_test.rs (`a_reindented_and_edited_line_is_a_pair_under_trim`)
 
 #### Scenario: Every pair of the engine
 - **WHEN** the engine pairs the lines of any block
 - **THEN** line i of both sides has as many ranges, of the same kinds, and between them the same text but for whitespace, the same text under Do Not Ignore
-  [@test] crates/text-diff/src/model_test.rs (`blocks_partition_both_texts`)
+  [@test] crates/line-diff/src/model_test.rs (`blocks_partition_both_texts`)
 
 ### Requirement: Files section: The other blocks show in Inline as in Unified
 

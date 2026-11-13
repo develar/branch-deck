@@ -16,7 +16,7 @@ sync-utils = { path = "../sync-utils" }
 object-cache = { path = "../object-cache" }
 file-diffs = { path = "../file-diffs" }
 code-symbols = { path = "../code-symbols" }
-text-diff = { path = "../text-diff" }
+line-diff = { path = "../line-diff" }
 anyhow.workspace = true
 tracing.workspace = true
 thiserror.workspace = true

@@ -3,11 +3,11 @@ name: Quiet Changes
 description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, a local one only where a line changed in it alone, proven by the bindings of both sides for a value of its body alone in a member nothing else of which changed, and quiet then, the lines that moved within a file, exact, indented or with a few edited lines, told by a line that stands once and never quiet, what the files of a subject say of each other (the lines that moved between two files, labels at both ends, the names one file declares and another uses, and what the index of the repository proves of them), the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, the measurement on real commits that switches a kind on (`brd commits --mark-stats`), and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, a rename named once at its declaration with its name in a mark of its own at every site, a move between two files with a note at each end that names the other file and shows it, a name another file declares named once where it is used with the file that declares it, what the index proved of a rename after the words of its note, the row at the top of a view kept as marks come late, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour, the colour of a move and the mark of a renamed name.
 style: plain-1
 targets:
-  - crates/text-diff/src/model.rs
-  - crates/text-diff/src/moves.rs
-  - crates/text-diff/src/moves_across.rs
-  - crates/text-diff/src/inline.rs
-  - crates/text-diff/src/lcs/diff.rs
+  - crates/line-diff/src/model.rs
+  - crates/line-diff/src/moves.rs
+  - crates/line-diff/src/moves_across.rs
+  - crates/line-diff/src/inline.rs
+  - crates/line-diff/src/lcs/diff.rs
   - crates/file-diffs/src/marks.rs
   - crates/file-diffs/src/marks_runs.rs
   - crates/file-diffs/src/marks_renames.rs
@@ -162,7 +162,7 @@ draws.
 - **AND** a run is `oldStart`, `oldEnd`, `newStart`, `newEnd`, its `kind` (`formatting`, `comments`, `renamed`) and `quiet`
 - **AND** a rename is `old`, `new`, `sites`, `local`, `declared`, `oldSites` and `newSites`
 - **AND** nothing beside the tag of the content is named `kind` at the top of the diff
-  [@test] crates/text-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
+  [@test] crates/line-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
 
 #### Scenario: With the content
 - **WHEN** the diffs of a commit stream, a call of one file wrapped over two lines
@@ -187,25 +187,25 @@ stops.
 - **WHEN** two texts are compared and nothing is marked
 - **THEN** every block that counts has its start: its first new line, the first old line of deleted lines, a pale block too
 - **AND** a block `IgnoreBlankLines` cut off has none
-  [@test] crates/text-diff/src/model_test.rs (`a_diff_without_runs_starts_the_reading_at_each_block_that_counts`, `a_diff_starts_the_reading_at_each_block_that_counts`)
+  [@test] crates/line-diff/src/model_test.rs (`a_diff_without_runs_starts_the_reading_at_each_block_that_counts`, `a_diff_starts_the_reading_at_each_block_that_counts`)
 
 #### Scenario: Quiet runs in a block
 - **WHEN** a block has quiet runs
 - **THEN** its reading starts after a run at its start, at an old line that stands before the run of all its new lines, and nowhere when the runs leave no line
 - **AND** a run that is a label moves no start
-  [@test] crates/text-diff/src/model_test.rs (`the_reading_of_a_block_starts_after_its_quiet_runs`)
+  [@test] crates/line-diff/src/model_test.rs (`the_reading_of_a_block_starts_after_its_quiet_runs`)
 
 #### Scenario: The lines a move took
 - **WHEN** a move took old lines of a block
 - **THEN** the reading of the block starts at its first old line that no move took, at its new lines when it has some, and nowhere when the moves, or the moves and the quiet runs, leave no line
 - **AND** the blank lines that left with a move are nothing to read either
 - **AND** the block the lines stand in now starts at its first new line
-  [@test] crates/text-diff/src/model_test.rs (`the_old_lines_of_a_move_are_nothing_to_read`)
+  [@test] crates/line-diff/src/model_test.rs (`the_old_lines_of_a_move_are_nothing_to_read`)
 
 #### Scenario: Any blocks and runs
 - **WHEN** any blocks have any runs in the order of both sides, and moves took any of their old lines
 - **THEN** a block has an entry exactly when it is not cut off and a line of it is to read, a new line in no quiet run or an old line in no quiet run that no move took, and the entry names the first such line of the first part that has one
-  [@test] crates/text-diff/src/model_test.rs (`starts_agree_with_the_runs`)
+  [@test] crates/line-diff/src/model_test.rs (`starts_agree_with_the_runs`)
 
 ### Requirement: Formatting: Lines with the same tokens on both sides are a quiet run
 
@@ -540,7 +540,7 @@ text MUST be no line of a move.
 - **THEN** its lines are one move, from its old lines to its new lines, the blank line with it, whatever ends the lines of the texts
 - **AND** moved to the end of the file, where the comparison deletes the blank line after it and adds one before it, it is one move that counts that blank line beside its lines
 - **AND** the same text, added lines alone and deleted lines alone have no move
-  [@test] crates/text-diff/src/moves_test.rs (`lines_deleted_in_one_block_and_added_in_another_are_a_move`)
+  [@test] crates/line-diff/src/moves_test.rs (`lines_deleted_in_one_block_and_added_in_another_are_a_move`)
 
 #### Scenario: The empty last line of a text
 - **GIVEN** the empty last line of a text is the line after its last line end, or the one line of an empty text, which the comparison does not count
@@ -548,55 +548,55 @@ text MUST be no line of a move.
 - **THEN** the move is the function alone: the deleted blank line is a line to read, with its start, no pair of the empty last line and no blank line that left with the move, as where both texts end with a line end and where neither does
 - **AND** the empty last line of the old text is no line that moved with the function before it
 - **AND** a blank line that is a line of both texts moves with the function; a text of one line that left and an empty text have no move
-  [@test] crates/text-diff/src/moves_test.rs (`the_empty_last_line_of_a_text_is_no_line_of_a_move`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_empty_last_line_of_a_text_is_no_line_of_a_move`)
 
 #### Scenario: Blank lines inside
 - **WHEN** the lines that moved hold blank lines, with other whitespace on the two sides
 - **THEN** they are lines of the one move, the whitespace of a blank line that changed a range of it where every character counts
 - **AND** a blank line indented with the lines of its move is the same line
 - **AND** a blank line that pairs with a line of text ends the move, and blank lines alone are no move
-  [@test] crates/text-diff/src/moves_test.rs (`the_blank_lines_inside_a_move_are_lines_of_it`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_blank_lines_inside_a_move_are_lines_of_it`)
 
 #### Scenario: A copy
 - **WHEN** a function stays where it was and stands a second time, or one of its two copies is deleted
 - **THEN** the diff has no move: no line was deleted and added
-  [@test] crates/text-diff/src/moves_test.rs (`a_copy_is_no_move`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_copy_is_no_move`)
 
 #### Scenario: One long line, short lines
 - **WHEN** one line of 24 characters that are no whitespace moves, and one of 23
 - **THEN** the first is a move and the second none
 - **AND** short lines count together, a blank line counts nothing, and the characters of an edited line do not count
-  [@test] crates/text-diff/src/moves_test.rs (`one_long_line_is_a_move_and_short_lines_are_none`)
+  [@test] crates/line-diff/src/moves_test.rs (`one_long_line_is_a_move_and_short_lines_are_none`)
 
 #### Scenario: Lines that cross nothing
 - **WHEN** two functions change places and are indented, so one block holds both with no line between them that stays
 - **THEN** the block has no move, also beside another block of the file
 - **AND** the same lines in two blocks are a move
-  [@test] crates/text-diff/src/moves_test.rs (`lines_that_cross_nothing_are_no_move`)
+  [@test] crates/line-diff/src/moves_test.rs (`lines_that_cross_nothing_are_no_move`)
 
 #### Scenario: Two blocks that change places
 - **WHEN** two functions change places
 - **THEN** the one the comparison deletes and adds is a move, with the blank line between them, the other stays
-  [@test] crates/text-diff/src/moves_test.rs (`two_blocks_that_change_places_are_one_move`)
+  [@test] crates/line-diff/src/moves_test.rs (`two_blocks_that_change_places_are_one_move`)
 
 #### Scenario: The whitespace inside a line
 - **WHEN** a line moves with other whitespace inside it
 - **THEN** it is no exact line: alone no move, among exact lines an edited line whose ranges are its whitespace
-  [@test] crates/text-diff/src/moves_test.rs (`the_whitespace_inside_a_line_is_part_of_its_key`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_whitespace_inside_a_line_is_part_of_its_key`)
 
 #### Scenario: Any texts
 - **WHEN** any two texts are compared under each policy, and lines move with a few changes
 - **THEN** every move has its old lines in one block that is a change and its new lines in another, all of them lines their text counts, each line in one move, exact ends, and lines that are not edited the same on both sides but for the indent of the move
 - **AND** each range of an edited line is a text that is another on the other side, of the kind its two sides say, with the same text between the ranges: none is empty on both sides
 - **AND** where every character counts, no whitespace at an end of a line changed without a range, but by the indent of the move
-  [@test] crates/text-diff/src/moves_test.rs (`the_moves_of_any_texts_are_moves`, `the_moves_of_moved_lines_are_moves`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_moves_of_any_texts_are_moves`, `the_moves_of_moved_lines_are_moves`)
 
 #### Scenario: Lines that stand at two places
 - **WHEN** deleted lines stand at two places of the new text, or lines of two old places at one
 - **THEN** the diff has no move: nothing says which place took them, or which of the two left
 - **AND** a place with all the lines takes them where the other holds only lines that stand elsewhere too, and so does the place that holds a line as it was where the other holds it edited
 - **AND** of the exact lines of a move only those that stand once on each side count: a short line of its own among lines that stand twice is no move, a long one is
-  [@test] crates/text-diff/src/moves_test.rs (`lines_that_stand_at_two_places_are_no_move_and_the_place_with_a_line_of_its_own_takes_them`)
+  [@test] crates/line-diff/src/moves_test.rs (`lines_that_stand_at_two_places_are_no_move_and_the_place_with_a_line_of_its_own_takes_them`)
 
 ### Requirement: Moves: A move says the columns its lines were indented by
 
@@ -612,7 +612,7 @@ shift most of its exact lines agree on.
 - **AND** of lines indented unevenly it says the columns of most of them, and a line that stayed at its indent is the same line
 - **AND** tabs for the spaces of every line are no shift: the move says `0` and each indent is a range
 - **AND** whitespace added before the text of each line, after its tab, is a shift as whitespace added before the tab is
-  [@test] crates/text-diff/src/moves_test.rs (`a_move_says_the_columns_its_lines_were_indented_by`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_move_says_the_columns_its_lines_were_indented_by`)
 
 #### Scenario: A file whose indentation has a meaning
 - **WHEN** lines move in such a file, all at the same indent or all shifted alike
@@ -622,7 +622,7 @@ shift most of its exact lines agree on.
 - **AND** a line of a recipe whose tab became a space is an edited line whose range is its indent; when every line of the recipe did, only its target moved
 - **AND** two lines that gained two columns, one of spaces and one of tabs, did not move alike: the second is an edited line
 - **AND** under a policy that leaves the whitespace at the ends of a line out, no indent is a change of a move
-  [@test] crates/text-diff/src/moves_test.rs (`where_the_indentation_has_a_meaning_a_line_at_another_indent_is_edited`)
+  [@test] crates/line-diff/src/moves_test.rs (`where_the_indentation_has_a_meaning_a_line_at_another_indent_is_edited`)
 
 ### Requirement: Moves: The whitespace at the ends of a line that changed otherwise than its move is a range
 
@@ -637,7 +637,7 @@ change of a move.
 - **THEN** under the policy that counts every character it is one move, each such line an edited line whose range is its indent or the whitespace that ends it, beside the ranges of its text
 - **AND** two such lines of five, and such a line at an end of the move, are lines of the move
 - **AND** under `Trim`, `Ignore` and `IgnoreBlankLines` the move has no such range, where the indentation has a meaning too
-  [@test] crates/text-diff/src/moves_test.rs (`the_whitespace_at_the_ends_of_a_line_that_changed_otherwise_than_its_move_is_a_range`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_whitespace_at_the_ends_of_a_line_that_changed_otherwise_than_its_move_is_a_range`)
 
 ### Requirement: Moves: A move holds at most a third of edited lines between exact ones
 
@@ -650,7 +650,7 @@ that is another on the other side. A move none of whose lines has a range has em
 - **WHEN** a function moves with an argument added to one of its five lines, a word changed, or a word removed
 - **THEN** it is one move, and the line has its ranges, typed as those of a block, in the offsets of its own line where the lines were indented too
 - **AND** two edited lines of five, an edited line at an end, and a line that is another line are no lines of the move: the exact lines beside them are asked alone
-  [@test] crates/text-diff/src/moves_test.rs (`a_move_holds_at_most_a_third_of_edited_lines_between_exact_ones`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_move_holds_at_most_a_third_of_edited_lines_between_exact_ones`)
 
 ### Requirement: Moves: The longest move is taken first, and a line is in one move
 
@@ -662,7 +662,7 @@ policy of the diff and whether the indentation of the file has a meaning, in the
 #### Scenario: What is left of a longer move
 - **WHEN** three functions leave one block, the first two for one place and the last two for another
 - **THEN** the first place takes its two functions, and the other place the one that is left
-  [@test] crates/text-diff/src/moves_test.rs (`a_line_is_in_one_move_and_the_rest_of_a_longer_one_is_asked_again`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_line_is_in_one_move_and_the_rest_of_a_longer_one_is_asked_again`)
 
 ### Requirement: Moves: A move counts the blank lines that moved with it
 
@@ -678,7 +678,7 @@ added line.
 - **AND** on the same side of both it is a line of the move
 - **AND** of two deleted blank lines and one added, one moved and the other is a deleted line with a start; a line between the blank line and the move keeps it where it is
 - **AND** a blank line of spaces deleted where an empty one is added is a deleted line with a start where every character counts, and moved with the function under a policy that leaves its whitespace out
-  [@test] crates/text-diff/src/moves_test.rs (`the_blank_lines_that_moved_with_a_move_are_counted_beside_it`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_blank_lines_that_moved_with_a_move_are_counted_beside_it`)
 
 ### Requirement: Moves: A move is never quiet and needs no grammar
 
@@ -690,7 +690,7 @@ whether the indentation of a path has a meaning is part of what the diff is kept
 - **WHEN** a run holds lines of a block, quiet or not
 - **THEN** a move takes only the lines beside it
 - **AND** the lines of a block that is pale under its policy, or that the policy cut off, are in no move
-  [@test] crates/text-diff/src/moves_test.rs (`the_lines_of_a_run_and_of_a_block_that_is_no_change_are_in_no_move`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_lines_of_a_run_and_of_a_block_that_is_no_change_are_in_no_move`)
 
 #### Scenario: With the content, whatever the grammar
 - **WHEN** the diffs of a commit stream, a rule moved in a Python file, a text file and a Starlark file of the same two blobs
@@ -714,12 +714,12 @@ the lines its moves rewrote; whether a side has a lone carriage return. The pass
 - **WHEN** a file loses a function, a file is added, and a line of a deleted function is in a run or the function moved within its file
 - **THEN** the pair leaves the lines of the function as one row of the old side, with the key of each line (its text without the spaces and tabs at its ends, hashed; with its indent where the indentation of the file has a meaning) and its characters that are no whitespace, and an added file every line but the empty one after its last line end
 - **AND** a line of a run and a line of a move within the file are left by no pair
-  [@test] crates/text-diff/src/moves_across_test.rs (`a_pair_leaves_the_lines_of_its_changes_that_no_mark_took`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`a_pair_leaves_the_lines_of_its_changes_that_no_mark_took`)
 
 #### Scenario: A row too small for a move between files
 - **WHEN** a pair changes one long line, three closing braces, blank lines alone, or two short lines
 - **THEN** it leaves no row: a row is kept from two lines that are not blank and 48 characters that are no whitespace
-  [@test] crates/text-diff/src/moves_across_test.rs (`a_row_that_cannot_hold_a_move_between_files_is_not_kept`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`a_row_that_cannot_hold_a_move_between_files_is_not_kept`)
 
 #### Scenario: The runs of a name the pair declares none of
 - **WHEN** the calls of a function another file declares get another name, one of them beside a call that is wrapped
@@ -735,7 +735,7 @@ the lines its moves rewrote; whether a side has a lone carriage return. The pass
 #### Scenario: The lines a move rewrote
 - **WHEN** a function moves with an argument added to one of its lines, with a word of a line changed, or with a line edited in its whitespace alone (inside it, in its indent, after its text, a tab for its spaces); and two functions change places, each with such an argument, in texts of each line end
 - **THEN** the pair leaves the number of each edited line that differs in a character that is no whitespace, on the old side and on the new one, each side in its order; a line edited in its whitespace alone and an exact line are left by none
-  [@test] crates/text-diff/src/moves_test.rs (`a_line_a_move_rewrote_is_an_edited_line_that_differs_in_more_than_whitespace`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_line_a_move_rewrote_is_an_edited_line_that_differs_in_more_than_whitespace`)
   [@test] crates/file-diffs/src/marks_subject_test.rs (`a_use_on_a_line_a_move_took_as_it_is_is_not_read_anyway`)
 
 #### Scenario: The places of a declaration
@@ -760,30 +760,30 @@ pair only with a line at its depth. Lines that left a file and stand again in it
 #### Scenario: A function moved to another file
 - **WHEN** a file loses a function that another file of the subject gets, changed or added, whichever comes first
 - **THEN** the lines of the function are a move from the first file to the second
-  [@test] crates/text-diff/src/moves_across_test.rs (`lines_that_left_one_file_and_stand_in_another_are_a_move`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`lines_that_left_one_file_and_stand_in_another_are_a_move`)
   [@test] crates/file-diffs/src/marks_subject_test.rs (`lines_that_moved_between_two_files_are_a_label_at_both_ends`)
 
 #### Scenario: Blank lines inside it, another indent
 - **WHEN** two functions with a blank line between them move into an object of another file, indented by two
 - **THEN** the nine lines are one move
-  [@test] crates/text-diff/src/moves_across_test.rs (`a_move_between_files_keeps_its_blank_lines_inside_and_is_at_another_indent`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`a_move_between_files_keeps_its_blank_lines_inside_and_is_at_another_indent`)
 
 #### Scenario: An edited line
 - **WHEN** the first line of a moved function changed on the way, or its second
 - **THEN** the three lines after the first are the move, and with the second line changed nothing is: the line before it and the two after it are each too little
-  [@test] crates/text-diff/src/moves_across_test.rs (`an_edited_line_ends_a_move_between_files`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`an_edited_line_ends_a_move_between_files`)
 
 #### Scenario: Boilerplate and the lines of one file
 - **WHEN** two files have the same short end of a class, a function moves within its file beside another file, or a line stands at seventeen places of two files
 - **THEN** nothing is a move between files
-  [@test] crates/text-diff/src/moves_across_test.rs (`boilerplate_and_lines_that_moved_within_a_file_are_no_move_between_files`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`boilerplate_and_lines_that_moved_within_a_file_are_no_move_between_files`)
   [@test] crates/file-diffs/src/marks_subject_test.rs (`lines_that_match_two_places_move_to_the_first_and_boilerplate_moves_nowhere`)
 
 #### Scenario: A line at another depth
 - **WHEN** a Python function leaves a file for another, where its last line stands inside the `if` before it; where it stands whole inside a class; where one of its lines is indented by a tab
 - **THEN** the three lines at their depth are the move and the fourth is a deleted and an added line; the function at another depth is no move; the line with the tab is no line of the move, and a blank line is one at any indent
 - **AND** the same texts in files whose indentation has no meaning are one move of four lines
-  [@test] crates/text-diff/src/moves_across_test.rs (`a_line_at_another_depth_is_another_line_where_the_indentation_has_a_meaning`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`a_line_at_another_depth_is_another_line_where_the_indentation_has_a_meaning`)
 
 ### Requirement: Subject: The longest move between files is taken first, and a line is in one
 
@@ -795,13 +795,13 @@ first of them, and the other place is plain added lines.
 #### Scenario: Two places
 - **WHEN** two files get the lines one file lost, or two files lose the lines one file got
 - **THEN** the lines are one move, of the first of the two files, and the other file has the marks of its pair
-  [@test] crates/text-diff/src/moves_across_test.rs (`lines_that_match_two_places_are_a_move_to_the_first`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`lines_that_match_two_places_are_a_move_to_the_first`)
   [@test] crates/file-diffs/src/marks_subject_test.rs (`lines_that_match_two_places_move_to_the_first_and_boilerplate_moves_nowhere`)
 
 #### Scenario: The longest first
 - **WHEN** a file loses two functions, one file gets the first and another both; or two files lose a function each and one file gets both in a row
 - **THEN** the row of both is the move and the file with the one function keeps its added lines; the two functions of two files are two moves, each line once
-  [@test] crates/text-diff/src/moves_across_test.rs (`the_longest_move_is_taken_first_and_the_rest_of_a_row_is_asked_again`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`the_longest_move_is_taken_first_and_the_rest_of_a_row_is_asked_again`)
 
 ### Requirement: Subject: A move between files is a label at both its ends
 
@@ -823,7 +823,7 @@ there. It MUST be a label: no run, no start taken away, no line for a view to hi
 #### Scenario: The shape of the marks of a subject
 - **WHEN** a diff with the marks of its subject is written as JSON, and one without
 - **THEN** `marks.subject` has `movedOut`, `movedIn`, `declared`, `used` and `confirmed`, every list written, and is `null` in the diff of a pair alone; a diff written without the field reads as one without the marks
-  [@test] crates/text-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
+  [@test] crates/line-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
 
 ### Requirement: Subject: The moves between files are bound by work
 
@@ -834,7 +834,7 @@ files before it takes no part, a line that stands at more than 16 places starts 
 #### Scenario: The lines and the pairs
 - **WHEN** the rows of a second large file do not fit beside those of the first, and when the search reaches its work
 - **THEN** the large file takes no part and the small files after it do, and the search that reached its work answers the moves it found
-  [@test] crates/text-diff/src/moves_across_test.rs (`the_search_is_bound_by_the_lines_of_its_files_and_by_the_pairs_it_reads`)
+  [@test] crates/line-diff/src/moves_across_test.rs (`the_search_is_bound_by_the_lines_of_its_files_and_by_the_pairs_it_reads`)
 
 ### Requirement: Subject: A name another file of the subject declares is a rename where it is used
 
@@ -888,7 +888,7 @@ the two names, its own and those of every file that names the rename (`subject.u
 #### Scenario: The fields
 - **WHEN** the marks of a file with what its subject says of a name it declares are written as JSON
 - **THEN** the check of the name has `sites` and `files` beside its `proof`
-  [@test] crates/text-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
+  [@test] crates/line-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
 
 ### Requirement: Subject: The index is asked once of every declaration a subject renamed
 
@@ -1126,7 +1126,7 @@ blocks of a rename are compared again within what the first reading left of that
 #### Scenario: The comparison gives up by its edits
 - **WHEN** two sequences differ in more elements than the edits allowed
 - **THEN** the comparison answers "too big" after work bound by the edits, and within them the changes of the unbound comparison
-  [@test] crates/text-diff/src/lcs/diff_test.rs (`the_changes_within_a_number_of_edits_are_the_changes_or_too_big`)
+  [@test] crates/line-diff/src/lcs/diff_test.rs (`the_changes_within_a_number_of_edits_are_the_changes_or_too_big`)
 
 ### Requirement: Limits: The moves are bound by work
 
@@ -1141,18 +1141,18 @@ pair of other keys is apart.
 - **THEN** no line starts a move and the search reads no pair of lines
 - **AND** with a line of its own among every hundred, the lines are one move, each pair read once
 - **AND** of 16 lines of one key the pairs are read, of 17 none; neither is a move, no line of them standing once
-  [@test] crates/text-diff/src/moves_test.rs (`a_key_that_many_lines_have_starts_no_chain_and_is_a_line_of_one`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_key_that_many_lines_have_starts_no_chain_and_is_a_line_of_one`)
 
 #### Scenario: The work of a search
 - **WHEN** 10,000 lines of five keys with a line of its own among every hundred move, among them fifty lines that each stand sixteen times
 - **THEN** the lines are one move, found with fewer than twenty pairs of lines read a line, within the limit, the same when asked again
 - **AND** a search that reaches its limit ends with the moves found until then, and so the choice among them
-  [@test] crates/text-diff/src/moves_test.rs (`the_work_of_a_search_grows_with_its_lines_and_ends_at_its_limit`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_work_of_a_search_grows_with_its_lines_and_ends_at_its_limit`)
 
 #### Scenario: The file a search costs most in
 - **WHEN** every line of a file stands sixteen times on each side and no two lines follow each other on both, the lines nothing alike or alike but for a number
 - **THEN** the search ends at its limit of pairs read (a pair of two lines read for their likeness counts by their length too), the same when asked again, and finds no move: no line of such a file stands once
-  [@test] crates/text-diff/src/moves_test.rs (`the_search_of_a_file_whose_every_line_stands_sixteen_times_ends_at_its_work`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_search_of_a_file_whose_every_line_stands_sixteen_times_ends_at_its_work`)
 
 #### Scenario: A chain of many short moves
 - **WHEN** a list of YAML of 2,000 items of five lines moves, indented again by two columns a level in place of four; every second of 6,000 lines of such a file moves under another parent; or 2,500 lines of their own move, each before a line with another number and two blank lines
@@ -1160,24 +1160,24 @@ pair of other keys is apart.
 - **AND** read again for each of its moves, where each pair of what is left of a row counts again, the first chain uses up the work of the search, and less than a tenth of the moves is found
 - **AND** where the indentation has no meaning the list is one move
 - **AND** at the limit of its work the search ends with the moves found until then
-  [@test] crates/text-diff/src/moves_test.rs (`a_chain_of_many_short_moves_is_read_once_for_all_of_them`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_chain_of_many_short_moves_is_read_once_for_all_of_them`)
 
 #### Scenario: Read once, or again for each move
 - **WHEN** a chain of up to 90 pairs (the same line, a similar one, one alike and not similar, a blank one, one at another indent, another line) is read once for all its moves, and again for each of them
 - **THEN** the moves are the same, and so are the pairs compared by word and left unread
-  [@test] crates/text-diff/src/moves_test.rs (`the_moves_of_a_chain_are_the_same_read_once_or_again_for_each`)
+  [@test] crates/line-diff/src/moves_test.rs (`the_moves_of_a_chain_are_the_same_read_once_or_again_for_each`)
 
 #### Scenario: A sorted list of lines that are alike
 - **WHEN** 2,000 lines that are alike but for a number stand in another order, no two in a row on both sides
 - **THEN** every line is found as the move of one line it is, the chains having grown through 16,384 pairs they left unread and no pair compared by word, the search within a quarter of its limit
 - **AND** without that limit the chains use up the work of the search and lines are not found
-  [@test] crates/text-diff/src/moves_test.rs (`a_sorted_list_of_lines_that_are_alike_is_searched_within_the_pairs_left_unread`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_sorted_list_of_lines_that_are_alike_is_searched_within_the_pairs_left_unread`)
 
 #### Scenario: Over a limit
 - **WHEN** a side has more lines a move may take than the limit, more pairs are similar than are compared, or a line is longer than the comparison reads
 - **THEN** the side has no moves, the pairs past the number are no edited lines, and the long line ends its move
 - **AND** a pair of lines in a row that is no move whatever the pair is, an edited line at the end of its row, is not compared at all
-  [@test] crates/text-diff/src/moves_test.rs (`a_side_over_its_lines_and_pairs_over_their_number_are_not_read`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_side_over_its_lines_and_pairs_over_their_number_are_not_read`)
 
 ### Requirement: Limits: The names of a file are asked within a limit of work
 
@@ -2697,7 +2697,7 @@ It MUST write the object cache only.
 - **THEN** it counts and samples what each search adds beside the moves of the views: the short line as a move added, the function as a move that takes the place of the one line of the views; the moves of the views are counted as before
 - **AND** a share that is none (`1`, `3/2`, `1/0`) is refused as invalid arguments
   [@test] crates/bd-rewrite/src/mark_stats_test.rs (`other_thresholds_of_a_move_count_and_print_the_moves_they_add`)
-  [@test] crates/text-diff/src/moves_test.rs (`a_measurement_reads_the_moves_under_other_thresholds`)
+  [@test] crates/line-diff/src/moves_test.rs (`a_measurement_reads_the_moves_under_other_thresholds`)
 
 #### Scenario: Without the marks
 - **WHEN** it runs with `--no-marks`

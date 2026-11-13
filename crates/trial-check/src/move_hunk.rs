@@ -16,10 +16,10 @@ use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_ids::{IdMatch, match_commit_id};
 use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, MovedHead, Prepared, RepositoryLock, RewriteOptions, Witness, ensure_expected_head};
+use line_diff::apply::{BlockId, LineBlock};
 use object_cache::cache::ObjectCache;
 use std::time::Duration;
 use sync_core::repo_facts::{ListedBaseline, read_listed_baseline};
-use text_diff::apply::{BlockId, LineBlock};
 use tracing::instrument;
 
 #[derive(Debug, Clone, Default)]

@@ -21,13 +21,13 @@ use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::for_each_object;
 use git_ops::commit_files::MAX_BLOB_BYTES;
+use line_diff::model::{DiffBudget, TextDiff, diff_texts};
+use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use object_cache::file_diff::DiffKey;
 use std::collections::HashMap;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
-use text_diff::model::{DiffBudget, TextDiff, diff_texts};
-use text_diff::policy::WhitespacePolicy;
 
 /// A changed file whose blocks a scan needs: its paths (the languages of the cache key) and its blob ids, `None` for a
 /// side the file does not exist on

@@ -3,11 +3,11 @@
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{BlobRequest, DiffSource, GetBlobSyntaxParams};
 use crate::syntax::{SYNTAX_FORMAT, SyntaxStatus};
+use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-use text_diff::policy::WhitespacePolicy;
 
 const KOTLIN: &str = "class A {\n  val count = 1\n  fun get() = count\n}\n";
 

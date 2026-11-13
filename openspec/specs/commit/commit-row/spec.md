@@ -5,7 +5,7 @@ style: plain-1
 targets:
   - crates/file-diffs/src/merge.rs
   - crates/text-diff/src/merge_model.rs
-  - crates/text-diff/src/last_line.rs
+  - crates/line-diff/src/last_line.rs
   - src/components/conflict/CollapsibleFileHeader.tsx
   - src/components/files/FileHeaderParts.tsx
   - src/components/commit/CommitList.tsx

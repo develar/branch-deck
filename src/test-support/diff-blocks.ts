@@ -60,7 +60,7 @@ export function subjectMarks(extra: Partial<SubjectMarks> = {}): SubjectMarks {
 }
 
 /**
- * Where the reading of each block starts, as the engine says it (`text_diff::model::starts_of`): the quiet runs cut a
+ * Where the reading of each block starts, as the engine says it (`line_diff::model::starts_of`): the quiet runs cut a
  * block into parts, the start is the first new line of the first part with a line, else its first old line that no
  * move took; an ignored block, one whose every line is in a quiet run and one whose old lines the moves took all have
  * none. Flat `[block, side, line]`

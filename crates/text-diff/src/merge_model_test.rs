@@ -1,13 +1,13 @@
 //! The merge model of the views: the kinds, sides, resolutions and ranges of known merges, and property tests that the
 //! blocks partition the three texts.
 
-use crate::cancellation::Deadline;
-use crate::comparison_util::is_equal_texts;
 use crate::merge_model::{MergeBlockKind, MergeResolution, Sides, TextMerge, merge_texts};
-use crate::model::DiffBudget;
-use crate::policy::{ComparisonPolicy, WhitespacePolicy};
 use crate::test_support::{proptest_config, text_of_lines};
-use crate::text::LineEndKind;
+use line_diff::cancellation::Deadline;
+use line_diff::comparison_util::is_equal_texts;
+use line_diff::model::DiffBudget;
+use line_diff::policy::{ComparisonPolicy, WhitespacePolicy};
+use line_diff::text::LineEndKind;
 use pretty_assertions::assert_eq;
 use proptest::prelude::Strategy;
 use proptest::proptest;
@@ -73,7 +73,7 @@ fn a_conflict_that_only_ignoring_whitespace_resolves_stays_with_the_user() {
     let result = merge(left, base, right);
     assert_eq!((result.conflicts, result.unresolved), (1, 1), "{left:?} {base:?} {right:?}");
     let [left, base, right] = [left, base, right].map(|text| text.encode_utf16().collect::<Vec<u16>>());
-    let resolved = crate::merge_resolve_util::try_resolve(&left, &base, &right, &Deadline::NONE).map(|text| String::from_utf16_lossy(&text));
+    let resolved = line_diff::merge_resolve_util::try_resolve(&left, &base, &right, &Deadline::NONE).map(|text| String::from_utf16_lossy(&text));
     assert_eq!(resolved.as_deref(), Some(joined));
   }
 }

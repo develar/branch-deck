@@ -188,7 +188,7 @@ pub fn get_line_left_to_right_three_side_diff_type(fragment: &MergeRange, texts:
 // jscpd:ignore-end
 
 /// The text of lines `[line1, line2)`, without the last `\n` (`DiffRangeUtil.getLinesContent`)
-pub(crate) fn lines_content(text: &Utf16Text, line1: usize, line2: usize) -> &[u16] {
+pub fn lines_content(text: &Utf16Text, line1: usize, line2: usize) -> &[u16] {
   let (start, end) = text.line_offsets().lines_range(line1, line2, false);
   &text.units()[start..end]
 }

@@ -2,7 +2,7 @@
 //! (openspec/specs/commit/quiet-changes/spec.md, "Subject"; docs/design/diff-view.md, "Marks"): the pass over the
 //! files of a commit, a range or the working tree (`marks_subject`) reads it of every pair and reads no blob again.
 //!
-//! - **The lines no mark took** (`text_diff::moves_across::left_rows`): the changed lines of each side that are in no
+//! - **The lines no mark took** (`line_diff::moves_across::left_rows`): the changed lines of each side that are in no
 //!   run and in no move of the file, as hashed keys with their weight, in rows. A move between two files is found
 //!   among them.
 //! - **The names the file declares none of** (`undeclared`): they changed at every place of the file, and only the
@@ -16,7 +16,7 @@
 //!   name changed in more than names (`Declarations::redeclared`): the index is asked of no such name.
 //! - **The renames the scopes of the file prove** (`proven`): what a run that holds a local name beside a name that
 //!   is not local still needs to be proven whole.
-//! - **The lines a move of the file rewrote** (`rewritten`, `text_diff::moves::rewritten_lines`): the edited lines of
+//! - **The lines a move of the file rewrote** (`rewritten`, `line_diff::moves::rewritten_lines`): the edited lines of
 //!   its moves that differ in more than whitespace. Every other line of a move reads as the same line at another
 //!   place, and what a name on it means is asked of no reader.
 //! - **Whether a side ends a line with a lone carriage return** (`lone_returns`): the comparison counts it as a line
@@ -29,10 +29,10 @@
 
 use crate::accio::Columns;
 use crate::marks::PairMarks;
+use line_diff::model::{DiffBlock, DiffMarks, LineRun, Rename};
+use line_diff::moves::rewritten_lines;
+use line_diff::moves_across::{LeftRow, left_rows};
 use serde::{Deserialize, Serialize};
-use text_diff::model::{DiffBlock, DiffMarks, LineRun, Rename};
-use text_diff::moves::rewritten_lines;
-use text_diff::moves_across::{LeftRow, left_rows};
 
 /// The leftovers that memory keeps, weighed by their size
 pub const LEFTOVERS_CACHE_BYTES: u64 = 16 << 20;

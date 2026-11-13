@@ -254,7 +254,7 @@ fn the_lines_of_a_module_are_what_git_counts_where_the_engine_aligns_otherwise()
   let head = repo.create_commit_with_files("Test two in a", &[("tests/testSrc/a/FooTest.kt", new)]);
   let plan = plan_of_range(&repo, &base, &head);
   let tests = plan.modules.iter().find(|module| module.root == "tests").unwrap();
-  let engine = text_diff::model::diff_texts(old, new, text_diff::policy::WhitespacePolicy::Default, &text_diff::model::DiffBudget::NONE);
+  let engine = line_diff::model::diff_texts(old, new, line_diff::policy::WhitespacePolicy::Default, &line_diff::model::DiffBudget::NONE);
   assert_eq!((engine.additions, engine.deletions), (3, 3), "the engine aligns the blocks otherwise");
   assert_eq!((tests.additions, tests.deletions), (1, 1));
 }
@@ -280,7 +280,7 @@ fn the_lines_of_a_file_several_commits_change_are_the_engines_count_of_its_pair(
   let head = repo.create_commit_with_files("Add the helper", &[("tests/testSrc/a/FooTest.kt", last)]);
   let plan = plan_of_range(&repo, &base, &head);
   let tests = plan.modules.iter().find(|module| module.root == "tests").unwrap();
-  let engine = text_diff::model::diff_texts(old, last, text_diff::policy::WhitespacePolicy::Default, &text_diff::model::DiffBudget::NONE);
+  let engine = line_diff::model::diff_texts(old, last, line_diff::policy::WhitespacePolicy::Default, &line_diff::model::DiffBudget::NONE);
   let blocks: u32 = engine.blocks.iter().map(|block| block.new_end - block.new_start).sum();
   assert_eq!((engine.additions, engine.deletions, blocks), (5, 3, 6), "a block holds the empty last line");
   assert_eq!((tests.additions, tests.deletions), (5, 3));

@@ -1,7 +1,7 @@
 use crate::scopes::scopes_of;
 use code_symbols::language::Language;
+use line_diff::model::Scope;
 use pretty_assertions::assert_eq;
-use text_diff::model::Scope;
 
 fn scope(start_line: u32, end_line: u32, label: &str) -> Scope {
   Scope {

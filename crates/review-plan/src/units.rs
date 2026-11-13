@@ -43,12 +43,12 @@ use crate::whitespace::{Sides, TextTokens};
 use code_symbols::language::language_of;
 use code_symbols::tokens::indentation_matters;
 use file_diffs::service::imports_only;
+use line_diff::text_lines::TextLines;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::ops::Range;
-use text_diff::text_lines::TextLines;
 use trial_check::symbol_dependencies::declaration_checks::{FileDeclarations, SpannedDeclaration, spanned_declarations};
 use trial_check::symbol_scan::SymbolInput;
 

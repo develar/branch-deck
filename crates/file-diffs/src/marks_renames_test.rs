@@ -8,11 +8,11 @@ use crate::marks_test::{ANY_TEXT, check_marks, read_pair, show_rename};
 use code_symbols::highlight::{Grammar, grammar_of};
 use code_symbols::navigate::resolution_work;
 use code_symbols::tokens::tokens;
+use line_diff::model::{DiffBudget, LineRun, Rename, RunKind, TextDiff, diff_texts};
+use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
 use std::fmt::Write as _;
 use std::sync::Arc;
-use text_diff::model::{DiffBudget, LineRun, Rename, RunKind, TextDiff, diff_texts};
-use text_diff::policy::WhitespacePolicy;
 
 /// The diff of two texts of a file at `path` with its marks as they are proven (`marks_test::read_pair`: a run is
 /// quiet here where its proof holds, also one of a kind that is not switched on for a view), and the names it leaves

@@ -23,13 +23,13 @@ use crate::service::FileDiffs;
 use anyhow::Result;
 use code_symbols::highlight::Grammar;
 use git_executor::git_command_executor::GitCommandExecutor;
+use line_diff::model::{LineMove, LineRun, starts_of};
+use line_diff::moves::{MoveThresholds, find_moves_under};
+use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use std::cell::Cell;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use text_diff::model::{LineMove, LineRun, starts_of};
-use text_diff::moves::{MoveThresholds, find_moves_under};
-use text_diff::policy::WhitespacePolicy;
 
 /// A subject as a measurement reads it
 #[derive(Debug)]

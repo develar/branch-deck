@@ -34,15 +34,15 @@ use file_diffs::model::{DiffContent, DiffSource};
 use file_diffs::service::{FileDiffs, MODEL_VERSION};
 use git_ops::landed_pairing::walk_commits;
 use git_ops::revs::resolve_commit;
+use line_diff::model::{BlockKind, FileMove, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
+use line_diff::moves::{MAX_EDITED_LINES, MIN_MOVE_CHARS, MoveThresholds, line_starts, line_text};
+use line_diff::moves_across::{MIN_ACROSS_CHARS, MIN_ACROSS_LINES};
+use line_diff::policy::WhitespacePolicy;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::ops::Range;
 use std::time::Duration;
-use text_diff::model::{BlockKind, FileMove, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
-use text_diff::moves::{MAX_EDITED_LINES, MIN_MOVE_CHARS, MoveThresholds, line_starts, line_text};
-use text_diff::moves_across::{MIN_ACROSS_CHARS, MIN_ACROSS_LINES};
-use text_diff::policy::WhitespacePolicy;
 
 /// The lines of a side of a sampled mark that are printed: a longer side is cut, and says by how many lines
 const MAX_SAMPLE_LINES: usize = 60;

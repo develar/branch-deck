@@ -1,11 +1,13 @@
-//! The types that the app reads (specta): what a diff compares, the diff of each file, and the texts of blobs.
+//! The types that the app reads (specta): what a diff compares, the diff of each file, and the texts of blobs. A value
+//! of `line-diff` that they hold is described to the bindings by its declaration in `text_diff::model`
+//! (`#[specta(type = …)]`): the same type, written once.
 
 use generated_files::names::GeneratedName;
+use line_diff::model::{DiffMarks, Scope, TextDiff};
+use line_diff::policy::WhitespacePolicy;
 use object_cache::commit_files::FileStatus;
 use serde::{Deserialize, Serialize};
 use text_diff::merge_model::TextMerge;
-use text_diff::model::{DiffMarks, Scope, TextDiff};
-use text_diff::policy::WhitespacePolicy;
 
 /// The parameters of `get_file_diffs`
 #[derive(Debug, Clone, Deserialize)]
@@ -14,6 +16,7 @@ use text_diff::policy::WhitespacePolicy;
 pub struct GetFileDiffsParams {
   pub repository_path: String,
   pub source: DiffSource,
+  #[cfg_attr(feature = "specta", specta(type = text_diff::model::WhitespacePolicy))]
   pub policy: WhitespacePolicy,
   /// The files in view, whose diffs come first; then the others in the order of the tree
   pub priority_paths: Vec<String>,
@@ -26,6 +29,7 @@ pub struct GetFileDiffsParams {
 pub struct GetRenameProofsParams {
   pub repository_path: String,
   pub source: DiffSource,
+  #[cfg_attr(feature = "specta", specta(type = text_diff::model::WhitespacePolicy))]
   pub policy: WhitespacePolicy,
 }
 
@@ -38,6 +42,7 @@ pub struct GetRenameProofsParams {
 #[serde(rename_all = "camelCase")]
 pub struct FileMarks {
   pub path: String,
+  #[cfg_attr(feature = "specta", specta(type = text_diff::model::DiffMarks))]
   pub marks: DiffMarks,
 }
 
@@ -117,7 +122,9 @@ pub enum FileDiffEvent {
   #[serde(rename_all = "camelCase")]
   Scopes {
     index: u32,
+    #[cfg_attr(feature = "specta", specta(type = Vec<text_diff::model::Scope>))]
     old_scopes: Vec<Scope>,
+    #[cfg_attr(feature = "specta", specta(type = Vec<text_diff::model::Scope>))]
     new_scopes: Vec<Scope>,
     import_blocks: Vec<u32>,
   },
@@ -125,7 +132,11 @@ pub enum FileDiffEvent {
   /// subject say of it (`DiffMarks::subject`: the lines that moved between two files, the names another file
   /// declares), once every file is known. It adds runs that are labels and words; it takes no row of the file away,
   /// and its quiet runs and its stops are those of the content
-  Marks { index: u32, marks: DiffMarks },
+  Marks {
+    index: u32,
+    #[cfg_attr(feature = "specta", specta(type = text_diff::model::DiffMarks))]
+    marks: DiffMarks,
+  },
 }
 
 /// Why the views start a file collapsed: its header is enough to know it is there, its chevron expands it
@@ -146,7 +157,7 @@ pub enum Collapse {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum DiffContent {
-  Text(TextDiff),
+  Text(#[cfg_attr(feature = "specta", specta(type = text_diff::model::TextDiff))] TextDiff),
   /// A side is binary: a NUL in its first 8000 bytes, or git counts no lines
   Binary,
   /// A side is over `MAX_BLOB_BYTES`; the sizes in bytes, 0 for a missing side
@@ -355,6 +366,7 @@ impl BlobText {
 pub struct GetFileMergesParams {
   pub repository_path: String,
   pub source: MergeSource,
+  #[cfg_attr(feature = "specta", specta(type = text_diff::model::WhitespacePolicy))]
   pub policy: WhitespacePolicy,
   /// The files in view, whose merges come first; then the others in the order of the tree
   pub priority_paths: Vec<String>,
@@ -436,6 +448,7 @@ pub enum MergeContent {
   /// One side deleted the file and the other changed it: the diff of the base to the changed side, as two-way
   OneSided {
     deleted: MergeSide,
+    #[cfg_attr(feature = "specta", specta(type = text_diff::model::TextDiff))]
     diff: TextDiff,
   },
 }
@@ -467,8 +480,11 @@ pub enum FileMergeEvent {
   #[serde(rename_all = "camelCase")]
   Scopes {
     index: u32,
+    #[cfg_attr(feature = "specta", specta(type = Vec<text_diff::model::Scope>))]
     left_scopes: Vec<Scope>,
+    #[cfg_attr(feature = "specta", specta(type = Vec<text_diff::model::Scope>))]
     base_scopes: Vec<Scope>,
+    #[cfg_attr(feature = "specta", specta(type = Vec<text_diff::model::Scope>))]
     right_scopes: Vec<Scope>,
   },
 }

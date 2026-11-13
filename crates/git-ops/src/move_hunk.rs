@@ -21,9 +21,9 @@ use crate::rewrite_guard::HeadMoved;
 use anyhow::anyhow;
 use domain_types::commit::NoteSource;
 use git_executor::git_command_executor::GitCommandExecutor;
+use line_diff::apply::{LineBlock, apply_blocks};
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use text_diff::apply::{LineBlock, apply_blocks};
 use tracing::{info, instrument};
 
 /// The reflog message of the branch move (`branch-deck: move hunk`)
@@ -35,7 +35,7 @@ pub enum MovedChange<'a> {
   /// The whole change of the file: its content and its existence (an added or a deleted file moves as one), also of a
   /// binary file
   WholeFile,
-  /// These blocks of the diff of the file's two sides in `from` (`text_diff::model::diff_texts`, as the diff views and
+  /// These blocks of the diff of the file's two sides in `from` (`line_diff::model::diff_texts`, as the diff views and
   /// `brd commits --patch` show them), not all of them, in any order. The file exists on both sides of `from`
   Blocks(&'a [LineBlock]),
 }

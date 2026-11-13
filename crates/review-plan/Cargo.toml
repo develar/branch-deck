@@ -28,7 +28,7 @@ generated-files = { path = "../generated-files" }
 # the span of the fan-in's threads (`in_current_span`), the grammar of a body and the subject without its prefix
 sync-utils = { path = "../sync-utils" }
 # the blocks of a body that changed since the review (`lcs::diff::build_changes`)
-text-diff = { path = "../text-diff" }
+line-diff = { path = "../line-diff" }
 # the dependency entries of the build files: the `*.iml` and the plugin descriptors, `Cargo.toml`, `package.json`
 quick-xml = "0.42"
 toml = "1.2"

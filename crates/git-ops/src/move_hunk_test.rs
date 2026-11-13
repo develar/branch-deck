@@ -5,12 +5,12 @@ use super::rewrite_test_utils::{assert_no_temp_refs, log_format, repo_path, show
 use super::squash_commits::restore_branch_head;
 use anyhow::Result;
 use domain_types::commit::NoteSource;
+use line_diff::apply::LineBlock;
+use line_diff::model::{DiffBudget, diff_texts};
+use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-use text_diff::apply::LineBlock;
-use text_diff::model::{DiffBudget, diff_texts};
-use text_diff::policy::WhitespacePolicy;
 
 /// Lines `line 1` ..= `line n`, with `changes` (line number, text) replacing some of them
 fn lines(n: usize, changes: &[(usize, &str)]) -> String {

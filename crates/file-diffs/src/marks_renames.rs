@@ -76,9 +76,9 @@ use crate::service::to_u32;
 use code_symbols::highlight::Grammar;
 use code_symbols::navigate::{Access, NameAt, NameQuestion, NameUse, Position, Site, names_at_within, resolution_work};
 use code_symbols::tokens::{Token, TokenClass, Tokens};
+use line_diff::model::{BlockKind, DiffBlock, LineRun, Rename, RunKind};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use text_diff::model::{BlockKind, DiffBlock, LineRun, Rename, RunKind};
 
 /// The words of a text: its longest rows of letters, digits, `_` and `$` that do not start with a digit. A name
 /// that is one word is a candidate of a rename; a name written with quotes or an escape is none

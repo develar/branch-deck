@@ -55,12 +55,12 @@ use file_diffs::service::compare_tree_paths;
 use generated_files::generated_by::GeneratedBy;
 use generated_files::header::{HEADER_BYTES, generated_header};
 use generated_files::names::{GeneratedName, generated_name};
+use line_diff::text_lines::TextLines;
 use object_cache::commit_diff::{FileChange, Hunk};
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Range;
-use text_diff::text_lines::TextLines;
 use trial_check::diff_scan::CommitDiff;
 use trial_check::module_roots::is_module_file;
 

@@ -10,6 +10,9 @@ use crate::service::{DiffLimits, FileDiffs, MODEL_VERSION, MemoryKey, diff_optio
 use code_symbols::highlight::Grammar;
 use code_symbols::navigate::RULES_VERSION;
 use code_symbols::tokens::tokens_version;
+use line_diff::model::{BlockKind, DiffMarks, FileMove, LineEnds, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
+use line_diff::policy::WhitespacePolicy;
+use line_diff::text::LineEndKind;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_files::FileStatus;
 use pretty_assertions::assert_eq;
@@ -18,9 +21,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-use text_diff::model::{BlockKind, DiffMarks, FileMove, LineEnds, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
-use text_diff::policy::WhitespacePolicy;
-use text_diff::text::LineEndKind;
 
 /// `count` numbered lines
 fn lines(count: usize) -> String {

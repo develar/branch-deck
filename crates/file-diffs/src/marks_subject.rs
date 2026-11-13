@@ -5,7 +5,7 @@
 //! left (`leftovers`). No text is read here, and nothing here is kept with a pair: the same pair of blobs stands in
 //! other commits beside other files.
 //!
-//! - **Moves between files** (`text_diff::moves_across`): rows of the same lines among the changed lines no mark of
+//! - **Moves between files** (`line_diff::moves_across`): rows of the same lines among the changed lines no mark of
 //!   their pairs took, deleted in one file and added in another. A label at both ends (`SubjectMarks::moved_out`,
 //!   `moved_in`): never quiet, no line of it hidden, no stop taken away.
 //! - **A name another file declares** (`SubjectMarks::used`): a name that changed at every place of a file, which
@@ -56,11 +56,11 @@ use crate::marks::is_quiet;
 use crate::marks_renames::with_the_first;
 use crate::service::to_u32;
 use code_symbols::highlight::{Grammar, grammar_of};
+use line_diff::model::{BlockKind, DiffBlock, DiffMarks, FileMove, LineMove, LineRun, Rename, RenameCheck, RenameProof, RunKind, SubjectMarks, TextDiff, UsedRename, starts_of};
+use line_diff::moves_across::{AcrossWork, FileRows, LeftRow, find_moves_across};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use text_diff::model::{BlockKind, DiffBlock, DiffMarks, FileMove, LineMove, LineRun, Rename, RenameCheck, RenameProof, RunKind, SubjectMarks, TextDiff, UsedRename, starts_of};
-use text_diff::moves_across::{AcrossWork, FileRows, LeftRow, find_moves_across};
 
 /// The languages whose uses accio ties by the scopes of their files, as it names them: only of these is a complete
 /// answer a proof

@@ -26,11 +26,11 @@ use anyhow::{Result, anyhow, bail};
 use domain_types::commit::NoteResolution;
 use domain_types::conflict::{ResolvedFileSummary, WordResolutionSummary};
 use git_executor::git_command_executor::GitCommandExecutor;
+use line_diff::model::DiffBudget;
+use line_diff::policy::WhitespacePolicy;
 use std::collections::{BTreeMap, HashMap};
-use text_diff::apply::compose_merge;
+use text_diff::compose::compose_merge;
 use text_diff::merge_model::merge_texts;
-use text_diff::model::DiffBudget;
-use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument};
 
 /// The version of the resolve by words: bump it when the merge, the resolve or the composition can give another result,

@@ -1,19 +1,19 @@
 //! The prose a change rewrites, as a reader of the brief reads it (openspec/specs/branch/review-tour/spec.md, "Brief"): whole
 //! paragraphs, never the changed lines of a hard-wrapped one; a paragraph changed in a few words once, with what the
-//! commits wrote and removed in it by word (`text_diff::by_word`); a link of Markdown as its text with its target; of a
+//! commits wrote and removed in it by word (`line_diff::by_word`); a link of Markdown as its text with its target; of a
 //! paragraph of several sentences the sentences that hold its changes; a row of a table one paragraph under the cells
 //! of its header. The front matter of a file, a thematic break and a line of metadata (`refs: flow:x, spec:y`) are no
 //! prose. No git: the texts are in the memory of the plan.
 
 use crate::units::UnitBlock;
 use domain_types::commit_body::CodeSpan;
+use line_diff::by_word;
+use line_diff::cancellation::Deadline;
+use line_diff::lcs::diff::build_changes;
+use line_diff::policy::ComparisonPolicy;
 use serde::Serialize;
 use std::ops::Range;
 use sync_utils::code_spans::code_spans;
-use text_diff::by_word;
-use text_diff::cancellation::Deadline;
-use text_diff::lcs::diff::build_changes;
-use text_diff::policy::ComparisonPolicy;
 
 /// A paragraph of prose the commits add, remove or change
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -526,7 +526,7 @@ pub(crate) fn prose_changes(old: &[ParagraphText], new: &[ParagraphText], path: 
   let old_texts: Vec<&str> = old_keys.iter().map(String::as_str).collect();
   let new_texts: Vec<&str> = new_keys.iter().map(String::as_str).collect();
   let changes = build_changes(&old_texts, &new_texts).unwrap_or_else(|_| {
-    vec![text_diff::lcs::diff::Change {
+    vec![line_diff::lcs::diff::Change {
       line0: 0,
       line1: 0,
       deleted: old.len(),

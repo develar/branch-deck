@@ -40,6 +40,7 @@ members = [
   "crates/github",
   "crates/youtrack",
   "crates/code-symbols",
+  "crates/line-diff",
   "crates/text-diff",
   "crates/file-diffs",
   "crates/host-link",

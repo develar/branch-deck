@@ -18,6 +18,10 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::object_ids_and_types;
 use git_ops::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use git_ops::revs::is_object_id;
+use line_diff::cancellation::Deadline;
+use line_diff::model::{BudgetedDiff, DiffBudget, Scope, TextDiff, diff_texts_in};
+use line_diff::policy::WhitespacePolicy;
+use line_diff::text_lines::TextLines;
 use object_cache::cache::ObjectCache;
 use object_cache::file_merge::FileMergeKey;
 use serde::{Deserialize, Serialize};
@@ -25,11 +29,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
-use text_diff::cancellation::Deadline;
 use text_diff::merge_model::{BudgetedMerge, TextMerge, merge_texts_in};
-use text_diff::model::{BudgetedDiff, DiffBudget, Scope, TextDiff, diff_texts_in};
-use text_diff::policy::WhitespacePolicy;
-use text_diff::text_lines::TextLines;
 use tracing::{debug, instrument};
 
 /// The version of the merges in the `file_merge` store: bump it when `TextMerge`, `TextDiff` (a merge of one side

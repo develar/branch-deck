@@ -9,6 +9,8 @@ use crate::accio::{
 };
 use crate::fixture_test::{RENAMED_STORE_ANSWER, renamed_store, repo_path, unhurried};
 use crate::model::{DiffContent, DiffSource};
+use line_diff::model::RenameProof;
+use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::path::Path;
@@ -18,8 +20,6 @@ use sync_utils::child_process::{ChildPriority, windowless_command_at};
 use test_log::test;
 use test_utils::env_vars::EnvVars;
 use test_utils::fake_executable::{fake_executable, shell_path};
-use text_diff::model::RenameProof;
-use text_diff::policy::WhitespacePolicy;
 
 const ROOT: &str = "/work/repository";
 

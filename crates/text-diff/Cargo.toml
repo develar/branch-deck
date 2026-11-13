@@ -2,16 +2,14 @@
 name = "text-diff"
 version.workspace = true
 edition.workspace = true
-# the code is ported from IntelliJ Platform, see NOTICE
+# the merge is built on the comparison ported from IntelliJ Platform, see NOTICE
 license = "Apache-2.0"
-description = "Line, word and char comparison of two texts, ported from IntelliJ"
+description = "The wire model of the diffs of the app: the types of line-diff for its bindings, and the merge of three texts"
 
 [dependencies]
-fixedbitset = "0.5.7"
-icu_properties = "2.4.0"
-rustc-hash = "2.1.3"
+# the comparison, its model and the lines of a text
+line-diff = { path = "../line-diff" }
 serde.workspace = true
-sha1 = "0.11.0"
 specta = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -21,7 +19,7 @@ serde_json.workspace = true
 
 [features]
 default = []
-# the TypeScript types of the model (`model.rs`) for the app's bindings
+# the TypeScript types of the model (`model.rs`, `merge_model.rs`) for the app's bindings
 specta = ["dep:specta"]
 
 [lints]

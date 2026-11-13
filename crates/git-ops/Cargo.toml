@@ -13,6 +13,8 @@ domain-types = { path = "../domain-types" }
 object-cache = { path = "../object-cache" }
 # the cut of the lists a check reports (`list_cut::kept`)
 sync-utils = { path = "../sync-utils" }
+line-diff = { path = "../line-diff" }
+# the merge of three texts that its words resolve (`merge_model::merge_texts`, `compose::compose_merge`)
 text-diff = { path = "../text-diff" }
 
 # Core utilities (shared via workspace)

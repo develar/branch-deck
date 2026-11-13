@@ -69,6 +69,10 @@ use git_ops::cat_file_batch::{BatchEntry, for_each_object};
 use git_ops::commit_files::{DiffSubject, MAX_BLOB_BYTES, read_commit_files_cached};
 use git_ops::object_texts::{into_text, is_binary};
 use git_ops::revs::is_object_id;
+use line_diff::cancellation::Deadline;
+use line_diff::model::{BlockKind, BudgetedDiff, DiffBudget, DiffMarks, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts_in};
+use line_diff::policy::WhitespacePolicy;
+use line_diff::text_lines::TextLines;
 use moka::sync::Cache;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_files::{CommitFile, FileStatus};
@@ -80,10 +84,6 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_utils::span::in_current_span;
-use text_diff::cancellation::Deadline;
-use text_diff::model::{BlockKind, BudgetedDiff, DiffBudget, DiffMarks, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts_in};
-use text_diff::policy::WhitespacePolicy;
-use text_diff::text_lines::TextLines;
 use tracing::{debug, instrument, warn};
 
 /// The version of the diffs in the `file_diff` store and of what they left in the `file_leftovers` store: bump it
@@ -1210,7 +1210,7 @@ pub(crate) fn import_blocks(diff: &TextDiff, lines: [&TextLines<'_>; 2], imports
 /// Whether the changed lines of a block (`changed`, of each side from 0, the end excluded) are each in an import
 /// statement of their side (`imports`, the lines of a side's statements; `None` for a side of no known language) or
 /// blank, with a line of a statement at least; `lines` the text of each side by line. The blocks, the statements and
-/// the text count the lines of the diffs (`text_diff::text_lines`), never those of git. The one test of a change of
+/// the text count the lines of the diffs (`line_diff::text_lines`), never those of git. The one test of a change of
 /// the imports alone, for the diffs and the units of a review (`review_plan::units`)
 pub fn imports_only(changed: [Range<u32>; 2], lines: [&[&str]; 2], imports: [Option<&[LineSpan]>; 2]) -> bool {
   // per side, by 0-based line: in a statement, blank, else code

@@ -1,21 +1,21 @@
 //! The merge of three texts for the views of the app: the blocks of the merge with their kind, the sides that changed
 //! them, their resolution and the changed ranges inside their lines, built straight from the ported merge. Branch
-//! Deck's own: the wire model of a conflict, as `model.rs` is the one of a two-way diff.
+//! Deck's own: the wire model of a conflict, as `line_diff::model` is the one of a two-way diff.
 //!
 //! The sides are IntelliJ's: left is ours (the target as built), base is the merge base (stage 1), right is theirs (the
-//! commit being picked). Lines are IntelliJ's, as in `model.rs`.
+//! commit being picked). Lines are IntelliJ's, as in `line_diff::model`.
 
-use crate::by_word;
-use crate::cancellation::{Deadline, DiffTooBig};
-use crate::comparison_util::is_equal_texts;
-use crate::manager::merge_content_lines;
-use crate::merge_conflict_type::{MergeConflictKind, MergeConflictType, ResolutionStrategy};
-use crate::merge_range::{MergeRange, ThreeSide};
-use crate::merge_range_util::{compare_line_merge_contents, get_merge_type, lines_content};
-use crate::merge_resolve_util::try_resolve_by_default;
-use crate::model::{DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, flat_ranges, has_empty_last_line, line_ranges, to_u32};
-use crate::policy::{ComparisonPolicy, WhitespacePolicy};
-use crate::text::{LineEndKind, SourceText, Utf16Text};
+use line_diff::by_word;
+use line_diff::cancellation::{Deadline, DiffTooBig};
+use line_diff::comparison_util::is_equal_texts;
+use line_diff::manager::merge_content_lines;
+use line_diff::merge_conflict_type::{MergeConflictKind, MergeConflictType, ResolutionStrategy};
+use line_diff::merge_range::{MergeRange, ThreeSide};
+use line_diff::merge_range_util::{compare_line_merge_contents, get_merge_type, lines_content};
+use line_diff::merge_resolve_util::try_resolve_by_default;
+use line_diff::model::{DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, flat_ranges, has_empty_last_line, line_ranges, to_u32};
+use line_diff::policy::{ComparisonPolicy, WhitespacePolicy};
+use line_diff::text::{LineEndKind, SourceText, Utf16Text};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
@@ -29,6 +29,7 @@ pub struct TextMerge {
   pub right_line_count: u32,
   /// The line ends of the sides (`None` for a side without one) when they differ; `None` when the sides with a line
   /// end agree
+  #[cfg_attr(feature = "specta", specta(type = Option<Sides<Option<crate::model::LineEndKind>>>))]
   pub line_ends: Option<Sides<Option<LineEndKind>>>,
   /// Whether each text ends with a line end, when they disagree; `None` when they agree or a text is empty
   pub final_newline: Option<Sides<bool>>,
@@ -44,8 +45,11 @@ pub struct TextMerge {
   /// The conflicts that no resolution resolves; `conflicts > 0` with `unresolved == 0` is a conflict of git that its
   /// words resolve
   pub unresolved: u32,
+  #[cfg_attr(feature = "specta", specta(type = Vec<crate::model::Scope>))]
   pub left_scopes: Vec<Scope>,
+  #[cfg_attr(feature = "specta", specta(type = Vec<crate::model::Scope>))]
   pub base_scopes: Vec<Scope>,
+  #[cfg_attr(feature = "specta", specta(type = Vec<crate::model::Scope>))]
   pub right_scopes: Vec<Scope>,
 }
 

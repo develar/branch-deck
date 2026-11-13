@@ -21,7 +21,7 @@ sync-core = { path = "../sync-core" }
 trial-check = { path = "../trial-check" }
 domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
-text-diff = { path = "../text-diff" }
+line-diff = { path = "../line-diff" }
 anyhow.workspace = true
 clap = { version = "4.6", features = ["derive"] }
 schemars.workspace = true

@@ -1,7 +1,7 @@
 # Text Diff Engine
 
 **Status:** Implemented (the engine of every diff and merge the app shows)
-**Updated:** 2026-11-12
+**Updated:** 2026-11-13
 **Tags:** [diff, comparison, intellij, port]
 
 ## Problem
@@ -12,9 +12,19 @@ it does not let short lines anchor a match, and it compares words over a whole b
 
 ## Solution Overview
 
-The crate `crates/text-diff` is a port of the two-way comparison of IntelliJ Platform to Rust. The license of the
-crate is Apache-2.0, as the license of the source. `crates/text-diff/NOTICE` credits JetBrains. Each ported file
-names its Kotlin or Java source in its first comment.
+The crate `crates/line-diff` is a port of the two-way comparison of IntelliJ Platform to Rust. The license of the
+crate is Apache-2.0, as the license of the source. `crates/line-diff/NOTICE` credits JetBrains. Each ported file
+names its Kotlin or Java source in its first comment. It is a pure function of the texts, without the bindings of the
+app (no `specta`), so another reader of code can take it as it is: the model of a view (`model`), the lines a change
+moved (`moves`, `moves_across`) and the blocks applied to bytes (`apply`) are in it too.
+
+`crates/text-diff` is the wire model of the app over it, Branch Deck's own: the types of `line-diff` declared again
+with `specta::Type` for `src/lib/bindings.ts` (`text_diff::model`), and the merge of three texts for the conflict
+view with its result on bytes (`merge_model`, `compose`). The types of `line-diff`'s model are written once, as items
+of a macro (`line_diff::diff_model!`, `whitespace_policy!`, `line_end_kind!`): `line-diff` declares them with serde,
+`text-diff` declares the same items once more with `specta::Type`, so the two cannot differ in a field, a name or the
+documentation the bindings carry. A value is always `line-diff`'s; a type of the app that holds one names its
+description (`#[specta(type = text_diff::model::TextDiff)]`, `crates/file-diffs/src/model.rs`).
 
 The port keeps the structure of the source: one module for each source file, with the same algorithm steps. A later
 change of the source can then be compared with the port.
@@ -86,13 +96,14 @@ flowchart TD
 | `inline.rs` | Branch Deck's own: the inline pairs and the dropped ranges of a block, the rule of a similar pair |
 | `moves.rs` | Branch Deck's own: the lines a change moved within a file (`find_moves`) |
 | `moves_across.rs` | Branch Deck's own: what a pair leaves to the other files of its subject (`left_rows`) and the lines a change moved between two files (`find_moves_across`) |
-| `apply.rs` | Branch Deck's own: blocks applied to bytes, the result of a merge on bytes, the ids of the blocks |
+| `apply.rs` | Branch Deck's own: blocks applied to bytes, the lines of a text with their ends, the ids of the blocks |
 | `text_lines.rs` | Branch Deck's own: the lines of a text as the diffs count them, and the lines of git and of a syntax summary among them (`TextLines::of_git`) |
 
 ### Model
 
 `model::diff_texts` compares two texts by word and builds a `TextDiff` straight from the blocks of the comparison
-(`provider::compare_for_view`). The types derive serde (camelCase) and, with the `specta` feature, `specta::Type`.
+(`provider::compare_for_view`). The types derive serde (camelCase); `text_diff::model` declares them again with
+`specta::Type` for the bindings of the app (Solution Overview).
 
 - **Lines.** `\n`, `\r\n` and a lone `\r` each end a line, as IntelliJ splits a document (`SourceText`). A text
   has one line more than it has line ends: `"a\n"` is `a` and an empty line. A view that splits the text at
@@ -341,8 +352,8 @@ A move between files is a label and nothing else: never quiet, no line of it hid
 
 ### Merge
 
-The three-way part of the source is ported too, and `merge_model::merge_texts` builds the model of the conflict view
-from it.
+The three-way part of the source is ported too (`line-diff`), and `text_diff::merge_model::merge_texts` builds the
+model of the conflict view from it.
 
 - **Three-way comparison.** `manager::compare_lines_three(left, base, right, policy)` compares each side with the base
   by line (`by_line::compare_three`, the steps of a two-way comparison on each pair) and joins the two comparisons into
@@ -382,7 +393,7 @@ from it.
   empty inner lists and paints it pale without words (`DiffViewerHighlighters.createHighlighter`, `withIgnored`).
   Any other block with word ranges, also an empty list per line, is painted pale too, the changed words in the full
   colour. An insertion or a deletion without the shortcut has no word ranges and is painted in the full colour.
-- **Result.** `apply::compose_merge(left, base, right, &merge)` builds the result of a merge on the bytes of the three
+- **Result.** `text_diff::compose::compose_merge(left, base, right, &merge)` builds the result of a merge on the bytes of the three
   texts, as IntelliJ's merge viewer does when it applies every change: the base, each block replaced by the lines of
   the side that changed it or by `resolvedText`, and the base of a conflict that does not resolve. Each line keeps its
   own end, and the lines of `resolvedText` take the one end of the lines of their block. The result is `exact` when

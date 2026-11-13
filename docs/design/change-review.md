@@ -449,7 +449,7 @@ the review.
    changed the tokens around it (after the `\` of Starlark, before a `#!`): a range is asked with the code around it
    now. A hunk is a block of the diffs, whose lines end at a lone `\r` too, and was read by the lines of git, so
    below a lone `\r` the plan compared the line after the change: the plan reads the lines of the diffs everywhere
-   (`text_diff::text_lines::TextLines`, which the diffs of the views read the scopes and the imports by too) and translates the lines of a summary, which are git's. And a blank oxc skips is not
+   (`line_diff::text_lines::TextLines`, which the diffs of the views read the scopes and the imports by too) and translates the lines of a summary, which are git's. And a blank oxc skips is not
    whitespace to an engine of JavaScript (U+0085, U+200B): it is an error in the tokens. A declaration paired with
    itself is whitespace only with every line its blocks change, which may reach past it.
 26. **A declaration that moved is moved, and folded only where its place means nothing** (2026-11-11). A function

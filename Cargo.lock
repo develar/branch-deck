@@ -594,6 +594,7 @@ dependencies = [
  "github",
  "history-rewrite",
  "lease-pool",
+ "line-diff",
  "mcp-host",
  "object-cache",
  "operations",
@@ -613,7 +614,6 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
- "text-diff",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -750,6 +750,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "history-rewrite",
+ "line-diff",
  "object-cache",
  "pretty_assertions",
  "review-plan",
@@ -763,7 +764,6 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
- "text-diff",
  "trial-check",
  "update-core",
 ]
@@ -2313,6 +2313,7 @@ dependencies = [
  "generated-files",
  "git-executor",
  "git-ops",
+ "line-diff",
  "moka",
  "object-cache",
  "pretty_assertions",
@@ -2758,6 +2759,7 @@ dependencies = [
  "domain-types",
  "git-executor",
  "gix-validate",
+ "line-diff",
  "memchr",
  "object-cache",
  "pretty_assertions",
@@ -3964,6 +3966,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "line-diff"
+version = "0.1.0"
+dependencies = [
+ "fixedbitset",
+ "icu_properties",
+ "pretty_assertions",
+ "proptest",
+ "rustc-hash 2.1.3",
+ "serde",
+ "serde_json",
+ "sha1 0.11.0",
 ]
 
 [[package]]
@@ -6058,6 +6074,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "history-rewrite",
+ "line-diff",
  "object-cache",
  "pretty_assertions",
  "quick-xml 0.42.0",
@@ -6070,7 +6087,6 @@ dependencies = [
  "sync-utils",
  "test-log",
  "test-utils",
- "text-diff",
  "thiserror 2.0.21",
  "toml 1.2.1+spec-1.1.0",
  "tracing",
@@ -7807,14 +7823,11 @@ dependencies = [
 name = "text-diff"
 version = "0.1.0"
 dependencies = [
- "fixedbitset",
- "icu_properties",
+ "line-diff",
  "pretty_assertions",
  "proptest",
- "rustc-hash 2.1.3",
  "serde",
  "serde_json",
- "sha1 0.11.0",
  "specta",
 ]
 
@@ -8387,6 +8400,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "history-rewrite",
+ "line-diff",
  "object-cache",
  "pretty_assertions",
  "regex",
@@ -8398,7 +8412,6 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
- "text-diff",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

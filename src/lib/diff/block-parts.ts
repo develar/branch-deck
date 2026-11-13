@@ -961,7 +961,7 @@ export function partsRowOfLine(parts: BlockParts, side: number, line: number): n
 /**
  * The row the reading of a block starts at in its layout, from `line` of a side, the line Rust names
  * (`TextDiff.marks.starts`). Rust cuts a block by its quiet runs alone and names the first new line of what is read
- * first, else its first old one (`text_diff::model::starts_of`); a view cuts the block at every run, a label too, and
+ * first, else its first old one (`line_diff::model::starts_of`); a view cuts the block at every run, a label too, and
  * shows the old lines of a part before its new ones. So the stop is the first row of lines of what Rust reads there:
  * from the part that shows the line back over the parts of no quiet run (lines to read, the note of a label) to the
  * one after the last quiet run. Lines deleted before a comment worded again are read from their first row, though

@@ -5,11 +5,11 @@ use file_diffs::blocks::BlobPair;
 use file_diffs::patch::BlockPatch;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
+use line_diff::model::BlockKind;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::FileChange;
 use schemars::JsonSchema;
 use serde::Serialize;
-use text_diff::model::BlockKind;
 use trial_check::diff_scan::{CommitDiff, blob_pair};
 
 /// A changed file of a commit with its blocks

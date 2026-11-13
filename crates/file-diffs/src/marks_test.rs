@@ -12,6 +12,9 @@ use code_symbols::highlight::{Grammar, grammar_of};
 use code_symbols::navigate::{Access, LocalBinding, NameQuestion, Position, Site, names_at};
 use code_symbols::tokens::{Equality, Tokens, compare, tokens};
 use git_executor::git_command_executor::GitCommandExecutor;
+use line_diff::cancellation::Deadline;
+use line_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, MAX_INNER_LINES, Rename, RunKind, SubjectMarks, TextDiff, diff_texts, starts_of};
+use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::cell::{Cell, OnceCell};
@@ -19,9 +22,6 @@ use std::fmt::Write as _;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
-use text_diff::cancellation::Deadline;
-use text_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, MAX_INNER_LINES, Rename, RunKind, SubjectMarks, TextDiff, diff_texts, starts_of};
-use text_diff::policy::WhitespacePolicy;
 
 use WhitespacePolicy::{Default as Exact, Ignore, IgnoreBlankLines};
 

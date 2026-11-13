@@ -17,14 +17,14 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, for_each_object};
 use git_ops::commit_files::MAX_BLOB_BYTES;
 use git_ops::object_texts::{into_text, is_binary};
+use line_diff::cancellation::Deadline;
+use line_diff::model::{DiffBudget, diff_texts};
+use line_diff::policy::WhitespacePolicy;
 use std::collections::HashMap;
 use std::io::Write as _;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use text_diff::cancellation::Deadline;
-use text_diff::model::{DiffBudget, diff_texts};
-use text_diff::policy::WhitespacePolicy;
 
 /// A modified file of a commit: its path and its two blobs
 struct Pair {

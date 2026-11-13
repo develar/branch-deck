@@ -1,5 +1,5 @@
 //! The blocks of files as `brd commits --patch` and `brd move-hunk` print them: the blocks of the diff views under
-//! `Default`, each with its id (`text_diff::apply::BlockId`), a hunk header with the label of its scope, and its lines
+//! `Default`, each with its id (`line_diff::apply::BlockId`), a hunk header with the label of its scope, and its lines
 //! between up to three lines of context. A block is never merged with its neighbour, so each id moves one block. And the
 //! lines of the blocks alone, for the dangling-reference check (`trial_check::dangling_references`).
 
@@ -11,13 +11,13 @@ use anyhow::Result;
 use code_symbols::extract::summarize;
 use code_symbols::language::language_of;
 use git_executor::git_command_executor::GitCommandExecutor;
+use line_diff::apply::{BlockId, LineBlock, split_lines};
+use line_diff::model::{BlockKind, DiffBlock, Scope, TextDiff};
+use line_diff::text_lines::TextLines;
 use object_cache::cache::ObjectCache;
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
-use text_diff::apply::{BlockId, LineBlock, split_lines};
-use text_diff::model::{BlockKind, DiffBlock, Scope, TextDiff};
-use text_diff::text_lines::TextLines;
 
 /// The lines of context on each side of a block
 const CONTEXT_LINES: usize = 3;

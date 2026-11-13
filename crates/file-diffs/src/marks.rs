@@ -1,7 +1,7 @@
 //! The marks of a diff (openspec/specs/commit/quiet-changes/spec.md; docs/design/diff-view.md, "Marks"): the runs of
 //! lines that changed in their formatting, their comments or a renamed name alone, the names the change renamed, the
 //! lines that moved within the file, and the line the reading of each block starts at
-//! (`text_diff::model::DiffMarks`). They change no block of the diff.
+//! (`line_diff::model::DiffMarks`). They change no block of the diff.
 //!
 //! - **Proof, not a guess.** A run is quiet only when the tokens of its lines are the same on both sides
 //!   (`code_symbols::tokens`, openspec/specs/commit/equal-by-tokens/spec.md): the same tokens parse to the same tree, so
@@ -37,7 +37,7 @@
 //!   changed at every place of the file, which declares none of them, with the runs their blocks would have were
 //!   they renames. The pass over the files of the subject (`marks_subject`) knows whether another file declares
 //!   them; nothing of them is a mark of the pair.
-//! - **Moves** (`text_diff::moves::find_moves`) need no grammar: every pair of texts has them, from its lines alone,
+//! - **Moves** (`line_diff::moves::find_moves`) need no grammar: every pair of texts has them, from its lines alone,
 //!   after the runs, whose lines no move takes. A move is never quiet: its new lines are in no run, so the block they
 //!   stand in always has a start; its old lines are nothing to read where they left (`starts_of`). Whether the
 //!   indentation of the file has a meaning (`code_symbols::tokens::indentation_matters`, of either path) decides what
@@ -51,12 +51,12 @@ use crate::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
 use crate::service::{FileDiffs, fits_inner};
 use code_symbols::highlight::{Grammar, grammar_of};
 use code_symbols::tokens::{Tokens, indentation_matters, is_blank, tokens};
+use line_diff::model::{BlockKind, DiffBlock, DiffMarks, LineMove, LineRun, Rename, RunKind, TextDiff, starts_of};
+use line_diff::moves::find_moves;
+use line_diff::policy::WhitespacePolicy;
 use std::cell::OnceCell;
 use std::ops::Range;
 use std::sync::Arc;
-use text_diff::model::{BlockKind, DiffBlock, DiffMarks, LineMove, LineRun, Rename, RunKind, TextDiff, starts_of};
-use text_diff::moves::find_moves;
-use text_diff::policy::WhitespacePolicy;
 
 /// A side of a block with more tokens of code is not compared token by token: a block of some three thousand lines
 pub const MAX_BLOCK_TOKENS: usize = 1 << 15;

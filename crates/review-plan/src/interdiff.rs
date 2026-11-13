@@ -31,11 +31,11 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::carried_review::{CarryIdentity, carry_reviewed};
 use git_ops::landed_pairing::{CommitKey, PathLines, WalkedCommit, change_ids, interdiffs, walk_commits_with_messages};
 use git_ops::reviewed_refs::ReviewedPair;
+use line_diff::lcs::diff::{Change, build_changes};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use sync_utils::commit_body::{code_of, commit_body};
 use sync_utils::commit_subject::stripped_subject;
-use text_diff::lcs::diff::{Change, build_changes};
 use tracing::debug;
 
 /// How a commit of the branch compares with the reviewed one

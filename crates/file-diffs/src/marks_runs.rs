@@ -2,7 +2,7 @@
 //!
 //! 1. **The tokens of the code are aligned.** Lines whose code is the same on both sides (`compare` is not
 //!    `Different`) pair token by token. Else the longest common subsequence of the keys of the tokens
-//!    (`text_diff::lcs::diff::build_changes_ints_within`), within `MAX_BLOCK_TOKENS`, `MAX_TOKEN_EDITS` and the work
+//!    (`line_diff::lcs::diff::build_changes_ints_within`), within `MAX_BLOCK_TOKENS`, `MAX_TOKEN_EDITS` and the work
 //!    left of the file; a block over a limit has no run. Tokens only one side has are put on whole lines where the
 //!    subsequence leaves the choice (`LineEnds::slide`).
 //! 2. **The block is cut at the line boundaries both sides share**: a boundary of each side that no token crosses,
@@ -32,10 +32,10 @@
 
 use crate::marks::{MAX_BLOCK_TOKENS, MAX_TOKEN_EDITS, has_proof};
 use code_symbols::tokens::{Equality, Token, Tokens, compare, same_after, same_before};
+use line_diff::lcs::diff::build_changes_ints_within;
+use line_diff::model::{LineRun, RunKind};
 use std::collections::HashMap;
 use std::ops::Range;
-use text_diff::lcs::diff::build_changes_ints_within;
-use text_diff::model::{LineRun, RunKind};
 
 /// The lines of a block on each side, from 0, the ends excluded
 #[derive(Debug, Clone, PartialEq, Eq)]

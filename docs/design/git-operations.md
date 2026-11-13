@@ -1211,7 +1211,7 @@ The steps, a fixed number of processes whatever the range (`crates/git-ops/src/m
    refused.
 3. "Theirs", the merge base with Δ: forward `from^`'s tree with the path as the selected blocks applied to
    `from^:<path>`, backward `from`'s tree with them taken out of `from:<path>`. The blocks apply by their line ranges
-   to the blobs (one `cat-file --batch -Z`, `text_diff::apply::apply_blocks`), byte for byte: a line ends with `\n`,
+   to the blobs (one `cat-file --batch -Z`, `line_diff::apply::apply_blocks`), byte for byte: a line ends with `\n`,
    `\r\n` or a lone `\r`, as the diff views split it, and keeps its own line end; the whole file moves its blob, its mode or its
    deletion as they are, also for a binary file. `write_edited_commit` writes the tree with one `fast-import` (a
    commit on a temporary ref).
@@ -3308,7 +3308,7 @@ Code: `crates/git-ops/src/commit_files.rs`, `crates/git-ops/src/cat_file_batch.r
 #### File diffs
 
 The views get the diff of each file as typed JSON, never as patch text ([Text Diff Engine](text-diff.md), "Model").
-`FileDiffs` (`crates/file-diffs`) reads a subject and compares each file with `text-diff`. It is a crate of its own
+`FileDiffs` (`crates/file-diffs`) reads a subject and compares each file with `line-diff`. It is a crate of its own
 above `git-ops`, because it joins the git reads with the comparison and the declarations of `code-symbols`, which the
 git plumbing does not depend on.
 
@@ -3350,7 +3350,7 @@ git plumbing does not depend on.
   the imports alone (`import_blocks`): each changed line of each side in an import or package statement of the
   summary (`FileSummary::import_lines`) or blank, which a review with its plan plays down. A summary counts the
   lines of git (a line ends at `\n` alone) and the blocks those of the diffs (at a lone `\r` too), so the lines of
-  the scopes and of the statements are translated first (`side_facts`, `text_diff::text_lines::TextLines::of_git`):
+  the scopes and of the statements are translated first (`side_facts`, `line_diff::text_lines::TextLines::of_git`):
   under a lone `\r` a line of code right above the imports would else be an import, and a scope would start a line
   early.
 - **Marks.** The marks of a text ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md),
@@ -3358,7 +3358,7 @@ git plumbing does not depend on.
   block is first asked a question of its characters alone, and only a file with a block that may hold a run is
   parsed for its tokens, once per blob and grammar (a memory cache of 32 MiB beside the highlightings): 3.2 ms a
   side of 3,300 lines, no time limit, the limits are of work ([Diff View](diff-view.md#marks) has the numbers). The
-  lines that moved within the file (`text_diff::moves::find_moves`) are read after the runs, from the lines of the
+  lines that moved within the file (`line_diff::moves::find_moves`) are read after the runs, from the lines of the
   two texts, with no parse, for every pair. The budgets above change no mark: the runs read the blocks and the
   tokens, the moves the blocks and the lines, never the inner ranges, so a diff the time cut short has the marks of
   its blocks; only a side over the size of the inner ranges has no runs.
@@ -3554,7 +3554,7 @@ whose text is translated:
 | 1. Commits | `rev-list --no-commit-header --format=… --reverse --no-merges --end-of-options <tip> ^<base> --`, once for the reviewed pair, once for the branch now | `walk_commits_with_messages`: each commit with its `CommitKey` (author email, author time, subject without the `(prefix)`) and its raw message (`%B`), which the steps of the story tell |
 | 2. Pairing | none | one to one, oldest first: the same commit on both sides is `unchanged`; then the same `CommitKey` (a rebase, a sync's copy, an amend keep it) |
 | 3. Changed lines | `diff-tree --stdin -p -U0 --no-renames` piped into `patch-id --verbatim` (`change_ids`) | only for the commits that are not the same on both sides, none without them: a pair by identity is `unchanged` when both change the same lines, else `rewritten`; the commits left pair by the same changed lines (a reword); the rest are `added` and `dropped`. A pair of the same lines whose messages differ is `reworded` |
-| — Messages | none | the messages of step 1 compared (`interdiff::message_change`): the subject without its `(prefix)` and the blocks of the bodies by the grammar of a body (`commit_body`), an LCS of whole blocks (`text_diff::lcs::diff::build_changes`), so a hard wrap and the trailers change nothing; the `message_change` of a `reworded` commit and of a `rewritten` one whose message changed too: the subject before, the hunks of blocks added at their place and removed before it |
+| — Messages | none | the messages of step 1 compared (`interdiff::message_change`): the subject without its `(prefix)` and the blocks of the bodies by the grammar of a body (`commit_body`), an LCS of whole blocks (`line_diff::lcs::diff::build_changes`), so a hard wrap and the trailers change nothing; the `message_change` of a `reworded` commit and of a `rewritten` one whose message changed too: the subject before, the hunks of blocks added at their place and removed before it |
 | 4. Interdiff | `diff-tree --stdin -p -U0 --full-index` (`interdiffs`) | only for the `rewritten` pairs, none without them: the lines each version changes and the other does not, per path |
 | 5. Carry | `merge-tree --write-tree --stdin -z` with `<reviewed base> -- <base> <reviewed tip>`, then `fast-import` (`git_ops::carried_review`, through `CommitChain`) | only without a plain scope (below), and none when the base did not move: the reviewed tip is then the carry. The merged tree in a commit on no ref whose parent is the base, in the name and at the author time of the reviewed tip, so the same carry writes the same commit; a conflict carries nothing |
 

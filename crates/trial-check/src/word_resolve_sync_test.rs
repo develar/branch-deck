@@ -358,7 +358,7 @@ async fn a_copy_of_resolve_3_with_a_line_its_whitespace_step_joined_is_the_confl
   let joined = "releaseOnFailure = true;try {\n  connect();";
   // what the resolve of version 3 wrote: the second step of IntelliJ's simple resolve, which this one no longer takes
   let [ours, base, theirs] = [baseline, alpha, beta].map(|text| text.encode_utf16().collect::<Vec<u16>>());
-  let old = text_diff::merge_resolve_util::try_resolve(&ours, &base, &theirs, &text_diff::cancellation::Deadline::NONE);
+  let old = line_diff::merge_resolve_util::try_resolve(&ours, &base, &theirs, &line_diff::cancellation::Deadline::NONE);
   assert_eq!(old.map(|text| String::from_utf16_lossy(&text)).as_deref(), Some(joined));
 
   let repo = repo_with(&[("Release.java", baseline)], &[("Release.java", alpha)], &[("Release.java", beta)]);

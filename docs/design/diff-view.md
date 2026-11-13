@@ -125,7 +125,7 @@ rest gets a label and stays a stop.
   changed in one way alone), `moves` (the lines that moved within the file), `renames` (the names the change renamed
   within the file) and `starts`. The scans of the dependencies, the patches of `brd` and the review plan read the blocks they read before.
 - **One source of the stops.** `starts` names, for each block with something to read, the line its reading starts
-  at (`text_diff::model::starts_of`): the first line outside its quiet runs that, of its old lines, no move took. A
+  at (`line_diff::model::starts_of`): the first line outside its quiet runs that, of its old lines, no move took. A
   block without an entry has nothing to read. The navigation of changes and the count of what is left to read take
   only this (`stopsOf` of `src/lib/diff/block-parts.ts`); the runs, the moves and the renames are for drawing. What
   a view draws of the runs is "The parts of a block" below.
@@ -300,7 +300,7 @@ rest gets a label and stays a stop.
   as one (the third reading of a block, `Renames::pending`: every run of it with the names it needs, and none that
   shares a line with a move of the file); the places of the declarations of its renames that are not local, in the
   lines and the characters the index counts; which of its renames the scopes prove; and the lines its moves
-  rewrote (`text_diff::moves::rewritten_lines`: the edited lines of a move that differ in more than whitespace).
+  rewrote (`line_diff::moves::rewritten_lines`: the edited lines of a move that differ in more than whitespace).
   The pass over a subject reads no blob, so a subject whose pairs the caches have costs no process.
 - **What the files of a subject say of each other** (`marks_subject.rs`, the group Subject of the spec). A pure
   function of what the pairs of the subject are and left, in the order of git, so it is the same from the
@@ -415,7 +415,7 @@ rest gets a label and stays a stop.
   `starts`, so the switch of the kind changes no code of the page ("The sites of a rename" under "The row model").
   A place in no run is on a line that is read as it is, its name in the mark all the same.
 - **Moves need no grammar.** The lines that one block deletes and another block adds are a move
-  (`text_diff::moves::find_moves`, [Text Diff Engine](text-diff.md#moves)): the same lines by their text without the
+  (`line_diff::moves::find_moves`, [Text Diff Engine](text-diff.md#moves)): the same lines by their text without the
   whitespace at their ends, with at most a third of edited lines between exact ones, from 24 characters of exact
   lines that stand once among the changed lines of each side (a line that stands twice there pairs with either of
   its likes), the longest first, each line in one move. Every pair of texts has them, read after its runs, whose lines no
@@ -746,7 +746,7 @@ that is not local is declared by the code that declared it before.
   a block (`val ref = getMQReferenceAtCaret()` three times, each "moved" to one of the three), the closing lines of
   each target of a build file, the records of a report in JSON, 21 lines each. Which of the equal lines moved
   where, nothing says, and no number of characters tells such a pair from a move (they hold up to 290). So a move
-  counts the characters of its exact lines that stand once on each side (`text_diff::moves`).
+  counts the characters of its exact lines that stand once on each side (`line_diff::moves`).
 - *Moves within a file, what the thresholds leave out* (each file searched once more under another value, and
   every move that search adds or makes longer read):
   - *16 characters in place of 24* add 103 moves to the 1,056 of the monorepo (81 of one line) and 260 to the

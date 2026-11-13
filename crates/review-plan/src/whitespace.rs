@@ -11,7 +11,7 @@
 //!   indentation has a meaning (`code_symbols::tokens::indentation_matters`: Python, YAML, a Makefile).
 //! - **A file of a grammar without tokens** (nested too deeply, a script read only after a recovery) and a file whose
 //!   two sides are not both of a grammar (a rename from `.txt` to `.kt`) have no whitespace change: nothing proves one.
-//! - **The lines** are those of the diffs (`text_diff::text_lines::TextLines`): a line ends at `\n`, `\r\n` or a lone `\r`, as the engine
+//! - **The lines** are those of the diffs (`line_diff::text_lines::TextLines`): a line ends at `\n`, `\r\n` or a lone `\r`, as the engine
 //!   that made the blocks and the hunks counts them and as the tokens do. The lines of a declaration are git's (a
 //!   line ends at `\n` alone, as the summaries count them) and are translated first (`TextLines::of_git`): in a file
 //!   with a lone `\r` the two counts differ, and the lines of one read by the other are other lines.

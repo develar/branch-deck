@@ -11,7 +11,7 @@ targets:
   - crates/review-plan/src/fan_in.rs
   - crates/review-plan/src/files.rs
   - crates/review-plan/src/whitespace.rs
-  - crates/text-diff/src/text_lines.rs
+  - crates/line-diff/src/text_lines.rs
   - crates/generated-files/src/header.rs
   - crates/generated-files/src/attributes.rs
   - crates/generated-files/src/generated_by.rs
@@ -1513,7 +1513,7 @@ A hunk is a block of the diffs, and its text and its tokens MUST be read by the 
 - **THEN** the file stays real work: the hunk is read by the lines of the diffs, never by the lines git counts there
 - **AND** a hunk of such a file that wraps a call or adds spaces inside its brackets, and one of a file of no grammar that changes spaces alone, are `whitespace`
   [@test] crates/review-plan/src/files_test.rs (`a_hunk_is_read_by_the_lines_of_the_diffs`)
-  [@test] crates/text-diff/src/text_lines_test.rs (`the_lines_of_a_text_are_those_of_the_diffs`)
+  [@test] crates/line-diff/src/text_lines_test.rs (`the_lines_of_a_text_are_those_of_the_diffs`)
 
 ### Requirement: Mechanical Changes: An import statement runs until its brackets close
 

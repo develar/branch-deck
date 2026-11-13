@@ -1,8 +1,8 @@
 use crate::collapse::{MAX_OPEN_CHANGED_LINES, collapse_of};
 use crate::model::{Collapse, DiffContent};
 use generated_files::names::GeneratedName;
+use line_diff::model::TextDiff;
 use pretty_assertions::assert_eq;
-use text_diff::model::TextDiff;
 
 fn text(additions: u32, deletions: u32) -> DiffContent {
   DiffContent::Text(TextDiff {
