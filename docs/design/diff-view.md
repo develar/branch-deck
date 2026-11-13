@@ -1447,6 +1447,11 @@ and that frame is blank. The painter does this work in about 1 ms, with no recon
 - It attaches the painter to its element in a `useLayoutEffect`.
 - It passes the props to the painter in layout effects, and reads no ref during the render.
 - The painter reports to React through callbacks that set state: the files in view, the file at the top.
+- A new layout is a new model of the painter, which paints every row in range again (`setModel`): the layout depends
+  only on what it lays out. The height of the view sizes the space past the end of a review window (`mapped`); a view in
+  the scroller of its parent (the preview of a commit) grows with its rows, so its height must lay out nothing again,
+  or each change of its rows (a note that opens) is painted twice ("a note that opens paints the rows of its file once"
+  of `renamed-names.spec.ts`).
 
 A component selects narrow slices of the stores, as `AGENTS.md` asks.
 

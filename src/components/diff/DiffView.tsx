@@ -750,6 +750,10 @@ export function DiffView({
           )
           .join("")
   const scrollbars = useMemo(() => Array.from(scrollbarKey, flag => flag === "1"), [scrollbarKey])
+  // the review windows scroll past the end, so J, K, N, P and a row bring any section to the top; a view in the scroller
+  // of its parent (the preview of a commit) has no space past its end, and its height, which grows with its rows, lays
+  // nothing out again: else each change of its rows was laid out and painted twice, the second time for the height
+  const pastEnd = mapped ? viewHeight : 0
   const layout = useMemo(
     () =>
       new DiffLayout(
@@ -769,10 +773,9 @@ export function DiffView({
         { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER, divider: CARD_DIVIDER } : undefined },
         prologued ? (measured.get(PROLOGUE_KEY) ?? 0) : 0,
         epilogued ? (measured.get(EPILOGUE_KEY) ?? 0) : 0,
-        // the review windows scroll past the end, so J, K, N, P and a row bring any section to the top
-        mapped ? viewHeight : 0,
+        pastEnd,
       ),
-    [prepared, visualLines, metrics, headerHeight, notices, cards, opens, divides, prologued, epilogued, measured, footers, scrollbars, mapped, viewHeight],
+    [prepared, visualLines, metrics, headerHeight, notices, cards, opens, divides, prologued, epilogued, measured, footers, scrollbars, pastEnd],
   )
 
   // the sections as the map of the files shows them: where a step starts, which files the chip plays down

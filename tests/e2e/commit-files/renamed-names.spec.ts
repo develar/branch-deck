@@ -21,6 +21,7 @@ import { codeOf, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview
 import { openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { openPlanWindow, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { resizeReportsDelivered } from "../helpers/wait-helpers"
 
 // the renames of the `commit_marks` template (`MARKS_SUBJECT`). In src/Ledger.kt the local `total` of `balance` is
 // `sum` at its three places, each on a line that changed in nothing else: its declaration at the new line 28, a use at
@@ -105,9 +106,21 @@ function siteRow(rows: Locator, at: 0 | 1 | 2): Locator {
   return rows.filter({ hasText: SITE_TEXTS[at] })
 }
 
-/** The kind of the row right above each site of `sum` among `rows`, in the order of the lines */
+/**
+ * The kind of the row right above each site of `sum` among `rows`, in the order of the lines, read in one step of the
+ * page; undefined for a site that is not one row painted, or whose row above is not painted. The painter paints a file
+ * again as its layout changes (a note that opens), so a test waits for the kinds (`expect.poll`), never reads them once
+ */
 async function kindsAboveSites(rows: Locator): Promise<(string | undefined)[]> {
-  return [await kindAbove(siteRow(rows, 0)), await kindAbove(siteRow(rows, 1)), await kindAbove(siteRow(rows, 2))]
+  return rows.evaluateAll(
+    (elements, texts) =>
+      texts.map(text => {
+        const sites = elements.filter(element => (element.textContent ?? "").includes(text))
+        const site = sites.length === 1 ? (sites[0] as HTMLElement) : null
+        return site?.parentElement?.querySelector<HTMLElement>(`[data-testid=diff-row][data-row="${Number(site.dataset.row) - 1}"]`)?.dataset.kind
+      }),
+    [...SITE_TEXTS],
+  )
 }
 
 /** The kind (`data-kind`) of each of `rows`, in the order of the page */
@@ -179,7 +192,7 @@ async function expectBothLinesStacked(scope: Locator): Promise<{ old: Locator; a
   await expect(renamedNames(added)).toHaveText(["sum", "sum", "sum"])
   await expect(renamedNames(old).first()).toHaveAttribute("title", "Renamed to sum")
   await expect(editedParts(siteRows(scope))).toHaveCount(0)
-  expect(await kindAbove(siteRow(old, 0))).toBe("note")
+  await expect.poll(() => kindAbove(siteRow(old, 0))).toBe("note")
   return { old, added }
 }
 
@@ -239,7 +252,7 @@ test.describe("The renames of a diff that are labels in the preview of a commit"
     await expect(quietSides(rows)).toHaveCount(0)
     await expect(rows.locator('[data-testid=diff-side][data-cell="inserted"]')).toHaveCount(3)
     // the note is the row before the declaration; the other sites stand after an unchanged line, with no note
-    expect(await kindsAboveSites(rows)).toEqual(["note", "context", "context"])
+    await expect.poll(() => kindsAboveSites(rows)).toEqual(["note", "context", "context"])
     // each name is one part, which says to a screen reader that the name starts there
     await expect(rows.locator(RENAMED_NAME_START)).toHaveText(["sum", "sum", "sum"])
     // a real change of the file is drawn as it was: the old words struck through before the new ones, as a change
@@ -284,7 +297,7 @@ test.describe("The renames of a diff in the preview of a commit", () => {
     await expect(renamedNames(declaration)).toHaveAttribute("title", "Renamed from openStore")
     await expect(declaration.locator(STRUCK_NAME)).toHaveText(["openStore"])
     await expect(editedParts(declaration)).toHaveCount(0)
-    expect(await kindAbove(declaration)).toBe("note")
+    await expect.poll(() => kindAbove(declaration)).toBe("note")
     // Report.kt calls the function and declares none of it: the files of the commit say that the store declares the
     // name, so the report names the rename once, at its first call, and draws the name at both calls in the mark of a
     // renamed name, never as a change (subject-marks.spec.ts: the file the note names, what the index proved)
@@ -329,7 +342,7 @@ test.describe("The quiet runs of a renamed local in the preview of a commit", ()
     await expect(editedParts(once)).toHaveCount(0)
     await expect(deletedParts(once)).toHaveCount(0)
     // the note is the row before the declaration; the other sites stand after an unchanged line, with no note
-    expect(await kindsAboveSites(once)).toEqual(["note", "context", "context"])
+    await expect.poll(() => kindsAboveSites(once)).toEqual(["note", "context", "context"])
 
     // a click: the old line of every site shows before its new one, in its block and in the two others, all played
     // down, the old name in the mark on the old lines
@@ -340,7 +353,7 @@ test.describe("The quiet runs of a renamed local in the preview of a commit", ()
     await expect(quietSides(old)).toHaveCount(3)
     await expect(quietSides(added)).toHaveCount(3)
     await expect(once).toHaveCount(0)
-    expect(await kindsAboveSites(old)).toEqual(["note", "context", "context"])
+    await expect.poll(() => kindsAboveSites(old)).toEqual(["note", "context", "context"])
 
     // a second click hides them again
     await note.click()
@@ -352,6 +365,30 @@ test.describe("The quiet runs of a renamed local in the preview of a commit", ()
     await scrollDiffsTo(ledger, real)
     expect(await joinedText(editedParts(real))).toBe("none")
     await expect(quietSides(real)).toHaveCount(0)
+  })
+
+  test("a note that opens paints the rows of its file once: the height they give the preview lays out nothing again", async ({ page }) => {
+    const { ledger } = await openLedgerPreview(page)
+    const note = await shownNote(ledger)
+    // every row the painter adds of the line before the use of `sum` in the loop, which stands in both layouts
+    await ledger.evaluate(element => {
+      const added: number[] = []
+      ;(window as unknown as { __addedRows: number[] }).__addedRows = added
+      new MutationObserver(records => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (node instanceof HTMLElement && node.dataset.testid === "diff-row" && (node.textContent ?? "").includes("if (entry.account == account) {")) {
+              added.push(Number(node.dataset.row))
+            }
+          }
+        }
+      }).observe(element, { childList: true, subtree: true })
+    })
+    await note.click()
+    await expectBothLinesStacked(ledger)
+    // the view reported its new height, taller by the three old lines: the row was painted once, in its new place
+    await resizeReportsDelivered(page)
+    expect(await page.evaluate(() => (window as unknown as { __addedRows: number[] }).__addedRows)).toEqual([34])
   })
 
   test("Unified and Split keep both lines of each site of a quiet rename, played down, the name in its mark on both, under a note that opens nothing", async ({ page }) => {
@@ -607,8 +644,9 @@ test.describe("The note of a block that declares several renamed names", () => {
     // the note is the row right above the old line of the declaration of `left`, the second line of its lines: the
     // line that really changed, both its old and its new one, stays above the note
     const declaration = diffRows(file, "deleted", { hasText: "val left = first * scale + 2" })
-    expect(await rowAbove(declaration)).toEqual({ kind: "note", code: "" })
-    expect(await rowAbove(await rowOfNote(file, "left"))).toEqual({ kind: "added", code: "    val scale = 3" })
+    await expect.poll(() => rowAbove(declaration)).toEqual({ kind: "note", code: "" })
+    const noteOfLeft = await rowOfNote(file, "left")
+    await expect.poll(() => rowAbove(noteOfLeft)).toEqual({ kind: "added", code: "    val scale = 3" })
     // on the lines of a run the names alone are marked: nothing between two of them, though the word diff joined them
     const joined = diffRows(file, "added", { hasText: "val all = small + large" })
     await expect(renamedNames(joined)).toHaveText(["all", "small", "large"])
@@ -619,7 +657,8 @@ test.describe("The note of a block that declares several renamed names", () => {
     await expect(beside).toHaveCount(1)
     await expect(two).toHaveText("Renamed left → a · 2 sites · right → b · 2 sites")
     await expect.poll(() => rowAbove(beside)).toEqual({ kind: "note", code: "" })
-    expect((await rowAbove(await rowOfNote(file, "left"))).kind).toBe("changed")
+    const noteBeside = await rowOfNote(file, "left")
+    await expect.poll(async () => (await rowAbove(noteBeside)).kind).toBe("changed")
   })
 })
 
@@ -678,7 +717,8 @@ test.describe("A quiet rename whose places are far apart, one in lines wrapped o
     const old = diffRows(code, "deleted", { hasText: "return total + first + last" })
     await expect(old).toBeInViewport()
     await expect(onceOfName(code)).toHaveCount(0)
-    expect((await rowAbove(diffRows(code, "added", { hasText: "return sum + first + last" }))).code).toBe("    return total + first + last")
+    const added = diffRows(code, "added", { hasText: "return sum + first + last" })
+    await expect.poll(async () => (await rowAbove(added)).code).toBe("    return total + first + last")
     await expect(diffs).toBeFocused()
     // H again, from the lines the note showed: they go
     await page.keyboard.press("h")
