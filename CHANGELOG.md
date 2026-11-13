@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.11.0](https://github.com/develar/branch-deck/compare/v1.10.0...v1.11.0) (2026-11-13)
+
+
+### Features
+
+* **diff:** a renamed local is quiet where nothing but quiet lines changed between its places, a move is told by a line that stands once, and brd counts the marks of real commits ([d7c2ea3](https://github.com/develar/branch-deck/commit/d7c2ea3b70afc4dcc8626ef23bc1ad4b304175da))
+* **ide:** a Safe Push that fails while the IDE shows another tab is a notification of the IDE whose action shows its branch, and the page in the IDE offers no folder dialog ([7f34fe8](https://github.com/develar/branch-deck/commit/7f34fe8e0a83d602a1ac2f820964a022fc724caf))
+* **ide:** Settings in the IDE offers no install of brd or of the app file of IntelliJ IDEA, which the desktop app installs ([4a578db](https://github.com/develar/branch-deck/commit/4a578dbf6723244b4fca21fbbef127a953ed32e2))
+* **ide:** the badge, the progress, the notifications and the close of a window of the page go through brd, and the actions of the title of the tool window are tools only for the app ([dfa550d](https://github.com/develar/branch-deck/commit/dfa550d12685668f455c2bfdb9add9a6ec31f539))
+* **ide:** the copy of the contract follows the page entry of air-ide on 127.0.0.1, and the app file shows Sync, the command palette and Settings in the title of the tool window ([145bf7c](https://github.com/develar/branch-deck/commit/145bf7c86a92d6073b98f315c903319e8fdbd440))
+* **ide:** the main view in the IDE shows the Git roots of its project as its repositories, and brd remembers the root picked last for those roots ([19e2626](https://github.com/develar/branch-deck/commit/19e2626de1e0ad9d19a15fb78b14577e13bd74be))
+* **review:** a fact of the review plan shows when its query answered, and the read ahead yields to a window ([30ffbed](https://github.com/develar/branch-deck/commit/30ffbed61146d06857b4cdaec86d6dcee2d869ab))
+
+
+### Bug Fixes
+
+* **diff:** a merge of three texts whose deadline ran out reaches no store ([65249e4](https://github.com/develar/branch-deck/commit/65249e450d2b09113999df64c0e39f90a1baebfa))
+* **diff:** a renamed local is quiet only where nothing else of its member changed, a name declared by other code is another thing, and a move holds a third of edited lines ([46df4fa](https://github.com/develar/branch-deck/commit/46df4faab82c4d54a29ba7a74825858a99068873))
+* **diff:** a renamed local is quiet only with the heads of its types unchanged and never by one statement of a function without a member, and a selection stays through the answers that come after it ([25dcdef](https://github.com/develar/branch-deck/commit/25dcdeffeaca738afc4263a656ca5c93998b5c2b))
+* **diff:** a scan compares without the deadlines of the views, and a diff whose lines ran out of time reaches no store ([f5943d9](https://github.com/develar/branch-deck/commit/f5943d9bb363234df5783b1963c2c46d61f68a93))
+* **diff:** the diffs stored before the quiet locals met the diffs no time cut short are made again ([d2e6385](https://github.com/develar/branch-deck/commit/d2e6385a0babcefb51e58ea793aac30d4a104884))
+* **diff:** the end of a question of the index that gave way does not end the question that took its place ([ae53e55](https://github.com/develar/branch-deck/commit/ae53e550fa885d2ccdc5a0a77c0aff63b84e6d3a))
+* **diff:** the scopes and the blocks of the imports alone are read at the lines of the diff under a lone carriage return ([99e1c31](https://github.com/develar/branch-deck/commit/99e1c31f8570d353ab8f205ea4a5b4a63a455740))
+* **e2e:** stacked branches read the toast of a push once its execute answered, not within 5 s of the click ([e657af7](https://github.com/develar/branch-deck/commit/e657af78b2d530c07d2aa1af2ccc669a3aac9b89))
+* **ide:** the canvas of the page in the IDE is the background of its place and darker than the cards in the dark theme too ([ae6e72b](https://github.com/develar/branch-deck/commit/ae6e72ba89b14fe56fbc40b0e3fa82f2efbba93f))
+* **review:** a plan reads the cut that accio names, so an answer a bound on files read stopped is kept ([beb7223](https://github.com/develar/branch-deck/commit/beb7223fed2605cc1835f3fd00ba9cdf044515ec))
+* **review:** a plan reads the same text of a blob from git and from the object cache, and the word diff of the brief has no time limit ([ce9d6c1](https://github.com/develar/branch-deck/commit/ce9d6c1d1607ba38d6fb61aa38e1cb595c1bb2e1))
+* **review:** a plan whose module entries accio's budget cut short is not kept, so a plan a loaded machine read is asked again ([236d2fd](https://github.com/develar/branch-deck/commit/236d2fd989e1bd956a51c5a140d99157781b49d0))
+* **tools:** an action of a CLI shows running in every window, Settings shows its paths under ~, and Tools is one list with one sign-in per server ([5e47b99](https://github.com/develar/branch-deck/commit/5e47b9947596146dfd6f03d04560855a46ac258c))
+
 ## [1.10.0](https://github.com/develar/branch-deck/compare/v1.9.0...v1.10.0) (2026-11-12)
 
 
