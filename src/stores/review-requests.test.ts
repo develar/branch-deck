@@ -160,6 +160,7 @@ function listed(listing: Listing, told: number[] = [], repositoryPath = "/repo")
   const reviewRequests = {
     head: { value: listing.availability, state: { kind: "fresh" as const }, seq: lastNews + 1, observedAt: 1_000_000 },
     requests: [...(available ? listing.requests : (reviewRequestsStore.getState().repositories[repositoryPath]?.requests ?? []))],
+    rows: [],
     totalCount: listing.totalCount,
     checkedAt: available ? 1_000_000 : 0,
   }

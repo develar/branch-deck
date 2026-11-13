@@ -90,6 +90,7 @@ pub fn review_request(number: u32, requested_at: u32) -> ReviewRequest {
     base_ref_oid: String::new(),
     is_cross_repository: false,
     base_is_default: true,
+    labels: Vec::new(),
   }
 }
 

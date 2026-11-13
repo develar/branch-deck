@@ -24,6 +24,7 @@ const REVIEWED = reviewRequest("JIRA-456", 202, 10, {
   reviewedCommit: "1111111111111111111111111111111111111111",
   reviewedState: "approved",
   updatedAt: NOW - 3600,
+  labels: ["hotfix"],
 })
 const OWN = reviewRequest("feature-docs", 203, 5, { title: "Document the CLI", author: "user-name", updatedAt: NOW - 7200 })
 const FORGOTTEN = reviewRequest("feature-db", 305, 4, { title: "Migrate the schema" })
@@ -260,6 +261,11 @@ test.describe("Reviews view", () => {
     await expect(section(page, "team")).toHaveCount(0)
     await field.press("ArrowDown")
     await expect(entryRow(page, "reviewed", 202)).toBeFocused()
+
+    // a label of GitHub matches as the words of the row do
+    await field.fill("hotfix")
+    await expect(entryRow(page, "reviewed", 202)).toBeVisible()
+    await expect(section(page, "team")).toHaveCount(0)
 
     // words that match nothing: said, and Enter neither opens nor adds anything
     await field.fill("migrate")

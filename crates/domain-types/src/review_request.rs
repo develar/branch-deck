@@ -65,6 +65,23 @@ pub struct ReviewRequest {
   pub is_cross_repository: bool,
   /// The base is the default branch of the repository
   pub base_is_default: bool,
+  /// The names of its labels on GitHub, as its author or a maintainer set them: words of people, which nothing decides
+  /// by; empty without labels
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub labels: Vec<String>,
+}
+
+/// A row of the requests of Your Turn (`domain_policy::review_request_chains::request_rows`): one request, or a chain of
+/// requests each into the branch of the one below it, which shows as one stack
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum RequestRow {
+  /// A request alone
+  Single { number: u32 },
+  /// Two or more requests, the bottom first: the base of each but the bottom is the head of the one before it
+  Stack { layers: Vec<u32> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

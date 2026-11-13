@@ -1,7 +1,7 @@
 # Stacks of GitHub
 
 **Status:** Implemented
-**Updated:** 2026-10-30
+**Updated:** 2026-11-13
 **Tags:** [product, stacks, pull-requests, github]
 
 ## Problem
@@ -181,6 +181,14 @@ The fake GitHub of the tests holds the stacks (`FakeStack`) with GitHub's valida
 per pull request, each base the head below, no retarget of a member) and runs an asynchronous merge at once: the layers
 up to the merged one through the `Merger`, bottom first, the layer above into the base of the stack. It does not
 rebase that layer as GitHub does, and its stacks never close by themselves.
+
+### The stacks of others
+
+A stack another author opened reaches the user as review requests, one for each layer. Your Turn shows such a chain as
+one row (`domain_policy::review_request_chains`, [Review Requests](../../openspec/specs/repository/review-requests/spec.md#requirement-card-a-chain-of-requests-is-one-stack)):
+a request whose base is the head branch of another request is the layer above it. The names alone decide, without the
+`stack` fields of GitHub: a stack of GitHub is such a chain, and so is a chain an author pushed without one, as a lease
+of Branch Deck does for its parts. A branch two requests go into is no stack.
 
 ## Alternatives Considered
 

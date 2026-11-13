@@ -4,11 +4,15 @@ import {
   describeRequestActivity,
   formatOldestWaiting,
   formatRequestMeta,
+  formatStackMeta,
+  formatStackTitle,
   formatWaiting,
   hasWaitedWorkingDay,
   mergeReviewRequests,
+  pickVisibleGroups,
   pickVisibleRequests,
   repositoryOfPullRequestUrl,
+  requestGroups,
   reviewRequestKey,
   reviewRequestsSearchUrl,
 } from "@/lib/review-requests"
@@ -79,6 +83,44 @@ describe("order and rows", () => {
     // within the cap: the list itself
     const two = sorted.slice(0, 2)
     expect(pickVisibleRequests(two, new Set())).toBe(two)
+  })
+})
+
+describe("stacks", () => {
+  const numbersOf = (groups: ReturnType<typeof requestGroups>) => groups.map(group => (group.kind === "single" ? group.request.number : group.layers.map(it => it.number)))
+
+  it("groups the requests by the rows of the session, a stack with the layers a filter left", () => {
+    const requests = [979, 980, 981, 700].map(it => request(it))
+    const rows = [
+      { kind: "stack" as const, layers: [979, 980, 981] },
+      { kind: "single" as const, number: 700 },
+    ]
+    expect(numbersOf(requestGroups(rows, requests))).toEqual([[979, 980, 981], 700])
+    // filtered: the stack keeps its size, a stack with no layer left goes
+    const filtered = requestGroups(rows, [requests[1]!])
+    expect(filtered).toEqual([{ kind: "stack", key: "stack:979", layers: [requests[1]], size: 3 }])
+    expect(numbersOf(requestGroups([rows[0]!], [requests[3]!])), "a request no row names").toEqual([700])
+  })
+
+  it("shows a stack as one row of the three, unread with an unread layer", () => {
+    const groups = requestGroups(
+      [
+        { kind: "stack", layers: [1, 2, 3, 4] },
+        { kind: "single", number: 5 },
+        { kind: "single", number: 6 },
+        { kind: "single", number: 7 },
+      ],
+      [1, 2, 3, 4, 5, 6, 7].map(it => request(it)),
+    )
+    expect(numbersOf(pickVisibleGroups(groups, new Set()))).toEqual([[1, 2, 3, 4], 5, 6])
+    expect(numbersOf(pickVisibleGroups(groups, new Set([reviewRequestKey(request(7))])))).toEqual([[1, 2, 3, 4], 5, 7])
+  })
+
+  it("names a stack by its size, its bottom, its top and its author", () => {
+    expect(formatStackTitle(12)).toBe("Stack of 12 pull requests")
+    expect(formatStackMeta([request(979), request(980), request(991)])).toBe("#979–#991 · alice")
+    expect(formatStackMeta([request(979), request(980, { author: "bob" }), request(981, { author: null })])).toBe("#979–#981 · 2 authors")
+    expect(formatStackMeta([request(980)]), "a filter left one layer").toBe("#980 · alice")
   })
 })
 

@@ -1,6 +1,17 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { FactsChanges, FactsView, Intent, News, PatronusRobot, PullRequestAvailability, PullRequestReviewEvent, ReviewRequest, RunningOperation } from "@/lib/bindings"
+import type {
+  FactsChanges,
+  FactsView,
+  Intent,
+  News,
+  PatronusRobot,
+  PullRequestAvailability,
+  PullRequestReviewEvent,
+  RequestRow,
+  ReviewRequest,
+  RunningOperation,
+} from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { announce } from "@/lib/os-notification"
@@ -33,6 +44,8 @@ export interface RepositoryReviewRequests {
   readonly availability: PullRequestAvailability | null
   /** Waiting the longest first; kept when a refresh fails */
   readonly requests: readonly ReviewRequest[]
+  /** The rows of `requests` in their order, a chain of them as one stack (Rust's `RequestRow`s) */
+  readonly rows: readonly RequestRow[]
   /** All that wait, also beyond the 50 GitHub returns */
   readonly totalCount: number
   /** `Date.now()` of the last answer with the requests, 0 = never: the age of the rows after a failure */
@@ -65,6 +78,7 @@ export const reviewRequestsStore = createStore<ReviewRequestsState>(() => ({ rep
 const EMPTY: RepositoryReviewRequests = {
   availability: null,
   requests: [],
+  rows: [],
   totalCount: 0,
   checkedAt: 0,
   isRefreshing: false,
@@ -77,6 +91,11 @@ const EMPTY: RepositoryReviewRequests = {
 function useEntry<T>(select: (entry: RepositoryReviewRequests) => T): T {
   const repositoryPath = useSelectedProjectPath() ?? ""
   return useStore(reviewRequestsStore, state => select(state.repositories[repositoryPath] ?? EMPTY))
+}
+
+/** The rows of the requests of the selected repository (`RequestRow`), a stack as one; the same array while nothing changed */
+export function useReviewRequestRows(): readonly RequestRow[] {
+  return useEntry(entry => entry.rows)
 }
 
 /** The requests of the selected repository, waiting the longest first; the same array while nothing changed */
@@ -156,8 +175,13 @@ export function applyReviewRequestsFacts(repositoryPath: string, facts: FactsVie
     const requests = mergeReviewRequests(known.requests, part.requests)
     const keys = new Set(requests.map(reviewRequestKey))
     const unread = [...known.unread].every(key => keys.has(key)) ? known.unread : new Set([...known.unread].filter(key => keys.has(key)))
-    update(repositoryPath, { availability: part.head.value, requests, totalCount: part.totalCount, checkedAt: part.checkedAt * 1000, unread })
+    const rows = sameRows(known.rows, part.rows) ? known.rows : part.rows
+    update(repositoryPath, { availability: part.head.value, requests, rows, totalCount: part.totalCount, checkedAt: part.checkedAt * 1000, unread })
   }
+}
+
+function sameRows(a: readonly RequestRow[], b: readonly RequestRow[]): boolean {
+  return a.length === b.length && a.every((row, index) => JSON.stringify(row) === JSON.stringify(b[index]))
 }
 
 /**

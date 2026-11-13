@@ -224,17 +224,26 @@ function pullsUrl(repository: { owner: string; name: string }, query: string): s
 
 /**
  * The texts the filter of Reviews searches in a row of a section: what the row shows (its title, "#201", the author,
- * the meta and its hint of how the user takes part: the teams, the reviewers, "you approved") and its branches; never
+ * the meta and its hint of how the user takes part: the teams, the reviewers, "you approved"), its branches and its labels; never
  * the URL, whose words every row has
  */
 export function reviewEntryTexts(entry: ReviewEntry): string[] {
   const { request } = entry
-  return [request.title, `#${request.number}`, request.author ?? "", request.headRefName, request.baseRefName, formatReviewMeta(entry), formatReviewHint(entry)]
+  return [
+    request.title,
+    `#${request.number}`,
+    request.author ?? "",
+    request.headRefName,
+    request.baseRefName,
+    formatReviewMeta(entry),
+    formatReviewHint(entry),
+    ...(request.labels ?? []),
+  ]
 }
 
-/** The texts the filter of Reviews searches in a request of Your Turn: its title, "#101 · alice · requested by dave" and its branches */
+/** The texts the filter of Reviews searches in a request of Your Turn: its title, "#101 · alice · requested by dave", its branches and its labels */
 export function reviewRequestTexts(request: ReviewRequest): string[] {
-  return [request.title, formatRequestMeta(request), request.headRefName, request.baseRefName]
+  return [request.title, formatRequestMeta(request), request.headRefName, request.baseRefName, ...(request.labels ?? [])]
 }
 
 /** The texts the filter of Reviews searches in an own pull request a reviewer handed back: its title, its meta, its branch */

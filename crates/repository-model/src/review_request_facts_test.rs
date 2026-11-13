@@ -2,7 +2,7 @@ use crate::facts::{Observation, Seq};
 use crate::review_request_facts::ReviewRequestsFact;
 use domain_types::fixtures::review_request;
 use domain_types::pull_request::{PullRequestAvailability, TokenSource};
-use domain_types::review_request::{BackToYou, ReviewRequest, ReviewRequestsResult};
+use domain_types::review_request::{BackToYou, RequestRow, ReviewRequest, ReviewRequestsResult};
 use domain_types::session::{FactState, NewsEvent};
 use pretty_assertions::assert_eq;
 use std::time::Duration;
@@ -72,6 +72,39 @@ fn the_requests_wait_the_longest_first_and_a_new_one_is_news_once() {
   assert_eq!(numbers(&fact), vec![2, 4, 1, 5]);
   // an older listing changes nothing
   assert_eq!(fact.answer(at(2), available(Vec::new())), (false, None));
+}
+
+/// A chain of requests, each into the head branch of the one below, is one row of the view, its bottom first, at the
+/// place of its layer that waits the longest; a listing that breaks the chain gives each its own row, and a rejected
+/// token drops the rows with the requests
+#[test]
+fn a_chain_of_requests_is_one_row_of_the_view() {
+  let layer = |number: u32, waiting_since: u32, head: &str, base: &str| ReviewRequest {
+    head_ref_name: head.to_string(),
+    base_ref_name: base.to_string(),
+    base_is_default: base == "master",
+    ..review_request(number, waiting_since)
+  };
+  let mut fact = ReviewRequestsFact::default();
+  fact.answer(
+    at(1),
+    available(vec![
+      layer(980, 300, "parts/34", "parts/33"),
+      layer(979, 400, "parts/33", "master"),
+      layer(700, 350, "alice/fix", "master"),
+    ]),
+  );
+  assert_eq!(
+    fact.view().rows,
+    vec![RequestRow::Stack { layers: vec![979, 980] }, RequestRow::Single { number: 700 }],
+    "the stack at the place of #980, which waits the longest"
+  );
+
+  fact.answer(at(2), available(vec![layer(980, 300, "parts/34", "parts/33"), layer(700, 350, "alice/fix", "master")]));
+  assert_eq!(fact.view().rows, vec![RequestRow::Single { number: 980 }, RequestRow::Single { number: 700 }]);
+
+  fact.answer(at(3), ReviewRequestsResult::unavailable(PullRequestAvailability::SignedOut));
+  assert_eq!(fact.view().rows, Vec::<RequestRow>::new());
 }
 
 /// A failure of GitHub keeps the rows of the last listing, stale with why, and the age of the rows stays theirs; no

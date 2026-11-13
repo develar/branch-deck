@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, Ref } from "react"
 import { cn } from "cn"
 import { ExternalLinkIcon, GitPullRequestIcon, RefreshCwIcon, SettingsIcon, UserCheckIcon } from "lucide-react"
@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
-import { ReturnedPullRequestRow, ReviewRequestRow } from "@/components/repository/ReviewRequestRow"
+import { ReturnedPullRequestRow, ReviewRequestRow, ReviewStackHeader } from "@/components/repository/ReviewRequestRow"
 import { ReviewStatusLine } from "@/components/repository/ReviewStatusLine"
 import { FilteredOnGitHub } from "@/components/reviews/FilteredOnGitHub"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
@@ -21,7 +21,15 @@ import type { ReviewRequest } from "@/lib/bindings"
 import { neighbourRow } from "@/lib/branch-row-keys"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
-import { formatOldestWaiting, hasWaitedWorkingDay, pickVisibleRequests, repositoryOfPullRequestUrl, reviewRequestKey, reviewRequestsSearchUrl } from "@/lib/review-requests"
+import {
+  formatOldestWaiting,
+  hasWaitedWorkingDay,
+  pickVisibleGroups,
+  repositoryOfPullRequestUrl,
+  requestGroups,
+  reviewRequestKey,
+  reviewRequestsSearchUrl,
+} from "@/lib/review-requests"
 import { handleReviewRowKeys } from "@/lib/review-row-keys"
 import { openSettings } from "@/lib/settings-window"
 import { formatRelativeTime } from "@/lib/time"
@@ -33,6 +41,7 @@ import {
   openReviewRequest,
   refreshReviewRequests,
   useIsRefreshingReviewRequests,
+  useReviewRequestRows,
   useReviewRequests,
   useReviewRequestsAvailability,
   useReviewRequestsCheckedAt,
@@ -211,53 +220,92 @@ export interface YourTurnBodyProps {
 }
 
 /**
- * The rows (3, then "Show N More"; unread ones always), "50 of 63" while GitHub has more than it lists, expanded or
- * not, the returned pull requests, and while GitHub can't be asked the line that says why; filtered, every match
+ * The rows (3, then "Show N More"; unread ones always; a stack of requests one row, its layers under it once opened),
+ * "50 of 63" while GitHub has more than it lists, expanded or not, the returned pull requests, and while GitHub can't be
+ * asked the line that says why; filtered, every match, the stacks open
  */
 export function YourTurnBody({ requests, returned, repositoryPath, filterText = "" }: YourTurnBodyProps) {
   const unread = useUnreadReviewRequests()
   const totalCount = useReviewRequestsTotalCount()
+  const rows = useReviewRequestRows()
   const [isExpanded, setExpanded] = useState(false)
+  const [openStacks, setOpenStacks] = useState<ReadonlySet<string>>(() => new Set())
   const filtered = filterText.trim() !== ""
   const expanded = isExpanded && !filtered
-  const visible = expanded || filtered ? requests : pickVisibleRequests(requests, unread)
-  const hidden = requests.length - visible.length
+  const groups = requestGroups(rows, requests)
+  const visible = expanded || filtered ? groups : pickVisibleGroups(groups, unread)
+  const hidden = groups.length - visible.length
   // GitHub lists the 50 oldest: the count of the header is its total
   const moreOnGitHub = totalCount > requests.length
-  const [focused, setFocused] = useState<number | null>(null)
-  const tabStop = visible.some(it => it.number === focused) ? focused : visible[0]?.number
+  const isOpen = (key: string) => filtered || openStacks.has(key)
+  const setStackOpen = (key: string, open: boolean | "toggle") =>
+    setOpenStacks(previous => {
+      const next = new Set(previous)
+      if (open === true || (open === "toggle" && !previous.has(key))) {
+        next.add(key)
+      } else {
+        next.delete(key)
+      }
+      return next
+    })
+  // the keys of the shown rows, in their order: a stack's header, then its layers while it is open
+  const shownRows = visible.flatMap(group =>
+    group.kind === "single" ? [String(group.request.number)] : [group.key, ...(isOpen(group.key) ? group.layers.map(layer => String(layer.number)) : [])],
+  )
+  const [focused, setFocused] = useState<string | null>(null)
+  const tabStop = focused !== null && shownRows.includes(focused) ? focused : shownRows[0]
 
   const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) =>
     handleReviewRowKeys(
       event,
-      visible.map(it => it.number),
+      shownRows,
       {
         onEnter: number => openReviewRequest(repositoryPath, number),
         // D reviews the changes, as D in the review shows them
         onReview: number => openReviewRequest(repositoryPath, number, "review"),
         onOpen: number => {
-          const request = visible.find(it => it.number === number)
+          const request = requests.find(it => it.number === number)
           if (request !== undefined) {
             openRequestOnGitHub(request)
           }
         },
+        onStack: setStackOpen,
       },
       setFocused,
     )
 
+  const requestRow = (request: ReviewRequest, inStack: boolean) => (
+    <ReviewRequestRow
+      key={request.number}
+      request={request}
+      repositoryPath={repositoryPath}
+      unread={unread.has(reviewRequestKey(request))}
+      tabStop={String(request.number) === tabStop}
+      inStack={inStack}
+    />
+  )
   return (
     <div className="flex flex-col divide-y divide-border">
       {requests.length > 0 && (
         <ul aria-label="Pull requests waiting for your review" className="flex flex-col divide-y divide-border" data-testid="review-request-list" onKeyDown={handleKeyDown}>
-          {visible.map(request => (
-            <ReviewRequestRow
-              key={request.number}
-              request={request}
-              repositoryPath={repositoryPath}
-              unread={unread.has(reviewRequestKey(request))}
-              tabStop={request.number === tabStop}
-            />
-          ))}
+          {visible.map(group =>
+            group.kind === "single" ? (
+              requestRow(group.request, false)
+            ) : (
+              <Fragment key={group.key}>
+                <ReviewStackHeader
+                  stackKey={group.key}
+                  layers={group.layers}
+                  size={group.size}
+                  open={isOpen(group.key)}
+                  unread={group.layers.some(layer => unread.has(reviewRequestKey(layer)))}
+                  tabStop={group.key === tabStop}
+                  onOpenChange={open => setStackOpen(group.key, open)}
+                />
+                {isOpen(group.key) && group.layers.map(layer => requestRow(layer, true))}
+              </Fragment>
+            ),
+          )}
         </ul>
       )}
       {filtered

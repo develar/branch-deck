@@ -7250,6 +7250,16 @@ export type RepositoryView = {
 	news: News[],
 };
 
+/**
+ *  A row of the requests of Your Turn (`domain_policy::review_request_chains::request_rows`): one request, or a chain of
+ *  requests each into the branch of the one below it, which shows as one stack
+ */
+export type RequestRow = 
+/**  A request alone */
+{ kind: "single"; number: number } | 
+/**  Two or more requests, the bottom first: the base of each but the bottom is the head of the one before it */
+{ kind: "stack"; layers: number[] };
+
 /**  What GitHub did with a request for reviews of a pull request */
 export type RequestedReviewers = {
 	/**  The logins GitHub asked to review, as they were given */
@@ -7647,6 +7657,11 @@ export type ReviewRequest = {
 	isCrossRepository: boolean,
 	/**  The base is the default branch of the repository */
 	baseIsDefault: boolean,
+	/**
+	 *  The names of its labels on GitHub, as its author or a maintainer set them: words of people, which nothing decides
+	 *  by; empty without labels
+	 */
+	labels?: string[],
 };
 
 /**
@@ -7663,6 +7678,11 @@ export type ReviewRequestsView = {
 	 *  GitHub accepts or off GitHub
 	 */
 	requests: ReviewRequest[],
+	/**
+	 *  The rows of `requests` in their order: a chain of requests each into the branch of the one below is one stack
+	 *  (`domain_policy::review_request_chains`), at the place of its layer that waits the longest
+	 */
+	rows: RequestRow[],
 	/**  All that wait, also beyond the 50 GitHub returns */
 	totalCount: number,
 	/**  Unix seconds of the last answer with the requests, 0 = never: how old the rows are after a failure */

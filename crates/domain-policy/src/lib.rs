@@ -69,6 +69,8 @@
 //! - `refresh`: when a fact of the remote is asked again: the cadence of the robots of Patronus (the list, the poll, the
 //!   failing robots, the problems, the details), of the merge profiles, of the pull requests and the branch rules of
 //!   GitHub, of the review readiness and of the review requests, by the reason that asks and the clock of the session
+//! - `review_request_chains`: the stacks of the requests of Your Turn, a chain of requests each into the head branch of
+//!   the one below as one row (`request_rows`)
 //! - `reviews`: the sections of Reviews beside the requests by name, each open pull request the user takes part in once
 //!   (`sections`), and the links that go (`gone_links`)
 //! - `row_status`: the Status cell of a branch row (`row_status`): the main fact, work in flight first, and the
@@ -103,6 +105,7 @@ pub mod readiness;
 pub mod reasons;
 pub mod refresh;
 pub mod review;
+pub mod review_request_chains;
 pub mod reviewer_groups;
 pub mod reviews;
 pub mod robot_match;
@@ -153,6 +156,8 @@ mod readiness_test;
 mod reason_catalog_test;
 #[cfg(test)]
 mod refresh_test;
+#[cfg(test)]
+mod review_request_chains_test;
 #[cfg(test)]
 mod review_test;
 #[cfg(test)]

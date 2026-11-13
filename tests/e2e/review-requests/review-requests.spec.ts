@@ -207,6 +207,60 @@ test.describe("Your Turn card", () => {
     await expect(getReviewRow(page, 102)).toBeFocused()
   })
 
+  test("should show a chain of requests as one stack, its layers under it by a click and the keys, each with its labels", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // three layers, each into the branch of the one below, the bottom into master
+    const author = { author: "niyaz", baseIsDefault: false }
+    const bottom = reviewRequest("feature-docs", 201, 6, { title: "Record the session id", author: "niyaz", labels: ["refactoring"] })
+    const middle = reviewRequest("feature-auth", 202, 5, {
+      ...author,
+      title: "Drop workTreeRoot",
+      baseRefName: bottom.headRefName,
+      labels: ["refactoring", "proxy", "cleanup", "tests"],
+    })
+    const top = reviewRequest("JIRA-456", 203, 4, { ...author, title: "Count the recovered parts", baseRefName: middle.headRefName })
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, top, OLD, middle, bottom)
+    const card = getYourTurnCard(page)
+    const rows = card.getByTestId("review-request-row")
+    const stack = card.getByTestId("review-stack-row")
+    await expect(card.getByTestId("your-turn-count")).toHaveText("4")
+    // one row of the card, at the place of its layer that waits the longest; collapsed, its layers are not rows
+    await expect(stack.getByTestId("review-stack-title")).toHaveText("Stack of 3 pull requests")
+    await expect(stack.getByTestId("review-stack-meta")).toHaveText("#201–#203 · niyaz · +36 −9")
+    await expect(stack.getByTestId("review-request-age")).toHaveText("waiting 6 hours")
+    await expect(rows.getByTestId("review-request-title")).toHaveText(["Rework the session store"])
+    await expect(card.getByTestId("review-requests-show-more")).toHaveCount(0)
+
+    // a click shows the layers, the bottom first, under the header; a layer's base is the layer below, which it doesn't repeat
+    await stack.click()
+    await expect(stack).toHaveAttribute("aria-expanded", "true")
+    await expect(rows.getByTestId("review-request-title")).toHaveText(["Rework the session store", "Record the session id", "Drop workTreeRoot", "Count the recovered parts"])
+    await expect(getReviewRow(page, 202).getByTestId("review-request-meta")).toHaveText("#202 · niyaz · requested by dave · 2 files · +12 −3")
+    // the labels of GitHub, the first two and the count of the rest
+    await expect(getReviewRow(page, 201).getByTestId("review-request-label")).toHaveText(["refactoring"])
+    await expect(getReviewRow(page, 202).getByTestId("review-request-labels")).toHaveText("refactoringproxy+2")
+    await expect(getReviewRow(page, 203).getByTestId("review-request-labels")).toHaveCount(0)
+
+    // ← hides the layers, → shows them, Enter toggles; ↓ walks from the header into its layers
+    await stack.focus()
+    await page.keyboard.press("ArrowLeft")
+    await expect(stack).toHaveAttribute("aria-expanded", "false")
+    await expect(rows).toHaveCount(1)
+    await page.keyboard.press("ArrowRight")
+    await expect(rows).toHaveCount(4)
+    await page.keyboard.press("Enter")
+    await expect(stack).toHaveAttribute("aria-expanded", "false")
+    await page.keyboard.press("Enter")
+    await expect(stack).toHaveAttribute("aria-expanded", "true")
+    await page.keyboard.press("ArrowUp")
+    await expect(getReviewRow(page, 101)).toBeFocused()
+    await page.keyboard.press("ArrowDown")
+    await page.keyboard.press("ArrowDown")
+    await expect(getReviewRow(page, 201)).toBeFocused()
+    // a layer is a request: Enter reviews it
+    await page.keyboard.press("Enter")
+    expect((await openedReview<PullRequestReviewWindowData>(page, 1)).data.number).toBe(201)
+  })
+
   test("should list the own pull requests a reviewer handed back after the requests, show the branch and review it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", {
       reviewRequests: availableReviewRequests([OLD]),

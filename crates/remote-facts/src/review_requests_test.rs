@@ -31,6 +31,7 @@ const FIXTURE: &str = r#"{"data": {
       "viewerLatestReview": null,
       "latestReviews": {"nodes": [{"author": {"login": "bob"}, "state": "APPROVED"}, {"author": {"login": "dave"}, "state": "PENDING"}]},
       "reviewRequests": {"nodes": [{"requestedReviewer": {"__typename": "User", "login": "carol"}}, {"requestedReviewer": {"__typename": "Team"}}]},
+      "labels": {"nodes": [{"name": "refactoring"}, null, {"name": "proxy"}]},
       "timelineItems": {"nodes": [
         {"createdAt": "2026-10-05T07:34:27Z", "actor": {"login": "alice"}, "requestedReviewer": {"login": "bob"}},
         {"createdAt": "2026-10-06T10:00:00Z", "actor": {"login": "alice"}, "requestedReviewer": {"login": "carol"}},
@@ -186,6 +187,7 @@ async fn maps_the_review_requests_of_the_search() {
       base_ref_oid: "2222222222222222222222222222222222222222".to_string(),
       is_cross_repository: false,
       base_is_default: true,
+      labels: vec!["refactoring".to_string(), "proxy".to_string()],
     }
   );
 
@@ -200,6 +202,7 @@ async fn maps_the_review_requests_of_the_search() {
   assert!(re_requested.is_cross_repository);
   assert!(!re_requested.base_is_default);
   assert_eq!(re_requested.reviewers, [], "none listed");
+  assert_eq!(re_requested.labels, Vec::<String>::new(), "no labels asked of it");
 
   // no request event: waiting since the pull request was opened; a pending review does not count
   let pending = &result.requests[2];

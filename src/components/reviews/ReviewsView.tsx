@@ -124,7 +124,7 @@ export function ReviewsView({ visible, headingRef }: { visible: boolean; heading
   }
   const isOpen = (kind: string) => !(filtering ? filterCollapsed : collapsed).has(kind)
   const setOpen = (kind: string, open: boolean) => (filtering ? setFilterCollapsed : setCollapsed)(set => withMember(set, kind, !open))
-  const focusFirstRow = () => viewRef.current?.querySelector<HTMLElement>("[data-review-number], [data-returned-branch]")?.focus()
+  const focusFirstRow = () => viewRef.current?.querySelector<HTMLElement>("[data-review-row], [data-returned-branch]")?.focus()
 
   // "Add pull request by link or #number": Rust reads it (`link_pull_request`) and keeps an open one; the review window
   // opens on it. A refusal is said under the field, not in a toast
@@ -500,7 +500,7 @@ function ReviewSectionCard({
   const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) =>
     handleReviewRowKeys(
       event,
-      visible.map(entry => entry.request.number),
+      visible.map(entry => String(entry.request.number)),
       {
         onEnter: number => {
           const entry = entryOf(number)
@@ -516,7 +516,7 @@ function ReviewSectionCard({
           }
         },
       },
-      setFocused,
+      row => setFocused(Number(row)),
     )
   return (
     <CollapsibleCard

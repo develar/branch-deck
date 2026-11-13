@@ -30,7 +30,7 @@ use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusR
 use crate::pull_request::{BranchRules, MergeMethods, PullRequest, PullRequestAvailability, PullRequestView, ViewerPermission};
 use crate::reason::Reason;
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
-use crate::review_request::{ReviewEntry, ReviewRequest};
+use crate::review_request::{RequestRow, ReviewEntry, ReviewRequest};
 use crate::rewrite::TableWitness;
 use crate::sign_in::AuthStatus;
 use crate::stack::{BranchStack, StackBranchUpdate};
@@ -573,6 +573,9 @@ pub struct ReviewRequestsView {
   /// Waiting the longest first, then by number; those of the last listing, kept through a failure, none without a token
   /// GitHub accepts or off GitHub
   pub requests: Vec<ReviewRequest>,
+  /// The rows of `requests` in their order: a chain of requests each into the branch of the one below is one stack
+  /// (`domain_policy::review_request_chains`), at the place of its layer that waits the longest
+  pub rows: Vec<RequestRow>,
   /// All that wait, also beyond the 50 GitHub returns
   pub total_count: u32,
   /// Unix seconds of the last answer with the requests, 0 = never: how old the rows are after a failure

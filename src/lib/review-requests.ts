@@ -1,4 +1,4 @@
-import type { PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
+import type { PullRequestReviewEvent, RequestRow, ReviewRequest } from "@/lib/bindings"
 import { cutList } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 
@@ -120,22 +120,98 @@ export function mergeReviewRequests(previous: readonly ReviewRequest[], incoming
   return next.length === previous.length && next.every((request, index) => request === previous[index]) ? previous : next
 }
 
-/**
- * The rows the card shows before "Show N More": the oldest `cap`, and every unread request on top of them, in their
- * order; an unread request takes the place of a read one while the rows are full, so a poll doesn't grow the list. The
- * named exception to the cut rule of `cutList`: "Show 1 More" stays, a fourth row would come and go with the polls
- */
-export function pickVisibleRequests(sorted: readonly ReviewRequest[], unread: ReadonlySet<string>, cap: number = VISIBLE_ROW_CAP): readonly ReviewRequest[] {
-  const unreadCount = sorted.filter(request => unread.has(reviewRequestKey(request))).length
-  let readSlots = Math.max(0, cap - unreadCount)
-  const visible = sorted.filter(request => {
-    if (unread.has(reviewRequestKey(request))) {
-      return true
+/** A row of the card: a request alone, or the requests of a stack Rust found (`RequestRow`), the bottom first */
+export type RequestGroup =
+  | { readonly kind: "single"; readonly request: ReviewRequest }
+  | {
+      readonly kind: "stack"
+      /** The row's key, by its bottom layer: "stack:979" */
+      readonly key: string
+      /** The layers of `requests` (all of them, or those a filter matched), the bottom first */
+      readonly layers: readonly ReviewRequest[]
+      /** All layers of the stack, also those a filter left out */
+      readonly size: number
     }
-    return readSlots-- > 0
-  })
+
+/**
+ * The groups of `requests` (all, or those a filter matched) by the rows of the session (`rows`, in their order): a stack
+ * with none of its layers left goes; a request no row names (rows behind the requests) is a row of its own at the end
+ */
+export function requestGroups(rows: readonly RequestRow[], requests: readonly ReviewRequest[]): readonly RequestGroup[] {
+  const byNumber = new Map(requests.map(request => [request.number, request]))
+  const groups: RequestGroup[] = []
+  for (const row of rows) {
+    if (row.kind === "single") {
+      const request = byNumber.get(row.number)
+      if (request !== undefined) {
+        byNumber.delete(row.number)
+        groups.push({ kind: "single", request })
+      }
+      continue
+    }
+    const layers = row.layers.flatMap(number => byNumber.get(number) ?? [])
+    if (layers.length > 0) {
+      row.layers.forEach(number => byNumber.delete(number))
+      groups.push({ kind: "stack", key: `stack:${row.layers[0]}`, layers, size: row.layers.length })
+    }
+  }
+  for (const request of byNumber.values()) {
+    groups.push({ kind: "single", request })
+  }
+  return groups
+}
+
+/** The requests of a group */
+export function requestsOf(group: RequestGroup): readonly ReviewRequest[] {
+  return group.kind === "single" ? [group.request] : group.layers
+}
+
+/**
+ * The rows the card shows before "Show N More": the oldest `cap`, and every unread row on top of them, in their order;
+ * an unread row takes the place of a read one while the rows are full, so a poll doesn't grow the list. The named
+ * exception to the cut rule of `cutList`: "Show 1 More" stays, a fourth row would come and go with the polls
+ */
+function pickVisible<T>(sorted: readonly T[], isUnread: (row: T) => boolean, cap: number): readonly T[] {
+  const unreadCount = sorted.filter(isUnread).length
+  let readSlots = Math.max(0, cap - unreadCount)
+  const visible = sorted.filter(row => isUnread(row) || readSlots-- > 0)
   return visible.length === sorted.length ? sorted : visible
 }
+
+/** The requests the card shows before "Show N More" (`pickVisible`), unread by `unread` (`reviewRequestKey`s) */
+export function pickVisibleRequests(sorted: readonly ReviewRequest[], unread: ReadonlySet<string>, cap: number = VISIBLE_ROW_CAP): readonly ReviewRequest[] {
+  return pickVisible(sorted, request => unread.has(reviewRequestKey(request)), cap)
+}
+
+/** The rows the card shows before "Show N More" (`pickVisible`): a stack is one row, unread with an unread layer */
+export function pickVisibleGroups(sorted: readonly RequestGroup[], unread: ReadonlySet<string>, cap: number = VISIBLE_ROW_CAP): readonly RequestGroup[] {
+  return pickVisible(sorted, group => requestsOf(group).some(request => unread.has(reviewRequestKey(request))), cap)
+}
+
+/** "Stack of 12 pull requests" */
+export function formatStackTitle(size: number): string {
+  return `Stack of ${size} pull requests`
+}
+
+/**
+ * "#979–#991 · alice": the start of the muted meta of a stack, its bottom and its top, then its author, or "3 authors"
+ * when several opened its layers
+ */
+export function formatStackMeta(layers: readonly ReviewRequest[]): string {
+  const bottom = layers[0]!
+  const top = layers.at(-1)!
+  const authors = new Set(layers.flatMap(layer => layer.author ?? []))
+  const parts = [bottom === top ? `#${bottom.number}` : `#${bottom.number}–#${top.number}`]
+  if (authors.size === 1) {
+    parts.push([...authors][0]!)
+  } else if (authors.size > 1) {
+    parts.push(`${authors.size} authors`)
+  }
+  return parts.join(" · ")
+}
+
+/** The labels a row shows before the rest: one more is shown too (`cutList`) */
+export const SHOWN_LABELS = 2
 
 /** `owner/name` of a pull request URL (`https://github.com/acme/monorepo/pull/12`); null for another URL */
 export function repositoryOfPullRequestUrl(url: string): { owner: string; name: string } | null {

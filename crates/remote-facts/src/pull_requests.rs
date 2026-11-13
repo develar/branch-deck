@@ -374,8 +374,8 @@ struct GhRollup {
 }
 
 #[derive(Debug, Deserialize)]
-struct GhLabel {
-  name: Option<String>,
+pub(crate) struct GhLabel {
+  pub(crate) name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

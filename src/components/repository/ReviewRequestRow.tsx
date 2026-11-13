@@ -1,7 +1,8 @@
 import { memo } from "react"
 import type { MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
-import { ExternalLinkIcon, FileDiffIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronRightIcon, ExternalLinkIcon, FileDiffIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -24,8 +25,9 @@ import { isMac } from "@/lib/platform"
 import { openPullRequest } from "@/lib/pull-request"
 import type { ReviewSource } from "@/lib/pull-request-review"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
-import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
+import { SHOWN_LABELS, formatRequestMeta, formatStackMeta, formatStackTitle, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
 import { openBranchReviewWindow } from "@/lib/review-window"
+import { cutList } from "@/lib/text"
 import { useRowPart } from "@/model/store"
 import type { OperationWords } from "@/presenters/operations"
 import { useBranchSync } from "@/stores/branch-sync"
@@ -58,6 +60,8 @@ export interface ReviewRequestRowProps {
   onShowBranch?: () => void
   /** A pull request the user added by its link leaves Reviews */
   onRemoveFromReviews?: () => void
+  /** A layer of a stack under its header: indented, its base the layer below it, which the header says */
+  inStack?: boolean
 }
 
 /** The actions of the pull request `number` as Rust decides them */
@@ -119,6 +123,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
   age,
   onShowBranch,
   onRemoveFromReviews,
+  inStack = false,
 }: ReviewRequestRowProps) {
   const actions = usePullRequestActions(request.number)
   const busy = useReviewAction(request.number)
@@ -146,7 +151,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
           <LineCounts additions={request.additions} deletions={request.deletions} colored={false} />
         </>
       )}
-      {!request.baseIsDefault && ` · → ${request.baseRefName}`}
+      {!request.baseIsDefault && !inStack && ` · → ${request.baseRefName}`}
     </span>
   )
   return (
@@ -155,11 +160,15 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
         render={
           <li
             data-testid="review-request-row"
+            data-review-row={request.number}
             data-review-number={request.number}
             data-unread={unread || undefined}
             tabIndex={tabStop ? 0 : -1}
             aria-label={`Review #${request.number} ${request.title}`}
-            className="group flex h-9 animate-in cursor-pointer items-center gap-2 px-4 text-sm duration-150 fade-in-0 outline-none bd-focus-inset hover:bg-muted focus-visible:bd-focus sm:px-6"
+            className={cn(
+              "group flex h-9 animate-in cursor-pointer items-center gap-2 px-4 text-sm duration-150 fade-in-0 outline-none bd-focus-inset hover:bg-muted focus-visible:bd-focus sm:px-6",
+              inStack && "pl-10 sm:pl-12",
+            )}
             onClick={onClick}
           />
         }
@@ -169,6 +178,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
         <span className="min-w-0 truncate font-medium" data-testid="review-request-title">
           <PullRequestTitle title={request.title} lead={request.titleLead} />
         </span>
+        <RequestLabels labels={request.labels ?? []} />
         {hint === "" ? (
           metaLine
         ) : (
@@ -210,6 +220,86 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
     </ContextMenu>
   )
 })
+
+export interface ReviewStackHeaderProps {
+  /** The key of the stack ("stack:979") */
+  stackKey: string
+  /** Its layers the list shows, the bottom first */
+  layers: readonly ReviewRequest[]
+  /** All its layers, also those a filter left out */
+  size: number
+  open: boolean
+  /** A layer is unread */
+  unread: boolean
+  /** The row the list's focus is on: the one tab stop of the list */
+  tabStop: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+/**
+ * The header of a stack of requests, each into the branch of the one below (Rust's `RequestRow`), one 36 px line as a
+ * request: its chevron, "Stack of 12 pull requests" and the unread dot of its layers, the muted meta ("#979–#991 · alice · +120 −30",
+ * the base of its bottom when it is not the default branch), how long its longest waiting layer waits. A click, Enter
+ * and → show its layers under it, ← hides them; collapsed it is one row of the card
+ */
+export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, layers, size, open, unread, tabStop, onOpenChange }: ReviewStackHeaderProps) {
+  const bottom = layers[0]!
+  const oldest = layers.reduce((first, layer) => (layer.waitingSince < first.waitingSince ? layer : first))
+  const additions = layers.reduce((sum, layer) => sum + layer.additions, 0)
+  const deletions = layers.reduce((sum, layer) => sum + layer.deletions, 0)
+  const Chevron = open ? ChevronDownIcon : ChevronRightIcon
+  return (
+    <li
+      data-testid="review-stack-row"
+      data-review-row={stackKey}
+      data-review-stack={stackKey}
+      data-unread={unread || undefined}
+      tabIndex={tabStop ? 0 : -1}
+      aria-expanded={open}
+      aria-label={`${formatStackTitle(size)} ${formatStackMeta(layers)}`}
+      className="group flex h-9 animate-in cursor-pointer items-center gap-2 px-4 text-sm duration-150 fade-in-0 outline-none bd-focus-inset hover:bg-muted focus-visible:bd-focus sm:px-6"
+      onClick={() => onOpenChange(!open)}
+    >
+      {/* the chevron in the place of the unread dot: the titles line up */}
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        <Chevron aria-hidden className="size-3.5 text-muted-foreground" />
+      </span>
+      <span className="min-w-0 truncate font-medium" data-testid="review-stack-title">
+        {formatStackTitle(size)}
+      </span>
+      {unread && <UnreadDot unread />}
+      <span className="hidden min-w-0 shrink-[1000] truncate text-xs text-muted-foreground sm:inline" data-testid="review-stack-meta">
+        {`${formatStackMeta(layers)} · `}
+        <LineCounts additions={additions} deletions={deletions} colored={false} />
+        {!bottom.baseIsDefault && ` · → ${bottom.baseRefName}`}
+      </span>
+      <span className="ml-auto flex shrink-0 items-center gap-2">
+        <WaitingAge waitingSince={oldest.waitingSince} reRequested={oldest.reRequested} backToYou={oldest.backToYou} />
+      </span>
+    </li>
+  )
+})
+
+/**
+ * The labels of the pull request on GitHub, muted chips after the title (the first two, then "+3"), which give way with
+ * the meta: the words of its author, which nothing decides by
+ */
+function RequestLabels({ labels }: { labels: readonly string[] }) {
+  if (labels.length === 0) {
+    return null
+  }
+  const { shown, more } = cutList(labels, SHOWN_LABELS)
+  return (
+    <span className="hidden min-w-0 shrink-[1000] items-center gap-1 overflow-hidden sm:flex" data-testid="review-request-labels">
+      {shown.map(label => (
+        <Badge key={label} variant="secondary" className="h-4 px-1.5 text-muted-foreground" data-testid="review-request-label">
+          {label}
+        </Badge>
+      ))}
+      {more > 0 && <span className="text-xs text-muted-foreground">{`+${more}`}</span>}
+    </span>
+  )
+}
 
 /**
  * The node of a branch of the table, as its row has it, its hover the row's: where the branch is on its way into

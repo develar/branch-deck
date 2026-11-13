@@ -1,6 +1,7 @@
 //! The pull requests of others that wait for the user's review ("Your Turn", openspec/specs/repository/review-requests/spec.md)
 //! as a fact of the session (`ReviewRequestsFact`, the part `facts.reviewRequests` of the view): each listing replaces
-//! the requests, waiting the longest first; a failure of GitHub keeps them (`Stale`), no token, a token GitHub rejects
+//! the requests, waiting the longest first, a chain of them as one stack (`rows`,
+//! `domain_policy::review_request_chains`); a failure of GitHub keeps them (`Stale`), no token, a token GitHub rejects
 //! and a repository not on GitHub drop them. A listing tells the requests new since the listing before (`News`,
 //! `domain_policy::news::review_requested`): a number and request time it lacked, a re-request too, never a request back
 //! to the user after their answer; the first
@@ -19,6 +20,7 @@
 use crate::facts::{Observation, seed_head};
 use crate::pull_request_facts::availability_error;
 use domain_policy::news::{request_key, review_requested, tells_after};
+use domain_policy::review_request_chains::request_rows;
 use domain_types::patronus::{ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewsAnswer};
@@ -75,6 +77,7 @@ impl ReviewRequestsFact {
     if self.view.head.state == FactState::Cached && !matches!(result.availability, PullRequestAvailability::Available { .. }) {
       // no listing of this process stands behind the requests of the frame of an earlier run
       self.view.requests = Vec::new();
+      self.view.rows = Vec::new();
       self.view.total_count = 0;
       self.view.checked_at = 0;
     }
@@ -100,6 +103,7 @@ impl ReviewRequestsFact {
           self.reviews_checked_at = observation.observed_at;
         }
         self.view.total_count = total_count.max(u32::try_from(requests.len()).unwrap_or(u32::MAX));
+        self.view.rows = request_rows(&requests);
         self.view.requests = requests;
         self.view.checked_at = observation.observed_at;
         FactState::Fresh
@@ -107,6 +111,7 @@ impl ReviewRequestsFact {
       // the rows go: nothing waits for a user GitHub doesn't know, nor off GitHub
       PullRequestAvailability::NotGitHub | PullRequestAvailability::SignedOut | PullRequestAvailability::NotAuthenticated { .. } => {
         self.view.requests = Vec::new();
+        self.view.rows = Vec::new();
         self.view.total_count = 0;
         self.answered = Vec::new();
         self.reviews.value = None;

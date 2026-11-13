@@ -52,6 +52,10 @@ describe("the filter of Reviews", () => {
     expect(matches(own, "approved by dave")).toBe(true)
     expect(matches(own, "release-261")).toBe(true)
     expect(matches(own, "feature-docs")).toBe(true)
+
+    // the labels of GitHub, of a request by name too
+    expect(matches(reviewEntryTexts({ ...TEAM, request: { ...TEAM.request, labels: ["refactoring"] } }), "refactor")).toBe(true)
+    expect(matches(reviewRequestTexts(reviewRequest(101, { labels: ["hotfix"] })), "hotfix")).toBe(true)
   })
 
   it("matches a request by name by who asked, and a returned pull request by who handed it back and its branch", () => {

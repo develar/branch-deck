@@ -35,6 +35,7 @@ macro_rules! review_pull_fragment {
   statusCheckRollup { state }
   viewerLatestReview { state submittedAt commit { oid } }
   latestReviews(first: 100) { nodes { author { login } state } }
+  labels(first: 20) { nodes { name } }
   reviewRequests(first: 100) { nodes { requestedReviewer { __typename ... on User { login }",
       $team,
       " } } }

@@ -34,6 +34,10 @@ describe("the stores of the facts of a window's session", () => {
     const reviewRequests = {
       head: { value: { status: "available" as const, owner: "acme", name: "monorepo" }, state: { kind: "fresh" as const }, seq: 1, observedAt: 1_000_000 },
       requests: [request(1), request(2)],
+      rows: [
+        { kind: "single" as const, number: 1 },
+        { kind: "single" as const, number: 2 },
+      ],
       totalCount: 2,
       checkedAt: 1_000_000,
     }

@@ -41,7 +41,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
-pub const FRAME_SCHEMA: u32 = 13;
+pub const FRAME_SCHEMA: u32 = 14;
 
 /// The frame of a session (the module's header)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

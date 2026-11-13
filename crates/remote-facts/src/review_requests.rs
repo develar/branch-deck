@@ -2,7 +2,7 @@
 //! GraphQL search: requested by name only (`user-review-requested:@me`), not through a team. Like `pull_requests.rs`,
 //! every failure is an availability, not an error.
 
-use crate::pull_requests::{GhReview as GhLatestReview, GhReviewRequestNode, Nodes, availability_of, collect_reviewers, parse_review_decision, visible_data};
+use crate::pull_requests::{GhLabel, GhReview as GhLatestReview, GhReviewRequestNode, Nodes, availability_of, collect_reviewers, parse_review_decision, visible_data};
 use crate::reviews::{reviews_answer, reviews_query, reviews_searches};
 use domain_types::pull_request::{ChecksState, PullRequestAvailability, Reviewer, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, BackToYou, ReviewRequest, ReviewRequestsResult, ReviewsAsk};
@@ -52,6 +52,7 @@ macro_rules! review_requests_body {
         }
         latestReviews(first: 100) { nodes { author { login } state } }
         reviewRequests(first: 100) { nodes { requestedReviewer { __typename ... on User { login } } } }
+        labels(first: 20) { nodes { name } }
       }
     }
   }
@@ -59,7 +60,7 @@ macro_rules! review_requests_body {
   };
 }
 
-/// The search costs 2 points of the 5000 an hour (1 + 4 × 50 connections, by the hundred). `last: 20` review requests
+/// The search costs 3 points of the 5000 an hour (1 + 5 × 50 connections, by the hundred). `last: 20` review requests
 /// reach the newest one of the user also on a pull request that asked many reviewers one by one; `activity`, a timeline
 /// of its own so that bot comments don't push the requests out, tells whether the user answered with a comment and the
 /// other side moved since; the latest reviews and the requested users are the reviewers the readiness of a request is
@@ -274,6 +275,7 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
     base_ref_name: node.base_ref_name.unwrap_or_default(),
     base_ref_oid: node.base_ref_oid.unwrap_or_default(),
     is_cross_repository: node.is_cross_repository.unwrap_or(false),
+    labels: Nodes::into_nodes(node.labels).into_iter().filter_map(|label| label.name).collect(),
   }
 }
 
@@ -431,6 +433,7 @@ pub(crate) struct GhPullRequest {
   viewer_latest_review: Option<GhReview>,
   timeline_items: Option<GhTimeline>,
   activity: Option<GhActivityTimeline>,
+  labels: Option<Nodes<GhLabel>>,
 }
 
 #[derive(Debug, Deserialize)]
