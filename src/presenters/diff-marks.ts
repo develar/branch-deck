@@ -66,7 +66,14 @@ export interface RemarkFacts {
    * lines of its other end, [start, end), the blank lines that moved with the move among them; of a move between two
    * files of the subject the file of that other end (`file`); null for a run
    */
-  readonly move: { readonly at: "source" | "destination"; readonly move: LineMove; readonly other: readonly [number, number]; readonly file?: OtherFile | null } | null
+  readonly move: {
+    readonly at: "source" | "destination"
+    readonly move: LineMove
+    readonly other: readonly [number, number]
+    readonly file?: OtherFile | null
+    /** Of a declaration the index says moved whole between files, its name; null or absent for a row of the same lines */
+    readonly declaration?: string | null
+  } | null
   /**
    * Of the note of the renames a view names at a block: the renames, worded as a list of the app is (the first, two of
    * two, the others counted from three on), and the old lines of the quiet runs the note opens, [start, end) each;
@@ -79,13 +86,14 @@ export interface RemarkFacts {
  * A rename as a note words it: the two spellings of the name and how many places of the file hold it (`Rename`), and
  * what the subject says of it: what the index of the repository proved of its uses (`proof`; null or absent where it
  * was not asked), of a name another file of the subject declares that file and the line of the declaration there,
- * from 0 (`declared`; null or absent for a name the file declares), and of a name the file declares that is not local
- * the places that hold it in the files of the subject, this one among them, and the files they are in (`across`;
- * null or absent else)
+ * from 0 (`declared`; null or absent for a name the file declares), of the owner of a declaration that moved whole
+ * under another owner the name of that declaration (`declared.moved`) and where it stands now, and of a name the file
+ * declares that is not local the places that hold it in the files of the subject, this one among them, and the files
+ * they are in (`across`; null or absent else)
  */
 export type RenamedName = Pick<Rename, "old" | "new" | "sites"> & {
   readonly proof?: RenameProof | null
-  readonly declared?: { readonly file: OtherFile; readonly line: number } | null
+  readonly declared?: { readonly file: OtherFile; readonly line: number; readonly moved?: string | null } | null
   readonly across?: { readonly sites: number; readonly files: number } | null
 }
 
@@ -114,8 +122,9 @@ export interface ReachWords {
   /**
    * Of a name another file declares: "declared in Store.kt", whether the view can show the declaration (`jump`: the
    * words are a button, else plain), and what the words say in full, the name of that button ("Go to the declaration
-   * of connectStore in src/Store.kt") or the hover of the plain words ("connectStore is declared in src/Store.kt");
-   * null for a name the file declares
+   * of connectStore in src/Store.kt") or the hover of the plain words ("connectStore is declared in src/Store.kt"); of
+   * the owner of a declaration that moved under another owner, where that declaration went: "title moved to
+   * Report.kt" ("Go to title in src/Report.kt", "title stands in src/Report.kt now"). Null for a name the file declares
    */
   readonly declared: { readonly words: string; readonly name: string; readonly jump: boolean } | null
   /** What the index proved of its uses (`RenameProof`), for a test and a style; null where it was not asked */
@@ -215,17 +224,24 @@ function reachOf(rename: RenamedName, at: number, several: boolean): ReachWords 
   if (file === undefined && said === "") {
     return null
   }
+  const moved = rename.declared?.moved
   return {
     rename: at,
     of: several ? rename.new : null,
     declared:
       file === undefined
         ? null
-        : {
-            words: `declared in ${file.name}`,
-            name: file.shown ? `Go to the declaration of ${rename.new} in ${file.path}` : `${rename.new} is declared in ${file.path}`,
-            jump: file.shown,
-          },
+        : moved != null
+          ? {
+              words: `${moved} moved to ${file.name}`,
+              name: file.shown ? `Go to ${moved} in ${file.path}` : `${moved} stands in ${file.path} now`,
+              jump: file.shown,
+            }
+          : {
+              words: `declared in ${file.name}`,
+              name: file.shown ? `Go to the declaration of ${rename.new} in ${file.path}` : `${rename.new} is declared in ${file.path}`,
+              jump: file.shown,
+            },
     proof: rename.proof ?? null,
     said,
   }
@@ -239,10 +255,12 @@ function reachSentence(reach: ReachWords): string {
 /**
  * The words of the note before a run of lines, "Formatting only · 3 lines", at an end of a move: where the lines
  * left "14 lines moved to line 210", where they stand now "Moved from line 120 · re-indented · 1 line edited", of a
- * move between two files "Moved to Report.kt:12" and "Moved from Ledger.kt:40", or of the renames named at a block:
+ * move between two files "Moved to Report.kt:12" and "Moved from Ledger.kt:40", of a declaration the index says moved
+ * whole "Moved reportTitle to Report.kt:12" and "Moved reportTitle from Ledger.kt:40", or of the renames named at a block:
  * "Renamed total → sum · 12 sites", two of them both ("Renamed total → sum · 12 sites · count → size · 3 sites"), of
  * three or more the first and the count of the others, "and 2 more" (`cutList`), then what the subject says of each
- * ("declared in Store.kt · all uses in this change"); a name the file declares and other files of the subject use
+ * ("declared in Store.kt · all uses in this change"), of the owner of a declaration that moved under another owner
+ * "Follows a move Ledger → Report · 1 site · title moved to Report.kt"; a name the file declares and other files of the subject use
  * counts the places of all of them ("Renamed openStore → connectStore · 30 sites in 4 files"); and what its buttons do. A line is named by its number in its
  * text, from 1: the first line of the other end, the blank lines that moved with the move among them
  */
@@ -266,9 +284,14 @@ export function presentRemark(remark: RemarkFacts): RemarkWords {
     const counted = told.slice(shown.length)
     const said = counted.map(sentence).join("; ")
     const more = rest === 0 ? null : { words: `and ${rest} more`, names: counted.map(line).join("\n"), said: `: ${said}` }
-    const name = [`Renamed ${sentence(told[0]!)}`, ...told.slice(1, shown.length).map(it => `and ${sentence(it)}`), ...(more === null ? [] : [`${more.words}: ${said}`])].join(", ")
+    // the owner of declarations that moved under another owner is no rename: the change wrote the new owner in front
+    // of their uses
+    const label = renames.every(it => it.declared?.moved != null) ? "Follows a move" : "Renamed"
+    const name = [`${label} ${sentence(told[0]!)}`, ...told.slice(1, shown.length).map(it => `and ${sentence(it)}`), ...(more === null ? [] : [`${more.words}: ${said}`])].join(
+      ", ",
+    )
     return {
-      label: "Renamed",
+      label,
       renamed: shown.map(it => ({ old: it.old, new: it.new, sites: sitesOf(it) })),
       target: null,
       detail: "",
@@ -283,21 +306,24 @@ export function presentRemark(remark: RemarkFacts): RemarkWords {
     const detail = lineCount(newEnd - newStart)
     return { label, renamed: null, target: null, detail, more: null, reach: [], name: `${label}, ${detail}`, toggle }
   }
-  const { at, move, other, file } = remark.move
+  const { at, move, other, file, declaration } = remark.move
   // the first line of the other end, as a reader counts
   const line = other[0] + 1
   if (file != null) {
     // a move between two files: every line of it shows at both ends, so the note counts none; the place is the file and the line
+    // of a declaration that moved whole: its name, and where it is the declaration that stands there
+    const what = declaration == null ? "the lines" : declaration
     const words = `${at === "source" ? "to" : "from"} ${file.name}:${line}`
-    const where = `ine ${line} of ${file.path}, where the lines ${at === "source" ? "stand now" : "were"}`
+    const where = `ine ${line} of ${file.path}, where ${what} ${at === "source" ? (declaration == null ? "stand now" : "stands now") : declaration == null ? "were" : "was"}`
+    const label = declaration == null ? "Moved" : `Moved ${declaration}`
     return {
-      label: "Moved",
+      label,
       renamed: null,
       target: { words, name: file.shown ? `Go to l${where}` : `L${where}`, jump: file.shown },
       detail: "",
       more: null,
       reach: [],
-      name: `Moved ${at === "source" ? "to" : "from"} line ${line} of ${file.path}`,
+      name: `${label} ${at === "source" ? "to" : "from"} line ${line} of ${file.path}`,
       toggle,
     }
   }

@@ -443,6 +443,8 @@ pub enum RepositoryTemplate {
   CommitWhitespace,
   #[serde(rename = "commit_marks")]
   CommitMarks,
+  #[serde(rename = "declaration_moves")]
+  DeclarationMoves,
   #[serde(rename = "review_whitespace")]
   ReviewWhitespace,
   #[serde(rename = "symbol_navigation")]
@@ -554,6 +556,7 @@ impl RepositoryTemplate {
       Self::CommitManyFiles => "commit_many_files",
       Self::CommitWhitespace => "commit_whitespace",
       Self::CommitMarks => "commit_marks",
+      Self::DeclarationMoves => "declaration_moves",
       Self::ReviewWhitespace => "review_whitespace",
       Self::SymbolNavigation => "symbol_navigation",
       Self::RepeatedEdit => "repeated_edit",

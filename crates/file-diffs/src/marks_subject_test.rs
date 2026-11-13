@@ -5,11 +5,11 @@
 use crate::bindings::CodeSymbolBindings;
 use crate::marks_test::MarkedDiff;
 use code_tokens::tokens;
-use diff_marks::index::{Access, RenameAnswer, RenameConflict, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
+use diff_marks::index::{Access, DeclaredAt, MovedDeclaration, MovesAnswer, RenameAnswer, RenameConflict, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
 use diff_marks::leftovers::{Leftovers, PendingBlock, PendingRun};
 use diff_marks::marks::{is_quiet, marks_of, pair_grammar, pair_indented, without_moved_lines};
 use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject, as_confirmed};
-use diff_marks::model::{DiffMarks, FileMove, RenameProof, SubjectMarks};
+use diff_marks::model::{DeclarationMove, DiffMarks, FileMove, RenameProof, SubjectMarks};
 use line_diff::model::{BlockKind, DiffBudget, LineMove, LineRun, RunKind, diff_texts};
 use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
@@ -101,6 +101,12 @@ impl Case {
     (subject.marks(answer), subject.questions().to_vec())
   }
 
+  /// The marks of each file, the index answering no rename and `moves` of the declarations the change moved whole
+  fn moved(&self, moves: &MovesAnswer) -> Vec<Option<DiffMarks>> {
+    let facts = self.facts();
+    Subject::with_moves(&facts, moves).marks(IndexAnswer::Unavailable)
+  }
+
   /// What the subject says of the file `index`
   fn subject(&self, answer: IndexAnswer<'_>, index: usize) -> SubjectMarks {
     let subject = self.marks(answer).0[index].clone().and_then(|marks| marks.subject);
@@ -140,14 +146,14 @@ impl Case {
     RenameAnswer {
       unavailable: false,
       same: true,
+      renamed: true,
       complete: true,
       old: kotlin(),
       new: kotlin(),
       base: uses(base),
       head: uses(head),
-      conflicts: Vec::new(),
-      cut: None,
       is_final: true,
+      ..RenameAnswer::default()
     }
   }
 }
@@ -188,6 +194,17 @@ fn moved_title() -> Case {
   ])
 }
 
+/// The runs, the moves, the renames and the starts of `marks`, those of the files of `case` in their order, are
+/// those of their pairs: what the subject added is a label
+fn assert_marks_of_pairs(case: &Case, marks: &[&DiffMarks]) {
+  for (marks, (diff, _)) in marks.iter().zip(&case.pairs) {
+    assert_eq!(
+      (&marks.runs, &marks.moves, &marks.renames, &marks.starts),
+      (&diff.marks.runs, &diff.marks.moves, &diff.marks.renames, &diff.marks.starts)
+    );
+  }
+}
+
 #[test]
 fn lines_that_moved_between_two_files_are_a_label_at_both_ends() {
   let case = moved_title();
@@ -203,6 +220,7 @@ fn lines_that_moved_between_two_files_are_a_label_at_both_ends() {
         len: 4,
         file: 1,
         line: 5,
+        declaration: None,
       }],
       ..SubjectMarks::default()
     })
@@ -215,16 +233,14 @@ fn lines_that_moved_between_two_files_are_a_label_at_both_ends() {
         len: 4,
         file: 0,
         line: 5,
+        declaration: None,
       }],
       ..SubjectMarks::default()
     })
   );
   // a label: no run, no move within a file, and every block is read where it was
-  for (marks, (diff, _)) in [ledger, report].iter().zip(&case.pairs) {
-    assert_eq!(
-      (&marks.runs, &marks.moves, &marks.renames, &marks.starts),
-      (&diff.marks.runs, &diff.marks.moves, &diff.marks.renames, &diff.marks.starts)
-    );
+  assert_marks_of_pairs(&case, &[&ledger, &report]);
+  for marks in [ledger, report] {
     assert_eq!(marks.starts.len(), 3, "one block, a stop");
   }
 }
@@ -245,6 +261,7 @@ fn lines_that_match_two_places_move_to_the_first_and_boilerplate_moves_nowhere()
       len: 4,
       file: 1,
       line: 5,
+      declaration: None,
     }]
   );
   assert_eq!(marks[1].clone().unwrap().subject.unwrap().moved_out.len(), 1);
@@ -279,6 +296,340 @@ const REPORT: [&str; 8] = [
   "",
   "fun other(path: String): Store = openStore(path)",
 ];
+
+/// The answer of `accio moves` of one declaration `name` that moved whole from the lines `old` of `old_file` to the
+/// lines `new` of `new_file` (from 1, both ends included)
+fn moved_whole(name: &str, (old_file, old): (&str, [u32; 2]), (new_file, new): (&str, [u32; 2])) -> MovesAnswer {
+  let at = |file: &str, [line, end_line]: [u32; 2]| DeclaredAt {
+    file: file.to_string(),
+    line,
+    end_line,
+    kind: "function".to_string(),
+    name: name.to_string(),
+    language: "kotlin".to_string(),
+    ..DeclaredAt::default()
+  };
+  MovesAnswer {
+    moved: vec![MovedDeclaration {
+      old: at(old_file, old),
+      new: at(new_file, new),
+      file: old_file != new_file,
+      owner: old_file == new_file,
+    }],
+    total: 1,
+    complete: true,
+    ..MovesAnswer::default()
+  }
+}
+
+/// `reportTitle` with its parameters one a line: the same words in another layout
+const TITLE_WRAPPED: [&str; 8] = [
+  "",
+  "fun reportTitle(",
+  "  ledger: Ledger,",
+  "  account: String",
+  "): String {",
+  "  val balance = ledger.balance(account)",
+  "  return \"$account: $balance\"",
+  "}",
+];
+
+#[test]
+fn a_declaration_the_index_says_moved_whole_is_a_move_between_files_in_another_layout_too() {
+  let case = Case::of(vec![
+    changed("src/Ledger.kt", &joined(&[&LEDGER, &TITLE]), &joined(&[&LEDGER])),
+    changed("src/Report.kt", &joined(&[&TOTAL]), &joined(&[&TOTAL, &TITLE_WRAPPED])),
+  ]);
+  // without the index: the last three lines alone are the same lines
+  let (plain, _) = case.marks(IndexAnswer::Unavailable);
+  let row = FileMove {
+    start: 6,
+    len: 3,
+    file: 1,
+    line: 9,
+    declaration: None,
+  };
+  assert_eq!(plain[0].clone().unwrap().subject.unwrap().moved_out, [row]);
+  // the index says the function moved whole: its four old lines and its seven new ones are one move, which takes
+  // the row of the same lines
+  let moves = moved_whole("reportTitle", ("src/Ledger.kt", [6, 9]), ("src/Report.kt", [6, 12]));
+  let marks = case.moved(&moves);
+  let (ledger, report) = (marks[0].clone().unwrap(), marks[1].clone().unwrap());
+  let declaration = |other_len: u32| {
+    Some(DeclarationMove {
+      name: "reportTitle".to_string(),
+      other_len,
+    })
+  };
+  assert_eq!(
+    ledger.subject.as_deref().map(|subject| &subject.moved_out),
+    Some(&vec![FileMove {
+      start: 5,
+      len: 4,
+      file: 1,
+      line: 5,
+      declaration: declaration(7),
+    }])
+  );
+  assert_eq!(
+    report.subject.as_deref().map(|subject| &subject.moved_in),
+    Some(&vec![FileMove {
+      start: 5,
+      len: 7,
+      file: 0,
+      line: 5,
+      declaration: declaration(4),
+    }])
+  );
+  // a label as a row of the same lines is: the runs, the moves, the renames and the starts are those of the pairs
+  assert_marks_of_pairs(&case, &[&ledger, &report]);
+
+  // an end that holds a line the change left alone, a place of another file, or the lines of a file that is not of
+  // the subject is no move of a declaration: the rows of the same lines are what they were
+  for moves in [
+    moved_whole("reportTitle", ("src/Ledger.kt", [6, 9]), ("src/Report.kt", [1, 12])),
+    moved_whole("reportTitle", ("src/Ledger.kt", [4, 9]), ("src/Report.kt", [6, 12])),
+    moved_whole("reportTitle", ("src/Other.kt", [6, 9]), ("src/Report.kt", [6, 12])),
+    moved_whole("reportTitle", ("src/Ledger.kt", [6, 9]), ("src/Report.kt", [0, 12])),
+  ] {
+    assert_eq!(case.moved(&moves), plain, "{moves:?}");
+  }
+}
+
+#[test]
+fn a_row_of_the_same_lines_that_holds_declarations_the_index_says_moved_whole_as_they_are_stays_one_move() {
+  // a ledger whose two functions move to the report as they are, one row of the same lines
+  let old_ledger = joined(&[&LEDGER, &[""], &TOTAL, &TITLE]);
+  let case = Case::of(vec![
+    changed("src/Ledger.kt", &old_ledger, &joined(&[&LEDGER])),
+    changed("src/Report.kt", &text(&["fun other() = 0"]), &joined(&[&["fun other() = 0", ""], &TOTAL, &TITLE])),
+  ]);
+  let (plain, _) = case.marks(IndexAnswer::Unavailable);
+  let row = FileMove {
+    start: 5,
+    len: 9,
+    file: 1,
+    line: 2,
+    declaration: None,
+  };
+  assert_eq!(plain[0].clone().unwrap().subject.unwrap().moved_out, [row]);
+  // the index names each of them: the row maps the lines of each onto its lines, so it stays the one move it is
+  let mut moves = moved_whole("reportTotal", ("src/Ledger.kt", [6, 9]), ("src/Report.kt", [3, 6]));
+  moves
+    .moved
+    .extend(moved_whole("reportTitle", ("src/Ledger.kt", [11, 14]), ("src/Report.kt", [8, 11])).moved);
+  assert_eq!(case.moved(&moves), plain);
+}
+
+#[test]
+fn a_row_of_the_same_lines_keeps_its_parts_beside_a_declaration_of_another_layout_that_are_a_row_by_themselves() {
+  // the doc comment of the function moves with it, and its last line is wrapped otherwise: the doc, the head and the
+  // first line of the body are one row of the same lines, and the index counts the function from its head
+  let body = ["fun reportTitle(ledger: Ledger, account: String): String {", "  val balance = ledger.balance(account)"];
+  let (old_end, new_end) = (["  return \"$account: $balance\"", "}"], ["  return \"$account: \" +", "    balance", "}"]);
+  // the ends where the lines left: the first line, the lines, the line at the other end, the declaration named
+  type Ends = Vec<(u32, u32, u32, Option<String>)>;
+  let moved_out = |doc: &[&str]| -> [Ends; 2] {
+    let case = Case::of(vec![
+      changed("src/Ledger.kt", &joined(&[&LEDGER, doc, &body, &old_end]), &joined(&[&LEDGER])),
+      changed("src/Report.kt", &joined(&[&TOTAL]), &joined(&[&TOTAL, doc, &body, &new_end])),
+    ]);
+    let ends = |marks: &[Option<DiffMarks>]| -> Ends {
+      let subject = marks[0].clone().unwrap().subject.unwrap();
+      subject
+        .moved_out
+        .iter()
+        .map(|moved| (moved.start, moved.len, moved.line, moved.declaration.clone().map(|it| it.name)))
+        .collect()
+    };
+    let (plain, _) = case.marks(IndexAnswer::Unavailable);
+    [
+      ends(&plain),
+      ends(&case.moved(&moved_whole("reportTitle", ("src/Ledger.kt", [9, 12]), ("src/Report.kt", [9, 13])))),
+    ]
+  };
+  let declaration = (8, 4, 8, Some("reportTitle".to_string()));
+  // the declaration takes its lines, and the doc stays a move of its own: two lines and enough characters
+  let [plain, moved] = moved_out(&["", "/**", " * The title of the report of one account, with the balance of it.", " */"]);
+  assert_eq!(plain, [(5, 5, 5, None)], "the doc, the head and the line after it");
+  assert_eq!(moved, [(5, 3, 5, None), declaration.clone()]);
+  // a doc too short to be a row by itself is no move of its own: no note for a few characters beside the declaration
+  let [plain, moved] = moved_out(&["", "/**", " * The title.", " */"]);
+  assert_eq!(plain, [(5, 5, 5, None)]);
+  assert_eq!(moved, [declaration]);
+}
+
+#[test]
+fn a_declaration_moved_under_another_owner_within_its_file_is_a_move_to_the_file_itself() {
+  // `clear` leaves the class for the top of the file, on two lines
+  let old = joined(&[&LEDGER, &["", "fun total(): Long = 0"]]);
+  let new = text(&[
+    "class Ledger {",
+    "  private val entries = mutableListOf<Entry>()",
+    "}",
+    "",
+    "fun total(): Long = 0",
+    "",
+    "fun clear() =",
+    "  entries.clear()",
+  ]);
+  let case = Case::of(vec![changed("src/Ledger.kt", &old, &new)]);
+  let marks = case.moved(&moved_whole("clear", ("src/Ledger.kt", [3, 3]), ("src/Ledger.kt", [7, 8])))[0].clone().unwrap();
+  let subject = marks.subject.unwrap();
+  let declaration = |other_len: u32| {
+    Some(DeclarationMove {
+      name: "clear".to_string(),
+      other_len,
+    })
+  };
+  assert_eq!(
+    (subject.moved_out, subject.moved_in),
+    (
+      vec![FileMove {
+        start: 2,
+        len: 1,
+        file: 0,
+        line: 6,
+        declaration: declaration(2),
+      }],
+      vec![FileMove {
+        start: 6,
+        len: 2,
+        file: 0,
+        line: 2,
+        declaration: declaration(1),
+      }]
+    )
+  );
+}
+
+/// A function that moves from the object `Ledger` to the object `Report`, as it is, and a file whose one call of it
+/// names the new owner in place of the old one
+fn moved_under_another_owner(use_old: &[&str], use_new: &[&str]) -> Case {
+  let title = ["  fun title(account: String): String {", "    return \"Title of $account\"", "  }"];
+  Case::of(vec![
+    changed("src/Ledger.kt", &joined(&[&["object Ledger {"], &title, &["}"]]), &text(&["object Ledger {", "}"])),
+    changed("src/Report.kt", &text(&["object Report {", "}"]), &joined(&[&["object Report {"], &title, &["}"]])),
+    changed("src/Use.kt", &text(use_old), &text(use_new)),
+  ])
+}
+
+/// What accio moves answers of the title function of `moved_under_another_owner`: from the object `Ledger` of
+/// src/Ledger.kt to the object `Report` of src/Report.kt, its lines 2 to 4 (from 1) in both
+pub(crate) fn title_moves() -> MovesAnswer {
+  let at = |file: &str, parent: &str| DeclaredAt {
+    file: file.to_string(),
+    line: 2,
+    end_line: 4,
+    kind: "function".to_string(),
+    name: "title".to_string(),
+    parent: Some(parent.to_string()),
+    language: "kotlin".to_string(),
+    ..DeclaredAt::default()
+  };
+  MovesAnswer {
+    moved: vec![MovedDeclaration {
+      old: at("src/Ledger.kt", "Ledger"),
+      new: at("src/Report.kt", "Report"),
+      file: true,
+      owner: true,
+    }],
+    total: 1,
+    complete: true,
+    ..MovesAnswer::default()
+  }
+}
+
+/// What accio renames answers of the moved title function, its declaration and the uses of `calls` (the line from 1
+/// and the column of the name, from 0) in `src/Use.kt` of each tree, `changed` writing what is not the same of the
+/// answer as JSON
+fn title_answer(calls: [&[(u32, u32)]; 2], changed: &serde_json::Value) -> RenameAnswer {
+  let used = |path: &str, line: u32, column: u32, kind: &str| serde_json::json!({ "file": path, "line": line, "column": column, "end_column": column + 5, "kind": kind, "resolved": "typed" });
+  let uses = |owner_file: &str, calls: &[(u32, u32)]| {
+    let mut uses = vec![used(owner_file, 2, 6, "declaration")];
+    uses.extend(calls.iter().map(|&(line, column)| used("src/Use.kt", line, column, "call")));
+    serde_json::json!({ "total": uses.len(), "uses": uses })
+  };
+  let kotlin = serde_json::json!({ "language": "kotlin" });
+  let mut answer = serde_json::json!({
+    "same": false, "differs": ["owner"], "renamed": false, "moved": true, "body_equal": true, "complete": true, "final": true,
+    "old": kotlin, "new": kotlin, "base": uses("src/Ledger.kt", calls[0]), "head": uses("src/Report.kt", calls[1]), "conflicts": [],
+  });
+  for (key, value) in changed.as_object().unwrap() {
+    answer[key] = value.clone();
+  }
+  serde_json::from_value(answer).unwrap()
+}
+
+#[test]
+fn a_use_whose_owner_the_change_wrote_anew_after_a_move_under_another_owner_is_quiet_once_the_index_proves_it() {
+  let call = |owner: &str| format!("fun use(account: String) = {owner}.title(account)");
+  let (old_call, new_call) = (call("Ledger"), call("Report"));
+  let case = moved_under_another_owner(&[&old_call], &[&new_call]);
+  let facts = case.facts();
+  let moves = title_moves();
+  // without the moves of the index the new owner is a name no file declares, and with the moves alone it is no mark
+  // either: a label that the call follows a move must be true
+  assert_eq!(Subject::of(&facts).marks(IndexAnswer::Unavailable)[2], None);
+  assert_eq!(Subject::with_moves(&facts, &moves).marks(IndexAnswer::Unavailable)[2], None);
+  // it may follow the move of `title`: asked of the index by the lines of the two declarations
+  let following = Subject::following_moves(&facts, &moves);
+  let pair = RenamePair {
+    old: "src/Ledger.kt:2".to_string(),
+    new: "src/Report.kt:2".to_string(),
+  };
+  assert_eq!(following.move_questions(), [pair]);
+  let use_of = |answer: RenameAnswer| -> Option<DiffMarks> {
+    let followed = following.followed(&[answer]);
+    Subject::with_followed(&facts, &moves, &followed).marks(IndexAnswer::Unavailable)[2].clone()
+  };
+
+  // the index lists the call behind each owner, in both trees: proven, and the run of the call is quiet
+  let columns = [(1, 34)];
+  let answered = use_of(title_answer([&columns, &columns], &serde_json::json!({}))).unwrap();
+  let subject_marks = answered.subject.as_ref().unwrap();
+  assert_eq!(
+    subject_marks
+      .used
+      .iter()
+      .map(|used| (used.rename.old.as_str(), used.rename.new.as_str(), used.file, used.line, used.proof, used.moved.as_deref()))
+      .collect::<Vec<_>>(),
+    [("Ledger", "Report", 1, 1, RenameProof::Confirmed, Some("title"))]
+  );
+  assert_eq!(subject_marks.confirmed, [0]);
+  assert_eq!(answered.runs.iter().map(|run| (run.kind, run.quiet)).collect::<Vec<_>>(), [(RunKind::Renamed, true)]);
+  assert_eq!(answered.starts.len() + 3, case.pairs[2].0.marks.starts.len(), "its block is passed");
+
+  // what proves nothing, and leaves the file as its pair has it: another declaration than the one that moved, a use
+  // of it the change left at the old owner, an answer that is not complete, a use the other tree does not list behind
+  // the new owner
+  let left = {
+    let mut answer = title_answer([&columns, &columns], &serde_json::json!({}));
+    let left = serde_json::json!({ "file": "src/Other.kt", "line": 3, "column": 9, "end_column": 14, "kind": "call", "resolved": "typed" });
+    answer.base.as_mut().unwrap().uses.push(serde_json::from_value(left).unwrap());
+    answer.base.as_mut().unwrap().total += 1;
+    answer
+  };
+  let not_proven: [(&str, RenameAnswer); 4] = [
+    ("its words changed", title_answer([&columns, &columns], &serde_json::json!({ "body_equal": false }))),
+    ("a use left in an unchanged file", left),
+    ("not complete", title_answer([&columns, &columns], &serde_json::json!({ "complete": false }))),
+    ("no twin behind the new owner", title_answer([&columns, &[]], &serde_json::json!({}))),
+  ];
+  for (name, answer) in not_proven {
+    assert_eq!(use_of(answer), None, "{name}");
+  }
+
+  // an owner the file names where no use of the moved declaration stands behind it: the change did more than follow
+  // the move there, and the name is not proven
+  let typed = |owner: &str| format!("fun use(account: String, ledger: {owner}) = {owner}.title(account)");
+  let (old_typed, new_typed) = (typed("Ledger"), typed("Report"));
+  let case = moved_under_another_owner(&[&old_typed], &[&new_typed]);
+  let facts = case.facts();
+  let following = Subject::following_moves(&facts, &moves);
+  let columns = [(1, 50)];
+  assert!(following.followed(&[title_answer([&columns, &columns], &serde_json::json!({}))]).is_empty());
+}
 
 fn renamed(lines: &[&str]) -> String {
   text(lines).replace("openStore", "connectStore")
@@ -764,6 +1115,7 @@ fn a_use_on_a_line_a_move_took_as_it_is_is_not_read_anyway() {
     len: 4,
     file: 1,
     line: 2,
+    declaration: None,
   };
   assert_eq!(across.subject(IndexAnswer::Unavailable, 3).moved_out, [moved]);
   assert_eq!(declared_proof(&across, 2, &answer), RenameProof::UsesOutside);
@@ -976,6 +1328,7 @@ fn a_run_the_subject_adds_takes_its_lines_from_the_moves_between_files() {
       len: 2,
       file: 0,
       line: 1,
+      declaration: None,
     }]
   );
 

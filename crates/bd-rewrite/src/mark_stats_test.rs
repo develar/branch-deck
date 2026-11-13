@@ -79,10 +79,13 @@ fn the_mark_stats_of_a_commit_count_each_kind_and_print_a_sample_of_their_lines(
     total["renames"],
     json!({
       "local": 1, "local_proven": 1, "local_sites": 3, "declared": 1, "used": 1, "other_sites": 3,
-      "proofs": { "unavailable": 2 },
+      "proofs": { "unavailable": 2 }, "follows_move": 0, "follows_move_sites": 0,
     })
   );
-  assert_eq!(total["across"], json!({ "moves": 1, "lines": 4, "chars": [0, 0, 1] }));
+  assert_eq!(
+    total["across"],
+    json!({ "moves": 1, "lines": 4, "chars": [0, 0, 1], "declarations": 0, "declaration_lines": 0 })
+  );
   assert_eq!(output.get("differ_in"), None);
   // one subject, with its times
   let time = &output["time"];

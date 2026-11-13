@@ -16,9 +16,10 @@ export type FileStreamEntry<F> =
   | { kind: "error"; message: string }
   /**
    * The files whose content arrived, in the order of git; `complete` once the stream ended. A file of the list whose
-   * content has not arrived yet is pending while the entry is not complete
+   * content has not arrived yet is pending while the entry is not complete. `asksIndex`: the stream said the index of
+   * the repository is there to be asked of its subject once it ends (`get_index_marks`); absent where it said nothing
    */
-  | { kind: "loaded"; files: readonly F[]; complete: boolean }
+  | { kind: "loaded"; files: readonly F[]; complete: boolean; asksIndex?: boolean }
 
 export interface FileStreamState<F> {
   /** By key, the least recently loaded first */
@@ -27,7 +28,7 @@ export interface FileStreamState<F> {
 
 /** The events of a file stream; `index` points into the headers of `files` */
 export type FileStreamEvent<H, C> =
-  | { kind: "files"; files: H[] }
+  | { kind: "files"; files: H[]; asksIndex?: boolean }
   | { kind: "content"; index: number; content: C }
   | { kind: "scopes"; index: number }
   | { kind: "marks"; index: number }
@@ -105,6 +106,7 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
     }
 
     let headers: readonly H[] | null = null
+    let asksIndex = false
     const files: (F | undefined)[] = []
     let timer: ReturnType<typeof setTimeout> | undefined
     const flush = (complete: boolean) => {
@@ -113,7 +115,8 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
       if (headers === null || (!streams && !complete)) {
         return
       }
-      setEntry(key, { kind: "loaded", files: files.filter((file): file is F => file !== undefined), complete }, complete)
+      const loaded = files.filter((file): file is F => file !== undefined)
+      setEntry(key, asksIndex ? { kind: "loaded", files: loaded, complete, asksIndex } : { kind: "loaded", files: loaded, complete }, complete)
     }
     const schedule = () => {
       timer ??= setTimeout(() => flush(false), BATCH_MS)
@@ -123,6 +126,7 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
       switch (event.kind) {
         case "files":
           headers = event.files
+          asksIndex = event.asksIndex === true
           flush(false)
           break
         case "content": {

@@ -149,6 +149,28 @@ describe("the words of a move between two files", () => {
     })
   })
 
+  it("names a declaration the index says moved whole at both ends, by its name, before the file and the line of the other end", () => {
+    const declared = (at: "source" | "destination", file: OtherFile) =>
+      presentRemark({
+        kind: "moved",
+        lines: at === "source" ? lines(54, 58, 60, 60) : lines(20, 20, 17, 24),
+        open: null,
+        move: { at, move: moved, other: at === "source" ? [17, 24] : [54, 58], file, declaration: "reportTitle" },
+      })
+    const left = declared("source", report)
+    expect([left.label, left.target, left.name]).toEqual([
+      "Moved reportTitle",
+      { words: "to Report.kt:18", name: "Go to line 18 of src/Report.kt, where reportTitle stands now", jump: true },
+      "Moved reportTitle to line 18 of src/Report.kt",
+    ])
+    const stands = declared("destination", ledger)
+    expect([stands.label, stands.target, stands.name]).toEqual([
+      "Moved reportTitle",
+      { words: "from Ledger.kt:55", name: "Go to line 55 of src/Ledger.kt, where reportTitle was", jump: true },
+      "Moved reportTitle from line 55 of src/Ledger.kt",
+    ])
+  })
+
   it("says the same words of an end in a file the view does not show, as words that show nothing", () => {
     const hidden = source({ ...report, shown: false })
     expect([hidden.label, hidden.target]).toEqual(["Moved", { words: "to Report.kt:18", name: "Line 18 of src/Report.kt, where the lines stand now", jump: false }])
@@ -247,6 +269,24 @@ describe("the words of a rename", () => {
       name: "connectStore is declared in src/Store.kt",
       jump: false,
     })
+  })
+
+  it("says of the owner of a declaration that moved under another owner that the change follows the move, and where the declaration went", () => {
+    const report: OtherFile = { path: "src/Report.kt", name: "Report.kt", shown: true }
+    const owner: RenamedName = { old: "Ledger", new: "Report", sites: 1, proof: "confirmed", declared: { file: report, line: 1, moved: "title" } }
+    expect(note([owner])).toMatchObject({
+      label: "Follows a move",
+      renamed: [{ old: "Ledger", new: "Report", sites: "1 site" }],
+      reach: [{ declared: { words: "title moved to Report.kt", name: "Go to title in src/Report.kt", jump: true }, proof: "confirmed", said: "all uses in this change" }],
+      name: "Follows a move Ledger to Report, 1 site, title moved to Report.kt, all uses in this change",
+    })
+    expect(note([{ ...owner, declared: { file: { ...report, shown: false }, line: 1, moved: "title" } }]).reach[0]?.declared).toEqual({
+      words: "title moved to Report.kt",
+      name: "title stands in src/Report.kt now",
+      jump: false,
+    })
+    // beside a rename, the note is of renames
+    expect(note([open, owner]).label).toBe("Renamed")
   })
 
   it("says how far the index proved a rename: every use in the change, uses outside it, another meaning, more than the name, not all checked", () => {

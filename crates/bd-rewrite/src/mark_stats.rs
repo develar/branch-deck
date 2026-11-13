@@ -27,7 +27,7 @@ use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use code_tokens::Grammar;
 use diff_marks::marks::is_quiet;
-use diff_marks::model::{DiffMarks, FileMove, Rename, RenameProof};
+use diff_marks::model::{DiffMarks, FileMove, Rename, RenameProof, UsedRename};
 use domain_types::error::ErrorCode;
 use file_diffs::accio::{AccioCli, SymbolIndex};
 use file_diffs::marks_measure::{MeasuredFile, MeasuredSubject, MeasuredText};
@@ -229,15 +229,26 @@ pub struct RenameCounts {
   pub other_sites: u64,
   /// What the index said of those, by the proof of each `declared` and `used` name
   pub proofs: BTreeMap<&'static str, usize>,
+  /// With --index: the names a file changed from the old owner of a declaration that moved under another owner to
+  /// the new one in front of its uses (`UsedRename::moved`), apart from `used`, and what the index said of them
+  pub follows_move: usize,
+  pub follows_move_sites: u64,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  pub follows_move_proofs: BTreeMap<&'static str, usize>,
 }
 
 /// The moves between two files of a subject
 #[derive(Debug, Default, Serialize)]
 pub struct AcrossCounts {
+  /// The rows of the same lines
   pub moves: usize,
   pub lines: u64,
   /// By the characters of their lines that are no whitespace: under 64, under 96, and more
   pub chars: [usize; 3],
+  /// With --index: the declarations the index says moved whole that no row holds as it is (`FileMove::declaration`),
+  /// and their new lines
+  pub declarations: usize,
+  pub declaration_lines: u64,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -245,9 +256,12 @@ pub struct MarkTimes {
   /// Of each subject, from the start of its read, in milliseconds
   pub first_content_ms: Spread,
   pub end_ms: Spread,
-  /// The answers of the index, with --index
+  /// The answers of the index of the renames, with --index: what a view waits for its proofs
   #[serde(skip_serializing_if = "Option::is_none")]
   pub index_ms: Option<Spread>,
+  /// The answers of the moves after them, and of the uses that follow a move, with --index
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub moves_ms: Option<Spread>,
   /// The subjects that took the longest to their end
   pub slowest: Vec<SubjectTime>,
 }
@@ -347,6 +361,7 @@ pub fn mark_stats_with(context: &RepoContext, args: &MarkStatsArgs, index: Optio
   let mut sampler = Sampler::new(args.mark_sample);
   let mut times: Vec<SubjectTime> = Vec::with_capacity(subjects.len());
   let mut index_times: Vec<f64> = Vec::new();
+  let mut moves_times: Vec<f64> = Vec::new();
   let mut subjects_of: BTreeMap<&'static str, usize> = BTreeMap::new();
   let mut differ_in: Vec<String> = Vec::new();
   for source in &subjects {
@@ -377,6 +392,7 @@ pub fn mark_stats_with(context: &RepoContext, args: &MarkStatsArgs, index: Optio
       end_ms: millis(measured.end),
     });
     index_times.extend(measured.index.map(millis));
+    moves_times.extend(measured.moves.map(millis));
     for language in read {
       *subjects_of.entry(language).or_default() += 1;
     }
@@ -416,6 +432,7 @@ pub fn mark_stats_with(context: &RepoContext, args: &MarkStatsArgs, index: Optio
       first_content_ms,
       end_ms,
       index_ms: (!index_times.is_empty()).then(|| Spread::of(index_times)),
+      moves_ms: (!moves_times.is_empty()).then(|| Spread::of(moves_times)),
       slowest: times,
     },
     sample: sampler.into_sample(),
@@ -555,8 +572,15 @@ impl MarkCounts {
     for (proof, count) in &more.proofs {
       *renames.proofs.entry(proof).or_default() += count;
     }
+    renames.follows_move += more.follows_move;
+    renames.follows_move_sites += more.follows_move_sites;
+    for (proof, count) in &more.follows_move_proofs {
+      *renames.follows_move_proofs.entry(proof).or_default() += count;
+    }
     self.across.moves += other.across.moves;
     self.across.lines += other.across.lines;
+    self.across.declarations += other.across.declarations;
+    self.across.declaration_lines += other.across.declaration_lines;
     for (count, more) in self.across.chars.iter_mut().zip(other.across.chars) {
       *count += more;
     }
@@ -659,15 +683,24 @@ fn count_file(counts: &mut MarkCounts, diff: &Values, text: Option<&MeasuredText
   }
   if let Some(subject) = &marks.subject {
     let renames = &mut counts.renames;
-    renames.used += subject.used.len();
-    renames.other_sites += subject.used.iter().map(|used| u64::from(used.rename.sites)).sum::<u64>();
-    let proofs = subject.declared.iter().map(|check| check.proof).chain(subject.used.iter().map(|used| used.proof));
+    let (follows, used): (Vec<&UsedRename>, Vec<&UsedRename>) = subject.used.iter().partition(|used| used.moved.is_some());
+    renames.used += used.len();
+    renames.other_sites += used.iter().map(|used| u64::from(used.rename.sites)).sum::<u64>();
+    let proofs = subject.declared.iter().map(|check| check.proof).chain(used.iter().map(|used| used.proof));
     for proof in proofs {
       *renames.proofs.entry(proof_name(proof)).or_default() += 1;
     }
-    counts.across.moves += subject.moved_in.len();
-    counts.across.lines += subject.moved_in.iter().map(|moved| u64::from(moved.len)).sum::<u64>();
-    for moved in &subject.moved_in {
+    renames.follows_move += follows.len();
+    renames.follows_move_sites += follows.iter().map(|used| u64::from(used.rename.sites)).sum::<u64>();
+    for used in follows {
+      *renames.follows_move_proofs.entry(proof_name(used.proof)).or_default() += 1;
+    }
+    let (declarations, rows): (Vec<&FileMove>, Vec<&FileMove>) = subject.moved_in.iter().partition(|moved| moved.declaration.is_some());
+    counts.across.declarations += declarations.len();
+    counts.across.declaration_lines += declarations.iter().map(|moved| u64::from(moved.len)).sum::<u64>();
+    counts.across.moves += rows.len();
+    counts.across.lines += rows.iter().map(|moved| u64::from(moved.len)).sum::<u64>();
+    for moved in rows {
       let chars: usize = (moved.start..moved.start + moved.len).map(|line| solid_chars(new.line(line))).sum();
       counts.across.chars[match chars {
         0..64 => 0,
@@ -997,7 +1030,14 @@ fn sample_file(sampler: &mut Sampler, subject: &str, measured: &MeasuredSubject,
     sampler.offer(kind, || rename_sample(&of, kind, rename, proof.map(|check| check.proof)));
   }
   for used in marks.subject.iter().flat_map(|subject| &subject.used) {
-    sampler.offer("renameUsed", || rename_sample(&of, "renameUsed", &used.rename, Some(used.proof)));
+    let kind = if used.moved.is_some() { "renameFollowsMove" } else { "renameUsed" };
+    sampler.offer(kind, || {
+      let mut sample = rename_sample(&of, kind, &used.rename, Some(used.proof));
+      if let Some(moved) = &used.moved {
+        let _ = write!(sample.note, ", owner of {moved}");
+      }
+      sample
+    });
   }
 
   // each move between two files once, where its lines stand now
@@ -1005,14 +1045,23 @@ fn sample_file(sampler: &mut Sampler, subject: &str, measured: &MeasuredSubject,
   for moved in moved_in {
     let from = measured.files.get(moved.file as usize);
     let from_text = from.and_then(|from| from.text.as_ref());
-    sampler.offer("moveAcross", || {
+    // a declaration the index says moved whole: its own kind, the lines of its other end in their layout there
+    let (kind, other_len) = match &moved.declaration {
+      Some(declaration) => ("moveDeclaration", declaration.other_len),
+      None => ("moveAcross", moved.len),
+    };
+    sampler.offer(kind, || {
       let from_lines = SideLines::new(from_text.map_or("", |text| text.text(false)));
       let from_path = from.map_or("", |from| from.file.path.as_str());
-      let lines = moved.line..moved.line + moved.len;
+      let lines = moved.line..moved.line + other_len;
+      let note = match &moved.declaration {
+        Some(declaration) => format!("{} lines of {} from {from_path}:{}, {other_len} lines there", moved.len, declaration.name, moved.line + 1),
+        None => format!("{} lines from {from_path}:{}", moved.len, moved.line + 1),
+      };
       SampleMark {
-        note: format!("{} lines from {from_path}:{}", moved.len, moved.line + 1),
+        note,
         old: from_lines.printed(lines.clone(), &marked),
-        ..of.mark("moveAcross", lines, moved.start..moved.start + moved.len, String::new(), [&|_| "", &marked])
+        ..of.mark(kind, lines, moved.start..moved.start + moved.len, String::new(), [&|_| "", &marked])
       }
     });
   }

@@ -117,6 +117,23 @@ pub struct FileMove {
   pub file: u32,
   /// The first line of the other end, 0-based
   pub line: u32,
+  /// The declaration the index of the repository says moved whole, with the same words and maybe another layout:
+  /// `len` and `other_len` are the lines of the declaration at each end, and `file` the file itself for a move under
+  /// other owners within it. `None` for a row of the same lines, which is written without the field: the layout of
+  /// a stored diff stays what it was
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub declaration: Option<DeclarationMove>,
+}
+
+/// A declaration that moved whole, as an end of its move names it (`FileMove::declaration`)
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DeclarationMove {
+  /// Its name, as the index answers it
+  pub name: String,
+  /// The lines of the other end: another layout has another number of them
+  pub other_len: u32,
 }
 
 /// What the subject says of a rename of `DiffMarks::renames` that is not local: how far it reaches in the files of
@@ -148,6 +165,11 @@ pub struct UsedRename {
   /// The new line of its declaration there, 0-based
   pub line: u32,
   pub proof: RenameProof,
+  /// Of a name that is the owner of a declaration that moved whole under another owner, the name of that declaration:
+  /// the uses of it in this file changed their owner from the old name to the new one, which nothing renamed. `file`
+  /// and `line` are where the declaration stands now. `None` for a name another file declares
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub moved: Option<String>,
 }
 
 /// Whether the uses of a renamed name that is not local are proven to be the rename and nothing else, and why not:
@@ -157,7 +179,7 @@ pub struct UsedRename {
 #[serde(rename_all = "camelCase")]
 pub enum RenameProof {
   /// The index of the repository is there to be asked: the window that shows the file asks it
-  /// (`get_rename_proofs`), and the marks of the file come once more with its answer
+  /// (`get_index_marks`), and the marks of the file come once more with its answer
   Asked,
   /// The index answered that the two names are one declaration, that it listed every use of it in both trees, that
   /// each of them is a place of this rename in the subject or stands on a line that is read anyway, and that no name
@@ -478,6 +500,7 @@ macro_rules! mirror {
   (@into $field:ident) => { $field.into() };
   (@vec $field:ident) => { mapped($field) };
   (@option $field:ident) => { $field.map(|it| Box::new((*it).into())) };
+  (@maybe $field:ident) => { $field.map(Into::into) };
 }
 
 /// `From` both ways between an enum of the model and its value, variant by variant
@@ -556,7 +579,7 @@ mirror!(
 /// them (the file-diffs service), not for one that only merges
 #[cfg(feature = "marks")]
 mod marks {
-  use super::{DiffMarks, FileMove, Rename, RenameCheck, RenameProof, SubjectMarks, UsedRename, mapped};
+  use super::{DeclarationMove, DiffMarks, FileMove, Rename, RenameCheck, RenameProof, SubjectMarks, UsedRename, mapped};
 
   mirror_enum!(
     RenameProof = diff_marks::model::RenameProof {
@@ -592,9 +615,11 @@ mod marks {
       start: same,
       len: same,
       file: same,
-      line: same
+      line: same,
+      declaration: maybe
     }
   );
+  mirror!(DeclarationMove = diff_marks::model::DeclarationMove { name: same, other_len: same });
   mirror!(
     RenameCheck = diff_marks::model::RenameCheck {
       rename: same,
@@ -608,7 +633,8 @@ mod marks {
       rename: into,
       file: same,
       line: same,
-      proof: into
+      proof: into,
+      moved: same
     }
   );
   mirror!(

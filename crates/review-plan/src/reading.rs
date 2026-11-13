@@ -2,7 +2,7 @@
 //! the `DiffReading` its badge in the review window counts (`stops(true)`: a review with its plan passes the blocks of
 //! the imports alone), summed by the role of the file (`modules::reading_role`); the files no proof can be made of,
 //! with why; and the kinds of proof that passed a change, read from the marks themselves. Proven from the full marks
-//! of `file-diffs` (`FileDiffs::collect`, then the answers of the index, `answer_proofs`), never from a second model of
+//! of `file-diffs` (`FileDiffs::collect`, then the answers of the index, `answer_index`), never from a second model of
 //! the diff, so the sum is the sum of the badges.
 //!
 //! - **The plan** reads it of the pair its window shows (`ReviewPlan::reading`, `plan_reading`): before the index
@@ -193,9 +193,11 @@ impl PlanReading {
   }
 
   /// The answers of the index put in: one query of every rename of the subject, none when memory has a final answer
-  /// of it (`FileDiffs::rename_proofs`)
+  /// of it, then the declarations it moved whole and the uses that follow them (`FileDiffs::index_marks`)
   pub(crate) fn answer(&mut self, git: &GitCommandExecutor, sources: PlanSources<'_>) -> Result<()> {
-    sources.file_diffs.answer_proofs(git, sources.cache, sources.index, &self.params, &mut self.read)
+    sources
+      .file_diffs
+      .answer_index(git, sources.cache, sources.index, &self.params, &mut self.read, &mut |_| {})
   }
 }
 

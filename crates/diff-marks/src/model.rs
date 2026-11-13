@@ -54,7 +54,10 @@ pub struct SubjectMarks {
 /// One end of lines that moved between two files of a subject without a change: `len` lines from `start` of this
 /// file (0-based: old lines where they left, new lines where they stand now) are the lines from `line` of the file
 /// `file` of the subject, on its other side. The same lines but for the spaces and tabs at their ends; where the
-/// indentation of the file has a meaning, at the same depth too. Never quiet: both ends are read
+/// indentation of the file has a meaning, at the same depth too. Or, with `declaration`, a declaration the index of
+/// the repository says moved whole to another file or under other owners with the same words, its layout maybe
+/// another: the lines of the declaration at each end, `file` the file itself for a move under other owners within it.
+/// Never quiet: both ends are read
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileMove {
@@ -64,6 +67,19 @@ pub struct FileMove {
   pub file: u32,
   /// The first line of the other end, 0-based
   pub line: u32,
+  /// The declaration the index says moved whole (`index::MovesAnswer`); `None` for a row of the same lines
+  #[serde(default)]
+  pub declaration: Option<DeclarationMove>,
+}
+
+/// A declaration that moved whole, as an end of its move names it (`FileMove::declaration`)
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeclarationMove {
+  /// Its name, as the index answers it
+  pub name: String,
+  /// The lines of the other end: another layout has another number of them
+  pub other_len: u32,
 }
 
 /// What the subject says of a rename of `DiffMarks::renames` that is not local: how far it reaches in the files of
@@ -92,6 +108,11 @@ pub struct UsedRename {
   /// The new line of its declaration there, 0-based
   pub line: u32,
   pub proof: RenameProof,
+  /// Of a name that is the owner of a declaration that moved whole under another owner, the name of that declaration:
+  /// the uses of it in this file changed their owner from the old name to the new one, which nothing renamed. `file`
+  /// and `line` are where the declaration stands now. `None` for a name another file declares
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub moved: Option<String>,
 }
 
 /// Whether the uses of a renamed name that is not local are proven to be the rename and nothing else, and why not.

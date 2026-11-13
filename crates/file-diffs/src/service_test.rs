@@ -4,13 +4,13 @@
 use crate::accio::{DeclarationAt, IndexUnavailable, References, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
 use crate::blocks::{BlobPair, PairDiff};
 use crate::fixture_test::{RENAMED_STORE_ANSWER, REPORT, STORE, commit_all, process_counts, renamed_store, repo_path, unhurried, write};
-use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetRenameProofsParams};
+use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetIndexMarksParams, IndexMarks, IndexStage};
 use crate::service::{DiffLimits, FileDiffs, MODEL_VERSION, MemoryKey, diff_options, disk_key, model_version, priority_order, store_version};
 use code_symbols::extract::{PSI_SYNTAX_REVISION, extractor_version};
 use code_symbols::navigate::RULES_VERSION;
 use code_tokens::Grammar;
 use code_tokens::tokens_version;
-use diff_marks::index::{RenameAnswer, RenamePair};
+use diff_marks::index::{DeclaredAt, MovedDeclaration, MovesAnswer, RenameAnswer, RenamePair};
 use diff_marks::leftovers::Leftovers;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_files::FileStatus;
@@ -25,6 +25,24 @@ use text_diff::model::WhitespacePolicy;
 use text_diff::model::{BlockKind, DiffMarks, FileMove, LineEnds, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
 
 /// `count` numbered lines
+/// The answer of the index of the subject of `params` (`FileDiffs::index_marks`) as a page has it once every stage came:
+/// the marks each stage gave a file, the last in place of those before, in the order of the files the stages named
+/// first; `None` when a query was canceled
+fn index_answer(diffs: &FileDiffs, git: &git_executor::git_command_executor::GitCommandExecutor, index: &dyn SymbolIndex, params: &GetIndexMarksParams) -> Option<Vec<FileMarks>> {
+  let mut files: Vec<FileMarks> = Vec::new();
+  let answered = diffs
+    .index_marks(git, &ObjectCache::disabled(), Some(index), params, &mut |stage: IndexMarks| {
+      for file in stage.files {
+        match files.iter_mut().find(|known| known.path == file.path) {
+          Some(known) => *known = file,
+          None => files.push(file),
+        }
+      }
+    })
+    .unwrap();
+  answered.then_some(files)
+}
+
 fn lines(count: usize) -> String {
   let mut text = String::new();
   for index in 0..count {
@@ -259,7 +277,13 @@ fn a_diff_costs_one_list_and_one_cat_file_then_nothing() {
       .unwrap_or_else(|| panic!("the subject says nothing of {path}"))
   };
   let (ledger, report) = (index_of(&first, "Ledger.kt"), index_of(&first, "Report.kt"));
-  let moved = |start: u32, file: u32, line: u32| FileMove { start, len: 4, file, line };
+  let moved = |start: u32, file: u32, line: u32| FileMove {
+    start,
+    len: 4,
+    file,
+    line,
+    declaration: None,
+  };
   assert_eq!(subject("Ledger.kt").moved_out, [moved(6, report, 9)]);
   assert_eq!(subject("Report.kt").moved_in, [moved(9, ledger, 6)]);
   assert_eq!(
@@ -280,7 +304,7 @@ fn index_of(files: &[DiffFile], path: &str) -> u32 {
 
 /// The marks of the file `path` among `events`, in their order: of its content, then of each `marks` event of it
 fn marks_events(events: &[FileDiffEvent], path: &str) -> Vec<(&'static str, DiffMarks)> {
-  let FileDiffEvent::Files { files } = &events[0] else { panic!("{:?}", events[0]) };
+  let FileDiffEvent::Files { files, .. } = &events[0] else { panic!("{:?}", events[0]) };
   let file = u32::try_from(files.iter().position(|file| file.path == path).unwrap()).unwrap();
   events
     .iter()
@@ -367,10 +391,13 @@ type Answering = fn() -> Renames;
 /// How an index of a test answers `renames` of the pairs it is asked
 type AnsweringPairs = Box<dyn Fn(&[RenamePair]) -> Renames + Send + Sync>;
 
-/// An index of a test: it answers `renames` with `answer` and keeps what it was asked
+/// An index of a test: it answers `renames` with `answer` and `moves` with `moves`, and keeps what it was asked
 struct RenameIndex {
   answer: AnsweringPairs,
   asked: std::sync::Mutex<Vec<(Vec<RenamePair>, String, String)>>,
+  moves: Option<MovesAnswer>,
+  /// The trees `moves` was asked of
+  moves_asked: std::sync::Mutex<Vec<(String, String)>>,
 }
 
 impl RenameIndex {
@@ -382,6 +409,16 @@ impl RenameIndex {
     Self {
       answer: Box::new(answer),
       asked: std::sync::Mutex::default(),
+      moves: None,
+      moves_asked: std::sync::Mutex::default(),
+    }
+  }
+
+  /// An index that answers no renames and `moves` of every two trees
+  fn of_moves(moves: MovesAnswer) -> Self {
+    Self {
+      moves: Some(moves),
+      ..Self::new(|| Ok(None))
     }
   }
 
@@ -412,6 +449,27 @@ impl SymbolIndex for RenameIndex {
     asked.push((pairs.to_vec(), base.to_string(), head.to_string()));
     (self.answer)(pairs)
   }
+
+  fn moves(&self, _: &str, base: &str, head: &str) -> anyhow::Result<Option<MovesAnswer>> {
+    let mut asked = self.moves_asked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    asked.push((base.to_string(), head.to_string()));
+    Ok(self.moves.clone())
+  }
+}
+
+/// The events of the diffs of `source` of `repo` read by `diffs`, `asks_index` an index there to be asked
+fn events_of(diffs: &FileDiffs, repo: &TestRepo, source: &DiffSource, asks_index: bool) -> Vec<FileDiffEvent> {
+  let params = GetFileDiffsParams {
+    repository_path: repo_path(repo).to_string(),
+    source: source.clone(),
+    policy: WhitespacePolicy::Default,
+    priority_paths: Vec::new(),
+  };
+  let mut events = Vec::new();
+  diffs
+    .stream(repo.git_executor(), &ObjectCache::disabled(), asks_index, &params, |event| events.push(event))
+    .unwrap();
+  events
 }
 
 fn complete_answer() -> Renames {
@@ -436,7 +494,7 @@ fn proofs(events: &[FileDiffEvent]) -> (Proofs, Proofs) {
 }
 
 /// The diffs of a subject ask no index: with one there to be asked they say so (`asked`) and end. The answer is
-/// asked for after them (`rename_proofs`), every declaration of the subject in one call between its two trees, with
+/// asked for after them (`index_marks`), every declaration of the subject in one call between its two trees, with
 /// the pairs the caches have: no blob is read for it. It is the marks of the files it says something of; a proven
 /// rename names its runs, which are quiet with the answer and labels before it. Memory keeps an answer by its trees
 /// and its questions, so a subject shown again asks no process
@@ -445,27 +503,15 @@ fn the_index_is_asked_after_the_diffs_of_a_subject_in_one_call_and_its_answer_is
   let (repo, second) = renamed_store();
   let diffs = unhurried();
   let index = RenameIndex::new(complete_answer);
-  let events_of = |source: &DiffSource, asks_index: bool| {
-    let params = GetFileDiffsParams {
-      repository_path: repo_path(&repo).to_string(),
-      source: source.clone(),
-      policy: WhitespacePolicy::Default,
-      priority_paths: Vec::new(),
-    };
-    let mut events = Vec::new();
-    diffs
-      .stream(repo.git_executor(), &ObjectCache::disabled(), asks_index, &params, |event| events.push(event))
-      .unwrap();
-    events
-  };
+  let events_of = |source: &DiffSource, asks_index: bool| events_of(&diffs, &repo, source, asks_index);
   let counting = repo.git_executor().with_process_stats("test");
   let proofs_of = |source: &DiffSource| {
-    let params = GetRenameProofsParams {
+    let params = GetIndexMarksParams {
       repository_path: repo_path(&repo).to_string(),
       source: source.clone(),
       policy: WhitespacePolicy::Default,
     };
-    diffs.rename_proofs(&counting, &ObjectCache::disabled(), Some(&index), &params).unwrap().unwrap()
+    index_answer(&diffs, &counting, &index, &params).unwrap()
   };
   let proof_of = |answer: &[FileMarks]| -> Vec<(String, RenameProof)> {
     let proof = |marks: &DiffMarks| {
@@ -546,6 +592,164 @@ fn the_index_is_asked_after_the_diffs_of_a_subject_in_one_call_and_its_answer_is
   assert_eq!(index.asked().len(), asked_before);
 }
 
+/// The diffs of a subject of two trees say that the index is there to be asked (`asks_index` of the files), those of
+/// the working tree and those read where no index is do not. Asked after them, the index says which declarations the
+/// subject moved whole, in one process between its two trees, and the files of both ends get the move of the
+/// declaration; memory keeps the answer by the trees, so the subject asked again starts none. A subject whose files
+/// add lines and delete none asks no moves
+#[test]
+fn the_moves_of_a_subject_are_asked_after_its_diffs_once_by_its_trees() {
+  let repo = TestRepo::new();
+  std::fs::create_dir_all(repo.path().join("src")).unwrap();
+  let (ledger, title) = ("class Ledger\n", "\nfun reportTitle(ledger: Ledger, account: String): String {\n  return account\n}\n");
+  let wrapped = "\nfun reportTitle(\n  ledger: Ledger,\n  account: String,\n): String {\n  return account\n}\n";
+  write(&repo, "src/Ledger.kt", format!("{ledger}{title}").as_bytes());
+  write(&repo, "src/Report.kt", b"fun report() = 0\n");
+  commit_all(&repo, "Initial");
+  write(&repo, "src/Ledger.kt", ledger.as_bytes());
+  write(&repo, "src/Report.kt", format!("fun report() = 0\n{wrapped}").as_bytes());
+  let second = commit_all(&repo, "Move the title");
+  write(&repo, "src/Added.kt", b"fun added() = 0\n");
+  let third = commit_all(&repo, "Add a file");
+  let at = |file: &str, line: u32, end_line: u32| DeclaredAt {
+    file: file.to_string(),
+    line,
+    end_line,
+    name: "reportTitle".to_string(),
+    ..DeclaredAt::default()
+  };
+  let index = RenameIndex::of_moves(MovesAnswer {
+    moved: vec![MovedDeclaration {
+      old: at("src/Ledger.kt", 3, 5),
+      new: at("src/Report.kt", 3, 8),
+      file: true,
+      owner: false,
+    }],
+    total: 1,
+    complete: true,
+    ..MovesAnswer::default()
+  });
+  let diffs = unhurried();
+  let asks_index = |source: &DiffSource, asks: bool| {
+    let events = events_of(&diffs, &repo, source, asks);
+    let FileDiffEvent::Files { asks_index, .. } = &events[0] else {
+      panic!("{:?}", events[0])
+    };
+    *asks_index
+  };
+  assert!(asks_index(&commit(&second), true));
+  assert!(!asks_index(&commit(&second), false));
+  assert!(!asks_index(&DiffSource::Uncommitted, true));
+
+  let marks_of = |source: &DiffSource| {
+    let params = GetIndexMarksParams {
+      repository_path: repo_path(&repo).to_string(),
+      source: source.clone(),
+      policy: WhitespacePolicy::Default,
+    };
+    index_answer(&diffs, repo.git_executor(), &index, &params).unwrap()
+  };
+  // each file with the ends of the moves of declarations it holds: start, len, the other file and its line
+  type Ends = Vec<(String, Vec<(u32, u32, u32, u32)>)>;
+  let ends = |answer: &[FileMarks]| -> Ends {
+    answer
+      .iter()
+      .map(|file| {
+        let subject = file.marks.subject.as_deref().unwrap();
+        let ends = subject.moved_out.iter().chain(&subject.moved_in).filter(|moved| moved.declaration.is_some());
+        (file.path.clone(), ends.map(|moved| (moved.start, moved.len, moved.file, moved.line)).collect())
+      })
+      .collect()
+  };
+  let answer = marks_of(&commit(&second));
+  assert_eq!(
+    ends(&answer),
+    [("src/Ledger.kt".to_string(), vec![(2, 3, 1, 2)]), ("src/Report.kt".to_string(), vec![(2, 6, 0, 2)]),]
+  );
+  assert_eq!(*index.moves_asked.lock().unwrap(), [(format!("{second}~1"), second.clone())]);
+  assert_eq!(marks_of(&commit(&second)), answer);
+  assert_eq!(index.moves_asked.lock().unwrap().len(), 1, "kept by the two trees");
+  // a file added alone: no declaration can have moved, and nothing is asked
+  assert_eq!(marks_of(&commit(&third)), []);
+  assert_eq!(index.moves_asked.lock().unwrap().len(), 1);
+}
+
+/// The answer of the index comes in stages, the renames first: the moves are asked only once the renames were told,
+/// so no question of them delays a proof of a rename. A file that may follow a move under another owner (the owner in
+/// front of a call written anew) says nothing with the moves; the uses of the declaration that moved are asked after
+/// them, one process more, and once they prove it the file gets its run, quiet. Memory keeps both answers by the two
+/// trees
+#[test]
+fn the_stages_of_the_answer_of_the_index_tell_the_renames_before_the_moves_are_asked() {
+  let repo = TestRepo::new();
+  std::fs::create_dir_all(repo.path().join("src")).unwrap();
+  let title = "  fun title(account: String): String {\n    return \"Title of $account\"\n  }\n";
+  let call = |owner: &str| format!("fun use(account: String) = {owner}.title(account)\n");
+  write(&repo, "src/Ledger.kt", format!("object Ledger {{\n{title}}}\n").as_bytes());
+  write(&repo, "src/Report.kt", b"object Report {\n}\n");
+  write(&repo, "src/Use.kt", call("Ledger").as_bytes());
+  commit_all(&repo, "Initial");
+  write(&repo, "src/Ledger.kt", b"object Ledger {\n}\n");
+  write(&repo, "src/Report.kt", format!("object Report {{\n{title}}}\n").as_bytes());
+  write(&repo, "src/Use.kt", call("Report").as_bytes());
+  let second = commit_all(&repo, "Move the title to the report");
+  let moves = crate::marks_subject_test::title_moves();
+  // the declaration and the call behind its owner, in both trees
+  let proven = r#"{"same": false, "differs": ["owner"], "renamed": false, "moved": true, "body_equal": true, "complete": true, "final": true,
+    "old": {"language": "kotlin"}, "new": {"language": "kotlin"}, "conflicts": [],
+    "base": {"total": 2, "uses": [{"file": "src/Ledger.kt", "line": 2, "column": 6, "end_column": 11, "kind": "declaration", "resolved": "typed"},
+      {"file": "src/Use.kt", "line": 1, "column": 34, "end_column": 39, "kind": "call", "resolved": "typed"}]},
+    "head": {"total": 2, "uses": [{"file": "src/Report.kt", "line": 2, "column": 6, "end_column": 11, "kind": "declaration", "resolved": "typed"},
+      {"file": "src/Use.kt", "line": 1, "column": 34, "end_column": 39, "kind": "call", "resolved": "typed"}]}}"#;
+  let index = RenameIndex {
+    moves: Some(moves),
+    ..RenameIndex::of_pairs(move |pairs| Ok(Some(pairs.iter().map(|_| serde_json::from_str(proven).unwrap()).collect())))
+  };
+  let diffs = unhurried();
+  let params = GetIndexMarksParams {
+    repository_path: repo_path(&repo).to_string(),
+    source: commit(&second),
+    policy: WhitespacePolicy::Default,
+  };
+  // the stages as they are told, with what the index had been asked of the moves when each came
+  let stages_of = || {
+    let mut stages = Vec::new();
+    let answered = diffs
+      .index_marks(repo.git_executor(), &ObjectCache::disabled(), Some(&index), &params, &mut |stage: IndexMarks| {
+        let proofs: Vec<(String, Option<RenameProof>)> = stage
+          .files
+          .iter()
+          .map(|file| {
+            (
+              file.path.clone(),
+              file.marks.subject.as_ref().and_then(|subject| subject.used.first().map(|used| used.proof)),
+            )
+          })
+          .collect();
+        stages.push((stage.stage, proofs, index.moves_asked.lock().unwrap().len()));
+      })
+      .unwrap();
+    assert!(answered);
+    stages
+  };
+  assert_eq!(
+    stages_of(),
+    [
+      (IndexStage::Renames, vec![], 0),
+      (IndexStage::Moves, vec![], 1),
+      (IndexStage::MovedUses, vec![("src/Use.kt".to_string(), Some(RenameProof::Confirmed))], 1),
+    ]
+  );
+  let pair = RenamePair {
+    old: "src/Ledger.kt:2".to_string(),
+    new: "src/Report.kt:2".to_string(),
+  };
+  assert_eq!(index.asked(), [(vec![pair], format!("{second}~1"), second)]);
+  // asked again: the same stages from memory, no process
+  assert_eq!(stages_of().len(), 3);
+  assert_eq!((index.asked().len(), index.moves_asked.lock().unwrap().len()), (1, 1));
+}
+
 /// A subject that renamed no name that is not local asks the index nothing; an index that answers no renames, one
 /// without an index of the repository and one that fails leave the names unavailable, never a failure of the diffs
 /// and never "no use"; a canceled query answers nothing, and the names stay asked for whoever asks again. Of the
@@ -610,12 +814,12 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
   let read = |index: &RenameIndex| read_with(&diffs, index);
   let canceled = RenameIndex::new(|| Err(SearchCanceled.into()));
   assert_eq!(read(&canceled), RenameProof::Asked);
-  let params = GetRenameProofsParams {
+  let params = GetIndexMarksParams {
     repository_path: repo_path(&repo).to_string(),
     source: commit(&second),
     policy: WhitespacePolicy::Default,
   };
-  assert_eq!(diffs.rename_proofs(repo.git_executor(), &ObjectCache::disabled(), Some(&canceled), &params).unwrap(), None);
+  assert_eq!(index_answer(&diffs, repo.git_executor(), &canceled, &params), None);
   // neither it nor an index that did not answer left an answer behind: the next one is asked
   assert_eq!(read(&RenameIndex::new(|| Ok(None))), RenameProof::Unavailable);
   let answering = RenameIndex::new(complete_answer);
@@ -703,13 +907,13 @@ fn a_question_asked_again_asks_only_the_pairs_whose_answer_was_not_final() {
     ))
   });
   let diffs = unhurried();
-  let params = GetRenameProofsParams {
+  let params = GetIndexMarksParams {
     repository_path: repo_path(&repo).to_string(),
     source: commit(&second),
     policy: WhitespacePolicy::Default,
   };
   let proofs_of = || {
-    let answer = diffs.rename_proofs(repo.git_executor(), &ObjectCache::disabled(), Some(&index), &params).unwrap().unwrap();
+    let answer = index_answer(&diffs, repo.git_executor(), &index, &params).unwrap();
     let store = answer
       .iter()
       .find(|file| file.path == "src/Store.kt")
@@ -998,7 +1202,7 @@ fn the_stream_lists_the_files_then_the_files_in_view_first_and_their_scopes_afte
   unhurried()
     .stream(repo.git_executor(), &ObjectCache::disabled(), false, &params, |event| events.push(event))
     .unwrap();
-  let FileDiffEvent::Files { files } = &events[0] else { panic!("{:?}", events[0]) };
+  let FileDiffEvent::Files { files, .. } = &events[0] else { panic!("{:?}", events[0]) };
   let index_of = |path: &str| u32::try_from(files.iter().position(|file| file.path == path).unwrap()).unwrap();
   // the binary file is known from the list, so its content goes out at once; then the work starts with the files in view
   let contents: Vec<u32> = events

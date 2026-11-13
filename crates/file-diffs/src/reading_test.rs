@@ -3,7 +3,7 @@
 
 use crate::accio::FixtureIndex;
 use crate::fixture_test::{confirmed_messages, unhurried};
-use crate::model::{DiffContent, DiffSource, FileDiffEvent, GetFileDiffsParams, GetRenameProofsParams};
+use crate::model::{DiffContent, DiffSource, FileDiffEvent, GetFileDiffsParams, GetIndexMarksParams};
 use crate::reading::DiffReading;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -100,7 +100,7 @@ fn every_event_of_the_stream_brings_the_reading_of_its_file_as_it_stands_then() 
     .stream(&git, &ObjectCache::disabled(), false, &params, |event| {
       events += 1;
       match event {
-        FileDiffEvent::Files { files } => {
+        FileDiffEvent::Files { files, .. } => {
           paths = files.into_iter().map(|file| file.path).collect();
           diffs = vec![None; paths.len()];
           readings = vec![None; paths.len()];
@@ -144,15 +144,18 @@ fn every_event_of_the_stream_brings_the_reading_of_its_file_as_it_stands_then() 
 #[test]
 fn the_marks_the_index_answers_come_with_what_is_left_to_read() {
   let (repo, head) = confirmed_messages();
-  let params = GetRenameProofsParams {
+  let params = GetIndexMarksParams {
     repository_path: repo.path_str().to_string(),
     source: DiffSource::Commit { id: head },
     policy: WhitespacePolicy::Default,
   };
-  let answered = unhurried()
-    .rename_proofs(repo.git_executor(), &ObjectCache::disabled(), Some(&FixtureIndex), &params)
-    .unwrap()
+  let mut answered = Vec::new();
+  let ended = unhurried()
+    .index_marks(repo.git_executor(), &ObjectCache::disabled(), Some(&FixtureIndex), &params, &mut |stage| {
+      answered.extend(stage.files);
+    })
     .unwrap();
+  assert!(ended);
   assert_eq!(answered.len(), 1);
   assert_eq!(answered[0].marks.starts.len() / 3, 1);
   assert_eq!(answered[0].reading, reading(3, 1, 1));

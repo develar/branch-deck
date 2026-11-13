@@ -1,7 +1,8 @@
 import { useEffect } from "react"
+import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { commands } from "@/lib/bindings"
-import type { DiffContent, DiffFileHeader, DiffMarks, DiffReading, FileDiffEvent, FileMarks, GetRenameProofsParams } from "@/lib/bindings"
+import type { DiffContent, DiffFileHeader, DiffMarks, DiffReading, FileDiffEvent, FileMarks, GetIndexMarksParams, IndexMarks } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { withoutIds } from "@/lib/commit-files"
 import { diffSourceOf, fileDiffSubjectId } from "@/lib/diff/file-diff-model"
@@ -107,6 +108,7 @@ export function loadFileDiffs(subject: FileDiffSubject, policy: WhitespacePolicy
   if (refresh) {
     // read again, its names may be asked again
     unanswered.delete(key)
+    answered.delete(key)
   }
   stream.load(key, channel => commands.getFileDiffs({ repositoryPath, source, policy, priorityPaths: [...priorityPaths] }, channel), refresh)
   // what is known of the questions of the subjects the store keeps no more
@@ -115,23 +117,25 @@ export function loadFileDiffs(subject: FileDiffSubject, policy: WhitespacePolicy
     if (!kept.has(asked)) {
       questions.delete(asked)
       unanswered.delete(asked)
+      answered.delete(asked)
     }
   }
 }
 
 /*
- * What the index of the repository says of the names a subject renamed (`get_rename_proofs`): a query of seconds on a
- * large repository, so the read of the diffs never waits for it. The diffs say that it is there to be asked (a proof
- * `asked` in the marks of a file), and the page asks it of the subjects a view shows: one question at a time, of the
+ * What the index of the repository says of the names a subject renamed and of the declarations it moved whole
+ * (`get_index_marks`): queries of seconds on a large repository, so the read of the diffs never waits for them. The
+ * diffs say that it is there to be asked (`asksIndex` of their files), and the page asks it of the subjects a view shows: one question at a time, of the
  * subject held last. A subject read ahead of its view asks nothing; a question whose subject no view shows any more
- * gives way to the next (the backend kills its query), and a subject shown again is asked again. The answer is the
- * marks of the files it says something of, which take the place of theirs. A question that gave way ends later than
+ * gives way to the next (the backend kills its query), and a subject shown again is asked again. The answer comes in
+ * stages, the proofs of the renames first, then the declarations moved whole and the uses that follow such a move:
+ * each the marks of the files it says something of, which take the place of theirs as it comes. A question that gave way ends later than
  * the one that took its place starts, maybe of the same subject shown again: its end is told from the end of the
  * running one by the question (`question`), never by its key, and says nothing of what runs.
  */
 
 /** What `get_file_diffs` was asked of each key the store keeps: what the index is asked of its subject by */
-const questions = new Map<string, GetRenameProofsParams>()
+const questions = new Map<string, GetIndexMarksParams>()
 /** The views that hold each key, the key held last last */
 const holders = new Map<string, number>()
 /** The key whose question runs */
@@ -140,23 +144,27 @@ let asking: string | null = null
 let question = 0
 /** The keys whose question ended without an answer for every name: not asked again until a view holds them anew */
 const unanswered = new Set<string>()
-/** Whether a complete entry has a name the index is there to be asked of, by the entry */
-const asksIndex = new WeakMap<FileDiffsEntry, boolean>()
+/** The keys whose question was answered with no name left `asked`: not asked again while the store keeps their read */
+const answered = new Set<string>()
+/** Whether a complete entry has a name the index is still to be asked of, by the entry */
+const leavesAsked = new WeakMap<FileDiffsEntry, boolean>()
 
-/** Whether the diffs of an entry say that the index is to be asked: the read ended, and a name of a file is `asked` */
-function wantsIndex(entry: FileDiffsEntry | undefined): boolean {
-  if (entry?.kind !== "loaded" || !entry.complete) {
-    return false
-  }
-  let wants = asksIndex.get(entry)
-  if (wants === undefined) {
-    wants = entry.files.some(file => {
+/** Whether a name of a file of a complete entry is still `asked` */
+function leftAsked(entry: FileDiffsEntry & { kind: "loaded" }): boolean {
+  let left = leavesAsked.get(entry)
+  if (left === undefined) {
+    left = entry.files.some(file => {
       const subject = file.content.kind === "text" ? file.content.marks.subject : null
       return subject != null && (subject.declared.some(check => check.proof === "asked") || subject.used.some(used => used.proof === "asked"))
     })
-    asksIndex.set(entry, wants)
+    leavesAsked.set(entry, left)
   }
-  return wants
+  return left
+}
+
+/** Whether the diffs of `key` say that the index is to be asked: the read ended, its stream said so, and no answer came yet */
+function wantsIndex(key: string, entry: FileDiffsEntry | undefined): boolean {
+  return entry?.kind === "loaded" && entry.complete && entry.asksIndex === true && !answered.has(key)
 }
 
 /**
@@ -195,7 +203,7 @@ function askIndex(): void {
   const entries = fileDiffsStore.getState().byKey
   let next: string | null = null
   for (const key of holders.keys()) {
-    if (key !== asking && !unanswered.has(key) && wantsIndex(entries.get(key))) {
+    if (key !== asking && !unanswered.has(key) && wantsIndex(key, entries.get(key))) {
       next = key
     }
   }
@@ -208,22 +216,31 @@ function askIndex(): void {
   asking = key
   question += 1
   const asked = question
-  void invokeCommand(() => commands.getRenameProofs(params)).then(result => {
+  // each stage of the answer as it comes, the renames first: the marks of the files it says something of take the
+  // place of theirs
+  const stages = new Channel<IndexMarks>()
+  stages.onmessage = stage => {
+    const answers = new Map<string, FileMarks>(stage.files.map(file => [file.path, file]))
+    stream.update(key, file => {
+      const told = answers.get(file.path)
+      return told === undefined ? null : withMarks(file, told.marks, told.reading)
+    })
+  }
+  void invokeCommand(() => commands.getIndexMarks(params, stages)).then(result => {
     if (result.status === "error") {
-      logError("Cannot ask the index of the renames of the files", result.error)
-    } else if (result.data !== null) {
-      const answers = new Map<string, FileMarks>(result.data.map(file => [file.path, file]))
-      stream.update(key, file => {
-        const answered = answers.get(file.path)
-        return answered === undefined ? null : withMarks(file, answered.marks, answered.reading)
-      })
+      logError("Cannot ask the index of the renames and moves of the files", result.error)
+    }
+    const entry = fileDiffsStore.getState().byKey.get(key)
+    // answered to its last stage with every name: the read is asked nothing more
+    if (result.status === "ok" && result.data && entry?.kind === "loaded" && !leftAsked(entry)) {
+      answered.add(key)
     }
     if (asked !== question) {
       // it gave way to a later question, maybe of this subject again: that one runs, and says what it leaves asked
       return
     }
     // an answer that left a name asked is none to ask for again: not before a view shows the subject anew
-    if (wantsIndex(fileDiffsStore.getState().byKey.get(key))) {
+    if (wantsIndex(key, entry)) {
       unanswered.add(key)
     }
     // the question ends here, after its answer is in the store: the store says each change to `askIndex`

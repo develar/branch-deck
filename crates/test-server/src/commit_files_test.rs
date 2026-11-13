@@ -17,6 +17,24 @@ async fn stream(client: &reqwest::Client, addr: SocketAddr, name: &str, params: 
   events
 }
 
+/// A repository of `template` on the server, and its head commit as a page names it: the subject of a question to the
+/// index, and the params of its diffs
+async fn head_subject(client: &reqwest::Client, addr: SocketAddr, template: &str) -> (String, Value, Value) {
+  let (_, repository_path) = create_repository_from(client, addr, template).await;
+  let head = GitCommandExecutor::new().execute_command(&["rev-parse", "HEAD"], &repository_path).unwrap();
+  let subject = json!({ "repositoryPath": repository_path, "source": { "kind": "commit", "id": head }, "policy": "default" });
+  let mut params = subject.clone();
+  params["priorityPaths"] = json!([]);
+  (repository_path, subject, params)
+}
+
+/// The stages of the answer of the index to the question of a page (`get_index_marks`), which it answered to its end
+async fn index_stages(client: &reqwest::Client, addr: SocketAddr, subject: &Value) -> Vec<Value> {
+  let (stages, result) = channel_events(client, addr, "get_index_marks", subject).await;
+  assert_eq!(result, json!({ "status": "ok", "data": true }), "{stages:?}");
+  stages
+}
+
 /// The routes take the params of the Tauri commands and answer in their shape, on a fixture repository
 #[tokio::test]
 async fn commit_files_routes_read_the_fixture_repository() {
@@ -72,18 +90,14 @@ async fn commit_files_routes_read_the_fixture_repository() {
 /// The diffs of the commit of the `commit_marks` template through the server, as a page reads them: after the
 /// contents, the marks of the files that the others say something of (the title function that moved from the ledger
 /// to the report, the calls of the function the store declares and renamed), the names to be asked of the index;
-/// the read ends there. Then the question of the page to the index of the repository (`get_rename_proofs`), which
+/// the read ends there. Then the question of the page to the index of the repository (`get_index_marks`), which
 /// its fixture answers (`FixtureIndex`): the marks of those files with what it proved. A repository whose fixture
 /// answers no rename is asked all the same, and its names are unavailable then
 #[tokio::test]
 async fn the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_index_is_asked_after_them() {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
-  let (_, repository_path) = create_repository_from(&client, addr, "commit_marks").await;
-  let head = GitCommandExecutor::new().execute_command(&["rev-parse", "HEAD"], &repository_path).unwrap();
-  let subject = json!({ "repositoryPath": repository_path, "source": { "kind": "commit", "id": head }, "policy": "default" });
-  let mut params = subject.clone();
-  params["priorityPaths"] = json!([]);
+  let (repository_path, subject, params) = head_subject(&client, addr, "commit_marks").await;
 
   // the proof of the name of a file that is not local, and its runs confirmed, in marks
   let proof_of = |marks: &Value| -> (Value, Value) {
@@ -104,10 +118,12 @@ async fn the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_ind
       .map(|event| proof_of(&event["marks"]))
       .collect()
   };
-  // of the answer of the index, by the path of each file it says something of
-  let answered = |answer: &Value| -> Vec<(String, (Value, Value))> {
-    let files = answer.as_array().unwrap_or_else(|| panic!("no answer: {answer}"));
-    files.iter().map(|file| (file["path"].as_str().unwrap().to_string(), proof_of(&file["marks"]))).collect()
+  // of the stages of the answer of the index, by the path of each file they say something of: the renames first,
+  // then what the moves add
+  let answered = |stages: &[Value]| -> Vec<(String, (Value, Value))> {
+    assert_eq!(stages[0]["stage"], "renames", "{stages:?}");
+    let files = stages.iter().flat_map(|stage| stage["files"].as_array().unwrap());
+    files.map(|file| (file["path"].as_str().unwrap().to_string(), proof_of(&file["marks"]))).collect()
   };
   let of_both = |proof: &str, confirmed: Value| {
     [
@@ -119,6 +135,7 @@ async fn the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_ind
   // the files were compared, so the marks of the subject follow their contents: the names are to be asked, and the
   // read ends with them
   let events = stream(&client, addr, "get_file_diffs", params.clone()).await;
+  assert_eq!(events[0]["asksIndex"], json!(true), "a commit, and an index there");
   let asked = [(json!("asked"), json!([]))];
   assert_eq!(marks_of(&events, "src/Report.kt"), asked);
   assert_eq!(marks_of(&events, "src/Store.kt"), asked);
@@ -130,7 +147,7 @@ async fn the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_ind
   assert_eq!(ledger["marks"]["subject"]["movedOut"], json!([{ "start": 54, "len": 4, "file": 1, "line": 17 }]));
 
   // no fixture: an index that answers nothing, asked all the same; the names are unavailable
-  let answer = invoke(&client, addr, "get_rename_proofs", subject.clone()).await;
+  let answer = index_stages(&client, addr, &subject).await;
   assert_eq!(answered(&answer), of_both("unavailable", json!([])));
 
   // the index answers the rename of the store whole: its declaration and the two calls of the report, in both trees
@@ -139,8 +156,18 @@ async fn the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_ind
     test_utils::repo_template::templates::commit_marks_index().to_string(),
   )
   .unwrap();
-  let answer = invoke(&client, addr, "get_rename_proofs", subject).await;
+  let answer = index_stages(&client, addr, &subject).await;
   assert_eq!(answered(&answer), of_both("confirmed", json!([0, 1])));
+
+  // the index says too that the title function moved whole, in the layout it had: the row of its same lines holds it
+  // as it is, so the stage of the moves changes no file
+  let mut fixture = test_utils::repo_template::templates::commit_marks_index();
+  let at = |file: &str, line: u32| json!({ "file": file, "line": line, "end_line": line + 3, "name": "reportTitle" });
+  fixture["moves"] = json!({ "moved": [{ "old": at("src/Ledger.kt", 55), "new": at("src/Report.kt", 18), "file": true }], "total": 1, "complete": true });
+  std::fs::write(std::path::Path::new(&repository_path).join(".git/branch-deck-accio.json"), fixture.to_string()).unwrap();
+  let answer = index_stages(&client, addr, &subject).await;
+  assert_eq!(answered(&answer), of_both("confirmed", json!([0, 1])));
+  assert_eq!(answer.len(), 1, "the renames alone changed files: {answer:?}");
 
   // the pairs are in the memory of the server now: the contents themselves say that the index is to be asked, and
   // nothing of an answer was kept with them
@@ -151,4 +178,40 @@ async fn the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_ind
     .find(|event| event["kind"] == "content" && event["content"]["marks"]["subject"]["used"][0].is_object())
     .unwrap();
   assert_eq!(report["content"]["marks"]["subject"]["used"][0]["proof"], "asked");
+}
+
+/// The commit of the `declaration_moves` template through the server: the title function moved as it is, a row of the
+/// same lines the diffs mark at once; the summary moved with its parameters one a line, which only the index says.
+/// Asked, the index tells the renames first, nothing to prove here, then the moves: the summary at both ends, its four
+/// old lines and its seven new ones, named; the row of the title stays what it was
+#[tokio::test]
+async fn a_declaration_of_another_layout_is_a_move_once_the_index_says_it_moved_and_a_row_stays_the_row_it_was() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (repository_path, subject, params) = head_subject(&client, addr, "declaration_moves").await;
+  let row = json!([{ "start": 11, "len": 4, "file": 1, "line": 6 }]);
+  let events = stream(&client, addr, "get_file_diffs", params).await;
+  let ledger = events.iter().find(|event| event["kind"] == "marks" && event["index"] == 0).unwrap();
+  assert_eq!(ledger["marks"]["subject"]["movedOut"], row);
+
+  std::fs::write(
+    std::path::Path::new(&repository_path).join(".git/branch-deck-accio.json"),
+    test_utils::repo_template::templates::declaration_moves_index().to_string(),
+  )
+  .unwrap();
+  let stages = index_stages(&client, addr, &subject).await;
+  assert_eq!(stages.iter().map(|stage| stage["stage"].clone()).collect::<Vec<_>>(), [json!("moves")], "{stages:?}");
+  let side = |path: &str, side: &str| {
+    let files = stages[0]["files"].as_array().unwrap();
+    files.iter().find(|file| file["path"] == path).unwrap()["marks"]["subject"][side].clone()
+  };
+  let summary = |other_len: u32| json!({ "name": "summary", "otherLen": other_len });
+  assert_eq!(
+    side("src/Ledger.kt", "movedOut"),
+    json!([{ "start": 6, "len": 4, "file": 1, "line": 11, "declaration": summary(7) }, row[0]])
+  );
+  assert_eq!(
+    side("src/Report.kt", "movedIn"),
+    json!([{ "start": 6, "len": 4, "file": 0, "line": 11 }, { "start": 11, "len": 7, "file": 0, "line": 6, "declaration": summary(4) }])
+  );
 }

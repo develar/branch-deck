@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import type { DiffMarks } from "../../../src/lib/bindings"
@@ -110,7 +110,7 @@ function withoutSubject(marks: StreamMarks): void {
 /**
  * The marks of the subject come late for the file `path` in `page`, and in the windows it shows: its diff says nothing
  * of its subject, as where its pair had to be compared (`withoutSubject`), and they come whole with the answer of the
- * index of the repository, which `holdCommand(page, "get_rename_proofs")` holds for as long as a test reads the rows
+ * index of the repository, which `holdCommand(page, "get_index_marks")` holds for as long as a test reads the rows
  * before it. The server sends the marks of a subject right after the contents, in one answer, which a test cannot stop
  * between two of its events: this is that late event, held. The command runs on the test server, on the real engine,
  * and the marks of the file change in the `content` event of its diff on their way; a later `marks` event of it is
@@ -179,5 +179,36 @@ export function answerStoreRename(repositoryPath: string, { outside = false }: {
   const kotlin = { language: "kotlin" }
   const base = uses(9, outside ? [use("src/Main.kt", 3, 14, 23, "call")] : [])
   const renamed = { same: true, complete: true, final: true, old: kotlin, new: kotlin, base, head: uses(12), conflicts: [] }
-  writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ renames: { "src/Store.kt:19:5": renamed } }))
+  writeFixtureIndex(repositoryPath, { renames: { "src/Store.kt:19:5": renamed } })
+}
+
+/** Writes `answers` into the fixture of the index of the repository (`FixtureIndex`), beside what it holds already */
+function writeFixtureIndex(repositoryPath: string, answers: Record<string, unknown>): void {
+  const file = path.join(repositoryPath, ".git", "branch-deck-accio.json")
+  const held = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>) : {}
+  writeFileSync(file, JSON.stringify({ ...held, ...answers }))
+}
+
+/** The subject of the commit of the `declaration_moves` template, without the prefix of its branch `ledger` */
+export const MOVES_SUBJECT = "move the summary and the title to the report"
+
+/**
+ * The index of the repository of the commit of the `declaration_moves` template (`crates/test-utils/src/repo_template.rs`)
+ * says that `summary` and `reportTitle` moved whole from the ledger to the report (`accio moves`, `FixtureIndex`, as
+ * `declaration_moves_index` writes it): `summary` from its four lines 7 to 10 of the ledger (from 1) to the seven
+ * lines 12 to 18 of the report, its parameters one a line, `reportTitle` as it is, from 12 to 15 to 7 to 10. The diffs
+ * of the commit mark the summary as a declaration that moved, by its name, once the index is asked; the title is a
+ * row of the same lines before that and stays one
+ */
+export function answerStoreMoves(repositoryPath: string): void {
+  const at = (file: string, line: number, endLine: number, name: string) => ({ file, line, end_line: endLine, column: 4, kind: "function", name, language: "kotlin" })
+  const moved = (name: string, [oldLine, oldEnd]: [number, number], [newLine, newEnd]: [number, number]) => ({
+    old: at("src/Ledger.kt", oldLine, oldEnd, name),
+    new: at("src/Report.kt", newLine, newEnd, name),
+    file: true,
+    owner: false,
+  })
+  writeFixtureIndex(repositoryPath, {
+    moves: { moved: [moved("summary", [7, 10], [12, 18]), moved("reportTitle", [12, 15], [7, 10])], reordered: [], total: 2, complete: true },
+  })
 }

@@ -20,15 +20,16 @@
 //!   first content goes out, which carries it; else each content goes out as it is known and the marks of the files
 //!   the subject says something of follow in a `marks` event, once all are. Nothing of the subject enters a cache: a
 //!   pair is in other commits beside other files.
-//! - **The index.** What the index of the repository says of the names a subject renamed is an answer of its own
-//!   (`FileDiffs::rename_proofs`), asked by the window that shows the subject, after its diffs: every declaration of
-//!   the subject in one process, a query of seconds on a large repository, so no read of the diffs waits for it and
-//!   a subject read ahead of its view starts none. The pairs come from the caches again; the answer is the marks of
+//! - **The index.** What the index of the repository says of the names a subject renamed and of the declarations it
+//!   moved whole is an answer of its own (`FileDiffs::index_marks`), asked by the window that shows the subject, after
+//!   its diffs: every declaration of the subject in one process, and its moves in one more, queries of seconds on a
+//!   large repository, so no read of the diffs waits for them and a subject read ahead of its view starts none. The pairs come from the caches again; the answer is the marks of
 //!   the files it says something of, which add words and what a reader may pass, never a row. Memory keeps the
 //!   answers of the last subjects (`ANSWERS_CACHE_BYTES`) by their two trees and their questions: two trees never
 //!   change, and a subject shown again asks no process. Only a final answer is kept (`RenameAnswer::is_final`, accio's
 //!   `final`), complete or not: one that the clock of the query cut says what that query got to, on that machine at
-//!   that load, and its pair is asked again when the subject is shown again, without the pairs memory has.
+//!   that load, and its pair is asked again when the subject is shown again, without the pairs memory has. The moves
+//!   are bound by work alone (`accio moves`): memory keeps each answer by the two trees.
 //! - **Caches.** A diff is keyed by its blob pair, the whitespace policy and how each side is read (`DiffKey`,
 //!   `diff_options`): its grammar, since the scopes and the marks depend on it, `.kt` and `.kts`, `.ts`, `.tsx` and
 //!   `.js` each their own; without a grammar, whether its indentation has a meaning, which the moves depend on, so a
@@ -46,8 +47,8 @@ use crate::collapse::collapse_of;
 use crate::marks::{TOKENS_CACHE_BYTES, tokens_weight};
 use crate::merge::{ConflictPath, MergeMemoryKey, merge_weight};
 use crate::model::{
-  BlobRequest, BlobText, Collapse, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetRenameProofsParams, MergeContent,
-  MergeSource,
+  BlobRequest, BlobText, Collapse, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetIndexMarksParams, IndexMarks, IndexStage,
+  MergeContent, MergeSource,
 };
 use crate::range_files::RangeFilesCache;
 use crate::reading::DiffReading;
@@ -62,7 +63,7 @@ use code_symbols::navigate::RULES_VERSION;
 use code_symbols::summary::{FileSummary, LineSpan};
 use code_tokens::grammar_of;
 use code_tokens::{Tokens, indentation_matters, tokens_version};
-use diff_marks::index::{Cut, RenameAnswer, RenamePair};
+use diff_marks::index::{Cut, MovesAnswer, RenameAnswer, RenamePair};
 use diff_marks::leftovers::Leftovers;
 use diff_marks::marks::pair_indented;
 use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject, facts_of};
@@ -190,8 +191,10 @@ pub(crate) struct MarksMemory {
   pub(crate) tokens: Cache<(u8, String), Option<Arc<Tokens>>>,
   /// What the diff of a text pair left to the other files of its subjects (`leftovers`), under the key of its diff
   pub(crate) leftovers: Cache<MemoryKey, Arc<Leftovers>>,
-  /// What the index answered of the declarations a subject renamed (`FileDiffs::rename_proofs`)
+  /// What the index answered of the declarations a subject renamed (`FileDiffs::index_marks`)
   pub(crate) answers: Cache<AnswersKey, Arc<Vec<RenameAnswer>>>,
+  /// What the index answered of the declarations a change moved whole, by the repository and the two trees
+  pub(crate) moves: Cache<(String, String, String), Arc<MovesAnswer>>,
 }
 
 /// The key of an answer of the index: the repository, the two trees as they were asked (full object ids, so they
@@ -205,6 +208,12 @@ fn no_answer() -> RenameAnswer {
     unavailable: true,
     ..RenameAnswer::default()
   }
+}
+
+/// The weight of an answer of `moves` in memory, roughly in bytes
+fn moves_weight(moves: &MovesAnswer) -> u32 {
+  let places = moves.moved.len() + moves.reordered.len();
+  u32::try_from(256 + places * 2 * 256).unwrap_or(u32::MAX)
 }
 
 /// The weight of an answer of the index in memory, roughly in bytes
@@ -342,7 +351,7 @@ pub struct Collected {
 
 impl Collected {
   /// Each file of the subject, in the order of git, with its content as it is known (every file has one once the stream
-  /// ended), its marks those of the subject and of the index where `answer_proofs` put them
+  /// ended), its marks those of the subject and of the index where `answer_index` put them
   pub fn files(&self) -> impl Iterator<Item = (&DiffFileHeader, Option<&DiffContent>)> {
     self
       .headers
@@ -475,6 +484,10 @@ impl FileDiffs {
           .max_capacity(ANSWERS_CACHE_BYTES)
           .weigher(|_key: &AnswersKey, answers: &Arc<Vec<RenameAnswer>>| answers_weight(answers))
           .build(),
+        moves: Cache::builder()
+          .max_capacity(ANSWERS_CACHE_BYTES)
+          .weigher(|_key: &(String, String, String), moves: &Arc<MovesAnswer>| moves_weight(moves))
+          .build(),
       }),
       limits,
       keep_scan_blobs: false,
@@ -511,7 +524,7 @@ impl FileDiffs {
   }
 
   /// `read` with the index `index` of the repository, which the names the subject renamed are asked of
-  /// (`rename_proofs`) once its diffs are read, as a window that shows the subject asks it
+  /// (`index_marks`) once its diffs are read, as a window that shows the subject asks it
   pub(crate) fn read_checked(
     &self,
     git: &GitCommandExecutor,
@@ -528,7 +541,7 @@ impl FileDiffs {
       priority_paths: Vec::new(),
     };
     let mut read = self.collect(git, cache, index.is_some(), &params, &mut |_| {})?;
-    self.answer_proofs(git, cache, index, &params, &mut read)?;
+    self.answer_index(git, cache, index, &params, &mut read, &mut |_| {})?;
     Ok(read.into_files())
   }
 
@@ -564,7 +577,7 @@ impl FileDiffs {
     self.stream(git, cache, asks_index, params, |event| {
       seen(&event);
       match event {
-        FileDiffEvent::Files { files } => {
+        FileDiffEvent::Files { files, .. } => {
           read.contents = vec![None; files.len()];
           read.headers = files;
         }
@@ -592,30 +605,42 @@ impl FileDiffs {
     Ok(read)
   }
 
-  /// Asks `index` of the names the subject of `params` renamed (`rename_proofs`) and puts the marks it answers into
-  /// the files of `read`; without an index nothing is asked: the proofs say so already
-  pub fn answer_proofs(&self, git: &GitCommandExecutor, cache: &ObjectCache, index: Option<&dyn SymbolIndex>, params: &GetFileDiffsParams, read: &mut Collected) -> Result<()> {
+  /// Asks `index` of the names the subject of `params` renamed and of the declarations it moved (`index_marks`) and
+  /// puts the marks of each stage of its answer into the files of `read`, in their order; `stage` is told of the end of
+  /// each. Without an index nothing is asked: the proofs say so already
+  pub fn answer_index(
+    &self,
+    git: &GitCommandExecutor,
+    cache: &ObjectCache,
+    index: Option<&dyn SymbolIndex>,
+    params: &GetFileDiffsParams,
+    read: &mut Collected,
+    stage: &mut dyn FnMut(IndexStage),
+  ) -> Result<()> {
     if index.is_none() {
       return Ok(());
     }
-    let proofs = GetRenameProofsParams {
+    let proofs = GetIndexMarksParams {
       repository_path: params.repository_path.clone(),
       source: params.source.clone(),
       policy: params.policy,
     };
-    for FileMarks { path, marks, .. } in self.rename_proofs(git, cache, index, &proofs)?.unwrap_or_default() {
-      let content = read.headers.iter().position(|header| header.path == path).and_then(|index| read.contents[index].as_mut());
-      if let Some((DiffContent::Text(diff), _)) = content {
-        diff.marks = marks;
+    self.index_marks(git, cache, index, &proofs, &mut |answered: IndexMarks| {
+      for FileMarks { path, marks, .. } in answered.files {
+        let content = read.headers.iter().position(|header| header.path == path).and_then(|index| read.contents[index].as_mut());
+        if let Some((DiffContent::Text(diff), _)) = content {
+          diff.marks = marks;
+        }
       }
-    }
+      stage(answered.stage);
+    })?;
     Ok(())
   }
 
   /// The diffs of a subject as events (`FileDiffEvent`): the files, then the content of each file as it is known,
   /// `priority_paths` first, then the others in the order of the tree; then what the files of the subject say of each
   /// other (module doc, "Subject"), in the content itself when the caches had every pair. `asks_index`: an index of
-  /// the repository is there for the names the subject renamed, so their proof is `asked` until `rename_proofs`
+  /// the repository is there for the names the subject renamed, so their proof is `asked` until `index_marks`
   /// answers; the stream itself asks no index and ends with the last of its files
   #[instrument(skip(self, git, cache, params, emit), fields(repository_path = %params.repository_path, source = ?params.source))]
   pub fn stream(&self, git: &GitCommandExecutor, cache: &ObjectCache, asks_index: bool, params: &GetFileDiffsParams, mut emit: impl FnMut(FileDiffEvent)) -> Result<()> {
@@ -629,6 +654,7 @@ impl FileDiffs {
     }
     emit(FileDiffEvent::Files {
       files: entries.iter().map(Entry::header).collect(),
+      asks_index: asks_index && revisions_of(&params.source).is_some(),
     });
     let paths: Vec<&str> = entries.iter().map(|entry| entry.path.as_str()).collect();
     let order = priority_order(&paths, &params.priority_paths);
@@ -693,23 +719,42 @@ impl FileDiffs {
     Ok(())
   }
 
-  /// What `index`, the index of the repository, says of the names the subject of `params` renamed: the marks of each
-  /// file it says something of, in place of those `stream` gave it (whose proofs were `asked`), by its path. Empty
-  /// when the subject has nothing to ask, `None` when the query was canceled: the proofs stay as they are, for
-  /// whoever asks again.
+  /// What `index`, the index of the repository, says of the names the subject of `params` renamed and of the
+  /// declarations it moved whole, in stages (`IndexStage`), each told to `emit` as it is known: the marks of each file
+  /// the stage says something of, in place of those the stage before gave it (the first in place of those of `stream`,
+  /// whose proofs were `asked`), by its path. Each stage is told, its files empty where it changed nothing. `false`
+  /// when a query was canceled: the marks stay as the last stage told left them, for whoever asks again; `true` once
+  /// the last stage was told.
+  ///
+  /// - **The renames** (`IndexStage::Renames`), first: no other question delays the proofs of a rename. Every
+  ///   declaration goes into one process, and each final answer (`RenameAnswer::is_final`) is kept in memory by its two
+  ///   trees and the questions of the subject (`ANSWERS_CACHE_BYTES`), so a subject shown again starts none; an answer
+  ///   that the clock of the query cut is used for this question alone, and the next one asks its pair again
+  ///   (`ask_again`).
+  /// - **The moves** (`IndexStage::Moves`): the declarations moved whole, of a subject whose files delete a line and
+  ///   add one (`Subject::may_move`), one process more, kept by the two trees (`moves_of`).
+  /// - **The uses that follow a move** (`IndexStage::MovedUses`): of a subject where a file changed the owner of a
+  ///   declaration that moved under another owner in front of its uses (`Subject::move_questions`), the uses of those
+  ///   declarations, one process more, its final answers kept as those of the renames; a name the answer proves is a
+  ///   mark then, quiet, and one it does not says nothing.
   ///
   /// Asked after the diffs of the subject: its pairs come from the caches, and a pair they lost is compared again,
-  /// silently. Every declaration goes into one process, and each final answer (`RenameAnswer::is_final`) is kept in
-  /// memory by its two trees and the questions of the subject (`ANSWERS_CACHE_BYTES`), so a subject shown again starts
-  /// none; an answer that the clock of the query cut is used for this question alone, and the next one asks its pair
-  /// again (`ask_again`). An index that does not answer (none, one without the answer, no index of the repository, a
-  /// failed query) leaves every proof it was asked `unavailable`: it fails no read
-  #[instrument(skip(self, git, cache, index, params), fields(repository_path = %params.repository_path, source = ?params.source))]
-  pub fn rename_proofs(&self, git: &GitCommandExecutor, cache: &ObjectCache, index: Option<&dyn SymbolIndex>, params: &GetRenameProofsParams) -> Result<Option<Vec<FileMarks>>> {
+  /// silently. An index that does not answer (none, one without the answer, no index of the repository, a failed
+  /// query) leaves every proof it was asked `unavailable` and moves nothing: it fails no read
+  #[instrument(skip(self, git, cache, index, params, emit), fields(repository_path = %params.repository_path, source = ?params.source))]
+  pub fn index_marks(
+    &self,
+    git: &GitCommandExecutor,
+    cache: &ObjectCache,
+    index: Option<&dyn SymbolIndex>,
+    params: &GetIndexMarksParams,
+    emit: &mut dyn FnMut(IndexMarks),
+  ) -> Result<bool> {
     let (repository_path, policy) = (params.repository_path.as_str(), params.policy);
     // a subject of the working tree, or one named by a ref, is never asked: `stream` said so
     let Some((base, head)) = revisions_of(&params.source) else {
-      return Ok(Some(Vec::new()));
+      emit(IndexMarks::empty(IndexStage::Renames));
+      return Ok(true);
     };
     let entries = list_entries(git, repository_path, cache, &self.range_files, &params.source)?;
     let order: Vec<usize> = (0..entries.len()).collect();
@@ -727,38 +772,112 @@ impl FileDiffs {
     }
     let values = subject_values(&texts);
     let facts = subject_facts(&entries, &texts, &values);
-    let subject = Subject::of(&facts);
-    let questions = subject.questions();
-    if questions.is_empty() {
-      return Ok(Some(Vec::new()));
-    }
-    let key: AnswersKey = (repository_path.to_string(), base, head, questions.to_vec());
-    let answers = match self.marks_memory.answers.get(&key) {
-      Some(kept) if kept.iter().all(RenameAnswer::is_final) => Some(kept),
-      kept => match self.ask_again(index, key, kept.as_ref().map(|kept| kept.as_slice())) {
-        Ok(answers) => answers,
-        Err(SearchCanceled) => return Ok(None),
-      },
-    };
-    let asked = subject.marks(IndexAnswer::Asked);
-    let answered = subject.marks(answers.as_deref().map_or(IndexAnswer::Unavailable, |answers| IndexAnswer::Answered(answers)));
-    Ok(Some(
-      entries
+    // each stage told as the marks of the files that changed since the one before
+    let mut told = |stage: IndexStage, before: &[Option<diff_marks::model::DiffMarks>], marks: &[Option<diff_marks::model::DiffMarks>]| {
+      let files = entries
         .iter()
-        .zip(answered)
-        .zip(asked)
+        .zip(marks)
+        .zip(before)
         .zip(&texts)
         .filter(|(((_, marks), before), _)| marks != before)
         .filter_map(|(((entry, marks), _), text)| {
-          let marks: DiffMarks = marks?.into();
+          let marks: DiffMarks = marks.clone()?.into();
           Some(FileMarks {
             path: entry.path.clone(),
             reading: reading_with(text.as_ref(), &marks),
             marks,
           })
         })
-        .collect(),
-    ))
+        .collect();
+      emit(IndexMarks { stage, files });
+    };
+
+    // the renames: the marks `stream` gave said the index is there to be asked, of the subject without the moves of
+    // the index, its names `asked`
+    let plain = Subject::of(&facts);
+    let questions = plain.questions();
+    let streamed = plain.marks(if questions.is_empty() { IndexAnswer::Unavailable } else { IndexAnswer::Asked });
+    let answers = if questions.is_empty() {
+      None
+    } else {
+      let key: AnswersKey = (repository_path.to_string(), base.clone(), head.clone(), questions.to_vec());
+      match self.answers_of(index, key) {
+        Ok(answers) => answers,
+        Err(SearchCanceled) => return Ok(false),
+      }
+    };
+    let answer = answers.as_deref().map_or(IndexAnswer::Unavailable, |answers| IndexAnswer::Answered(answers));
+    let renamed = plain.marks(answer);
+    told(IndexStage::Renames, &streamed, &renamed);
+
+    // the declarations moved whole
+    let moves = match index.filter(|_| plain.may_move()).map(|index| self.moves_of(index, repository_path, &base, &head)) {
+      Some(Err(SearchCanceled)) => return Ok(false),
+      Some(Ok(moves)) => moves,
+      None => None,
+    };
+    let Some(moves) = moves else {
+      told(IndexStage::Moves, &renamed, &renamed);
+      return Ok(true);
+    };
+    let moved = Subject::with_moves(&facts, &moves).marks(answer);
+    told(IndexStage::Moves, &renamed, &moved);
+
+    // the owners in front of the uses of a declaration moved under another owner, marks once the index proved them
+    let following = Subject::following_moves(&facts, &moves);
+    let move_questions = following.move_questions();
+    if move_questions.is_empty() {
+      return Ok(true);
+    }
+    let key: AnswersKey = (repository_path.to_string(), base, head, move_questions.to_vec());
+    let followed = match self.answers_of(index, key) {
+      Ok(answers) => answers.map_or_default(|answers| following.followed(&answers)),
+      Err(SearchCanceled) => return Ok(false),
+    };
+    let followed = if followed.is_empty() {
+      moved.clone()
+    } else {
+      Subject::with_followed(&facts, &moves, &followed).marks(answer)
+    };
+    told(IndexStage::MovedUses, &moved, &followed);
+    Ok(true)
+  }
+
+  /// The answer of each question of `key`, from memory where it keeps final answers of every one, else asked again
+  /// (`ask_again`); `None` when no question has an answer
+  fn answers_of(&self, index: Option<&dyn SymbolIndex>, key: AnswersKey) -> Result<Option<Arc<Vec<RenameAnswer>>>, SearchCanceled> {
+    match self.marks_memory.answers.get(&key) {
+      Some(kept) if kept.iter().all(RenameAnswer::is_final) => Ok(Some(kept)),
+      kept => self.ask_again(index, key, kept.as_ref().map(|kept| kept.as_slice())),
+    }
+  }
+
+  /// What `index` says of the declarations a change moved whole between the trees `base` and `head`: from memory,
+  /// else asked, its answer kept by the two trees, which never change, as the answer is bound by work alone. `None`
+  /// when the index answers no moves (no index of the repository, one without the answer, a failed query), which
+  /// nothing keeps; `SearchCanceled` when the query was
+  fn moves_of(&self, index: &dyn SymbolIndex, repository_path: &str, base: &str, head: &str) -> Result<Option<Arc<MovesAnswer>>, SearchCanceled> {
+    let key = (repository_path.to_string(), base.to_string(), head.to_string());
+    if let Some(kept) = self.marks_memory.moves.get(&key) {
+      return Ok(Some(kept));
+    }
+    match index.moves(repository_path, base, head) {
+      Ok(Some(moves)) if !moves.unavailable => {
+        let moves = Arc::new(moves);
+        self.marks_memory.moves.insert(key, Arc::clone(&moves));
+        Ok(Some(moves))
+      }
+      Err(error) if error.is::<SearchCanceled>() => Err(SearchCanceled),
+      Err(error) if error.is::<IndexUnavailable>() => {
+        debug!(%error, "the index of the repository answers no moves");
+        Ok(None)
+      }
+      Err(error) => {
+        warn!(error = %format!("{error:#}"), "the index of the repository did not answer the moves of the subject");
+        Ok(None)
+      }
+      Ok(_) => Ok(None),
+    }
   }
 
   /// The answer of each question of `key` between its two trees, in their order: the final ones of `kept`, what memory

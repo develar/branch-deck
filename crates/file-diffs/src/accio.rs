@@ -10,7 +10,9 @@
 //! subject ask whether the names it renamed are renamed at every use (openspec/specs/commit/quiet-changes/spec.md,
 //! "Subject"): `accio renames --base <revision> --ref <revision>`, every declaration of the subject in one process, the
 //! pairs of their places on its standard input; only an accio that says it answers them (`accio versions`,
-//! `RENAMES_ANSWER`) is asked. The answers of the index a diff decides by, and how accio counts its columns, are the
+//! `RENAMES_ANSWER`) is asked. And which declarations it moved whole to another file or under other owners: `accio
+//! moves --base <revision> --ref <revision>`, one process for the subject, asked of an accio of `MOVES_ANSWER` alone.
+//! The answers of the index a diff decides by, and how accio counts its columns, are the
 //! contract of `diff_marks::index`, which the marks of a subject read.
 //!
 //! - **One answer per target**: accio answers a JSON array of one entry for each name or place, in the order asked, so
@@ -36,7 +38,7 @@
 //!   the machine leaves over.
 
 use anyhow::{Context, Result, bail};
-use diff_marks::index::{Access, Columns, RenameAnswer, RenamePair, Resolved};
+use diff_marks::index::{Access, Columns, MovesAnswer, RenameAnswer, RenamePair, Resolved};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -60,6 +62,12 @@ pub const RENAMES_ANSWER: u32 = 1;
 /// (JetBrains/accio#748). An accio of another revision is not asked: `entry_point` decides what enters a module from
 /// `used_by`, which an accio before 2 gives without `test`
 pub const SURFACE_ANSWER: u32 = 2;
+/// The revision of the answer of `accio moves` this reader was written for (`answers.moves` of `accio versions`): 2,
+/// whose `moved` and `reordered` say the same words by the words of the declarations. An accio of another revision is
+/// not asked
+pub const MOVES_ANSWER: u32 = 2;
+/// The moves `accio moves` lists at most: more make its answer not `complete`, and the rest are read as no move
+const MOVES_LIMIT: &str = "500";
 /// The tests a lookup answers at most, per declaration: the given tests of a change reach one declaration by the
 /// hundred (97 tests of 7 files for one place of idea-1)
 const TESTS_LIMIT: &str = "1000";
@@ -690,6 +698,13 @@ pub trait SymbolIndex: Send + Sync {
   fn has_index(&self, _repository_root: &str) -> Result<Option<bool>> {
     Ok(None)
   }
+
+  /// The declarations a change moved whole between the tree of `base` and the tree of `head`: to another file or
+  /// under other owners, with the same words; `None` when the index answers no moves (an accio of another answer
+  /// revision, a fixture without them)
+  fn moves(&self, _repository_root: &str, _base: &str, _head: &str) -> Result<Option<MovesAnswer>> {
+    Ok(None)
+  }
 }
 
 /// accio has no usable index of the repository (`--no-build` answered `available: false`): why, with a format mismatch
@@ -731,6 +746,7 @@ pub struct AccioCli {
 struct Answers {
   renames: Option<u32>,
   surface: Option<u32>,
+  moves: Option<u32>,
 }
 
 /// What an executable says of itself, asked once of each build of it: again once its file is another one, by its
@@ -826,6 +842,11 @@ impl AccioCli {
     self.answers().surface == Some(SURFACE_ANSWER)
   }
 
+  /// Whether this accio answers `moves` as this reader reads it (`MOVES_ANSWER`), as `answers_renames` asks it
+  pub(crate) fn answers_moves(&self) -> bool {
+    self.answers().moves == Some(MOVES_ANSWER)
+  }
+
   /// The revisions of the answers of this accio, from `accio versions`, asked once of each build of it (`OfBuild`);
   /// none of an accio without them and of one whose `versions` fails
   fn answers(&self) -> Answers {
@@ -843,6 +864,7 @@ impl AccioCli {
       Answers {
         renames: revision("renames"),
         surface: revision("surface"),
+        moves: revision("moves"),
       }
     })
   }
@@ -1126,6 +1148,24 @@ impl SymbolIndex for AccioSearch<'_> {
     let flag = |name: &str| stats.get(name).and_then(serde_json::Value::as_bool);
     Ok(flag("indexed").map(|indexed| indexed || flag("building") == Some(true)))
   }
+
+  /// `accio moves --no-build --base <base> --ref <head>`: one object for the two trees. An accio that does not answer
+  /// them as this reader reads them is not started
+  fn moves(&self, repository_root: &str, base: &str, head: &str) -> Result<Option<MovesAnswer>> {
+    if !self.accio.answers_moves() {
+      return Ok(None);
+    }
+    let mut command = windowless_command_at(&self.accio.executable, self.priority);
+    command.args(["moves", "--no-build", "--format", "json", "--project", repository_root]);
+    command.args(["--base", base, "--ref", head, "--limit", MOVES_LIMIT]);
+    let stdout = self.run(&mut command, None)?;
+    let answer: serde_json::Value = serde_json::from_slice(&stdout).context("the answer of accio")?;
+    if answer.get("available").and_then(serde_json::Value::as_bool) == Some(false) {
+      let note = answer.get("note").and_then(serde_json::Value::as_str).unwrap_or("accio has no index of this repository");
+      return Err(IndexUnavailable(index_unavailable_note(note, &self.accio.executable)).into());
+    }
+    serde_json::from_value(answer).context("the answer of accio").map(Some)
+  }
 }
 
 /// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer;
@@ -1226,8 +1266,8 @@ impl<'a> Lenient<'a> {
 /// each place whatever the given tests, the line of `parse --descriptor` of each `<full commit id>:<path>` (a path it
 /// lacks is `missing`), the answer of `surface` of each `<full commit id>:<module>` (a module it lacks unknown, not
 /// `complete`; none without any), the answer of `renames` of each pair by the place of its old declaration (a pair
-/// it lacks `unavailable` and final; none without any), or the `error` every query fails with; a repository without the file
-/// has no index
+/// it lacks `unavailable` and final; none without any), the answer of `moves` whatever the trees (none without it),
+/// or the `error` every query fails with; a repository without the file has no index
 pub struct FixtureIndex;
 
 #[derive(Deserialize)]
@@ -1247,6 +1287,9 @@ struct Fixture {
   /// trees
   #[serde(default)]
   renames: std::collections::HashMap<String, RenameAnswer>,
+  /// The answer of `moves`, whatever the trees
+  #[serde(default)]
+  moves: Option<MovesAnswer>,
   error: Option<String>,
 }
 
@@ -1343,6 +1386,10 @@ impl SymbolIndex for FixtureIndex {
   /// A repository has an index where it has a fixture
   fn has_index(&self, repository_root: &str) -> Result<Option<bool>> {
     Ok(Some(Path::new(repository_root).join(".git/branch-deck-accio.json").is_file()))
+  }
+
+  fn moves(&self, repository_root: &str, _base: &str, _head: &str) -> Result<Option<MovesAnswer>> {
+    Ok(Self::read(repository_root)?.and_then(|fixture| fixture.moves))
   }
 }
 

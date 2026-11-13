@@ -91,7 +91,7 @@ rules in one line each and links here.
   `answerStoreRename(repo.path)` of `marks-helpers.ts` writes the answer for the rename of the `commit_marks`
   template before a view asks (`{ outside: true }`: a use the commit left alone). Marks that come after the rows of
   a file: `lateSubjectMarks(page, path)` makes the diff of that file say nothing of its subject, and
-  `holdCommand(page, "get_rename_proofs")` holds the answer that brings its marks, until the test read the rows
+  `holdCommand(page, "get_index_marks")` holds the answer that brings its marks, until the test read the rows
   before it. A quiet run of a renamed name is the local of the `commit_marks` template (`total` → `sum`); a run of a
   renamed name that is a label is a change the test builds, with a line of the function of the name that really
   changed (`commitTally` of `renamed-names.spec.ts`). The painter adds a row to the page as a

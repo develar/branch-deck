@@ -882,6 +882,39 @@ pub mod templates {
       )
   }
 
+  /// A commit of the branch `ledger` that moves two functions from src/Ledger.kt to src/Report.kt
+  /// (openspec/specs/commit/quiet-changes/spec.md, "Subject"): `reportTitle` as it is, a row of the same lines, and
+  /// `summary` with its parameters one a line, its four old lines 7 to 10 of the ledger (from 1) seven new lines 12 to
+  /// 18 of the report, the lines of its body too few for a row of their own. Only the index of the repository says
+  /// that `summary` moved (`declaration_moves_index`)
+  pub fn declaration_moves() -> RepoTemplate {
+    const LEDGER: &str = "package ledger\n\nclass Ledger {\n  fun balance(account: String): Long = 0\n}\n";
+    const SUMMARY: &str = "\nfun summary(ledger: Ledger, account: String): String {\n  val sum = ledger.balance(account)\n  return \"$sum\"\n}\n";
+    const SUMMARY_WRAPPED: &str = "\nfun summary(\n  ledger: Ledger,\n  account: String,\n): String {\n  val sum = ledger.balance(account)\n  return \"$sum\"\n}\n";
+    const TITLE: &str = "\nfun reportTitle(ledger: Ledger, account: String): String {\n  val balance = ledger.balance(account)\n  return \"Report for $account: $balance\"\n}\n";
+    const REPORT: &str = "package ledger\n\nclass Report(private val ledger: Ledger) {\n  fun print(account: String) = println(reportTitle(ledger, account))\n}\n";
+    RepoTemplate::new("declaration_moves")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[("src/Ledger.kt", &[LEDGER, SUMMARY, TITLE].concat()), ("src/Report.kt", REPORT)],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(ledger) move the summary and the title to the report",
+        &[("src/Ledger.kt", LEDGER), ("src/Report.kt", &[REPORT, TITLE, SUMMARY_WRAPPED].concat())],
+        Some(1704119400),
+      )
+  }
+
+  /// What the index of the repository answers of the commit of `declaration_moves` (`accio moves`, the fixture of the
+  /// test server, `FixtureIndex`): `summary` and `reportTitle` moved whole from the ledger to the report
+  pub fn declaration_moves_index() -> serde_json::Value {
+    let at = |file: &str, line: u32, end_line: u32, name: &str| serde_json::json!({ "file": file, "line": line, "end_line": end_line, "column": 4, "kind": "function", "name": name, "language": "kotlin" });
+    let moved = |name: &str, old: [u32; 2], new: [u32; 2]| serde_json::json!({ "old": at("src/Ledger.kt", old[0], old[1], name), "new": at("src/Report.kt", new[0], new[1], name), "file": true, "owner": false });
+    serde_json::json!({ "moves": { "moved": [moved("summary", [7, 10], [12, 18]), moved("reportTitle", [12, 15], [7, 10])], "reordered": [], "total": 2, "complete": true } })
+  }
+
   /// The fixture of the index of a repository of `commit_marks` (`<git dir>/branch-deck-accio.json`,
   /// `file_diffs::accio::FixtureIndex`): the answer of an index that lists the declaration of the function the
   /// store renamed and its two calls in the report as every use of it in both trees, complete, final and without a

@@ -19,20 +19,21 @@ pub struct GetFileDiffsParams {
   pub priority_paths: Vec<String>,
 }
 
-/// The parameters of `get_rename_proofs`: a subject whose diffs `get_file_diffs` gave under `policy`
+/// The parameters of `get_index_marks`: a subject whose diffs `get_file_diffs` gave under `policy`
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct GetRenameProofsParams {
+pub struct GetIndexMarksParams {
   pub repository_path: String,
   pub source: DiffSource,
   pub policy: WhitespacePolicy,
 }
 
 /// The marks of the text of a file of a subject, by its path, with what the index of the repository answered of its
-/// renamed names (`get_rename_proofs`): in place of those its diff has. They differ from them in the proofs
-/// (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`), which are quiet, and so in
-/// what a reader may pass (`starts`, and so `reading`); never in a row of the file
+/// renamed names and of the declarations it moved whole (`get_index_marks`): in place of those its diff has. They
+/// differ from them in the proofs (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`),
+/// which are quiet, and so in what a reader may pass (`starts`, and so `reading`), and in the moves between files of
+/// the declarations (`moved_out`, `moved_in` with a `declaration`), labels; never in a row of the file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +42,38 @@ pub struct FileMarks {
   pub marks: DiffMarks,
   /// What is left to read of the text with these marks
   pub reading: DiffReading,
+}
+
+/// A stage of the answer of `get_index_marks` (`FileDiffs::index_marks`), told as it is known: the marks of each file
+/// it says something of, in place of those the stage before gave it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct IndexMarks {
+  pub stage: IndexStage,
+  pub files: Vec<FileMarks>,
+}
+
+impl IndexMarks {
+  /// A stage that changed no file
+  pub const fn empty(stage: IndexStage) -> Self {
+    Self { stage, files: Vec::new() }
+  }
+}
+
+/// The stages of the answer of `get_index_marks`, in their order: each a process of the index, the first never
+/// delayed by the others
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum IndexStage {
+  /// The proofs of the names the subject renamed (`accio renames`)
+  Renames,
+  /// The declarations it moved whole to another file or under other owners (`accio moves`)
+  Moves,
+  /// The uses of a declaration moved under another owner whose owner the change wrote anew in front of them
+  /// (`accio renames` of the moved pairs)
+  MovedUses,
 }
 
 /// The parameters of `get_blob_texts`
@@ -109,8 +142,11 @@ pub struct DiffFileHeader {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum FileDiffEvent {
-  /// The changed files in the order of git; `index` of the other events points into this list
-  Files { files: Vec<DiffFileHeader> },
+  /// The changed files in the order of git; `index` of the other events points into this list. `asks_index`: an index
+  /// of the repository is there to be asked of the subject, whose two trees never change (`get_index_marks`), once its
+  /// diffs are read
+  #[serde(rename_all = "camelCase")]
+  Files { files: Vec<DiffFileHeader>, asks_index: bool },
   /// The content of a file, and why the views start it collapsed (`collapse_of`). A `TextDiff` that the caches did not
   /// have comes with empty scopes, which a `scopes` event of the same file fills later: the parse costs more than the
   /// comparison. `reading`: what is left to read of a text (`DiffReading::of`), `None` for a file that is no text

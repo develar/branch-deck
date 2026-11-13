@@ -3,11 +3,11 @@
 //! merge of each conflicting file of a cherry-pick, each told to the page on the channel of its command as it is known.
 //!
 //! What the index of the repository says of the names a subject renamed (`SymbolIndexes`, as a symbol search asks it)
-//! is a read of its own, `get_rename_proofs`: a query of seconds on a large repository, which the window asks of the
-//! subject it shows, after its diffs. One per window (`Windows::begin_rename_proofs`): a newer one of the window
-//! supersedes the one in flight, whose query is killed, as is the query of a window that closed or loads again
-//! (`Windows::shows`: a page that went away never says so itself); it answers nothing then, and the names stay
-//! asked.
+//! is a read of its own, `get_index_marks`: a query of seconds on a large repository, which the window asks of the
+//! subject it shows, after its diffs, in stages: the renames, then the declarations moved whole, then the uses that
+//! follow such a move. One per window (`Windows::begin_index_marks`): a newer one of the window supersedes the one in
+//! flight, whose query is killed, as is the query of a window that closed or loads again (`Windows::shows`: a page
+//! that went away never says so itself); it tells nothing more then, and what it did not answer stays asked.
 
 use crate::context::AppContext;
 use crate::operation::run_blocking;
@@ -16,7 +16,7 @@ use crate::session::windows::{WindowRequest, Windows};
 use crate::transport::{Call, Sink};
 use domain_types::error::ApiError;
 use domain_types::review_request::GetRangeParams;
-use file_diffs::model::{FileDiffEvent, FileMarks, FileMergeEvent, GetFileDiffsParams, GetFileMergesParams, GetRenameProofsParams};
+use file_diffs::model::{FileDiffEvent, FileMergeEvent, GetFileDiffsParams, GetFileMergesParams, GetIndexMarksParams, IndexMarks};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::{CommitFiles, DiffSubject};
@@ -27,7 +27,7 @@ use tracing::{debug, instrument};
 
 /// The diffs of the files, the files in view first (`FileDiffs::stream`), on `events`. With an index of the
 /// repository on this machine, the names the subject renamed say that it is there to be asked
-/// (`get_rename_proofs`); the read asks none and ends with its last file
+/// (`get_index_marks`); the read asks none and ends with its last file
 #[instrument(skip_all, fields(repository_path = %params.repository_path, source = ?params.source))]
 pub async fn get_file_diffs(ctx: &AppContext, params: GetFileDiffsParams, events: Sink<FileDiffEvent>) -> Result<(), ApiError> {
   let (git, repository_state, file_diffs) = (ctx.git.clone(), ctx.repository_state.clone(), ctx.file_diffs.clone());
@@ -39,29 +39,31 @@ pub async fn get_file_diffs(ctx: &AppContext, params: GetFileDiffsParams, events
   .await
 }
 
-/// What the index of the repository says of the names the subject of `params` renamed (`FileDiffs::rename_proofs`),
-/// as the request of the window of `call`: the marks of each file it says something of, `None` when the request was
-/// superseded or its page went away
+/// What the index of the repository says of the names the subject of `params` renamed and of the declarations it
+/// moved (`FileDiffs::index_marks`), as the request of the window of `call`: each stage of the answer on `events` as it
+/// is known, the renames first, a stage that changed no file left out. `false` when the request was superseded or its
+/// page went away before its last stage, whose rest is told to no one
 #[instrument(skip_all, fields(repository_path = %params.repository_path, source = ?params.source))]
-pub async fn get_rename_proofs(ctx: &AppContext, call: &Call, params: GetRenameProofsParams) -> Result<Option<Vec<FileMarks>>, ApiError> {
-  let request = ctx.windows.begin_rename_proofs(&call.window);
+pub async fn get_index_marks(ctx: &AppContext, call: &Call, params: GetIndexMarksParams, events: Sink<IndexMarks>) -> Result<bool, ApiError> {
+  let request = ctx.windows.begin_index_marks(&call.window);
   let (git, repository_state, file_diffs) = (ctx.git.clone(), ctx.repository_state.clone(), ctx.file_diffs.clone());
   let (windows, indexes, call) = (Arc::clone(&ctx.windows), Arc::clone(&ctx.symbol_indexes), call.clone());
   run_blocking(move || {
     let cache = repository_state.object_cache(&git, &params.repository_path);
-    let asker = ProofAsker {
+    let asker = IndexAsker {
       windows: &windows,
       indexes: indexes.as_ref(),
       call: &call,
       request: &request,
     };
-    asker.ask(&file_diffs, &git, &cache, &params)
+    let mut send = to_page(&events);
+    asker.ask(&file_diffs, &git, &cache, &params, &mut |stage| send(stage))
   })
   .await
 }
 
 /// The request of a window for the proofs of the renames of a subject: who asks, and what ends it
-pub(crate) struct ProofAsker<'a> {
+pub(crate) struct IndexAsker<'a> {
   pub windows: &'a Windows,
   pub indexes: &'a dyn SymbolIndexes,
   /// The page that asked: the answer is of use to it alone
@@ -69,18 +71,34 @@ pub(crate) struct ProofAsker<'a> {
   pub request: &'a WindowRequest,
 }
 
-impl ProofAsker<'_> {
-  /// Asks the index of the subject of `params`, at the priority of the app: a view waits for the answer. The query
-  /// is killed once a newer request of the window superseded this one, or the window shows another page or none
-  pub(crate) fn ask(&self, file_diffs: &FileDiffs, git: &GitCommandExecutor, cache: &ObjectCache, params: &GetRenameProofsParams) -> anyhow::Result<Option<Vec<FileMarks>>> {
+impl IndexAsker<'_> {
+  /// Asks the index of the subject of `params`, at the priority of the app: a view waits for the answer. Each stage
+  /// that changed a file goes to `emit` while the request stands; the query is killed once a newer request of the
+  /// window superseded this one, or the window shows another page or none, and nothing more is told then. Whether
+  /// the last stage was told
+  pub(crate) fn ask(
+    &self,
+    file_diffs: &FileDiffs,
+    git: &GitCommandExecutor,
+    cache: &ObjectCache,
+    params: &GetIndexMarksParams,
+    emit: &mut dyn FnMut(IndexMarks),
+  ) -> anyhow::Result<bool> {
     let canceled = || self.request.is_superseded() || !self.windows.shows(self.call);
     if canceled() {
-      return Ok(None);
+      return Ok(false);
     }
     let index = self.indexes.search(&canceled, ChildPriority::Normal);
-    let answer = file_diffs.rename_proofs(git, cache, index.as_deref(), params)?;
-    // an answer that came as the page left or asked of another subject is of no use to it
-    Ok(answer.filter(|_| !canceled()))
+    let mut told = true;
+    let answered = file_diffs.index_marks(git, cache, index.as_deref(), params, &mut |stage| {
+      // a stage that came as the page left or asked of another subject is of no use to it
+      if canceled() {
+        told = false;
+      } else if told && !stage.files.is_empty() {
+        emit(stage);
+      }
+    })?;
+    Ok(answered && told && !canceled())
   }
 }
 

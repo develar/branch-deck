@@ -2,7 +2,8 @@
 //! openspec/specs/commit/quiet-changes/spec.md, "Measurement"; docs/design/diff-view.md, "Measured on real history"):
 //! the diffs a view of the subject gets, through the stream a view reads, with what a view is not told.
 //!
-//! - **The time** from the start of the read to its first content and to its end, and of the answer of the index.
+//! - **The time** from the start of the read to its first content and to its end, and of the answer of the index: of
+//!   its renames, the stage a view gets first, and of its moves after them.
 //! - **The texts** of both sides of each file, so the lines of a mark can be printed and read by a person.
 //! - **The proofs**: the runs whose proof holds though their kind is a label (`PairMarks::proven`,
 //!   `SubjectMarks::confirmed`), and the stops the file has once every kind with a proof is quiet. They are what the
@@ -17,7 +18,7 @@
 //! subject without any mark, for what the marks cost.
 
 use crate::accio::SymbolIndex;
-use crate::model::{BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, GetFileDiffsParams};
+use crate::model::{BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, GetFileDiffsParams, IndexStage};
 use crate::reading::{proven_runs, proven_starts};
 use crate::service::FileDiffs;
 use anyhow::Result;
@@ -42,8 +43,11 @@ pub struct MeasuredSubject {
   pub first_content: Option<Duration>,
   /// From the start of the read to the end of its stream
   pub end: Duration,
-  /// The answer of the index after it; `None` when none was asked
+  /// The answer of the index of the renames after it (`IndexStage::Renames`); `None` when none was asked
   pub index: Option<Duration>,
+  /// The answer of the moves after that, the uses that follow them with it (`IndexStage::Moves`, `MovedUses`);
+  /// `None` when none was asked
+  pub moves: Option<Duration>,
 }
 
 /// A file of a measured subject
@@ -120,8 +124,14 @@ impl FileDiffs {
       }
     })?;
     let end = started.elapsed();
-    self.answer_proofs(git, cache, index, &params, &mut read)?;
-    let answered = index.map(|_| started.elapsed().saturating_sub(end));
+    let mut renames = None;
+    self.answer_index(git, cache, index, &params, &mut read, &mut |stage| {
+      if stage == IndexStage::Renames {
+        renames = Some(started.elapsed());
+      }
+    })?;
+    let answered = index.map(|_| renames.unwrap_or_else(|| started.elapsed()).saturating_sub(end));
+    let moves = index.map(|_| started.elapsed().saturating_sub(renames.unwrap_or(end)));
     let files = read.into_files();
     if self.marks_off {
       let files = files.into_iter().map(|file| MeasuredFile { file, text: None }).collect();
@@ -130,6 +140,7 @@ impl FileDiffs {
         first_content,
         end,
         index: answered,
+        moves,
       });
     }
 
@@ -156,6 +167,7 @@ impl FileDiffs {
       first_content,
       end,
       index: answered,
+      moves,
     })
   }
 

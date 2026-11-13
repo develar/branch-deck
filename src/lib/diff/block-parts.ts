@@ -53,6 +53,12 @@ export interface MoveEnd {
    * (`FileDiff.subjectPaths`): `other` are lines of that file. Null for a move within the file
    */
   readonly file: number | null
+  /**
+   * Of a move between files that is a declaration the index says moved whole (`FileMove.declaration`), its name: the
+   * lines of each end are the lines of the declaration there, their layout maybe another. Absent for a row of the
+   * same lines
+   */
+  readonly declaration?: string
 }
 
 /** The marks of one block of a diff: its runs, and the ends of the moves it holds */
@@ -95,9 +101,11 @@ export interface RenameReach {
   readonly proof: RenameProof | null
   /**
    * Of a name another file of the subject declares (`UsedRename`): that file, by its index among the files of the
-   * subject (`FileDiff.subjectPaths`), and the new line of the declaration there. Null for a name this file declares
+   * subject (`FileDiff.subjectPaths`), and the new line of the declaration there; of the owner of a declaration that
+   * moved whole under another owner (`moved`, its name), the file and the line where that declaration stands now.
+   * Null for a name this file declares
    */
-  readonly declared: { readonly file: number; readonly line: number } | null
+  readonly declared: { readonly file: number; readonly line: number; readonly moved?: string | null } | null
   /**
    * Of a name this file declares that is not local (`RenameCheck`): the places that hold it in the files of the
    * subject, this one among them, and the files they are in. What the proof speaks of; null for a name another file
@@ -359,7 +367,7 @@ export function marksByBlock(diff: TextDiff): readonly BlockMarks[] {
     byBlock[to]!.destinations.push({ at: "destination", move, lines: stands, other: left, otherBlock: from, file: null })
   }
   // the lines that moved to or from another file of the subject: an end each, in the block that holds its lines
-  const across = (at: MoveEnd["at"], { start, len, file, line }: FileMove) => {
+  const across = (at: MoveEnd["at"], { start, len, file, line, declaration }: FileMove) => {
     const block = blockOf(diff.blocks, at === "source" ? OLD : NEW, start, len)
     if (block < 0) {
       return
@@ -368,7 +376,9 @@ export function marksByBlock(diff: TextDiff): readonly BlockMarks[] {
     const move: LineMove = { oldStart, newStart, len, indent: 0, blanksBefore: 0, blanksAfter: 0, edited: [], oldRanges: [], newRanges: [] }
     const ends = at === "source" ? byBlock[block]!.sources : byBlock[block]!.destinations
     sorted &&= ends.length === 0 || ends.at(-1)!.lines[0] <= start
-    ends.push({ at, move, lines: [start, start + len], other: [line, line + len], otherBlock: -1, file })
+    // a declaration that moved whole has the lines of its other end, in its layout there
+    const otherLen = declaration?.otherLen ?? len
+    ends.push({ at, move, lines: [start, start + len], other: [line, line + otherLen], otherBlock: -1, file, ...(declaration == null ? {} : { declaration: declaration.name }) })
   }
   subject?.movedOut.forEach(moved => across("source", moved))
   subject?.movedIn.forEach(moved => across("destination", moved))
@@ -428,7 +438,7 @@ export function renameNotesOf(diff: TextDiff, shown: (block: number) => boolean 
   const reachOf = (index: number): RenameReach => {
     const used = subject?.used[index - diff.marks.renames.length]
     if (used !== undefined) {
-      return { proof: used.proof, declared: { file: used.file, line: used.line }, across: null }
+      return { proof: used.proof, declared: { file: used.file, line: used.line, moved: used.moved ?? null }, across: null }
     }
     const check = subject?.declared.find(it => it.rename === index)
     return { proof: check?.proof ?? null, declared: null, across: check === undefined ? null : { sites: check.sites, files: check.files } }

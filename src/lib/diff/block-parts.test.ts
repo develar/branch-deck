@@ -943,6 +943,10 @@ describe("the ends of the moves between two files of a subject", () => {
       [[20, 23], 2],
       [[24, 26], null],
     ])
+    // a declaration the index says moved whole: its name, and the lines of the other end in its layout there
+    const declared = textDiff(58, 44, [left], { subject: subjectMarks({ movedOut: [{ ...fileMove(54, 4, 1, 17), declaration: { name: "reportTitle", otherLen: 7 } }] }) })
+    expect(marksByBlock(declared)[0]!.sources.map(end => [end.lines, end.other, end.file, end.declaration])).toEqual([[[54, 58], [17, 24], 1, "reportTitle"]])
+    expect(from!.sources[0]!.declaration).toBeUndefined()
     // a diff of no subject, and a subject that says nothing of the file, add no end
     expect([marksByBlock(textDiff(58, 44, [left]))[0]!.sources, marksByBlock(textDiff(58, 44, [left], { subject: subjectMarks() }))[0]!.sources]).toEqual([[], []])
   })
@@ -1122,7 +1126,7 @@ describe("the notes of the renames another file of the subject declares", () => 
   it("gives a name another file declares one note, at its first site in the rows, with the file and the line of its declaration and what the index proved", () => {
     const notes = renameNotesOf(using("asked"))
     expect([...notes.byBlock].map(([at, note]) => [at, note.key, note.renames, note.reach, note.lines, note.hides])).toEqual([
-      [0, 4, [open], [{ proof: "asked", declared: { file: 2, line: 18 }, across: null }], [4, 4], []],
+      [0, 4, [open], [{ proof: "asked", declared: { file: 2, line: 18, moved: null }, across: null }], [4, 4], []],
     ])
     // both its runs are named by that note: neither has a note of its own
     const diff = using("confirmed")
@@ -1130,7 +1134,7 @@ describe("the notes of the renames another file of the subject declares", () => 
     const [note] = [...confirmed.byBlock.values()]
     expect([diff.marks.runs.map(one => confirmed.ofRun.get(one) === note), note!.reach]).toEqual([
       [true, true],
-      [{ proof: "confirmed", declared: { file: 2, line: 18 }, across: null }],
+      [{ proof: "confirmed", declared: { file: 2, line: 18, moved: null }, across: null }],
     ])
     // a section that does not show the first block: the note at the next site
     expect([...renameNotesOf(using("asked"), index => index !== 0).byBlock.keys()]).toEqual([1])
@@ -1152,7 +1156,7 @@ describe("the notes of the renames another file of the subject declares", () => 
       [
         ["connectStore", "sum"],
         [
-          { proof: "confirmed", declared: { file: 2, line: 18 }, across: null },
+          { proof: "confirmed", declared: { file: 2, line: 18, moved: null }, across: null },
           { proof: null, declared: null, across: null },
         ],
       ],

@@ -19,7 +19,7 @@ import {
   renamedNames,
   scrollDiffsTo,
 } from "../helpers/diff-helpers"
-import { answerStoreRename, codeOf, lateSubjectMarks, MARKS_SUBJECT, openLedgerPreview, openMarksReview } from "../helpers/marks-helpers"
+import { answerStoreMoves, answerStoreRename, codeOf, lateSubjectMarks, MARKS_SUBJECT, MOVES_SUBJECT, openLedgerPreview, openMarksReview } from "../helpers/marks-helpers"
 import { chooseWhitespace, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
 import { nextAnswer, runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -274,7 +274,7 @@ test.describe("The marks of a subject in the preview of a commit", () => {
 test.describe("What the index of the repository proved of a rename, in the preview of a commit", () => {
   /** The notes of the rename in the report, which uses the name, and in the store, which declares it, once the index answered */
   async function openRenameNotes(page: Page): Promise<{ used: Locator; declared: Locator }> {
-    const answered = nextAnswer(page, "get_rename_proofs")
+    const answered = nextAnswer(page, "get_index_marks")
     const { preview } = await openLedgerPreview(page)
     const report = await openFile(preview, "Report.kt")
     const store = await openFile(preview, "Store.kt")
@@ -316,6 +316,55 @@ test.describe("What the index of the repository proved of a rename, in the previ
     await expect(used).toHaveText("Renamed openStore → connectStore · 2 sites · declared in Store.kt")
     await expect(declared).toHaveText("Renamed openStore → connectStore · 3 sites in 2 files")
     await expect(proofs(page)).toHaveCount(0)
+  })
+})
+
+test.describe("A declaration the index of the repository says moved whole, in the preview of a commit", () => {
+  // the `declaration_moves` template: `summary` leaves the lines 7 to 10 of the ledger for the lines 12 to 18 of the
+  // report, its parameters one a line; `reportTitle` leaves 12 to 15 for 7 to 10 as it is
+  const SUMMARY = ["fun summary(ledger: Ledger, account: String): String {", "  val sum = ledger.balance(account)", '  return "$sum"', "}"]
+  const SUMMARY_WRAPPED = ["fun summary(", "  ledger: Ledger,", "  account: String,", "): String {", "  val sum = ledger.balance(account)", '  return "$sum"', "}"]
+
+  test("a declaration of another layout is a move once the index says it moved: a click on the place its note names shows its seven lines, whose note shows the four old ones again; the row of a declaration moved as it is stays the note it was", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("declaration_moves")
+    answerStoreMoves(repo.path)
+    const release = await holdCommand(page, "get_index_marks")
+    await syncAndWaitForBranches()
+    await expandBranch(page, findBranchRow(page, "ledger"))
+    const preview = await openCommitPreview(page, getBranchCommitRow(page, "ledger", MOVES_SUBJECT))
+    await openCommitFilesSection(preview)
+    const ledger = await openFile(preview, "Ledger.kt")
+    const report = await openFile(preview, "Report.kt")
+    // before the index answers: the title, the same lines at both ends, is a move, and nothing says the summary moved
+    const title = moveNotes(ledger, "source").filter({ hasText: "to Report.kt:7" })
+    await expect(title).toHaveText("Moved to Report.kt:7")
+    const summary = moveNotes(ledger, "source").filter({ hasText: "to Report.kt:12" })
+    await expect(moveNotes(ledger, "source")).toHaveCount(1)
+    await expect(summary).toHaveCount(0)
+
+    const answered = nextAnswer(page, "get_index_marks")
+    release()
+    await answered
+    // the summary is a move by its name; the title is the one move it was
+    await scrollDiffsTo(ledger, summary)
+    await expect(summary).toHaveText("Moved summary to Report.kt:12")
+    await expect(moveNotes(ledger, "source")).toHaveCount(2)
+    await expect(title).toHaveText("Moved to Report.kt:7")
+    await expect(moveTargets(summary)).toHaveAccessibleName("Go to line 12 of src/Report.kt, where summary stands now")
+    await moveTargets(summary).click()
+    // where it stands now: its seven lines, every one a line of the move, under the note that names the four it left
+    const stands = moveNotes(report, "destination").filter({ hasText: "from Ledger.kt:7" })
+    await expectLandedAloneOn(preview, stands)
+    await expect(stands).toHaveText("Moved summary from Ledger.kt:7")
+    await expect.poll(() => codeOf(acrossSides(report, "destination"))).toEqual([...TITLE, ...SUMMARY_WRAPPED])
+    await expect.poll(() => codeOf(acrossSides(ledger, "source"))).toEqual([...SUMMARY, ...TITLE])
+    await expect(moveTargets(stands)).toHaveAccessibleName("Go to line 7 of src/Ledger.kt, where summary was")
+    await moveTargets(stands).click()
+    await expectLandedAloneOn(preview, summary)
   })
 })
 
@@ -767,14 +816,14 @@ test.describe("The marks of a subject that come after the rows of a file were sh
   ): Promise<{ window: Locator; code: Locator; report: Locator; answer: () => Promise<void> }> {
     answerStoreRename(repositoryPath)
     await lateSubjectMarks(page, "src/Report.kt")
-    const release = await holdCommand(page, "get_rename_proofs")
+    const release = await holdCommand(page, "get_index_marks")
     await syncAndWaitForBranches()
     const { window, code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
     const report = code.getByRole("region", { name: "src/Report.kt" })
     await window.getByRole("treeitem", { name: "Report.kt" }).click()
     await expect(diffRows(report, "note")).toHaveCount(0)
     const answer = async () => {
-      const answered = nextAnswer(page, "get_rename_proofs")
+      const answered = nextAnswer(page, "get_index_marks")
       release()
       await answered
     }
@@ -874,7 +923,7 @@ test.describe("The marks of a subject that come after the rows of a file were sh
   ): Promise<{ body: Locator; report: Locator; store: Locator; answer: () => Promise<void> }> {
     answerStoreRename(repositoryPath)
     await lateSubjectMarks(page, "src/Report.kt")
-    const release = await holdCommand(page, "get_rename_proofs")
+    const release = await holdCommand(page, "get_index_marks")
     await syncAndWaitForBranches()
     const { preview } = await openLedgerPreview(page)
     const report = await openFile(preview, "Report.kt")
@@ -882,7 +931,7 @@ test.describe("The marks of a subject that come after the rows of a file were sh
     const store = await openFile(preview, "Store.kt")
     await store.getByTestId("diff-fold").click({ modifiers: ["Alt"] })
     const answer = async () => {
-      const answered = nextAnswer(page, "get_rename_proofs")
+      const answered = nextAnswer(page, "get_index_marks")
       release()
       await answered
     }

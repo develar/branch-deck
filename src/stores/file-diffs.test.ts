@@ -10,7 +10,8 @@ import type {
   FileMergeHeader,
   GetFileDiffsParams,
   GetFileMergesParams,
-  GetRenameProofsParams,
+  GetIndexMarksParams,
+  IndexMarks,
   MergeContent,
   RenameProof,
 } from "@/lib/bindings"
@@ -23,11 +24,11 @@ import { block, mergeBlock, run, textDiff, textMerge } from "@/test-support/diff
 
 const getFileDiffs = vi.hoisted(() => vi.fn())
 const getFileMerges = vi.hoisted(() => vi.fn())
-const getRenameProofs = vi.hoisted(() => vi.fn())
+const getIndexMarks = vi.hoisted(() => vi.fn())
 const logError = vi.hoisted(() => vi.fn())
 
 vi.mock("@tauri-apps/api/core", () => import("@/test-support/channel-mock"))
-vi.mock("@/lib/bindings", () => ({ commands: { getFileDiffs, getFileMerges, getRenameProofs } }))
+vi.mock("@/lib/bindings", () => ({ commands: { getFileDiffs, getFileMerges, getIndexMarks } }))
 vi.mock("@/lib/errors", () => ({ logError }))
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 vi.mock("@/lib/command", () => import("@/test-support/invoke-command-mock"))
@@ -49,7 +50,7 @@ const UNCOMMITTED = { kind: "uncommitted", repositoryPath: "/repo" } as const
 /** The answer of a subject: its one file, binary, as the backend streams it */
 async function answer(params: GetFileDiffsParams, events: Events) {
   const path = params.source.kind === "commit" ? params.source.id : params.source.kind
-  events.onmessage({ kind: "files", files: [header(path)] })
+  events.onmessage({ kind: "files", files: [header(path)], asksIndex: false })
   events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" }, reading: null })
   return { status: "ok", data: null }
 }
@@ -58,7 +59,7 @@ beforeEach(() => {
   fileDiffsStore.setState({ byKey: new Map() })
   getFileDiffs.mockReset()
   getFileDiffs.mockImplementation(answer)
-  getRenameProofs.mockReset()
+  getIndexMarks.mockReset()
   logError.mockReset()
 })
 
@@ -106,7 +107,7 @@ async function loadAsked(subject: Parameters<typeof fileDiffsKey>[0]) {
   const text: DiffContent & { kind: "text" } = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6), block(8, 9, 8, 9)]) }
   text.marks = subjectMarks(text.marks, "asked")
   getFileDiffs.mockImplementationOnce(async (_params: GetFileDiffsParams, events: Events) => {
-    events.onmessage({ kind: "files", files: [header("a.kt")] })
+    events.onmessage({ kind: "files", files: [header("a.kt")], asksIndex: true })
     events.onmessage({ kind: "content", index: 0, content: text, collapse: null, reading: EVERY_STOP })
     return { status: "ok", data: null }
   })
@@ -115,11 +116,28 @@ async function loadAsked(subject: Parameters<typeof fileDiffsKey>[0]) {
   return text
 }
 
-/** Holds the next `get_rename_proofs` until the test answers it */
-function holdNextQuestion(): { answer: (data: FileMarks[] | null) => void } {
-  let resolveCall: (data: FileMarks[] | null) => void = () => {}
-  getRenameProofs.mockImplementationOnce(() => new Promise(resolve => (resolveCall = data => resolve({ status: "ok", data }))))
-  return { answer: data => resolveCall(data) }
+/**
+ * Holds the next `get_index_marks` until the test answers it: a stage told on its channel as it comes (`tell`), and
+ * its end (`answer`), the marks of the files of its one stage of renames, or null for a question that gave way and
+ * told nothing
+ */
+function holdNextQuestion(): { tell: (stage: IndexMarks) => void; answer: (data: FileMarks[] | null) => void } {
+  let stages: { onmessage: (stage: IndexMarks) => void } | null = null
+  let resolveCall: (answered: boolean) => void = () => {}
+  getIndexMarks.mockImplementationOnce((_params: GetIndexMarksParams, channel: { onmessage: (stage: IndexMarks) => void }) => {
+    stages = channel
+    return new Promise(resolve => (resolveCall = answered => resolve({ status: "ok", data: answered })))
+  })
+  const tell = (stage: IndexMarks) => stages?.onmessage(stage)
+  return {
+    tell,
+    answer: data => {
+      if (data !== null) {
+        tell({ stage: "renames", files: data })
+      }
+      resolveCall(data !== null)
+    },
+  }
 }
 
 /** Three subjects read with a name to ask of the index, and four questions of it held: what was asked, in its order */
@@ -130,7 +148,7 @@ async function threeAsked(...ids: [string, string, string]) {
     subjects,
     key: (subject: Parameters<typeof fileDiffsKey>[0]) => fileDiffsKey(subject, "default"),
     texts,
-    asked: () => getRenameProofs.mock.calls.map(([params]) => (params as GetRenameProofsParams).source),
+    asked: () => getIndexMarks.mock.calls.map(([params]) => (params as GetIndexMarksParams).source),
     questions: [holdNextQuestion(), holdNextQuestion(), holdNextQuestion(), holdNextQuestion()],
   }
 }
@@ -165,7 +183,7 @@ describe("loadFileDiffs", () => {
     const subject = { kind: "commit", id: "c2" } as const
     loadFileDiffs(subject, "default")
     expect(entryOf(subject)?.kind).toBe("loading")
-    events().onmessage({ kind: "files", files: [header("a.kt"), header("b.kt")] })
+    events().onmessage({ kind: "files", files: [header("a.kt"), header("b.kt")], asksIndex: false })
     expect([entryOf(subject), fileDiffOf(entryOf(subject), "a.kt")]).toEqual([{ kind: "loaded", files: [], complete: false }, "pending"])
 
     const text: DiffContent = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6)]) }
@@ -192,7 +210,7 @@ describe("loadFileDiffs", () => {
     const { events, end } = holdNextStream()
     const subject = { kind: "commit", id: "c15" } as const
     loadFileDiffs(subject, "default")
-    events().onmessage({ kind: "files", files: [header("src/Ledger.kt"), header("src/Report.kt"), header("src/Store.kt")] })
+    events().onmessage({ kind: "files", files: [header("src/Ledger.kt"), header("src/Report.kt"), header("src/Store.kt")], asksIndex: false })
     const text: DiffContent & { kind: "text" } = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6), block(8, 9, 8, 9)]) }
     // the second file first: the entry holds it alone, and it still names the first one by its place in the stream
     events().onmessage({ kind: "content", index: 1, content: text, collapse: null, reading: EVERY_STOP })
@@ -218,7 +236,7 @@ describe("loadFileDiffs", () => {
     const { events, end } = holdNextStream()
     const subject = { kind: "commit", id: "c9" } as const
     loadFileDiffs(subject, "default")
-    events().onmessage({ kind: "files", files: [header("a.kt")] })
+    events().onmessage({ kind: "files", files: [header("a.kt")], asksIndex: false })
     const text: DiffContent = { kind: "text", ...textDiff(10, 12, [block(5, 6, 5, 8)], { runs: [run(5, 6, 5, 8)] }) }
     events().onmessage({ kind: "content", index: 0, content: text, collapse: null, reading: EVERY_STOP })
     await vi.waitFor(() => expect(fileDiffOf(entryOf(subject), "a.kt")).toMatchObject({ content: text }))
@@ -246,7 +264,7 @@ describe("loadFileDiffs", () => {
     const { events, end } = holdNextStream()
     const subject = { kind: "commit", id: "c10" } as const
     loadFileDiffs(subject, "default")
-    events().onmessage({ kind: "files", files: [header("a.kt"), header("bin.dat")] })
+    events().onmessage({ kind: "files", files: [header("a.kt"), header("bin.dat")], asksIndex: false })
     const text: DiffContent = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6), block(8, 9, 8, 9)]) }
     events().onmessage({ kind: "content", index: 0, content: text, collapse: null, reading: EVERY_STOP })
     events().onmessage({ kind: "content", index: 1, content: BINARY, collapse: { kind: "noText" }, reading: null })
@@ -270,9 +288,9 @@ describe("loadFileDiffs", () => {
     // the same blocks, so the stops and the rows are those of the content: the folds and the notes stay
     expect([content?.blocks, getFoldLevels(content!), [...getOpenNotes(content!)]]).toEqual([text.blocks, [3], [5]])
     expect(fileDiffOf(entryOf(subject), "bin.dat")).toMatchObject({ content: BINARY, reading: null })
-    // no name of it waits for the index: nothing is asked of a view that shows it
+    // its stream did not say the index is to be asked: nothing is asked of a view that shows it
     holdFileDiffs(fileDiffsKey(subject, "default"))()
-    expect(getRenameProofs).not.toHaveBeenCalled()
+    expect(getIndexMarks).not.toHaveBeenCalled()
   })
 
   it("ends the read of a subject with its diffs, and asks the index of its renamed names once a view shows it", async () => {
@@ -281,14 +299,14 @@ describe("loadFileDiffs", () => {
     // the read ended with the names to be asked: what waits for its end goes on, and a subject no view shows asks nothing
     const ended: string[] = []
     whenFileDiffsEnded(subject, "default", () => ended.push("ended"))
-    expect([entryOf(subject), ended, getRenameProofs.mock.calls.length]).toMatchObject([{ kind: "loaded", complete: true }, ["ended"], 0])
+    expect([entryOf(subject), ended, getIndexMarks.mock.calls.length]).toMatchObject([{ kind: "loaded", complete: true }, ["ended"], 0])
     setFoldLevels(textOf(subject, "a.kt")!, [3])
 
     // a view shows it: the index is asked of the subject, once however many views hold it
     const question = holdNextQuestion()
     const release = holdFileDiffs(fileDiffsKey(subject, "default"))
     const releaseOther = holdFileDiffs(fileDiffsKey(subject, "default"))
-    expect(getRenameProofs.mock.calls.map(([params]) => params as GetRenameProofsParams)).toEqual([
+    expect(getIndexMarks.mock.calls.map(([params]) => params as GetIndexMarksParams)).toEqual([
       { repositoryPath: "/repo", source: { kind: "commit", id: "c11" }, policy: "default" },
     ])
     expect(proofOf(subject)).toBe("asked")
@@ -304,13 +322,35 @@ describe("loadFileDiffs", () => {
       confirmed,
       text.blocks,
       [3],
-      { kind: "loaded", files: [{ ...header("a.kt"), content, collapse: null, reading: ONE_TO_READ, subjectPaths: ["a.kt"] }], complete: true },
+      { kind: "loaded", files: [{ ...header("a.kt"), content, collapse: null, reading: ONE_TO_READ, subjectPaths: ["a.kt"] }], complete: true, asksIndex: true },
     ])
     // answered: a view that shows it again asks nothing
     release()
     releaseOther()
     holdFileDiffs(fileDiffsKey(subject, "default"))()
-    expect(getRenameProofs).toHaveBeenCalledTimes(1)
+    expect(getIndexMarks).toHaveBeenCalledTimes(1)
+  })
+
+  it("takes each stage of the answer of the index as it comes, the proofs of the renames before the moves", async () => {
+    const subject = { kind: "commit", id: "c30" } as const
+    const text = await loadAsked(subject)
+    const question = holdNextQuestion()
+    const release = holdFileDiffs(fileDiffsKey(subject, "default"))
+    // the renames are in while the moves are still asked: the view has their proofs at once
+    question.tell({ stage: "renames", files: [{ path: "a.kt", marks: subjectMarks(text.marks, "confirmed"), reading: ONE_TO_READ }] })
+    expect([proofOf(subject), fileDiffOf(entryOf(subject), "a.kt")]).toMatchObject(["confirmed", { reading: ONE_TO_READ }])
+    // the moves take the place of the marks the renames gave, and what is left to read with them
+    const moved = { ...subjectMarks(text.marks, "confirmed"), starts: [] }
+    const nothingToRead: DiffReading = { changes: 2, toRead: 0, toReadPastImports: 0 }
+    question.tell({ stage: "moves", files: [{ path: "a.kt", marks: moved, reading: nothingToRead }] })
+    expect([textOf(subject, "a.kt")?.marks, fileDiffOf(entryOf(subject), "a.kt")]).toMatchObject([moved, { reading: nothingToRead }])
+    // the last stage told, nothing left asked: a view that shows it again asks nothing
+    question.answer([])
+    await vi.waitFor(() => expect(getIndexMarks).toHaveBeenCalledTimes(1))
+    await Promise.resolve()
+    release()
+    holdFileDiffs(fileDiffsKey(subject, "default"))()
+    expect([getIndexMarks.mock.calls.length, textOf(subject, "a.kt")?.marks]).toEqual([1, moved])
   })
 
   it("asks the index of one subject at a time, the one shown last first, and lets the question of a subject no view shows give way", async () => {
@@ -343,7 +383,7 @@ describe("loadFileDiffs", () => {
     // the first is shown again: asked again, as is the second then
     const againFirst = holdFileDiffs(key(first))
     expect(asked()).toEqual([first, third, second, first])
-    getRenameProofs.mockImplementationOnce(async () => ({ status: "error", error: { message: "no such commit" } }))
+    getIndexMarks.mockImplementationOnce(async () => ({ status: "error", error: { message: "no such commit" } }))
     const againSecond = holdFileDiffs(key(second))
     questions[3]!.answer([{ path: "a.kt", marks: subjectMarks(texts[0]!.marks, "unavailable"), reading: EVERY_STOP }])
     await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(1))
@@ -387,7 +427,7 @@ describe("loadFileDiffs", () => {
     const prefetch = () => loadFileDiffs(neighbour, "default")
     whenFileDiffsEnded(shown, "default", prefetch)
     // the files and a content arrived: the shown stream still runs, the neighbour waits
-    events().onmessage({ kind: "files", files: [header("a.kt"), header("b.kt")] })
+    events().onmessage({ kind: "files", files: [header("a.kt"), header("b.kt")], asksIndex: false })
     events().onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" }, reading: null })
     await vi.waitFor(() => expect(fileDiffOf(entryOf(shown), "a.kt")).toMatchObject({ path: "a.kt" }))
     expect(getFileDiffs.mock.calls.map(([params]) => (params as GetFileDiffsParams).source)).toEqual([shown])
@@ -414,7 +454,7 @@ describe("loadFileDiffs", () => {
     getFileDiffs.mockImplementationOnce(
       (_params: GetFileDiffsParams, events: Events) =>
         new Promise(resolve => {
-          events.onmessage({ kind: "files", files: [header("next")] })
+          events.onmessage({ kind: "files", files: [header("next")], asksIndex: false })
           release = () => {
             events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" }, reading: null })
             resolve({ status: "ok", data: null })
@@ -448,7 +488,7 @@ describe("loadFileDiffs", () => {
     loadFileDiffs(UNCOMMITTED, "default")
     // the files change during the read: the form asks again, twice
     getFileDiffs.mockImplementationOnce(async (_params: GetFileDiffsParams, events: Events) => {
-      events.onmessage({ kind: "files", files: [header("changed")] })
+      events.onmessage({ kind: "files", files: [header("changed")], asksIndex: false })
       events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" }, reading: null })
       return { status: "ok", data: null }
     })

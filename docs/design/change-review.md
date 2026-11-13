@@ -632,9 +632,11 @@ The plan: [Review Plan → Measurements](../../openspec/specs/branch/review-plan
 2. Renames as one unit ("rename A→B, 37 sites") and moves between files, with RefactoringMiner as the oracle; a
    declaration moved within its file is `moved` already, and a diff marks the names renamed and the lines moved
    within a file and across the files of its subject ([Diff View](diff-view.md#marks), the pass over a subject,
-   with accio's `renames` for the uses of a declaration and its `moves` for a declaration moved whole, which nothing
-   asks yet). What is left is the unit of the plan: the same facts read by `review-plan`, which reads the blocks of
-   the scans and no marks today.
+   with accio's `renames` for the uses of a declaration and its `moves` for a declaration moved whole, in another
+   layout too, and for the owner in front of its uses where it moved under another owner, which the window of a diff
+   asks after its rows). What is left is the unit of the plan: the same facts read by `review-plan`, which reads the
+   blocks of the scans and no marks today; and the uses a move made the change update in another way (an import of
+   another path, a receiver of another expression), which a diff still reads.
 3. The corpus evaluation of the handoff: where the hunks reviewers commented on rank, how many hunks a fold hid.
 4. Names of concerns by a language model, behind the same gate as the tour: since the verb of `change` (2026-11-12) a
    model would word the task over the evidence, never in place of it.

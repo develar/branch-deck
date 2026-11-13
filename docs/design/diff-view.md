@@ -87,9 +87,10 @@ The stores stay as they are:
   the other files of its subject say something of. A file is in the entry once its content arrived, and pending
   before (`fileDiffOf`); the late scopes and the late marks replace those of its content and keep its fold levels
   and its open notes (`keepOpened`). Contents within 16 ms go into the store in one update. The read ends with its
-  last file. What the index of the repository says of the names the subject renamed is another read,
-  `get_rename_proofs`, which the store asks of the subjects a view holds (`useFileDiffs`), one at a time, and whose
-  answer replaces the marks of the files it names in the complete entry ("The answer is asked by the view" below).
+  last file. What the index of the repository says of the names the subject renamed and of the declarations it
+  moved whole is another read, `get_index_marks`, which the store asks of the subjects a view holds (`useFileDiffs`)
+  once their stream said so (`asksIndex` of its `files`), one at a time, and whose answer replaces the marks of the
+  files it names in the complete entry ("The answer is asked by the view" below).
 - `src/stores/blob-texts.ts` keeps the texts by blob id, in an LRU of 64 Mi UTF-16 units.
 
 Two changes:
@@ -328,6 +329,38 @@ rest gets a label and stays a stop.
     and added in another. Exact lines only, from two lines that are not blank and 48 characters, the longest first,
     each line once; lines that match two places move to the first. A label at both ends, never quiet: no line is
     hidden, and no stop is taken (the starts of both files are those of their pairs).
+  - *A declaration that moved whole* (`Subject::with_moves`): accio says which declarations a change took to
+    another file or under other owners with the same words (`accio moves`, its revision 2), whatever their layout: a
+    function whose parameters went one a line, a type moved out of its owner and indented otherwise. Such a
+    declaration is a move between files of its lines at both ends, by its name (`FileMove::declaration`, with the
+    lines of the other end, which another layout has another number of), where each end is the changed lines of one
+    block that no run or move of its pair took; within its file under another owner, the file itself is the other
+    file. A declaration that a row of the same lines holds as it is (its old lines on the new lines they are) is that
+    row: the row stays the one move it was, whatever the declarations in it, so a file of functions moved as they
+    are keeps its one note. Only a declaration of another layout takes its lines from a row that shares them, and of
+    that row the parts beside it stay moves where each is a row by itself (two lines that are not blank, 48
+    characters: its doc comment, its annotations, which the index counts no line of); a blank line or a lone brace
+    between two declarations is no move of its own. The same label as such a row, and its lines are read as the lines
+    they were by the proofs of the renames. It comes with the answer of the index: the stream has the rows alone.
+    On the 400 commits of a range of idea-1 (e8b5bb3d..008a0a18, `brd commits --mark-stats --index --mark-sample
+    100000`, every mark compared one by one by its subject, its file, its lines and its note), every mark of the build
+    before is there unchanged, the 199 rows of the same lines among them, and six declarations are added: four
+    single lines moved to another file or under another owner (too short for a row, which needs two lines), two
+    functions of three lines, one re-indented out of its class; each read and the same declaration at both ends.
+  - *The owner in front of the uses of a declaration moved under another owner* (`UsedRename::moved`): where a
+    declaration moved from `Ledger` to `Report` with its name (accio's `owner`, and the `parent` of both places), a
+    file that changed `Ledger` to `Report` at every place and declares neither may follow the move. accio's `renames`
+    of the moved pair (the lines of its name in both trees, `Subject::move_questions`) proves it: the declaration
+    moved with its words and its name, nothing but the owner differs, the answer is complete, and every use it lists
+    in either tree is the declaration, on a line read anyway, on a line the change left alone with its twin listed
+    there, or behind the owner (at most two characters between them) with its twin listed behind the twin of the
+    owner; and every place of the name in the file is such an owner. Only then is it a mark: the runs its blocks have
+    with the two names read as one hold, quiet ("Follows a move Ledger → Report · title moved to Report.kt"). An owner
+    the index did not prove says nothing: on the range below, five names changed so, and the samples hold calls of
+    another declaration of the same two owners (`AirAhpSkillSources.fileUri` to `AirAhpFileUris.uriOf`, which the
+    index answers `pathUri` moved between) and a class renamed with a member moved along, so a label before the proof
+    would have been false. None of the five was proven (four uses outside the change, one incomplete). A use the move
+    made the change update in another way (an import of another path, a receiver of another expression) is read.
   - *A name another file declares*: a name the pair of a file handed out is a rename of that file once another file
     of the subject declares a name that is not local and renamed it so. The tie is of the two spellings, as within
     a file: a label. The runs its pair kept for it hold then, beside the runs of the pair, which stay
@@ -385,8 +418,14 @@ rest gets a label and stays a stop.
 - **The answer is asked by the view.** A query of the index takes seconds on a large repository (1.8 s here, 14 s
   warm and 41 s cold on the IntelliJ monorepo, for one declaration), and three things wait for the end of the read
   of a subject's diffs: a review that follows its branch to a new head, the link that opened a review, and the read
-  ahead of the neighbours. So the diffs ask no index. With one on the machine, the names a subject renamed say
-  `asked`, and the read ends with its last file. The page asks then (`get_rename_proofs`), and only of a subject a
+  ahead of the neighbours. So the diffs ask no index. The answer comes in stages on its channel (`IndexMarks`): the
+  proofs of the renames, then the moves, then the uses that follow a move. A moves query reads the declarations of
+  every changed file of both trees: on the 400 commits of idea-1 above, under the load of this Mac, the renames
+  answer at a median of 261 ms (p95 926 ms; 348 ms and 1.3 s for the build that asked the renames alone, at another
+  moment of the load), the moves after them at a median of 10.7 s (p95 33 s). Asked first in one answer, the moves
+  made a view wait seconds for the proofs it had in a tenth of one; as a later stage they delay none. With one on the machine, the stream of a subject of two trees
+  says that it is there to be asked (`asksIndex`), the names a subject renamed say `asked`, and the read ends with
+  its last file. The page asks then (`get_index_marks`), and only of a subject a
   view shows: the store counts the views that hold an entry (`useFileDiffs`), and a subject read ahead of its view
   has none. One question at a time, of the subject held last; a question whose subject no view shows any more
   gives way to the next one, and the backend kills its query (one request of a kind per window, as a symbol search;

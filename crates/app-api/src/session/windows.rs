@@ -8,7 +8,7 @@
 //! Usages) is superseded by a newer one of its window, its cancel and its close (`WindowRequests`): windows search apart,
 //! one never cancels the search of another. The read of a review plan (`get_review_plan`) is a request of its own kind,
 //! superseded by a newer plan of its window and by its close: a symbol search and a plan never cancel each other.
-//! The question of a window to the index about the names a subject renamed (`get_rename_proofs`) is one more kind:
+//! The question of a window to the index about the names a subject renamed (`get_index_marks`) is one more kind:
 //! the window asks it of the subject it shows, so a newer one supersedes it, as does its close; so is the read of what
 //! the ranges it shows leave to read (`get_range_readings`).
 
@@ -30,7 +30,7 @@ pub struct Windows {
   plans: WindowRequests,
   commit_plans: WindowRequests,
   /// The questions to the index about the names a subject renamed
-  rename_proofs: WindowRequests,
+  index_marks: WindowRequests,
   /// The reads of what the ranges a window shows leave to read
   range_readings: WindowRequests,
 }
@@ -63,7 +63,7 @@ impl Windows {
   }
 
   /// Whether the page of `call` is the one its window shows still: false once the window closed or loads again, so
-  /// a read that only that page waits for may end (the query of the index of `get_rename_proofs`)
+  /// a read that only that page waits for may end (the query of the index of `get_index_marks`)
   pub fn shows(&self, call: &Call) -> bool {
     self.subscriptions().pages.get(&call.window).is_some_and(|(shown, _)| *shown == call.page)
   }
@@ -125,8 +125,8 @@ impl Windows {
 
   /// Starts a question of `window` to the index about the names a subject renamed, which supersedes the one before:
   /// a window asks of the subject it shows
-  pub fn begin_rename_proofs(&self, window: &WindowId) -> WindowRequest {
-    self.rename_proofs.begin(window)
+  pub fn begin_index_marks(&self, window: &WindowId) -> WindowRequest {
+    self.index_marks.begin(window)
   }
 
   /// Starts a read of what the ranges `window` shows leave to read, which supersedes the one before
@@ -140,7 +140,7 @@ impl Windows {
     self.searches.forget(window);
     self.plans.forget(window);
     self.commit_plans.forget(window);
-    self.rename_proofs.forget(window);
+    self.index_marks.forget(window);
     self.range_readings.forget(window);
   }
 

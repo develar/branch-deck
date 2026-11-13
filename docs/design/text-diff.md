@@ -171,7 +171,8 @@ flowchart TD
   ([Diff View](diff-view.md#marks)), then the moves from their lines. `subject` (`SubjectMarks`) is what the other
   files of a subject say of the file, filled by the pass over them and `null` in the diff of a pair alone, which
   is what a cache keeps: `movedOut` and `movedIn` (`FileMove`: the lines of this file, the other file by its index
-  among the files of the subject, and its first line there; [Moves between files](#moves-between-files)), `declared`
+  among the files of the subject, and its first line there; of a declaration the index says moved whole its name and
+  the lines of the other end, `declaration`, absent for a row of the same lines; [Moves between files](#moves-between-files)), `declared`
   (the proof of each rename of `renames` that is not local, `RenameProof`), `used` (the names another file of the
   subject declares, each a `Rename` without a declaration with the file and the line of the declaration and its
   proof) and `confirmed` (the runs, by their numbers, that the index proved). Boxed and optional in the bindings:

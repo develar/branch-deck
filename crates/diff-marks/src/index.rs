@@ -33,6 +33,18 @@ pub struct RenameAnswer {
   /// The two places are one declaration: the same kind, language, owners and signature apart from the name
   #[serde(default)]
   pub same: bool,
+  /// What is not the same of the two declarations: `kind`, `language`, `owner`, `signature`
+  #[serde(default)]
+  pub differs: Vec<String>,
+  /// The names differ
+  #[serde(default)]
+  pub renamed: bool,
+  /// The file or the owners differ: the declaration is at another place of the tree
+  #[serde(default)]
+  pub moved: bool,
+  /// The whole text of the declaration, its body included, is the same words once the old name reads as the new one
+  #[serde(default)]
+  pub body_equal: bool,
   /// Every candidate file of both trees was read, every use listed and tied by more than its name, and every
   /// relation of the declaration read: only then are the uses all there are, and no conflict "none"
   #[serde(default)]

@@ -7,9 +7,9 @@ use crate::accio::{
   AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, IndexUnavailable, Lenient, OfBuild, ReferenceHit, SearchCanceled, SurfaceDeclaration,
   SurfaceSite, SurfaceUse, SymbolHit, SymbolIndex,
 };
-use crate::fixture_test::{RENAMED_STORE_ANSWER, renamed_store, repo_path, unhurried};
+use crate::fixture_test::{RENAMED_STORE_ANSWER, commit_all, renamed_store, repo_path, unhurried, write};
 use crate::model::{DiffContent, DiffSource};
-use diff_marks::index::{Access, RenameAnswer, RenamePair, RenameUse, Resolved};
+use diff_marks::index::{Access, MovesAnswer, RenameAnswer, RenamePair, RenameUse, Resolved};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::path::Path;
@@ -656,6 +656,53 @@ fn an_accio_that_answers_no_renames_as_they_are_read_is_not_asked() {
   assert_eq!(std::fs::read_to_string(&asked).unwrap().lines().count(), 1);
 }
 
+/// Only an accio that says it answers `moves` of the revision this reader reads (`MOVES_ANSWER`) is asked them: one
+/// without the answer, of the first revision (no `reordered`) or of a later one answers none, its `moves` never
+/// started. The one that does is asked `accio moves --no-build --base --ref`, and its answer read; one without an index of
+/// the repository answers no index
+#[test]
+fn an_accio_that_answers_no_moves_as_they_are_read_is_not_asked() {
+  let canceled = || false;
+  for versions in [
+    r#"{"answers":{"renames":1}}"#,
+    r#"{"answers":{"moves":1,"renames":1}}"#,
+    r#"{"answers":{"moves":3}}"#,
+    "not json",
+  ] {
+    let dir = tempfile::tempdir().unwrap();
+    let started = dir.path().join("started");
+    let accio = fake_accio_with_versions(dir.path(), &started, versions, "exit 2");
+    assert!(!accio.answers_moves(), "{versions}");
+    assert_eq!(accio.search(&canceled).moves(ROOT, "base", "head").unwrap(), None, "{versions}");
+    assert!(!started.exists(), "{versions}");
+  }
+  let dir = tempfile::tempdir().unwrap();
+  let (started, args) = (dir.path().join("started"), dir.path().join("args"));
+  let answer = r#"{"moved":[{"old":{"file":"src/Ledger.kt","line":5,"end_line":8,"name":"reportTitle"},"new":{"file":"src/Report.kt","line":5,"end_line":11,"name":"reportTitle"},"file":true,"owner":false}],"reordered":[],"total":1,"complete":true}"#;
+  let accio = fake_accio_with_versions(
+    dir.path(),
+    &started,
+    r#"{"answers":{"moves":2}}"#,
+    &format!("echo \"$@\" > {}\nprintf '%s' '{answer}'", shell_path(&args)),
+  );
+  let moves = accio.search(&canceled).moves(ROOT, "base", "head").unwrap().unwrap();
+  assert_eq!((moves.moved.len(), moves.moved[0].new.end_line, moves.complete), (1, 11, true));
+  assert_eq!(
+    std::fs::read_to_string(&args).unwrap().trim(),
+    format!("moves --no-build --format json --project {ROOT} --base base --ref head --limit 500")
+  );
+  let dir = tempfile::tempdir().unwrap();
+  let started = dir.path().join("started");
+  let accio = fake_accio_with_versions(
+    dir.path(),
+    &started,
+    r#"{"answers":{"moves":2}}"#,
+    r#"printf '%s' '{"available":false,"note":"no index of this repository"}'"#,
+  );
+  let error = accio.search(&canceled).moves(ROOT, "base", "head").unwrap_err();
+  assert!(error.is::<IndexUnavailable>(), "{error:#}");
+}
+
 /// What an executable says of itself is asked once of each build of it: again once its file is another, and every
 /// time while there is no file to tell a build by
 #[test]
@@ -757,58 +804,138 @@ fn renames_without_an_index_answer_no_index_and_a_canceled_query_is_killed() {
 /// without such an accio proves nothing here
 #[test]
 fn the_accio_of_this_machine_proves_the_rename_of_a_real_repository() {
-  let Some(accio) = AccioCli::discover().filter(|accio| accio.answers_renames()) else {
-    eprintln!("no accio that answers renames on this machine: nothing asked");
-    return;
-  };
   let (repo, second) = renamed_store();
-  let home = tempfile::tempdir().unwrap();
-  let _env = EnvVars::set(&[("ACCIO_HOME", home.path().as_os_str()), ("ACCIO_NO_LIBS", std::ffi::OsStr::new("1"))]);
-  let indexed = windowless_command_at(accio.executable(), ChildPriority::Normal)
-    .args(["--project", repo_path(&repo), "index", "--quiet"])
-    .output()
-    .unwrap();
-  assert!(indexed.status.success(), "{}", String::from_utf8_lossy(&indexed.stderr));
-
-  let canceled = || false;
-  let search = accio.search(&canceled);
-  let counted = CountedRenames {
-    index: &search,
-    asked: std::sync::atomic::AtomicUsize::new(0),
-  };
-  let source = DiffSource::Commit { id: second };
-  let diffs = unhurried();
-  for read in 0..2 {
-    let files = diffs
-      .read_checked(
-        repo.git_executor(),
-        repo_path(&repo),
-        &ObjectCache::disabled(),
-        Some(&counted),
-        &source,
-        WhitespacePolicy::Default,
-      )
-      .unwrap();
-    let subject = |path: &str| {
-      let file = files.iter().find(|file| file.path == path).unwrap();
-      let DiffContent::Text(diff) = &file.content else { panic!("{path}: {:?}", file.content) };
-      diff.marks.subject.clone().unwrap_or_else(|| panic!("the subject says nothing of {path}"))
-    };
+  let asked = read_twice_by_accio(&repo, second, AccioCli::answers_renames, |subject, read| {
     let report = subject("src/Report.kt");
     assert_eq!((report.used[0].proof, &report.confirmed), (RenameProof::Confirmed, &vec![0, 1]), "read {read}");
     assert_eq!(subject("src/Store.kt").declared[0].proof, RenameProof::Confirmed, "read {read}");
-  }
+  });
   // the answer is final: memory keeps it, and the subject read again started no accio
-  assert_eq!(counted.asked.load(Ordering::SeqCst), 1);
+  assert!(asked.is_none_or(|(renames, _)| renames == 1), "{asked:?}");
 }
 
-/// An index that counts the questions of `renames` it passes on to `index`
-struct CountedRenames<'a> {
+/// Reads the diffs of the commit `id` of `repo` twice through one `FileDiffs`, with the accio of this machine and an
+/// index of the repository built for it, and hands what the subject says of each file to `check` each time: how
+/// often `renames` and `moves` were asked then. `None`, and nothing read, where the machine has no accio that `answers`
+fn read_twice_by_accio(
+  repo: &test_utils::git_test_utils::TestRepo,
+  id: String,
+  answers: fn(&AccioCli) -> bool,
+  check: impl Fn(&dyn Fn(&str) -> text_diff::model::SubjectMarks, u32),
+) -> Option<(usize, usize)> {
+  let Some((accio, _env, _home)) = indexed_by_accio(repo, answers) else {
+    eprintln!("no accio that answers what this test asks on this machine: nothing asked");
+    return None;
+  };
+  let canceled = || false;
+  let search = accio.search(&canceled);
+  let counted = CountedIndex::of(&search);
+  let source = DiffSource::Commit { id };
+  let diffs = unhurried();
+  for read in 0..2 {
+    check(&subjects_read(&diffs, repo, &counted, &source), read);
+  }
+  Some((counted.asked.load(Ordering::SeqCst), counted.moves.load(Ordering::SeqCst)))
+}
+
+/// The diffs of `source` read by `diffs` with `index` as a window asks it: what the subject says of a file, by its path
+fn subjects_read(
+  diffs: &crate::service::FileDiffs,
+  repo: &test_utils::git_test_utils::TestRepo,
+  index: &dyn SymbolIndex,
+  source: &DiffSource,
+) -> impl Fn(&str) -> text_diff::model::SubjectMarks {
+  let files = diffs
+    .read_checked(
+      repo.git_executor(),
+      repo_path(repo),
+      &ObjectCache::disabled(),
+      Some(index),
+      source,
+      WhitespacePolicy::Default,
+    )
+    .unwrap();
+  move |path: &str| {
+    let file = files.iter().find(|file| file.path == path).unwrap();
+    let DiffContent::Text(diff) = &file.content else { panic!("{path}: {:?}", file.content) };
+    *diff.marks.subject.clone().unwrap_or_else(|| panic!("the subject says nothing of {path}"))
+  }
+}
+
+/// An index of the accio of this machine with a repository of its own: its `ACCIO_HOME` (kept with the returned
+/// guard and directory) and an index of `repo` built in it. `None`, and nothing asked, where the machine has no accio
+/// that `answers` as this reader reads it
+fn indexed_by_accio(repo: &test_utils::git_test_utils::TestRepo, answers: fn(&AccioCli) -> bool) -> Option<(&'static AccioCli, EnvVars, tempfile::TempDir)> {
+  let accio = AccioCli::discover().filter(|accio| answers(accio))?;
+  let home = tempfile::tempdir().unwrap();
+  let env = EnvVars::set(&[("ACCIO_HOME", home.path().as_os_str()), ("ACCIO_NO_LIBS", std::ffi::OsStr::new("1"))]);
+  let indexed = windowless_command_at(accio.executable(), ChildPriority::Normal)
+    .args(["--project", repo_path(repo), "index", "--quiet"])
+    .output()
+    .unwrap();
+  assert!(indexed.status.success(), "{}", String::from_utf8_lossy(&indexed.stderr));
+  Some((accio, env, home))
+}
+
+/// The accio of this machine says which declarations a change moved whole (`accio moves`), and the diffs of the
+/// commit mark them: a function moved from the ledger to the report with its parameters one a line is one move of
+/// its four old lines and its seven new ones, at both ends. Its answer is kept by the two trees: the subject read
+/// again starts no accio. A machine without such an accio proves nothing here
+#[test]
+fn the_accio_of_this_machine_says_a_declaration_moved_whole_in_another_layout() {
+  const LEDGER: &str = "package demo\n\nclass Ledger(val accounts: List<String>)\n";
+  const TITLE: &str = "\nfun reportTitle(ledger: Ledger, account: String): String {\n  val size = ledger.accounts.size\n  return \"$account: $size\"\n}\n";
+  const WRAPPED: &str = "\nfun reportTitle(\n  ledger: Ledger,\n  account: String\n): String {\n  val size = ledger.accounts.size\n  return \"$account: $size\"\n}\n";
+  const REPORT: &str = "package demo\n\nfun report(ledger: Ledger): String = ledger.accounts.joinToString()\n";
+  let repo = test_utils::git_test_utils::TestRepo::new();
+  std::fs::create_dir_all(repo.path().join("src")).unwrap();
+  write(&repo, "src/Ledger.kt", format!("{LEDGER}{TITLE}").as_bytes());
+  write(&repo, "src/Report.kt", REPORT.as_bytes());
+  commit_all(&repo, "Initial");
+  write(&repo, "src/Ledger.kt", LEDGER.as_bytes());
+  write(&repo, "src/Report.kt", format!("{REPORT}{WRAPPED}").as_bytes());
+  let second = commit_all(&repo, "Move the title to the report");
+  let asked = read_twice_by_accio(&repo, second, AccioCli::answers_moves, |subject, read| {
+    let end = |moved: &text_diff::model::FileMove| (moved.start, moved.len, moved.file, moved.line, moved.declaration.clone().map(|it| (it.name, it.other_len)));
+    let with_len = |len: u32| Some(("reportTitle".to_string(), len));
+    assert_eq!(
+      subject("src/Ledger.kt").moved_out.iter().map(end).collect::<Vec<_>>(),
+      [(4, 4, 1, 4, with_len(7))],
+      "read {read}"
+    );
+    assert_eq!(
+      subject("src/Report.kt").moved_in.iter().map(end).collect::<Vec<_>>(),
+      [(4, 7, 0, 4, with_len(4))],
+      "read {read}"
+    );
+  });
+  // kept by the two trees: the subject read again started no accio
+  assert!(asked.is_none_or(|(_, moves)| moves == 1), "{asked:?}");
+}
+
+/// An index that counts the questions of `renames` and of `moves` it passes on to `index`
+struct CountedIndex<'a> {
   index: &'a dyn SymbolIndex,
   asked: std::sync::atomic::AtomicUsize,
+  moves: std::sync::atomic::AtomicUsize,
 }
 
-impl SymbolIndex for CountedRenames<'_> {
+impl<'a> CountedIndex<'a> {
+  fn of(index: &'a dyn SymbolIndex) -> Self {
+    Self {
+      index,
+      asked: std::sync::atomic::AtomicUsize::new(0),
+      moves: std::sync::atomic::AtomicUsize::new(0),
+    }
+  }
+}
+
+impl SymbolIndex for CountedIndex<'_> {
+  fn moves(&self, repository_root: &str, base: &str, head: &str) -> anyhow::Result<Option<MovesAnswer>> {
+    self.moves.fetch_add(1, Ordering::SeqCst);
+    self.index.moves(repository_root, base, head)
+  }
+
   fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
     self.index.symbols(repository_root, query, revision)
   }

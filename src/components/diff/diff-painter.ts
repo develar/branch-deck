@@ -1191,7 +1191,7 @@ export class DiffPainter {
       kind: remark.kind,
       lines: remark.lines,
       open: remark.open,
-      move: move === null ? null : { at: move.at, move: move.move, other: move.other, file: move.file === null ? null : other(move.file) },
+      move: move === null ? null : { at: move.at, move: move.move, other: move.other, file: move.file === null ? null : other(move.file), declaration: move.declaration ?? null },
       renames:
         renames === null
           ? null
@@ -1203,7 +1203,7 @@ export class DiffPainter {
                   new: rename.new,
                   sites: rename.sites,
                   proof: reach?.proof ?? null,
-                  declared: reach?.declared == null ? null : { file: other(reach.declared.file), line: reach.declared.line },
+                  declared: reach?.declared == null ? null : { file: other(reach.declared.file), line: reach.declared.line, moved: reach.declared.moved ?? null },
                   across: reach?.across ?? null,
                 }
               }),

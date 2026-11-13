@@ -3384,7 +3384,7 @@ git plumbing does not depend on.
   takes no row of a file and no stop. Nothing of a subject enters a cache: the same pair stands in other commits
   beside other files.
 - **The index.** The declarations of the names a subject renamed that are not local are asked of the index of the
-  repository in a read of its own, `get_rename_proofs` (`FileDiffs::rename_proofs`), all in one process: `accio
+  repository in a read of its own, `get_index_marks` (`FileDiffs::index_marks`), all in one process: `accio
   renames --no-build --format json --project <root> --base <the old tree> --ref <the new tree> --pairs-from -`, a
   line `<old place><TAB><new place>` per declaration on its standard input (`SymbolIndex::renames`). The read of the
   diffs never waits for it: with an index on the machine the names say `asked`, and the window asks of the subject
@@ -3403,11 +3403,21 @@ git plumbing does not depend on.
   of the two trees; memory holds an empty answer in its place. An accio before `final` writes none: nothing of it is
   kept. No index
   of the repository (`available: false`), an accio without the answer, a failure and an answer of another number
-  of pairs leave the names `unavailable`, and are not kept; none fails a read. One question per window (`Windows::begin_rename_proofs`): a newer one supersedes the
+  of pairs leave the names `unavailable`, and are not kept; none fails a read. One question per window (`Windows::begin_index_marks`): a newer one supersedes the
   one in flight, whose query is killed, as is the query of a window that closed or loads again (`Windows::shows`:
   the page of a window that went away never says so itself); it answers nothing then, and the names stay `asked`
-  for the next question. The e2e server answers from the fixture of its repository
-  (`.git/branch-deck-accio.json`, `renames` by the old place of a pair; without any, no answer).
+  for the next question. The question answers in stages on its channel (`IndexMarks`), the renames first: once they
+  are told, it asks which declarations the subject moved whole, where a file of it deletes a line and one adds one
+  (`Subject::may_move`): `accio moves --no-build --format json --project <root> --base <the old tree> --ref <the new
+  tree> --limit 500` (`SymbolIndex::moves`), one process, only of an accio whose `versions` says `moves` 2
+  (`MOVES_ANSWER`); bound by work alone, its answer is kept by the two trees, and no answer moves nothing. A moves
+  query reads the declarations of every changed file of both trees and takes seconds where the renames take a
+  fraction of one, so it never delays their proofs. Where a file follows a declaration that moved under another
+  owner (`Subject::move_questions`), one more `accio renames` lists the uses of those declarations, a line `<old
+  path>:<line><TAB><new path>:<line>` each (the line of the name, which holds no declaration before it), its final
+  answers kept as those of the renames. The e2e server answers from the fixture of its repository
+  (`.git/branch-deck-accio.json`, `renames` by the old place of a pair, `moves` whatever the trees; without either, no
+  answer).
 - **Caches.** A diff is keyed by its blob pair, the whitespace policy and how each side is read
   (`diff_options`, the one function of the views and of `blocks_of`): by its grammar, since the scopes and the marks
   of the same bytes are others in a `.ts` and a `.tsx` file, a `.kt` and a `.kts`, a `BUILD` and a `.bzl`; without a
@@ -3632,7 +3642,7 @@ and the `rewritten` ones, each against its own parent:
 | Step | Command | Note |
 |------|---------|------|
 | 6. Changes | `log --no-walk=unsorted --stdin --raw --numstat -z -M` (`read_commit_diffs_cached`), and one `cat-file --batch` of the blobs for their blocks | the object cache first: a commit it knows runs nothing; git's counts are the Shape's (`modules::line_counts`), the blocks the engine's |
-| 6a. Reading | the file list of the pair the window shows (`base..head`, a commit, the scope of Since Your Review) from one `diff-tree` (`RangeFilesCache`; none for a commit the `commit_files` store has), one `cat-file --batch` of the blobs no cache has (`FileDiffs::collect`); its renames asked of the index last, after step 18 (`answer_proofs`: none when memory has the final answer) | the full marks of the diffs, the same `DiffReading` the badge of each file counts (`review_plan::reading`); read before the summaries, whose texts then come from the memory of the diffs |
+| 6a. Reading | the file list of the pair the window shows (`base..head`, a commit, the scope of Since Your Review) from one `diff-tree` (`RangeFilesCache`; none for a commit the `commit_files` store has), one `cat-file --batch` of the blobs no cache has (`FileDiffs::collect`); its renames and the declarations it moved whole asked of the index last, after step 18 (`answer_index`: none when memory has the final answers) | the full marks of the diffs, the same `DiffReading` the badge of each file counts (`review_plan::reading`); read before the summaries, whose texts then come from the memory of the diffs |
 | 7. Summaries | `cat-file --batch` of the trees above the files at the head reviewed, then one of the blobs no cache has, the `Cargo.toml` and `tsconfig*.json` files and the blobs of the hunk text and of the build files that the memory of `FileDiffs` lacks (`read_symbol_input_with`) | parsed in parallel, written back to the cache by blob id; the second batch runs only when it has a blob to read |
 | 8. API | none | `changed_declarations` (trial-check) gives per commit and file the forms of the declarations of the names on the changed lines, with their containers, namespace and override mark; `api.rs` compares, per key, the forms before the first commit that touches it in a file with those after the last one: public ones added, removed, or changed in the parts a use sees (`changed_form`, the constructors), no override; each gets its place (`ApiChange::at`): the line of its name in the last commit that touched it, of a removal at the parent of the first, with the parameter lists of its forms before and after (`DeclarationForm::signatures`) |
 | 9. Usages | one `accio references --no-build --format json --limit 100 --ref <head> --at <place>…` of every removal and change, no git: the lines they split by are those of the pair (step 15) | through `Lenient`: a failed query leaves the entries without usages and `index_note` says why; no accio, or no usable index (`available: false` of `--no-build`, its reason the note), is a note too, never an index build; a cancel of the caller cancels the plan. A usage is a hit in code that a type or an import ties to the declaration: no declaration, `import` or `doc` hit (`NOT_USES`), a hit only the name ties (`resolved: name`) counted apart as `by_name`, and of a type whose constructors are its only change only a `call` (a Kotlin `class Sub : Type(…)` too) and a `supertype` hit (a Java `extends Type`). A usage on a line the commits changed at the head, a call by any line up to its `end_line`, is `inside` (`pair.rs`: the hunks of a file one commit changes, the blocks of its first blob against its last for one that several change, every line of an added file); left outside, a call of a change of the parameters or constructors alone that `fits` the new form and whose every argument binds a parameter of the same name and type as before is `still_bound`, any other `outside`, the first 5 of those kept by path and line; the card ranks by `outside` (`fan_in.rs`) |

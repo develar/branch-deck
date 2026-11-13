@@ -71,13 +71,15 @@ export const commands = {
 	 */
 	getFileDiffs: (params: GetFileDiffsParams, events: Channel<FileDiffEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_file_diffs", { params, events })),
 	/**
-	 *  What the index of the repository (`accio`) answers of the names a subject renamed, asked by the window that
-	 *  shows the subject, after its diffs: the marks of each file the answer says something of, in place of those
-	 *  `get_file_diffs` gave. One query for every declaration of the subject, waited for as long as it runs and killed
-	 *  once the window asks of another subject, closes or loads again: no answer then, and the names stay asked. An
-	 *  answer is kept in memory by the two trees of the subject
+	 *  What the index of the repository (`accio`) answers of the names a subject renamed and of the declarations it
+	 *  moved, asked by the window that shows the subject, after its diffs, through `events` in stages: the renames,
+	 *  one query for every declaration of the subject, then the declarations moved whole, then the uses that follow
+	 *  a move under another owner; each the marks of the files it says something of, in place of those the stage
+	 *  before gave. Waited for as long as it runs and killed once the window asks of another subject, closes or loads
+	 *  again: `false` then, and what was not answered stays asked. An answer is kept in memory by the two trees of
+	 *  the subject
 	 */
-	getRenameProofs: (params: GetRenameProofsParams) => typedError<FileMarks[] | null, ApiError>(__TAURI_INVOKE("get_rename_proofs", { params })),
+	getIndexMarks: (params: GetIndexMarksParams, events: Channel<IndexMarks>) => typedError<boolean, ApiError>(__TAURI_INVOKE("get_index_marks", { params, events })),
 	/**
 	 *  The merge of each conflicting file of a cherry-pick, for the conflict view, through `events`: the files with the
 	 *  stage blob ids that `merge-tree` gives, then the content of each file as it is known, the files in view first
@@ -2198,6 +2200,14 @@ export type CreatedPullRequest = {
 	warnings: string[],
 };
 
+/**  A declaration that moved whole, as an end of its move names it (`FileMove::declaration`) */
+export type DeclarationMove = {
+	/**  Its name, as the index answers it */
+	name: string,
+	/**  The lines of the other end: another layout has another number of them */
+	otherLen: number,
+};
+
 /**  Where the name is: a side of a file of the review, a line from 0 and a UTF-16 column */
 export type DeclarationSite = {
 	/**  The path of the side: the old path for the old side of a rename */
@@ -3373,8 +3383,12 @@ export type FetchedBaseline = {
  *  `marks` for a file whose marks the other files of the subject changed after its `content` went out
  */
 export type FileDiffEvent = 
-/**  The changed files in the order of git; `index` of the other events points into this list */
-{ kind: "files"; files: DiffFileHeader[] } | 
+/**
+ *  The changed files in the order of git; `index` of the other events points into this list. `asks_index`: an index
+ *  of the repository is there to be asked of the subject, whose two trees never change (`get_index_marks`), once its
+ *  diffs are read
+ */
+{ kind: "files"; files: DiffFileHeader[]; asksIndex: boolean } | 
 /**
  *  The content of a file, and why the views start it collapsed (`collapse_of`). A `TextDiff` that the caches did not
  *  have comes with empty scopes, which a `scopes` event of the same file fills later: the parse costs more than the
@@ -3448,9 +3462,10 @@ export type FileLink = {
 
 /**
  *  The marks of the text of a file of a subject, by its path, with what the index of the repository answered of its
- *  renamed names (`get_rename_proofs`): in place of those its diff has. They differ from them in the proofs
- *  (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`), which are quiet, and so in
- *  what a reader may pass (`starts`, and so `reading`); never in a row of the file
+ *  renamed names and of the declarations it moved whole (`get_index_marks`): in place of those its diff has. They
+ *  differ from them in the proofs (`SubjectMarks::declared`, `used`), in the runs the index confirmed (`confirmed`),
+ *  which are quiet, and so in what a reader may pass (`starts`, and so `reading`), and in the moves between files of
+ *  the declarations (`moved_out`, `moved_in` with a `declaration`), labels; never in a row of the file
  */
 export type FileMarks = {
 	path: string,
@@ -3501,6 +3516,13 @@ export type FileMove = {
 	file: number,
 	/**  The first line of the other end, 0-based */
 	line: number,
+	/**
+	 *  The declaration the index of the repository says moved whole, with the same words and maybe another layout:
+	 *  `len` and `other_len` are the lines of the declaration at each end, and `file` the file itself for a move under
+	 *  other owners within it. `None` for a row of the same lines, which is written without the field: the layout of
+	 *  a stored diff stays what it was
+	 */
+	declaration?: DeclarationMove | null,
 };
 
 /**  The owner of a path and the rule that names it */
@@ -3748,6 +3770,13 @@ export type GetFileOwnersParams = {
 	paths: string[],
 };
 
+/**  The parameters of `get_index_marks`: a subject whose diffs `get_file_diffs` gave under `policy` */
+export type GetIndexMarksParams = {
+	repositoryPath: string,
+	source: DiffSource,
+	policy: WhitespacePolicy,
+};
+
 export type GetNewPullRequestParams = {
 	repositoryPath: string,
 	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
@@ -3783,13 +3812,6 @@ export type GetRangeReadingsParams = {
 	repositoryPath: string,
 	/**  The ranges, the bottom of a stack first */
 	ranges: ReadingRange[],
-};
-
-/**  The parameters of `get_rename_proofs`: a subject whose diffs `get_file_diffs` gave under `policy` */
-export type GetRenameProofsParams = {
-	repositoryPath: string,
-	source: DiffSource,
-	policy: WhitespacePolicy,
 };
 
 export type GetRepositoryConfigParams = {
@@ -3961,6 +3983,30 @@ export type IdeApp = {
 	/**  It starts this app, as an install writes it now; else another Branch Deck wrote it, and an install writes it anew */
 	current: boolean,
 };
+
+/**
+ *  A stage of the answer of `get_index_marks` (`FileDiffs::index_marks`), told as it is known: the marks of each file
+ *  it says something of, in place of those the stage before gave it
+ */
+export type IndexMarks = {
+	stage: IndexStage,
+	files: FileMarks[],
+};
+
+/**
+ *  The stages of the answer of `get_index_marks`, in their order: each a process of the index, the first never
+ *  delayed by the others
+ */
+export type IndexStage = 
+/**  The proofs of the names the subject renamed (`accio renames`) */
+"renames" | 
+/**  The declarations it moved whole to another file or under other owners (`accio moves`) */
+"moves" | 
+/**
+ *  The uses of a declaration moved under another owner whose owner the change wrote anew in front of them
+ *  (`accio renames` of the moved pairs)
+ */
+"movedUses";
 
 /**  Confidence level for integration detection */
 export type IntegrationConfidence = "Exact" | "High";
@@ -7215,7 +7261,7 @@ export type RenameCheck = {
 export type RenameProof = 
 /**
  *  The index of the repository is there to be asked: the window that shows the file asks it
- *  (`get_rename_proofs`), and the marks of the file come once more with its answer
+ *  (`get_index_marks`), and the marks of the file come once more with its answer
  */
 "asked" | 
 /**
@@ -10584,6 +10630,12 @@ export type UsedRename = {
 	/**  The new line of its declaration there, 0-based */
 	line: number,
 	proof: RenameProof,
+	/**
+	 *  Of a name that is the owner of a declaration that moved whole under another owner, the name of that declaration:
+	 *  the uses of it in this file changed their owner from the old name to the new one, which nothing renamed. `file`
+	 *  and `line` are where the declaration stands now. `None` for a name another file declares
+	 */
+	moved?: string | null,
 };
 
 /**  The parameters of `validate_branch_name` */
