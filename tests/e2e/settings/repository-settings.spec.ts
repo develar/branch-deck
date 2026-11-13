@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { settledIpc } from "../helpers/ipc-helpers"
-import { expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
+import { closeAsTheAnswerLands, expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, nextAnswer, pressSyncHeld, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
@@ -319,18 +319,36 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
     await expect.poll(() => writes.length).toBe(1)
   })
 
+  /** Types "acme/app" as the GitHub repository, then a limit git cannot take, which stays typed, unsaved: the blur of the first writes it */
+  async function typeTheRepositoryAndALimit(window: Page): Promise<void> {
+    await row(window, "githubRepository").getByRole("textbox", { name: "GitHub repository" }).fill("acme/app")
+    await row(window, "pushSizeLimit").getByRole("textbox", { name: "Push size limit" }).fill("lots")
+  }
+
+  /** The window was destroyed, having written the GitHub repository once, and nothing else */
+  async function expectTheRepositoryWrittenOnce(window: Page, writes: Array<Record<string, unknown>>, path: string): Promise<void> {
+    await expect.poll(() => windowCalls(window)).toContain("destroy")
+    expect(writes).toEqual([{ repositoryPath: path, change: { key: "githubRepository", value: "acme/app" }, scope: "local" }])
+  }
+
   test("should save valid typing when the window closes, and nothing else", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple")
     const window = await openRepositoryLanding(page)
     const writes = recordWrites(window)
-    await row(window, "githubRepository").getByRole("textbox", { name: "GitHub repository" }).fill("acme/app")
-    // a limit git cannot take stays typed, unsaved
-    await row(window, "pushSizeLimit").getByRole("textbox", { name: "Push size limit" }).fill("lots")
-
+    await typeTheRepositoryAndALimit(window)
     // ⌘W or the close button: the window asks before it closes, the page saves first, then the window goes
     await emitTauriEvent(window, "tauri://close-requested")
-    await expect.poll(() => windowCalls(window)).toContain("destroy")
-    expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "githubRepository", value: "acme/app" }, scope: "local" }])
+    await expectTheRepositoryWrittenOnce(window, writes, repo.path)
+  })
+
+  test("should write a change once when the window closes as the write of its blur answers, before the field shows it", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple")
+    const window = await openRepositoryLanding(page)
+    const writes = recordWrites(window)
+    // the blur writes the change; the close comes as its answer lands, while the field still holds the typing
+    await closeAsTheAnswerLands(window, "set_repository_config")
+    await typeTheRepositoryAndALimit(window)
+    await expectTheRepositoryWrittenOnce(window, writes, repo.path)
   })
 
   test("should show only the value of every repository without a repository, and say how to set the rest", async ({ page, setupRepo }) => {

@@ -36,6 +36,38 @@ export function settingsTab(window: Page, name: string): Locator {
   return window.getByRole("tablist", { name: "Settings pages" }).getByRole("tab", { name, exact: true })
 }
 
+/**
+ * The window asks to close (`tauri://close-requested`, ⌘W) as the answer of the next `command` lands: once the promises
+ * of the answer ran (a chain of microtasks, longer than the page's), before the page renders what they set, which React
+ * does in a task of its own. The moment a close of the user can come that no wait of a test reaches
+ */
+export async function closeAsTheAnswerLands(window: Page, command: string): Promise<void> {
+  await window.evaluate(suffix => {
+    const descriptor = Object.getOwnPropertyDescriptor(Response.prototype, "arrayBuffer")!
+    const arrayBuffer = descriptor.value as (this: Response) => Promise<ArrayBuffer>
+    Response.prototype.arrayBuffer = async function (this: Response) {
+      const body = await arrayBuffer.call(this)
+      if (this.url.endsWith(suffix)) {
+        Object.defineProperty(Response.prototype, "arrayBuffer", descriptor)
+        let hops = 200
+        const close = () => {
+          if (--hops > 0) {
+            queueMicrotask(close)
+          } else {
+            ;(window as unknown as { __e2eEmitTauriEvent: (event: string, payload: unknown, label: string | null) => void }).__e2eEmitTauriEvent(
+              "tauri://close-requested",
+              null,
+              null,
+            )
+          }
+        }
+        queueMicrotask(close)
+      }
+      return body
+    }
+  }, `/invoke/${command}`)
+}
+
 /** The writes the window sends (`set_repository_config`), in their order */
 export function recordWrites(window: Page): Array<Record<string, unknown>> {
   const writes: Array<Record<string, unknown>> = []

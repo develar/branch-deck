@@ -1,5 +1,6 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react"
+import { useEffect, useEffectEvent, useState } from "react"
 import type { KeyboardEvent } from "react"
+import { FieldWrites } from "@/lib/field-writes"
 import { onSettingFieldKey } from "@/lib/setting-field"
 import { saveBeforeClose } from "@/lib/settings-close"
 import { getSelectedProject } from "@/stores/repository"
@@ -35,27 +36,30 @@ export function useConfigDraft({
   write: (value: string | null) => Promise<boolean>
 }): ConfigDraft {
   const [draft, setDraft] = useState<string | null>(null)
-  const saving = useRef(false)
+  // one write of one change, whichever of a blur, Enter and the close of the window saves it (`FieldWrites`)
+  const [writes] = useState(() => new FieldWrites())
   const typed = draft === null ? null : normalize(draft)
   const error = typed === null || typed === "" ? null : invalidReason(typed)
+  useEffect(() => {
+    if (draft === null) {
+      writes.typingCleared()
+    }
+  }, [draft, writes])
 
   const save = (): Promise<void> => {
-    // another repository was selected meanwhile: its page replaces this one, nothing is written; a blur after Enter while
-    // its write runs writes nothing again
-    if (typed === null || error !== null || saving.current || (getSelectedProject()?.path ?? "") !== path) {
+    // another repository was selected meanwhile: its page replaces this one, nothing is written
+    if (typed === null || error !== null || (getSelectedProject()?.path ?? "") !== path) {
       return Promise.resolve()
     }
     if (typed === shown) {
       setDraft(null)
       return Promise.resolve()
     }
-    saving.current = true
-    return write(typed === "" ? null : typed).then(written => {
-      saving.current = false
-      if (written) {
-        setDraft(null)
-      }
-    })
+    return writes.save(
+      typed,
+      () => write(typed === "" ? null : typed),
+      () => setDraft(null),
+    )
   }
 
   // a window closed while the field holds valid typing saves it first
