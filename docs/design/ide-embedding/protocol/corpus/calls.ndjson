@@ -28,7 +28,7 @@
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"method":"x-air-app/subscribe","params":{"instance":"main:1","params":{"repositoryPath":"/r"}}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":3,"result":{"mirror":"/r","state":{"header":{"title":"r"},"order":[],"branches":{}}}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":2,"result":{"channel":"x-air-ide:/appView/1","snapshot":{"resource":"x-air-ide:/appView/1","state":{"header":{"title":"r"},"order":[],"branches":{}},"fromSeq":0}}}}
-{"comment":"A call that changes state: the change of the mirror, the events and the call events that the app writes before its answer reach the page before the answer. callId is the id of the call on each link, and progress names the request of the page."}
+{"comment":"A call that changes state: the change of the mirror, the events and the call events that the app writes before its answer reach the page before the answer. callId is the id of the call on each link, and progress names the request of the page. An event, a call event and a progress are notices of the app link channel x-air-ide:/appLink/<n> of the process, which no page subscribes to."}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":3,"method":"x-air-app/toolsCall","params":{"channel":"ahp-root://","name":"invoke","arguments":{"command":"rename","args":{"from":"a","to":"b"}}}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"invoke","arguments":{"command":"rename","args":{"from":"a","to":"b"}},"_meta":{"progressToken":4,"x-air-app":{"origin":"click","app":"fixture","view":"main","instance":"main:1"}}}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/viewChanged","params":{"mirror":"/r","ops":[{"op":"set","part":"branches","key":"b","value":{"n":1}}]}}}
@@ -39,10 +39,10 @@
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":4,"progress":1,"total":2}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":4,"result":{"content":[],"structuredContent":{"value":{"renamed":true}}}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/appView/1","serverSeq":1,"action":{"type":"x-air-app/viewChanged","ops":[{"op":"set","part":"branches","key":"b","value":{"n":1}}]}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"channel":"ahp-root://","event":"settings-changed","payload":{"key":"theme"}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"channel":"ahp-root://","event":"toast","payload":{"text":"Renamed"}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/callEvent","params":{"channel":"ahp-root://","callId":3,"event":{"step":"rename"}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/progress","params":{"channel":"ahp-root://","requestId":3,"progress":1,"total":2}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"channel":"x-air-ide:/appLink/1","event":"settings-changed","payload":{"key":"theme"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"channel":"x-air-ide:/appLink/1","event":"toast","payload":{"text":"Renamed"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/callEvent","params":{"channel":"x-air-ide:/appLink/1","callId":3,"event":{"step":"rename"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/progress","params":{"channel":"x-air-ide:/appLink/1","requestId":3,"progress":1,"total":2}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"result":{"content":[],"structuredContent":{"value":{"renamed":true}}}}}
 {"comment":"A result passes through as the app wrote it, bytes in base64 too. A call event after the answer of its call is dropped with a log entry."}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":4,"method":"x-air-app/toolsCall","params":{"channel":"ahp-root://","name":"invoke","arguments":{"command":"blob"}}}}

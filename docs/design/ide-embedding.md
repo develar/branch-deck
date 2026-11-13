@@ -1,7 +1,7 @@
 # IDE Embedding
 
 **Status:** Draft  
-**Updated:** 2026-11-12  
+**Updated:** 2026-11-13  
 **Tags:** [ide, air, mcp, protocol, windows]
 
 ## Problem
@@ -59,7 +59,17 @@ instance, so a page never says which window it is. The IDE loads `http://127.0.0
 in no request, and the host page removes it from its address; after a drop or a reload the IDE gives the page a new
 ticket by `executeJavaScript`, when the instance in the apps channel turns not `connected`. The files of the frame of
 Branch Deck (`https://branch-deck.air-genui-app.local`, a stable origin, so its `localStorage` survives a restart of
-the IDE) come from the request handler of the IDE, which reads them from `brd mcp` by `resources/read`.
+the IDE) come from the request handler of the IDE, which reads them by `x-air-ide/appResourceRead` of the apps
+channel, and `air-ide` from `brd mcp` by `resources/read`.
+
+Branch Deck speaks two of the links: the page the frame link, `brd mcp` the app link. The page link between the host
+page and `air-ide` is Air's, and a change of it changes neither. On it a mirror is one table channel,
+`x-air-ide:/appView/<n>`, which every view of the mirror subscribes to through `x-air-app/viewOpen`: one state and one
+`serverSeq` for each change, whatever the count of views. The events, the call events and the progress of the process
+are notices of its own channel, `x-air-ide:/appLink/<n>`, which no page subscribes to and whose number changes with
+each run of `brd mcp`. The echo of an intent holds its result in `_meta["x-air-ide"].result`. A cancel of a page call
+is a notification of the root channel, which `air-ide` serves at once, never behind the call it cancels: the call gets
+exactly one answer, and `brd mcp` gets `notifications/cancelled`.
 
 ### A call that changes state
 
@@ -75,7 +85,7 @@ sequenceDiagram
     B-->>A: x-air-app/viewChanged (the ViewPatch)
     B-->>A: x-air-app/callEvent (OperationEvent)
     B-->>A: result
-    A-->>H: action, callEvent, result (same order)
+    A-->>H: action (view channel), callEvent (appLink channel), result: same order
     H-->>F: x-air-app/action, x-air-app/callEvent, result
 ```
 
@@ -93,7 +103,8 @@ sequenceDiagram
    news become the part `news` of the kept list, which the page tells by id, so a resync tells none twice.
 3. **Decision**: The mirror key is the repository path.
    **Rationale**: `subscribe_view` answers per session, not per window, so every view of a repository shares one
-   mirror; the window only matters for `forget_window`, which the life of the place drives.
+   mirror, which Air keeps as one channel that each of them subscribes to; the window only matters for
+   `forget_window`, which the life of the place drives.
 4. **Decision**: Every tool is app-only: `bd_invoke {command, args}` and `bd_bootstrap {view}` for the page, and the
    tools of the actions of the app file, `sync` and `open_command_palette`, for the IDE (the origin `action`).
    **Rationale**: the page already calls commands by name (`for_each_command!`), so one generic tool keeps the page
@@ -144,7 +155,8 @@ sequenceDiagram
   subscription are in its state, which holds the `version` of the view, set last in each change. `set_demand` of a
   view names the subscription of its mirror (brd puts it in). The session dropping the subscription of a shown mirror
   is `x-air-app/viewEnded {reason: "sessionClosed"}`, the one reason of the contract: brd cannot tell a repository that
-  is gone from a session that closed.
+  is gone from a session that closed. Air ends the channel of the mirror for each view of it with that reason, and
+  an exit of brd ends each mirror with `serverExited` before it fails the calls in flight.
 - **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native", checkForUpdates: false,
@@ -215,8 +227,11 @@ sequenceDiagram
     (`branches`, `stacks`, `pushes`, … as `TableChanges` removes them) by `set` and `remove` (a `set` of `branches` holds
     the whole `BranchView`), another part whole by `part`, and the sections, the Patronus view and the facts by the
     entries that differ from the state before. A resync replaces the state and sends a patch from no base, so the page
-    asks `get_snapshot`, which the shim answers from the state of the mirror; the end of a mirror does the same, and the
-    snapshot then comes from `brd mcp`.
+    asks `get_snapshot`, which the shim answers from the state of the mirror; the end of a mirror
+    (`x-air-app/subscriptionEnded`, whatever its reason: `sessionClosed`, `serverExited` or one the page does not know)
+    does the same, and the snapshot then comes from `brd mcp`. A frame holds one view at a time in Air, so a
+    subscription again must follow the end of the one before it (the risks of the spec name where the main view does
+    not yet).
   - `src/platform/air/theme.ts`: each variable of the host (`styles.variables`, `com.jetbrains.air/variables`) is set on
     the root as `--air-host-<name>`, and the semantic tokens (`--background`, `--card`, `--primary`, `--border`, …) read
     them while the page shows the theme of the IDE: the canvas the first background of the host (the background of the

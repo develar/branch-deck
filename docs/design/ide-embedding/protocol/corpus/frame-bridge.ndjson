@@ -23,9 +23,9 @@
 {"comment":"tools/call of the frame is toolsCall of the page link. The events, the call events and the progress keep their order before the result. callId is the id of the request of the frame, and progress takes the progressToken of the frame."}
 {"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"invoke","arguments":{"command":"diffs"},"_meta":{"progressToken":"f3"}}}}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":3,"method":"x-air-app/toolsCall","params":{"channel":"ahp-root://","name":"invoke","arguments":{"command":"diffs"}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"channel":"ahp-root://","event":"settings-changed","payload":{"key":"theme"}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/callEvent","params":{"channel":"ahp-root://","callId":3,"event":{"file":"a.txt"}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/progress","params":{"channel":"ahp-root://","requestId":3,"progress":1,"total":2}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"channel":"x-air-ide:/appLink/1","event":"settings-changed","payload":{"key":"theme"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/callEvent","params":{"channel":"x-air-ide:/appLink/1","callId":3,"event":{"file":"a.txt"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/progress","params":{"channel":"x-air-ide:/appLink/1","requestId":3,"progress":1,"total":2}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"result":{"content":[],"structuredContent":{"value":null}}}}
 {"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"event":"settings-changed","payload":{"key":"theme"}}}}
 {"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/callEvent","params":{"callId":3,"event":{"file":"a.txt"}}}}

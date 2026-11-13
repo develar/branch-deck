@@ -150,6 +150,41 @@ describe("The shim of the page in the IDE", () => {
     expect(host.last()).toMatchObject({ method: "x-air-app/unsubscribe", params: { subscription: "x-air-ide:/appView/1" } })
   })
 
+  it("The end of a mirror, for each reason alike (sessionClosed, serverExited, a reason the page does not know): the page asks brd mcp for the snapshot, and a late change of the mirror reaches nothing", async () => {
+    const host = new FakeHost()
+    const { tauri } = pageOn(host)
+    const bdInvoke = (command: string) => ({ method: "tools/call", params: { name: "bd_invoke", arguments: { command } } })
+    for (const [reason, subscription] of [
+      ["sessionClosed", "x-air-ide:/appView/1"],
+      ["serverExited", "x-air-ide:/appView/2"],
+      ["somethingNew", "x-air-ide:/appView/3"],
+    ] as const) {
+      const patches: ViewPatch[] = []
+      const subscribed = tauri("subscribe_view", {
+        params: { repositoryPath: "/r" },
+        patches: { onmessage: (patch: ViewPatch) => patches.push(patch) },
+      }) as Promise<ViewSubscription>
+      await settle()
+      expect(host.last()).toMatchObject({ method: "x-air-app/subscribe", params: { params: { repositoryPath: "/r" } } })
+      host.answer(host.last().id!, { subscription, state: emptyView({ epoch: 4, seq: 10 }), fromSeq: 0 })
+      const { id } = await subscribed
+
+      host.tell("x-air-app/subscriptionEnded", { subscription, reason })
+      // a patch from no base the page holds: the page asks for the snapshot, which the mirror no longer gives
+      expect(patches).toEqual([{ base: { epoch: expect.any(Number), seq: -1 }, next: { epoch: expect.any(Number), seq: 0 }, changes: {} }])
+      void tauri("get_snapshot", { params: { repositoryPath: "/r" } })
+      await settle()
+      expect(host.last()).toMatchObject(bdInvoke("get_snapshot"))
+
+      // a late change of the ended subscription, and the unsubscribe of the page, which Air already ended
+      host.tell("x-air-app/action", { subscription, serverSeq: 9, action: { type: "x-air-app/viewChanged", ops: [{ op: "part", part: "order", value: ["late"] }] } })
+      expect(patches).toHaveLength(1)
+      const posted = host.posted.length
+      await tauri("unsubscribe_view", { params: { id } })
+      expect(host.posted).toHaveLength(posted)
+    }
+  })
+
   it("listen hears the events of x-air-app, and emit goes to the views of the app through brd mcp", async () => {
     const host = new FakeHost()
     const { tauri } = pageOn(host)

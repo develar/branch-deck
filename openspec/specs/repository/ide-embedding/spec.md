@@ -35,7 +35,7 @@ targets:
 # Branch Deck in the IDE
 
 Status: Draft
-Date: 2026-11-12
+Date: 2026-11-13
 
 ## Purpose
 
@@ -67,6 +67,13 @@ it speaks `x-air-app` of Air with the page and with `brd mcp` ([IDE Embedding](.
 - The host page of a view comes from `air-ide` on `http://127.0.0.1:<port>`, a port that changes with each run of the
   IDE. The frame of Branch Deck stays on `https://branch-deck.air-genui-app.local`, so its `localStorage` survives a
   restart of the IDE.
+- The page of Branch Deck speaks only the frame link, MCP Apps with `x-air-app`, and `brd mcp` only the app link. The
+  page link between the host page and `air-ide` is Air's. A mirror is one channel of it, `x-air-ide:/appView/<n>`,
+  which every view of the mirror subscribes to, so one change is one action with one `serverSeq` for all of them. The
+  events, the call events and the progress of `brd mcp` are notices of the channel of its process,
+  `x-air-ide:/appLink/<n>`. The echo of an intent holds its result in `_meta["x-air-ide"].result`, and a cancel is a
+  notification of the root channel whose call gets exactly one answer. A change of the page link changes neither the
+  page nor brd.
 
 ## Requirements
 
@@ -540,6 +547,12 @@ its place. The page mock of the E2E tests installs the same internals of Tauri (
 - **THEN** the page takes the state as a new snapshot of the view, without a reload
   [@test] src/platform/air/shim.test.ts (`subscribe_view is the mirror of the repository: its state the view, each change a patch, a resync a snapshot without a reload`)
 
+#### Scenario: The end of a mirror
+- **WHEN** the subscription of the page gets `x-air-app/subscriptionEnded`, with the reason `sessionClosed` of brd,
+  `serverExited` of an exit of brd, or a reason the page does not know
+- **THEN** the page asks `brd mcp` for the snapshot of the view, and a late change of that subscription reaches nothing
+  [@test] src/platform/air/shim.test.ts (`The end of a mirror, for each reason alike (sessionClosed, serverExited, a reason the page does not know): the page asks brd mcp for the snapshot, and a late change of the mirror reaches nothing`)
+
 #### Scenario: An event
 - **WHEN** `brd mcp` tells an event, and the page emits one to the main window
 - **THEN** the listeners of its name hear it, and the emit is `bd_invoke` of `plugin:event|emit` with its target
@@ -643,6 +656,14 @@ the install of the agent CLI refuses it.
 - The page entry of Air is measured on macOS only: a loopback document that cannot open its socket on Windows, on
   Linux or behind a proxy of the IDE would change the transport.
 - The desktop app and `brd mcp` both poll GitHub and Patronus in P1.
+- Air holds one view for each connection of a page: a `viewOpen` while another one runs gets `-32011 viewOpen` at
+  once, and one while the connection holds a view waits up to 1 s for its end and then gets the same. The main view
+  subscribes again before it leaves in two cases: a switch of the repository before the first subscription answered,
+  and the subscription again after `prefix_changed` (`resubscribeSession` of `src/model/store.ts`), which holds the old
+  one until the new one answers, while `brd mcp` answers a held mirror from its state. Both fail in the IDE. The E2E
+  suite of the Air build reaches neither: each subscription again there follows the end of the mirror.
+- Air lets one view wait for at most 24 calls and the views of one process for 36 (`-32011 tooManyCalls` over that).
+  The views of the E2E suite of the Air build wait for at most 9 at once.
 
 ## References
 

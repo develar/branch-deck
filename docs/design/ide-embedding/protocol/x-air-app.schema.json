@@ -33,9 +33,14 @@
       "minLength": 1
     },
     "AppViewChannel": {
-      "description": "A held channel of the page link that mirrors one mirror of the app.",
+      "description": "The table channel of the page link that mirrors one mirror of the app. Each page that opens a view of the mirror subscribes to it through x-air-app/viewOpen, and no page subscribes to it by subscribe.",
       "type": "string",
       "pattern": "^x-air-ide:/appView/[1-9][0-9]*$"
+    },
+    "AppLinkChannel": {
+      "description": "The channel of the page link of one process of an app: its notices x-air-app/event, x-air-app/callEvent and x-air-app/progress, in the order of the app. No page subscribes to it, and its number changes with each run of the process, so a page ignores the value.",
+      "type": "string",
+      "pattern": "^x-air-ide:/appLink/[1-9][0-9]*$"
     },
     "AppsChannel": {
       "description": "The held channel of the IDE link with the apps of one project.",
@@ -1798,7 +1803,7 @@
                 "required": ["channel", "event", "payload"],
                 "properties": {
                   "channel": {
-                    "$ref": "#/$defs/Root"
+                    "$ref": "#/$defs/AppLinkChannel"
                   },
                   "event": {
                     "type": "string",
@@ -1826,7 +1831,7 @@
                 "required": ["channel", "callId", "event"],
                 "properties": {
                   "channel": {
-                    "$ref": "#/$defs/Root"
+                    "$ref": "#/$defs/AppLinkChannel"
                   },
                   "callId": {
                     "$ref": "#/$defs/Id"
@@ -1853,7 +1858,7 @@
                 "required": ["channel", "requestId", "progress"],
                 "properties": {
                   "channel": {
-                    "$ref": "#/$defs/Root"
+                    "$ref": "#/$defs/AppLinkChannel"
                   },
                   "requestId": {
                     "$ref": "#/$defs/Id"
@@ -3038,14 +3043,11 @@
           "then": {
             "properties": {
               "params": {
-                "description": "A root command: the request handler of the IDE reads one file of a frame of an app, ui://<app>/<path>, and gets the ReadResourceResult of the app as it wrote it.",
+                "description": "A command of the apps channel: the request handler of the IDE reads one file of a frame of an app, ui://<app>/<path>, and gets the ReadResourceResult of the app as it wrote it. The channel answers when the app answers, so a read holds no worker of the host while the app reads.",
                 "type": "object",
-                "required": ["channel", "apps", "app", "uri"],
+                "required": ["channel", "app", "uri"],
                 "properties": {
                   "channel": {
-                    "$ref": "#/$defs/Root"
-                  },
-                  "apps": {
                     "$ref": "#/$defs/AppsChannel"
                   },
                   "app": {

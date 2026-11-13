@@ -18,7 +18,7 @@ These files pin the wire.
 | `app` | `air-ide`, `app` | The stdio of the app process: MCP JSON-RPC 2.0, one object per line |
 | `page` | `page`, `air-ide` | The page entry of `air-ide` on `127.0.0.1:<port>`: `GET /` is the host document, and the WebSocket on the same port carries one JSON-RPC 2.0 object per text frame, in the shape of AHP |
 | `frame` | `frame`, `host` | postMessage between the frame of a view and the host page: MCP Apps of SEP-1865 with `x-air-app` |
-| `ide` | `ide`, `air-ide` | The connection of `air-ide`: the frames of air-apps in the vocabulary `x-air-ide`, such as the apps channel and the root commands `appViewTicket` and `appResourceRead` |
+| `ide` | `ide`, `air-ide` | The connection of `air-ide`: the frames of air-apps in the vocabulary `x-air-ide`, such as the apps channel with its command `appResourceRead`, and the root command `appViewTicket` |
 
 ## A line
 
