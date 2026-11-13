@@ -1139,11 +1139,6 @@ export type BranchLanding = {
 	dryRun: Reason | null,
 	/**  The running robot a Safe Push start replaces, by id: its own, on an older commit, which the push cancels first */
 	replaces: string | null,
-	/**
-	 *  Why the push an action needs (a pull request, a review request, a start) can't be made for the user
-	 *  (`holds::push_blocker`)
-	 */
-	push: Reason | null,
 };
 
 /**  The check of a typed branch name: what it is, and the name the branch gets (`sanitized`) */
@@ -1250,6 +1245,13 @@ export type BranchPush = {
 	 *  the branches of Push Stack first (`stack`) and nothing stops it
 	 */
 	upTo?: PushUpTo | null,
+	/**
+	 *  Why the push an action needs (`action`, then the branch: a pull request, a review request, the push a refused
+	 *  start offers) can't be made for the user, of the table as it is (`derive::action_push_of`): the branch stays local,
+	 *  a running Safe Push holds it, the last sync did not build it, its push drops remote commits, or a branch of its chain
+	 *  up to the nearest held one the sync did not build or whose push drops remote commits (`ActionPush::stop`)
+	 */
+	actionBlocker?: Reason | null,
 };
 
 /**  What the remote has of a branch */
@@ -9129,11 +9131,6 @@ export type StackIndependenceParams = {
 
 /**  What the rules decide of the whole stack of a root over its Patronus facts */
 export type StackLanding = {
-	/**
-	 *  What refuses the push of its stack branch (`holds::stack_branch_hold`): a parked member, every branch landed,
-	 *  its own robot, a stack branch the sync did not build
-	 */
-	hold: Reason | null,
 	/**  Why a Safe Push of the whole stack can't start (`land::start_refusal`) */
 	start: Reason | null,
 	dryRun: Reason | null,

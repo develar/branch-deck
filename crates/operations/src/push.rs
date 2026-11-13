@@ -29,7 +29,6 @@ use anyhow::Result;
 use domain_policy::github_stack::{rebased_by_github, stack_writes};
 use domain_policy::pull_request::layer_base_of;
 use domain_policy::push::{PushPlan as PolicyPlan, PushScope as PlanScope, PushState, Verdict, action_push, push_plan, verdict};
-use domain_policy::reasons::stack_not_built;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
@@ -42,7 +41,7 @@ use domain_types::session::{StackBranchAlong, stack_readiness_key};
 use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::service_sources::ServiceHost;
-use repository_model::derive::{Holds, LandSources, PushRules, alone_push_of, stack_hold_now, up_to_push_of, with_pull_request_sources, with_push_states};
+use repository_model::derive::{Holds, LandSources, PushRules, alone_push_of, up_to_push_of, with_pull_request_sources, with_push_states};
 use repository_model::facts::FactStore;
 use repository_model::push_guard::guard_facts;
 use repository_model::session::{SessionKey, Sessions};
@@ -431,9 +430,10 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
 
 /// The push of the stack branch of the whole stack of `root` alone (the push a refused start of the whole stack offers):
 /// the build of the last sync while its remote lacks it, leased on the remote head of its status, asking first when it
-/// drops remote commits unless forced; while it has work, what holds its push refuses it (`StackLanding::hold`: a member
-/// parked, every branch of the stack landed, its own robot runs on it, the sync did not build it), and a stack that does
-/// not fork has none. Its remote status is the session's (a push since the sync left it)
+/// drops remote commits unless forced; while it has work, what holds its push now refuses it (`Holds::stack_hold`, of
+/// the table and the robots as they are: a member parked, every branch of the stack landed, its own robot runs on it,
+/// the sync did not build it), and a stack that does not fork has none. Its remote status is the session's (a push
+/// since the sync left it)
 fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Holds<'_>, root: &str, push: &Push, expect: ExpectRemote) -> Option<Planned> {
   sources.table.branch(root)?;
   let key = stack_readiness_key(root);
@@ -448,12 +448,11 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
   if !matches!(verdict, Verdict::Goes | Verdict::AsksFirst) {
     return Some(push_plan_of(push, Witness::default(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), source_ref));
   }
-  // of the branches as they are now: a view of another table that says every branch of it landed holds nothing
-  let hold = stack_hold_now(holds.view, root, &stack.members, |member| {
+  // of the table and the robots as they are now: what a view of another table says holds nothing (`stack_hold_now`)
+  let hold = holds.stack_hold(&sources.table.repository(), stack, |member| {
     sources.table.branch(member).map(|branch| branch.commits.as_slice())
-  })
-  .cloned();
-  if let Some(reason) = hold.or_else(|| stack_not_built(stack)) {
+  });
+  if let Some(reason) = hold {
     return Some(push_plan_of(push, Witness::default(), Vec::new(), Vec::new(), vec![reason], Vec::new(), source_ref));
   }
   let asks = verdict == Verdict::AsksFirst;

@@ -5,16 +5,19 @@ use crate::pull_request::{PullRequestFacts, create_planned, pull_request_request
 use crate::robot::robot_test::{Sources, running};
 use crate::witness::{Witness, read_refs};
 use domain_policy::admission::admit;
-use domain_types::fixtures::{missing_approvals, pull_request};
+use domain_types::GroupedBranchInfo;
+use domain_types::fixtures::{grouped_branch, missing_approvals, pull_request, stack_held, stack_landed_by_own, stack_robot, whole_stack_view};
 use domain_types::landing::{PlannedEffect, Subject};
 use domain_types::operation::{Admission, CreatePullRequest, EffectStatus, Fingerprint, Intent, OperationId, OperationResult, Plan, PullRequestField, Resource, RunningMove};
-use domain_types::patronus::{PatronusPushMode, Person, ReviewReadiness, ReviewReadinessBranch};
+use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch};
 use domain_types::pull_request::PullRequest;
 use domain_types::reason::Reason;
-use domain_types::repository_view::RestartAction;
+use domain_types::repository_view::{PatronusView, RestartAction};
 use domain_types::session::{Fact, FactState, GitHubLayer, SubjectReadiness};
+use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake_service};
 use pretty_assertions::assert_eq;
+use repository_model::branch_table::RemoteFact;
 use repository_model::derive::ActionPushView;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -150,6 +153,112 @@ fn a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request() {
     })
   );
   assert!(retargeted.witness.pull_requests.contains_key(&7), "the pull request it retargets is of its witness");
+}
+
+/// The sources of the whole stack of auth (side on it): its stack branch built, on the remote behind its build; side has
+/// a commit `s2` since `s1` while `grown`, and is parked while `parked`; the Patronus view `view`, derived for another
+/// table, with the robots `robots` as they are now
+fn stack_sources(view: PatronusView, robots: Vec<PatronusRobot>, grown: bool, parked: bool) -> Sources {
+  let mut stack = Sources::new(Some("older"), false, robots, RestartAction::Restart);
+  let side = GroupedBranchInfo {
+    stack: Some(BranchStack {
+      declared_parent: Some("auth".to_owned()),
+      effective_base: Some("auth".to_owned()),
+      ..BranchStack::default()
+    }),
+    ..grouped_branch("side", if grown { &["s2", "s1"] } else { &["s1"] })
+  };
+  stack.table.branches.insert(0, side);
+  stack.table.stack_branches.push(StackBranchUpdate {
+    root: "auth".to_owned(),
+    branch_name: "user/stack/auth".to_owned(),
+    members: vec!["auth".to_owned(), "side".to_owned()],
+    commit_count: 2,
+    my_email: None,
+    state: StackBranchState::Built,
+    tip: Some("stack-tip".to_owned()),
+    blocked_by: None,
+    conflict: None,
+    error: None,
+    remote: None,
+  });
+  stack.table.remote.stacks.insert(
+    "auth".to_owned(),
+    RemoteFact {
+      remote_tip: Some("older-stack".to_owned()),
+      known: true,
+      ..RemoteFact::default()
+    },
+  );
+  if parked {
+    stack.table.parked.insert("side".to_owned(), "waits".to_owned());
+  }
+  stack.view = view;
+  stack
+}
+
+/// The view of the whole stack of auth of another table: what its robot `whole` landed of auth (`a1`) and side (`s1`)
+/// while `landed`, and `hold`, what that view decided holds the stack branch
+fn stack_view(landed: bool, hold: Option<Reason>) -> PatronusView {
+  let branches = [("auth", vec!["a1".to_owned()]), ("side", vec!["s1".to_owned()])];
+  whole_stack_view("auth", "whole", if landed { &branches } else { &[] }, hold)
+}
+
+/// The robot `whole` of the whole stack of auth with `status`
+fn whole_robot(status: PatronusRobotStatus) -> PatronusRobot {
+  PatronusRobot {
+    finish_time: (status == PatronusRobotStatus::Success).then_some(20),
+    ..stack_robot("whole", "auth", status, "older-stack")
+  }
+}
+
+/// Why the creation of the pull request of the whole stack of auth can't push its stack branch first, over `sources`
+fn stack_creation_blockers(sources: &Sources) -> Vec<Reason> {
+  let create = CreatePullRequest {
+    subject: Subject::whole_stack("auth"),
+    ..create(false)
+  };
+  created(sources, ActionPushView::default(), &create).plan.blockers
+}
+
+/// The push a pull request of a whole stack makes first decides what holds its stack branch of the table and the robots
+/// as they are (`Holds::stack_hold`), never as a view of another table decided it: every branch landed, until side has a
+/// commit since; side parked since the view; its own robot while it runs, not once it ended
+#[test]
+fn the_pull_request_of_a_whole_stack_pushes_its_stack_branch_by_the_table_as_it_is() {
+  let every_branch_landed = stack_landed_by_own("auth", "whole");
+  let merged = |grown| {
+    stack_sources(
+      stack_view(true, Some(every_branch_landed.clone())),
+      vec![whole_robot(PatronusRobotStatus::Success)],
+      grown,
+      false,
+    )
+  };
+  assert_eq!(
+    stack_creation_blockers(&merged(false)),
+    std::slice::from_ref(&every_branch_landed),
+    "the table the view was derived for"
+  );
+  assert_eq!(stack_creation_blockers(&merged(true)), [] as [Reason; 0], "side has a commit since the view");
+
+  let before_the_park = stack_sources(stack_view(false, None), Vec::new(), false, true);
+  assert_eq!(
+    stack_creation_blockers(&before_the_park),
+    [Reason::StackParked {
+      root: "auth".to_owned(),
+      member: "side".to_owned(),
+    }]
+  );
+
+  let running = stack_held("auth", "whole");
+  let held = |status| stack_sources(stack_view(false, Some(running.clone())), vec![whole_robot(status)], false, false);
+  assert_eq!(stack_creation_blockers(&held(PatronusRobotStatus::Running)), std::slice::from_ref(&running));
+  assert_eq!(
+    stack_creation_blockers(&held(PatronusRobotStatus::Failure)),
+    [] as [Reason; 0],
+    "its robot ended since the view"
+  );
 }
 
 /// The readiness of auth: IJPL Code Platform hasn't approved, Patronus suggests `login` (none: no GitHub login)

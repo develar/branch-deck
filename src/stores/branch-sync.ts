@@ -824,6 +824,11 @@ export interface PushOrders {
   readonly button: readonly string[]
   /** Push with Children; null for a branch nothing but parked branches is stacked on */
   readonly children: ChildrenPushOrder | null
+  /**
+   * Why the push of an action (`action`, then the branch) can't be made for the user, as Rust decides it of the table as
+   * it is (`BranchPush.actionBlocker`); null while it can
+   */
+  readonly actionBlocker: Reason | null
 }
 
 /** What Push with Children of a branch sends (`ChildrenPush`) */
@@ -865,6 +870,7 @@ export function pushOrdersIn(state: BranchSyncState, name: string): PushOrders {
             stackBranch: children.stackBranch ?? null,
             offers: children.offers === true,
           },
+    actionBlocker: push.actionBlocker ?? null,
   }
 }
 

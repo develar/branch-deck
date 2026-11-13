@@ -140,9 +140,11 @@ pub struct BranchPatronus {
   /// The robot of the branch (`domain_policy::robot_match`: started on it, or of a temporary ref at its local or remote
   /// tip), by id: the robot of its row
   pub robot_id: Option<String>,
-  /// Not the page's: the view may be of another table, stale while the view of this one is derived; the page reads what
-  /// Rust decides of the table as it is (`landedStates`, `NextStepView::hold`)
-  #[cfg_attr(feature = "specta", specta(skip))]
+  /// Only Rust's, never on the wire to the page (its patches, the mirror of the IDE): the view may be of another table,
+  /// stale while the view of this one is derived; Rust reads it against the table as it is, and the page reads what Rust
+  /// decides of that (`landedStates`, `NextStepView::hold`). The frame of a session keeps it beside the view
+  /// (`warm_start::KeptPatronus`)
+  #[serde(skip)]
   pub landed_by: Option<LandedByView>,
   pub span: Option<SpanView>,
   /// The nearest ancestor whose robot runs, or that a running robot of a side branch lands: a Safe Push of the branch
@@ -160,9 +162,10 @@ pub struct BranchPatronus {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchLanding {
-  /// What refuses its push (`holds::branch_hold`), as the view decided it. Not the page's: the view may be of another
-  /// table; the page reads the hold of the branch as it is now (`NextStepView::hold`)
-  #[cfg_attr(feature = "specta", specta(skip))]
+  /// What refuses its push (`holds::branch_hold`), as the view decided it. Only Rust's, never on the wire, as
+  /// `BranchPatronus::landed_by`: Rust reads it against the branch as it is (`derive::hold_now`), the page the hold of
+  /// the branch as it is now (`NextStepView::hold`)
+  #[serde(skip)]
   pub hold: Option<HoldView>,
   /// Why a Safe Push can't start (`land::start_refusal`)
   pub start: Option<Reason>,
@@ -170,9 +173,6 @@ pub struct BranchLanding {
   pub dry_run: Option<Reason>,
   /// The running robot a Safe Push start replaces, by id: its own, on an older commit, which the push cancels first
   pub replaces: Option<String>,
-  /// Why the push an action needs (a pull request, a review request, a start) can't be made for the user
-  /// (`holds::push_blocker`)
-  pub push: Option<Reason>,
 }
 
 /// The Patronus facts of the whole stack of a root; a stack with none is not listed
@@ -193,8 +193,10 @@ pub struct StackPatronus {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackLanding {
-  /// What refuses the push of its stack branch (`holds::stack_branch_hold`): a parked member, every branch landed,
-  /// its own robot, a stack branch the sync did not build
+  /// What refuses the push of its stack branch (`holds::stack_branch_hold`) as the view decided it: a parked member,
+  /// every branch landed, its own robot, a stack branch the sync did not build. Only Rust's, never on the wire, as
+  /// `BranchPatronus::landed_by`: every push and step decides it again of the table as it is (`derive::stack_hold_now`)
+  #[serde(skip)]
   pub hold: Option<Reason>,
   /// Why a Safe Push of the whole stack can't start (`land::start_refusal`)
   pub start: Option<Reason>,
@@ -202,8 +204,9 @@ pub struct StackLanding {
   /// The running robot of the whole stack a Safe Push start replaces, by id: on an older commit of its stack branch
   pub replaces: Option<String>,
   /// What its Safe Push lands now (`domain_policy::stack::whole_stack_rest`): every branch of it, less those merged Safe
-  /// Pushes landed whole. Not the page's: it reads the rest of the table as it is (`NextStepView::rest`)
-  #[cfg_attr(feature = "specta", specta(skip))]
+  /// Pushes landed whole. Only Rust's, never on the wire, as `BranchPatronus::landed_by`: the page reads the rest of the
+  /// table as it is (`NextStepView::rest`)
+  #[serde(skip)]
   pub rest: WholeStackRest,
 }
 
@@ -265,10 +268,15 @@ pub struct RobotLandedBranch {
 pub struct PatronusView {
   pub branches: BTreeMap<String, BranchPatronus>,
   pub stacks: BTreeMap<String, StackPatronus>,
-  /// By merged robot id, every branch it landed, root first. Not the page's: the news of a merge names what it landed
-  /// of the table as it is (`NewsEvent::RobotMerged::landed`)
-  #[cfg_attr(feature = "specta", specta(skip))]
+  /// By merged robot id, every branch it landed, root first. Only Rust's, never on the wire, as
+  /// `BranchPatronus::landed_by`: the news of a merge names what it landed of the table as it is
+  /// (`NewsEvent::RobotMerged::landed`)
+  #[serde(skip)]
   pub landed_by_robot: BTreeMap<String, Vec<RobotLandedBranch>>,
   /// By robot id, the restart a robot of the user offers; a robot without one is not listed
   pub restarts: BTreeMap<String, RobotRestart>,
 }
+
+#[cfg(test)]
+#[path = "repository_view_test.rs"]
+mod repository_view_test;

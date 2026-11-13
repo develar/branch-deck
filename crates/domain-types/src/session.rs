@@ -1031,6 +1031,13 @@ pub struct BranchPush {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub up_to: Option<PushUpTo>,
+  /// Why the push an action needs (`action`, then the branch: a pull request, a review request, the push a refused
+  /// start offers) can't be made for the user, of the table as it is (`derive::action_push_of`): the branch stays local,
+  /// a running Safe Push holds it, the last sync did not build it, its push drops remote commits, or a branch of its chain
+  /// up to the nearest held one the sync did not build or whose push drops remote commits (`ActionPush::stop`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub action_blocker: Option<Reason>,
 }
 
 /// Push Up to Here of a branch (`domain_policy::push::up_to_push`): the branches it is built on that have work for the
@@ -1427,9 +1434,9 @@ pub struct PatronusChange {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stacks: BTreeMap<String, StackPatronus>,
-  /// Not the page's: what landed is Rust's answer of the table as it is (`landedStates`, the news of a merge)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[cfg_attr(feature = "specta", specta(skip))]
+  /// Only Rust's, never on the wire (`PatronusView::landed_by_robot`): what landed is Rust's answer of the table as it
+  /// is (`landedStates`, the news of a merge)
+  #[serde(skip)]
   pub landed_by_robot: Option<BTreeMap<String, Vec<RobotLandedBranch>>>,
   /// The restarts of the robots, whole, when they differ
   #[serde(skip_serializing_if = "Option::is_none")]

@@ -12,7 +12,6 @@ import {
   formatReviewerGroupFiles,
   formatRobotCommitNotice,
   getPatronusChipState,
-  isHoldingRobot,
 } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { PUSH, testRemoteStatus } from "@/stores/test-branch"
@@ -167,15 +166,6 @@ describe("formatSafePushLoginCommand", () => {
     expect(formatSafePushLoginCommand("/Users/me/idea", false)).toBe("cd /Users/me/idea && ./safePush.cmd")
     expect(formatSafePushLoginCommand("/Users/me/my idea", false)).toBe("cd '/Users/me/my idea' && ./safePush.cmd")
     expect(formatSafePushLoginCommand("C:\\work\\idea", true)).toBe("cd 'C:\\work\\idea'; .\\safePush.cmd")
-  })
-})
-
-describe("actions", () => {
-  it("holds pushes with a running Safe Push only: a dry run or a cancel holds nothing", () => {
-    expect(isHoldingRobot(robot({ status: "running" }))).toBe(true)
-    expect(isHoldingRobot(robot({ status: "running", pushMode: "dryRun" }))).toBe(false)
-    expect(isHoldingRobot(robot({ status: "canceling" }))).toBe(false)
-    expect(isHoldingRobot(robot({ status: "failure" }))).toBe(false)
   })
 })
 

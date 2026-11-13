@@ -112,6 +112,54 @@ pub fn whole_stack_robot_of(root: &str, robot_id: &str) -> crate::repository_vie
   }
 }
 
+/// What holds the stack branch of `root` while its own robot `robot_id` runs on it as a Safe Push (`Reason::StackHeld`)
+pub fn stack_held(root: &str, robot_id: &str) -> crate::reason::Reason {
+  crate::reason::Reason::StackHeld {
+    root: root.to_string(),
+    robot_id: robot_id.to_string(),
+    mode: PatronusPushMode::RebaseAutosquash,
+  }
+}
+
+/// What holds the stack branch of `root` once its own robot `robot_id` landed every branch of it into master
+/// (`Reason::StackLanded`)
+pub fn stack_landed_by_own(root: &str, robot_id: &str) -> crate::reason::Reason {
+  crate::reason::Reason::StackLanded {
+    root: root.to_string(),
+    by: vec![whole_stack_robot_of(root, robot_id)],
+    own: true,
+    target: "master".to_string(),
+  }
+}
+
+/// A Patronus view of the whole stack of `root`: its robot `robot_id`, what it landed of each branch of `landed` (the
+/// original ids it landed, none after them), and `hold`, what the view decided holds the stack branch
+pub fn whole_stack_view(root: &str, robot_id: &str, landed: &[(&str, Vec<String>)], hold: Option<crate::reason::Reason>) -> crate::repository_view::PatronusView {
+  use crate::repository_view::{BranchPatronus, LandedByView, PatronusView, StackLanding, StackPatronus};
+  let landed_of = |(name, commits): &(&str, Vec<String>)| {
+    let facts = BranchPatronus {
+      landed_by: Some(LandedByView {
+        by: whole_stack_robot_of(root, robot_id),
+        own: false,
+        landed: commits.clone(),
+        after: Vec::new(),
+      }),
+      ..BranchPatronus::default()
+    };
+    ((*name).to_string(), facts)
+  };
+  let stack = StackPatronus {
+    robot_id: Some(robot_id.to_string()),
+    landing: StackLanding { hold, ..StackLanding::default() },
+    ..StackPatronus::default()
+  };
+  PatronusView {
+    branches: landed.iter().map(landed_of).collect(),
+    stacks: std::iter::once((root.to_string(), stack)).collect(),
+    ..PatronusView::default()
+  }
+}
+
 /// The commits `commits` of a branch a running robot's commit has, none of them amended since
 pub fn carried(commits: &[&str]) -> crate::repository_view::Carried {
   crate::repository_view::Carried {

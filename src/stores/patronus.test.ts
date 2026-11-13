@@ -39,7 +39,7 @@ import { applyRobotDetailsFacts, resetRobotDetails } from "@/stores/robot-detail
 import { PUSH, testRemoteStatus } from "@/stores/test-branch"
 import { enabled } from "@/test-support/actions"
 import { emptyView } from "@/test-support/fake-sessions"
-import { branchFacts, landedHold, robotOf, stackFacts, stackHeld, withRowRobots } from "@/test-support/patronus-repository"
+import { branchFacts, landedHold, robotOf, stackFacts, withRowRobots } from "@/test-support/patronus-repository"
 import { describeToast, openToasts, resetToasts, toastModule, toasts as shownToasts } from "@/test-support/toast-mock"
 
 const { patronus, branches } = vi.hoisted(() => ({
@@ -566,10 +566,15 @@ describe("holds", () => {
     const span = { by: robotOf("air", "r1", true), carried: { commits: ["c1"], amended: [] } }
     await answerView({
       branches: { air: branchFacts({ span }), bazel: branchFacts({ span }), side: branchFacts({ span }) },
-      stacks: { air: stackFacts({ landing: stackHeld("air", "r1") }) },
+      stacks: { air: stackFacts({}) },
     })
-    // Rust's answer of each row: its hold of the branch as it is
-    Object.assign(rows.holds, { air: { kind: "span", ...span }, bazel: { kind: "span", ...span }, side: { kind: "span", ...span } })
+    // Rust's answer of each row: its hold of the branch as it is, of the whole stack the robot that runs on its stack branch
+    Object.assign(rows.holds, {
+      air: { kind: "span", ...span },
+      bazel: { kind: "span", ...span },
+      side: { kind: "span", ...span },
+      "stack:air": { kind: "own", by: robotOf("air", "r1", true), carried: null },
+    })
     const holds = ["air", "bazel", "side", "other"].map(name => getPushHold(name))
     expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch, hold.wholeStack]))).toEqual([
       ["span", "air", true],

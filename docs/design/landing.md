@@ -418,18 +418,28 @@ The whole stack is an object of its own in the app, beside its branches, named "
   branch, for every branch built on it but one the view knows landed whole (what the view says of them reads what it
   says of it) and for a whole stack of it until the new view is in: row 0, no start, not landed, nothing a start, the
   count of a Safe Push, Push with Children, Push Up to Here or the closes of a merge read of it. No push of it is held
-  as landed: every reader of a hold of the view reads it of the branch as it is (`derive::hold_now`: the hold while its
-  robot holds pushes, a hold of what landed while every commit of the branch landed; of a stack branch
-  `derive::stack_hold_now`), the push of its row, Push Stack, Push with Children, the push an action needs and the
-  push of a start alike. Once the derivation of the view of this table failed, such a branch says that failure
+  as landed: every reader of a hold of the view reads it of the branch and the robots as they are (`derive::hold_now`:
+  the hold while its robot holds pushes, a hold of what landed while its robot merged and every commit of the branch
+  landed, `landed_whole_now`), the push of its row, Push Stack, Push with Children, the push an action needs, the start
+  and its push alike. The hold of a stack branch is decided again of the table and the robots as they are
+  (`derive::stack_hold_now`: a member parked now, every member landed whole as it is, its own robot while it runs, a
+  stack branch the sync did not build), never as the view decided it: the view gives only what landed each member and
+  the robot of the whole stack, so a member parked since the view keeps the stack branch local and a robot that ended
+  since holds it no more, in the push view, Push with Children, the push of the stack branch alone, the push of the pull
+  request of the whole stack and its step alike. The push an action needs is refused of the table as it is too
+  (`ActionPush::stop`, `BranchPush::action_blocker`). Once the derivation of the view of this table failed, such a branch says that failure
   ("Refresh Patronus", `PatronusStanding::of_unknown`) instead of a wait. What is left of a whole stack is read of the
   table as it is (`stack_rest`), and so is "landed whole" of a branch the view knows: every commit it has one that
   landed (`is_whole_of`). The page never reads what the view says landed or holds: what landed a branch is Rust's
-  `landedStates`, what holds its push the step view's `hold`, the count of a Safe Push its step's `lands`, what is left
-  of a whole stack the step's `rest` (`NextStepView.rest`), what a merge landed the news of the merge
-  (`NewsEvent::RobotMerged::landed`); the types the page gets have no `landedBy`, `landedByRobot`, `StackLanding.rest`
-  or hold of a branch of the view (`specta(skip)`), so a read of them is a type error, and `pnpm lint:arch` refuses
-  one besides (`view-landing-read`) and a landing rule of the page (`isLanded…`, `…LandingCount`).
+  `landedStates`, what holds its push (of a whole stack: its own robot) the step view's `hold`, why the push an action
+  needs can't be made `BranchPush.actionBlocker`, the count of a Safe Push its step's `lands`, what is left of a whole
+  stack the step's `rest` (`NextStepView.rest`), what a merge landed the news of the merge
+  (`NewsEvent::RobotMerged::landed`). What only Rust reads of the view never goes on the wire (`#[serde(skip)]`:
+  `landedBy`, `landedByRobot`, the hold of a branch and of a stack branch, `StackLanding.rest`): not in the view, its
+  patches or the mirror of the IDE, so the types the page gets lack them and a read is a type error; the frame of the
+  session keeps them beside the wire (`warm_start::KeptPatronus`). `pnpm lint:arch` refuses a read besides
+  (`view-landing-read`: `landedBy`, the `rest`, `hold` and `push` of a `landing`) and a landing rule of the page
+  (`isLanded…`, `…LandingCount`).
   - *Rationale:* the window is the time the view of the new table takes to derive, seconds after a sync rebuilt the
     copies (its content walk runs git), and at a warm start the whole time until Patronus answers about the robots,
     as no view is derived while the robots are those of the cached frame (`begin_patronus`). In

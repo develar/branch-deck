@@ -655,6 +655,10 @@ never sends it.
 #### Scenario: A push of the stack branch of a stack that holds one
 - **WHEN** the app pushes the stack branch of a stack that holds a parked branch
 - **THEN** nothing is pushed: "… holds parked login; land the stack in pieces"
+- **AND** the stack branch is held as the table is now, also while the view of the robots is of the table before the park
+  [@test] crates/operations/src/push_test.rs (`a_member_parked_since_the_view_keeps_the_stack_branch_local`)
+  [@test] crates/operations/src/pull_request_test.rs (`the_pull_request_of_a_whole_stack_pushes_its_stack_branch_by_the_table_as_it_is`)
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should leave the whole stack branch out of the header's push once a branch of it is parked, while the view of the robots is of the table before`)
 
 ### Requirement: The app: An unapplied branch under the name of a parked one pushes
 

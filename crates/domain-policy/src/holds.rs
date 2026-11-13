@@ -8,9 +8,6 @@
 //! - `stack_branch_hold`: the stack branch of a whole stack holds the commits of every member, so a parked member keeps
 //!   it local; merged Safe Pushes that landed every member whole leave nothing to push; its own robot runs on it; a
 //!   stack branch the sync did not build is no build of its commits
-//! - `push_blocker`: the push an action needs (a pull request, a review request, a start) pushes the branch and the
-//!   ancestors with work up to the first held one; a branch of that chain the sync did not build, or whose push drops
-//!   remote commits (someone's work), is no push to make for the user
 //! - `restart_action`: Patronus restarts a robot on the newest commit of its remote branch; a branch with work the
 //!   remote lacks is pushed first ("Push and Restart", also for a running robot, which the push cancels first)
 //!
@@ -24,7 +21,7 @@ use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatu
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView, LandedByView, RestartAction, RobotOf, SpanView};
 use domain_types::session::ParkedMember;
-use domain_types::stack::{BlockReason, StackBranchUpdate};
+use domain_types::stack::StackBranchUpdate;
 
 /// The robot still runs: a canceling one included, until Patronus says it stopped
 #[must_use]
@@ -106,44 +103,6 @@ pub fn stack_branch_hold(facts: &StackHoldFacts<'_>) -> Option<Reason> {
     });
   }
   stack_not_built(facts.stack)
-}
-
-/// A branch of the chain an action's push takes, as `push_blocker` reads it
-#[derive(Clone, Copy, Debug)]
-pub struct PushStep<'a> {
-  pub name: &'a str,
-  /// Why the last sync did not build it
-  pub not_built: Option<BlockReason>,
-  /// What is known of its remote branch
-  pub remote: Option<RemoteBranch<'a>>,
-  /// A running Safe Push other than the one the action replaces holds it: its robot lands it, the chain stops below it
-  pub held: bool,
-}
-
-/// Why the push an action needs can't be made for the user: `chain` is the branch, then the branches it is built on,
-/// the nearest first, without the ones that landed (`push::kept`: nothing of them is pushed, as a start leaves them). A
-/// held ancestor ends the chain (its robot lands it, the branches above it are pushed); a branch of the chain the sync
-/// did not build (its virtual branch is an older build), or whose push drops remote commits it lacks, refuses it
-#[must_use]
-pub fn push_blocker<'a>(chain: impl IntoIterator<Item = PushStep<'a>>) -> Option<Reason> {
-  for (at, step) in chain.into_iter().enumerate() {
-    if at > 0 && step.held {
-      break;
-    }
-    if let Some(block) = step.not_built {
-      return Some(Reason::CantPush {
-        branch: step.name.to_string(),
-        block,
-      });
-    }
-    if let Some(remote) = step.remote.filter(|remote| remote.drops > 0) {
-      return Some(Reason::DropsRemote {
-        branch: step.name.to_string(),
-        behind: remote.drops,
-      });
-    }
-  }
-  None
 }
 
 /// What the commit a robot took is to its subject now: the subject as it is, a commit it moved past, one its remote

@@ -1,11 +1,11 @@
 use crate::facts::RemoteBranch;
-use crate::holds::{PushStep, StackHoldFacts, branch_hold, push_blocker, restart_action, stack_branch_hold};
+use crate::holds::{StackHoldFacts, branch_hold, restart_action, stack_branch_hold};
 use domain_types::fixtures::{robot, robot_of, stack_robot, whole_stack_robot_of};
 use domain_types::patronus::{PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{Carried, HoldKind, LandedByView, RestartAction, RobotOf, SpanView};
 use domain_types::session::{Parked, ParkedMember};
-use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
+use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use pretty_assertions::assert_eq;
 
 fn landed(by: RobotOf, after: &[&str]) -> LandedByView {
@@ -177,51 +177,6 @@ fn every_member_landed_by_the_robot_of_the_whole_stack_is_its_own_landing() {
     robot: None,
   };
   assert!(matches!(stack_branch_hold(&facts), Some(Reason::StackLanded { own: true, .. })));
-}
-
-fn step(name: &str, not_built: Option<BlockReason>, drops: u32, held: bool) -> PushStep<'_> {
-  PushStep {
-    name,
-    not_built,
-    remote: Some(RemoteBranch {
-      tip: Some("remote"),
-      up_to_date: false,
-      drops,
-      others: 0,
-    }),
-    held,
-  }
-}
-
-/// The push of an action is refused by a branch of its chain the sync did not build or whose push drops remote
-/// commits, up to the first held ancestor, whose robot lands it and the rest below
-#[test]
-fn the_push_of_an_action_stops_at_a_held_ancestor_and_refuses_a_branch_not_built_or_dropping_commits() {
-  assert_eq!(push_blocker([step("login", None, 0, false), step("auth", None, 0, false)]), None);
-  assert_eq!(
-    push_blocker([step("login", None, 0, false), step("auth", Some(BlockReason::Conflict), 0, false)]),
-    Some(Reason::CantPush {
-      branch: "auth".to_string(),
-      block: BlockReason::Conflict
-    })
-  );
-  assert_eq!(
-    push_blocker([step("login", None, 2, false), step("auth", Some(BlockReason::Conflict), 0, false)]),
-    Some(Reason::DropsRemote {
-      branch: "login".to_string(),
-      behind: 2
-    })
-  );
-  // the held ancestor lands with its robot: nothing below it is pushed
-  assert_eq!(push_blocker([step("login", None, 0, false), step("auth", Some(BlockReason::Conflict), 0, true)]), None);
-  // the branch itself held: its own push says so, the chain goes on
-  assert!(push_blocker([step("login", None, 0, true), step("auth", Some(BlockReason::Error), 0, false)]).is_some());
-  // a remote not compared yet drops nothing known
-  let unknown = PushStep {
-    remote: None,
-    ..step("login", None, 0, false)
-  };
-  assert_eq!(push_blocker([unknown]), None);
 }
 
 fn remote(tip: &str, up_to_date: bool) -> RemoteBranch<'_> {

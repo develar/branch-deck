@@ -250,14 +250,6 @@ export function formatRobotCommitNotice(
 }
 
 /**
- * A robot that holds the pushes of the branches it lands (`PushHold`): running and pushing into the target. A dry run
- * lands nothing, and a canceling robot won't merge: a push next to either is fine.
- */
-export function isHoldingRobot(robot: PatronusRobot): boolean {
-  return robot.status === "running" && robot.pushMode !== "dryRun"
-}
-
-/**
  * Why a branch offers no push: a Safe Push runs on it (`own`, the robot of the branch) or on a branch built on it that
  * lands it (`span`, the repository view's `hold`). A push now won't land: the robot merges the commit it took, and a push
  * into its own branch makes it fail at the end ("branch was modified"). The restart, which pushes first, is the way through.

@@ -2,7 +2,6 @@ import { useMemo } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type {
-  BranchLanding,
   Fact,
   FactState,
   HoldView,
@@ -26,13 +25,13 @@ import { closeLanded } from "@/lib/landed-closes"
 import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
-import { formatMergedRobotTitle, formatPushMode, isHoldingRobot, isRobotActive } from "@/lib/patronus"
+import { formatMergedRobotTitle, formatPushMode, isRobotActive } from "@/lib/patronus"
 import { withoutKeys } from "@/lib/record"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import type { RowRobots } from "@/lib/robot-overview"
 import { NO_ROW_ROBOTS } from "@/lib/robot-overview"
-import { formatOrphanedStackPullRequest } from "@/lib/whole-stack"
+import { formatOrphanedStackPullRequest, stackReadinessKey } from "@/lib/whole-stack"
 import { watchRobotInDemand } from "@/model/demand"
 import { getRowPart, refreshSessionFacts, useRowPart } from "@/model/store"
 import { describeLandedCloses } from "@/presenters/news"
@@ -225,14 +224,11 @@ function stackRobotIn(repository: RepositoryPatronus | undefined, root: string):
 interface PatronusFacts {
   readonly spans: ReadonlyMap<string, LandingDescendant>
   readonly ancestors: ReadonlyMap<string, LandingAncestor>
-  /** By root, the robot of the whole stack that runs on its stack branch */
-  readonly stackHolds: ReadonlyMap<string, PushHold>
 }
 
 const NO_FACTS: PatronusFacts = {
   spans: new Map(),
   ancestors: new Map(),
-  stackHolds: new Map(),
 }
 
 let lastFacts: PatronusFacts = NO_FACTS
@@ -289,18 +285,9 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
       ancestors.set(name, by(facts.landingAncestor, ancestorRobot))
     }
   }
-  const stackHolds = new Map<string, PushHold>()
-  for (const [root, facts] of Object.entries(view.stacks)) {
-    const stackHold = facts.landing.hold
-    const stackRobot = stackHold?.code === "stackHeld" ? robotOf(stackHold.robotId) : undefined
-    if (stackRobot !== undefined && isHoldingRobot(stackRobot)) {
-      stackHolds.set(root, { kind: "own", branch: root, robot: stackRobot, wholeStack: true })
-    }
-  }
   const next: PatronusFacts = {
     spans: keptFacts(last.spans, spans),
     ancestors: keptFacts(last.ancestors, ancestors),
-    stackHolds: keptFacts(last.stackHolds, stackHolds),
   }
   // the same facts (another robot changed, a view equal by content): the same object, no hook renders again
   const same = (Object.keys(next) as (keyof PatronusFacts)[]).every(field => next[field] === last[field])
@@ -321,10 +308,12 @@ function currentFacts(): PatronusFacts {
 
 /**
  * The hold of the stack branch of `root`: its own robot runs and pushes into the target, so a push of the stack branch
- * makes it fail at the end; its restart, which cancels it first, is the way through. Null while none holds it.
+ * makes it fail at the end; its restart, which cancels it first, is the way through. As Rust decides it of the table
+ * and the robots as they are (`NextStepView.hold` of the whole stack, never what the view of another table says); null
+ * while none holds it.
  */
 export function getStackPushHold(root: string): PushHold | null {
-  return currentFacts().stackHolds.get(root) ?? null
+  return getPushHold(stackReadinessKey(root))
 }
 
 /**
@@ -399,17 +388,6 @@ export function useLandedBy(branchName: string): LandedBy | null {
   const key = useRepositoryKey()
   const robot = useStore(patronusStore, state => (robotId === undefined ? undefined : state.repositories[key]?.robots[robotId]))
   return landedByOf(landed, robot)
-}
-
-const NO_BRANCH_LANDING: BranchLanding = { start: null, dryRun: null, replaces: null, push: null }
-
-/**
- * What the rules decide of the branch over its Patronus facts (`BranchLanding`, `domain_policy::holds` and `land`): why
- * the push an action needs can't be made; nothing before the session derived a view. What holds its push is the row's
- * (`getPushHold`), of the branch as it is now
- */
-export function getBranchLanding(branchName: string): BranchLanding {
-  return currentRepository()?.view?.branches[branchName]?.landing ?? NO_BRANCH_LANDING
 }
 
 /**

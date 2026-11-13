@@ -95,6 +95,87 @@ fn a_frame_reads_back_from_the_object_cache_as_it_was_written() {
   assert_eq!(read_frame(&cache, "/repo").unwrap().table.order, ["ui", "auth"]);
 }
 
+/// A frame keeps what only Rust reads of the Patronus view (`KeptPatronus`) beside its part, which goes as the wire
+/// sends it to the page, its patches and the mirror of the IDE, without it: what landed a branch, the holds the view
+/// decided, what is left of a whole stack, what a merged robot landed. The seed puts them back: the view of the frame
+/// is the one the run that wrote it had
+#[test]
+fn a_frame_keeps_what_only_rust_reads_of_the_patronus_view_beside_its_wire() {
+  use crate::branch_table::BranchTable;
+  use crate::derive::derive_budget_test::answer_patronus;
+  use domain_types::fixtures::{robot_of, whole_stack_robot_of};
+  use domain_types::reason::Reason;
+  use domain_types::repository_view::{
+    BranchLanding, BranchPatronus, HoldKind, HoldView, LandedByView, PatronusView, RobotLandedBranch, StackLanding, StackPatronus, WholeStackRest,
+  };
+  use std::collections::BTreeMap;
+
+  let view = PatronusView {
+    branches: BTreeMap::from([(
+      "auth".to_owned(),
+      BranchPatronus {
+        robot_id: Some("r1".to_owned()),
+        landed_by: Some(LandedByView {
+          by: robot_of("auth", "r1"),
+          own: true,
+          landed: vec!["a1".to_owned()],
+          after: Vec::new(),
+        }),
+        landing: BranchLanding {
+          hold: Some(HoldView {
+            kind: HoldKind::Landed,
+            by: robot_of("auth", "r1"),
+            carried: None,
+          }),
+          ..BranchLanding::default()
+        },
+        ..BranchPatronus::default()
+      },
+    )]),
+    stacks: BTreeMap::from([(
+      "auth".to_owned(),
+      StackPatronus {
+        landing: StackLanding {
+          hold: Some(Reason::StackParked {
+            root: "auth".to_owned(),
+            member: "ui".to_owned(),
+          }),
+          rest: WholeStackRest {
+            members: vec!["ui".to_owned()],
+            commit_count: 1,
+            landed: vec!["auth".to_owned()],
+            by: vec![whole_stack_robot_of("auth", "r1")],
+            by_own_robot: false,
+          },
+          ..StackLanding::default()
+        },
+        ..StackPatronus::default()
+      },
+    )]),
+    landed_by_robot: BTreeMap::from([(
+      "r1".to_owned(),
+      vec![RobotLandedBranch {
+        branch: "auth".to_owned(),
+        own: true,
+        after: Vec::new(),
+      }],
+    )]),
+    ..PatronusView::default()
+  };
+  let mut facts = answered_facts();
+  answer_patronus(&mut facts, 4, view.clone(), &BranchTable::default());
+  let dir = tempfile::tempdir().unwrap();
+  let cache = test_utils::process_budget::cache_in(dir.path());
+  write_frame(&cache, &frame_of(&key(), &synced_state(), &facts));
+  let read = read_frame(&cache, "/repo").unwrap();
+  let wire = serde_json::to_string(&read.facts.patronus).unwrap();
+  for field in ["landedBy", "landedByRobot", "\"hold\"", "\"rest\""] {
+    assert!(!wire.contains(field), "{field} on the wire: {wire}");
+  }
+  let (_, seeded) = read.seed();
+  assert_eq!(seeded.patronus.part().view, view);
+}
+
 /// A frame seeds only the session of its key and schema: another prefix of the worktree, or a frame of another schema,
 /// seeds nothing
 #[test]

@@ -31,14 +31,14 @@ import {
   stackPullRequest,
   withStackPullRequests,
 } from "../helpers/pull-request-helpers"
-import { expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, STACKED_BRANCHES, stackBranchOf } from "../helpers/push-helpers"
+import { expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, remotePushes, STACKED_BRANCHES, stackBranchOf } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { openReviewWindow } from "../helpers/review-window-helpers"
 import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import { expectClosed, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
@@ -1135,6 +1135,52 @@ test.describe("Whole stack", () => {
     // nothing holds its push as landed either: it pushes the commit that view never saw
     await pushBranchFromRow(page, "login")
     await expectPushedToRemote(repo, ["login"])
+  })
+
+  test("should take the whole stack branch along in the header's push once its own robot ended, while the view of the robots says it runs", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const running = wholeStackRobot("air", "whole")
+    const repo = await setupRepo("stack_island", { patronus: availableRobots(running) })
+    await syncAndWaitForBranches()
+    // its Safe Push put the stack branch on the remote; the sync rebuilt it with 2 commits that remote lacks
+    await pushedBefore(page, repo, [stackBranchOf("air")], { lacking: 2 })
+    const push = islandPush(page, "air")
+    // while its robot runs it holds the stack branch and every branch it lands
+    await expect(push).toHaveAttribute("aria-disabled", "true")
+    // every view of newer robots fails from now on: the session shows the one of the robot running
+    await repo.holdRemoteAnswers({ fail: ["repositoryView"] })
+    await repo.setPatronus(availableRobots({ ...running, status: "failure", finishTime: 1704142800 }))
+    await emitTauriEvent(page, "tauri://focus")
+    // the robots as they are hold nothing: the header's push takes the stack branch along
+    await expect(push).toHaveAccessibleName("Push with Children (8 branches)")
+    await runAndWaitForAnswer(page, "execute", () => push.click())
+    expect((await remotePushes(repo)).at(-1)).toEqual(["air", "bazel", "bridge", "deploy", "runtime", "side-fix", "side-test", "stack:air"])
+  })
+
+  test("should leave the whole stack branch out of the header's push once a branch of it is parked, while the view of the robots is of the table before", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("stack_island", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    await pushedBefore(page, repo, [stackBranchOf("air")], { lacking: 2 })
+    const push = islandPush(page, "air")
+    // nothing parked yet: the stack branch goes along with the 7 branches
+    await expect(push).toHaveAccessibleName("Push with Children (8 branches)")
+    // every view of a newer table fails from now on: the session shows the one of the table before the park
+    await repo.holdRemoteAnswers({ fail: ["repositoryView"] })
+    await findBranchRow(page, "side-test").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Park Branch…" }).click()
+    await expect(page.getByTestId("inline-park-input").getByRole("textbox")).toBeFocused()
+    await runAndWaitForSync(page, () => page.keyboard.press("Enter"))
+    // the stack branch holds the commits of parked side-test: it stays local, the others go
+    await expect(push).toHaveAccessibleName("Push with Children (6 branches)")
+    await runAndWaitForAnswer(page, "execute", () => push.click())
+    expect((await remotePushes(repo)).at(-1)).toEqual(["air", "bazel", "bridge", "deploy", "runtime", "side-fix"])
   })
 
   test("should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it", async ({

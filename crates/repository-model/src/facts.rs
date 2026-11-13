@@ -72,7 +72,7 @@ use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_readings::ReviewReadingsFact;
 use crate::review_request_facts::ReviewRequestsFact;
 use crate::table::TableState;
-use crate::warm_start::{CachedFacts, CachedNeeds};
+use crate::warm_start::{CachedFacts, CachedNeeds, KeptPatronus};
 use domain_policy::holds::is_active;
 use domain_policy::landed::{Landing, Of, pull_requests_to_close};
 use domain_policy::news::{self, robot_finished};
@@ -488,7 +488,8 @@ impl FactStore {
   pub fn from_cached(facts: CachedFacts, baseline: &str) -> Self {
     let CachedFacts {
       robots,
-      patronus,
+      mut patronus,
+      patronus_kept,
       landing_needs,
       pull_requests,
       rules,
@@ -497,6 +498,7 @@ impl FactStore {
       review_requests,
       auth,
     } = facts;
+    patronus_kept.restore(&mut patronus.view);
     Self {
       robots: RobotsFact::cached(robots),
       patronus: PatronusFact::cached(patronus, landing_needs),
@@ -532,6 +534,7 @@ impl FactStore {
     CachedFacts {
       robots: self.robots.view().clone(),
       patronus: self.patronus.part().clone(),
+      patronus_kept: KeptPatronus::of(&self.patronus.part().view),
       landing_needs: self.patronus.needs.frame(),
       pull_requests: self.pull_requests.view().clone(),
       rules: self.rules.iter().map(|(base, rules)| (base.clone(), rules.fact().clone())).collect(),

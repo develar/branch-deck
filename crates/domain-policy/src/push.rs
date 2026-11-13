@@ -18,6 +18,9 @@
 //!   of an action (it starts above the nearest branch that asks first), and Push with Children with the stack branch of
 //!   the whole stack of a root (`stack_branch_along`: once it is on the remote or its pull request is open, built, not
 //!   held, its remote lacking it)
+//! - `action_push`: the push an action needs (a pull request, a review request, the push a refused start offers) and
+//!   what of its chain stops it (`ActionPush::stop`): the nearest branch up to the nearest held one that the sync did
+//!   not build or whose push drops remote commits
 //! - `up_to_push`: Push Up to Here of a commit, the branches it is built on that have work first, whole, then the branch
 //!   up to the commit, and what stops it (`UpToStop`): the branch kept out, rewritten since its push, a branch it is
 //!   built on kept out or asking first
@@ -315,8 +318,10 @@ pub fn branch_push(repo: &Repository<'_>, state: impl Fn(&str) -> PushState, sta
     button: own == Verdict::Goes && !action.is_empty(),
     action: (action != stack_order).then(|| owned(&action)),
     children,
-    // the view's: which commits offer it is not a rule of the push plan
+    // the view's: which commits offer it, and the reasons the push of an action can't be made, are not rules of the
+    // push plan
     up_to: None,
+    action_blocker: None,
   }
 }
 
@@ -327,12 +332,17 @@ pub struct ActionPush<'a> {
   pub ancestors: Vec<&'a str>,
   /// What the branch itself does in the push
   pub own: Verdict,
+  /// The nearest branch it is built on, up to the nearest held one (whose robot lands it and the rest below), that the
+  /// push can't take as it is, with what it does: the last sync did not build it (`NotBuilt`: its virtual branch is an
+  /// older build), or its push drops remote commits it lacks (`AsksFirst`: someone's work, its own row asks first). The
+  /// push is then no push to make for the user
+  pub stop: Option<(&'a str, Verdict)>,
 }
 
-/// What the push of an action that needs `name` on the remote sends (Create Pull Request, Request Review: the push of
-/// the push button too, `BranchPush::action`): Push Stack of it (`push_plan`) without the ancestors from the nearest one
-/// whose push asks first on, which its own row asks for, then the branch by what it does; `None` for a branch the table
-/// lacks
+/// What the push of an action that needs `name` on the remote sends (Create Pull Request, Request Review, the push a
+/// refused start offers: the push of the push button too, `BranchPush::action`): Push Stack of it (`push_plan`) without
+/// the ancestors from the nearest one whose push asks first on, which its own row asks for, then the branch by what it
+/// does, and what of its chain stops it; `None` for a branch the table lacks
 #[must_use]
 pub fn action_push<'a>(repo: &Repository<'a>, state: impl Fn(&str) -> PushState, name: &str) -> Option<ActionPush<'a>> {
   let plan = push_plan(repo, state, name, PushScope::WithAncestors);
@@ -340,6 +350,7 @@ pub fn action_push<'a>(repo: &Repository<'a>, state: impl Fn(&str) -> PushState,
   Some(ActionPush {
     ancestors: above_ask_first(before),
     own,
+    stop: before.iter().rev().find(|(_, verdict)| matches!(verdict, Verdict::NotBuilt | Verdict::AsksFirst)).copied(),
   })
 }
 

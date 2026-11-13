@@ -19,11 +19,11 @@
 //   a surface shows is Rust's, `domain_policy::row_status`), or, src/stores too, what landed a subject (`isLanded…`,
 //   `…LandingBranchCount`: Rust's `landedStates`, `NextStep.lands`); a formatter (`format…`) words a reason Rust gave and
 //   decides nothing;
-// - `view-landing-read`: a read of what the Patronus view says landed (`landedBy`, `landedByRobot`, the `rest` of its
-//   `landing`; the types the page gets have none of them, nor the hold of a branch, so this is the second guard) in
-//   src (its tests and test-support aside): the view may be of another table, stale while the view of this one is
-//   derived; the page reads what Rust decides of the table as it is (`landedStates`, `NextStepView.rest`,
-//   `NextStep.lands`).
+// - `view-landing-read`: a read of what the Patronus view says landed or holds (`landedBy`, `landedByRobot`, the `rest`,
+//   the `hold` and the `push` of its `landing`, of a branch or of a whole stack; the types the page gets have none of
+//   them, so this is the second guard) in src (its tests and test-support aside): the view may be of another table,
+//   stale while the view of this one is derived; the page reads what Rust decides of the table as it is
+//   (`landedStates`, `NextStepView.rest`, `NextStepView.hold`, `NextStep.lands`, `BranchPush.actionBlocker`).
 // The operations are the session's (docs/design/operations.md): Rust admits, joins and queues every one of them and lays
 // them over the actions of the view; the page only knows which of its surfaces started one (`src/stores/indicators.ts`):
 // - `operations-store`: the deleted registry of the page comes back (`src/stores/operations.ts`), or src/stores or
@@ -148,8 +148,9 @@ const LANDING_EXPORT =
   /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)(isLanded[\w$]*|[\w$]*[Ll]anded(?:Whole|Wholly)[\w$]*|(?!format)[\w$]*(?:Landing|Landed)[\w$]*Count|count[\w$]*(?:Landing|Landed)[\w$]*)\b/
 /** The sources whose exports a landing name refuses: the modules, the hooks and the stores of the page, their tests aside */
 const LANDING_RULED = /^src\/(?:lib|hooks|stores)\/(?!.*\.test\.tsx?$)/
-// a read of what the Patronus view says landed: its `landedBy`, the `rest` of a `StackLanding`
-const VIEW_LANDING_READ = /\blandedBy(?:Robot)?\b|\b(?:get|use)StackLanding\([^)]*\)\??\.rest\b|\.landing\??\.rest\b/
+// a read of what the Patronus view says landed or holds: its `landedBy`, the `rest`, the `hold` and the `push` of the
+// `landing` of a branch or of a whole stack
+const VIEW_LANDING_READ = /\blandedBy(?:Robot)?\b|\b(?:get|use)(?:Stack|Branch)Landing\([^)]*\)\??\.(?:rest|hold|push)\b|\.landing\??\.(?:rest|hold|push)\b/
 /** The sources that may not read it: the page, its tests and test-support aside */
 const VIEW_READING = /^src\/(?!test-support\/)(?!.*\.test\.tsx?$)/
 

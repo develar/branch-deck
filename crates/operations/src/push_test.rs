@@ -1,13 +1,16 @@
 use crate::engine::Hosts;
 use crate::events::{EventSink, NoEvents};
 use crate::land_execute::Accepted;
-use crate::push::{execute_push, prepare_push};
+use crate::push::{CheckedHolds, ExpectRemote, execute_push, prepare_push, push_planned};
 use crate::registry::registry_test::{operations_until, view_operations};
 use crate::registry::{Registry, RegistryFiles};
 use crate::rewrite::RewriteHost;
 use domain_types::error::{ApiError, ErrorCode, HolderTool, LockHolderInfo};
+use domain_types::fixtures::{stack_held, stack_landed_by_own, stack_robot, whole_stack_view};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
 use domain_types::operation::{EffectStatus, Intent, NewsKey, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Push, PushScope, RunningOperation};
+use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
+use domain_types::reason::Reason;
 use domain_types::session::SyncReason;
 use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -636,7 +639,7 @@ async fn the_stack_branch_of_a_whole_stack_is_pushed_alone_and_goes_along_once_o
     ..alone("alpha", None)
   };
   let straight = fixture.plan(&whole).await;
-  assert_eq!(straight.blockers, [domain_types::reason::Reason::NoStackBranch { root: "alpha".to_string() }]);
+  assert_eq!(straight.blockers, [Reason::NoStackBranch { root: "alpha".to_string() }]);
 
   fixture.repo.create_commit("(alpha/gamma) Gamma", "gamma.txt", "gamma\n");
   fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
@@ -665,6 +668,142 @@ async fn the_stack_branch_of_a_whole_stack_is_pushed_alone_and_goes_along_once_o
   let outcome = fixture.execute(&children, Vec::new()).await.unwrap();
   assert_eq!(outcome.effects[0].status, EffectStatus::Done, "{outcome:?}");
   assert_eq!(fixture.plan(&whole).await.effects, Vec::new(), "the stack branch went along");
+}
+
+impl Fixture {
+  /// The plan of `push` over `checked`, a Patronus view derived for another table with the robots as they are now, in
+  /// place of the session's (`push_planned`, as a run checks the robots it asked)
+  async fn plan_over(&self, push: &Push, checked: CheckedHolds) -> Plan {
+    let (prefix, push) = (self.key.prefix.clone(), push.clone());
+    let planned = self
+      .registry
+      .sessions()
+      .read(&self.key, move |state, facts| {
+        push_planned(state, facts, &prefix, &push, Some(&checked), ExpectRemote::OfIntent)
+      })
+      .await
+      .flatten();
+    planned.unwrap().plan
+  }
+
+  /// The original commits of `branch` as the table of the last sync has them
+  async fn commits_of(&self, branch: &str) -> Vec<String> {
+    let branch = branch.to_string();
+    let commits = self.registry.sessions().read(&self.key, move |_, facts| {
+      let table = facts.table.value()?;
+      Some(table.branch(&branch)?.commits.iter().map(|commit| commit.id.clone()).collect::<Vec<_>>())
+    });
+    commits.await.flatten().unwrap()
+  }
+
+  /// The whole stack of alpha (beta and gamma on it) with its stack branch pushed: on the remote as it is
+  async fn whole_stack_pushed(&self) {
+    self.repo.create_commit("(alpha/gamma) Gamma", "gamma.txt", "gamma\n");
+    self.registry.sessions().sync(&self.key, SyncReason::Manual).wait().await.unwrap();
+    assert_done(&self.execute(&whole_stack_alone(), Vec::new()).await);
+  }
+
+  /// A commit of `branch` adding `file`, and the session synced on it
+  async fn commit_on(&self, message: &str, file: &str) {
+    self.repo.create_commit(message, file, &format!("{file}\n"));
+    self.registry.sessions().sync(&self.key, SyncReason::Manual).wait().await.unwrap();
+  }
+}
+
+/// The push of the stack branch of the whole stack of alpha alone
+fn whole_stack_alone() -> Push {
+  Push {
+    subject: Subject::whole_stack("alpha"),
+    ..alone("alpha", None)
+  }
+}
+
+/// The robot `whole` of the whole stack of alpha with `status`
+fn whole_robot(status: PatronusRobotStatus) -> PatronusRobot {
+  PatronusRobot {
+    finish_time: (status == PatronusRobotStatus::Success).then_some(20),
+    ..stack_robot("whole", "alpha", status, "older")
+  }
+}
+
+/// Whether the push of `plan` sends the stack branch of alpha
+fn sends_stack_branch(plan: &Plan) -> bool {
+  pushed_by(plan).is_some_and(|(sent, _)| sent.iter().any(|branch| branch == "stack:alpha"))
+}
+
+/// Push with Children of the root and the push of the stack branch alone decide what holds the stack branch of the
+/// table and the robots as they are (`Holds::stack_hold`), never as a view of another table decided it: the view says
+/// every branch of it landed, gamma has a commit since, and both push the stack branch; a view that says its own robot
+/// runs, which ended since, holds nothing either; while that robot runs, it holds the stack branch
+#[tokio::test(flavor = "multi_thread")]
+async fn the_stack_branch_goes_by_the_branches_and_the_robots_as_they_are_whatever_a_view_of_another_table_held_it_by() {
+  let fixture = fixture(true).await;
+  fixture.whole_stack_pushed().await;
+  let mut landed = Vec::new();
+  for branch in ["alpha", "beta", "gamma"] {
+    landed.push((branch, fixture.commits_of(branch).await));
+  }
+  fixture.commit_on("(alpha/gamma) Gamma, part 2", "gamma-2.txt").await;
+  let children = scoped("alpha", PushScope::WithChildren);
+  // a view of the table before the commit of gamma: the robot of the whole stack landed every branch of it
+  let merged = || CheckedHolds {
+    view: whole_stack_view("alpha", "whole", &landed, Some(stack_landed_by_own("alpha", "whole"))),
+    robots: vec![whole_robot(PatronusRobotStatus::Success)],
+  };
+  assert!(sends_stack_branch(&fixture.plan_over(&children, merged()).await), "gamma has a commit since the view");
+  let alone = fixture.plan_over(&whole_stack_alone(), merged()).await;
+  assert_eq!((pushed_by(&alone), alone.blockers), (Some((names(&["stack:alpha"]), false)), Vec::new()));
+
+  let running = stack_held("alpha", "whole");
+  let held = |status| CheckedHolds {
+    view: whole_stack_view("alpha", "whole", &[], Some(running.clone())),
+    robots: vec![whole_robot(status)],
+  };
+  assert!(
+    sends_stack_branch(&fixture.plan_over(&children, held(PatronusRobotStatus::Failure)).await),
+    "its robot ended since the view"
+  );
+  assert_eq!(fixture.plan_over(&whole_stack_alone(), held(PatronusRobotStatus::Failure)).await.blockers, Vec::new());
+  assert!(
+    !sends_stack_branch(&fixture.plan_over(&children, held(PatronusRobotStatus::Running)).await),
+    "its robot runs"
+  );
+  assert_eq!(fixture.plan_over(&whole_stack_alone(), held(PatronusRobotStatus::Running)).await.blockers, [running]);
+}
+
+/// A branch parked since the view keeps the stack branch that holds its commits local
+/// (openspec/specs/branch/parked-branches/spec.md): Push with Children of the root pushes the branches with work (alpha
+/// and beta are on no remote of their own) without it, and the push of the stack branch alone pushes nothing, whatever
+/// the view of the table before the park held it by
+#[tokio::test(flavor = "multi_thread")]
+async fn a_member_parked_since_the_view_keeps_the_stack_branch_local() {
+  use history_rewrite::parked::{ParkLine, park_core};
+
+  let fixture = fixture(true).await;
+  fixture.whole_stack_pushed().await;
+  let before_the_park = || CheckedHolds {
+    view: whole_stack_view("alpha", "whole", &[], None),
+    robots: Vec::new(),
+  };
+  fixture.commit_on("(alpha/beta) Beta, part 2", "beta-2.txt").await;
+  let children = scoped("alpha", PushScope::WithChildren);
+  assert!(sends_stack_branch(&fixture.plan_over(&children, before_the_park()).await), "nothing parked yet");
+  let line = ParkLine { branch: "gamma", note: "waits" };
+  tokio::task::block_in_place(|| park_core(&GitCommandExecutor::new(), fixture.repo.path_str(), &[line], &RewriteOptions::default())).unwrap();
+  fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
+  let plan = fixture.plan_over(&children, before_the_park()).await;
+  assert_eq!(pushed_by(&plan), Some((names(&["alpha", "beta"]), false)), "the branches with work, not the parked one");
+  let alone = fixture.plan_over(&whole_stack_alone(), before_the_park()).await;
+  assert_eq!(
+    (pushed_by(&alone), alone.blockers),
+    (
+      None,
+      vec![Reason::StackParked {
+        root: "alpha".to_string(),
+        member: "gamma".to_string(),
+      }]
+    )
+  );
 }
 
 impl Fixture {

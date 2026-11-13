@@ -480,37 +480,6 @@ fn a_dry_run_whose_push_goes_into_a_running_safe_push_is_held() {
   assert_eq!(view.branches["login"].landing.dry_run, None);
 }
 
-/// The push of an action stops at a held ancestor and is refused by a branch of the chain the sync did not build, or
-/// whose push drops commits of its remote branch
-#[test]
-fn the_push_of_an_action_is_refused_by_an_unbuilt_or_dropping_branch_of_its_chain() {
-  let mut table = chain();
-  table.not_built.insert("auth".to_string(), BlockReason::Conflict);
-  let view = view_of(&table, &[]);
-  assert_eq!(
-    view.branches["oauth"].landing.push,
-    Some(Reason::CantPush {
-      branch: "auth".to_string(),
-      block: BlockReason::Conflict
-    })
-  );
-  // the robot of login lands auth: the push of oauth stops at login, which it holds
-  let view = view_of(&table, &[running("l", "login", "vl1")]);
-  assert_eq!(view.branches["oauth"].landing.push, None);
-
-  let table = chain();
-  let mut remote = remote_of(&[("login", false)]);
-  remote.branches.get_mut("login").unwrap().drops = 2;
-  let view = view_with(&table, &remote, &[]);
-  assert_eq!(
-    view.branches["oauth"].landing.push,
-    Some(Reason::DropsRemote {
-      branch: "login".to_string(),
-      behind: 2
-    })
-  );
-}
-
 /// The restart of a robot of the user: of a failed one, on the remote while it has the branch, with a push first while
 /// it lacks commits of it, refused while a robot lands an ancestor; none of one that failed for missing approvals; of a
 /// running one only while a required check of it failed

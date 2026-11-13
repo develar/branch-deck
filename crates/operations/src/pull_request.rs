@@ -48,7 +48,7 @@ use remote_facts::patronus_command::UNKNOWN_GITHUB_REPOSITORY_MESSAGE;
 use remote_facts::pull_request_writes::retarget_pull_request;
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::service_sources::ServiceHost;
-use repository_model::derive::{ActionPushView, LandSources, action_push_of, stack_hold_now, with_pull_request_sources};
+use repository_model::derive::{ActionPushView, Holds, LandSources, action_push_of, with_pull_request_sources};
 use repository_model::one_shot::OneShot;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::{SessionKey, Sessions};
@@ -333,11 +333,14 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
       let mut effects = Vec::new();
       let mut pushes = Vec::new();
       if pushes_it {
-        // of the branches as they are now: a view of another table that says every branch of it landed holds nothing
-        let held = stack_hold_now(sources.view, root, &stack.members, |member| {
+        // of the table and the robots as they are now: what a view of another table says holds nothing
+        let holds = Holds {
+          view: sources.view,
+          robots: sources.robots,
+        };
+        let held = holds.stack_hold(&sources.table.repository(), stack, |member| {
           sources.table.branch(member).map(|branch| branch.commits.as_slice())
-        })
-        .cloned();
+        });
         let drops = remote.filter(|remote| remote.drops > 0).map(|remote| Reason::DropsRemote {
           branch: root.clone(),
           behind: remote.drops,

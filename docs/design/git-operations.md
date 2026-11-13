@@ -4161,7 +4161,8 @@ stack branch after them while `stack_branch_along` says `Along`); `UpTo { commit
 with work, whole, then the branch up to the commit, `up_to_push`: a branch rewritten since its push, or an ancestor
 held, not built or asking first, refuses it; the commit is frozen instead of the tip, `PushedRef::up_to`, and the tip
 is witnessed); and the subject `WholeStack { root }` alone is the stack branch of the whole stack (the build of the last
-sync while its remote lacks it; what holds its push refuses it, `StackLanding::hold`). One atomic `Push` effect names
+sync while its remote lacks it; what holds its push now refuses it, `Holds::stack_hold` of the table and the robots as
+they are, never the hold a view of another table decided). One atomic `Push` effect names
 what goes, root first (the stack branch by its key, `stack:<root>`); each branch it sends that drops remote commits asks
 first (`ForcePushDrops`) unless the intent forces it (Push Stack, whose description named each drop): the page runs
 nothing it asks, the push button of the branch that drops opens its description, whose Force Push runs the same
@@ -5071,7 +5072,9 @@ ones, which its view leaves out but a rewrite finds the commit again by (`Commit
 the rows (`CachedBuild`: the virtual tips, the branches not built, the copy of each commit, the parked notes, the
 remote facts and what the baseline has whole), from which the seed rebuilds the table of the last sync
 (`BranchTable`, `Cached` in `FactStore::table`), so the next steps, the pushes and the actions of the rows show; and
-the facts of the remote services as the view has them (the robots, the Patronus view, the landing needs of the last
+the facts of the remote services as the view has them (the robots, the Patronus view with what only Rust reads of it,
+which its wire leaves out, beside it, `KeptPatronus`: what landed each branch, the holds the view decided, what is left
+of each whole stack, what each merged robot landed; the landing needs of the last
 computation with the inputs they are of, `CachedNeeds`, so a first sync that leaves the tips of the frame computes
 them not again and no row waits for them anew, the pull requests, the rules, the merge profiles of the table's
 baseline, the readiness, the review requests, the sign-ins). The parts the rules decide (the pushes, the starts, what

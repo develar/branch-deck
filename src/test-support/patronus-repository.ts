@@ -46,7 +46,7 @@ export function branchFacts(patch: Partial<Omit<BranchPatronus, "landing">> & { 
     landingAncestor: null,
     landingNeeds: { state: "unknown" },
     ...facts,
-    landing: { start: null, dryRun: null, replaces: null, push: null, ...landing },
+    landing: { start: null, dryRun: null, replaces: null, ...landing },
   }
 }
 
@@ -57,13 +57,8 @@ export function stackFacts(patch: Partial<Omit<StackPatronus, "landing">> & { re
     robotId: null,
     landingMember: null,
     ...facts,
-    landing: { hold: null, start: null, dryRun: null, replaces: null, ...landing },
+    landing: { start: null, dryRun: null, replaces: null, ...landing },
   }
-}
-
-/** The landing of the whole stack of `root` whose own robot `robotId` runs on its stack branch */
-export function stackHeld(root: string, robotId: string): Partial<StackLanding> {
-  return { hold: { code: "stackHeld", root, robotId, mode: "rebaseAutosquash" } }
 }
 
 /** The hold of the push of a branch a merged robot `by` landed whole, as Rust decides it of the branch as it is (`NextStepView.hold`) */

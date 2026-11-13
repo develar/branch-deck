@@ -187,9 +187,9 @@ export function formatReason(reason: Reason, statusText: (branch: string) => str
 }
 
 /**
- * Why the stack branch of a whole stack is not pushed (`StackLanding.hold`): a parked member, merged Safe Pushes that
- * landed every branch of it ("Landed in master with deploy and side-test: nothing of it is left to push"), its own
- * robot, a stack branch the sync did not build; null while nothing holds it
+ * Why the stack branch of a whole stack is not pushed (a held `StackBranchAlong`, Rust's hold of the table as it is): a
+ * parked member, merged Safe Pushes that landed every branch of it ("Landed in master with deploy and side-test: nothing
+ * of it is left to push"), its own robot, a stack branch the sync did not build; null while nothing holds it
  */
 export function formatStackHold(reason: Reason | null | undefined): string | null {
   if (reason == null) {

@@ -2397,7 +2397,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
      предка, мимо приземлённого — слившимся Safe Push целиком или целиком в fetched baseline, `push::kept`, — с
      предками, что спрашивают сначала, которых `drops` отказывает): её читают `decide` (эффект `Push`),
      `LandingFacts::start_pushes` (вход `start_refusal`) и цепочка `push_blocker` (гейт старта приложения в
-     `pushForAction`), все над одним landing report — `BranchTable::in_baseline`, которое таблица sync'а берёт из
+     `pushForAction`; с 2026-11-13 её место — `ActionPush::stop` над таблицей как она есть, `BranchPush.actionBlocker`),
+     все над одним landing report — `BranchTable::in_baseline`, которое таблица sync'а берёт из
      `BaselineStatus` (`RemoteStatusCollector` сессии, `landed_section` у `brd`); его же, а не landing section состояния
      таблицы, которую идущий sync двигает посреди событий, читает push строк (`push_view`); приложение пушит ветки
      эффекта (`pushForAction` с `branches`), `brd safe-push` — их же, каждую отдельно (`push_locked` с `alone`), его `remotes`

@@ -5,8 +5,9 @@
 //!   them (`CachedTable`: the header with the prefix, the order, the rows, the stack branches, the sections, of each
 //!   commit what its view leaves out but a rewrite finds it again by, `CommitIdentity`, and what that sync built of the
 //!   rows beside them, `CachedBuild`, which the next steps, the pushes and the actions read) and the facts of the remote
-//!   services as the view had them (`CachedFacts`: the robots, the Patronus view, the landing needs with the inputs
-//!   they are of, the pull requests, the rules, the merge profiles, the readiness, the review requests, the sign-ins).
+//!   services as the view had them (`CachedFacts`: the robots, the Patronus view with what only Rust reads of it,
+//!   `KeptPatronus`, the landing needs with the inputs they are of, the pull requests, the rules, the merge profiles,
+//!   the readiness, the review requests, the sign-ins).
 //!   The parts the rules
 //!   decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need the user) are not
 //!   kept: the session derives them again from the frame, by the rules of the binary that reads it, as from every
@@ -30,6 +31,8 @@ use domain_types::commit::Commit;
 use domain_types::landing::NeedState;
 use domain_types::patronus::PatronusStartOptions;
 use domain_types::pull_request::BranchRules;
+use domain_types::reason::Reason;
+use domain_types::repository_view::{HoldView, LandedByView, PatronusView, RobotLandedBranch, WholeStackRest};
 use domain_types::session::{BranchView, Fact, PatronusPart, PullRequestsView, ReviewRequestsView, RobotsView, SubjectReadiness, TableHeader, TableSections};
 use domain_types::sign_in::AuthStatus;
 use domain_types::stack::BlockReason;
@@ -41,7 +44,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
-pub const FRAME_SCHEMA: u32 = 14;
+pub const FRAME_SCHEMA: u32 = 15;
 
 /// The frame of a session (the module's header)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -203,7 +206,9 @@ impl CommitIdentity {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CachedFacts {
   pub robots: RobotsView,
+  /// The Patronus view as its wire has it, without what only Rust reads of it, which `patronus_kept` keeps
   pub patronus: PatronusPart,
+  pub patronus_kept: KeptPatronus,
   /// The landing needs of the last computation that answered them, with what they are of
   pub landing_needs: Option<CachedNeeds>,
   pub pull_requests: PullRequestsView,
@@ -213,6 +218,56 @@ pub struct CachedFacts {
   pub readiness: BTreeMap<String, Fact<SubjectReadiness>>,
   pub review_requests: ReviewRequestsView,
   pub auth: Fact<AuthStatus>,
+}
+
+/// What a frame keeps of the Patronus view beside its part (`CachedFacts::patronus`, as the wire has it), which leaves
+/// out what only Rust reads (`#[serde(skip)]`: a view may be of another table, and the page reads what Rust decides of
+/// the table as it is): what landed each branch, the holds the view decided of each branch and of each stack branch,
+/// what is left of each whole stack, and every branch each merged robot landed. The seed puts it back into the view
+/// (`restore`), so the view of the frame is the one the run that wrote it had
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeptPatronus {
+  pub landed_by: BTreeMap<String, LandedByView>,
+  pub holds: BTreeMap<String, HoldView>,
+  pub stack_holds: BTreeMap<String, Reason>,
+  pub stack_rests: BTreeMap<String, WholeStackRest>,
+  pub landed_by_robot: BTreeMap<String, Vec<RobotLandedBranch>>,
+}
+
+impl KeptPatronus {
+  /// What `view` has that its wire leaves out
+  #[must_use]
+  pub fn of(view: &PatronusView) -> Self {
+    let branches = || view.branches.iter();
+    let stacks = || view.stacks.iter();
+    Self {
+      landed_by: branches().filter_map(|(name, facts)| Some((name.clone(), facts.landed_by.clone()?))).collect(),
+      holds: branches().filter_map(|(name, facts)| Some((name.clone(), facts.landing.hold.clone()?))).collect(),
+      stack_holds: stacks().filter_map(|(root, facts)| Some((root.clone(), facts.landing.hold.clone()?))).collect(),
+      stack_rests: stacks()
+        .filter(|(_, facts)| facts.landing.rest != WholeStackRest::default())
+        .map(|(root, facts)| (root.clone(), facts.landing.rest.clone()))
+        .collect(),
+      landed_by_robot: view.landed_by_robot.clone(),
+    }
+  }
+
+  /// Puts what the frame kept back into `view`, the view of the frame as its wire has it
+  pub fn restore(self, view: &mut PatronusView) {
+    for (name, landed) in self.landed_by {
+      view.branches.entry(name).or_default().landed_by = Some(landed);
+    }
+    for (name, hold) in self.holds {
+      view.branches.entry(name).or_default().landing.hold = Some(hold);
+    }
+    for (root, hold) in self.stack_holds {
+      view.stacks.entry(root).or_default().landing.hold = Some(hold);
+    }
+    for (root, rest) in self.stack_rests {
+      view.stacks.entry(root).or_default().landing.rest = rest;
+    }
+    view.landed_by_robot = self.landed_by_robot;
+  }
 }
 
 /// The landing needs a frame keeps (`PatronusFact`): by branch, with the inputs they were computed of

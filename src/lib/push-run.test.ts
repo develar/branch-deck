@@ -5,9 +5,9 @@ import { createElement, Fragment } from "react"
 import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { Confirmation, EffectRecord, EffectStatus, ErrorCode, Intent, Outcome, PatronusRobot, Plan, PlannedEffect, PullRequest } from "@/lib/bindings"
+import type { Confirmation, EffectRecord, EffectStatus, ErrorCode, Intent, Outcome, PatronusRobot, Plan, PlannedEffect, PullRequest, Reason } from "@/lib/bindings"
 import { resetEventToasts } from "@/lib/event-toast"
-import { pushBranch, pushWithChildren } from "@/lib/push-run"
+import { pushBranch, pushForAction, pushWithChildren } from "@/lib/push-run"
 import type { Branch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { pullRequestsStore } from "@/stores/pull-requests"
@@ -35,6 +35,8 @@ const { engine, stores } = vi.hoisted(() => ({
   stores: {
     branches: {} as Record<string, Branch>,
     pullRequests: {} as Record<string, PullRequest>,
+    /** Why Rust refuses the push an action needs of each branch, of the table as it is (`BranchPush.actionBlocker`) */
+    actionBlockers: {} as Record<string, Reason>,
     selected: "/repo",
   },
 }))
@@ -94,6 +96,7 @@ vi.mock("@/stores/branch-sync", async () => {
   return {
     branchSyncStore: { getState: () => ({ baselineBranch: "origin/master", branches: stores.branches }), subscribe: () => () => {} },
     getBranch: (name: string) => stores.branches[name],
+    getPushOrders: (name: string) => ({ stack: [name], action: [name], button: [], children: null, actionBlocker: stores.actionBlockers[name] ?? null }),
     getOpenPullRequest: (name: string) => openPullRequestOf(stores.pullRequests[name]),
     setOperationPushProgress: () => {},
   }
@@ -144,11 +147,27 @@ beforeEach(() => {
   engine.restarted = null
   stores.branches = {}
   stores.pullRequests = {}
+  stores.actionBlockers = {}
   stores.selected = "/repo"
   pushConfirmStore.setState({ request: null })
   resetEventToasts()
   resetToasts()
   addBranch("auth", null, false)
+})
+
+describe("the push an action needs", () => {
+  it("is refused in its words of what Rust refuses of the table as it is, before anything reaches the backend; else it pushes the branch", async () => {
+    addBranch("login", "auth")
+    stores.actionBlockers.login = { code: "dropsRemote", branch: "auth", behind: 2 }
+    expect(await pushForAction("login")).toBe(false)
+    expect(engine.calls).toEqual([])
+    const toast = toasts.at(-1)!
+    expect(toast.title).toBe("Cannot push branch login")
+    expect(text(toast.description)).toBe("The remote branch of auth has 2 commits that auth lacks: push it from its row, which shows them")
+    delete stores.actionBlockers.login
+    expect(await pushForAction("login")).toBe(true)
+    expect(engine.calls).toEqual(["prepare login", "execute login"])
+  })
 })
 
 describe("the toast of a push", () => {

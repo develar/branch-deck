@@ -228,7 +228,7 @@ test("a rule of the domain in the page is refused: a deleted rule module, an exp
   ])
 })
 
-test("what landed a subject is Rust's: an export of src/lib, src/hooks or src/stores that decides it, and a read of what the Patronus view says landed", () => {
+test("what landed a subject is Rust's: an export of src/lib, src/hooks or src/stores that decides it, and a read of what the Patronus view says landed or holds", () => {
   const source = [
     "export function isLandedWhole(landed) {}",
     "export function getLandingBranchCount(name) {}",
@@ -238,17 +238,22 @@ test("what landed a subject is Rust's: an export of src/lib, src/hooks or src/st
     "const left = view.stacks[root]?.landing.rest",
     "const { landedBy } = facts",
     'const landed = facts?.["landedBy"]',
+    "const hold = view.branches[name]?.landing.hold",
+    "const held = view.stacks[root].landing?.hold",
+    "const blocker = getBranchLanding(name).push",
     "export const landedWholly = landed => true",
     "export function countLandingBranches(name) {}",
     // the words of what Rust decided, what Rust decided of the table as it is, a type
     "export function formatLandedWith(landed) {}",
     'const lands = getRowPart(name, "landing")?.step.lands',
     'const rest = getRowPart(key, "landing")?.rest',
+    'const hold = useRowPart(name, "landing")?.hold',
+    "const blocker = getPushOrders(name).actionBlocker",
     "export type LandedBy = string",
   ].join("\n")
   const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
-  const reads = ["3 view-landing-read", "4 view-landing-read", "5 view-landing-read", "6 view-landing-read", "7 view-landing-read", "8 view-landing-read"]
-  const names = ["9 rule-module", "10 rule-module"]
+  const reads = [3, 4, 5, 6, 7, 8, 9, 10, 11].map(line => `${line} view-landing-read`)
+  const names = ["12 rule-module", "13 rule-module"]
   assert.deepEqual(rules("src/stores/example.ts"), ["1 rule-module", "2 rule-module", ...reads, ...names])
   assert.deepEqual(rules("src/lib/example.ts"), ["1 rule-module", "2 rule-module", ...reads, ...names])
   assert.deepEqual(rules("src/components/Example.tsx"), reads)

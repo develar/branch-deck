@@ -10,7 +10,7 @@ use domain_policy::parked::parked_state;
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability};
 use domain_types::error::ApiError;
 use domain_types::fixtures::branches_grouped;
-use domain_types::fixtures::{pull_request, robot, robot_of, stack_robot, whole_stack_robot_of};
+use domain_types::fixtures::{pull_request, robot, robot_of, stack_held, stack_landed_by_own, stack_robot, whole_stack_robot_of, whole_stack_view};
 use domain_types::landed::LandedBranch;
 use domain_types::landing::{Confirmation, FactWait, Land, LandFact, LandProfiles, PlannedEffect, ProfileChoice, StartRoute, Subject};
 use domain_types::landing_route::{LandingRoute, RouteGate};
@@ -27,18 +27,23 @@ use domain_types::session::{
   SubjectReadiness, TableHeader, WholeStackView,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
-use domain_types::{BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
+use domain_types::{BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, PushAction, RemoteStatusUpdate, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 
 fn on(name: &str, parent: Option<&str>) -> GroupedBranchInfo {
+  on_with(name, parent, &[&format!("{name}-1")])
+}
+
+/// `name` built on its declared parent `parent`, its commits `commits`, newest first
+fn on_with(name: &str, parent: Option<&str>, commits: &[&str]) -> GroupedBranchInfo {
   GroupedBranchInfo {
     stack: Some(BranchStack {
       declared_parent: parent.map(str::to_string),
       effective_base: parent.map(str::to_string),
       ..BranchStack::default()
     }),
-    ..grouped(name, &[&format!("{name}-1")])
+    ..grouped(name, commits)
   }
 }
 
@@ -558,8 +563,8 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
 /// What the session's view answers of a start of login on auth on base, auth landed, base with a new commit, and someone
 /// pushed a commit onto auth's remote branch: the branches the decision of login's Safe Push pushes, the push of its row
 /// (what the page sends for an action and a start: `action`, else `stack`, then the branch, `pushOrdersIn`), the
-/// blockers of the decision and the gate of the app's start (`pushForAction`: `landing.push`, the view's push of an
-/// action, derived by the rule). `by_robot`: a merged Safe Push landed auth whole, else the fetched baseline has every
+/// blockers of the decision and the gate of the app's start (`pushForAction`: `BranchPush::action_blocker`, why the
+/// push of an action can't be made, of the table as it is). `by_robot`: a merged Safe Push landed auth whole, else the fetched baseline has every
 /// commit of it and its remote is an older version; `reported`: the landing section of the table state has the landing
 /// report that says so (`BaselineStatus`, which a running sync sends at any point of its events); `in_baseline`: the
 /// table of the last sync has it (`BranchTable::in_baseline`)
@@ -661,15 +666,9 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
     _ => None,
   });
   let push = patch.changes.pushes.get("login").cloned().unwrap_or_default();
-  let mut row = push.action.or(push.stack).unwrap_or_default();
+  let mut row = push.action.clone().or_else(|| push.stack.clone()).unwrap_or_default();
   row.push("login".to_string());
-  let gate = patch
-    .changes
-    .patronus
-    .as_ref()
-    .and_then(|patronus| patronus.branches.get("login"))
-    .and_then(|login| login.landing.push.clone());
-  (decided, row, decision.blockers.clone(), gate)
+  (decided, row, decision.blockers.clone(), push.action_blocker)
 }
 
 /// The push of a start is the push of its row (`push::start_push` over the holds the row reads): whether a merged Safe
@@ -1549,6 +1548,25 @@ fn a_failed_view_of_this_table_shows_its_failure_of_the_branches_the_view_before
   assert!(steps["notes"].step.landed.is_some(), "{:?}", steps["notes"].step);
 }
 
+/// The view's answer of a branch: what `by` landed of it (`landed`: whether it ran on the branch itself, the commits it
+/// landed; none: nothing landed it) and `hold`, what the view decided holds its push
+fn held_branch(by: &RobotOf, landed: Option<(bool, &[&str])>, hold: HoldView) -> BranchPatronus {
+  use domain_types::repository_view::LandedByView;
+  BranchPatronus {
+    landed_by: landed.map(|(own, commits)| LandedByView {
+      by: by.clone(),
+      own,
+      landed: names(commits),
+      after: Vec::new(),
+    }),
+    landing: BranchLanding {
+      hold: Some(hold),
+      ..BranchLanding::default()
+    },
+    ..BranchPatronus::default()
+  }
+}
+
 /// What a start reads of the view the session shows (`LandingFacts` over the holds the view decided) is read against the
 /// table as it is now: auth, below login, has a commit since the view of another table said the robot of login landed
 /// it whole and held its push, so the Safe Push of login lands auth too, and nothing holds it; of the table the view was
@@ -1557,7 +1575,6 @@ fn a_failed_view_of_this_table_shows_its_failure_of_the_branches_the_view_before
 fn a_start_reads_no_landing_and_no_hold_of_a_branch_whose_commits_changed_since_the_view() {
   use crate::derive::LandingFacts;
   use crate::patronus_view::patronus_view_test::table;
-  use domain_types::repository_view::LandedByView;
 
   let by = robot_of("login", "r");
   let hold = HoldView {
@@ -1566,22 +1583,7 @@ fn a_start_reads_no_landing_and_no_hold_of_a_branch_whose_commits_changed_since_
     carried: None,
   };
   let view = PatronusView {
-    branches: BTreeMap::from([(
-      "auth".to_string(),
-      BranchPatronus {
-        landed_by: Some(LandedByView {
-          by,
-          own: false,
-          landed: names(&["a1"]),
-          after: Vec::new(),
-        }),
-        landing: BranchLanding {
-          hold: Some(hold.clone()),
-          ..BranchLanding::default()
-        },
-        ..BranchPatronus::default()
-      },
-    )]),
+    branches: BTreeMap::from([("auth".to_string(), held_branch(&by, Some((false, &["a1"])), hold.clone()))]),
     ..PatronusView::default()
   };
   let robots = [PatronusRobot {
@@ -1598,6 +1600,124 @@ fn a_start_reads_no_landing_and_no_hold_of_a_branch_whose_commits_changed_since_
   assert_eq!(auth_of(&grown), (false, None), "a commit since the view");
   let as_it_was = table(&[("login", Some("auth"), &[("l1", "vl1")]), ("auth", None, &[("a1", "va1")])]);
   assert_eq!(auth_of(&as_it_was), (true, Some(hold)), "the table of the view");
+}
+
+/// What a start reads of the holds the view decided (`LandingFacts` over a view whose holds are decided already) is read
+/// as every reader reads them (`derive::hold_now`): the own robot of login held its push when the view was derived, and
+/// holds it while it runs, not once it ended; a hold of what landed stands while its robot merged it
+#[test]
+fn a_start_reads_the_holds_of_the_view_as_every_reader_does() {
+  use crate::derive::LandingFacts;
+  use crate::patronus_view::patronus_view_test::table;
+
+  let table = table(&[("login", None, &[("l1", "vl1")])]);
+  let hold_of = |kind: HoldKind, status: PatronusRobotStatus| {
+    let hold = HoldView {
+      kind,
+      by: robot_of("login", "r"),
+      carried: None,
+    };
+    let landed = (kind == HoldKind::Landed).then_some((true, &["l1"][..]));
+    let facts = BranchPatronus {
+      robot_id: Some("r".to_string()),
+      ..held_branch(&robot_of("login", "r"), landed, hold.clone())
+    };
+    let view = PatronusView {
+      branches: BTreeMap::from([("login".to_string(), facts)]),
+      ..PatronusView::default()
+    };
+    let robots = [robot("r", Some("login"), status, 10)];
+    let found = LandingFacts::new(&table, &table.remote, &view, &robots, None).hold("login").cloned();
+    (found, hold)
+  };
+  let (running, own) = hold_of(HoldKind::Own, PatronusRobotStatus::Running);
+  assert_eq!(running, Some(own));
+  assert_eq!(hold_of(HoldKind::Own, PatronusRobotStatus::Failure).0, None, "its robot ended since the view");
+  let (merged, landed) = hold_of(HoldKind::Landed, PatronusRobotStatus::Success);
+  assert_eq!(merged, Some(landed));
+  assert_eq!(hold_of(HoldKind::Landed, PatronusRobotStatus::Canceled).0, None, "its robot merged nothing");
+}
+
+/// The push an action needs (`BranchPush::action_blocker`, `action_push_of`) is refused of the table as it is: by the
+/// nearest branch of its chain the last sync did not build or whose push drops remote commits, up to the nearest one a
+/// running Safe Push holds, whose robot lands it and what it is built on; a robot that ended since the view holds
+/// nothing, and the chain goes on below it
+#[test]
+fn the_push_of_an_action_is_refused_by_its_chain_as_the_table_is() {
+  use crate::derive::action_push_of;
+  use domain_types::stack::BlockReason;
+
+  let blocker_of = |login_drops: u32, login_robot: Option<PatronusRobotStatus>| {
+    let branches = vec![on("oauth", Some("login")), on("login", Some("auth")), on("auth", None)];
+    let mut login = remote_status("login", &["copy-login-1"]);
+    login.commits_behind = login_drops;
+    login.action = login.push_action();
+    let mut events = vec![grouping(branches.clone(), &[], &[]), branch_status("auth", BranchSyncStatus::Blocked)];
+    events.extend(
+      [remote_status("auth", &["copy-auth-1"]), login, remote_status("oauth", &["copy-oauth-1"])]
+        .into_iter()
+        .map(SyncEvent::RemoteStatusUpdate),
+    );
+    let mut state = TableState::with_prefix("user");
+    run_sync(&mut state, events);
+    let mut table = BranchTable {
+      prefix: "user".to_string(),
+      baseline: "origin/master".to_string(),
+      branches,
+      ..BranchTable::default()
+    };
+    table.not_built.insert("auth".to_string(), BlockReason::Conflict);
+    let mut facts = synced_facts(&table);
+    let robots: Vec<PatronusRobot> = login_robot.map(|status| robot("r", Some("login"), status, 10)).into_iter().collect();
+    facts.apply(
+      at(2),
+      FactResult::Robots {
+        read: RobotsRead::List { full: true },
+        result: PatronusRobotsResult {
+          availability: PatronusAvailability::Available,
+          robots,
+          github_repository: None,
+        },
+      },
+    );
+    // the view derived when the robot of login ran on it: its own hold
+    let held = BranchPatronus {
+      robot_id: Some("r".to_string()),
+      landing: BranchLanding {
+        hold: Some(HoldView {
+          kind: HoldKind::Own,
+          by: robot_of("login", "r"),
+          carried: None,
+        }),
+        ..BranchLanding::default()
+      },
+      ..BranchPatronus::default()
+    };
+    let view = PatronusView {
+      branches: login_robot.map(|_| ("login".to_string(), held)).into_iter().collect(),
+      ..PatronusView::default()
+    };
+    answer_patronus(&mut facts, 3, view, &table);
+    let pushes = View::new(1).diff(&state, &facts).unwrap().changes.pushes;
+    let blocker = pushes.get("oauth").and_then(|push| push.action_blocker.clone());
+    assert_eq!(blocker, action_push_of(&state, &facts, "oauth").blocker, "the view sends what an action plans by");
+    blocker
+  };
+  let not_built = Some(Reason::CantPush {
+    branch: "auth".to_string(),
+    block: BlockReason::Conflict,
+  });
+  assert_eq!(blocker_of(0, None), not_built);
+  assert_eq!(
+    blocker_of(2, None),
+    Some(Reason::DropsRemote {
+      branch: "login".to_string(),
+      behind: 2,
+    }),
+    "the nearest first"
+  );
+  assert_eq!(blocker_of(0, Some(PatronusRobotStatus::Running)), None, "the robot of login lands auth with it");
+  assert_eq!(blocker_of(0, Some(PatronusRobotStatus::Failure)), not_built, "the robot of login ended since the view");
 }
 
 /// Push Up to Here offers the commits a merged Safe Push did not land, as the view says it while it knows the branch as
@@ -1653,26 +1773,23 @@ fn push_up_to_here_reads_what_landed_only_of_a_view_that_knows_the_branch() {
 /// sends it, and the view of the row names no hold; notes, which that view knows as it is, stays held as landed
 #[test]
 fn a_push_reads_no_hold_of_what_a_view_of_another_table_says_landed() {
-  use crate::derive::{Holds, action_push_of, alone_push_of, with_push_states};
+  use crate::derive::{action_push_of, alone_push_of, with_push_states};
   use domain_policy::push::Verdict;
 
   let view = grown_and_notes_landed_whole();
   let unpushed: [(&str, &[&str]); 2] = [("grown", &["copy-grown-2"]), ("notes", &["copy-notes-1"])];
   let (state, facts) = merged_robot_session_with(&[("grown", None), ("notes", None)], &[("grown", "rebuilt"), ("notes", "rebuilt")], view, &unpushed);
-  let robots: Vec<PatronusRobot> = facts.robots.view().robots.values().cloned().collect();
-  let holds = Holds {
-    view: &facts.patronus.part().view,
-    robots: &robots,
-  };
-  let grown = alone_push_of(&state, &facts, holds, "grown", None).unwrap();
-  assert_eq!((grown.verdict, grown.blocker), (Verdict::Goes, None), "a commit since the view");
-  let notes = alone_push_of(&state, &facts, holds, "notes", None).unwrap();
-  assert_eq!(notes.verdict, Verdict::Landed);
-  assert!(matches!(notes.blocker, Some(Reason::Held { .. })), "{:?}", notes.blocker);
-  // why a push keeps it out as landed (the fetched baseline has it whole, say): no hold of that view names it
-  let refusal = |name: &str| with_push_states(&state, &facts, holds, |rules| rules.refusal(name, Verdict::Landed));
-  assert_eq!(refusal("grown"), None);
-  assert!(matches!(refusal("notes"), Some(Reason::Held { .. })));
+  with_session_holds(&facts, |holds| {
+    let grown = alone_push_of(&state, &facts, holds, "grown", None).unwrap();
+    assert_eq!((grown.verdict, grown.blocker), (Verdict::Goes, None), "a commit since the view");
+    let notes = alone_push_of(&state, &facts, holds, "notes", None).unwrap();
+    assert_eq!(notes.verdict, Verdict::Landed);
+    assert!(matches!(notes.blocker, Some(Reason::Held { .. })), "{:?}", notes.blocker);
+    // why a push keeps it out as landed (the fetched baseline has it whole, say): no hold of that view names it
+    let refusal = |name: &str| with_push_states(&state, &facts, holds, |rules| rules.refusal(name, Verdict::Landed));
+    assert_eq!(refusal("grown"), None);
+    assert!(matches!(refusal("notes"), Some(Reason::Held { .. })));
+  });
   assert_eq!(action_push_of(&state, &facts, "grown").branches, names(&["grown"]));
   assert_eq!(action_push_of(&state, &facts, "notes").branches, Vec::<String>::new());
   let steps = merged_robot_steps_of(&state, &facts);
@@ -1680,67 +1797,163 @@ fn a_push_reads_no_hold_of_what_a_view_of_another_table_says_landed() {
   assert_eq!(steps["notes"].hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Landed));
 }
 
-/// What holds the push of the stack branch of a whole stack is read against its branches as they are now
-/// (`derive::stack_hold_now`): that every branch of it landed only while each of them is what landed; its own robot as
-/// the view says it
-#[test]
-fn the_stack_branch_is_held_as_landed_only_while_every_branch_of_it_is_what_landed() {
-  use crate::derive::stack_hold_now;
-  use domain_types::fixtures::commit;
-  use domain_types::repository_view::LandedByView;
+/// The whole stack of air: air-child and air-side on air, newest first, the commits of each `<name>-1`, air-child with a
+/// second one `air-child-2` while `grown`
+const AIR_STACK: [(&str, Option<&str>); 3] = [("air-side", Some("air")), ("air-child", Some("air")), ("air", None)];
 
-  let by = whole_stack_robot_of("air", "whole");
-  let landed = |name: &str| BranchPatronus {
-    landed_by: Some(LandedByView {
-      by: by.clone(),
-      own: false,
-      landed: names(&[&format!("{name}-1")]),
-      after: Vec::new(),
+fn air_commits(name: &str, grown: bool) -> Vec<String> {
+  if name == "air-child" && grown {
+    names(&["air-child-2", "air-child-1"])
+  } else {
+    vec![format!("{name}-1")]
+  }
+}
+
+/// A session of `AIR_STACK` (air-child grown while `grown`), every branch on its remote as it is, its stack branch on
+/// the remote behind its build, the branches of `parked` parked, the robots `robots` listed and `view` the Patronus view
+/// it shows, as a view derived for another table (before a commit, a park, the end of a robot) says it
+fn air_stack_session(view: PatronusView, robots: Vec<PatronusRobot>, parked: &[(&str, &str)], grown: bool) -> (TableState, FactStore) {
+  let branches: Vec<GroupedBranchInfo> = AIR_STACK
+    .iter()
+    .map(|(name, parent)| on_with(name, *parent, &air_commits(name, grown).iter().map(String::as_str).collect::<Vec<_>>()))
+    .collect();
+  let stack = StackBranchUpdate {
+    root: "air".to_string(),
+    branch_name: "user/stack/air".to_string(),
+    members: names(&["air", "air-child", "air-side"]),
+    commit_count: 3,
+    my_email: None,
+    state: StackBranchState::Built,
+    tip: Some("stack-tip".to_string()),
+    blocked_by: None,
+    conflict: None,
+    error: None,
+    // on the remote, behind its build: a push sends it
+    remote: Some(RemoteStatusUpdate {
+      action: PushAction::Push,
+      ..domain_types::fixtures::remote_status("stack:air")
     }),
-    ..BranchPatronus::default()
   };
-  let stack_hold = |hold: Reason| PatronusView {
-    branches: BTreeMap::from([("air".to_string(), landed("air")), ("side".to_string(), landed("side"))]),
-    stacks: BTreeMap::from([(
-      "air".to_string(),
-      StackPatronus {
-        landing: StackLanding {
-          hold: Some(hold),
-          ..StackLanding::default()
-        },
-        ..StackPatronus::default()
+  let mut events = vec![grouping(branches.clone(), parked, &["air"])];
+  for (name, _) in AIR_STACK {
+    for commit in air_commits(name, grown) {
+      events.push(synced(name, &commit, CommitSyncStatus::Created));
+    }
+    events.push(branch_status(name, BranchSyncStatus::Created));
+    events.push(SyncEvent::RemoteStatusUpdate(remote_status(name, &[])));
+  }
+  events.push(SyncEvent::StackBranchUpdate(Box::new(stack.clone())));
+  let mut state = TableState::with_prefix("user");
+  run_sync(&mut state, events);
+  let table = BranchTable {
+    prefix: "user".to_string(),
+    baseline: "origin/master".to_string(),
+    tips: AIR_STACK.iter().map(|(name, _)| (format!("user/virtual/{name}"), format!("{name}-tip"))).collect(),
+    branches,
+    stack_branches: vec![stack],
+    parked: parked.iter().map(|(name, note)| ((*name).to_string(), (*note).to_string())).collect(),
+    ..BranchTable::default()
+  };
+  let mut facts = synced_facts(&table);
+  facts.apply(
+    at(2),
+    FactResult::Robots {
+      read: RobotsRead::List { full: true },
+      result: PatronusRobotsResult {
+        availability: PatronusAvailability::Available,
+        robots,
+        github_repository: Some("acme/monorepo".to_string()),
       },
-    )]),
-    ..PatronusView::default()
-  };
-  let stack_landed = Reason::StackLanded {
+    },
+  );
+  answer_patronus(&mut facts, 3, view, &table);
+  (state, facts)
+}
+
+/// A view of the stack of air: what the robot `whole` of the whole stack landed of each of `landed` (its first commit),
+/// and `hold`, what it decided holds the push of the stack branch
+fn air_stack_view(landed: &[&str], hold: Option<Reason>) -> PatronusView {
+  let landed: Vec<(&str, Vec<String>)> = landed.iter().map(|name| (*name, vec![format!("{name}-1")])).collect();
+  whole_stack_view("air", "whole", &landed, hold)
+}
+
+/// The robot `whole` of the whole stack of air with `status`
+fn whole_robot(status: PatronusRobotStatus) -> PatronusRobot {
+  PatronusRobot {
+    finish_time: (status == PatronusRobotStatus::Success).then_some(20),
+    ..stack_robot("whole", "air", status, "stack-tip")
+  }
+}
+
+/// What Push with Children of air does with its stack branch over the session `state` and `facts`: of the push view
+/// (`BranchPush::children`, the push button and the menu) and of the rules of a push (`PushRules::stack_branch_along`,
+/// the plan of the push)
+fn air_stack_branch_along(state: &TableState, facts: &FactStore) -> (Option<StackBranchAlong>, Option<StackBranchAlong>) {
+  use crate::derive::with_push_states;
+  let pushes = View::new(1).diff(state, facts).unwrap().changes.pushes;
+  let view = pushes.get("air").and_then(|push| push.children.clone()).and_then(|children| children.stack_branch);
+  let rules = with_session_holds(facts, |holds| with_push_states(state, facts, holds, |rules| rules.stack_branch_along("air")));
+  (view, rules)
+}
+
+/// `read` over the holds of the session of `facts`: its Patronus view and its robots
+fn with_session_holds<T>(facts: &FactStore, read: impl FnOnce(crate::derive::Holds<'_>) -> T) -> T {
+  let robots: Vec<PatronusRobot> = facts.robots.view().robots.values().cloned().collect();
+  read(crate::derive::Holds {
+    view: &facts.patronus.part().view,
+    robots: &robots,
+  })
+}
+
+/// What holds the push of the stack branch of a whole stack is decided of the table and the robots as they are now
+/// (`derive::stack_hold_now`), never as a view derived for another table says it, by the push view of air and the rules of
+/// its push alike: every branch of it landed only while each of them is what landed (air-child has a commit since);
+/// a member parked since the view keeps it local; its own robot only while it runs (it finished since the view)
+#[test]
+fn the_stack_branch_is_held_of_the_table_as_it_is_never_as_a_view_of_another_one_says() {
+  let every_branch = ["air", "air-child", "air-side"];
+  let landed = stack_landed_by_own("air", "whole");
+  let merged = || vec![whole_robot(PatronusRobotStatus::Success)];
+  let (state, facts) = air_stack_session(air_stack_view(&every_branch, Some(landed.clone())), merged(), &[], false);
+  let held = |reason: &Reason| Some(StackBranchAlong::Held { reason: reason.clone() });
+  assert_eq!(air_stack_branch_along(&state, &facts), (held(&landed), held(&landed)), "the table the view was derived for");
+  let (state, facts) = air_stack_session(air_stack_view(&every_branch, Some(landed)), merged(), &[], true);
+  let along = Some(StackBranchAlong::Along);
+  assert_eq!(air_stack_branch_along(&state, &facts), (along.clone(), along.clone()), "air-child has a commit since");
+
+  // a view from before air-child was parked: nothing held the stack branch then
+  let (state, facts) = air_stack_session(air_stack_view(&[], None), Vec::new(), &[("air-child", "waits")], false);
+  let parked = Reason::StackParked {
     root: "air".to_string(),
-    by: vec![by.clone()],
-    own: true,
-    target: "master".to_string(),
+    member: "air-child".to_string(),
   };
-  let members = names(&["air", "side"]);
-  let as_it_was = [commit("air-1")];
-  let side_as_it_was = [commit("side-1")];
-  let side_grown = [commit("side-2"), commit("side-1")];
-  let view = stack_hold(stack_landed.clone());
-  assert_eq!(
-    stack_hold_now(&view, "air", &members, |name| Some(if name == "air" { &as_it_was[..] } else { &side_as_it_was[..] })),
-    Some(&stack_landed)
-  );
-  assert_eq!(
-    stack_hold_now(&view, "air", &members, |name| Some(if name == "air" { &as_it_was[..] } else { &side_grown[..] })),
-    None,
-    "side has a commit since"
-  );
-  let held = Reason::StackHeld {
-    root: "air".to_string(),
-    robot_id: "whole".to_string(),
-    mode: PatronusPushMode::RebaseAutosquash,
+  assert_eq!(air_stack_branch_along(&state, &facts), (held(&parked), held(&parked)), "parked since the view");
+
+  let running = stack_held("air", "whole");
+  let session = |status| air_stack_session(air_stack_view(&[], Some(running.clone())), vec![whole_robot(status)], &[], false);
+  let (state, facts) = session(PatronusRobotStatus::Running);
+  assert_eq!(air_stack_branch_along(&state, &facts), (held(&running), held(&running)), "its robot runs");
+  let (state, facts) = session(PatronusRobotStatus::Failure);
+  assert_eq!(air_stack_branch_along(&state, &facts), (along.clone(), along), "its robot ended since the view");
+}
+
+/// The next step of a whole stack names what holds the push of its stack branch now (`NextStepView::hold`, read by the
+/// page: "Open in Patronus" of a refused start, the island's push): its own robot while it runs, nothing once it ended,
+/// whatever the view of another table says
+#[test]
+fn the_step_of_a_whole_stack_names_its_own_robot_only_while_it_holds_the_stack_branch() {
+  let running = stack_held("air", "whole");
+  let hold_of = |status| {
+    let (state, facts) = air_stack_session(air_stack_view(&[], Some(running.clone())), vec![whole_robot(status)], &[], false);
+    merged_robot_steps_of(&state, &facts).remove("stack:air").and_then(|step| step.hold)
   };
-  let running = stack_hold(held.clone());
   assert_eq!(
-    stack_hold_now(&running, "air", &members, |name| Some(if name == "air" { &as_it_was[..] } else { &side_grown[..] })),
-    Some(&held)
+    hold_of(PatronusRobotStatus::Running),
+    Some(HoldView {
+      kind: HoldKind::Own,
+      by: whole_stack_robot_of("air", "whole"),
+      carried: None,
+    })
   );
+  assert_eq!(hold_of(PatronusRobotStatus::Failure), None);
 }

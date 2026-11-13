@@ -30,7 +30,7 @@ import type { Retargeted } from "@/presenters/pull-request-url"
 import { formatReason, formatReasonOrNull } from "@/presenters/reasons"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getPushOrders, getStackBranch } from "@/stores/branch-sync"
-import { getBranchLanding, getPushHold } from "@/stores/patronus"
+import { getPushHold } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
 import { requestPushConfirm } from "@/stores/push-confirm"
@@ -376,12 +376,12 @@ export function pushWholeStack(root: string): Promise<boolean> {
 
 /**
  * The push an action needs before it runs ("Push" of the toast of a start that can't run): what the push button sends,
- * without a toast of its own; one the user decides (it drops remote commits of the branch or of an ancestor, a branch
- * of its chain the sync did not build) refuses with the reason, as Rust words it of the view
- * (`domain_policy::holds::push_blocker`). Resolves to whether it pushed
+ * without a toast of its own; one Rust refuses of the table as it is (`BranchPush.actionBlocker`: the branch stays
+ * local or a Safe Push holds it, it or a branch of its chain drops remote commits, which the user decides, or the sync
+ * did not build it) refuses with the reason in its words. Resolves to whether it pushed
  */
 export async function pushForAction(branchName: string): Promise<boolean> {
-  const blocker = formatReasonOrNull(getBranchLanding(branchName).push, name => getBranch(name)?.statusText ?? "")
+  const blocker = formatReasonOrNull(getPushOrders(branchName).actionBlocker, name => getBranch(name)?.statusText ?? "")
   if (blocker !== null) {
     notifyError(formatPushFailure(branchName), blocker)
     return false

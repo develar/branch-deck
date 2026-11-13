@@ -206,12 +206,38 @@ fn an_action_pushes_the_ancestors_above_the_nearest_that_asks_first_then_the_bra
   let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
   let repo = repository(&stacks, &parked);
   let pushed = |entries: &[(&'static str, PushState)]| action_push(&repo, states(entries), "oauth");
-  let goes = |ancestors: Vec<&'static str>, own| Some(ActionPush { ancestors, own });
-  assert_eq!(pushed(&[("auth", PUSH), ("login", DROPS), ("oauth", PUSH)]), goes(vec![], Verdict::Goes));
+  let goes = |ancestors: Vec<&'static str>, own| Some(ActionPush { ancestors, own, stop: None });
+  let stopped = |ancestors: Vec<&'static str>, own, stop| Some(ActionPush { ancestors, own, stop: Some(stop) });
+  assert_eq!(
+    pushed(&[("auth", PUSH), ("login", DROPS), ("oauth", PUSH)]),
+    stopped(vec![], Verdict::Goes, ("login", Verdict::AsksFirst))
+  );
   assert_eq!(pushed(&[("auth", PUSH), ("login", PUSH)]), goes(vec!["auth", "login"], Verdict::UpToDate));
-  // a held ancestor ends the chain: its robot lands it and what it is built on
-  assert_eq!(pushed(&[("auth", PUSH), ("login", kept(Kept::Held)), ("oauth", DROPS)]), goes(vec![], Verdict::AsksFirst));
+  // a held ancestor ends the chain: its robot lands it and what it is built on, which stops nothing
+  assert_eq!(pushed(&[("auth", DROPS), ("login", kept(Kept::Held)), ("oauth", DROPS)]), goes(vec![], Verdict::AsksFirst));
   assert_eq!(action_push(&repo, states(&[]), "gone"), None);
+}
+
+/// What stops the push of an action is the nearest branch of its chain, up to the nearest held one, that the last sync
+/// did not build or whose push drops remote commits; one that landed, the remote has, or a remote not compared yet
+/// stops nothing
+#[test]
+fn the_push_of_an_action_is_stopped_by_the_nearest_branch_of_its_chain_not_built_or_dropping_commits() {
+  let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let stop = |entries: &[(&'static str, PushState)]| action_push(&repo, states(entries), "oauth").and_then(|push| push.stop);
+  assert_eq!(stop(&[("auth", kept(Kept::NotBuilt)), ("login", PUSH), ("oauth", PUSH)]), Some(("auth", Verdict::NotBuilt)));
+  assert_eq!(
+    stop(&[("auth", kept(Kept::NotBuilt)), ("login", DROPS), ("oauth", PUSH)]),
+    Some(("login", Verdict::AsksFirst))
+  );
+  assert_eq!(
+    stop(&[("auth", kept(Kept::NotBuilt)), ("login", kept(Kept::Landed)), ("oauth", PUSH)]),
+    Some(("auth", Verdict::NotBuilt))
+  );
+  assert_eq!(stop(&[("auth", kept(Kept::NotBuilt)), ("login", kept(Kept::Held)), ("oauth", PUSH)]), None);
+  let unknown = PushState { action: None, kept: None };
+  assert_eq!(stop(&[("auth", unknown), ("login", UP_TO_DATE), ("oauth", PUSH)]), None);
 }
 
 /// Push Up to Here pushes the ancestors with work whole, root first, then the branch up to the commit; what stops it, the

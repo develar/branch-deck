@@ -12,14 +12,16 @@
 //!
 //! `action_push_of` is the push an action that needs a branch on the remote makes first (a pull request, a review
 //! request), in the order of the push button and with why it can't be made, over the holds of the Patronus view as they
-//! stand; `alone_push_of` the push of a branch alone (its push button, `operations::push`); `with_pull_request_sources`
-//! the sources such an action is planned on, which need no Patronus view.
+//! stand (what of its chain stops it, `ActionPush::stop`, of the table as it is; the view sends it with each push,
+//! `BranchPush::action_blocker`); `alone_push_of` the push of a branch alone (its push button, `operations::push`);
+//! `with_pull_request_sources` the sources such an action is planned on, which need no Patronus view. Every reader of a
+//! hold the view decided reads it of the table and the robots as they are: of a branch `hold_now`, of a stack branch
+//! `stack_hold_now` (`Holds::stack_hold`), of what landed a branch whole `landed_whole_now`.
 //!
 //! `decide_landing` is what the rules decide over the Patronus facts of a table (`patronus_view`), for the view of the
 //! session, the guards of the app and `bd` alike: the hold of each branch (`domain_policy::holds::branch_hold`) and of
 //! each stack branch, why a Safe Push or a Dry Run can't start (`domain_policy::land::start_refusal`), the robot a Safe
-//! Push start replaces, why the push an action needs can't be made (`push_blocker`), and the restart each robot offers
-//! (`restart_action`, `restart_refusal`). `branch_start` and `stack_start` are the input of a start, which the guards and
+//! Push start replaces, and the restart each robot offers (`restart_action`, `restart_refusal`). `branch_start` and `stack_start` are the input of a start, which the guards and
 //! `bd` read for their own intent (a restart, a dry run that pushes what `bd` pushes); `branch_subject` and
 //! `stack_subject` the subject part of the decision of a start (`domain_policy::land::decide`), which `brd safe-push`
 //! decides by.
@@ -55,7 +57,7 @@ use domain_policy::attention::{BranchCarriers, RobotOnSubject, StackCarriers, br
 use domain_policy::declared_needs::declared_refusals;
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::github_stack::chain_of;
-use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, push_blocker, restart_action, stack_branch_hold};
+use domain_policy::holds::{StackHoldFacts, branch_hold, holds_pushes, is_active, restart_action, stack_branch_hold};
 use domain_policy::land::{
   BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, decide, offered_profiles, on_last_commit, patronus_lands,
   restart_refusal, standing, start_refusal,
@@ -85,7 +87,7 @@ use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot,
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{
-  BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding, WholeStackRest,
+  BranchLanding, BranchPatronus, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding, WholeStackRest,
 };
 use domain_types::session::{
   BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, GitHubLayer, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo,
@@ -184,23 +186,24 @@ fn push_view_of(parts: &TableParts, facts: &FactStore, push_facts: &PushFacts<'_
   let repo = &parts_repository(parts);
   let pull_requests = facts.pull_requests.view();
   let holds = push_facts.holds;
-  let patronus = holds.view;
   let held = |name: &str| push_facts.state(name);
   let holds = || holds;
   repo
     .order()
     .filter_map(|name| {
+      let stack_hold = parts.stacks.get(name).and_then(|stack| holds().stack_hold(repo, stack, |member| commits_of(parts, member)));
       let stack = parts.stacks.get(name).map(|stack| HeadedStack {
         stack,
         pull_request_open: pull_requests
           .stack_pull_requests
           .get(name)
           .is_some_and(|pull_request| pull_request.state == PullRequestState::Open),
-        hold: stack_hold_now(patronus, name, &stack.members, |member| commits_of(parts, member)),
+        hold: stack_hold.as_ref(),
       });
       let push = branch_push(repo, held, stack, name);
       let up_to = up_to_of(repo, parts, facts, push_facts, &holds, name).and_then(|up_to| up_to.unless_common(parts, repo, &push, name));
-      let push = BranchPush { up_to, ..push };
+      let action_blocker = action_push_over(repo, parts, facts, push_facts, name).blocker;
+      let push = BranchPush { up_to, action_blocker, ..push };
       (push != BranchPush::default()).then(|| (name.to_string(), push))
     })
     .collect()
@@ -247,16 +250,17 @@ pub fn open_pull_requests_view<'a, 'p>(
   of_branches.chain(of_stacks).collect()
 }
 
-/// The push an action that needs a branch on the remote makes first (Create Pull Request, Request Review), ordered as
-/// the push button of the view orders it (`BranchPush::action`)
+/// The push an action that needs a branch on the remote makes first (Create Pull Request, Request Review, the push a
+/// refused start offers), ordered as the push button of the view orders it (`BranchPush::action`)
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActionPushView {
   /// What it sends, root first: the ancestors with work above the nearest one whose push asks first, then the branch
   /// while it has work (`domain_policy::push::action_push`); empty when the remote has it all
   pub branches: Vec<String>,
-  /// Why it can't be made for the user: the branch stays local, a running Safe Push holds it, the last sync did not
-  /// build it, its push drops remote commits (its row asks first), or a branch of its chain the sync did not build or
-  /// whose push drops remote commits (`BranchLanding::push`)
+  /// Why it can't be made for the user, of the table as it is: the branch stays local, a running Safe Push holds it, the
+  /// last sync did not build it, its push drops remote commits (its row asks first), or a branch of its chain up to the
+  /// nearest held one the sync did not build or whose push drops remote commits (`ActionPush::stop`); the view sends it
+  /// as `BranchPush::action_blocker`
   pub blocker: Option<Reason>,
 }
 
@@ -267,15 +271,13 @@ pub struct ActionPushView {
 #[must_use]
 pub fn action_push_of(state: &TableState, facts: &FactStore, name: &str) -> ActionPushView {
   let parts = &state.parts;
-  with_session_push_facts(parts, facts, |push_facts| action_push_over(parts, facts, push_facts, name))
+  with_session_push_facts(parts, facts, |push_facts| action_push_over(&parts_repository(parts), parts, facts, push_facts, name))
 }
 
-/// `action_push_of` over `push_facts`
-fn action_push_over(parts: &TableParts, facts: &FactStore, push_facts: &PushFacts<'_>, name: &str) -> ActionPushView {
+/// `action_push_of` over `push_facts`, `repo` the rules' input of `parts`
+fn action_push_over(repo: &Repository<'_>, parts: &TableParts, facts: &FactStore, push_facts: &PushFacts<'_>, name: &str) -> ActionPushView {
   let holds = push_facts.holds;
-  let patronus = holds.view;
-  let repo = parts_repository(parts);
-  let Some(push) = action_push(&repo, |branch| push_facts.state(branch), name) else {
+  let Some(push) = action_push(repo, |branch| push_facts.state(branch), name) else {
     return ActionPushView::default();
   };
   let mut branches: Vec<String> = push.ancestors.iter().map(|branch| (*branch).to_string()).collect();
@@ -291,17 +293,18 @@ fn action_push_over(parts: &TableParts, facts: &FactStore, push_facts: &PushFact
   if branches.is_empty() && !own_work {
     return ActionPushView::default();
   }
-  let landing = patronus.branches.get(name).map(|facts| &facts.landing);
-  let own = kept_reason(parts, facts, holds, name, push.own).or_else(|| match push.own {
-    Verdict::AsksFirst => parts.branches.get(name).and_then(|branch| branch.remote.status.as_ref()).map(|status| Reason::DropsRemote {
-      branch: name.to_string(),
-      behind: status.commits_behind,
-    }),
-    _ => None,
-  });
+  let refusal = |branch: &str, verdict: Verdict| {
+    kept_reason(parts, facts, holds, branch, verdict).or_else(|| match verdict {
+      Verdict::AsksFirst => parts.branches.get(branch).and_then(|it| it.remote.status.as_ref()).map(|status| Reason::DropsRemote {
+        branch: branch.to_string(),
+        behind: status.commits_behind,
+      }),
+      _ => None,
+    })
+  };
   ActionPushView {
     branches,
-    blocker: own.or_else(|| landing.and_then(|landing| landing.push.clone())),
+    blocker: refusal(name, push.own).or_else(|| push.stop.and_then(|(stopped, verdict)| refusal(stopped, verdict))),
   }
 }
 
@@ -324,6 +327,14 @@ impl<'a> Holds<'a> {
   fn reason(self, name: &str, commits: Option<&[Commit]>) -> Option<Reason> {
     self.hold(name, commits).map(|(hold, robot)| held(name, hold, robot))
   }
+
+  /// What holds the push of the stack branch of `stack` now (`stack_hold_now`), over `repo` and `commits_of`, the table
+  /// as it is
+  #[must_use]
+  pub fn stack_hold<'c>(self, repo: &Repository<'_>, stack: &StackBranchUpdate, commits_of: impl Fn(&str) -> Option<&'c [Commit]>) -> Option<Reason> {
+    let robots = self.robots;
+    stack_hold_now(self.view, |id| robots.iter().find(|robot| robot.id == id), repo, stack, commits_of)
+  }
 }
 
 /// The hold of the push of a branch now, with its robot: the hold of the view (`BranchLanding::hold`, `facts`) while
@@ -339,26 +350,52 @@ pub(crate) fn hold_now<'a>(
   let hold = facts.landing.hold.as_ref()?;
   let robot = robot_of(&hold.by.robot_id)?;
   let holds = match hold.kind {
-    HoldKind::Landed => robot.status == PatronusRobotStatus::Success && commits.is_none_or(|commits| facts.landed_by.as_ref().is_some_and(|landed| landed.is_whole_of(commits))),
+    HoldKind::Landed => facts.landed_by.as_ref().is_some_and(|landed| landed_whole_now(landed, &robot_of, commits).is_some()),
     HoldKind::Own | HoldKind::Span => holds_pushes(robot),
   };
   holds.then_some((hold, robot))
 }
 
-/// What holds the push of the stack branch of the whole stack of `root` (its `members`) now, as `view` decided it
-/// (`StackLanding::hold`): that every branch of it landed (`StackLanded`) only while each of them, `commits_of` as it is
-/// now, is what landed, as the rest of the table as it is says (`stack_rest`: none left); its own robot, a parked member,
-/// a build the sync did not make as the view says them
+/// The robot of `landed`, what a merged Safe Push landed of a branch as a view says it, while it landed all of the
+/// branch now: the robot merged (`robot_of`, the robots as they are) and every commit of the branch, `commits` as it is
+/// now, is one it landed (`LandedByView::is_whole_of`: a view derived for another table says nothing of a branch whose
+/// commits changed since); of a branch without commits known, while the view names none after what landed. The one rule
+/// of what landed a branch whole of every reader of a view: the holds, the stack branch, the starts, the steps
+pub(crate) fn landed_whole_now<'a>(landed: &LandedByView, robot_of: impl Fn(&str) -> Option<&'a PatronusRobot>, commits: Option<&[Commit]>) -> Option<&'a PatronusRobot> {
+  let robot = robot_of(&landed.by.robot_id).filter(|robot| robot.status == PatronusRobotStatus::Success)?;
+  commits.map_or(landed.after.is_empty(), |commits| landed.is_whole_of(commits)).then_some(robot)
+}
+
+/// What holds the push of the stack branch of `stack` now (`domain_policy::holds::stack_branch_hold`), decided of the
+/// table as it is, never as a view decided it (`StackLanding::hold`, of the table of its derivation): the first of its
+/// members parked in `repo`, every member landed whole by merged Safe Pushes (`landed_whole_now`, each of `commits_of`
+/// as it is), its own robot (the robot the view names of the whole stack, `robot_of` as it is now) while it holds
+/// pushes, a stack branch the last sync did not build. The view gives only what it alone knows: what landed each member,
+/// the robot of the whole stack. The one rule of every reader: the pushes, the steps, the starts
 #[must_use]
-pub fn stack_hold_now<'v, 'c>(view: &'v PatronusView, root: &str, members: &[String], commits_of: impl Fn(&str) -> Option<&'c [Commit]>) -> Option<&'v Reason> {
-  let hold = view.stacks.get(root)?.landing.hold.as_ref()?;
-  let landed_now = || {
-    members.iter().all(|member| {
-      let landed = view.branches.get(member).and_then(|facts| facts.landed_by.as_ref());
-      landed.is_some_and(|landed| commits_of(member).map_or(landed.after.is_empty(), |commits| landed.is_whole_of(commits)))
+pub fn stack_hold_now<'a, 'c>(
+  view: &'a PatronusView,
+  robot_of: impl Fn(&str) -> Option<&'a PatronusRobot>,
+  repo: &Repository<'_>,
+  stack: &StackBranchUpdate,
+  commits_of: impl Fn(&str) -> Option<&'c [Commit]>,
+) -> Option<Reason> {
+  let parked = whole_stack_parked(repo, stack.members.iter().map(String::as_str));
+  let landed = stack
+    .members
+    .iter()
+    .map(|member| {
+      let landed = view.branches.get(member)?.landed_by.as_ref()?;
+      Some((&landed.by, landed_whole_now(landed, &robot_of, commits_of(member))?))
     })
-  };
-  (!matches!(hold, Reason::StackLanded { .. }) || landed_now()).then_some(hold)
+    .collect();
+  let robot = view.stacks.get(&stack.root).and_then(|facts| facts.robot_id.as_deref()).and_then(&robot_of);
+  stack_branch_hold(&StackHoldFacts {
+    stack,
+    parked: parked.as_ref(),
+    landed,
+    robot,
+  })
 }
 
 /// The commits of `name` as the rows of `parts` have them now
@@ -594,8 +631,8 @@ impl PushRules<'_> {
       .stack_pull_requests
       .get(root)
       .is_some_and(|pull_request| pull_request.state == PullRequestState::Open);
-    let hold = stack_hold_now(self.holds.view, root, &stack.members, |member| commits_of(self.parts, member));
-    stack_branch_along(stack, open, hold)
+    let hold = self.holds.stack_hold(&self.repo, stack, |member| commits_of(self.parts, member));
+    stack_branch_along(stack, open, hold.as_ref())
   }
 }
 
@@ -665,7 +702,8 @@ impl<'a> LandingFacts<'a> {
 
   /// The facts of `table` with `view`, its Patronus facts, the remote branches `remote` and the user's `robots`;
   /// `running_spans`, by branch, the first running robot that lands it (`patronus_view`). A view whose holds are decided
-  /// already (`decide_landing`) passes none: its holds are read from it
+  /// already (`decide_landing`) passes none: its holds are read from it as every reader reads them, of the branches of
+  /// `table` and the robots as they are (`hold_now`)
   pub fn new(table: &'a BranchTable, remote: &'a RemoteFacts, view: &'a PatronusView, robots: &'a [PatronusRobot], running_spans: Option<&HashMap<String, SpanView>>) -> Self {
     let robots = Robots::new(robots);
     let holds = table
@@ -679,14 +717,9 @@ impl<'a> LandingFacts<'a> {
             let robot = facts.and_then(|facts| facts.robot_id.as_deref()).and_then(|id| robots.get(id));
             branch_hold(name, facts.and_then(|facts| facts.landed_by.as_ref()), robot, spans.get(name))
           }
-          // a hold of what landed stands while the branch is what landed (a view of an older table: a commit since)
-          None => facts.and_then(|facts| {
-            facts
-              .landing
-              .hold
-              .clone()
-              .filter(|hold| hold.kind != HoldKind::Landed || facts.landed_by.as_ref().is_some_and(|landed| table.landed_whole(name, landed)))
-          }),
+          None => facts
+            .and_then(|facts| hold_now(facts, |id| robots.get(id), Some(&branch.commits)))
+            .map(|(hold, _)| hold.clone()),
         }?;
         Some((name, hold))
       })
@@ -805,15 +838,16 @@ impl<'a> LandingFacts<'a> {
     }
   }
 
-  /// What landed `name` whole, with its robot
+  /// What landed `name` whole, with its robot (`landed_whole_now`, of the branch as the table has it)
   fn landed_whole(&self, name: &str) -> Option<(&'a RobotOf, &'a PatronusRobot)> {
-    let landed = self.view.branches.get(name)?.landed_by.as_ref().filter(|landed| self.table.landed_whole(name, landed))?;
-    Some((&landed.by, self.robots.get(&landed.by.robot_id)?))
+    let landed = self.view.branches.get(name)?.landed_by.as_ref()?;
+    let robot = landed_whole_now(landed, |id| self.robots.get(id), self.commits_of(name))?;
+    Some((&landed.by, robot))
   }
 
-  /// Merged Safe Pushes landed every member of `stack` whole: what landed each
-  fn stack_landed_whole(&self, stack: &StackBranchUpdate) -> Option<Vec<(&'a RobotOf, &'a PatronusRobot)>> {
-    stack.members.iter().map(|member| self.landed_whole(member)).collect()
+  /// The commits of `name` as the table has it
+  fn commits_of(&self, name: &str) -> Option<&'a [Commit]> {
+    self.table.branch(name).map(|branch| branch.commits.as_slice())
   }
 
   /// What `domain_policy::landed` reads of these facts with the landing report `baseline`
@@ -827,41 +861,19 @@ impl<'a> LandingFacts<'a> {
     }
   }
 
-  /// The hold of the push of the stack branch of `stack` (`stack_branch_hold`)
+  /// The hold of the push of the stack branch of `stack` (`stack_hold_now`, of the table and the robots of these facts)
   #[must_use]
   pub fn stack_hold(&self, stack: &StackBranchUpdate) -> Option<Reason> {
-    let parked = whole_stack_parked(&self.repo, stack.members.iter().map(String::as_str));
-    stack_branch_hold(&StackHoldFacts {
-      stack,
-      parked: parked.as_ref(),
-      landed: self.stack_landed_whole(stack),
-      robot: self.stack_robot(stack),
-    })
+    stack_hold_now(self.view, |id| self.robots.get(id), &self.repo, stack, |member| self.commits_of(member))
   }
 
   fn branch_landing(&self, name: &'a str) -> BranchLanding {
     let start = Start::Branch(self.branch_start(name, self.start_pushes(name)));
-    let replaces = self.replaces(name).map(str::to_string);
-    // the push of an action replaces what a Safe Push start replaces: its robot lands the ancestors it holds no longer;
-    // one that landed (a merged Safe Push or the fetched baseline has it whole) is left as it is, as a start leaves it
-    // (`push::start_push`)
-    let ancestors = self
-      .ancestors_nearest_first(name)
-      .into_iter()
-      .map(|ancestor| (ancestor, self.kept_from_start(ancestor, replaces.as_deref())))
-      .filter(|(_, kept)| *kept != Some(Kept::Landed));
-    let chain = std::iter::once((name, None)).chain(ancestors).map(|(branch, kept)| PushStep {
-      name: branch,
-      not_built: self.table.not_built.get(branch).copied(),
-      remote: self.remote_of(branch),
-      held: kept == Some(Kept::Held),
-    });
     BranchLanding {
       hold: self.holds.get(name).cloned(),
       start: start_refusal(&start, PatronusPushMode::RebaseAutosquash, &self.robots),
       dry_run: start_refusal(&start, PatronusPushMode::DryRun, &self.robots),
-      push: push_blocker(chain),
-      replaces,
+      replaces: self.replaces(name).map(str::to_string),
     }
   }
 
@@ -1689,9 +1701,8 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let remote = sources.remote.branches.get(name.as_str()).and_then(RemoteFact::branch);
     let landed_whole = |ancestor: &&str| {
       let landed = sources.view.branches.get(*ancestor).and_then(|facts| facts.landed_by.as_ref());
-      landed.is_some_and(|landed| {
-        sources.table.landed_whole(ancestor, landed) && sources.robot(Some(&landed.by.robot_id)).is_some_and(|robot| robot.status == PatronusRobotStatus::Success)
-      })
+      let commits = sources.table.branch(ancestor).map(|branch| branch.commits.as_slice());
+      landed.is_some_and(|landed| landed_whole_now(landed, |id| sources.robot(Some(id)), commits).is_some())
     };
     // a canceling Safe Push lands nothing
     let lands_with = facts
@@ -1768,7 +1779,27 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     });
     let subject = Subject::whole_stack(&stack.root);
     let root_row = rows.get(stack.root.as_str());
-    let held = matches!(landing.and_then(|landing| landing.hold.as_ref()), Some(Reason::StackHeld { robot_id, .. }) if sources.robot(Some(robot_id)).is_some_and(holds_pushes));
+    // of the table and the robots as they are: the view may be of another table
+    let hold = stack_hold_now(
+      sources.view,
+      |id| sources.robot(Some(id)),
+      &repo,
+      stack,
+      |member| sources.table.branch(member).map(|branch| branch.commits.as_slice()),
+    );
+    // its own robot holds it: what the page names of the hold of its push
+    let own_robot = match hold {
+      Some(Reason::StackHeld { robot_id, .. }) => Some(HoldView {
+        kind: HoldKind::Own,
+        by: RobotOf {
+          branch: stack.root.clone(),
+          robot_id,
+          whole_stack: true,
+        },
+        carried: None,
+      }),
+      _ => None,
+    };
     // before the view names what is left of it, every branch of its stack branch
     // none landed: every branch of it, as `whole_stack_rest` leaves them
     let lands = rest.members.len();
@@ -1787,7 +1818,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       landing_part: facts
         .and_then(|facts| facts.landing_member.as_ref())
         .is_some_and(|member| sources.robot(Some(&member.robot_id)).is_some_and(is_active)),
-      held,
+      held: own_robot.is_some(),
       parked: root_row.and_then(|row| row.stack_parked.as_ref()),
       landed: sources.landed.get(&key),
       // the tip of its stack branch as the view shows it, as the remote status is the view's (`session_remote`)
@@ -1827,7 +1858,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       node: landing_node(&node),
       status: RowStatus::default(),
       rest: Some(rest),
-      hold: None,
+      hold: own_robot,
     };
     steps.push((key, view));
   }
