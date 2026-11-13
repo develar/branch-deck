@@ -1,10 +1,10 @@
 //! The oracle of the rule "equal by tokens" on real files: every file of a grammar under the given paths has its
-//! tokens checked (`shared/token_checks.rs`: their order, lines and columns, only blanks between them, the same tokens,
+//! tokens checked (`code_tokens::checks`: their order, lines and columns, only blanks between them, the same tokens,
 //! the same content and the same text without its blanks once the text is formatted again, another token for a
 //! renamed name).
 //!
 //! ```text
-//! cargo run --release -p code-symbols --example tokens -- [--threads N] [--show N] [--none] <files and directories…>
+//! cargo run --release -p code-tokens --example tokens -- [--threads N] [--show N] [--none] <files and directories…>
 //! ```
 //!
 //! Prints each file a check fails on (`path<TAB>what`), the first `--show` (40) of them, with `--none` each file
@@ -13,14 +13,12 @@
 //! the lines formatted again, the failures and the time. Exits with 1 when a check failed. A directory is walked
 //! without its `.git`, `node_modules`, `target`, `build` and `out`.
 
-use code_symbols::highlight::grammar_of;
+use code_tokens::checks;
+use code_tokens::grammar_of;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
-
-#[path = "shared/token_checks.rs"]
-mod token_checks;
 
 #[derive(Default)]
 struct Totals {
@@ -79,7 +77,7 @@ fn main() {
           let (Some(grammar), Ok(text)) = (grammar_of(&name), std::fs::read_to_string(path)) else {
             continue;
           };
-          let checked = token_checks::check(grammar, &name, &text);
+          let checked = checks::check(grammar, &name, &text);
           let mut totals = totals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
           totals.files += 1;
           match checked {

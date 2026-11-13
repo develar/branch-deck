@@ -1,8 +1,9 @@
 //! The highlighting of Rust on rust-analyzer's tree, one test per class of the pieces the oracle moved from
 //! tree-sitter's (docs/design/diff-view.md, "Syntax highlighting"; docs/design/symbol-dependencies.md, decision 26)
 
-use crate::highlight::{FIELD, Grammar, ITALIC, Role, UNDERLINE, highlight};
+use crate::highlight::{FIELD, ITALIC, Role, UNDERLINE, highlight};
 use crate::test_support::style_at;
+use code_tokens::Grammar;
 
 const RUST: Grammar = Grammar::Rust;
 const KEYWORD: u32 = Role::Keyword.style();

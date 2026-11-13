@@ -30,7 +30,7 @@ use java_syntax::{NodeId, NodeKind as N, TokenKind as T, Tree};
 /// Fills `summary` (`summary_builder::empty_summary` of the file, its size within the limits) with the facts of the
 /// Java file `source`; whether it was read, else it stays `truncated`
 pub(crate) fn summarize(source: &[u8], summary: &mut FileSummary) -> bool {
-  let tree = super::parse(source);
+  let tree = code_tokens::java::parse(source);
   let mut walk = Walk::new(&tree);
   crate::psi_walk::run(&mut walk);
   // javac gives the default constructor the access of its class (JLS 8.8.9)

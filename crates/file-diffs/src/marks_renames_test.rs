@@ -5,9 +5,9 @@ use crate::marks::{MAX_FILE_TOKEN_WORK, MAX_RENAME_WORK, has_proof, is_quiet, ma
 use crate::marks_renames::{Candidates, may_hold_rename, renames_within, with_the_first};
 use crate::marks_runs::{BlockLines, runs_of_block};
 use crate::marks_test::{ANY_TEXT, check_marks, read_pair, show_rename};
-use code_symbols::highlight::{Grammar, grammar_of};
 use code_symbols::navigate::resolution_work;
-use code_symbols::tokens::tokens;
+use code_tokens::tokens;
+use code_tokens::{Grammar, grammar_of};
 use line_diff::model::{DiffBudget, LineRun, Rename, RunKind, TextDiff, diff_texts};
 use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;

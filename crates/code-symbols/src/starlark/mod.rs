@@ -10,26 +10,3 @@ pub(crate) mod navigate;
 pub(crate) mod summary;
 #[cfg(test)]
 mod summary_test;
-pub(crate) mod tokens;
-
-use crate::highlight::Grammar;
-use starlark_syntax::{FileKind, Parser, Tree};
-use std::cell::RefCell;
-
-thread_local! {
-  /// The thread's parser: psi-syntax keeps every buffer of a parse in it and reuses them from one file to the next
-  static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
-}
-
-/// The tree of a Starlark file from its bytes: the one Starlark parse of the crate. Every Bazel file kind shares one
-/// grammar; the tree's offsets are the file's (`document_text` writes a byte order mark as spaces)
-pub(crate) fn parse(source: &[u8], kind: FileKind) -> Tree {
-  let text = starlark_syntax::document_text(source);
-  PARSER.with_borrow_mut(|parser| parser.parse(&*text, kind))
-}
-
-/// How a file of this grammar is read: `Grammar::StarlarkBuild` as a file whose top-level calls declare (a BUILD or
-/// MODULE.bazel file), any other as a `.bzl` file
-pub(crate) fn file_kind(grammar: Grammar) -> FileKind {
-  if grammar == Grammar::StarlarkBuild { FileKind::Build } else { FileKind::Bzl }
-}

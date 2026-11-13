@@ -1,7 +1,7 @@
 //! The one parse of a C# file: the bytes as they are, a tree that tiles them
 
-use crate::csharp::parse;
 use crate::test_support::assert_leaves_tile;
+use code_tokens::csharp::parse;
 use csharp_syntax::NodeKind;
 
 #[test]

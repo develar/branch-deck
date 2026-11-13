@@ -57,13 +57,13 @@ use crate::scopes::scopes_of_summary;
 use crate::syntax::{SYNTAX_CACHE_BYTES, syntax_weight};
 use crate::worktree::{read_worktree_blob, uncommitted_entries};
 use anyhow::{Result, bail};
-use code_symbols::extract::{extractor_version, summarize};
-use code_symbols::highlight::grammar_of;
+use code_symbols::extract::{PSI_SYNTAX_REVISION, extractor_version, summarize};
 use code_symbols::highlight::lines::LineRuns;
 use code_symbols::language::{Language, language_of, summary_key};
 use code_symbols::navigate::RULES_VERSION;
 use code_symbols::summary::{FileSummary, LineSpan};
-use code_symbols::tokens::{Tokens, indentation_matters, tokens_version};
+use code_tokens::grammar_of;
+use code_tokens::{Tokens, indentation_matters, tokens_version};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, for_each_object};
 use git_ops::commit_files::{DiffSubject, MAX_BLOB_BYTES, read_commit_files_cached};
@@ -95,12 +95,12 @@ use tracing::{debug, instrument, warn};
 pub const MODEL_VERSION: u32 = 19;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
-/// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
+/// are read from (`code_tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
 /// the version of the rules the names of the renames are bound by (`code_symbols::navigate::RULES_VERSION`: the
 /// scopes, the locals, the sites, the clashes), so a stored diff is never read with marks of other tokens or of
 /// other bindings: a rule of a scope that was fixed takes the renames and the quiet runs it had allowed with it
 pub fn model_version() -> u32 {
-  store_version(MODEL_VERSION, tokens_version(), RULES_VERSION)
+  store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION)
 }
 
 /// The version of the store for a version of the model, one of the tokens and one of the rules of the names:
@@ -1384,7 +1384,7 @@ pub(crate) const fn policy_id(policy: WhitespacePolicy) -> u8 {
 /// scans of `blocks_of`, which find the entry a view made only under the same key). The grammar of each side, not its
 /// language: the scopes and the marks of the same bytes differ as a `.ts` and a `.tsx`, a `.kt` and a `.kts`, a
 /// `BUILD` and a `.bzl` file. And of a side without a grammar whether its indentation has a meaning
-/// (`code_symbols::tokens::indentation_matters`, which a grammar decides for its files): the moves of the same lines
+/// (`code_tokens::indentation_matters`, which a grammar decides for its files): the moves of the same lines
 /// differ as a `.py` and a `.txt` file
 pub(crate) fn diff_options(policy: WhitespacePolicy, old_path: Option<&str>, path: &str) -> DiffOptions {
   let grammar = |path: &str| grammar_of(path).map_or_else(|| if indentation_matters(path) { INDENTED } else { 0 }, |grammar| grammar.id() + 1);

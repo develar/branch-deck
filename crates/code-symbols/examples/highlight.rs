@@ -2,7 +2,8 @@
 //!
 //! `cargo run --release -p code-symbols --example highlight -- [--show] <files…>`
 
-use code_symbols::highlight::{grammar_of, highlight};
+use code_symbols::highlight::highlight;
+use code_tokens::grammar_of;
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 

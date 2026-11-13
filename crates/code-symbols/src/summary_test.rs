@@ -37,8 +37,10 @@ fn every_fixture_matches_its_golden_file() {
 
 #[test]
 fn the_psi_syntax_revision_is_the_one_cargo_builds() {
-  // `extractor_version` hashes the revision: a cached summary of another parser is made again
+  // `extractor_version` hashes the revision, the version of the tokens too (`code_tokens::tokens_version`): a cached
+  // summary or a stored diff of another parser is made again. `code-tokens` parses by the same revision
   let manifest = include_str!("../Cargo.toml");
+  let tokens_manifest = include_str!("../../code-tokens/Cargo.toml");
   let lock = include_str!("../../../Cargo.lock");
   for name in [
     "csharp-syntax",
@@ -51,6 +53,10 @@ fn the_psi_syntax_revision_is_the_one_cargo_builds() {
   ] {
     let dependency = format!("{name} = {{ git = \"https://github.com/develar/psi-syntax\", rev = \"{PSI_SYNTAX_REVISION}\"");
     assert!(manifest.contains(&dependency), "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.toml");
+    assert!(
+      tokens_manifest.contains(&dependency),
+      "{name} is not at {PSI_SYNTAX_REVISION} in the Cargo.toml of code-tokens"
+    );
     let locked = format!("name = \"{name}\"\nversion = \"0.1.0\"\nsource = \"git+https://github.com/develar/psi-syntax?rev={PSI_SYNTAX_REVISION}#{PSI_SYNTAX_REVISION}\"");
     assert!(lock.contains(&locked), "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.lock");
   }

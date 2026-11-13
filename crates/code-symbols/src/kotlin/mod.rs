@@ -25,27 +25,6 @@
 pub(crate) mod highlight;
 pub(crate) mod navigate;
 pub(crate) mod summary;
-pub(crate) mod tokens;
 
 #[cfg(test)]
 mod parse_test;
-
-use crate::highlight::Grammar;
-use kotlin_syntax::{FileKind, Parser, Tree};
-use std::cell::RefCell;
-
-thread_local! {
-  /// The thread's parser: psi-syntax keeps every buffer of a parse in it and reuses them from one file to the next
-  static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
-}
-
-/// The tree of a Kotlin file of `kind` from its bytes, every body expanded: the one Kotlin parse of the crate
-pub(crate) fn parse(source: &[u8], kind: FileKind) -> Tree {
-  let text = kotlin_syntax::document_text(source);
-  PARSER.with_borrow_mut(|parser| parser.parse(&*text, kind))
-}
-
-/// How a file of this grammar is parsed: `Grammar::KotlinScript` (`.kts`) as a script, any other as a file
-pub(crate) fn file_kind(grammar: Grammar) -> FileKind {
-  if grammar == Grammar::KotlinScript { FileKind::Kts } else { FileKind::Kt }
-}

@@ -62,7 +62,7 @@ const STRING: u32 = Role::String.style();
 /// The highlighting of `text` read as `dialect`; `None` when no tree came of it: it nests deeper than the parse reads, or
 /// no recovery saved it, and the view colours it otherwise
 pub(crate) fn highlight(dialect: Dialect, text: &str) -> Option<LineRuns> {
-  super::with_program(dialect, text.as_bytes(), |parsed| {
+  code_tokens::js::with_program(dialect, text.as_bytes(), |parsed| {
     let program = parsed.program()?;
     let mut marks = Marks {
       text,

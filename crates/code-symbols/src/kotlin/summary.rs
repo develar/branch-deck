@@ -28,10 +28,10 @@
 //!   by the caller (`extract::summarize`).
 
 use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
-use crate::kotlin::parse;
 use crate::psi_tree::{error_bytes, written_type};
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
 use crate::summary_builder::{Bindings, Marks, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line};
+use code_tokens::kotlin::parse;
 use kotlin_syntax::psi;
 use kotlin_syntax::{FileKind, NodeId, NodeKind as N, TokenKind as K, Tree};
 use psi_builder::document::Lines;

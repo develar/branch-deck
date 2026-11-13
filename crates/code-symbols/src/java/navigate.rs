@@ -44,7 +44,7 @@ use java_syntax::{NodeId, NodeKind, TokenKind, Tree};
 
 /// Java's reading of its PSI for Go to Declaration and Find Usages (`psi_navigate`)
 pub(crate) const NAVIGATION: Reading<java_syntax::Java, Tree> = Reading {
-  parse: |text| crate::java::parse(text.as_bytes()),
+  parse: |text| code_tokens::java::parse(text.as_bytes()),
   psi: |tree| tree,
   is_name: |tree, leaf| tree.token_kind(leaf) == Some(TokenKind::IDENTIFIER) && !tree.in_doc_comment(leaf),
   name: text_of,

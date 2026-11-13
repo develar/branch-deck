@@ -1,8 +1,9 @@
 //! The highlighting of TypeScript, TSX and JavaScript by oxc's tokens and tree: the classes of colours that moved from
 //! the tree-sitter rules, each by a text of its own (the whole fixtures are golden files of `highlight_test.rs`)
 
-use crate::highlight::{Grammar, ITALIC, Role, highlight};
+use crate::highlight::{ITALIC, Role, highlight};
 use crate::test_support::style_at;
+use code_tokens::Grammar;
 
 fn style(grammar: Grammar, text: &str, needle: &str, occurrence: usize) -> u32 {
   style_at(grammar, text, needle, occurrence)

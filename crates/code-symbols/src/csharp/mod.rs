@@ -28,32 +28,11 @@
 pub(crate) mod highlight;
 pub(crate) mod navigate;
 pub(crate) mod summary;
-pub(crate) mod tokens;
 
 #[cfg(test)]
 mod parse_test;
 
-use csharp_syntax::{FileKind, NodeKind, Parser, Tree};
-use std::cell::RefCell;
-
-/// What a thread's parser keeps of its buffers between files: past it, a parse's buffers shrink to half of it. 32 MiB, as
-/// accio measured on a parse per worker thread (a file needs about 25 bytes of buffers per source byte, so a file under
-/// 1.3 MB never pays a shrink), not psi-builder's 64 MiB default
-const RETAINED_BYTES: usize = 32 << 20;
-
-thread_local! {
-  /// The thread's parser: csharp-syntax keeps the buffers of a parse in it and reuses them from one file to the next
-  static PARSER: RefCell<Parser> = RefCell::new({
-    let mut parser = Parser::new();
-    parser.set_retained_bytes(RETAINED_BYTES);
-    parser
-  });
-}
-
-/// The tree of a C# file from its bytes: the one C# parse of the crate
-pub(crate) fn parse(source: &[u8]) -> Tree {
-  PARSER.with_borrow_mut(|parser| parser.parse(source, FileKind::default()))
-}
+use csharp_syntax::NodeKind;
 
 /// A type declaration (an extension block too): its members and type parameters are seen in all of it
 pub(crate) const fn is_type_declaration(kind: NodeKind) -> bool {

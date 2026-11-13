@@ -3,16 +3,17 @@ name: Equal by Tokens
 description: Requirements for telling a change of formatting from a change of code by the tokens of a file; the tokens of every grammar as its parser read them, each with its place in the tree and the errors the parser reported, the text a literal, a comment and the text of a JSX element compare by, the indent of Starlark, the blanks between two tokens and those that are no whitespace of the language, the one answer for two ranges of lines with the code around them, the same, the same code with other comments, or different, and the content of a run of tokens wherever it stands.
 style: plain-1
 targets:
-  - crates/code-symbols/src/tokens/mod.rs
-  - crates/code-symbols/src/tokens/build.rs
-  - crates/code-symbols/src/tokens/psi.rs
-  - crates/code-symbols/src/kotlin/tokens.rs
-  - crates/code-symbols/src/java/tokens.rs
-  - crates/code-symbols/src/csharp/tokens.rs
-  - crates/code-symbols/src/starlark/tokens.rs
-  - crates/code-symbols/src/rust/tokens.rs
-  - crates/code-symbols/src/js/tokens.rs
-  - crates/code-symbols/examples/tokens.rs
+  - crates/code-tokens/src/lib.rs
+  - crates/code-tokens/src/build.rs
+  - crates/code-tokens/src/psi.rs
+  - crates/code-tokens/src/kotlin.rs
+  - crates/code-tokens/src/java.rs
+  - crates/code-tokens/src/csharp.rs
+  - crates/code-tokens/src/starlark.rs
+  - crates/code-tokens/src/rust.rs
+  - crates/code-tokens/src/js.rs
+  - crates/code-tokens/src/checks.rs
+  - crates/code-tokens/examples/tokens.rs
   - crates/review-plan/src/whitespace.rs
 ---
 
@@ -62,17 +63,17 @@ tokens of a lexer where the parser decides what a token is. Whitespace MUST be n
 - **WHEN** two texts differ as `a - -b` and `a--b`, as `> >` and `>>` of a shift, as `?:` and `? :` of Kotlin, as `=>` and `= >`
 - **THEN** their tokens differ
 - **AND** the two `>` that close two lists of type arguments are the same tokens with a space between them and without
-  [@test] crates/code-symbols/src/tokens_test.rs (`operators_that_join_or_split_are_other_tokens`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`operators_that_join_or_split_are_other_tokens`)
 
 #### Scenario: A script of Kotlin
 - **WHEN** two texts of a Kotlin script differ by a line break between two of its statements, by a space inside a string, or by a call wrapped inside its brackets
 - **THEN** the first two have other tokens and the wrapped call the same, as in a file of Kotlin
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_line_break_that_ends_a_statement_is_no_formatting`, `a_call_wrapped_inside_its_brackets_and_code_indented_again_are_formatting`, `the_whitespace_inside_a_literal_is_content`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_line_break_that_ends_a_statement_is_no_formatting`, `a_call_wrapped_inside_its_brackets_and_code_indented_again_are_formatting`, `the_whitespace_inside_a_literal_is_content`)
 
 #### Scenario: The class of a token
 - **WHEN** the tokens of a text are read
 - **THEN** each is a comment, a name, a keyword, a literal or another token (`TokenClass`), a word the parser read as a name a name
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_token_has_its_class_and_a_renamed_name_keeps_its_shape`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_token_has_its_class_and_a_renamed_name_keeps_its_shape`)
 
 ### Requirement: Tokens: Only blanks stand between two tokens
 
@@ -85,7 +86,7 @@ tokens are the same without their blanks (`same_without_blanks`), what a reader 
 - **THEN** their tokens are the same, and the texts are the same without their blanks
 - **AND** the `\` that continues a line of Starlark is a token, a line joined without it another text
 - **AND** a C# text whose token Roslyn cut inside a character or dropped from its tree, and a Java text whose whitespace is a Unicode escape, have no tokens
-  [@test] crates/code-symbols/src/tokens_test.rs (`what_stands_between_two_tokens_is_blank`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`what_stands_between_two_tokens_is_blank`)
 
 ### Requirement: Tokens: A blank that is no whitespace of its language is an error
 
@@ -100,12 +101,12 @@ esbuild and Babel call a syntax error. A text with such a blank and no token of 
 - **AND** two texts with the same such blank between the same two tokens, formatted differently, have the same tokens: broken alike
 - **AND** the same character inside a string or the text of a JSX element is content
 - **AND** a text with such a blank and no token of the code has no tokens
-  [@test] crates/code-symbols/src/tokens_test.rs (`what_stands_between_two_tokens_is_blank`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`what_stands_between_two_tokens_is_blank`)
 
 #### Scenario: What each parser skips
 - **WHEN** each blank stands between two tokens inside brackets, in a text of each grammar
 - **THEN** the parser skips it only where its language calls it whitespace: the space, the tab, the form feed and the line ends in Kotlin and Java, without the form feed in Starlark, `Pattern_White_Space` in Rust, the whitespace and the line ends of C#, `WhiteSpace` and `LineTerminator` of ECMAScript in JavaScript, TypeScript and TSX
-  [@test] crates/code-symbols/src/tokens_test.rs (`each_parser_skips_between_two_tokens_what_its_language_calls_whitespace`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`each_parser_skips_between_two_tokens_what_its_language_calls_whitespace`)
 
 ### Requirement: Tokens: A token carries the nodes that open before it and close after it
 
@@ -117,23 +118,23 @@ breaks or of brackets MUST stand beside it: what a parser reads from whitespace 
 - **WHEN** two texts differ as `return⏎foo()` and `return foo()` of Kotlin or JavaScript, as `val x = a⏎+ b` and `val x = a + b`, as a label with and without a space before its `@`
 - **THEN** their tokens differ
 - **AND** a call wrapped inside its brackets, a chain continued on the next line and an operator at the end of a line are the same tokens
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_line_break_that_ends_a_statement_is_no_formatting`, `a_call_wrapped_inside_its_brackets_and_code_indented_again_are_formatting`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_line_break_that_ends_a_statement_is_no_formatting`, `a_call_wrapped_inside_its_brackets_and_code_indented_again_are_formatting`)
 
 #### Scenario: Statements wrapped into a block
 - **WHEN** statements are wrapped into the braces of an `if` and indented
 - **THEN** each has the tokens it had: a statement carries its own nodes whole
 - **AND** a statement that becomes the body of an `if` without braces has not: the `if` closes after it
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_statement_wrapped_into_a_block_keeps_its_tokens`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_statement_wrapped_into_a_block_keeps_its_tokens`)
 
 #### Scenario: A name renamed
 - **WHEN** a name is renamed at its declaration and its uses
 - **THEN** each token of the two texts has the shape it had, and only the names have another text
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_token_has_its_class_and_a_renamed_name_keeps_its_shape`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_token_has_its_class_and_a_renamed_name_keeps_its_shape`)
 
 #### Scenario: A text with a syntax error
 - **WHEN** a text does not parse
 - **THEN** its tokens are those of the tree the parser left, its error nodes and its errors in their shapes: two such texts with the same tokens are broken alike
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_text_with_a_syntax_error_compares_by_the_tree_the_parser_left`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_text_with_a_syntax_error_compares_by_the_tree_the_parser_left`)
 
 ### Requirement: Tokens: The errors of the parser are part of the tokens
 
@@ -146,7 +147,7 @@ error on a comment MUST be part of what that comment compares by, not of the cod
 - **THEN** their tokens differ: the parser reports the error beside a tree of the same nodes
 - **AND** two texts with that error both, formatted differently, have the same tokens
 - **AND** a documentation comment of C# whose XML does not close and the one that closes it are the same code with other comments
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_text_with_a_syntax_error_compares_by_the_tree_the_parser_left`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_text_with_a_syntax_error_compares_by_the_tree_the_parser_left`)
 
 ### Requirement: Tokens: A literal compares by its bytes
 
@@ -158,7 +159,7 @@ be code.
 - **WHEN** two texts differ by a space inside a string, by a blank line inside a raw string of Kotlin, a text block of Java or a template of JavaScript, by a space inside a regular expression
 - **THEN** their tokens differ
 - **AND** the spaces inside `${ … }` of a template change no token
-  [@test] crates/code-symbols/src/tokens_test.rs (`the_whitespace_inside_a_literal_is_content`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`the_whitespace_inside_a_literal_is_content`)
 
 ### Requirement: Tokens: The text of a JSX element compares as JSX reads it
 
@@ -171,7 +172,7 @@ stay apart.
 - **WHEN** the text of an element moves to lines of its own, is indented again, or its elements each to a line
 - **THEN** the tokens are the same
 - **AND** two spaces inside a line in place of one, a space lost between a text and an element, and a line of a text joined to the next without a space are other tokens
-  [@test] crates/code-symbols/src/tokens_test.rs (`the_text_of_a_jsx_element_compares_as_jsx_reads_it`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`the_text_of_a_jsx_element_compares_as_jsx_reads_it`)
 
 ### Requirement: Tokens: An indent is part of its line where the indentation is the syntax
 
@@ -185,12 +186,12 @@ grammar of Starlark reads among them.
 - **THEN** its tokens differ
 - **AND** an argument on a line of its own inside the brackets of a call, a comment and a blank line indented again change no token
 - **AND** `WORKSPACE.bzlmod` and `third_party/zlib.BUILD` are files whose indentation has a meaning, as `BUILD` and `defs.bzl` are
-  [@test] crates/code-symbols/src/tokens_test.rs (`where_the_indentation_is_the_syntax_an_indent_is_no_formatting`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`where_the_indentation_is_the_syntax_an_indent_is_no_formatting`)
 
 #### Scenario: A brace language indented again
 - **WHEN** the code of Kotlin, Java, C#, Rust or TypeScript is indented again, gets blank lines or other line ends
 - **THEN** its tokens are the same
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_call_wrapped_inside_its_brackets_and_code_indented_again_are_formatting`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_call_wrapped_inside_its_brackets_and_code_indented_again_are_formatting`)
 
 ### Requirement: Tokens: What a parser calls trivia and another build compiles is code
 
@@ -202,47 +203,47 @@ Rust a punctuation mark with another right after it MUST be another token than o
 - **WHEN** two texts of C# differ in the symbol of an `#if`, in a `#pragma`, or by a space in the text of a branch of `#if` the configuration does not take
 - **THEN** their tokens differ
 - **AND** the spaces between `#if` and its symbol change no token
-  [@test] crates/code-symbols/src/tokens_test.rs (`what_a_parser_calls_trivia_and_another_build_compiles_is_code`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`what_a_parser_calls_trivia_and_another_build_compiles_is_code`)
 
 #### Scenario: The input of a macro
 - **WHEN** the input of a macro of Rust differs as `a => b` and `a = > b`
 - **THEN** its tokens differ
 - **AND** a space after a comma, around an operator, and an input wrapped over lines change no token
-  [@test] crates/code-symbols/src/tokens_test.rs (`what_a_parser_calls_trivia_and_another_build_compiles_is_code`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`what_a_parser_calls_trivia_and_another_build_compiles_is_code`)
 
 ### Requirement: Tokens: A token has the lines and the columns of the view
 
 A token MUST name its start and its end by the lines of the view (`\n`, `\r\n`, a lone `\r`) and their UTF-16
 columns, and by its bytes, and MUST be in every line it names. Its `shape` and its `text` MUST be hashes of names and
-bytes, the same in every run and on every machine, and `tokens_version` MUST change with the rules and with the
-parsers.
+bytes, the same in every run and on every machine, and `tokens_version` MUST change with the rules of the tokens,
+the grammars of the build and the revision of the parsers its consumer names, and with nothing else.
 
 #### Scenario: A surrogate pair, a lone carriage return, a comment over two lines
 - **WHEN** a text has a character of two UTF-16 units, a line that a lone `\r` ends and a comment over two lines
 - **THEN** each token has its line and its column of the view at its start and at its end
-  [@test] crates/code-symbols/src/tokens_test.rs (`the_lines_and_the_columns_are_those_of_the_view`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`the_lines_and_the_columns_are_those_of_the_view`)
 
 #### Scenario: A token that ends with a line break
 - **WHEN** the bytes of a token end with a line break: a line break of a raw string of Kotlin, the text of a branch of `#if` not taken, the `\` that continues a line of Starlark
 - **THEN** the token ends at the end of the line of that break, the last line it has a byte in
 - **AND** a place inside a `\r\n` is the end of its line
-  [@test] crates/code-symbols/src/tokens_test.rs (`the_lines_and_the_columns_are_those_of_the_view`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`the_lines_and_the_columns_are_those_of_the_view`)
 
 #### Scenario: The same hashes in every run
 - **WHEN** the tokens of a text are read again, in another run
 - **THEN** each has the same `shape` and the same `text`
-  [@test] crates/code-symbols/src/tokens_test.rs (`the_keys_are_the_same_in_every_run`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`the_keys_are_the_same_in_every_run`)
 
 #### Scenario: The version of the tokens
-- **WHEN** the rules of the tokens, the rules of the summaries or the revision of the parsers change
-- **THEN** `tokens_version` is another value, and it is neither that of the summaries nor that of the highlighting
-  [@test] crates/code-symbols/src/tokens_test.rs (`tokens_version_is_stable`)
+- **WHEN** the rules of the tokens, the grammars of the build or the revision of the parsers change
+- **THEN** `tokens_version` is another value, whatever the rules of the summaries are
+  [@test] crates/code-tokens/src/tokens_test.rs (`tokens_version_is_stable`)
 
 #### Scenario: Any file formatted again
 - **WHEN** a file of a grammar gets other whitespace where no token is: an indent, spaces at the end of a line, a blank line
 - **THEN** its tokens are the same, its content and its text without blanks too, and a name of it renamed is another token
 - **AND** each token is in the lines it names, with only blanks before it
-  [@test] crates/code-symbols/src/tokens_test.rs (`every_fixture_formatted_again_has_the_same_tokens`)
+  [@test] crates/code-symbols/src/tokens_fixture_test.rs (`every_fixture_formatted_again_has_the_same_tokens`)
 
 ### Requirement: Comments: A comment is no code and compares by its text
 
@@ -252,13 +253,13 @@ whitespace that ends its lines and, at the start of its other lines, without the
 #### Scenario: The text of a comment
 - **WHEN** two texts differ as `//go:build` and `// go:build`, in the words of a comment, or by a comment that one of them has or has at another place
 - **THEN** their code is the same and their comments are not
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_comment_compares_by_its_text_and_is_no_code`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_comment_compares_by_its_text_and_is_no_code`)
 
 #### Scenario: A block comment that moved with its code
 - **WHEN** a block comment is indented again with the code around it, each of its lines by what its first line moved
 - **THEN** it is the same comment
 - **AND** one whose other lines alone moved is another comment
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_comment_compares_by_its_text_and_is_no_code`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_comment_compares_by_its_text_and_is_no_code`)
 
 ### Requirement: Equality: Two ranges of lines are the same, the same code or different
 
@@ -272,7 +273,7 @@ same for two runs of tokens alone.
 - **THEN** its token is the text block, so a blank line the text block gains is `Different`
 - **AND** a changed line of a block comment is `CodeOnly`
 - **AND** two runs without a token are the same runs, and as two ranges of lines `Same` only by the code around them
-  [@test] crates/code-symbols/src/tokens_test.rs (`the_tokens_of_lines_are_those_with_a_byte_in_them`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`the_tokens_of_lines_are_those_with_a_byte_in_them`)
 
 ### Requirement: Equality: A range of lines is asked with the code around it
 
@@ -288,13 +289,13 @@ NOT be asked: it is outside the tree.
 - **AND** a blank line after the `\` that continues a line of Starlark is `Different`: the statement ends there, and the tokens of the lines around it are others
 - **AND** a blank line before the `#!` a Kotlin script, a Rust file or a C# file starts with is `Different`: the `#!` is code there
 - **AND** a comment that changed before a range, or between it and the code after it, leaves the range `Same`
-  [@test] crates/code-symbols/src/tokens_test.rs (`lines_without_a_token_are_the_same_only_where_the_code_around_them_reads_the_same`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`lines_without_a_token_are_the_same_only_where_the_code_around_them_reads_the_same`)
 
 #### Scenario: A part of a changed block
 - **WHEN** statements are wrapped into the braces of an `if` and indented, and a reader asks of the lines of the statements alone
 - **THEN** their runs of tokens are the same (`compare`)
 - **AND** as two ranges between lines that did not change they are `Different`: the code before them is the `{` of the `if`
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_statement_wrapped_into_a_block_keeps_its_tokens`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_statement_wrapped_into_a_block_keeps_its_tokens`)
 
 ### Requirement: Equality: The content of a run of tokens is the same wherever the run stands
 
@@ -306,7 +307,7 @@ the run decides. Two runs that are `Same` MUST have the same content, and two th
 - **WHEN** a function is formatted again and another one follows it, where it was the last of its file
 - **THEN** its lines have the same content, though their last token closes other nodes
 - **AND** a line break that ends a statement, a space inside a string, an error the parser reported, another comment, a renamed name and the indent of a line of Starlark are another content
-  [@test] crates/code-symbols/src/tokens_test.rs (`the_content_of_a_run_is_the_same_wherever_it_stands`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`the_content_of_a_run_is_the_same_wherever_it_stands`)
 
 ### Requirement: Equality: A text without tokens is never the same
 
@@ -320,12 +321,12 @@ with such a text MUST be `Different`.
 - **WHEN** a text is over 1 MiB, or a text of Kotlin, Java, C# or Starlark nests its brackets deeper than its parser reads
 - **THEN** it has no tokens, and it is `Different` from any text, itself too
 - **AND** a text of Rust, TypeScript or JavaScript nested as deeply has its tokens
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_text_over_the_limit_or_nested_too_deeply_has_no_tokens`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_text_over_the_limit_or_nested_too_deeply_has_no_tokens`)
 
 #### Scenario: A script read only after a recovery
 - **WHEN** oxc reads a script only with the region of an error blanked
 - **THEN** the script has no tokens: the blanked region is in none
-  [@test] crates/code-symbols/src/tokens_test.rs (`a_text_with_a_syntax_error_compares_by_the_tree_the_parser_left`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`a_text_with_a_syntax_error_compares_by_the_tree_the_parser_left`)
 
 ### Requirement: Equality: Two names read as one compare as the same where the tree is
 
@@ -338,7 +339,7 @@ where the tree around the names is the same, and no other token changes.
 - **THEN** the two texts are the same by tokens, which they are not without it
 - **AND** no token starts inside a name, at a blank or past the text, and a place past the tokens is left out
 - **AND** the name as an argument of a call, where it was an operand, is another token under the one text
-  [@test] crates/code-symbols/src/tokens_test.rs (`two_names_read_as_one_compare_as_the_same_where_the_tree_is`)
+  [@test] crates/code-tokens/src/tokens_test.rs (`two_names_read_as_one_compare_as_the_same_where_the_tree_is`)
 
 ## Testing / Local Run
 

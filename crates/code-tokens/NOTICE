@@ -1,0 +1,7 @@
+code-tokens
+Copyright 2026 Vladimir Krivosheev
+
+The tokens are read from the trees of psi-syntax (https://github.com/develar/psi-syntax), whose parsers are ported
+from the Kotlin compiler, IntelliJ Platform, Roslyn and the IntelliJ Bazel plugin, and wrap oxc and rust-analyzer.
+
+The text of the license is in LICENSE.

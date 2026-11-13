@@ -60,7 +60,7 @@ pub(crate) fn reference_at(kind: FileKind, text: &str, position: Position) -> Op
 /// where no name is
 fn with_name_at<T>(kind: FileKind, text: &str, position: Position, answer: impl FnOnce(&Names<'_>, NodeId, String, &Declarations) -> T) -> Option<T> {
   let offset = byte_offset(text, position)?;
-  let tree = super::parse(text.as_bytes(), kind);
+  let tree = code_tokens::kotlin::parse(text.as_bytes(), kind);
   let names = Names::of(&tree, text);
   let leaf = names.name_at(offset)?;
   let name = names.text_of(leaf).to_string();
@@ -71,7 +71,7 @@ fn with_name_at<T>(kind: FileKind, text: &str, position: Position, answer: impl 
 /// The answer of `read` for the names of a parse of a Kotlin text of `kind` (`navigate::names_at`, `usages_at`,
 /// `usages_of`)
 pub(crate) fn with_names<R>(kind: FileKind, text: &str, read: impl FnOnce(&dyn crate::navigate::Names) -> R) -> R {
-  let tree = super::parse(text.as_bytes(), kind);
+  let tree = code_tokens::kotlin::parse(text.as_bytes(), kind);
   read(&Names::of(&tree, text))
 }
 

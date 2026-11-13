@@ -11,6 +11,8 @@ commit-clustering = { path = "../commit-clustering" }
 generated-files = { path = "../generated-files", features = ["schemars"] }
 bd-core = { path = "../bd-core" }
 code-symbols = { path = "../code-symbols" }
+# the tokens of a file and the rule "equal by tokens", the grammar of a path
+code-tokens = { path = "../code-tokens" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }

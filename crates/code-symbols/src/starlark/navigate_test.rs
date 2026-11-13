@@ -1,9 +1,9 @@
 //! Go to Declaration and Find Usages in Starlark, beside `navigate_test.rs`: the scopes of the language and the
 //! forms a name is read in.
 
-use crate::highlight::Grammar;
 use crate::navigate::{Access, ReferenceKind, usages_of};
 use crate::test_support::{at, kind_and_local, usages};
+use code_tokens::Grammar;
 use pretty_assertions::assert_eq;
 
 const BUILD: &str = "load(\"//defs:jvm.bzl\", \"jps_test\", kt = \"kotlin_library\")

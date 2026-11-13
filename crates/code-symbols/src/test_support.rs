@@ -153,7 +153,7 @@ fn of_name(summary: &FileSummary, name: &str, text: impl Fn(&Declaration, &str) 
 
 /// The style of the text at the `occurrence`-th `needle` of the text (counted from 0) in the highlighting of `grammar`,
 /// by the runs of its line
-pub(crate) fn style_at(grammar: crate::highlight::Grammar, text: &str, needle: &str, occurrence: usize) -> u32 {
+pub(crate) fn style_at(grammar: code_tokens::Grammar, text: &str, needle: &str, occurrence: usize) -> u32 {
   let place = place(text, needle, occurrence);
   let runs = crate::highlight::highlight(grammar, text).unwrap();
   runs
@@ -175,18 +175,18 @@ pub(crate) fn place(text: &str, needle: &str, occurrence: usize) -> crate::navig
 }
 
 /// The name at the `occurrence`-th `needle` of the text and what its syntax says
-pub(crate) fn at(grammar: crate::highlight::Grammar, text: &str, needle: &str, occurrence: usize) -> crate::navigate::ReferenceAt {
+pub(crate) fn at(grammar: code_tokens::Grammar, text: &str, needle: &str, occurrence: usize) -> crate::navigate::ReferenceAt {
   crate::navigate::reference_at(grammar, text, place(text, needle, occurrence)).unwrap_or_else(|| panic!("no name at {needle}"))
 }
 
 /// The kind of the name at a needle and the line and column of its declaration
-pub(crate) fn kind_and_local(grammar: crate::highlight::Grammar, text: &str, needle: &str, occurrence: usize) -> (crate::navigate::ReferenceKind, Option<(u32, u32)>) {
+pub(crate) fn kind_and_local(grammar: code_tokens::Grammar, text: &str, needle: &str, occurrence: usize) -> (crate::navigate::ReferenceKind, Option<(u32, u32)>) {
   let reference = at(grammar, text, needle, occurrence);
   (reference.kind, reference.local.map(|it| (it.line, it.column)))
 }
 
 /// Whether the usages of the name at a needle are of a local, and their lines and accesses
-pub(crate) fn usages(grammar: crate::highlight::Grammar, text: &str, needle: &str, occurrence: usize) -> (bool, Vec<(u32, crate::navigate::Access)>) {
+pub(crate) fn usages(grammar: code_tokens::Grammar, text: &str, needle: &str, occurrence: usize) -> (bool, Vec<(u32, crate::navigate::Access)>) {
   let found = crate::navigate::usages_at(grammar, text, place(text, needle, occurrence)).unwrap();
   (found.local, found.usages.iter().map(|it| (it.start.line, it.access)).collect())
 }
@@ -196,7 +196,7 @@ pub(crate) fn usages(grammar: crate::highlight::Grammar, text: &str, needle: &st
 /// `outer`, `p` (or `r`) of the `s` its own line declares, the first `s` of the line that is no such argument. The
 /// functions take types of their own, so the file compiles only as it is tagged: the expectations are the
 /// compiler's, not the test's. The header of each test names the compiler
-pub(crate) fn readings_unlike_the_compiler(grammar: crate::highlight::Grammar, name: &str, outer: (u32, u32)) -> (Vec<String>, usize) {
+pub(crate) fn readings_unlike_the_compiler(grammar: code_tokens::Grammar, name: &str, outer: (u32, u32)) -> (Vec<String>, usize) {
   use crate::navigate::{Position, reference_at};
   let (_, source) = fixture(&format!("navigate/{name}"));
   let text = String::from_utf8(source).unwrap();

@@ -20,7 +20,7 @@ use std::collections::HashSet;
 /// Fills `summary` (`summary_builder::empty_summary` of the file, its size within the limits) with the facts of the
 /// Starlark file `source`, read as `kind`; whether it was read, else it stays `truncated`
 pub(crate) fn summarize(source: &[u8], kind: FileKind, summary: &mut FileSummary) -> bool {
-  let tree = super::parse(source, kind);
+  let tree = code_tokens::starlark::parse(source, kind);
   let mut walk = Walk::new(&tree, kind);
   walk.run();
   walk.out.finish(summary, None);

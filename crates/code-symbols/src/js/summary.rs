@@ -34,9 +34,10 @@
 //!   facts.
 
 use crate::js;
-use crate::js::{Errors, Source, doc_lines, field_of, tokens_in, with_program};
+use crate::js::{Errors, Source, doc_lines, field_of, tokens_in};
 use crate::summary::{DeclKind, FileSummary, Import, ImportTarget, LineSpan, MemberKind, Reach, Role};
 use crate::summary_builder::{Bindings, SummaryBuilder, blank_declaration};
+use code_tokens::js::with_program;
 use js_syntax::Dialect;
 // jscpd:ignore-start: the names of oxc's tree and visitor each walk reads
 use js_syntax::oxc_ast::ast::{

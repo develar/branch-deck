@@ -30,10 +30,11 @@
 //! `--show` (4) lines that only one run has) and a table of the moved files and lines per family.
 
 use code_symbols::extract::summarize;
-use code_symbols::highlight::{BOLD, ITALIC, ROLE_BITS, Role, UNDERLINE, grammar_of, highlight};
+use code_symbols::highlight::{BOLD, ITALIC, ROLE_BITS, Role, UNDERLINE, highlight};
 use code_symbols::language::language_of;
 use code_symbols::navigate::{reference_at, usages_at, usages_of};
 use code_symbols::summary_text::render_full;
+use code_tokens::grammar_of;
 use fact_text::{access_counts, arguments, inputs, probes, push, reference_text, take_value, usages_at_text};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;

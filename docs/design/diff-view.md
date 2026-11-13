@@ -322,7 +322,7 @@ rest gets a label and stays a stop.
     have. Such a run is quiet, would take rows of a file already drawn, and leans on a name (the token after the
     block) that it does not hold. So the pair keeps of that reading the runs of the kind `renamed` alone, each with
     every name it leans on: those with a place in its lines, and the one whose place is the first token of the code
-    after its block when the run reaches the end of the block (`code_symbols::tokens::same_after` compares that
+    after its block when the run reaches the end of the block (`code_tokens::same_after` compares that
     token).
 - **How far a rename reaches** (`RenameCheck::sites`, `files`). The file that declares a renamed name says how many
   places of the files of the subject hold the two names, its own and those of every file that names the rename

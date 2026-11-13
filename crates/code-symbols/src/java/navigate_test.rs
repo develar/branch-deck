@@ -1,9 +1,9 @@
 //! Go to Declaration and Find Usages in Java from its PSI, beside `navigate_test.rs`: what the PSI reads apart from
 //! tree-sitter's grammar, each a construct the corpus moved
 
-use crate::highlight::Grammar;
 use crate::navigate::{Access, Position, ReferenceKind, reference_at, usages_of};
 use crate::test_support::{at, kind_and_local, place, readings_unlike_the_compiler, usages};
+use code_tokens::Grammar;
 use pretty_assertions::assert_eq;
 
 #[test]

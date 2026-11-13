@@ -1,14 +1,14 @@
 //! Whether a change is of whitespace alone (openspec/specs/branch/review-plan/spec.md, "Mechanical changes"), the one answer of
 //! the files, the blocks and the declarations of a plan.
 //!
-//! - **A file of a grammar** (`code_symbols::highlight::grammar_of`) is compared by its tokens
-//!   (`code_symbols::tokens::equal_by_tokens`, openspec/specs/commit/equal-by-tokens/spec.md): the same code and the
+//! - **A file of a grammar** (`code_tokens::grammar_of`) is compared by its tokens
+//!   (`code_tokens::equal_by_tokens`, openspec/specs/commit/equal-by-tokens/spec.md): the same code and the
 //!   same comments, so a space inside a string, a line break that ends a statement and an indent of Starlark are no
 //!   whitespace, and a wrapped call, a line of Starlark continued inside its brackets, a byte order mark removed are.
 //!   The rule the diffs mark a block of formatting by. `whitespace_only` asks it only of lines that are the same
-//!   without their blanks (`code_symbols::tokens::same_without_blanks`), which lines equal by tokens always are.
+//!   without their blanks (`code_tokens::same_without_blanks`), which lines equal by tokens always are.
 //! - **A file of no grammar** keeps the rule of characters: the same text without its whitespace, never where the
-//!   indentation has a meaning (`code_symbols::tokens::indentation_matters`: Python, YAML, a Makefile).
+//!   indentation has a meaning (`code_tokens::indentation_matters`: Python, YAML, a Makefile).
 //! - **A file of a grammar without tokens** (nested too deeply, a script read only after a recovery) and a file whose
 //!   two sides are not both of a grammar (a rename from `.txt` to `.kt`) have no whitespace change: nothing proves one.
 //! - **The lines** are those of the diffs (`line_diff::text_lines::TextLines`): a line ends at `\n`, `\r\n` or a lone `\r`, as the engine
@@ -27,8 +27,8 @@
 //! source file that has a unit: about 0.1 s for the pairs of 141 files.
 
 use crate::files::without_whitespace;
-use code_symbols::highlight::{Grammar, grammar_of};
-use code_symbols::tokens::{Equality, Token, TokenClass, Tokens, content, equal_by_tokens, same_without_blanks, tokens};
+use code_tokens::{Equality, Token, TokenClass, Tokens, content, equal_by_tokens, same_without_blanks, tokens};
+use code_tokens::{Grammar, grammar_of};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -117,7 +117,7 @@ impl Sides<'_, '_> {
 
   /// Whether the lines `old` of the old side and `new` of the new one (lines of the diffs) are the same code
   /// wherever they stand: lines that moved, asked without the code around them, which is another at another place.
-  /// The same content of their tokens (`code_symbols::tokens::content`: the tokens, comments too, and the tree
+  /// The same content of their tokens (`code_tokens::content`: the tokens, comments too, and the tree
   /// between them, without what opens before the first and closes after the last), of at least one token: in a file
   /// of Starlark the indent of a line is in its tokens, so lines that moved to another nesting are not the same.
   /// Only the tokens tell: no for a file of no grammar, which has no declaration to ask it of, and for a side
@@ -162,7 +162,7 @@ impl Sides<'_, '_> {
   }
 
   /// The text of the lines `lines` (of the diffs) of the old side, or of the new one (`new_side`), as a fingerprint
-  /// reads it: the content of their tokens (`code_symbols::tokens::content`), the tokens and the tree between them,
+  /// reads it: the content of their tokens (`code_tokens::content`), the tokens and the tree between them,
   /// the same after a change of whitespace alone and wherever the lines stand, another after a line break that ends a
   /// statement; `None` without the tokens of both sides, whose reader takes the characters
   pub(crate) fn fingerprint_text(&self, new_side: bool, lines: Range<u32>) -> Option<String> {

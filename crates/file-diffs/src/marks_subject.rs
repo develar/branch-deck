@@ -55,7 +55,7 @@ use crate::leftovers::{Leftovers, PendingRun};
 use crate::marks::is_quiet;
 use crate::marks_renames::with_the_first;
 use crate::service::to_u32;
-use code_symbols::highlight::{Grammar, grammar_of};
+use code_tokens::{Grammar, grammar_of};
 use line_diff::model::{BlockKind, DiffBlock, DiffMarks, FileMove, LineMove, LineRun, Rename, RenameCheck, RenameProof, RunKind, SubjectMarks, TextDiff, UsedRename, starts_of};
 use line_diff::moves_across::{AcrossWork, FileRows, LeftRow, find_moves_across};
 use std::borrow::Cow;

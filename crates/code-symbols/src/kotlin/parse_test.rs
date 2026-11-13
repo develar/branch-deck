@@ -1,8 +1,8 @@
 //! The one parse of a Kotlin file: the document's text, the file kind, a tree that tiles the text
 
-use crate::highlight::Grammar;
-use crate::kotlin::{file_kind, parse};
 use crate::test_support::assert_leaves_tile;
+use code_tokens::Grammar;
+use code_tokens::kotlin::{file_kind, parse};
 use kotlin_syntax::{FileKind, NodeKind};
 
 #[test]

@@ -1,9 +1,9 @@
 //! Go to Declaration and Find Usages in C# from Roslyn's tree, beside `navigate_test.rs`: the scopes and the forms of
 //! C# a name is read in
 
-use crate::highlight::Grammar;
 use crate::navigate::{Access, ReferenceKind, reference_at, usages_at, usages_of};
 use crate::test_support::{at, kind_and_local, place, readings_unlike_the_compiler, usages};
+use code_tokens::Grammar;
 use pretty_assertions::assert_eq;
 
 const SCOPES: &str = "class A<T> {

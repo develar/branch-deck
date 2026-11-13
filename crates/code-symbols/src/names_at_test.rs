@@ -2,11 +2,11 @@
 //! openspec/specs/commit/name-bindings/spec.md): a table per language of what a name is bound to, what a body declares
 //! it as, what each site makes of it and what another name for it would clash with
 
-use crate::highlight::Grammar;
 use crate::navigate::{
   Access, ClashKind, Lines, LocalBinding, LocalKind, NameAt, NameQuestion, Position, Site, byte_offset, names_at, names_at_within, resolution_work, usages_at,
 };
 use crate::test_support::place;
+use code_tokens::Grammar;
 use pretty_assertions::assert_eq;
 
 /// An answer as text: what declares the local (`-` for any other name), `named by calls` and `read in part` where it

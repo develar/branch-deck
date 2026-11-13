@@ -54,7 +54,7 @@ const MAX_PATH: usize = 64;
 /// Fills `summary` (`summary_builder::empty_summary` of the file, its size within the limits) with the facts of the
 /// C# file `source`; whether it was read, else it stays `truncated`
 pub(crate) fn summarize(source: &[u8], summary: &mut FileSummary) -> bool {
-  let tree = super::parse(source);
+  let tree = code_tokens::csharp::parse(source);
   let attribute_classes = attribute_classes(&tree);
   let mut walk = Walk::new(&tree, &attribute_classes);
   // the locals of top-level statements: a scope of the file that makes no declaration a local

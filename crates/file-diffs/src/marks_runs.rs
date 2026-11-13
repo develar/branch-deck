@@ -8,7 +8,7 @@
 //! 2. **The block is cut at the line boundaries both sides share**: a boundary of each side that no token crosses,
 //!    with as many paired tokens before it on both sides. Between two cuts stands a segment: lines of both sides
 //!    with paired tokens, or lines without any (a zone: what stands between two paired tokens).
-//! 3. **A segment is asked whole** (`code_symbols::tokens::compare`): the same code on both sides, no token on either
+//! 3. **A segment is asked whole** (`code_tokens::compare`): the same code on both sides, no token on either
 //!    side (blank lines), or different. The alignment only finds the cuts; what a run is, the tokens of its lines
 //!    alone prove.
 //! 4. **Segments with the same code in a row are cut into runs** (`runs_of_same_code`): the longest groups of them
@@ -31,7 +31,7 @@
 //! on. Two names among them are what a rename is looked for in (`marks_renames`).
 
 use crate::marks::{MAX_BLOCK_TOKENS, MAX_TOKEN_EDITS, has_proof};
-use code_symbols::tokens::{Equality, Token, Tokens, compare, same_after, same_before};
+use code_tokens::{Equality, Token, Tokens, compare, same_after, same_before};
 use line_diff::lcs::diff::build_changes_ints_within;
 use line_diff::model::{LineRun, RunKind};
 use std::collections::HashMap;

@@ -68,7 +68,7 @@ use js_syntax::oxc_syntax::scope::ScopeFlags;
 /// The name at `position` of `text` and what its syntax says (`navigate::reference_at`)
 pub(crate) fn reference_at(dialect: Dialect, text: &str, position: Position) -> Option<ReferenceAt> {
   let offset = u32::try_from(byte_offset(text, position)?).ok()?;
-  super::with_program(dialect, text.as_bytes(), |parsed| {
+  code_tokens::js::with_program(dialect, text.as_bytes(), |parsed| {
     let program = parsed.program()?;
     let (span, name) = name_at(program, text, offset)?;
     let names = resolve(program, text, Wanted::named(name));
@@ -86,7 +86,7 @@ pub(crate) fn reference_at(dialect: Dialect, text: &str, position: Position) -> 
 /// The answer of `read` for the names of a parse of `text` (`navigate::names_at`, `usages_at`, `usages_of`); `None`
 /// for a text without a program
 pub(crate) fn with_names<R: Send>(dialect: Dialect, text: &str, read: impl FnOnce(&dyn Names) -> R + Send) -> Option<R> {
-  super::with_program(dialect, text.as_bytes(), |parsed| {
+  code_tokens::js::with_program(dialect, text.as_bytes(), |parsed| {
     let names = ProgramNames {
       program: parsed.program()?,
       text,

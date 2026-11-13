@@ -25,7 +25,7 @@
 use bd_core::branch_view::read_grouping;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
-use code_symbols::highlight::Grammar;
+use code_tokens::Grammar;
 use domain_types::error::ErrorCode;
 use file_diffs::accio::{AccioCli, SymbolIndex};
 use file_diffs::marks::is_quiet;

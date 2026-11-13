@@ -1,7 +1,8 @@
 //! The highlighting of Starlark from its PSI, by the Bazel plugin's rules: `StarlarkSyntaxHighlighter` for the tokens
 //! and `starlarkSemanticHighlightingColor` for the names a parent gives a role (its `FunctionAnnotatorTestData.bzl`)
 
-use crate::highlight::{COMMENT, Grammar, Role, grammar_of};
+use crate::highlight::{COMMENT, Role};
+use code_tokens::{Grammar, grammar_of};
 use pretty_assertions::assert_eq;
 
 fn style_at(grammar: Grammar, text: &str, needle: &str, occurrence: usize) -> u32 {

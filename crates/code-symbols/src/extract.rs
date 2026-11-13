@@ -56,9 +56,10 @@ pub fn summarize(language: Language, path: &str, source: &[u8]) -> FileSummary {
 /// The revision of psi-syntax, whose `kotlin-syntax`, `java-syntax` and `csharp-syntax` read Kotlin, Java and C#, whose
 /// `starlark-syntax` reads Starlark, whose `js-syntax` reads TypeScript and JavaScript and whose `rust-syntax` reads Rust:
 /// the `rev` of develar/psi-syntax (the public mirror of accio's `psi-syntax/`) of the psi-syntax dependencies in
-/// `Cargo.toml`
+/// `Cargo.toml`, those of `code-tokens` too, which the version of the tokens is keyed by
+/// (`code_tokens::tokens_version`)
 /// (`the_psi_syntax_revision_is_the_one_cargo_builds`)
-pub(crate) const PSI_SYNTAX_REVISION: &str = "2c8d63c1498e0b837050952d4b95fc24af8af316";
+pub const PSI_SYNTAX_REVISION: &str = "2c8d63c1498e0b837050952d4b95fc24af8af316";
 
 /// A stable hash of the rules and the parsers of this build: a cached summary is valid only for the same value. FNV-1a
 /// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax that reads it, so it is the same

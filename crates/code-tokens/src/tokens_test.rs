@@ -1,20 +1,19 @@
 //! The tokens of every grammar and the one rule "equal by tokens": tables of pairs of texts with their answer, the
 //! negative ones first (a text that reads alike and is another program), then the lines, the columns and the ranges.
 
-use crate::highlight::Grammar;
-use crate::tokens::Equality::{CodeOnly, Different, Same};
-use crate::tokens::{
-  Equality, MAX_BYTES, RULES_VERSION, Token, TokenClass, Tokens, compare, content, equal_by_tokens, indentation_matters, is_blank, same_after, same_before, same_without_blanks,
-  texts_equal_by_tokens, tokens, tokens_version,
+use crate::Equality::{CodeOnly, Different, Same};
+use crate::{
+  Equality, Grammar, MAX_BYTES, RULES_VERSION, Token, TokenClass, Tokens, compare, content, equal_by_tokens, indentation_matters, is_blank, same_after, same_before,
+  same_without_blanks, texts_equal_by_tokens, tokens, tokens_version,
 };
 use pretty_assertions::assert_eq;
 
-#[path = "../examples/shared/token_checks.rs"]
-mod token_checks;
+/// A revision of the parsers, as a consumer names the one it builds with
+const PARSERS: &str = "2c8d63c1498e0b837050952d4b95fc24af8af316";
 
-/// The value for the parsers and the rules of this build. A change of `RULES_VERSION` (of the tokens or of the
-/// summaries) or of the psi-syntax revision changes it: replace it with the value the failure prints
-const TOKENS_VERSION: u32 = 1_837_207_020;
+/// The value for the rules of this build and `PARSERS`. A change of `RULES_VERSION` or of the grammars of a build
+/// changes it: replace it with the value the failure prints
+const TOKENS_VERSION: u32 = 1_312_102_803;
 
 const KOTLIN: Grammar = Grammar::Kotlin;
 const KTS: Grammar = Grammar::KotlinScript;
@@ -284,7 +283,7 @@ fn where_the_indentation_is_the_syntax_an_indent_is_no_formatting() {
   // every file the grammar of Starlark reads, whatever its name
   for path in ["WORKSPACE.bzlmod", "third_party/zlib.BUILD", "a/MODULE.bazel", "a/x.star"] {
     assert!(
-      crate::highlight::grammar_of(path).is_some_and(|grammar| matches!(grammar, STARLARK | Grammar::StarlarkBuild)),
+      crate::grammar_of(path).is_some_and(|grammar| matches!(grammar, STARLARK | Grammar::StarlarkBuild)),
       "{path}"
     );
     assert!(indentation_matters(path), "{path}");
@@ -1174,51 +1173,20 @@ fn the_keys_are_the_same_in_every_run() {
 #[test]
 fn tokens_version_is_stable() {
   // stored tokens, and what was derived from them, are made again when the rules or the parsers change
-  let version = tokens_version();
-  assert_eq!(version, tokens_version());
-  assert_ne!(version, crate::extract::extractor_version());
-  assert_ne!(version, crate::highlight::highlighter_version());
-  if cfg!(all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript", feature = "starlark")) {
+  let version = tokens_version(PARSERS);
+  assert_eq!(version, tokens_version(PARSERS));
+  assert_ne!(version, tokens_version("another revision of the parsers"));
+  if cfg!(all(
+    feature = "kotlin",
+    feature = "java",
+    feature = "csharp",
+    feature = "rust",
+    feature = "typescript",
+    feature = "starlark"
+  )) {
     assert_eq!(
       version, TOKENS_VERSION,
-      "RULES_VERSION {RULES_VERSION} of the tokens, that of the summaries or a grammar changed: set TOKENS_VERSION to {version}"
+      "RULES_VERSION {RULES_VERSION} of the tokens or a grammar changed: set TOKENS_VERSION to {version}"
     );
   }
-}
-
-/// Every fixture of the crate and its own sources: the checks of `examples/shared/token_checks.rs`
-#[test]
-fn every_fixture_formatted_again_has_the_same_tokens() {
-  fn walk(path: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    if path.is_dir() {
-      for entry in std::fs::read_dir(path).unwrap() {
-        walk(&entry.unwrap().path(), out);
-      }
-    } else {
-      out.push(path.to_path_buf());
-    }
-  }
-  let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-  let mut files = Vec::new();
-  for directory in ["testdata", "src", "examples"] {
-    walk(&root.join(directory), &mut files);
-  }
-  files.sort();
-  let (mut checked, mut lines, mut failed) = (0, 0, Vec::new());
-  for path in files {
-    let name = path.strip_prefix(&root).unwrap().to_string_lossy().into_owned();
-    let Some(grammar) = crate::highlight::grammar_of(&name) else { continue };
-    let text = std::fs::read_to_string(&path).unwrap();
-    match token_checks::check(grammar, &name, &text) {
-      Ok(Some(found)) => {
-        assert!(found.tokens > 0, "{name}");
-        checked += 1;
-        lines += found.lines;
-      }
-      Ok(None) => failed.push(format!("{name}: no tokens")),
-      Err(what) => failed.push(format!("{name}: {what}")),
-    }
-  }
-  assert_eq!(failed, Vec::<String>::new());
-  assert!(checked >= 100 && lines >= 20_000, "{checked} files, {lines} lines");
 }

@@ -1,7 +1,7 @@
 //! The one parse of a Java file: the document's text and a tree that tiles the text
 
-use crate::java::parse;
 use crate::test_support::assert_leaves_tile;
+use code_tokens::java::parse;
 use java_syntax::NodeKind;
 
 #[test]

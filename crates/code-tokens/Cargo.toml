@@ -1,0 +1,32 @@
+[package]
+name = "code-tokens"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+description = "The tokens of a source file as its parser read them and the rule \"equal by tokens\", on psi-syntax (Kotlin, Java, C#, Starlark, Rust, TypeScript), with the one parser of each language per thread"
+
+[dependencies]
+# the parsers of psi-syntax, a revision of develar/psi-syntax, the public mirror of accio's `psi-syntax/`, the same as
+# `code-symbols` reads its trees with (`code_symbols::extract::PSI_SYNTAX_REVISION`)
+csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316" }
+rust-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+
+[features]
+default = ["kotlin", "java", "csharp", "starlark", "rust", "typescript"]
+kotlin = ["dep:kotlin-syntax"]
+java = ["dep:java-syntax"]
+csharp = ["dep:csharp-syntax"]
+starlark = ["dep:starlark-syntax"]
+rust = ["dep:rust-syntax"]
+typescript = ["dep:js-syntax"]
+
+[lints]
+workspace = true

@@ -12,7 +12,7 @@
 //!   has the same keys.
 //! - **What must hold of the tokens** (`Builder::finish` answers `None` otherwise): they are in the order of the text,
 //!   none empty, each on the boundaries of characters (Roslyn lexes UTF-16 units and may cut a character of two), and
-//!   what stands between two of them is blank (`tokens::is_blank`). So a walk that left a piece of the text out, or a
+//!   what stands between two of them is blank (`is_blank`). So a walk that left a piece of the text out, or a
 //!   parser that skipped what no reader calls whitespace, gives no tokens instead of tokens that prove nothing, and
 //!   texts with the same tokens are the same without their blanks by construction.
 //! - **An irregular blank** (`Builder::irregular`): a blank the parser skips and its language does not call whitespace
@@ -21,7 +21,7 @@
 //!   the last one of what closes after it, so a text with it is another than the text without it, and a text of such
 //!   blanks alone has no tokens.
 
-use crate::tokens::{Token, TokenClass, Tokens, is_blank};
+use crate::{Token, TokenClass, Tokens, is_blank};
 use std::ops::Range;
 
 pub(crate) const SEED: u64 = 0x9e37_79b9_7f4a_7c15;

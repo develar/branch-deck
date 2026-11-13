@@ -1,7 +1,8 @@
 //! The highlighting of Java from its PSI, beside the golden files of `testdata/highlight/` (`highlight_test.rs`): what
 //! the PSI reads apart from tree-sitter's grammar, each a construct the corpus moved
 
-use crate::highlight::{FIELD, Grammar, ITALIC, Role, STATIC_FIELD, highlight};
+use crate::highlight::{FIELD, ITALIC, Role, STATIC_FIELD, highlight};
+use code_tokens::Grammar;
 use pretty_assertions::assert_eq;
 
 /// The style of the text at the `occurrence`-th `needle` of the text (counted from 0)

@@ -27,6 +27,7 @@ pub mod lines;
 pub(crate) mod paint;
 pub(crate) mod scopes;
 
+use code_tokens::Grammar;
 use lines::LineRuns;
 
 /// The version of the highlighting rules; bump it on any rule change, so that cached highlightings are made again
@@ -137,69 +138,6 @@ impl Role {
   }
 }
 
-/// The grammar a file is highlighted with; the discriminant of each is its stable id (`id`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Grammar {
-  Kotlin = 0,
-  /// A Kotlin script (`.kts`), whose top-level statements the compiler parses as a script's
-  KotlinScript = 5,
-  Java = 1,
-  Rust = 2,
-  TypeScript = 3,
-  /// TSX: `.tsx`
-  Tsx = 4,
-  /// JavaScript: `.js`, `.jsx`, `.mjs`, `.cjs`, JSX included
-  JavaScript = 9,
-  CSharp = 6,
-  /// Starlark: Bazel's `.bzl`, WORKSPACE and REPO.bazel files
-  Starlark = 7,
-  /// A Starlark BUILD or MODULE.bazel file, whose top-level calls declare (a target, a module or a dependency)
-  StarlarkBuild = 8,
-}
-
-impl Grammar {
-  /// A stable number for compact keys
-  pub const fn id(self) -> u8 {
-    self as u8
-  }
-
-  /// Whether this build reads files of the grammar: its language is a cargo feature
-  const fn is_enabled(self) -> bool {
-    match self {
-      Self::Kotlin | Self::KotlinScript => cfg!(feature = "kotlin"),
-      Self::Java => cfg!(feature = "java"),
-      Self::Rust => cfg!(feature = "rust"),
-      Self::TypeScript | Self::Tsx | Self::JavaScript => cfg!(feature = "typescript"),
-      Self::CSharp => cfg!(feature = "csharp"),
-      Self::Starlark | Self::StarlarkBuild => cfg!(feature = "starlark"),
-    }
-  }
-}
-
-/// The grammar of a file by its name or extension, if this build can highlight it
-pub fn grammar_of(path: &str) -> Option<Grammar> {
-  let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-  #[cfg(feature = "starlark")]
-  if let Some(kind) = starlark_syntax::FileKind::from_path(path) {
-    let grammar = if kind.top_level_calls_declare() { Grammar::StarlarkBuild } else { Grammar::Starlark };
-    return grammar.is_enabled().then_some(grammar);
-  }
-  let (_, extension) = file_name.rsplit_once('.')?;
-  let grammar = match extension {
-    "kt" => Grammar::Kotlin,
-    "kts" => Grammar::KotlinScript,
-    "java" => Grammar::Java,
-    "cs" => Grammar::CSharp,
-    "rs" => Grammar::Rust,
-    "ts" | "mts" | "cts" => Grammar::TypeScript,
-    "tsx" => Grammar::Tsx,
-    "js" | "jsx" | "mjs" | "cjs" => Grammar::JavaScript,
-    _ => return None,
-  };
-  grammar.is_enabled().then_some(grammar)
-}
-
 /// A stable hash of the rules and the grammars of this build: a cached highlighting is valid only for the same value
 pub fn highlighter_version() -> u32 {
   crate::extract::extractor_version() ^ RULES_VERSION.wrapping_mul(0x9e37_79b9)
@@ -224,17 +162,17 @@ pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
   }
   match grammar {
     #[cfg(feature = "kotlin")]
-    Grammar::Kotlin | Grammar::KotlinScript => Some(crate::kotlin::highlight::highlight(crate::kotlin::file_kind(grammar), text)),
+    Grammar::Kotlin | Grammar::KotlinScript => Some(crate::kotlin::highlight::highlight(code_tokens::kotlin::file_kind(grammar), text)),
     #[cfg(feature = "java")]
     Grammar::Java => Some(crate::java::highlight::highlight(text)),
     #[cfg(feature = "csharp")]
     Grammar::CSharp => Some(crate::csharp::highlight::highlight(text)),
     #[cfg(feature = "starlark")]
-    Grammar::Starlark | Grammar::StarlarkBuild => Some(crate::starlark::highlight::highlight(text, crate::starlark::file_kind(grammar))),
+    Grammar::Starlark | Grammar::StarlarkBuild => Some(crate::starlark::highlight::highlight(text, code_tokens::starlark::file_kind(grammar))),
     #[cfg(feature = "rust")]
     Grammar::Rust => crate::rust::highlight::highlight(text),
     #[cfg(feature = "typescript")]
-    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::highlight::highlight(crate::js::dialect_of_grammar(grammar), text),
+    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::highlight::highlight(code_tokens::js::dialect_of_grammar(grammar), text),
     #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript")))]
     _ => None,
   }

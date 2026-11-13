@@ -79,7 +79,8 @@ const PSI_READY_FORBIDDEN: &[&str] = &[
   TAURI,
 ];
 /// Why `PSI_READY_FORBIDDEN`
-const PSI_READY: &str = "the pure crates of the marks of a diff move as they are into psi-syntax: no git, no cache, no symbol of Branch Deck, no crate of its own and no bindings of its app";
+const PSI_READY: &str =
+  "the pure crates of the marks of a diff move as they are into psi-syntax: no git, no cache, no symbol of Branch Deck, no crate of its own and no bindings of its app";
 
 /// What `from` never reaches over its normal dependencies, also transitively
 struct Unreachable {
@@ -190,6 +191,11 @@ const UNREACHABLE: &[Unreachable] = &[
   },
   Unreachable {
     from: "line-diff",
+    forbidden: PSI_READY_FORBIDDEN,
+    why: PSI_READY,
+  },
+  Unreachable {
+    from: "code-tokens",
     forbidden: PSI_READY_FORBIDDEN,
     why: PSI_READY,
   },

@@ -1,9 +1,9 @@
 //! Go to Declaration and Find Usages of Rust on rust-analyzer's tree, one test per class of the names the oracle moved
 //! from tree-sitter's (docs/design/symbol-dependencies.md, decision 26)
 
-use crate::highlight::Grammar;
 use crate::navigate::{Access, Position, ReferenceKind, reference_at, usages_of};
 use crate::test_support::{at, kind_and_local, place, usages};
+use code_tokens::Grammar;
 
 const RUST: Grammar = Grammar::Rust;
 

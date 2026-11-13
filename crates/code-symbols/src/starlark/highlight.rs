@@ -11,7 +11,7 @@ use starlark_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
 /// The highlighting of a Starlark text (its size within `highlight::MAX_BYTES`); the file kind says whether top-level
 /// calls declare targets. Any bytes parse, so it always has one
 pub(crate) fn highlight(text: &str, kind: FileKind) -> LineRuns {
-  let tree = super::parse(text.as_bytes(), kind);
+  let tree = code_tokens::starlark::parse(text.as_bytes(), kind);
   let top_level_calls_declare = kind.top_level_calls_declare();
   let mut out = LineRuns::builder(text);
   let len = u32::try_from(tree.len()).unwrap_or(u32::MAX);

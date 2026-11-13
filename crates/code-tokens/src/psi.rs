@@ -2,8 +2,8 @@
 //! parser left as the tokens, the composites around them as their shapes, the errors the parser reported on its nodes
 //! at the place of each. What a node is to the tokens is the language's answer (`Piece`).
 
-use crate::tokens::build::{Builder, Kinds, hash_bytes};
-use crate::tokens::{TokenClass, Tokens};
+use crate::build::{Builder, Kinds, hash_bytes};
+use crate::{TokenClass, Tokens};
 use psi_builder::language::TreeLanguage;
 use psi_builder::{NodeId, Tree};
 

@@ -39,6 +39,7 @@ members = [
   "crates/patronus",
   "crates/github",
   "crates/youtrack",
+  "crates/code-tokens",
   "crates/code-symbols",
   "crates/line-diff",
   "crates/text-diff",

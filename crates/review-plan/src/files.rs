@@ -18,7 +18,7 @@
 //!   line too (`Whitespace`; `whitespace::Sides`: the lines of a file of a grammar equal by tokens, those of a file of
 //!   none the same text without its whitespace, line ends included), or, in a source file, only
 //!   blank lines and lines of import statements, at least one (`ImportsOnly`). A file of no grammar whose whitespace
-//!   has a meaning (Python, YAML, a Makefile: `code_symbols::tokens::indentation_matters`) is never `Whitespace`, nor
+//!   has a meaning (Python, YAML, a Makefile: `code_tokens::indentation_matters`) is never `Whitespace`, nor
 //!   is an indent of Starlark, which is in its tokens. An import statement starts
 //!   with an `import`, `use` or `package` line and runs until the brackets it opens close, so a Rust `use a::{` block
 //!   or a TypeScript `import {` over several lines counts whole; a bracket in a string or a comment counts not, and a
@@ -50,7 +50,7 @@ use crate::dependencies::ManifestState;
 use crate::links::{FileLink, LinkState};
 use crate::whitespace::TextTokens;
 use code_symbols::language::language_of;
-use code_symbols::tokens::indentation_matters;
+use code_tokens::indentation_matters;
 use file_diffs::service::compare_tree_paths;
 use generated_files::generated_by::GeneratedBy;
 use generated_files::header::{HEADER_BYTES, generated_header};

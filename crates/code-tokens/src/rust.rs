@@ -5,10 +5,9 @@
 //! one before a space. The errors of the lexer, the parser and the validation are a list beside the tree
 //! (`rust_syntax::parse_with_errors`): each is an event before the token it stands at or before, by its message.
 
-use super::span;
-use crate::tokens::build::{Builder, Kinds, hash_bytes, joint};
-use crate::tokens::{TokenClass, Tokens};
-use rust_syntax::ra_ap_syntax::{NodeOrToken, SyntaxKind as K, SyntaxToken, WalkEvent};
+use crate::build::{Builder, Kinds, hash_bytes, joint};
+use crate::{TokenClass, Tokens};
+use rust_syntax::ra_ap_syntax::{NodeOrToken, SyntaxKind as K, SyntaxToken, TextRange, WalkEvent};
 
 /// The tokens of a Rust text; `None` for a file nested deeper than any code (`rust_syntax::guarded`)
 pub(crate) fn tokens(text: &str) -> Option<Tokens> {
@@ -60,6 +59,11 @@ pub(crate) fn tokens(text: &str) -> Option<Tokens> {
     out.finish()
   })
   .flatten()
+}
+
+/// The byte range of a node or a token
+fn span(range: TextRange) -> std::ops::Range<usize> {
+  usize::from(range.start())..usize::from(range.end())
 }
 
 /// A punctuation mark with another right after it, no space between them: `Spacing::Joint` of a macro's input, which

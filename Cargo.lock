@@ -743,6 +743,7 @@ dependencies = [
  "bd-core",
  "clap",
  "code-symbols",
+ "code-tokens",
  "commit-clustering",
  "domain-types",
  "file-diffs",
@@ -1343,6 +1344,7 @@ dependencies = [
 name = "code-symbols"
 version = "0.1.0"
 dependencies = [
+ "code-tokens",
  "criterion",
  "csharp-syntax",
  "java-syntax",
@@ -1355,6 +1357,20 @@ dependencies = [
  "serde_json",
  "starlark-syntax",
  "sync-utils",
+]
+
+[[package]]
+name = "code-tokens"
+version = "0.1.0"
+dependencies = [
+ "csharp-syntax",
+ "java-syntax",
+ "js-syntax",
+ "kotlin-syntax",
+ "pretty_assertions",
+ "psi-builder",
+ "rust-syntax",
+ "starlark-syntax",
 ]
 
 [[package]]
@@ -2309,6 +2325,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "code-symbols",
+ "code-tokens",
  "criterion",
  "generated-files",
  "git-executor",
@@ -6068,6 +6085,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "code-symbols",
+ "code-tokens",
  "domain-types",
  "file-diffs",
  "generated-files",

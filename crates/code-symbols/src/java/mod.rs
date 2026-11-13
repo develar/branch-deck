@@ -23,21 +23,6 @@ pub(crate) mod highlight;
 pub(crate) mod navigate;
 mod pattern_scope;
 pub(crate) mod summary;
-pub(crate) mod tokens;
 
 #[cfg(test)]
 mod parse_test;
-
-use java_syntax::{FileKind, Parser, Tree};
-use std::cell::RefCell;
-
-thread_local! {
-  /// The thread's parser: psi-syntax keeps every buffer of a parse in it and reuses them from one file to the next
-  static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
-}
-
-/// The tree of a Java file from its bytes, every body expanded: the one Java parse of the crate
-pub(crate) fn parse(source: &[u8]) -> Tree {
-  let text = java_syntax::document_text(source);
-  PARSER.with_borrow_mut(|parser| parser.parse(&*text, FileKind::default()))
-}

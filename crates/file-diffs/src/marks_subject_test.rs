@@ -6,7 +6,7 @@ use crate::accio::{Access, RenameAnswer, RenameConflict, RenamePair, RenameUse, 
 use crate::leftovers::{Leftovers, PendingBlock, PendingRun};
 use crate::marks::{is_quiet, marks_of, pair_grammar, pair_indented, without_moved_lines};
 use crate::marks_subject::{IndexAnswer, PairFacts, Subject, as_confirmed};
-use code_symbols::tokens::tokens;
+use code_tokens::tokens;
 use line_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, LineMove, LineRun, RenameProof, RunKind, SubjectMarks, TextDiff, diff_texts};
 use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;

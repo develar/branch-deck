@@ -1,8 +1,8 @@
 //! Go to Declaration and Find Usages in Kotlin from its PSI, beside `navigate_test.rs`: each reading where it differs
 //! from tree-sitter's, by the construct
 
-use crate::highlight::Grammar;
 use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, UsagesAt, position_of, reference_at, usages_at, usages_of};
+use code_tokens::Grammar;
 use pretty_assertions::assert_eq;
 
 /// The place of the `occurrence`-th `needle` of a text, counted from 0

@@ -4,7 +4,7 @@
 //! (`line_diff::model::DiffMarks`). They change no block of the diff.
 //!
 //! - **Proof, not a guess.** A run is quiet only when the tokens of its lines are the same on both sides
-//!   (`code_symbols::tokens`, openspec/specs/commit/equal-by-tokens/spec.md): the same tokens parse to the same tree, so
+//!   (`code_tokens`, openspec/specs/commit/equal-by-tokens/spec.md): the same tokens parse to the same tree, so
 //!   the lines are the same program. A pair whose sides are not read by one grammar, a text without tokens and a side
 //!   over the size the inner ranges are compared for have no runs, and every block of them stays a stop.
 //! - **What is never marked**: a block the policy cut off (`Ignored`); a block with a side of no lines; lines that are
@@ -40,7 +40,7 @@
 //! - **Moves** (`line_diff::moves::find_moves`) need no grammar: every pair of texts has them, from its lines alone,
 //!   after the runs, whose lines no move takes. A move is never quiet: its new lines are in no run, so the block they
 //!   stand in always has a start; its old lines are nothing to read where they left (`starts_of`). Whether the
-//!   indentation of the file has a meaning (`code_symbols::tokens::indentation_matters`, of either path) decides what
+//!   indentation of the file has a meaning (`code_tokens::indentation_matters`, of either path) decides what
 //!   a line at another indent is in a move, so it is in the key of the diff (`service::diff_options`).
 //!
 //! `marks_runs` reads the runs of one block from its tokens, `marks_renames` the renames of a file.
@@ -49,8 +49,8 @@ use crate::leftovers::PendingBlock;
 use crate::marks_renames::{Candidates, may_hold_rename, renames_of};
 use crate::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
 use crate::service::{FileDiffs, fits_inner};
-use code_symbols::highlight::{Grammar, grammar_of};
-use code_symbols::tokens::{Tokens, indentation_matters, is_blank, tokens};
+use code_tokens::{Grammar, grammar_of};
+use code_tokens::{Tokens, indentation_matters, is_blank, tokens};
 use line_diff::model::{BlockKind, DiffBlock, DiffMarks, LineMove, LineRun, Rename, RunKind, TextDiff, starts_of};
 use line_diff::moves::find_moves;
 use line_diff::policy::WhitespacePolicy;
@@ -448,7 +448,7 @@ impl<'t> SideText<'t> {
     self.text.get(start..at(lines.end).max(start)).unwrap_or_default()
   }
 
-  /// Whether `lines` hold nothing but blanks (`code_symbols::tokens::is_blank`)
+  /// Whether `lines` hold nothing but blanks (`code_tokens::is_blank`)
   pub(crate) fn is_blank(&self, lines: Range<u32>) -> bool {
     self.lines(lines).chars().all(is_blank)
   }

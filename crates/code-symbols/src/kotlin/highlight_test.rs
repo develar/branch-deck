@@ -1,7 +1,8 @@
 //! The highlighting of Kotlin from its PSI, beside the golden files of `testdata/highlight/` (`highlight_test.rs`): each
 //! reading where it differs from tree-sitter's, by the construct
 
-use crate::highlight::{BOLD, Grammar, ITALIC, ROLE_BITS, Role, STATIC_FIELD, UNDERLINE, highlight};
+use crate::highlight::{BOLD, ITALIC, ROLE_BITS, Role, STATIC_FIELD, UNDERLINE, highlight};
+use code_tokens::Grammar;
 
 /// The pieces of the first line of a text in a style other than the default foreground, as `style "text"`
 fn pieces(grammar: Grammar, text: &str) -> Vec<String> {

@@ -74,7 +74,7 @@ pub struct PendingRun {
   /// The `Leftovers::undeclared` names, by their numbers, that the run leans on, in order, one at least: those with
   /// a place in its lines, and the one whose place is the first token of the code after its block when the run
   /// reaches the end of the block (it is a run there only while the code after the block reads the same,
-  /// `code_symbols::tokens::same_after`, which that name read as one makes it)
+  /// `code_tokens::same_after`, which that name read as one makes it)
   pub names: Vec<u32>,
 }
 

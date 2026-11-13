@@ -92,7 +92,7 @@ tree (`file-tree.ts`), the story of the diffs (`presentNarrative`). The concerns
 
 "Only the formatting changed" is the one fold a reader takes on trust, in the plan (`whitespace`) and in the diffs (a
 block of formatting), so both ask one rule that proves its answer
-([Equal by Tokens](../../openspec/specs/commit/equal-by-tokens/spec.md), `code_symbols::tokens`): two pieces of two
+([Equal by Tokens](../../openspec/specs/commit/equal-by-tokens/spec.md), `code_tokens`): two pieces of two
 texts are the same when their tokens are, and two texts with the same tokens parse to the same tree.
 
 - **A token is a leaf of the tree the parser made**, not a role of the highlighting (its runs hold only the changes of

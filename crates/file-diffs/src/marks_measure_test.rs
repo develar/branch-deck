@@ -6,7 +6,7 @@ use crate::fixture_test::unhurried;
 use crate::marks_measure::{MeasuredFile, MeasuredSubject};
 use crate::model::{DiffContent, DiffSource};
 use crate::service::{FileDiffs, diff_options, disk_key, model_version};
-use code_symbols::highlight::Grammar;
+use code_tokens::Grammar;
 use git_executor::git_command_executor::GitCommandExecutor;
 use line_diff::model::{BlockKind, RenameProof, RunKind, TextDiff};
 use line_diff::policy::WhitespacePolicy::Default as Exact;

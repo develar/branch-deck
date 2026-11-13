@@ -21,18 +21,40 @@
 //! - **No tokens** for a file oxc read only after a recovery (`Parsed::recovered`): the regions it blanked are not in
 //!   the tokens; nor for one it could not read at all or that nests deeper than `js_syntax` parses.
 
-use crate::tokens::build::{Builder, Kinds, hash_bytes, mix};
-use crate::tokens::{TokenClass, Tokens};
-use js_syntax::Dialect;
+use crate::Grammar;
+use crate::build::{Builder, Kinds, hash_bytes, mix};
+use crate::{TokenClass, Tokens};
 use js_syntax::oxc_ast::{AstKind, AstType};
 use js_syntax::oxc_ast_visit::Visit;
 use js_syntax::oxc_parser::Kind;
 use js_syntax::oxc_span::GetSpan;
+use js_syntax::{Dialect, Parsed, Read};
 use std::collections::HashSet;
+
+/// The dialect of a file the view reads by `grammar`: TypeScript of `.ts`, JavaScript of `.js`, TSX of the rest
+pub const fn dialect_of_grammar(grammar: Grammar) -> Dialect {
+  match grammar {
+    Grammar::TypeScript => Dialect::TypeScript,
+    Grammar::JavaScript => Dialect::JavaScript,
+    _ => Dialect::Tsx,
+  }
+}
+
+/// Parses `source` as `dialect`, with its tokens and the recovery of a fatal parse, and hands the parse to `read`; `None`
+/// when the file nests deeper than `js_syntax` parses. The tree, every walk of it and its drop stay inside, on the
+/// stack `js_syntax::with_program` chose: the one parse of a script of the crate and of `code-symbols`
+pub fn with_program<R: Send>(dialect: Dialect, source: &[u8], read: impl FnOnce(&Parsed<'_>) -> R + Send) -> Option<R> {
+  let how = Read {
+    recover: true,
+    tokens: true,
+    clock: || 0,
+  };
+  js_syntax::with_program(dialect, source, how, read).map(|(answer, _)| answer)
+}
 
 /// The tokens of `text` read as `dialect`; `None` when the tree does not hold every token (the module's "No tokens")
 pub(crate) fn tokens(dialect: Dialect, text: &str) -> Option<Tokens> {
-  super::with_program(dialect, text.as_bytes(), |parsed| {
+  with_program(dialect, text.as_bytes(), |parsed| {
     if parsed.recovered {
       return None;
     }

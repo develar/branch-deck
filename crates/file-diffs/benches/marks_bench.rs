@@ -16,9 +16,9 @@
 //! - `indented`: every function indented again, a name changed in the first: 300 blocks, one of them with a line to
 //!   read beside its run.
 
-use code_symbols::highlight::Grammar;
 use code_symbols::navigate::resolution_work;
-use code_symbols::tokens::{Tokens, compare, equal_by_tokens, tokens};
+use code_tokens::Grammar;
+use code_tokens::{Tokens, compare, equal_by_tokens, tokens};
 use criterion::{Criterion, criterion_group, criterion_main};
 use file_diffs::leftovers::Leftovers;
 use file_diffs::marks::{MAX_BLOCK_TOKENS, MAX_RENAME_WORK, MAX_TOKEN_EDITS, marks_of};

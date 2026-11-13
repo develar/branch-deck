@@ -7,8 +7,8 @@
 //! the declaration of a local in each of the first 200 functions, each with a new name: 200 entries, a resolution of
 //! the spelling and one more per entry for its clashes.
 
-use code_symbols::highlight::Grammar;
 use code_symbols::navigate::{NameQuestion, Position, names_at};
+use code_tokens::Grammar;
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::fmt::Write as _;
 use std::hint::black_box;

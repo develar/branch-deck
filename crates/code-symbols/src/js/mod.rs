@@ -20,7 +20,6 @@
 pub(crate) mod highlight;
 pub(crate) mod navigate;
 pub(crate) mod summary;
-pub(crate) mod tokens;
 
 #[cfg(test)]
 mod highlight_test;
@@ -29,7 +28,6 @@ mod navigate_test;
 #[cfg(test)]
 pub(crate) mod summary_test;
 
-use crate::highlight::Grammar;
 use js_syntax::oxc_ast::ast::{
   Argument, BindingPattern, Decorator, Expression, FormalParameterRest, FormalParameters, Function, FunctionBody, JSXOpeningElement, Program, PropertyKey, TSMappedType,
   TSThisParameter, TSTypeAnnotation, TSTypeName, TSTypeParameter, TSTypeParameterDeclaration, TSTypeParameterInstantiation, TSTypeQuery, TSTypeQueryExprName,
@@ -38,7 +36,7 @@ use js_syntax::oxc_ast::ast::{
 use js_syntax::oxc_ast_visit::Visit;
 use js_syntax::oxc_parser::Token;
 use js_syntax::oxc_span::Span;
-use js_syntax::{Dialect, Parsed, Read};
+use js_syntax::{Dialect, Parsed};
 
 /// The dialect of a file by its path: its extension's (`Dialect::of_extension`), TSX for a path without one of them,
 /// the superset that reads every file of the other two
@@ -48,27 +46,6 @@ pub(crate) fn dialect_of_path(path: &str) -> Dialect {
     .rsplit_once('.')
     .and_then(|(_, extension)| Dialect::of_extension(extension))
     .unwrap_or(Dialect::Tsx)
-}
-
-/// The dialect of a file the view reads by `grammar`: TypeScript of `.ts`, JavaScript of `.js`, TSX of the rest
-pub(crate) const fn dialect_of_grammar(grammar: Grammar) -> Dialect {
-  match grammar {
-    Grammar::TypeScript => Dialect::TypeScript,
-    Grammar::JavaScript => Dialect::JavaScript,
-    _ => Dialect::Tsx,
-  }
-}
-
-/// Parses `source` as `dialect`, with its tokens and the recovery of a fatal parse, and hands the parse to `read`; `None`
-/// when the file nests deeper than `js_syntax` parses. The tree, every walk of it and its drop stay inside, on the
-/// stack `js_syntax::with_program` chose
-pub(crate) fn with_program<R: Send>(dialect: Dialect, source: &[u8], read: impl FnOnce(&Parsed<'_>) -> R + Send) -> Option<R> {
-  let how = Read {
-    recover: true,
-    tokens: true,
-    clock: || 0,
-  };
-  js_syntax::with_program(dialect, source, how, read).map(|(answer, _)| answer)
 }
 
 /// The bytes of a file and where its lines start: what a walk cuts names from and numbers lines by (1-based, a line

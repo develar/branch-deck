@@ -3,7 +3,8 @@
 //! offsets of the view, and the roles of the view.
 
 use crate::highlight::lines::LineRuns;
-use crate::highlight::{BOLD, Grammar, ITALIC, ROLE_BITS, Role, STATIC_FIELD, UNDERLINE, grammar_of, highlight};
+use crate::highlight::{BOLD, ITALIC, ROLE_BITS, Role, STATIC_FIELD, UNDERLINE, highlight};
+use code_tokens::{Grammar, grammar_of};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 

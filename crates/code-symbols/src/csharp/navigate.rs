@@ -54,7 +54,7 @@ use csharp_syntax::{NodeId, NodeKind, Severity, TokenKind, Tree, facts};
 
 /// C#'s reading of Roslyn's tree for Go to Declaration and Find Usages (`psi_navigate`)
 pub(crate) const NAVIGATION: Reading<csharp_syntax::CSharp, Tree> = Reading {
-  parse: |text| crate::csharp::parse(text.as_bytes()),
+  parse: |text| code_tokens::csharp::parse(text.as_bytes()),
   psi: |tree| tree,
   is_name: |tree, leaf| tree.token_kind(leaf) == Some(TokenKind::IdentifierToken) && !in_structured_trivia(tree, leaf),
   name: value_of,

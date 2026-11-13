@@ -1,7 +1,14 @@
 //! The tokens of one file as its parser read them, and whether two pieces of two texts are the same code
 //! (openspec/specs/commit/equal-by-tokens/spec.md; docs/design/change-review.md, "Equal by tokens"): what tells a
-//! change of formatting, which no reader has to read, from a change of the code. Of every grammar of
-//! `highlight::Grammar`; a file of no grammar has no tokens, and its reader keeps a rule of characters.
+//! change of formatting, which no reader has to read, from a change of the code. Of every grammar of `Grammar`
+//! (`grammar_of`, each a cargo feature, all on by default); a file of no grammar has no tokens, and its reader keeps a
+//! rule of characters. Whether the indentation of a file has a meaning is `indentation_matters`.
+//!
+//! The parses of psi-syntax: the ports of the Kotlin compiler's, IntelliJ's, Roslyn's and the Bazel plugin's parsers
+//! (`kotlin`, `java`, `csharp`, `starlark`), oxc for TypeScript, TSX and JavaScript (`js`), rust-analyzer for Rust
+//! (`rust`). The parse of each is here, by one parser per thread, and `code-symbols` reads its trees by the same one
+//! (`kotlin::parse`, `js::with_program`, …): a thread keeps the buffers of one parser of a language, not two. A pure
+//! function of the text: no git, no cache, no IO.
 //!
 //! - **The proof**: two texts with the same tokens parse to the same tree, so they are the same program. A token
 //!   therefore is a leaf of the tree the parser made, never a role of the highlighting (`LineRuns` holds only the
@@ -58,18 +65,38 @@
 //! A pure function of the text, like the highlighting, with its own parse. `Tokens` holds no text and no tree, so a
 //! reader keeps it per blob and grammar (`tokens_version` for a stored one).
 
-pub(crate) mod build;
-#[cfg(any(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark"))]
-pub(crate) mod psi;
+#![cfg_attr(
+  not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript")),
+  expect(dead_code, unused_imports, reason = "a build without every grammar leaves the rules only the others use")
+)]
 
-use crate::highlight::{Grammar, grammar_of};
+mod build;
+pub mod checks;
+#[cfg(feature = "csharp")]
+pub mod csharp;
+#[cfg(feature = "java")]
+pub mod java;
+#[cfg(feature = "typescript")]
+pub mod js;
+#[cfg(feature = "kotlin")]
+pub mod kotlin;
+#[cfg(any(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark"))]
+mod psi;
+#[cfg(feature = "rust")]
+pub mod rust;
+#[cfg(feature = "starlark")]
+pub mod starlark;
+
+#[cfg(all(test, feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript"))]
+mod tokens_test;
+
 use std::ops::Range;
 
 /// The version of the rules of the tokens; bump it on any rule change, so that stored tokens and what was derived from
 /// them are made again
 pub const RULES_VERSION: u32 = 1;
-/// Texts above this size have no tokens: `extract::MAX_BYTES`, the limit of the summaries
-pub const MAX_BYTES: usize = crate::extract::MAX_BYTES;
+/// Texts above this size have no tokens: the limit of the summaries of `code-symbols` (`extract::MAX_BYTES`) too
+pub const MAX_BYTES: usize = 1 << 20;
 
 /// What a token is to a reader of a change; the grammar's own kind of it is in its `shape`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -359,26 +386,29 @@ pub fn tokens(grammar: Grammar, text: &str) -> Option<Tokens> {
   }
   match grammar {
     #[cfg(feature = "kotlin")]
-    Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::tokens::tokens(crate::kotlin::file_kind(grammar), text),
+    Grammar::Kotlin | Grammar::KotlinScript => kotlin::tokens(kotlin::file_kind(grammar), text),
     #[cfg(feature = "java")]
-    Grammar::Java => crate::java::tokens::tokens(text),
+    Grammar::Java => java::tokens(text),
     #[cfg(feature = "csharp")]
-    Grammar::CSharp => crate::csharp::tokens::tokens(text),
+    Grammar::CSharp => csharp::tokens(text),
     #[cfg(feature = "starlark")]
-    Grammar::Starlark | Grammar::StarlarkBuild => crate::starlark::tokens::tokens(text, crate::starlark::file_kind(grammar)),
+    Grammar::Starlark | Grammar::StarlarkBuild => starlark::tokens(text, starlark::file_kind(grammar)),
     #[cfg(feature = "rust")]
-    Grammar::Rust => crate::rust::tokens::tokens(text),
+    Grammar::Rust => rust::tokens(text),
     #[cfg(feature = "typescript")]
-    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::tokens::tokens(crate::js::dialect_of_grammar(grammar), text),
+    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => js::tokens(js::dialect_of_grammar(grammar), text),
     #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript")))]
     _ => None,
   }
 }
 
-/// A stable hash of the rules and the parsers of this build: stored tokens, and what was derived from them, are valid
-/// only for the same value
-pub fn tokens_version() -> u32 {
-  crate::extract::extractor_version() ^ RULES_VERSION.wrapping_mul(0x85eb_ca6b)
+/// A stable hash of the rules of the tokens (`RULES_VERSION`), the grammars of this build and `parsers`, the revision
+/// of the parsers it reads them with (the revision of psi-syntax its consumer builds with): stored tokens, and what was
+/// derived from them, are valid only for the same value. FNV-1a, so it is the same across runs and compilers
+pub fn tokens_version(parsers: &str) -> u32 {
+  let grammars = Grammar::ALL.into_iter().filter(|it| it.is_enabled()).map(Grammar::id);
+  let bytes = RULES_VERSION.to_le_bytes().into_iter().chain(grammars).chain(parsers.bytes());
+  bytes.fold(0x811c_9dc5, |hash: u32, byte| (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193))
 }
 
 /// The extensions of the files whose indentation has a meaning: Python, Starlark (`MODULE.bazel` too), YAML, Makefiles
@@ -395,4 +425,81 @@ pub fn indentation_matters(path: &str) -> bool {
   INDENTED_NAMES.contains(&name)
     || extension.is_some_and(|extension| INDENTED_EXTENSIONS.iter().any(|known| extension.eq_ignore_ascii_case(known)))
     || matches!(grammar_of(path), Some(Grammar::Starlark | Grammar::StarlarkBuild))
+}
+
+/// The grammar a file is read with: its tokens, and its highlighting and its navigation in `code-symbols`; the
+/// discriminant of each is its stable id (`id`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Grammar {
+  Kotlin = 0,
+  /// A Kotlin script (`.kts`), whose top-level statements the compiler parses as a script's
+  KotlinScript = 5,
+  Java = 1,
+  Rust = 2,
+  TypeScript = 3,
+  /// TSX: `.tsx`
+  Tsx = 4,
+  /// JavaScript: `.js`, `.jsx`, `.mjs`, `.cjs`, JSX included
+  JavaScript = 9,
+  CSharp = 6,
+  /// Starlark: Bazel's `.bzl`, WORKSPACE and REPO.bazel files
+  Starlark = 7,
+  /// A Starlark BUILD or MODULE.bazel file, whose top-level calls declare (a target, a module or a dependency)
+  StarlarkBuild = 8,
+}
+
+impl Grammar {
+  pub const ALL: [Self; 10] = [
+    Self::Kotlin,
+    Self::KotlinScript,
+    Self::Java,
+    Self::Rust,
+    Self::TypeScript,
+    Self::Tsx,
+    Self::JavaScript,
+    Self::CSharp,
+    Self::Starlark,
+    Self::StarlarkBuild,
+  ];
+
+  /// A stable number for compact keys
+  pub const fn id(self) -> u8 {
+    self as u8
+  }
+
+  /// Whether this build reads files of the grammar: its language is a cargo feature
+  pub const fn is_enabled(self) -> bool {
+    match self {
+      Self::Kotlin | Self::KotlinScript => cfg!(feature = "kotlin"),
+      Self::Java => cfg!(feature = "java"),
+      Self::Rust => cfg!(feature = "rust"),
+      Self::TypeScript | Self::Tsx | Self::JavaScript => cfg!(feature = "typescript"),
+      Self::CSharp => cfg!(feature = "csharp"),
+      Self::Starlark | Self::StarlarkBuild => cfg!(feature = "starlark"),
+    }
+  }
+}
+
+/// The grammar of a file by its name or extension, if this build reads it
+pub fn grammar_of(path: &str) -> Option<Grammar> {
+  let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+  #[cfg(feature = "starlark")]
+  if let Some(kind) = starlark_syntax::FileKind::from_path(path) {
+    let grammar = if kind.top_level_calls_declare() { Grammar::StarlarkBuild } else { Grammar::Starlark };
+    return grammar.is_enabled().then_some(grammar);
+  }
+  let (_, extension) = file_name.rsplit_once('.')?;
+  let grammar = match extension {
+    "kt" => Grammar::Kotlin,
+    "kts" => Grammar::KotlinScript,
+    "java" => Grammar::Java,
+    "cs" => Grammar::CSharp,
+    "rs" => Grammar::Rust,
+    "ts" | "mts" | "cts" => Grammar::TypeScript,
+    "tsx" => Grammar::Tsx,
+    "js" | "jsx" | "mjs" | "cjs" => Grammar::JavaScript,
+    _ => return None,
+  };
+  grammar.is_enabled().then_some(grammar)
 }

@@ -25,7 +25,7 @@ use std::ops::Range;
 /// The highlighting of a Kotlin text of `kind` (its size within `highlight::MAX_BYTES`): any bytes parse, so it always
 /// has one
 pub(crate) fn highlight(kind: FileKind, text: &str) -> LineRuns {
-  let tree = super::parse(text.as_bytes(), kind);
+  let tree = code_tokens::kotlin::parse(text.as_bytes(), kind);
   let mut out = LineRuns::builder(text);
   Painter {
     tree: &tree,

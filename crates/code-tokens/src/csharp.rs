@@ -11,16 +11,36 @@
 //! one on a comment (the XML of a documentation comment that does not close) part of that comment. A text Roslyn gave
 //! up nesting in (`ERR_InsufficientStack`) is one skipped token, its whole text: no tokens.
 
-use crate::tokens::build::{hash_bytes, mix};
-use crate::tokens::psi::{Piece, stream};
-use crate::tokens::{TokenClass, Tokens};
-use csharp_syntax::{ErrorCode, NodeId, NodeKind, TokenKind, facts};
+use crate::build::{hash_bytes, mix};
+use crate::psi::{Piece, stream};
+use crate::{TokenClass, Tokens};
+use csharp_syntax::{ErrorCode, FileKind, NodeId, NodeKind, Parser, TokenKind, Tree, facts};
+use std::cell::RefCell;
+
+/// What a thread's parser keeps of its buffers between files: past it, a parse's buffers shrink to half of it. 32 MiB, as
+/// accio measured on a parse per worker thread (a file needs about 25 bytes of buffers per source byte, so a file under
+/// 1.3 MB never pays a shrink), not psi-builder's 64 MiB default
+const RETAINED_BYTES: usize = 32 << 20;
+
+thread_local! {
+  /// The thread's parser: csharp-syntax keeps the buffers of a parse in it and reuses them from one file to the next
+  static PARSER: RefCell<Parser> = RefCell::new({
+    let mut parser = Parser::new();
+    parser.set_retained_bytes(RETAINED_BYTES);
+    parser
+  });
+}
+
+/// The tree of a C# file from its bytes: the one C# parse of the crate and of `code-symbols`, by one parser per thread
+pub fn parse(source: &[u8]) -> Tree {
+  PARSER.with_borrow_mut(|parser| parser.parse(source, FileKind::default()))
+}
 
 /// The tokens of a C# text; `None` when the parser gave up nesting in it, when its tree is not of the text byte for
 /// byte (Roslyn drops the name before a misplaced `explicit operator`: the offsets of the tree are those of its own
 /// text then), or its tokens are not those of the text (`stream`: where Roslyn cuts a character of two UTF-16 units)
 pub(crate) fn tokens(text: &str) -> Option<Tokens> {
-  let tree = super::parse(text.as_bytes());
+  let tree = parse(text.as_bytes());
   if tree.source() != text.as_bytes() || tree.diagnostics().iter().any(|diagnostic| diagnostic.code == ErrorCode::ERR_InsufficientStack) {
     return None;
   }

@@ -7,6 +7,8 @@ description = "The typed diffs of the files of a commit, a range or the working 
 
 [dependencies]
 code-symbols = { path = "../code-symbols" }
+# the tokens of a file and the rule "equal by tokens", the grammar of a path
+code-tokens = { path = "../code-tokens" }
 # the names of the generated files, which start collapsed (`collapse_of`)
 generated-files = { path = "../generated-files" }
 git-executor = { path = "../git-executor" }

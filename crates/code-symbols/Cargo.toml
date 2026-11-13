@@ -18,6 +18,8 @@ csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1
 java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
 js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
 kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+# the tokens of a file, and the one parser of each language per thread that every walk of a tree here reads it by
+code-tokens = { path = "../code-tokens", default-features = false }
 psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316" }
 rust-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
 starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
@@ -36,12 +38,12 @@ harness = false
 
 [features]
 default = ["kotlin", "java", "csharp", "starlark", "rust", "typescript"]
-kotlin = ["dep:kotlin-syntax"]
-java = ["dep:java-syntax"]
-csharp = ["dep:csharp-syntax"]
-starlark = ["dep:starlark-syntax"]
-rust = ["dep:rust-syntax"]
-typescript = ["dep:js-syntax"]
+kotlin = ["dep:kotlin-syntax", "code-tokens/kotlin"]
+java = ["dep:java-syntax", "code-tokens/java"]
+csharp = ["dep:csharp-syntax", "code-tokens/csharp"]
+starlark = ["dep:starlark-syntax", "code-tokens/starlark"]
+rust = ["dep:rust-syntax", "code-tokens/rust"]
+typescript = ["dep:js-syntax", "code-tokens/typescript"]
 
 [lints]
 workspace = true

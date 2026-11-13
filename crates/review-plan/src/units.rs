@@ -41,7 +41,7 @@ use crate::moved::{crossable, ordering_token, place_free};
 use crate::pair::{LineBlock, PairBlocks};
 use crate::whitespace::{Sides, TextTokens};
 use code_symbols::language::language_of;
-use code_symbols::tokens::indentation_matters;
+use code_tokens::indentation_matters;
 use file_diffs::service::imports_only;
 use line_diff::text_lines::TextLines;
 use serde::Serialize;

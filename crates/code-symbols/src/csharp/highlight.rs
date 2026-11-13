@@ -35,7 +35,7 @@ const STATIC_METHOD: u32 = Role::FunctionDeclaration.style() | ITALIC;
 
 /// The highlighting of a C# text (its size within `highlight::MAX_BYTES`): any bytes parse, so it always has one
 pub(crate) fn highlight(text: &str) -> LineRuns {
-  let tree = crate::csharp::parse(text.as_bytes());
+  let tree = code_tokens::csharp::parse(text.as_bytes());
   let mut out = LineRuns::builder(text);
   Painter {
     tree: &tree,

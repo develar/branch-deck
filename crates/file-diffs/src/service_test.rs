@@ -7,9 +7,10 @@ use crate::fixture_test::{RENAMED_STORE_ANSWER, REPORT, STORE, commit_all, proce
 use crate::leftovers::Leftovers;
 use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetRenameProofsParams};
 use crate::service::{DiffLimits, FileDiffs, MODEL_VERSION, MemoryKey, diff_options, disk_key, model_version, priority_order, store_version};
-use code_symbols::highlight::Grammar;
+use code_symbols::extract::PSI_SYNTAX_REVISION;
 use code_symbols::navigate::RULES_VERSION;
-use code_symbols::tokens::tokens_version;
+use code_tokens::Grammar;
+use code_tokens::tokens_version;
 use line_diff::model::{BlockKind, DiffMarks, FileMove, LineEnds, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
 use line_diff::policy::WhitespacePolicy;
 use line_diff::text::LineEndKind;
@@ -1343,11 +1344,16 @@ fn pair_of(key: &MemoryKey) -> BlobPair<'_> {
 fn a_diff_stored_with_the_tokens_of_other_parsers_is_not_read() {
   let (repo, second, key) = wrapped_commit();
   let pair = pair_of(&key);
-  let ours = store_version(MODEL_VERSION, tokens_version(), RULES_VERSION);
-  let other_tokens = store_version(MODEL_VERSION, tokens_version() ^ 1, RULES_VERSION);
-  let other_names = store_version(MODEL_VERSION, tokens_version(), RULES_VERSION + 1);
+  let ours = store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION);
+  let other_tokens = store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION) ^ 1, RULES_VERSION);
+  let other_names = store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION + 1);
   assert_eq!(model_version(), ours);
-  let versions = [ours, other_tokens, other_names, store_version(MODEL_VERSION + 1, tokens_version(), RULES_VERSION)];
+  let versions = [
+    ours,
+    other_tokens,
+    other_names,
+    store_version(MODEL_VERSION + 1, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION),
+  ];
   assert!(versions.iter().enumerate().all(|(index, version)| !versions[..index].contains(version)), "{versions:?}");
 
   // what other tokens proved: every line of the file in one quiet run

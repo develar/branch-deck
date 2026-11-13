@@ -14,9 +14,9 @@ use crate::declarations::{Candidate, candidate, in_review, outside_file, revisio
 use crate::model::{DeclarationTarget, DiffSide, FindDeclarationParams, FoundUsages, UsageTarget};
 use crate::service::FileDiffs;
 use anyhow::Result;
-use code_symbols::highlight::grammar_of;
 use code_symbols::language::{Language, language_of};
 use code_symbols::navigate::{Access as NavigationAccess, Usage, usages_at, usages_of};
+use code_tokens::grammar_of;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use std::collections::HashMap;

@@ -46,14 +46,14 @@
 //! allow): **a change of any rule here or in the `navigate.rs` of a language that changes an answer bumps
 //! `RULES_VERSION`**, or a stored answer of the old rule outlives its fix.
 
-use crate::highlight::Grammar;
+use code_tokens::Grammar;
 use std::collections::HashMap;
 use std::ops::Range;
 
 /// The version of the rules of the names: the scopes of each language, what a local is (`LocalBinding`), what a site
 /// makes of a name (`Site`) and what another name clashes with. Bump it on any change of an answer of `names_at`, so
 /// that what was stored of the answers is made again (`file_diffs::service::model_version`); the parsers of the
-/// build have their own version (`tokens::tokens_version`)
+/// build have their own version (`code_tokens::tokens_version`)
 pub const RULES_VERSION: u32 = 2;
 
 /// A place in a text: a line from 0 and a UTF-16 column, as the view counts them
@@ -321,7 +321,7 @@ impl NamesAt {
 pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
   match grammar {
     #[cfg(feature = "kotlin")]
-    Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::reference_at(crate::kotlin::file_kind(grammar), text, position),
+    Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::reference_at(code_tokens::kotlin::file_kind(grammar), text, position),
     #[cfg(feature = "java")]
     Grammar::Java => crate::psi_navigate::reference_at(&crate::java::navigate::NAVIGATION, text, position),
     #[cfg(feature = "csharp")]
@@ -329,7 +329,7 @@ pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<
     #[cfg(feature = "starlark")]
     Grammar::Starlark | Grammar::StarlarkBuild => crate::psi_navigate::reference_at(&crate::starlark::navigate::NAVIGATION, text, position),
     #[cfg(feature = "typescript")]
-    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::reference_at(crate::js::dialect_of_grammar(grammar), text, position),
+    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::reference_at(code_tokens::js::dialect_of_grammar(grammar), text, position),
     #[cfg(feature = "rust")]
     Grammar::Rust => crate::rust::navigate::reference_at(text, position),
     #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "typescript", feature = "rust")))]
@@ -653,7 +653,7 @@ fn clashes(names: &dyn Names, text: &str, name: &str, resolved: &[Resolved], loc
 fn with_names<R: Send>(grammar: Grammar, text: &str, read: impl FnOnce(&dyn Names) -> R + Send) -> Option<R> {
   match grammar {
     #[cfg(feature = "kotlin")]
-    Grammar::Kotlin | Grammar::KotlinScript => Some(crate::kotlin::navigate::with_names(crate::kotlin::file_kind(grammar), text, read)),
+    Grammar::Kotlin | Grammar::KotlinScript => Some(crate::kotlin::navigate::with_names(code_tokens::kotlin::file_kind(grammar), text, read)),
     #[cfg(feature = "java")]
     Grammar::Java => Some(crate::psi_navigate::with_names(&crate::java::navigate::NAVIGATION, text, read)),
     #[cfg(feature = "csharp")]
@@ -661,7 +661,7 @@ fn with_names<R: Send>(grammar: Grammar, text: &str, read: impl FnOnce(&dyn Name
     #[cfg(feature = "starlark")]
     Grammar::Starlark | Grammar::StarlarkBuild => Some(crate::psi_navigate::with_names(&crate::starlark::navigate::NAVIGATION, text, read)),
     #[cfg(feature = "typescript")]
-    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::with_names(crate::js::dialect_of_grammar(grammar), text, read),
+    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::with_names(code_tokens::js::dialect_of_grammar(grammar), text, read),
     #[cfg(feature = "rust")]
     Grammar::Rust => crate::rust::navigate::with_names(text, read),
     #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "typescript", feature = "rust")))]

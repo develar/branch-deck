@@ -33,7 +33,7 @@ use starlark_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree, psi, string};
 /// Starlark's reading of its PSI for Go to Declaration and Find Usages (`psi_navigate`)
 pub(crate) const NAVIGATION: Reading<starlark_syntax::Starlark, Tree> = Reading {
   // the parse is the same for every kind of Bazel file: one grammar, and the kind says only what a call declares
-  parse: |text| super::parse(text.as_bytes(), FileKind::Bzl),
+  parse: |text| code_tokens::starlark::parse(text.as_bytes(), FileKind::Bzl),
   psi: |tree| tree,
   is_name,
   name: name_of,

@@ -15,11 +15,11 @@
 //! of the two sides meet. `--parse-only` asks only that, for a corpus accio has no index of.
 
 use code_symbols::extract::summarize;
-use code_symbols::highlight::{Grammar, grammar_of};
 use code_symbols::language::Language;
 use code_symbols::language::language_of;
 use code_symbols::navigate::{Position, reference_at, usages_at};
 use code_symbols::summary::{DeclKind, MemberKind};
+use code_tokens::{Grammar, grammar_of};
 use fact_text::{arguments, inputs, probes, push, reference_text, take_flag, usages_at_text};
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};

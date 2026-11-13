@@ -1,6 +1,6 @@
-use crate::highlight::Grammar;
 use crate::navigate::{Access, ReferenceKind, usages_at, usages_of};
 use crate::test_support::{at, kind_and_local, place};
+use code_tokens::Grammar;
 use pretty_assertions::assert_eq;
 
 /// The line, column and access of each usage of the name at the `occurrence`-th `needle`, and whether it is a local

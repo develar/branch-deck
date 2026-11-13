@@ -1,16 +1,16 @@
-//! What must hold of the tokens of any file (`check`), for the example `tokens` over a corpus and the test of the
-//! fixtures: the tokens are in the order of the text with the lines and columns of the view, each in every line it
+//! What must hold of the tokens of any file (`check`), the oracle of a change of a parser or of the rules: for the
+//! example `tokens` over a corpus, the test of the sources of this crate and the test of the fixtures of
+//! `code-symbols`: the tokens are in the order of the text with the lines and columns of the view, each in every line it
 //! names, with only blanks between them; the same text formatted again (`reformatted`) has the same tokens, the same
 //! content and the same text without its blanks, and a name renamed has not.
 
-use code_symbols::highlight::Grammar;
-use code_symbols::tokens::{Equality, MAX_BYTES, Token, TokenClass, Tokens, compare, content, indentation_matters, is_blank, same_without_blanks, tokens};
+use crate::{Equality, Grammar, MAX_BYTES, Token, TokenClass, Tokens, compare, content, indentation_matters, is_blank, same_without_blanks, tokens};
 
 /// What the checks of one file found
-pub(crate) struct Checked {
-  pub(crate) tokens: usize,
+pub struct Checked {
+  pub tokens: usize,
   /// The lines `reformatted` changed
-  pub(crate) lines: usize,
+  pub lines: usize,
 }
 
 /// The lines of a text as the view splits them (`\n`, `\r\n`, a lone `\r`): the bytes of each without its line end, and
@@ -42,7 +42,7 @@ fn offset(byte: usize) -> u32 {
 /// is in a token (a string over lines, the text of a JSX element, a branch of `#if` not taken) stays, as does one that
 /// ends with a `\` or with a token that runs to the end of its line, a directive, and the indent of a line with a
 /// comment over several lines
-pub(crate) fn reformatted(path: &str, text: &str, all: &Tokens) -> (String, usize) {
+pub fn reformatted(path: &str, text: &str, all: &Tokens) -> (String, usize) {
   let indented = indentation_matters(path);
   let mut out = String::with_capacity(text.len() * 2);
   let mut changed = 0;
@@ -80,7 +80,7 @@ pub(crate) fn reformatted(path: &str, text: &str, all: &Tokens) -> (String, usiz
 
 /// Checks the tokens of `text`, a file at `path` of `grammar`: `None` for a text without tokens, the first thing that
 /// does not hold as the error
-pub(crate) fn check(grammar: Grammar, path: &str, text: &str) -> Result<Option<Checked>, String> {
+pub fn check(grammar: Grammar, path: &str, text: &str) -> Result<Option<Checked>, String> {
   let Some(all) = tokens(grammar, text) else { return Ok(None) };
   let lines = view_lines(text);
   if all.line_count() as usize != lines.len() {

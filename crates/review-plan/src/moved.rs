@@ -22,8 +22,8 @@
 //!   being tried in their order. Code between the two places that is no declaration beside it (a statement, an
 //!   initializer block, the end of an `impl` and the start of the next) is crossed by no fold.
 
-use code_symbols::highlight::Grammar;
 use code_symbols::summary::DeclKind;
+use code_tokens::Grammar;
 use trial_check::symbol_dependencies::declaration_checks::DeclarationForm;
 
 /// What starts the header of a variable of TypeScript and JavaScript (`Declaration::header`): the keyword of its

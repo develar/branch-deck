@@ -3403,7 +3403,7 @@ git plumbing does not depend on.
   indent while its move shifted is an edited line in a `.py` file and the same line in a `.txt` file. Blobs never
   change, so one entry serves every commit, range and window that shows the pair. Memory first (64 MiB), then the
   `file_diff` store, under `model_version()`: `MODEL_VERSION` with the version of the tokens (`store_version`,
-  `code_symbols::tokens::tokens_version`) and that of the rules the names of its renames are bound by
+  `code_tokens::tokens_version`) and that of the rules the names of its renames are bound by
   (`code_symbols::navigate::RULES_VERSION`), so a diff made with other parsers or other rules is never read. The store never keeps a
   diff that the time cut short (`BudgetedDiff::out_of_time`: its inner ranges or its lines ran out, also of a file over
   the inner limits); memory keeps it for the run, with the marks of its blocks. What a pair left is a

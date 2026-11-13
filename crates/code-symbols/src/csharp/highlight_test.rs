@@ -1,7 +1,8 @@
 //! The highlighting of C# from Roslyn's tree, beside the golden file of `testdata/highlight/` (`highlight_test.rs`):
 //! what the tree tells that a reading of the tokens alone would not
 
-use crate::highlight::{FIELD, Grammar, ITALIC, Role, STATIC_FIELD};
+use crate::highlight::{FIELD, ITALIC, Role, STATIC_FIELD};
+use code_tokens::Grammar;
 use pretty_assertions::assert_eq;
 
 /// The style of the text at the `occurrence`-th `needle` of the text (counted from 0)

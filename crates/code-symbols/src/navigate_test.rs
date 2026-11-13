@@ -1,7 +1,7 @@
 //! The name at a place and its declaration in the same file, by the scopes of each grammar
 
-use crate::highlight::Grammar;
 use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, reference_at, usages_at, usages_of};
+use code_tokens::Grammar;
 use pretty_assertions::assert_eq;
 
 /// The reference at the first `needle` of the text, its `skip`-th occurrence on its line counted from 0
