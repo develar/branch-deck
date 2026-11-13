@@ -1885,7 +1885,7 @@ test.describe("Read ahead", () => {
     await expect(getReviewRow(page, 401).getByTestId("review-request-label")).not.toHaveAttribute("data-claim")
   })
 
-  test("should give way in a narrow row with the title first, its labels, its reading and its age whole", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should give way in a narrow row with the meta first, then the title, its labels, its reading and its age whole", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const long = reviewRequest("check", 402, 7, {
       title: "Ledger: rename the sum helper, check the user and keep every other part of the ledger unchanged",
       author: "github-actions",
@@ -1897,7 +1897,8 @@ test.describe("Read ahead", () => {
     const row = getReviewRow(page, 402)
     await expect(row.getByTestId("review-request-reading")).toHaveText("1 change to read in 1 file")
     const cut = (locator: Locator) => locator.evaluate(element => element.scrollWidth > element.clientWidth)
-    // the title gives way first, cut with an ellipsis
+    // the meta gives way first, all of it, then the title, cut with an ellipsis
+    expect(await row.getByTestId("review-request-meta").evaluate(element => element.clientWidth)).toBe(0)
     expect(await cut(row.getByTestId("review-request-title"))).toBe(true)
     // the labels, the one the diff proves wrong among them, what it leaves to read and its age show whole
     const labels = row.getByTestId("review-request-label")

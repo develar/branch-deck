@@ -112,8 +112,8 @@ function requestMenu(
 /**
  * A pull request that waits for the user's review, one 36 px line: the unread dot, the title (its issue key muted), its
  * labels, the muted meta ("#123 · alice · 8 files · +120 −30", the base when it is not the default branch), a dot for
- * failing or running checks, what it leaves to read and how long it waits. The title gives way first, down to its
- * first words, then the meta, then the labels, each cut with an ellipsis; what it leaves to read and its age never do. A click reviews it in the review window;
+ * failing or running checks, what it leaves to read and how long it waits. The meta gives way first, then the title,
+ * then the labels, each cut with an ellipsis; what it leaves to read and its age never do. A click reviews it in the review window;
  * ⌘-click and O open it on GitHub, as the button on hover does. Reviews shows its pull requests in the same row, with
  * the mark, the meta and the age of how the user takes part, and the size of a row that is not the user's move in the
  * tooltip of its meta.
@@ -150,7 +150,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
   const size = `${files} · +${request.additions} −${request.deletions}`
   const hint = [metaHint, quiet ? size : undefined].filter(it => it !== undefined && it !== "").join(" · ")
   const metaLine = (
-    // the meta gives way once the title is down to its first words, the labels once the meta is gone
+    // the meta gives way first
     <span className={META_CLASS_NAME} data-testid="review-request-meta">
       {meta ?? formatRequestMeta(request)}
       {!quiet && (
@@ -183,11 +183,8 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
       >
         {/* the mark keeps its place on a row without one: the titles line up */}
         <span className="flex size-4 shrink-0 items-center justify-center">{lead ?? <UnreadDot unread={unread} />}</span>
-        {/*
-          the title gives way first, down to its first words (its basis, which it grows from up to its whole width while
-          the row has room), then the meta, then the title below them
-        */}
-        <span className="max-w-fit min-w-0 shrink grow basis-48 truncate font-medium" data-testid="review-request-title">
+        {/* the title is what the row is: it gives way once the meta is gone, the labels only after it */}
+        <span className="min-w-0 truncate font-medium" data-testid="review-request-title">
           <PullRequestTitle title={request.title} lead={request.titleLead} />
         </span>
         <RequestLabels number={request.number} labels={request.labels ?? []} />
@@ -453,6 +450,8 @@ function RequestLabels({ number, labels }: { number: number; labels: readonly st
         const chip = (
           <Badge
             variant={wrong ? "warning" : "secondary"}
+            // a label gives way only once the title is gone: its weight so far below the title's that it loses no fraction
+            // of a pixel (and no ellipsis) while the title has any room
             className={cn("h-4 min-w-0 shrink-[0.0001] justify-start px-1.5", !wrong && "text-muted-foreground")}
             data-testid="review-request-label"
             data-claim={wrong || undefined}
