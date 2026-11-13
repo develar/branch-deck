@@ -616,7 +616,9 @@ shows.
 - **Live values hold their own width**: a running robot is at least `13ch`, the compact push `min-w-16` (`⟳ 100%`),
   Push with Children of a row the widest it gets while it pushes (`⟳ 100% with children`, invisible in its cell),
   the Safe Push of a slot its width at rest while its start runs, so
-  a tick of a time or a percent changes no column. A minimum lives on the element that changes, never in the column:
+  a tick of a time or a percent changes no column. A button that says "Copied" in place holds the width of its longer
+  words (Copy Pull Request Link of the pull request popover): a narrower one let the actions fit on one line, the
+  popover shrank from under the pointer that clicked, and its hover closed it. A minimum lives on the element that changes, never in the column:
   a column minimum costs its width where nothing shows (the 328px Actions column of October 2026 was two of them).
 - **Labels**: the label of a group's column (Status, Actions) is the minimum of the group's items in every row
   (`ColumnLabel`, `--bd-group-<group>`), so a narrow group doesn't widen the table's column alone; Commits labels its

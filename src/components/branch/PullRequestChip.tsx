@@ -157,16 +157,25 @@ export function PullRequestDetails({ branchName, pullRequest }: PullRequestDetai
   )
 }
 
-/** "Copy Pull Request Link", which says "Copied" in place for a moment */
+/**
+ * "Copy Pull Request Link", which says "Copied" in place for a moment, in the width of its longer words (ui-theme.md,
+ * "Live values hold their own width"): a narrower "Copied" let both actions of the chip's popover fit on one line, the
+ * popover shrank by that line from under the pointer that clicked, and its hover closed it
+ */
 function CopyLinkButton({ url }: { url: string }) {
   const { isCopied, copyToClipboard } = useCopyToClipboard()
   return (
     <Button variant="outline" size="xs" onClick={() => void copyToClipboard(url)}>
       {isCopied ? <CopyCheckIcon data-icon="inline-start" /> : <LinkIcon data-icon="inline-start" />}
-      {isCopied ? "Copied" : "Copy Pull Request Link"}
+      {/* the longer words as an invisible pseudo-element in the same cell: it holds the width, and is no text of the button */}
+      <span className="grid before:invisible before:col-start-1 before:row-start-1 before:content-[attr(data-widest)]" data-widest={COPY_LINK}>
+        <span className="col-start-1 row-start-1">{isCopied ? "Copied" : COPY_LINK}</span>
+      </span>
     </Button>
   )
 }
+
+const COPY_LINK = "Copy Pull Request Link"
 
 function ChecksIcon({ state }: { state: ChecksState }) {
   const { icon: StateIcon, className } = checksIcons[state]

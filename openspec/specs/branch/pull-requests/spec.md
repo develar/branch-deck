@@ -866,8 +866,9 @@ Its accessible name MUST be "Pull request #760: Approved".
 ### Requirement: Chip: Hovering the chip opens the details
 
 Hovering the chip MUST open the details: the number and the state, the title, the checks, the reviewers, the last
-update, the notice about the head, "Open Pull Request" and "Copy Pull Request Link" (which says "Copied" in place),
-named as in the branch menu.
+update, the notice about the head, "Open Pull Request" and "Copy Pull Request Link" (which says "Copied" in place, in
+its own width, so the details keep their size and stay open under the pointer that copied), named as in the branch
+menu.
 
 #### Scenario: The details on hover
 - **WHEN** the pointer hovers the chip
@@ -883,6 +884,12 @@ named as in the branch menu.
   never "and 1 more": "2 failing (tests and a check without a name)"
   [@test] src/lib/pull-request.test.ts (`lists the failing checks first`)
   [@test] src/lib/check-counts.test.ts (`never counts one failed check left out: one without a name is said as such, in the counts of the checks too`)
+
+#### Scenario: Copy Pull Request Link in the details
+- **WHEN** the user clicks "Copy Pull Request Link" in the details
+- **THEN** the link is copied, and the button says "Copied" in its own width and place
+- **AND** the details stay open while the pointer stays on the button
+  [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
 
 ### Requirement: Chip: The details say why the head differs
 

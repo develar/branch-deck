@@ -218,9 +218,17 @@ test.describe("Pull request chip", () => {
     expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
 
     const popover = await hoverChip(page, "ABC-123")
-    await popover.getByRole("button", { name: "Copy Pull Request Link" }).click()
-    await expect(popover.getByRole("button", { name: "Copied" })).toBeVisible()
+    const copy = popover.getByRole("button", { name: "Copy Pull Request Link" })
+    const box = await copy.boundingBox()
+    await copy.click()
+    const copied = popover.getByRole("button", { name: "Copied" })
+    await expect(copied).toBeVisible()
     expect(await readClipboard(page)).toBe(CHANGES_REQUESTED.url)
+    // the words that say it copied keep the width of the button, so the popover keeps its size under the pointer that
+    // clicked: the next move of the pointer there leaves it open
+    expect(await copied.boundingBox()).toEqual(box)
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 1)
+    await expect(copied).toBeVisible()
   })
 
   test("should offer to create the pull request of a branch in the push toast, the branch menu and the preview", async ({ page, repo }) => {
