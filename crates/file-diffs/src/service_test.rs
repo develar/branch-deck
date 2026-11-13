@@ -6,7 +6,7 @@ use crate::blocks::{BlobPair, PairDiff};
 use crate::fixture_test::{RENAMED_STORE_ANSWER, REPORT, STORE, commit_all, process_counts, renamed_store, repo_path, unhurried, write};
 use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetRenameProofsParams};
 use crate::service::{DiffLimits, FileDiffs, MODEL_VERSION, MemoryKey, diff_options, disk_key, model_version, priority_order, store_version};
-use code_symbols::extract::PSI_SYNTAX_REVISION;
+use code_symbols::extract::{PSI_SYNTAX_REVISION, extractor_version};
 use code_symbols::navigate::RULES_VERSION;
 use code_tokens::Grammar;
 use code_tokens::tokens_version;
@@ -1337,23 +1337,27 @@ fn pair_of(key: &MemoryKey) -> BlobPair<'_> {
   }
 }
 
-/// The store keeps a diff under a version made of the model's, of the tokens' and of the rules of the names
-/// (`store_version`): the quiet runs of a diff are proven by the tokens of the parsers that made it, and its renames
-/// by the bindings of the rules that read them, so a diff an app with other parsers or other rules stored is never
-/// answered, to a view or to a scan, and the first write of this app drops it
+/// The store keeps a diff under a version made of the model's, of the tokens', of the rules of the names and of the
+/// summaries (`store_version`): the quiet runs of a diff are proven by the tokens of the parsers that made it, its
+/// renames by the bindings of the rules that read them, and the labels of its hunks and its blocks of the imports
+/// alone are read from the summaries of its texts, so a diff an app with other parsers, other rules or other
+/// summaries stored is never answered, to a view or to a scan, and the first write of this app drops it
 #[test]
 fn a_diff_stored_with_the_tokens_of_other_parsers_is_not_read() {
   let (repo, second, key) = wrapped_commit();
   let pair = pair_of(&key);
-  let ours = store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION);
-  let other_tokens = store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION) ^ 1, RULES_VERSION);
-  let other_names = store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION + 1);
+  let (tokens, summaries) = (tokens_version(PSI_SYNTAX_REVISION), extractor_version());
+  let ours = store_version(MODEL_VERSION, tokens, RULES_VERSION, summaries);
+  let other_tokens = store_version(MODEL_VERSION, tokens ^ 1, RULES_VERSION, summaries);
+  let other_names = store_version(MODEL_VERSION, tokens, RULES_VERSION + 1, summaries);
+  let other_summaries = store_version(MODEL_VERSION, tokens, RULES_VERSION, summaries ^ 1);
   assert_eq!(model_version(), ours);
   let versions = [
     ours,
     other_tokens,
     other_names,
-    store_version(MODEL_VERSION + 1, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION),
+    other_summaries,
+    store_version(MODEL_VERSION + 1, tokens, RULES_VERSION, summaries),
   ];
   assert!(versions.iter().enumerate().all(|(index, version)| !versions[..index].contains(version)), "{versions:?}");
 
@@ -1388,9 +1392,9 @@ fn a_diff_stored_with_the_tokens_of_other_parsers_is_not_read() {
     let stored = |version: u32| cache.get_file_diffs::<TextDiff>(version, &[disk_key(&key)]).remove(0).map(|diff| diff.marks.runs);
     (scan.marks.runs.clone(), text(&view[0]).marks.runs.clone(), stored(ours), stored(others))
   };
-  // other parsers, and other rules of the names: the scan and the view compare the pair themselves (a scan reads no
-  // runs), and the view keeps its diff under the version of this app, which drops the other one
-  for others in [other_tokens, other_names] {
+  // other parsers, other rules of the names and other summaries: the scan and the view compare the pair themselves
+  // (a scan reads no runs), and the view keeps its diff under the version of this app, which drops the other one
+  for others in [other_tokens, other_names, other_summaries] {
     assert_eq!(answers(others, others), (vec![], vec![wrapped_run()], Some(vec![wrapped_run()]), None));
   }
   // the same store under the version of this app is answered: the readers ask by that version

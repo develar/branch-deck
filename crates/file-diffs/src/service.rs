@@ -89,7 +89,9 @@ use sync_utils::span::in_current_span;
 use tracing::{debug, instrument, warn};
 
 /// The version of the diffs in the `file_diff` store and of what they left in the `file_leftovers` store: bump it
-/// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change.
+/// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change. The
+/// tokens, the rules of the names and the summaries key the store by their own versions (`model_version`): a change
+/// of their rules needs no bump here.
 /// `stored_layout_test.rs` pins the layout of both with it. 15: a diff whose lines ran out of time is not stored either
 /// (`BudgetedDiff::out_of_time`), so a store of 14 may hold one block of two whole texts that the time made. 19: the
 /// scopes and the blocks of the imports alone are by the lines of the diffs (`side_facts`), so a store of 18 may hold
@@ -97,18 +99,21 @@ use tracing::{debug, instrument, warn};
 pub const MODEL_VERSION: u32 = 19;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
-/// are read from (`code_tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
-/// the version of the rules the names of the renames are bound by (`code_symbols::navigate::RULES_VERSION`: the
-/// scopes, the locals, the sites, the clashes), so a stored diff is never read with marks of other tokens or of
-/// other bindings: a rule of a scope that was fixed takes the renames and the quiet runs it had allowed with it
+/// are read from (`code_tokens::tokens_version`: the parsers of this build and the rules of the tokens), the
+/// version of the rules the names of the renames are bound by (`code_symbols::navigate::RULES_VERSION`: the
+/// scopes, the locals, the sites, the clashes) and the version of the summaries the scopes and the blocks of the
+/// imports alone are read from (`code_symbols::extract::extractor_version`: the parsers, the rules of the summaries
+/// and the languages of this build), so a stored diff is never read with marks of other tokens or of other
+/// bindings, or with the labels of other summaries: a rule of a scope that was fixed takes the renames and the
+/// quiet runs it had allowed with it, a fix of the summaries the labels of the hunks it had made
 pub fn model_version() -> u32 {
-  store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION)
+  store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION, extractor_version())
 }
 
-/// The version of the store for a version of the model, one of the tokens and one of the rules of the names:
-/// another for another of any
-pub(crate) const fn store_version(model: u32, tokens: u32, names: u32) -> u32 {
-  model.wrapping_mul(0x9e37_79b9) ^ tokens ^ names.wrapping_mul(0xc2b2_ae35)
+/// The version of the store for a version of the model, one of the tokens, one of the rules of the names and one
+/// of the summaries: another for another of any
+pub(crate) const fn store_version(model: u32, tokens: u32, names: u32, summaries: u32) -> u32 {
+  model.wrapping_mul(0x9e37_79b9) ^ tokens ^ names.wrapping_mul(0xc2b2_ae35) ^ summaries.wrapping_mul(0x27d4_eb2f).rotate_left(16)
 }
 
 /// The diffs that memory keeps, weighed by the size of their model

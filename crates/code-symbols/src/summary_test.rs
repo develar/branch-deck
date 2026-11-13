@@ -37,8 +37,9 @@ fn every_fixture_matches_its_golden_file() {
 
 #[test]
 fn the_psi_syntax_revision_is_the_one_cargo_builds() {
-  // `extractor_version` hashes the revision, the version of the tokens too (`code_tokens::tokens_version`): a cached
-  // summary or a stored diff of another parser is made again. `code-tokens` parses by the same revision
+  // `extractor_version` hashes the revision: a cached summary of another parser is made again. `code-tokens` parses
+  // by the same revision, and file-diffs gives it to `code_tokens::tokens_version` (`PSI_SYNTAX_REVISION`), so a
+  // stored diff of another parser is made again too
   let manifest = include_str!("../Cargo.toml");
   let tokens_manifest = include_str!("../../code-tokens/Cargo.toml");
   let lock = include_str!("../../../Cargo.lock");
