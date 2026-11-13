@@ -91,8 +91,10 @@ jobs:
         if: runner.os == 'macOS'
         run: pnpm exec node --test scripts/release-signing.test.mjs scripts/slowest-tests.test.mjs scripts/e2e-steps.test.mjs
 
+      # `cargo fetch`: a test link into psi-syntax is read in the checkout cargo fetched (`cargo metadata --offline`),
+      # and no build has fetched the dependencies yet
       - name: Type-check, find copies, check the test links of the specs and the architecture rules
-        run: pnpm lint:typecheck && pnpm lint:cpd && pnpm lint:specs && pnpm lint:arch
+        run: pnpm lint:typecheck && pnpm lint:cpd && cargo fetch --locked && pnpm lint:specs && pnpm lint:arch
 
       - name: Check Rust formatting and clippy
         # bash: pwsh, the Windows default, fails a step only on the exit code of its last command

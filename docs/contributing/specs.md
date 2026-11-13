@@ -5,7 +5,8 @@
 A spec is the contract of a feature: what it does, as a user or an agent sees it, each rule with the tests that prove
 it. The specs are of [OpenSpec](https://github.com/Fission-AI/OpenSpec) 1.16 (`@fission-ai/openspec`, a devDependency):
 one capability per file, `openspec/specs/<area>/<name>/spec.md`, its id `<area>/<name>` (`branch/unapply`).
-`pnpm lint:specs` checks their links and the order of their requirements and runs `openspec validate --strict`; `pnpm exec openspec show branch/unapply`
+`pnpm lint:specs` checks their links and the order of their requirements and runs `openspec validate --strict`
+([its spec](../../openspec/specs/cli/specs-lint/spec.md)); `pnpm exec openspec show branch/unapply`
 and `pnpm exec openspec list --specs` read them.
 
 ## The file
@@ -62,7 +63,7 @@ The files the commits changed MUST follow them out of the current branch, so tha
 
 - **Front matter**: `name`, `description` (one sentence of what the spec requires; the brief of a review shows it for
   a new spec), `style: plain-1`, and `targets:`: the files where the feature lives (its rule, intent, `brd` command and
-  presenter), each once, by its path from the root of the repository. A rule of `crates/domain-policy/src/` names its
+  presenter), each once, by its path from the root of the repository (a file of psi-syntax as in a test link). A rule of `crates/domain-policy/src/` names its
   spec in its `//!` header, and the spec lists it; every presenter of `src/presenters/` is the target of a spec.
 - **Title**, then `Status:` (Implemented, Experimental, Draft) and `Date:`; OpenSpec reads neither.
 - **Purpose**: what the feature is for, in a paragraph (50 characters at least). Goals and Non-goals follow it.
@@ -98,6 +99,13 @@ A test link is a line of its own: the marker, the path of a test file from the r
 parentheses the names of tests in it, each in backticks (a Rust function, the title of a TypeScript test as its source
 writes it). Every requirement names the tests that prove it, exactly; a renamed or moved test updates its links in
 the same commit. The review of a branch shows them as the proof of the step that changes the rule.
+
+A test of a crate of psi-syntax, the git dependency Branch Deck links by a revision of develar/psi-syntax, is named
+`psi-syntax:crates/<crate>/<path>`, in a test link and in `targets:` alike. `pnpm lint:specs` reads that file in the
+checkout cargo fetched of the crate, at the revision Cargo.lock pins (`cargo metadata --offline --locked`, run only when
+a spec or a doc names such a path), and checks its test names as those of a local link. A crate the workspace does not
+depend on, or depends on at two revisions, is a problem, and so are sources not fetched: `cargo fetch` fetches them;
+the check never does ([The check of the specs](../../openspec/specs/cli/specs-lint/spec.md#git-dependencies)).
 
 ## Links
 

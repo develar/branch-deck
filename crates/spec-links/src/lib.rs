@@ -16,14 +16,17 @@
 //! - AGENTS.md keeps within its budget, which every session of every agent reads whole (Codex reads no more than 32 KiB).
 //!
 //! A renamed, moved or deleted test or file fails here, not in a reader. Every path is one from the root with `/` on
-//! every platform, as the links, the targets and the `//!` headers name a file.
+//! every platform, as the links, the targets and the `//!` headers name a file. A test link and a target may name a
+//! file of a crate of the git dependency psi-syntax, `psi-syntax:crates/<crate>/<path>`: the file of that crate at the
+//! revision Cargo.lock pins, in the checkout cargo has fetched (`GitSources`).
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::tracked_under;
 use regex::Regex;
 use serde_json::Value;
-use std::collections::{BTreeSet, HashMap};
-use std::path::Path;
+use std::cell::OnceCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use sync_utils::child_process::windowless_command;
 
@@ -60,11 +63,137 @@ static TARGET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s+- (\S+)$").ex
 /// (`plugins/air/spec/x/y.spec.md` is of another repository)
 static OLD_LAYOUT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"spec/(?:branch|cli|commit|repository|review)/[a-z0-9-]+\.spec\.md\b").expect("a valid pattern"));
 
+/// The prefix of a path into the git dependency psi-syntax, `psi-syntax:crates/<crate>/<path>`
+const PSI_SYNTAX: &str = "psi-syntax:";
+/// The repository of the git dependency psi-syntax, its public mirror, as Cargo.lock names its source
+const PSI_SYNTAX_URL: &str = "https://github.com/develar/psi-syntax";
+
+/// The directory of each crate of psi-syntax by its revision (the commit of Cargo.lock), by the name of its directory
+type Crates = BTreeMap<String, BTreeMap<String, PathBuf>>;
+
+/// The sources of the crates of the git dependency psi-syntax, for a path `psi-syntax:crates/<crate>/<path>`: the
+/// directory of each crate the workspace depends on, at the revision Cargo.lock pins, from the packages `metadata`
+/// answers (`cargo_metadata`). It is asked once, at the first such path; a check of none runs no cargo
+pub struct GitSources<'a> {
+  metadata: Box<dyn Fn() -> Result<Value, String> + 'a>,
+  /// The crates of psi-syntax, or why there are none
+  crates: OnceCell<Result<Crates, String>>,
+}
+
+impl<'a> GitSources<'a> {
+  /// The sources of the packages `metadata` answers, `cargo metadata --format-version 1` of the workspace or why not
+  #[must_use]
+  pub fn new(metadata: impl Fn() -> Result<Value, String> + 'a) -> Self {
+    Self {
+      metadata: Box::new(metadata),
+      crates: OnceCell::new(),
+    }
+  }
+
+  /// The file at `path` of `root`: of a path `psi-syntax:crates/<crate>/<path>` in the directory of the crate, of any
+  /// other from `root`
+  ///
+  /// # Errors
+  /// The path into psi-syntax names no file of a crate, its sources are not fetched, the workspace depends on no crate of
+  /// that name, or on two revisions of it.
+  pub fn file_of(&self, root: &Path, path: &str) -> Result<PathBuf, String> {
+    let Some(inside) = path.strip_prefix(PSI_SYNTAX) else {
+      return Ok(root.join(path));
+    };
+    let parts: Vec<&str> = inside.split('/').collect();
+    if parts.len() < 3 || parts[0] != "crates" || parts.iter().any(|part| matches!(*part, "" | "." | "..")) {
+      return Err(format!("{path} is no file of a crate of psi-syntax, {PSI_SYNTAX}crates/<crate>/<path>"));
+    }
+    let name = parts[1];
+    let crates = self.crates.get_or_init(|| (self.metadata)().map(|metadata| psi_syntax_crates(&metadata)));
+    let crates = crates
+      .as_ref()
+      .map_err(|error| format!("the sources of psi-syntax are not fetched (`cargo fetch` fetches them): {error}"))?;
+    let Some(revisions) = crates.get(name) else {
+      let names: Vec<&str> = crates.keys().map(String::as_str).collect();
+      let only = if names.is_empty() {
+        "on none".to_string()
+      } else {
+        format!("only on {}", names.join(", "))
+      };
+      return Err(format!("the workspace depends on no crate {name} of psi-syntax (Cargo.lock), {only}"));
+    };
+    match revisions.values().collect::<Vec<_>>()[..] {
+      [dir] => Ok(parts[2..].iter().fold(dir.clone(), |file, part| file.join(part))),
+      _ => Err(format!(
+        "the workspace depends on the crate {name} of psi-syntax at {} revisions ({}, Cargo.lock), so the link names no one file: pin one",
+        revisions.len(),
+        revisions.keys().map(|commit| commit.get(..8).unwrap_or(commit)).collect::<Vec<_>>().join(", ")
+      )),
+    }
+  }
+
+  /// The file at `path` of `root` that exists (`file_of`)
+  ///
+  /// # Errors
+  /// The problem of `file_of`, or no file at the path.
+  pub fn existing_file(&self, root: &Path, path: &str) -> Result<PathBuf, String> {
+    let file = self.file_of(root, path)?;
+    if file.exists() { Ok(file) } else { Err(format!("no file {path}")) }
+  }
+}
+
+/// The directory of each crate of psi-syntax among the packages of `metadata` (`cargo metadata`), by its revision, by
+/// the name of its directory under `crates/` of the checkout
+fn psi_syntax_crates(metadata: &Value) -> Crates {
+  let mut crates = Crates::new();
+  for package in metadata["packages"].as_array().into_iter().flatten() {
+    // `git+<url>?rev=<rev>#<commit>`
+    let Some(source) = package["source"].as_str().and_then(|source| source.strip_prefix("git+")) else {
+      continue;
+    };
+    let (url, commit) = source.split_once('#').unwrap_or((source, ""));
+    let url = url.split_once('?').map_or(url, |(url, _)| url);
+    if url.trim_end_matches(".git") != PSI_SYNTAX_URL {
+      continue;
+    }
+    let Some(dir) = package["manifest_path"].as_str().and_then(|manifest| Path::new(manifest).parent()) else {
+      continue;
+    };
+    if dir.parent().and_then(Path::file_name).is_some_and(|parent| parent == "crates")
+      && let Some(name) = dir.file_name()
+    {
+      crates.entry(name.to_string_lossy().into_owned()).or_default().insert(commit.to_string(), dir.to_path_buf());
+    }
+  }
+  crates
+}
+
+/// What `cargo metadata --format-version 1 --offline --locked` answers of the workspace at `root`: its packages at the
+/// revisions Cargo.lock pins, from the sources cargo has fetched, never from the network and never a change of
+/// Cargo.lock. The cargo that runs this one (`CARGO`), else the one that built it
+///
+/// # Errors
+/// Cargo does not run, has not fetched a package of the workspace or Cargo.lock is not up to date; cargo's error, its
+/// lines joined from the first error.
+pub fn cargo_metadata(root: &Path) -> Result<Value, String> {
+  let cargo = std::env::var_os("CARGO").unwrap_or_else(|| env!("CARGO").into());
+  let output = windowless_command(&cargo)
+    .args(["metadata", "--format-version", "1", "--offline", "--locked", "--manifest-path"])
+    .arg(root.join("Cargo.toml"))
+    .output()
+    .map_err(|error| format!("cargo metadata --offline: {error}"))?;
+  if !output.status.success() {
+    // from its first error, without the notes before it ("Blocking waiting for file lock")
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<&str> = stderr.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    let first = lines.iter().position(|line| line.starts_with("error")).unwrap_or(0);
+    return Err(format!("cargo metadata --offline: {}", lines[first..].join(" ")));
+  }
+  serde_json::from_slice(&output.stdout).map_err(|error| format!("cargo metadata --offline: {error}"))
+}
+
 /// Every problem of the specs of the repository at `root`, in the order of the checks
 #[must_use]
 pub fn check_all(root: &Path) -> Vec<String> {
-  let mut problems = check_test_links(root);
-  problems.extend(check_spec_targets(root));
+  let sources = GitSources::new(|| cargo_metadata(root));
+  let mut problems = check_test_links(root, &sources);
+  problems.extend(check_spec_targets(root, &sources));
   problems.extend(check_spec_anchors(root));
   problems.extend(check_requirement_groups(root));
   problems.extend(check_old_layout(root, &tracked_files(root)));
@@ -125,7 +254,12 @@ fn docs_of(root: &Path, patterns: &[&str]) -> Vec<String> {
 
 /// The text of the file at `path` of `root`, lossy where it is no UTF-8; `None` for no file
 fn read(root: &Path, path: &str) -> Option<String> {
-  std::fs::read(root.join(path)).ok().map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+  read_file(&root.join(path))
+}
+
+/// The text of the file `file`, lossy where it is no UTF-8; `None` for no file
+fn read_file(file: &Path) -> Option<String> {
+  std::fs::read(file).ok().map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// The lines of `text`, split at `\n` with a `\r` before it dropped
@@ -162,10 +296,11 @@ fn declares(path: &str, source: &str, name: &str) -> bool {
     .any(|quote| source.contains(&format!("{quote}{}{quote}", name.replace(*quote, &format!("\\{quote}")))))
 }
 
-/// The problems of the `[@test]` links of the specs and the design docs under `root`
+/// The problems of the `[@test]` links of the specs and the design docs under `root`; a link into psi-syntax names a
+/// test file of `sources`
 #[must_use]
-pub fn check_test_links(root: &Path) -> Vec<String> {
-  let mut sources: HashMap<String, Option<String>> = HashMap::new();
+pub fn check_test_links(root: &Path, sources: &GitSources) -> Vec<String> {
+  let mut texts: HashMap<String, Option<String>> = HashMap::new();
   let mut problems = Vec::new();
   for doc in docs_of(root, DOCS) {
     let Some(text) = read(root, &doc) else {
@@ -188,12 +323,11 @@ pub fn check_test_links(root: &Path) -> Vec<String> {
         problems.push(format!("{at}: the path {path} is not from the root of the repository, as every path under openspec/"));
         continue;
       }
-      let file = linked_file(&doc, path);
-      if !root.join(&file).exists() {
-        problems.push(format!("{at}: no file {file}"));
+      let file = if path.starts_with(PSI_SYNTAX) { path.to_string() } else { linked_file(&doc, path) };
+      let Ok(full) = sources.existing_file(root, &file).inspect_err(|problem| problems.push(format!("{at}: {problem}"))) else {
         continue;
-      }
-      let source = sources.entry(file.clone()).or_insert_with(|| read(root, &file)).clone().unwrap_or_default();
+      };
+      let source = texts.entry(file.clone()).or_insert_with(|| read_file(&full)).clone().unwrap_or_default();
       for name in NAME.captures_iter(&link[2]) {
         if !declares(&file, &source, &name[1]) {
           problems.push(format!("{at}: {file} has no test `{}`", &name[1]));
@@ -263,9 +397,10 @@ fn normalize(path: &str) -> String {
 
 /// The problems of the `targets:` of the specs under `root`: a spec without them, a target that is no path from the
 /// root of a file, one listed twice; a rule of `crates/domain-policy/src/` whose `//!` header names no spec, or a spec
-/// that lists it not; a presenter of `src/presenters/` that no spec lists
+/// that lists it not; a presenter of `src/presenters/` that no spec lists. A target into psi-syntax names a file of
+/// `sources`
 #[must_use]
-pub fn check_spec_targets(root: &Path) -> Vec<String> {
+pub fn check_spec_targets(root: &Path, sources: &GitSources) -> Vec<String> {
   let mut problems = Vec::new();
   // the specs that list a file, by its path from `root`
   let mut listed_by: HashMap<String, BTreeSet<String>> = HashMap::new();
@@ -290,11 +425,9 @@ pub fn check_spec_targets(root: &Path) -> Vec<String> {
         problems.push(format!("{at}: lists {path} twice"));
         continue;
       }
-      let full = root.join(&file);
-      if !full.exists() {
-        problems.push(format!("{at}: no file {file}"));
+      let Ok(full) = sources.existing_file(root, &file).inspect_err(|problem| problems.push(format!("{at}: {problem}"))) else {
         continue;
-      }
+      };
       if !full.is_file() {
         problems.push(format!("{at}: {file} is no file"));
         continue;

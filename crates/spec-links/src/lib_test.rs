@@ -1,5 +1,6 @@
 use crate::{
-  check_old_layout, check_open_spec, check_requirement_groups, check_spec_anchors, check_spec_targets, check_test_links, heading_anchors, openspec_validate, tracked_files,
+  GitSources, cargo_metadata, check_old_layout, check_open_spec, check_requirement_groups, check_spec_anchors, check_spec_targets, check_test_links, heading_anchors,
+  openspec_validate, tracked_files,
 };
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -27,6 +28,11 @@ fn spec_of(targets: &[&str], body: &str) -> String {
 
 const SPEC: &str = "openspec/specs/area/example/spec.md";
 
+/// The sources of a repository that depends on no git dependency: its cargo answers no package
+fn local() -> GitSources<'static> {
+  GitSources::new(|| Ok(json!({ "packages": [] })))
+}
+
 #[test]
 fn a_test_link_names_a_file_and_the_tests_it_declares_on_a_line_of_its_own() {
   let spec = spec_of(
@@ -47,7 +53,7 @@ fn a_test_link_names_a_file_and_the_tests_it_declares_on_a_line_of_its_own() {
     ("docs/design/example.md", "  [@test] ../../src/example.test.ts (`hides the row`)\n"),
   ]);
   assert_eq!(
-    check_test_links(root.path()),
+    check_test_links(root.path(), &local()),
     [
       "docs/design/example.md:1: src/example.test.ts has no test `hides the row`".to_string(),
       format!("{SPEC}:8: src/example.test.ts has no test `hides the row`"),
@@ -76,7 +82,7 @@ fn every_spec_lists_its_targets_once_each_a_path_from_the_root_of_a_file_that_ex
     ("openspec/specs/area/odd-line/spec.md", "---\ntargets:\n  - src/example.ts\n  # a comment\n---\n"),
   ]);
   assert_eq!(
-    check_spec_targets(root.path()),
+    check_spec_targets(root.path(), &local()),
     [
       "openspec/specs/area/bad/spec.md:5: lists src/example.ts twice",
       "openspec/specs/area/bad/spec.md:6: no file src/gone.ts",
@@ -88,6 +94,150 @@ fn every_spec_lists_its_targets_once_each_a_path_from_the_root_of_a_file_that_ex
       "openspec/specs/area/odd-line/spec.md:4: not a target line, `  - <path>`: # a comment",
     ]
   );
+}
+
+/// The source of a package of psi-syntax at `commit`, as Cargo.lock writes it
+fn psi_syntax_source(commit: &str) -> String {
+  format!("git+https://github.com/develar/psi-syntax?rev={commit}#{commit}")
+}
+
+/// The package `name` of `cargo metadata` whose manifest is `Cargo.toml` of `dir`
+fn package(name: &str, dir: &Path, source: &str) -> Value {
+  json!({ "name": name, "manifest_path": dir.join("Cargo.toml").to_string_lossy(), "source": source })
+}
+
+#[test]
+fn a_test_link_and_a_target_into_psi_syntax_name_a_file_of_its_crate_at_the_revision_cargo_lock_pins() {
+  let (pinned, other) = ("2c8d63c1498e0b837050952d4b95fc24af8af316", "abef29d0987c61fb86efbbd2eb6f297ed6c1c0b0");
+  // the checkouts cargo made of two revisions of psi-syntax, as `~/.cargo/git/checkouts/psi-syntax-<hash>/<short>/`
+  let checkouts = repository_of(&[
+    ("2c8d63c/crates/diff-marks/src/marks.rs", "pub fn marks() {}\n"),
+    ("2c8d63c/crates/diff-marks/src/marks_test.rs", "#[test]\nfn quiet_run_is_one_mark() {}\n"),
+    ("2c8d63c/crates/line-diff/src/lib.rs", ""),
+    ("abef29d/crates/line-diff/src/lib.rs", ""),
+  ]);
+  let at = |commit: &str, dir: &str| checkouts.path().join(&commit[..7]).join(dir);
+  let metadata = json!({ "packages": [
+    package("diff-marks", &at(pinned, "crates/diff-marks"), &psi_syntax_source(pinned)),
+    package("line-diff", &at(pinned, "crates/line-diff"), &psi_syntax_source(pinned)),
+    package("line-diff", &at(other, "crates/line-diff"), &psi_syntax_source(other)),
+    // a crate of crates.io, one of another git repository and one of the workspace are no crates of psi-syntax
+    package("regex", &checkouts.path().join("regex-1.13.0"), "registry+https://github.com/rust-lang/crates.io-index"),
+    package("other", &checkouts.path().join("other/crates/other"), "git+https://github.com/develar/other?rev=1#1"),
+    package("spec-links", &checkouts.path().join("crates/spec-links"), ""),
+  ]});
+  let sources = GitSources::new(|| Ok(metadata.clone()));
+  let marks = "psi-syntax:crates/diff-marks/src";
+  let spec = spec_of(
+    &[
+      &format!("{marks}/marks.rs"),
+      &format!("{marks}/gone.rs"),
+      &format!("{marks}/marks.rs"),
+      "psi-syntax:crates/line-diff/src/lib.rs",
+      "psi-syntax:crates/regex/src/lib.rs",
+      "psi-syntax:crates/diff-marks",
+    ],
+    &[
+      "- A requirement.",
+      &format!("  [@test] {marks}/marks_test.rs (`quiet_run_is_one_mark`, `gone`)"),
+      &format!("  [@test] {marks}/gone_test.rs (`quiet_run_is_one_mark`)"),
+      "  [@test] psi-syntax:crates/other/src/lib.rs (`quiet_run_is_one_mark`)",
+      "  [@test] psi-syntax:crates/diff-marks/../line-diff/src/lib.rs (`quiet_run_is_one_mark`)",
+    ]
+    .join("\n"),
+  );
+  let root = repository_of(&[(SPEC, &spec), ("docs/design/example.md", &format!("  [@test] {marks}/marks_test.rs (`gone`)\n"))]);
+  let only = "only on diff-marks, line-diff";
+  assert_eq!(
+    check_test_links(root.path(), &sources),
+    [
+      format!("docs/design/example.md:1: {marks}/marks_test.rs has no test `gone`"),
+      format!("{SPEC}:13: {marks}/marks_test.rs has no test `gone`"),
+      format!("{SPEC}:14: no file {marks}/gone_test.rs"),
+      format!("{SPEC}:15: the workspace depends on no crate other of psi-syntax (Cargo.lock), {only}"),
+      format!("{SPEC}:16: psi-syntax:crates/diff-marks/../line-diff/src/lib.rs is no file of a crate of psi-syntax, psi-syntax:crates/<crate>/<path>"),
+    ]
+  );
+  assert_eq!(
+    check_spec_targets(root.path(), &sources),
+    [
+      format!("{SPEC}:5: no file {marks}/gone.rs"),
+      format!("{SPEC}:6: lists {marks}/marks.rs twice"),
+      format!("{SPEC}:7: the workspace depends on the crate line-diff of psi-syntax at 2 revisions (2c8d63c1, abef29d0, Cargo.lock), so the link names no one file: pin one"),
+      format!("{SPEC}:8: the workspace depends on no crate regex of psi-syntax (Cargo.lock), {only}"),
+      format!("{SPEC}:9: psi-syntax:crates/diff-marks is no file of a crate of psi-syntax, psi-syntax:crates/<crate>/<path>"),
+    ]
+  );
+}
+
+#[test]
+fn the_sources_of_psi_syntax_are_asked_once_at_the_first_link_into_them_and_a_link_without_them_is_a_problem() {
+  let asked = RefCell::new(0);
+  let sources = GitSources::new(|| {
+    *asked.borrow_mut() += 1;
+    Err("cargo metadata --offline: error: no checkout".to_string())
+  });
+  let local = repository_of(&[
+    ("src/example.test.ts", "test(\"shows the row\", () => {})\n"),
+    (SPEC, &spec_of(&["src/example.test.ts"], "  [@test] src/example.test.ts (`shows the row`)")),
+  ]);
+  assert_eq!(check_test_links(local.path(), &sources), Vec::<String>::new());
+  assert_eq!(check_spec_targets(local.path(), &sources), Vec::<String>::new());
+  assert_eq!(*asked.borrow(), 0, "a check of no link into psi-syntax runs no cargo");
+  let spec = spec_of(
+    &["psi-syntax:crates/diff-marks/src/marks.rs"],
+    "  [@test] psi-syntax:crates/diff-marks/src/marks_test.rs (`quiet_run_is_one_mark`)",
+  );
+  let root = repository_of(&[(SPEC, &spec)]);
+  let unfetched = "the sources of psi-syntax are not fetched (`cargo fetch` fetches them): cargo metadata --offline: error: no checkout";
+  assert_eq!(check_test_links(root.path(), &sources), [format!("{SPEC}:7: {unfetched}")]);
+  assert_eq!(check_spec_targets(root.path(), &sources), [format!("{SPEC}:4: {unfetched}")]);
+  assert_eq!(*asked.borrow(), 1);
+}
+
+/// A workspace of one package that depends on spec-syntax of psi-syntax at `commit`, its Cargo.lock pinning it:
+/// spec-syntax depends on nothing, so cargo answers its metadata from the checkout alone
+fn workspace_on_spec_syntax(commit: &str) -> tempfile::TempDir {
+  let manifest = format!(
+    "[package]\nname = \"fake\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nspec-syntax = {{ git = \"https://github.com/develar/psi-syntax\", rev = \"{commit}\" }}\n"
+  );
+  let lock = format!(
+    "version = 4\n\n[[package]]\nname = \"fake\"\nversion = \"0.1.0\"\ndependencies = [\n \"spec-syntax\",\n]\n\n[[package]]\nname = \"spec-syntax\"\nversion = \"0.1.0\"\nsource = \"{}\"\n",
+    psi_syntax_source(commit)
+  );
+  repository_of(&[("Cargo.toml", &manifest), ("Cargo.lock", &lock), ("src/lib.rs", "")])
+}
+
+/// The revision of spec-syntax this workspace pins, whose checkout cargo fetched to build spec-links
+#[test]
+fn cargo_metadata_answers_the_checkout_cargo_fetched_of_psi_syntax_at_the_revision_cargo_lock_pins() {
+  let lock = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock")).expect("Cargo.lock");
+  let commit = lock
+    .split("[[package]]")
+    .find(|package| package.contains("\nname = \"spec-syntax\"\n"))
+    .and_then(|package| package.split_once('#'))
+    .map(|(_, rest)| rest.split('"').next().unwrap_or_default().to_string())
+    .expect("the revision of spec-syntax in Cargo.lock");
+  let workspace = workspace_on_spec_syntax(&commit);
+  let sources = GitSources::new(|| cargo_metadata(workspace.path()));
+  let file = sources
+    .existing_file(workspace.path(), "psi-syntax:crates/spec-syntax/src/lib.rs")
+    .expect("the checkout of spec-syntax");
+  // `<checkout>/crates/spec-syntax/src/lib.rs`, the checkout named by the start of the revision
+  let checkout = file.ancestors().nth(4).and_then(Path::file_name).expect("the checkout").to_string_lossy().into_owned();
+  assert!(commit.starts_with(&checkout), "{commit} {}", file.display());
+}
+
+/// A revision of psi-syntax cargo has not fetched: offline, cargo fails, and the check says so with cargo's reason
+#[test]
+fn cargo_metadata_of_a_revision_of_psi_syntax_cargo_has_not_fetched_fails_offline_with_its_reason() {
+  let workspace = workspace_on_spec_syntax(&"0".repeat(40));
+  let sources = GitSources::new(|| cargo_metadata(workspace.path()));
+  let problem = sources
+    .file_of(workspace.path(), "psi-syntax:crates/spec-syntax/src/lib.rs")
+    .expect_err("no checkout of the revision");
+  let reason = "the sources of psi-syntax are not fetched (`cargo fetch` fetches them): cargo metadata --offline: error: ";
+  assert!(problem.starts_with(reason) && problem.contains("offline"), "{problem}");
 }
 
 #[test]
@@ -121,7 +271,7 @@ fn a_rule_of_domain_policy_names_its_specs_in_its_header_and_each_of_them_lists_
     (&format!("{specs}/other/spec.md"), &spec_of(&[&format!("{rules}/lib.rs")], "- A requirement.")),
   ]);
   assert_eq!(
-    check_spec_targets(root.path()),
+    check_spec_targets(root.path(), &local()),
     [
       format!("{rules}/below.rs: its `//!` header names no spec (openspec/specs/<area>/<name>/spec.md) of the rule"),
       format!("{rules}/missing.rs: its `//!` header names {specs}/gone/spec.md, which does not exist"),
@@ -141,7 +291,7 @@ fn every_presenter_of_the_page_is_a_target_of_a_spec_its_tests_aside() {
     (SPEC, &spec_of(&["src/presenters/listed.ts"], "- A requirement.")),
   ]);
   assert_eq!(
-    check_spec_targets(root.path()),
+    check_spec_targets(root.path(), &local()),
     ["src/presenters/unlisted.ts: a presenter that the `targets:` of no spec list"]
   );
 }
@@ -164,13 +314,16 @@ fn every_check_answers_the_paths_with_a_slash() {
     (SPEC, &spec),
   ]);
   assert_eq!(
-    check_spec_targets(root.path()),
+    check_spec_targets(root.path(), &local()),
     [
       format!("{SPEC}: no target {rules}/unlisted.rs, whose `//!` header names the spec"),
       "src/presenters/unlisted.ts: a presenter that the `targets:` of no spec list".to_string()
     ]
   );
-  assert_eq!(check_test_links(root.path()), [format!("{SPEC}:9: src/example.test.ts has no test `hides the row`")]);
+  assert_eq!(
+    check_test_links(root.path(), &local()),
+    [format!("{SPEC}:9: src/example.test.ts has no test `hides the row`")]
+  );
   let groups = repository_of(&[(SPEC, "### Requirement: A: One\n### Requirement: B: Two\n### Requirement: A: Three\n")]);
   assert_eq!(
     check_requirement_groups(groups.path()),
@@ -232,7 +385,7 @@ fn under_openspec_a_test_path_is_from_the_root_a_path_from_the_file_is_a_problem
     ),
   ]);
   assert_eq!(
-    check_test_links(root.path()),
+    check_test_links(root.path(), &local()),
     [
       "openspec/changes/add-row/specs/area/example/spec.md:3: src/example.test.ts has no test `hides the row`",
       "openspec/specs/area/example/spec.md:23: the path ../../../../src/example.test.ts is not from the root of the repository, as every path under openspec/",
