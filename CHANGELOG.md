@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.12.0](https://github.com/develar/branch-deck/compare/v1.11.0...v1.12.0) (2026-11-13)
+
+
+### Features
+
+* **review-requests:** a chain of requests is one stack in Your Turn, each with its labels ([64ad68e](https://github.com/develar/branch-deck/commit/64ad68e4d793587c58a52f1555ebf4fbe6450238))
+
+
+### Bug Fixes
+
+* **app:** a window whose page fails says so and logs why, instead of a blank canvas ([fcbe8e6](https://github.com/develar/branch-deck/commit/fcbe8e6403f55bcc56b102de12ac2d86097d71c9))
+* **e2e:** the Air spec syncs a view by one helper, so jscpd finds no copy ([da20db9](https://github.com/develar/branch-deck/commit/da20db97c3bc9f6aa3ce515a4bbdd492fa59d75a))
+* **host:** a run keeps every byte of the stdout of its command, and the cut of a line longer than 64 KiB adds no line end ([2fbecf3](https://github.com/develar/branch-deck/commit/2fbecf3daf8a78a2dfafcfa82029a36e3e9410c9))
+* **ide:** the views of a frame share its one view of Air, and a change of the prefix moves the mirror to the session of the new prefix ([6229d9d](https://github.com/develar/branch-deck/commit/6229d9d8b670b57e3104a3cdcbf9bf28d3541e13))
+
 ## [1.11.0](https://github.com/develar/branch-deck/compare/v1.10.0...v1.11.0) (2026-11-13)
 
 
