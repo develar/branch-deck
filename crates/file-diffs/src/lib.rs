@@ -6,15 +6,12 @@
 //! of `code-symbols`, which the git plumbing of `git-ops` does not depend on.
 
 pub mod accio;
+pub mod bindings;
 pub mod blocks;
 pub mod collapse;
 pub mod declarations;
-pub mod leftovers;
 pub mod marks;
 pub mod marks_measure;
-mod marks_renames;
-mod marks_runs;
-pub mod marks_subject;
 mod merge;
 pub mod model;
 mod outside_place;

@@ -17,11 +17,11 @@
 //! subject without any mark, for what the marks cost.
 
 use crate::accio::SymbolIndex;
-use crate::marks::{pair_grammar, pair_indented};
 use crate::model::{BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, GetFileDiffsParams};
 use crate::service::FileDiffs;
 use anyhow::Result;
 use code_tokens::Grammar;
+use diff_marks::marks::{pair_grammar, pair_indented};
 use git_executor::git_command_executor::GitCommandExecutor;
 use line_diff::model::{LineMove, LineRun, starts_of};
 use line_diff::moves::{MoveThresholds, find_moves_under};

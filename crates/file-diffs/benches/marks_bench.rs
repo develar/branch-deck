@@ -20,9 +20,10 @@ use code_symbols::navigate::resolution_work;
 use code_tokens::Grammar;
 use code_tokens::{Tokens, compare, equal_by_tokens, tokens};
 use criterion::{Criterion, criterion_group, criterion_main};
-use file_diffs::leftovers::Leftovers;
-use file_diffs::marks::{MAX_BLOCK_TOKENS, MAX_RENAME_WORK, MAX_TOKEN_EDITS, marks_of};
-use file_diffs::marks_subject::{IndexAnswer, PairFacts, Subject};
+use diff_marks::leftovers::Leftovers;
+use diff_marks::marks::{MAX_BLOCK_TOKENS, MAX_RENAME_WORK, MAX_TOKEN_EDITS, marks_of};
+use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject};
+use file_diffs::bindings::CodeSymbolBindings;
 use file_diffs::model::{DiffSource, FileDiffEvent, GetFileDiffsParams};
 use file_diffs::service::{DiffLimits, FileDiffs};
 use line_diff::model::{BlockKind, DiffBlock, DiffBudget, TextDiff, diff_texts};
@@ -144,7 +145,7 @@ fn bench_marks(c: &mut Criterion) {
     let diff = diff_of(&old, new);
     let (old_tokens, new_tokens) = (kotlin(&old), kotlin(new));
     let kept = |new_side: bool| Some(Arc::clone(if new_side { &new_tokens } else { &old_tokens }));
-    let marks = marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept).marks;
+    let marks = marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept, &CodeSymbolBindings).marks;
     println!(
       "{name}: {} blocks, {} runs, {} renames, {} blocks to read",
       diff.blocks.len(),
@@ -155,14 +156,21 @@ fn bench_marks(c: &mut Criterion) {
     // the tokens of both sides read for the marks: what a file costs before its content goes out
     group.bench_function(format!("{name}, tokens read"), |b| {
       b.iter(|| {
-        marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, |new_side| {
-          Some(kotlin(if new_side { new } else { &old }))
-        })
+        marks_of(
+          &diff,
+          &old,
+          new,
+          Some(Grammar::Kotlin),
+          WhitespacePolicy::Default,
+          false,
+          |new_side| Some(kotlin(if new_side { new } else { &old })),
+          &CodeSymbolBindings,
+        )
       });
     });
     // the tokens in memory already: the question before the tokens and the runs alone
     group.bench_function(format!("{name}, tokens kept"), |b| {
-      b.iter(|| marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept));
+      b.iter(|| marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept, &CodeSymbolBindings));
     });
   }
   group.finish();
@@ -204,7 +212,7 @@ fn bench_renames(c: &mut Criterion) {
     let read = |text: &str| Arc::new(tokens(grammar, text).expect("a text with tokens"));
     let (old_tokens, new_tokens) = (read(&old), read(&new));
     let kept = |new_side: bool| Some(Arc::clone(if new_side { &new_tokens } else { &old_tokens }));
-    let marks = marks_of(&diff, &old, &new, Some(grammar), WhitespacePolicy::Default, false, kept).marks;
+    let marks = marks_of(&diff, &old, &new, Some(grammar), WhitespacePolicy::Default, false, kept, &CodeSymbolBindings).marks;
     println!(
       "{name}: {} lines, {} tokens a side, {} blocks, {} renames by {} resolutions a side, {} blocks to read",
       old.lines().count(),
@@ -215,7 +223,7 @@ fn bench_renames(c: &mut Criterion) {
       marks.starts.len() / 3
     );
     group.bench_function(format!("{name}, tokens kept"), |b| {
-      b.iter(|| marks_of(&diff, &old, &new, Some(grammar), WhitespacePolicy::Default, false, kept));
+      b.iter(|| marks_of(&diff, &old, &new, Some(grammar), WhitespacePolicy::Default, false, kept, &CodeSymbolBindings));
     });
   }
   group.finish();
@@ -442,10 +450,10 @@ fn bench_limits(c: &mut Criterion) {
     let diff = diff_of(&old, &new);
     let (old_tokens, new_tokens) = (kotlin(&old), kotlin(&new));
     let kept = |new_side: bool| Some(Arc::clone(if new_side { &new_tokens } else { &old_tokens }));
-    let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept).marks;
+    let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept, &CodeSymbolBindings).marks;
     println!("{name}: {} blocks, {} tokens a side, {} runs", diff.blocks.len(), old_tokens.all().len(), marks.runs.len());
     group.bench_function(name, |b| {
-      b.iter(|| marks_of(&diff, &old, &new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept));
+      b.iter(|| marks_of(&diff, &old, &new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept, &CodeSymbolBindings));
     });
   }
   group.finish();
@@ -567,7 +575,7 @@ fn bench_subject_pass(c: &mut Criterion) {
       .map(|((_, old), (_, new))| {
         let mut diff = diff_of(old, new);
         let tokens_of = |new_side: bool| tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new);
-        let pair = marks_of(&diff, old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, tokens_of);
+        let pair = marks_of(&diff, old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, tokens_of, &CodeSymbolBindings);
         let (marks, left) = Leftovers::of(&diff.blocks, pair, old, new, false);
         diff.marks = marks;
         (diff, left)

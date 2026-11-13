@@ -22,20 +22,18 @@
 //! - **Whether a side ends a line with a lone carriage return** (`lone_returns`): the comparison counts it as a line
 //!   end and the index does not, so no line the index names of such a text is a line of the diff.
 //!
-//! It is a value of its own beside the diff, in memory (`MarksMemory::leftovers`) and in the `file_leftovers` store,
-//! under the key of its diff and the version of its model: a scan decodes the diff of a pair at every hit
-//! (`FileDiffs::blocks_of`) and never pays for what the pair left. Nothing here depends on the subject: the same
+//! It is a value of its own beside the diff, which Branch Deck keeps in memory (`file_diffs::service`,
+//! `MarksMemory::leftovers`) and in the `file_leftovers` store, under the key of its diff and the version of its
+//! model: a scan decodes the diff of a pair at every hit (`FileDiffs::blocks_of`) and never pays for what the pair
+//! left. Nothing here depends on the subject: the same
 //! pair stands in other commits beside other files.
 
-use crate::accio::Columns;
+use crate::index::Columns;
 use crate::marks::PairMarks;
 use line_diff::model::{DiffBlock, DiffMarks, LineRun, Rename};
 use line_diff::moves::rewritten_lines;
 use line_diff::moves_across::{LeftRow, left_rows};
 use serde::{Deserialize, Serialize};
-
-/// The leftovers that memory keeps, weighed by their size
-pub const LEFTOVERS_CACHE_BYTES: u64 = 16 << 20;
 
 /// What the diff of a pair leaves to the other files of a subject
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,7 +116,7 @@ impl Leftovers {
   }
 
   /// Its weight in the memory cache, roughly in bytes
-  pub(crate) fn weight(&self) -> u32 {
+  pub fn weight(&self) -> u32 {
     let rows: usize = self.lines.iter().flatten().map(|row| 32 + row.keys.len() * 12).sum();
     let renames: usize = self
       .undeclared

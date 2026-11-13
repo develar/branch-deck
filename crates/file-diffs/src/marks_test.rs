@@ -1,16 +1,17 @@
 //! The marks of a diff (`marks.rs`, `marks_runs.rs`): what is formatting, what is comments, what is never marked, the
 //! limits, and that the question a block is asked before the tokens changes no answer.
 
+use crate::bindings::CodeSymbolBindings;
 use crate::fixture_test::unhurried;
-use crate::marks::{
-  MAX_BLOCK_TOKENS, MAX_FILE_TOKEN_WORK, MAX_TOKEN_EDITS, SideText, has_proof, is_quiet, marks_of, may_hold_comment, pair_grammar, pair_indented, read_blocks, runs_of,
-};
-use crate::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
 use crate::model::{DiffContent, DiffSource};
-use crate::service::fits_inner;
 use code_symbols::navigate::{Access, LocalBinding, NameQuestion, Position, Site, names_at};
 use code_tokens::{Equality, Tokens, compare, tokens};
 use code_tokens::{Grammar, grammar_of};
+use diff_marks::marks::fits_inner;
+use diff_marks::marks::{
+  MAX_BLOCK_TOKENS, MAX_FILE_TOKEN_WORK, MAX_TOKEN_EDITS, SideText, has_proof, is_quiet, marks_of, may_hold_comment, pair_grammar, pair_indented, read_blocks, runs_of,
+};
+use diff_marks::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
 use git_executor::git_command_executor::GitCommandExecutor;
 use line_diff::cancellation::Deadline;
 use line_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, MAX_INNER_LINES, Rename, RunKind, SubjectMarks, TextDiff, diff_texts, starts_of};
@@ -48,11 +49,20 @@ pub(crate) fn read_pair(path: &str, old: &str, new: &str, policy: WhitespacePoli
       .get_or_init(|| tokens(grammar?, if new_side { new } else { old }).map(Arc::new))
       .clone()
   };
-  let shown = marks_of(&diff, old, new, grammar, policy, pair_indented(path, path), |new_side| {
-    let side = &asked[usize::from(new_side)];
-    side.set(side.get() + 1);
-    parse(new_side)
-  });
+  let shown = marks_of(
+    &diff,
+    old,
+    new,
+    grammar,
+    policy,
+    pair_indented(path, path),
+    |new_side| {
+      let side = &asked[usize::from(new_side)];
+      side.set(side.get() + 1);
+      parse(new_side)
+    },
+    &CodeSymbolBindings,
+  );
   let (marks, undeclared) = (shown.as_proven(&diff.blocks), shown.undeclared.clone());
   // what a view gets: the proven marks with the runs of a kind that is not switched on as labels, and their starts
   let mut labelled = marks.clone();
@@ -71,7 +81,7 @@ pub(crate) fn read_pair(path: &str, old: &str, new: &str, policy: WhitespacePoli
   );
   diff.marks = marks;
   if let Some(grammar) = grammar.filter(|_| fits_inner(old, diff.old_line_count) && fits_inner(new, diff.new_line_count)) {
-    let unasked = runs_of(&diff, &SideText::new(grammar, old), &SideText::new(grammar, new), false, &parse);
+    let unasked = runs_of(&diff, &SideText::new(grammar, old), &SideText::new(grammar, new), false, &parse, &CodeSymbolBindings);
     assert_eq!(
       (&diff.marks.runs, &diff.marks.renames, &undeclared),
       (&unasked.runs, &unasked.renames, &unasked.undeclared),
@@ -811,9 +821,16 @@ fn a_file_without_a_grammar_and_a_pair_of_two_grammars_have_no_runs() {
   let (old, new) = ("fun f() {\n  call(a, b)\n}\n", "fun f() {\n  call(a,\n    b)\n}\n");
   let diff = diff_texts(old, new, Exact, &DiffBudget::NONE);
   let read = |grammar: Option<Grammar>| {
-    marks_of(&diff, old, new, grammar, Exact, false, |new_side| {
-      tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new)
-    })
+    marks_of(
+      &diff,
+      old,
+      new,
+      grammar,
+      Exact,
+      false,
+      |new_side| tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new),
+      &CodeSymbolBindings,
+    )
     .marks
   };
   assert_eq!(read(Some(Grammar::Kotlin)).runs.len(), 1);
@@ -828,9 +845,18 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
   let diff = diff_texts(old, new, Exact, &DiffBudget::NONE);
   let kotlin = |text: &str| tokens(Grammar::Kotlin, text).map(Arc::new);
   for missing in [false, true] {
-    let marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), Exact, false, |new_side| {
-      if new_side == missing { None } else { kotlin(if new_side { new } else { old }) }
-    })
+    let marks = marks_of(
+      &diff,
+      old,
+      new,
+      Some(Grammar::Kotlin),
+      Exact,
+      false,
+      |new_side| {
+        if new_side == missing { None } else { kotlin(if new_side { new } else { old }) }
+      },
+      &CodeSymbolBindings,
+    )
     .marks;
     assert_eq!(
       (marks.runs.len(), marks.starts),
@@ -840,9 +866,16 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
     );
   }
   // tokens of another text than the diff's prove nothing
-  let marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), Exact, false, |new_side| {
-    kotlin(if new_side { "fun f() {\n  call(a, b)\n}\n\n\n" } else { old })
-  })
+  let marks = marks_of(
+    &diff,
+    old,
+    new,
+    Some(Grammar::Kotlin),
+    Exact,
+    false,
+    |new_side| kotlin(if new_side { "fun f() {\n  call(a, b)\n}\n\n\n" } else { old }),
+    &CodeSymbolBindings,
+  )
   .marks;
   assert_eq!(marks.runs.len(), 0);
 
@@ -852,10 +885,19 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
     let (old, new) = (format!("{old}{}", "\n".repeat(blank_lines)), format!("{new}{}", "\n".repeat(blank_lines)));
     let diff = diff_texts(&old, &new, Exact, &DiffBudget::NONE);
     let asked = Cell::new(0);
-    let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), Exact, false, |new_side| {
-      asked.set(asked.get() + 1);
-      kotlin(if new_side { &new } else { &old })
-    })
+    let marks = marks_of(
+      &diff,
+      &old,
+      &new,
+      Some(Grammar::Kotlin),
+      Exact,
+      false,
+      |new_side| {
+        asked.set(asked.get() + 1);
+        kotlin(if new_side { &new } else { &old })
+      },
+      &CodeSymbolBindings,
+    )
     .marks;
     (diff.line_level_only, marks.runs.len(), marks.starts, asked.get())
   };
@@ -871,9 +913,16 @@ fn a_diff_the_time_cut_short_has_the_marks_of_its_blocks() {
   let (old, new) = ("fun f() {\n  a(1,\n    2)\n  b()\n}\n", "fun f() {\n  a(1, 2)\n  b()\n}\n");
   let read = |budget: &DiffBudget| {
     let mut diff = diff_texts(old, new, Exact, budget);
-    diff.marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), Exact, false, |new_side| {
-      tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new)
-    })
+    diff.marks = marks_of(
+      &diff,
+      old,
+      new,
+      Some(Grammar::Kotlin),
+      Exact,
+      false,
+      |new_side| tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new),
+      &CodeSymbolBindings,
+    )
     .marks;
     (diff.line_level_only, show(&diff))
   };
@@ -945,7 +994,7 @@ fn a_file_whose_blocks_cannot_hold_a_run_is_not_parsed() {
   assert_eq!((diff.marks.runs.len(), asked), (0, [1, 1]));
 }
 
-/// The files of the grammars: the test data of `code-symbols` and sources of this crate
+/// The files of the grammars: the test data of `code-symbols` and sources of the marks
 fn corpus() -> Vec<(String, String)> {
   let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
   let mut files = Vec::new();
@@ -960,7 +1009,7 @@ fn corpus() -> Vec<(String, String)> {
       }
     }
   }
-  files.extend(["src/marks.rs", "src/marks_runs.rs", "src/syntax.rs"].map(|path| root.join(path)));
+  files.extend(["../diff-marks/src/marks.rs", "../diff-marks/src/marks_runs.rs", "src/syntax.rs"].map(|path| root.join(path)));
   files.sort();
   files
     .into_iter()

@@ -309,7 +309,7 @@ A feature's contract is its spec (`openspec/specs/<id>/spec.md`); every entry fi
 | Operations across processes | `cli/agent-cli`, `branch/patronus` | `crates/operations/src/registry_file.rs` |
 | Activity log | `repository/activity` | `crates/operations/src/journal.rs`, `src/stores/activity.ts` |
 | Commit files, diffs, the review | `commit/commit-files`, `commit/commit-review`, `review/review-window` | `crates/file-diffs/`, `crates/sync-core/src/review_target.rs`, `src/components/diff/` |
-| Diff marks | `commit/quiet-changes` | `crates/file-diffs/src/marks.rs` |
+| Diff marks | `commit/quiet-changes` | `crates/diff-marks/` |
 | Go to Declaration, Find Usages | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs` |
 | Command palette, title bar, zoom | `repository/command-palette`, `repository/title-bar`, `repository/zoom` | `src/components/command-palette/`, `src-tauri/src/` |
 | Your Turn, Reviews | `repository/review-requests`, `repository/reviews` | `src/components/review/`, `src/components/reviews/` |

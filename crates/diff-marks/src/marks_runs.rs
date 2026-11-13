@@ -39,7 +39,7 @@ use std::ops::Range;
 
 /// The lines of a block on each side, from 0, the ends excluded
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BlockLines {
+pub struct BlockLines {
   pub old: Range<u32>,
   pub new: Range<u32>,
 }
@@ -62,7 +62,7 @@ struct Found {
 }
 
 /// What a reading of a block asks of its lines beside their tokens
-pub(crate) struct Asked<'a> {
+pub struct Asked<'a> {
   /// Whether lines of a side (`true` the new one) hold a character that is no blank
   pub has_text: &'a dyn Fn(bool, Range<u32>) -> bool,
   /// Whether lines of the old side hold a place of a rename, a name the tokens read as one with its name of the
@@ -71,7 +71,7 @@ pub(crate) struct Asked<'a> {
 }
 
 /// No line holds a place of a rename: the tokens are those of the texts
-pub(crate) const NO_RENAME: &dyn Fn(Range<u32>) -> bool = &|_| false;
+pub const NO_RENAME: &dyn Fn(Range<u32>) -> bool = &|_| false;
 
 /// The runs of the block at `lines` of two texts with the tokens `old` and `new`, in the order of the lines; `None`
 /// for a block over a limit of work, which is not compared: nothing is cut out of it. `asked` answers for the lines
@@ -80,7 +80,7 @@ pub(crate) const NO_RENAME: &dyn Fn(Range<u32>) -> bool = &|_| false;
 /// its place without pairing the two. A run is quiet when its lines are proven (`has_proof`: every run of
 /// formatting, and a run of a renamed name as far as the tokens go: its reader asks the places); whether its kind is
 /// quiet its caller says
-pub(crate) fn runs_of_block(old: &Tokens, new: &Tokens, lines: &BlockLines, asked: &Asked<'_>, work: &mut u64, replaced: &mut dyn FnMut(&Token, &Token)) -> Option<Vec<LineRun>> {
+pub fn runs_of_block(old: &Tokens, new: &Tokens, lines: &BlockLines, asked: &Asked<'_>, work: &mut u64, replaced: &mut dyn FnMut(&Token, &Token)) -> Option<Vec<LineRun>> {
   let (old_at, new_at) = (old.places_in_lines(lines.old.clone()), new.places_in_lines(lines.new.clone()));
   let (old_tokens, new_tokens) = (&old.all()[old_at.clone()], &new.all()[new_at.clone()]);
   let [old_paired, new_paired] = paired(old_tokens, new_tokens, work, replaced)?;

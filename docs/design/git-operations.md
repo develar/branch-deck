@@ -3354,7 +3354,7 @@ git plumbing does not depend on.
   under a lone `\r` a line of code right above the imports would else be an import, and a scope would start a line
   early.
 - **Marks.** The marks of a text ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md),
-  `crates/file-diffs/src/marks.rs`) go out with its `content`, not after it: they change the rows a view draws. So a
+  `crates/diff-marks/src/marks.rs`) go out with its `content`, not after it: they change the rows a view draws. So a
   block is first asked a question of its characters alone, and only a file with a block that may hold a run is
   parsed for its tokens, once per blob and grammar (a memory cache of 32 MiB beside the highlightings): 3.2 ms a
   side of 3,300 lines, no time limit, the limits are of work ([Diff View](diff-view.md#marks) has the numbers). The
@@ -3363,10 +3363,10 @@ git plumbing does not depend on.
   tokens, the moves the blocks and the lines, never the inner ranges, so a diff the time cut short has the marks of
   its blocks; only a side over the size of the inner ranges has no runs.
 - **The subject.** What only the other files of a subject explain
-  ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md), "Subject"; `crates/file-diffs/src/marks_subject.rs`):
+  ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md), "Subject"; `crates/diff-marks/src/marks_subject.rs`):
   the lines that moved from one file to another, and the names one file declares and others use. It costs no git
   process: the worker of a pair, where its texts are, keeps what the pair leaves to the other files
-  (`crates/file-diffs/src/leftovers.rs`: the changed lines no mark took as hashed keys, the names it declares none of
+  (`crates/diff-marks/src/leftovers.rs`: the changed lines no mark took as hashed keys, the names it declares none of
   with the runs their blocks would have, the places of its declarations), and the pass is a function of what the
   pairs are and left, in the order of git. When the caches have every pair it runs before the first `content`, which
   carries its marks; else each `content` goes out as it is known, with the marks of its pair, and the pass runs once
@@ -3431,8 +3431,8 @@ git plumbing does not depend on.
   (`outside_place_test.rs`).
 
 Code: `crates/file-diffs/src/service.rs`, `crates/file-diffs/src/worktree.rs`, `crates/file-diffs/src/declarations.rs`,
-`crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `crates/file-diffs/src/leftovers.rs`,
-`crates/file-diffs/src/marks_subject.rs`, `crates/object-cache/src/file_diff.rs`.
+`crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `crates/diff-marks/src/leftovers.rs`,
+`crates/diff-marks/src/marks_subject.rs`, `crates/diff-marks/src/index.rs`, `crates/object-cache/src/file_diff.rs`.
 
 #### Review of a target
 

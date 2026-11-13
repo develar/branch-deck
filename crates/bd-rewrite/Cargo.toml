@@ -14,6 +14,8 @@ code-symbols = { path = "../code-symbols" }
 # the tokens of a file and the rule "equal by tokens", the grammar of a path
 code-tokens = { path = "../code-tokens" }
 file-diffs = { path = "../file-diffs" }
+# the marks of a diff and the answers of the index they decide by
+diff-marks = { path = "../diff-marks" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }
 history-rewrite = { path = "../history-rewrite" }

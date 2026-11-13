@@ -107,7 +107,8 @@ collapsed, and the grammar of a path.
 ### Marks
 
 A diff says of its own blocks what a reviewer may pass ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md)):
-`TextDiff.marks`, decided in Rust (`crates/file-diffs/src/marks.rs`) for every view. The rule of the whole feature: a
+`TextDiff.marks`, decided in Rust (`crates/diff-marks/src/marks.rs`, a pure function of two texts and their diff, read by
+`crates/file-diffs/src/marks.rs`) for every view. The rule of the whole feature: a
 mark is one thing, quiet another. A reviewer passes what is quiet, so only what provably changes no behaviour is; the
 rest gets a label and stays a stop.
 

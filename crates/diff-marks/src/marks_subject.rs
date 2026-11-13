@@ -46,16 +46,16 @@
 //!   (`Leftovers::lone_returns`): a use the index lists in a text with one is on no line the diff knows, and the
 //!   answer proves nothing (`Incomplete`).
 //!
-//! The answer of the index comes after the rows of the files (`FileDiffs::rename_proofs`, asked by the window that
-//! shows them), so nothing it says takes a line out of a view: a view passes a confirmed run and shows each of its
+//! The answer of the index comes after the rows of the files (in Branch Deck `file_diffs::service::FileDiffs::rename_proofs`,
+//! asked by the window that shows them), so nothing it says takes a line out of a view: a view passes a confirmed run and shows each of its
 //! lines.
 
-use crate::accio::{Access, RenameAnswer, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
+use crate::index::{Access, RenameAnswer, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
 use crate::leftovers::{Leftovers, PendingRun};
 use crate::marks::is_quiet;
 use crate::marks_renames::with_the_first;
-use crate::service::to_u32;
 use code_tokens::{Grammar, grammar_of};
+use line_diff::model::to_u32;
 use line_diff::model::{BlockKind, DiffBlock, DiffMarks, FileMove, LineMove, LineRun, Rename, RenameCheck, RenameProof, RunKind, SubjectMarks, TextDiff, UsedRename, starts_of};
 use line_diff::moves_across::{AcrossWork, FileRows, LeftRow, find_moves_across};
 use std::borrow::Cow;

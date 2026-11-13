@@ -176,6 +176,7 @@ dependencies = [
  "app-settings",
  "branch-integration",
  "cli-tools",
+ "diff-marks",
  "domain-types",
  "file-diffs",
  "git-executor",
@@ -745,6 +746,7 @@ dependencies = [
  "code-symbols",
  "code-tokens",
  "commit-clustering",
+ "diff-marks",
  "domain-types",
  "file-diffs",
  "generated-files",
@@ -1911,6 +1913,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 
 [[package]]
+name = "diff-marks"
+version = "0.1.0"
+dependencies = [
+ "code-tokens",
+ "line-diff",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2327,6 +2340,7 @@ dependencies = [
  "code-symbols",
  "code-tokens",
  "criterion",
+ "diff-marks",
  "generated-files",
  "git-executor",
  "git-ops",
@@ -6086,6 +6100,7 @@ dependencies = [
  "anyhow",
  "code-symbols",
  "code-tokens",
+ "diff-marks",
  "domain-types",
  "file-diffs",
  "generated-files",
@@ -7781,6 +7796,7 @@ dependencies = [
  "branch-integration",
  "cli-tools",
  "dashmap",
+ "diff-marks",
  "domain-policy",
  "domain-types",
  "file-diffs",

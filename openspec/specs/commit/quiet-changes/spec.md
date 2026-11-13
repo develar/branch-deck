@@ -8,13 +8,18 @@ targets:
   - crates/line-diff/src/moves_across.rs
   - crates/line-diff/src/inline.rs
   - crates/line-diff/src/lcs/diff.rs
+  - crates/diff-marks/src/marks.rs
+  - crates/diff-marks/src/marks_runs.rs
+  - crates/diff-marks/src/marks_renames.rs
+  - crates/diff-marks/src/marks_subject.rs
+  - crates/diff-marks/src/leftovers.rs
+  - crates/diff-marks/src/bindings.rs
+  - crates/diff-marks/src/index.rs
+  - crates/diff-marks/src/reorder.rs
   - crates/file-diffs/src/marks.rs
-  - crates/file-diffs/src/marks_runs.rs
-  - crates/file-diffs/src/marks_renames.rs
-  - crates/file-diffs/src/marks_subject.rs
+  - crates/file-diffs/src/bindings.rs
   - crates/file-diffs/src/marks_measure.rs
   - crates/bd-rewrite/src/mark_stats.rs
-  - crates/file-diffs/src/leftovers.rs
   - crates/file-diffs/src/accio.rs
   - crates/object-cache/src/file_diff.rs
   - crates/file-diffs/src/service.rs
@@ -2798,7 +2803,7 @@ repository from the fixture of the test server (`answerStoreRename` writes `.git
 `FixtureIndex` answers `get_rename_proofs` by), and hold that answer where they read the rows before it
 (`lateSubjectMarks`, `holdCommand`).
 `cargo nextest run -p file-diffs -E 'test(/marks_test|marks_renames_test|marks_subject_test/)'` and
-`-p text-diff -E 'test(/model_test|moves_test|moves_across_test/)'`; the pass over a subject through the service and
+`-p line-diff -E 'test(/model_test|moves_test|moves_across_test/)'`, `-p diff-marks`; the pass over a subject through the service and
 the index: `-p file-diffs -E 'test(/service_test|accio_test/)'` (one test asks the accio of the machine, when it
 answers `renames`, of a repository it indexes under a home of its own); the question of a window to the index:
 `-p app-api -E 'test(/diffs_test/)'`; the measurement: `-p file-diffs -E 'test(/marks_measure_test/)'` and

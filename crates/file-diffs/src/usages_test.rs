@@ -1,10 +1,11 @@
 //! Find Usages in a review: the names of a local in its file, the names of a word in the files of the review from the
 //! texts the diffs read, then those outside the review that the index knows
 
-use crate::accio::{Columns, DeclarationAt, ReferenceHit, References, Resolved, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
+use crate::accio::{DeclarationAt, ReferenceHit, References, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
 use crate::declarations_test::{params, review, single_file_params};
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::FoundUsages;
+use diff_marks::index::{Columns, Resolved};
 use pretty_assertions::assert_eq;
 use std::sync::Mutex;
 use test_log::test;
@@ -21,7 +22,7 @@ fn places(found: &FoundUsages) -> Vec<(&str, u32, u32, &str)> {
 
 #[test]
 fn the_accio_column_counts_bytes_after_a_utf16_surrogate_pair() {
-  use crate::accio::Columns;
+  use diff_marks::index::Columns;
   // `😀` is two UTF-16 units, one character and four bytes: `count` starts at UTF-16 column 6 from 0.
   assert_eq!(Columns::Bytes.at("val 😀count = 1", 0, 6), Some(9));
   assert_eq!(Columns::Characters.at("val 😀count = 1", 0, 6), Some(6));
@@ -37,7 +38,7 @@ fn the_accio_column_counts_bytes_after_a_utf16_surrogate_pair() {
 
 #[test]
 fn the_column_units_follow_the_version_of_accio() {
-  use crate::accio::Columns;
+  use diff_marks::index::Columns;
   assert_eq!(Columns::of_version("accio 0.20.0\n"), Columns::Bytes);
   assert_eq!(Columns::of_version("accio 0.21.0 (source)\n"), Columns::Characters);
   assert_eq!(Columns::of_version("accio 1.0.0"), Columns::Characters);

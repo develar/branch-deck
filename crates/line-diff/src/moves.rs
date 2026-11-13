@@ -47,7 +47,7 @@
 //! - **A line a move rewrote** (`rewritten_lines`) is an edited line whose two texts differ in more than whitespace:
 //!   a view shows it as a changed line. Every other line of a move, an exact one and one edited in its whitespace
 //!   alone, reads as the same line at another place; the pass over the files of a subject
-//!   (`file_diffs::marks_subject`) asks which is which and has no text to read it from.
+//!   (`diff_marks::marks_subject`) asks which is which and has no text to read it from.
 //! - **One to one, the longest first**: of the moves found, the longest is taken (then the one with fewer edited
 //!   lines, then the first by its new and its old lines); a move that shares a line with a taken one is cut to the rows
 //!   of it that are still free, which are asked again. The answer is a function of the two texts, the blocks, the

@@ -42,11 +42,9 @@
 //!   cut short (`BudgetedDiff::out_of_time`: its inner ranges or its lines ran out) stays in memory only: the store
 //!   never keeps it, and a scan never reads it (`blocks_of` compares without a deadline).
 
-use crate::accio::{IndexUnavailable, RenameAnswer, RenamePair, SearchCanceled, SymbolIndex};
+use crate::accio::{IndexUnavailable, SearchCanceled, SymbolIndex};
 use crate::collapse::collapse_of;
-use crate::leftovers::{LEFTOVERS_CACHE_BYTES, Leftovers};
-use crate::marks::{TOKENS_CACHE_BYTES, pair_indented, tokens_weight};
-use crate::marks_subject::{IndexAnswer, PairFacts, Subject, facts_of};
+use crate::marks::{TOKENS_CACHE_BYTES, tokens_weight};
 use crate::merge::{ConflictPath, MergeMemoryKey, merge_weight};
 use crate::model::{
   BlobRequest, BlobText, Collapse, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetRenameProofsParams, MergeContent,
@@ -64,13 +62,17 @@ use code_symbols::navigate::RULES_VERSION;
 use code_symbols::summary::{FileSummary, LineSpan};
 use code_tokens::grammar_of;
 use code_tokens::{Tokens, indentation_matters, tokens_version};
+use diff_marks::index::{RenameAnswer, RenamePair};
+use diff_marks::leftovers::Leftovers;
+use diff_marks::marks::pair_indented;
+use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject, facts_of};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, for_each_object};
 use git_ops::commit_files::{DiffSubject, MAX_BLOB_BYTES, read_commit_files_cached};
 use git_ops::object_texts::{into_text, is_binary};
 use git_ops::revs::is_object_id;
 use line_diff::cancellation::Deadline;
-use line_diff::model::{BlockKind, BudgetedDiff, DiffBudget, DiffMarks, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts_in};
+use line_diff::model::{BlockKind, BudgetedDiff, DiffBudget, DiffMarks, LineRun, Scope, TextDiff, diff_texts_in};
 use line_diff::policy::WhitespacePolicy;
 use line_diff::text_lines::TextLines;
 use moka::sync::Cache;
@@ -119,6 +121,8 @@ const MAX_CACHED_CONFLICTS: u64 = 256;
 /// last, each some kilobytes, one of a name used all over a repository a megabyte. Final ones alone
 /// (`RenameAnswer::is_final`)
 pub const ANSWERS_CACHE_BYTES: u64 = 16 << 20;
+/// The leftovers of the pairs (`diff_marks::leftovers::Leftovers`) that memory keeps, weighed by their size
+pub const LEFTOVERS_CACHE_BYTES: u64 = 16 << 20;
 /// At most this many blobs in one `blob_texts`
 pub const MAX_BLOB_REQUESTS: usize = 10_000;
 
@@ -1348,12 +1352,6 @@ fn text_of(blob: Option<&BlobText>) -> &str {
     Some(BlobText::Text { text, .. }) => text,
     _ => "",
   }
-}
-
-/// Whether a text is within the size the inner ranges are compared for (`diff_texts`): a diff by lines alone of two
-/// such texts is one the time cut short, and only such texts are read for the runs of their marks
-pub(crate) const fn fits_inner(text: &str, line_count: u32) -> bool {
-  text.len() <= MAX_INNER_BYTES && line_count as usize <= MAX_INNER_LINES
 }
 
 /// A blob as `cat-file --batch` gave it

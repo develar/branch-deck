@@ -4,11 +4,12 @@
 #[cfg(unix)]
 use crate::accio::AccioSearch;
 use crate::accio::{
-  Access, AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, IndexUnavailable, Lenient, OfBuild, ReferenceHit, RenameAnswer, RenamePair,
-  RenameUse, Resolved, SearchCanceled, SurfaceDeclaration, SurfaceSite, SurfaceUse, SymbolHit, SymbolIndex,
+  AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, IndexUnavailable, Lenient, OfBuild, ReferenceHit, SearchCanceled, SurfaceDeclaration,
+  SurfaceSite, SurfaceUse, SymbolHit, SymbolIndex,
 };
 use crate::fixture_test::{RENAMED_STORE_ANSWER, renamed_store, repo_path, unhurried};
 use crate::model::{DiffContent, DiffSource};
+use diff_marks::index::{Access, RenameAnswer, RenamePair, RenameUse, Resolved};
 use line_diff::model::RenameProof;
 use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;

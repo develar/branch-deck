@@ -1,13 +1,14 @@
 //! The renames of a diff (`marks_renames.rs`): what is a rename, which of its places are passed, which are a label and
 //! which are read, in each grammar family; what is none; the limit of the work.
 
-use crate::marks::{MAX_FILE_TOKEN_WORK, MAX_RENAME_WORK, has_proof, is_quiet, marks_of, pair_grammar};
-use crate::marks_renames::{Candidates, may_hold_rename, renames_within, with_the_first};
-use crate::marks_runs::{BlockLines, runs_of_block};
+use crate::bindings::CodeSymbolBindings;
 use crate::marks_test::{ANY_TEXT, check_marks, read_pair, show_rename};
 use code_symbols::navigate::resolution_work;
 use code_tokens::tokens;
 use code_tokens::{Grammar, grammar_of};
+use diff_marks::marks::{MAX_FILE_TOKEN_WORK, MAX_RENAME_WORK, has_proof, is_quiet, marks_of, pair_grammar};
+use diff_marks::marks_renames::{Candidates, may_hold_rename, renames_within, with_the_first};
+use diff_marks::marks_runs::{BlockLines, runs_of_block};
 use line_diff::model::{DiffBudget, LineRun, Rename, RunKind, TextDiff, diff_texts};
 use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
@@ -318,7 +319,7 @@ fn the_runs_of_a_renamed_local_are_quiet_since_their_kind_is_switched_on() {
     let diff = diff_texts(old, &new, WhitespacePolicy::Default, &DiffBudget::NONE);
     let grammar = grammar_of(path);
     let read = |new_side: bool| tokens(grammar?, if new_side { &new } else { old }).map(Arc::new);
-    let found = marks_of(&diff, old, &new, grammar, WhitespacePolicy::Default, false, read);
+    let found = marks_of(&diff, old, &new, grammar, WhitespacePolicy::Default, false, read, &CodeSymbolBindings);
     let shown = &found.marks;
     assert!(is_quiet(RunKind::Renamed) && has_proof(RunKind::Renamed));
     assert_eq!(found.proven, [] as [u32; 0], "{path}");
@@ -1330,9 +1331,16 @@ fn a_pair_of_two_grammars_has_no_rename() {
   let (old, new) = (LOCALS[0].1, LOCALS[0].1.replace("total", "sum"));
   let diff = diff_texts(old, &new, WhitespacePolicy::Default, &DiffBudget::NONE);
   let read = |grammar: Option<Grammar>| {
-    let found = marks_of(&diff, old, &new, grammar, WhitespacePolicy::Default, false, |new_side| {
-      tokens(grammar?, if new_side { &new } else { old }).map(Arc::new)
-    });
+    let found = marks_of(
+      &diff,
+      old,
+      &new,
+      grammar,
+      WhitespacePolicy::Default,
+      false,
+      |new_side| tokens(grammar?, if new_side { &new } else { old }).map(Arc::new),
+      &CodeSymbolBindings,
+    );
     (found.as_proven(&diff.blocks), found.undeclared)
   };
   let (marks, undeclared) = read(pair_grammar("a.kt", "a.kts"));
@@ -1398,7 +1406,7 @@ fn functions_with_a_local(grammar: Grammar, functions: usize, calls: usize, name
 fn marks_read_once(grammar: Grammar, old: &str, new: &str) -> TextDiff {
   let mut diff = diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE);
   let read = |new_side: bool| tokens(grammar, if new_side { new } else { old }).map(Arc::new);
-  diff.marks = marks_of(&diff, old, new, Some(grammar), WhitespacePolicy::Default, false, read).as_proven(&diff.blocks);
+  diff.marks = marks_of(&diff, old, new, Some(grammar), WhitespacePolicy::Default, false, read, &CodeSymbolBindings).as_proven(&diff.blocks);
   diff
 }
 
@@ -1416,7 +1424,7 @@ fn renames_within_work(grammar: Grammar, old: &str, new: &str, work: u64) -> (Ve
     };
     let _ = runs_of_block(&old_tokens, &new_tokens, &lines, &ANY_TEXT, &mut token_work, &mut |old, new| candidates.take(old, new));
   }
-  let found = renames_within(grammar, [old, new], [&old_tokens, &new_tokens], &diff.blocks, &candidates, work);
+  let found = renames_within(grammar, [old, new], [&old_tokens, &new_tokens], &diff.blocks, &candidates, work, &CodeSymbolBindings);
   (found.found.into_iter().map(|found| found.rename.old).collect(), found.resolutions)
 }
 
@@ -1494,7 +1502,15 @@ fn the_blocks_of_a_rename_are_cut_again_within_the_work_the_file_has_left() {
     let mut work = MAX_FILE_TOKEN_WORK;
     let read = runs_of_block(&old_tokens, &new_tokens, &lines, &ANY_TEXT, &mut work, &mut |old, new| candidates.take(old, new));
     let mut runs = vec![if first { read.unwrap() } else { Vec::new() }];
-    let found = renames_within(kotlin, [old, new], [&old_tokens, &new_tokens], &diff.blocks, &candidates, MAX_RENAME_WORK);
+    let found = renames_within(
+      kotlin,
+      [old, new],
+      [&old_tokens, &new_tokens],
+      &diff.blocks,
+      &candidates,
+      MAX_RENAME_WORK,
+      &CodeSymbolBindings,
+    );
     assert_eq!(found.found.len(), 1);
     let mut work = left;
     found.cut(&diff.blocks, [&old_tokens, &new_tokens], &|_, _| true, &mut work, &mut runs);

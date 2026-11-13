@@ -10,7 +10,8 @@
 //! subject ask whether the names it renamed are renamed at every use (openspec/specs/commit/quiet-changes/spec.md,
 //! "Subject"): `accio renames --base <revision> --ref <revision>`, every declaration of the subject in one process, the
 //! pairs of their places on its standard input; only an accio that says it answers them (`accio versions`,
-//! `RENAMES_ANSWER`) is asked.
+//! `RENAMES_ANSWER`) is asked. The answers of the index a diff decides by, and how accio counts its columns, are the
+//! contract of `diff_marks::index`, which the marks of a subject read.
 //!
 //! - **One answer per target**: accio answers a JSON array of one entry for each name or place, in the order asked, so
 //!   the names of one lookup go in one process (`symbols_any`: `Owner.name`, then the bare name). On the IntelliJ
@@ -35,6 +36,7 @@
 //!   the machine leaves over.
 
 use anyhow::{Context, Result, bail};
+use diff_marks::index::{Access, Columns, RenameAnswer, RenamePair, Resolved};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -157,25 +159,6 @@ pub struct SymbolHit {
   pub parent: Option<String>,
 }
 
-/// How an indexed usage accesses a name; unknown kinds display as `read`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Access {
-  Declaration,
-  Import,
-  Call,
-  Write,
-  Read,
-  Argument,
-  Type,
-  Supertype,
-  Override,
-  Doc,
-  String,
-  #[serde(other)]
-  Unknown,
-}
-
 /// A usage an index knows: a path, a line from 1 and a column in the units of the index (`Columns::hit` reads it), the
 /// text of the line, how it uses the name, and what ties it to the declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -257,18 +240,6 @@ fn usages<'de, D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Res
   Ok(hits)
 }
 
-/// What ties a usage to the declaration asked about
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Resolved {
-  /// A type the index knows: the receiver, the argument or the type is the declaration's
-  Typed,
-  /// An import or a `use` of the declaration or of its module
-  Import,
-  /// The name alone: a receiver nothing typed, another language, prose or a namesake's
-  Name,
-}
-
 /// An argument of a call, as accio reads it: by its name or its position, and the parameter it binds
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[expect(clippy::struct_excessive_bools, reason = "accio's JSON gives each flag of an argument as a field of its own")]
@@ -304,59 +275,6 @@ pub struct DeclarationAt {
   pub line: u32,
   /// The column of the declared name in the units the index takes (`Columns::at`), when the caller knows it
   pub column: Option<u32>,
-}
-
-/// How accio counts the column it takes in `--at` and answers in a `references` hit. An accio before 0.21 counts bytes
-/// from 1 in both; from 0.21 (accio's decision 2026-11-09-one-column-unit) `--at` counts characters from 1 and a hit's
-/// `column` UTF-16 units from 0, as a review does. Every column a review sends to the index or reads from it goes
-/// through these two conversions, so no reader guesses a column from the words of a line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Columns {
-  Bytes,
-  Characters,
-}
-
-impl Columns {
-  /// The units of the accio whose `--version` printed `version` (`accio 0.21.0`, `accio 0.21.0 (source)`): `Bytes` for
-  /// one before 0.21 or one it cannot read
-  pub fn of_version(version: &str) -> Self {
-    let number = version.split_whitespace().nth(1).unwrap_or_default();
-    let mut parts = number.split('.').map(|it| it.parse::<u32>().unwrap_or(0));
-    let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
-    if (major, minor) >= (0, 21) { Self::Characters } else { Self::Bytes }
-  }
-
-  /// The `--at` column of the zero-based UTF-16 `column` on line `line` (from 0) of `text`; `None` past the line's end
-  /// or inside a character
-  pub fn at(self, text: &str, line: u32, column: u32) -> Option<u32> {
-    let (byte, character, _) = boundaries(line_of(text, line)?).find(|&(_, _, utf16)| utf16 == column)?;
-    u32::try_from(1 + if self == Self::Bytes { byte } else { character }).ok()
-  }
-
-  /// The zero-based UTF-16 column of a `references` hit's `column` on line `line` (from 0) of `text`; `None` past the
-  /// line's end or inside a character (a hit of another text)
-  pub fn hit(self, text: &str, line: u32, column: u32) -> Option<u32> {
-    let mut found = boundaries(line_of(text, line)?);
-    match self {
-      Self::Bytes => found.find(|&(byte, _, _)| byte + 1 == column as usize).map(|(_, _, utf16)| utf16),
-      Self::Characters => found.find(|&(_, _, utf16)| utf16 == column).map(|(_, _, utf16)| utf16),
-    }
-  }
-}
-
-/// Line `line` (from 0) of `text`, without its line end
-fn line_of(text: &str, line: u32) -> Option<&str> {
-  text.split('\n').nth(line as usize).map(|it| it.trim_end_matches('\r'))
-}
-
-/// Each character boundary of `line`, its end included: the bytes, the characters and the UTF-16 units before it
-fn boundaries(line: &str) -> impl Iterator<Item = (usize, usize, u32)> + '_ {
-  let mut utf16 = 0u32;
-  line.char_indices().map(Some).chain(std::iter::once(None)).enumerate().map(move |(character, it)| {
-    let here = (it.map_or(line.len(), |(byte, _)| byte), character, utf16);
-    utf16 += it.map_or(0, |(_, c)| u32::try_from(c.len_utf16()).unwrap_or(0));
-    here
-  })
 }
 
 impl DeclarationAt {
@@ -694,101 +612,6 @@ pub struct References {
 
 const fn complete_by_default() -> bool {
   true
-}
-
-/// A declaration a change may have renamed, by the place of its name in the old tree and in the new one:
-/// `<path>:<line>:<column>`, the path from the root of the repository, the line and the column from 1, the column in
-/// characters, as `--at` takes a place (`Columns::Characters`)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RenamePair {
-  pub old: String,
-  pub new: String,
-}
-
-/// What accio says of a `RenamePair` between two trees (`accio renames`, answer revision `RENAMES_ANSWER`; the
-/// contract is accio's decision 2026-11-11-rename-read-in-two-trees). Only the fields a diff decides by are read
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct RenameAnswer {
-  /// The pair could not be asked: a place names no declaration, or reads as none. Never "no use"
-  #[serde(default)]
-  pub unavailable: bool,
-  /// The two places are one declaration: the same kind, language, owners and signature apart from the name
-  #[serde(default)]
-  pub same: bool,
-  /// Every candidate file of both trees was read, every use listed and tied by more than its name, and every
-  /// relation of the declaration read: only then are the uses all there are, and no conflict "none"
-  #[serde(default)]
-  pub complete: bool,
-  #[serde(default)]
-  pub old: Option<RenamedDeclaration>,
-  #[serde(default)]
-  pub new: Option<RenamedDeclaration>,
-  /// The uses of the old declaration in the old tree, and of the new one in the new tree; absent when the budget of
-  /// the call ran out first
-  #[serde(default)]
-  pub base: Option<RenameUses>,
-  #[serde(default)]
-  pub head: Option<RenameUses>,
-  /// What the rename changed beyond the name
-  #[serde(default)]
-  pub conflicts: Vec<RenameConflict>,
-}
-
-impl RenameAnswer {
-  /// Whether the answer is all the index says of the pair between its two trees, whenever it is asked: a pair it
-  /// could not ask, two places that are not one declaration, or a complete answer with the uses of both trees. Any
-  /// other one is what a query got to: the budget of the call ran out before the pair or in it (accio shares one
-  /// between the pairs, and a cold index spends it), the limit cut its uses, or the index could not read a relation
-  /// as it was then. Asked again, the index may say more, so such an answer is a function of the load of the
-  /// machine and of the state of the index, not of the two trees
-  pub(crate) const fn is_final(&self) -> bool {
-    self.unavailable || !self.same || (self.complete && self.base.is_some() && self.head.is_some())
-  }
-}
-
-/// A declaration of a `RenameAnswer`
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct RenamedDeclaration {
-  /// accio's name of its language: `kotlin`, `java`, …
-  #[serde(default)]
-  pub language: String,
-}
-
-/// The uses of a declaration in one tree
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct RenameUses {
-  /// By file, line and column, the declaration itself among them; at most the limit of the call
-  #[serde(default)]
-  pub uses: Vec<RenameUse>,
-  /// The uses found: more than `uses` holds when the limit cut them
-  #[serde(default)]
-  pub total: usize,
-}
-
-/// A use of a declaration: a path of its tree, a line from 1 and the zero-based UTF-16 columns of the word written
-/// there, the two the same for a use that writes no word (a positional argument that sets a property, a constructor
-/// delegation)
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct RenameUse {
-  #[serde(rename = "file")]
-  pub path: String,
-  pub line: u32,
-  pub column: u32,
-  pub end_column: u32,
-  pub kind: Access,
-  /// What ties it to the declaration: a use tied by its name alone proves nothing
-  pub resolved: Resolved,
-  /// The word written there when it is not the name of the declaration: an alias of an import, the accessor of a
-  /// property in another language. A rename of the declaration asks nothing of such a word
-  #[serde(default)]
-  pub text: Option<String>,
-}
-
-/// What a rename changed beyond the name: `left` (a use the change did not rename, in a file it left alone),
-/// `captured`, `overrides`, `overridden`, `overload`, `hides`, `hidden`, `namesake`
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct RenameConflict {
-  pub kind: String,
 }
 
 /// The declarations and the usages of a repository by name: accio in the app, a fixture in the e2e server

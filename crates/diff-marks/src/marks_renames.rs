@@ -6,7 +6,7 @@
 //!    (`Token::shape`), are spelled otherwise and are each one plain word (`words`). A block whose sides hold the same
 //!    words has none (`may_hold_rename`), which is also the question the block is asked before the tokens are read.
 //!    A file without a candidate is not parsed for its names.
-//! 2. **The bindings, from one parse of each side** (`code_symbols::navigate::names_at`, openspec/specs/commit/name-bindings/spec.md):
+//! 2. **The bindings, from one parse of each side** (`bindings::Bindings::names_at_within`, openspec/specs/commit/name-bindings/spec.md):
 //!    each candidate place of the old text is asked with the new name, each of the new text with the old one. The
 //!    answers are bound by work (`MAX_RENAME_WORK`): a resolution of a name, one per spelling and one more per binding,
 //!    costs the tokens of the text or an eighth of them by its grammar (`resolution_work`), and the first place of
@@ -38,10 +38,10 @@
 //!    blocks are read again without them. Measured on real commits: half of the local renames the places alone
 //!    made were such pairs (docs/design/diff-view.md, "Measured on real history").
 //! 6. **A run is proven** (`Renames::prove`) when it holds only places of proven renames: a local value of its body
-//!    alone, every name of which the scopes bind (`LocalBinding::is_of_body_alone`: a value no code outside its body
+//!    alone, every name of which the scopes bind (`bindings::Local::of_body_alone`: a value no code outside its body
 //!    may name, in a text the scopes read whole), in a member nothing else of which changed (`Found::code`: the
 //!    member around the name with the heads of the types that hold it, the whole text for a name without a
-//!    member, `code_symbols::navigate`, "The statements of a name"). No line of that code
+//!    member, the bindings of its reader: `code_symbols::navigate`, "The statements of a name"). No line of that code
 //!    changed in anything that says what a name is: each is in a run of formatting or of comments, in a run of the
 //!    kind `Renamed` of proven renames, on a line that changed in the name its own declaration is known by alone,
 //!    or holds no token of code (a blank line inside a string of several lines is a line of that string, and
@@ -69,13 +69,13 @@
 //!
 //! Nothing here is a rule of characters: a file of no grammar has no rename.
 
+use crate::bindings::{Access, Bindings, NameAt, NameQuestion, NameUse, Position, Site};
 use crate::leftovers::{PendingBlock, PendingRun};
 use crate::marks::MAX_RENAME_WORK;
 use crate::marks_runs::{Asked, BlockLines, runs_of_block};
-use crate::service::to_u32;
-use code_symbols::navigate::{Access, NameAt, NameQuestion, NameUse, Position, Site, names_at_within, resolution_work};
 use code_tokens::Grammar;
 use code_tokens::{Token, TokenClass, Tokens};
+use line_diff::model::to_u32;
 use line_diff::model::{BlockKind, DiffBlock, LineRun, Rename, RunKind};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -97,7 +97,7 @@ fn is_word(text: &str) -> bool {
 /// Whether the lines of a block, the text of each side, may hold a candidate of a rename: one side has a word the
 /// other has not, or has more often. Asked before the tokens are read, and of every block that is read: a block
 /// whose sides hold the same words gives no candidate
-pub(crate) fn may_hold_rename(old: &str, new: &str) -> bool {
+pub fn may_hold_rename(old: &str, new: &str) -> bool {
   let mut counts: HashMap<&str, i32> = HashMap::new();
   for word in words(old) {
     *counts.entry(word).or_default() += 1;
@@ -110,7 +110,7 @@ pub(crate) fn may_hold_rename(old: &str, new: &str) -> bool {
 
 /// The names of the two sides that the alignment of the tokens put at one place: what a rename is looked for in
 #[derive(Debug, Default)]
-pub(crate) struct Candidates {
+pub struct Candidates {
   /// In the order of the texts, each the token of the old text and the one of the new text
   pairs: Vec<[Token; 2]>,
 }
@@ -118,23 +118,23 @@ pub(crate) struct Candidates {
 impl Candidates {
   /// Takes two tokens the alignment of a block put at one place when they are two names that stand alike in the
   /// tree and are spelled otherwise
-  pub(crate) fn take(&mut self, old: &Token, new: &Token) {
+  pub fn take(&mut self, old: &Token, new: &Token) {
     if old.class == TokenClass::Name && new.class == TokenClass::Name && old.shape() == new.shape() && old.text != new.text {
       self.pairs.push([*old, *new]);
     }
   }
 
-  pub(crate) const fn is_empty(&self) -> bool {
+  pub const fn is_empty(&self) -> bool {
     self.pairs.is_empty()
   }
 }
 
 /// A rename the diff marks
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Found {
-  pub(crate) rename: Rename,
+pub struct Found {
+  pub rename: Rename,
   /// Its places are proven to change nothing: a value of its body alone, every name of which the scopes bind
-  pub(crate) proven: bool,
+  pub proven: bool,
   /// For each place that is the rename and nothing else, its tokens in the two texts (their places in
   /// `Tokens::all`), which are read as one; `None` for a place that is read
   places: Vec<Option<[usize; 2]>>,
@@ -147,28 +147,28 @@ pub(crate) struct Found {
   declarations: Option<Vec<[usize; 2]>>,
   /// Of a name that is not local: the code that declares it changed in more than names (`read_declarations`).
   /// Never of a local
-  pub(crate) redeclared: bool,
+  pub redeclared: bool,
 }
 
 /// The renames of a pair of texts
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct Renames {
+pub struct Renames {
   /// The renames the diff marks, by their first place
-  pub(crate) found: Vec<Found>,
+  pub found: Vec<Found>,
   /// The names that changed at every place of the file and are declared in none of them, by their first place: the
   /// diff marks nothing of them. Never proven: only the file that declares a name says what was renamed
-  pub(crate) undeclared: Vec<Found>,
+  pub undeclared: Vec<Found>,
   /// The resolutions of a name each text took, of those the work paid for
-  pub(crate) resolutions: [usize; 2],
+  pub resolutions: [usize; 2],
 }
 
 /// The renames among `candidates` of two texts of `grammar` with the tokens `tokens` and the blocks of their diff
-pub(crate) fn renames_of(grammar: Grammar, texts: [&str; 2], tokens: [&Tokens; 2], blocks: &[DiffBlock], candidates: &Candidates) -> Renames {
-  renames_within(grammar, texts, tokens, blocks, candidates, MAX_RENAME_WORK)
+pub fn renames_of(grammar: Grammar, texts: [&str; 2], tokens: [&Tokens; 2], blocks: &[DiffBlock], candidates: &Candidates, bindings: &dyn Bindings) -> Renames {
+  renames_within(grammar, texts, tokens, blocks, candidates, MAX_RENAME_WORK, bindings)
 }
 
 /// `renames_of` within `work` in place of `MAX_RENAME_WORK`
-pub(crate) fn renames_within(grammar: Grammar, texts: [&str; 2], tokens: [&Tokens; 2], blocks: &[DiffBlock], candidates: &Candidates, work: u64) -> Renames {
+pub fn renames_within(grammar: Grammar, texts: [&str; 2], tokens: [&Tokens; 2], blocks: &[DiffBlock], candidates: &Candidates, work: u64, bindings: &dyn Bindings) -> Renames {
   let pairs: Vec<&[Token; 2]> = candidates
     .pairs
     .iter()
@@ -192,11 +192,11 @@ pub(crate) fn renames_within(grammar: Grammar, texts: [&str; 2], tokens: [&Token
       .collect()
   };
   // as many resolutions of each text as the work pays for of both
-  let cost = |side: usize| resolution_work(grammar, tokens[side].all().len()).max(1);
+  let cost = |side: usize| bindings.resolution_work(grammar, tokens[side].all().len()).max(1);
   let paid = usize::try_from(work / (cost(0) + cost(1))).unwrap_or(usize::MAX);
   let (old_names, new_names) = (
-    names_at_within(grammar, texts[0], &questions(0), paid),
-    names_at_within(grammar, texts[1], &questions(1), paid),
+    bindings.names_at_within(grammar, texts[0], &questions(0), paid),
+    bindings.names_at_within(grammar, texts[1], &questions(1), paid),
   );
   let aligned = Aligned::of(&pairs);
 
@@ -300,11 +300,11 @@ fn confirm(old: &NameAt, new: &NameAt, tokens: [&Tokens; 2], blocks: &[DiffBlock
   }
   let (local, proven) = match (old.local, new.local) {
     (Some(old_local), Some(new_local)) => {
-      let binds_alike = |name: &NameAt| name.clashes.as_ref().is_some_and(Vec::is_empty);
+      let binds_alike = |name: &NameAt| name.clashes == Some(0);
       if old_local.kind != new_local.kind || !binds_alike(old) || !binds_alike(new) {
         return None;
       }
-      (true, old_local.is_of_body_alone() && new_local.is_of_body_alone())
+      (true, old_local.of_body_alone && new_local.of_body_alone)
     }
     (None, None) => (false, false),
     _ => return None,
@@ -423,7 +423,7 @@ impl Renames {
   /// it is; the lines of the same tokens beside them that hold none are the run of formatting they are without the
   /// rename, and lines that hold a place and differ in their comments are no run. The reading adds runs and takes
   /// none: a run the first reading found is in the runs after it (`with_the_first`)
-  pub(crate) fn cut(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64, runs: &mut [Vec<LineRun>]) {
+  pub fn cut(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64, runs: &mut [Vec<LineRun>]) {
     self.read_again(false, blocks, tokens, has_text, work, &mut |block, second, _| {
       runs[block] = with_the_first(std::mem::take(&mut runs[block]), second);
     });
@@ -442,7 +442,7 @@ impl Renames {
   /// leans on a name, added once the files of the subject are put together, after the rows of the file were drawn.
   /// A block the work does not pay for, and one without such a run, is left out: the runs of the pair say all there
   /// is of it
-  pub(crate) fn pending(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64) -> Vec<PendingBlock> {
+  pub fn pending(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64) -> Vec<PendingBlock> {
     // the name of each place of such a name, by its token in the old text
     let named: HashMap<usize, u32> = (0u32..)
       .zip(&self.undeclared)
@@ -486,7 +486,7 @@ impl Renames {
   /// every line of them changed otherwise too (`val isRoot = …` and `val nameComponent = …`, each read where the
   /// other was), one variable took the place of another, and nothing is called a rename. Whether one was taken out:
   /// the blocks are then read again without it, since a run may lean on a name read as one beside it
-  pub(crate) fn keep_the_named(&mut self, runs: &[Vec<LineRun>], old: &Tokens) -> bool {
+  pub fn keep_the_named(&mut self, runs: &[Vec<LineRun>], old: &Tokens) -> bool {
     let renamed = RenamedRuns::of(runs);
     let before = self.found.len();
     self
@@ -500,7 +500,7 @@ impl Renames {
   /// `cut`). In the runs of the marks such a declaration is on no line of a run: it is read. This reading says
   /// whether its line changed in the name alone, which the proofs ask (`prove`, `read_declarations`); no run of it
   /// is a run of the marks
-  pub(crate) fn with_declarations(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64) -> DeclarationsRead {
+  pub fn with_declarations(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64) -> DeclarationsRead {
     let mut read = DeclarationsRead::default();
     fn declared(found: &Found) -> impl Iterator<Item = &[usize; 2]> {
       found.declarations.iter().flatten()
@@ -570,7 +570,7 @@ impl Renames {
   /// to a call on another value, a parameter of another type, a statement that gives another value to a variable
   /// the name is made of: each binds another value under the new name, and a line that reads it does something
   /// else though its tokens are the same. Every run of such a rename is a label
-  pub(crate) fn prove(&mut self, blocks: &[DiffBlock], tokens: [&Tokens; 2], runs: &mut [Vec<LineRun>], declarations: &DeclarationsRead) {
+  pub fn prove(&mut self, blocks: &[DiffBlock], tokens: [&Tokens; 2], runs: &mut [Vec<LineRun>], declarations: &DeclarationsRead) {
     let places = self.place_lines(tokens[0]);
     let in_run = |run: &LineRun| &places[places.partition_point(|place| place.0 < run.old_start)..places.partition_point(|place| place.0 < run.old_end)];
     // the lines of each rename that changed, by their block and their side
@@ -611,7 +611,7 @@ impl Renames {
   /// changed in anything that says what a name is: each is in a run of formatting or of comments, in a run of the
   /// kind `Renamed` that holds only places of this rename and of locals the scopes prove, or holds no token of
   /// code. A block the work did not pay for says nothing, and the name is declared anew
-  pub(crate) fn read_declarations(&mut self, blocks: &[DiffBlock], tokens: [&Tokens; 2], runs: &[Vec<LineRun>], declarations: &DeclarationsRead) {
+  pub fn read_declarations(&mut self, blocks: &[DiffBlock], tokens: [&Tokens; 2], runs: &[Vec<LineRun>], declarations: &DeclarationsRead) {
     let places = self.place_lines(tokens[0]);
     let in_run = |run: &LineRun| &places[places.partition_point(|place| place.0 < run.old_start)..places.partition_point(|place| place.0 < run.old_end)];
     let mut redeclared = Vec::new();
@@ -717,7 +717,7 @@ impl Changed {
 /// The blocks of a diff read with the names of the declarations that are not local as one too
 /// (`Renames::with_declarations`), by their numbers; `None` for a block the work did not pay for
 #[derive(Debug, Default)]
-pub(crate) struct DeclarationsRead {
+pub struct DeclarationsRead {
   blocks: HashMap<usize, Option<Vec<LineRun>>>,
 }
 
@@ -824,7 +824,7 @@ impl Places {
 /// beside other lines where a line stands twice: what the first reading proved of the texts as they are stays, so a
 /// rename never takes the quiet of a line that changed in its formatting alone. The runs of each reading stand in
 /// the order of both sides, so the work is of their number, not of its square
-pub(crate) fn with_the_first(first: Vec<LineRun>, mut second: Vec<LineRun>) -> Vec<LineRun> {
+pub fn with_the_first(first: Vec<LineRun>, mut second: Vec<LineRun>) -> Vec<LineRun> {
   let holds = |held: &LineRun, run: &LineRun| {
     held.kind == run.kind && held.old_start <= run.old_start && run.old_end <= held.old_end && held.new_start <= run.new_start && run.new_end <= held.new_end
   };

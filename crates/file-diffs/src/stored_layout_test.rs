@@ -4,9 +4,9 @@
 //! field in its order. A field added, taken away, moved or renamed, in the type or in a type inside it, changes the
 //! sample and fails the test, and the one who pins the new sample raises the version beside it.
 
-use crate::leftovers::Leftovers;
 use crate::merge::{MERGE_MODEL_VERSION, StoredMerge};
 use crate::service::MODEL_VERSION;
+use diff_marks::leftovers::Leftovers;
 use line_diff::model::TextDiff;
 use pretty_assertions::assert_eq;
 use serde::Serialize;

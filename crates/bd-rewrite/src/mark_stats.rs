@@ -26,9 +26,9 @@ use bd_core::branch_view::read_grouping;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use code_tokens::Grammar;
+use diff_marks::marks::is_quiet;
 use domain_types::error::ErrorCode;
 use file_diffs::accio::{AccioCli, SymbolIndex};
-use file_diffs::marks::is_quiet;
 use file_diffs::marks_measure::{MeasuredFile, MeasuredSubject, MeasuredText};
 use file_diffs::model::{DiffContent, DiffSource};
 use file_diffs::service::{FileDiffs, MODEL_VERSION};
@@ -105,7 +105,7 @@ pub struct MarkStatsOutput {
   pub model_version: u32,
   /// False with --no-marks
   pub marks: bool,
-  /// The kinds of runs that are quiet where their proof holds (`file_diffs::marks::is_quiet`)
+  /// The kinds of runs that are quiet where their proof holds (`diff_marks::marks::is_quiet`)
   pub quiet_kinds: Vec<&'static str>,
   pub limits: MarkLimits,
   pub total: MarkCounts,

@@ -30,6 +30,8 @@ tokio-stream.workspace = true
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
 file-diffs = { path = "../file-diffs" }
+# the marks of a diff and the answers of the index they decide by
+diff-marks = { path = "../diff-marks" }
 review-plan = { path = "../review-plan" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }

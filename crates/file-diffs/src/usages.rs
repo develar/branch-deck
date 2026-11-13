@@ -9,7 +9,7 @@
 //!   `cat-file --batch-check` names the missing blobs and one `cat-file --batch` reads them; a failed index takes
 //!   nothing from the review's usages.
 
-use crate::accio::{Access as IndexAccess, Columns, DeclarationAt, Lenient, ReferenceHit, Resolved, SymbolIndex};
+use crate::accio::{DeclarationAt, Lenient, ReferenceHit, SymbolIndex};
 use crate::declarations::{Candidate, candidate, in_review, outside_file, revision_of, site_position};
 use crate::model::{DeclarationTarget, DiffSide, FindDeclarationParams, FoundUsages, UsageTarget};
 use crate::service::FileDiffs;
@@ -17,6 +17,7 @@ use anyhow::Result;
 use code_symbols::language::{Language, language_of};
 use code_symbols::navigate::{Access as NavigationAccess, Usage, usages_at, usages_of};
 use code_tokens::grammar_of;
+use diff_marks::index::{Access as IndexAccess, Columns, Resolved};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use std::collections::HashMap;

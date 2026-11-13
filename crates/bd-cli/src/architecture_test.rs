@@ -200,6 +200,11 @@ const UNREACHABLE: &[Unreachable] = &[
     why: PSI_READY,
   },
   Unreachable {
+    from: "diff-marks",
+    forbidden: PSI_READY_FORBIDDEN,
+    why: PSI_READY,
+  },
+  Unreachable {
     from: "fs-walk",
     forbidden: &["lease-pool", "pool-disk"],
     why: "the filesystem walk is below the pools that use it",

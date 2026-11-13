@@ -2,11 +2,12 @@
 //! file declares and another uses, and what each answer of the index proves of them. Every file of a case is read as
 //! the service reads a pair: its diff, its marks and what it left, from its two texts.
 
-use crate::accio::{Access, RenameAnswer, RenameConflict, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
-use crate::leftovers::{Leftovers, PendingBlock, PendingRun};
-use crate::marks::{is_quiet, marks_of, pair_grammar, pair_indented, without_moved_lines};
-use crate::marks_subject::{IndexAnswer, PairFacts, Subject, as_confirmed};
+use crate::bindings::CodeSymbolBindings;
 use code_tokens::tokens;
+use diff_marks::index::{Access, RenameAnswer, RenameConflict, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
+use diff_marks::leftovers::{Leftovers, PendingBlock, PendingRun};
+use diff_marks::marks::{is_quiet, marks_of, pair_grammar, pair_indented, without_moved_lines};
+use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject, as_confirmed};
 use line_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, LineMove, LineRun, RenameProof, RunKind, SubjectMarks, TextDiff, diff_texts};
 use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
@@ -42,9 +43,16 @@ fn read(file: &File, policy: WhitespacePolicy) -> (TextDiff, Leftovers) {
   let mut diff = diff_texts(old, new, policy, &DiffBudget::NONE);
   let grammar = pair_grammar(file.path, file.path);
   let indented = pair_indented(file.path, file.path);
-  let pair = marks_of(&diff, old, new, grammar, policy, indented, |new_side| {
-    tokens(grammar?, if new_side { new } else { old }).map(Arc::new)
-  });
+  let pair = marks_of(
+    &diff,
+    old,
+    new,
+    grammar,
+    policy,
+    indented,
+    |new_side| tokens(grammar?, if new_side { new } else { old }).map(Arc::new),
+    &CodeSymbolBindings,
+  );
   let (marks, left) = Leftovers::of(&diff.blocks, pair, old, new, indented);
   diff.marks = marks;
   (diff, left)

@@ -43,6 +43,7 @@ members = [
   "crates/code-symbols",
   "crates/line-diff",
   "crates/text-diff",
+  "crates/diff-marks",
   "crates/file-diffs",
   "crates/host-link",
   "crates/host-client",

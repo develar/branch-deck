@@ -5,7 +5,7 @@
 //! store, as for `blob_summary`.
 //!
 //! `file_leftovers`, under the same key: what the diff of the pair leaves to the other files of a subject it is in
-//! (`file_diffs::leftovers::Leftovers`, opaque here): the changed lines no mark of the pair took, the names it
+//! (`diff_marks::leftovers::Leftovers`, opaque here): the changed lines no mark of the pair took, the names it
 //! declares none of. A store of its own beside `file_diff`, not a part of its value: a scan reads the diff of a pair
 //! at every hit and never what the pair left
 

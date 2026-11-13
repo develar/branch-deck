@@ -252,7 +252,7 @@ impl file_diffs::accio::SymbolIndex for FixtureSearch<'_> {
     file_diffs::accio::FixtureIndex.surface(repository_root, modules, revision)
   }
 
-  fn renames(&self, repository_root: &str, pairs: &[file_diffs::accio::RenamePair], base: &str, head: &str) -> anyhow::Result<Option<Vec<file_diffs::accio::RenameAnswer>>> {
+  fn renames(&self, repository_root: &str, pairs: &[diff_marks::index::RenamePair], base: &str, head: &str) -> anyhow::Result<Option<Vec<diff_marks::index::RenameAnswer>>> {
     file_diffs::accio::FixtureIndex.renames(repository_root, pairs, base, head)
   }
 }

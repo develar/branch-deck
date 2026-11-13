@@ -1,0 +1,20 @@
+[package]
+name = "diff-marks"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+description = "The marks of a diff: the runs of lines that changed in their formatting, comments or a renamed name alone, the renames, the moves, what the files of a change say of each other, and the answers of the index they decide by"
+
+[dependencies]
+# the tokens of the sides and the grammar of a pair
+code-tokens = { path = "../code-tokens" }
+# the diff the marks are of, its model and the moves
+line-diff = { path = "../line-diff" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+serde_json = "1"
+
+[lints]
+workspace = true

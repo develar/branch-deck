@@ -29,7 +29,8 @@
 use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, FormChange, UsageSite, Usages, rank};
 use crate::pair::ChangedLines;
 use anyhow::Result;
-use file_diffs::accio::{Access, CallArgument, DeclarationAt, Lenient, ReferenceHit, References, Resolved, SymbolIndex};
+use diff_marks::index::{Access, Resolved};
+use file_diffs::accio::{CallArgument, DeclarationAt, Lenient, ReferenceHit, References, SymbolIndex};
 use std::collections::BTreeMap;
 use tracing::debug;
 use trial_check::symbol_dependencies::declaration_checks::ParameterForm;
