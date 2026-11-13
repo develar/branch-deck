@@ -1,8 +1,11 @@
 use crate::ReviewPlan;
 use crate::api::{ApiChangeKind, FormChange};
+use crate::fan_in_test::{Counts, reordered};
 use crate::files::MechanicalKind;
-use crate::test_support::{plan_of, range};
+use crate::test_support::{indexed_by_accio, plan_of, range};
 use crate::units::{OtherReason, ReviewUnit, UnitKind};
+use diff_marks::index::Order;
+use file_diffs::accio::SymbolIndex;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_log::test;
@@ -11,6 +14,15 @@ use test_utils::git_test_utils::TestRepo;
 /// The plan of `base..head` of `repo`, without an index
 fn plan(repo: &TestRepo, base: &str, head: &str) -> ReviewPlan {
   plan_of(repo, None, &range(repo, base, head)).unwrap()
+}
+
+/// The lines of the function `name` of `text`, from 1, both ends included: from the line it starts at to the first
+/// line after it that is `}`
+fn function_lines(text: &str, name: &str) -> [u32; 2] {
+  let lines: Vec<&str> = text.lines().collect();
+  let start = lines.iter().position(|line| line.starts_with(&format!("fun {name}("))).unwrap();
+  let end = start + lines[start..].iter().position(|line| *line == "}").unwrap();
+  [u32::try_from(start + 1).unwrap(), u32::try_from(end + 1).unwrap()]
 }
 
 /// A unit as a test reads it: its kind, its name, and per slice its path with the places of its blocks
@@ -357,11 +369,13 @@ fn a_declaration_is_whitespace_only_with_every_line_of_its_blocks() {
   );
 }
 
-/// A declaration that stands at another place of its file with the same code is moved, whatever stands around it
-/// there, wrapped again or not; one that moved and changed is a change of its behaviour, a statement that moved inside
-/// its function too, and a line that only stays where it was with other whitespace is whitespace
+/// A declaration that stands at another place of its file with the same code is moved where the index says its order
+/// is free, whatever stands around it there, wrapped again or not; read before the index answered, without one, and
+/// where its order matters. One that moved and changed is a change of its behaviour, a statement that moved inside its
+/// function too, whatever the index says, and so is one that moved with other code beside it in its blocks; a line
+/// that only stays where it was with other whitespace is whitespace
 #[test]
-fn a_declaration_at_another_place_with_the_same_code_is_moved() {
+fn a_declaration_at_another_place_with_the_same_code_is_moved_where_the_index_says_its_order_is_free() {
   let function = |name: &str, body: &str| format!("fun {name}(x: Int): Int {{\n  val doubled = x * 2\n  return {body}\n}}\n");
   let file = |functions: &[String]| format!("package a\n\n{}", functions.join("\n"));
   let (one, two, three, four) = (
@@ -374,46 +388,68 @@ fn a_declaration_at_another_place_with_the_same_code_is_moved() {
   let moved = UnitKind::Mechanical {
     mechanical: MechanicalKind::Moved,
   };
-  // the units of the file after `functions` in place of the four in their order: the kind, the name and the blocks
-  // of each
-  let units_of = |functions: &[String]| -> Vec<(UnitKind, Option<String>, Vec<u32>)> {
+  // the units of the file of `functions` after the four in their order, or after `first` (`Some`), the index saying
+  // of `one` that its order is `order` (`None`: no index): the kind, the name and the blocks of each
+  let units_in = |first: Option<&str>, functions: &[String], order: Option<Order>| -> Vec<(UnitKind, Option<String>, Vec<u32>)> {
     let repo = TestRepo::new();
+    let before = first.map_or_else(|| before.clone(), str::to_string);
+    let after = file(functions);
     let base = repo.create_commit("Add", "src/a/Store.kt", &before);
-    let head = repo.create_commit("Move", "src/a/Store.kt", &file(functions));
-    let plan = plan(&repo, &base, &head);
+    let head = repo.create_commit("Move", "src/a/Store.kt", &after);
+    let index = order.map(|order| {
+      Counts::of(&[]).with_reordered(vec![reordered(
+        "src/a/Store.kt",
+        "one",
+        function_lines(&before, "one"),
+        function_lines(&after, "one"),
+        order,
+      )])
+    });
+    let plan = plan_of(&repo, index.as_ref().map(|index| index as &dyn SymbolIndex), &range(&repo, &base, &head)).unwrap();
     units(&plan)
       .into_iter()
       .map(|(kind, name, slices)| (kind, name.map(str::to_string), slices.into_iter().flat_map(|(_, blocks)| blocks).collect()))
       .collect()
   };
+  let units_of = |functions: &[String], order: Option<Order>| units_in(None, functions, order);
   // to the end of the file, where other code stands around it; between two other functions; wrapped on the way
   let wrapped = function("one", "compute(\n    doubled,\n    1\n  )");
+  let read = |_: &[String]| [(UnitKind::Behaviour, Some("one".to_string()), vec![0, 1])];
   for functions in [
     [two.clone(), three.clone(), four.clone(), one.clone()],
     [two.clone(), three.clone(), one.clone(), four.clone()],
     [two.clone(), three.clone(), wrapped, four.clone()],
   ] {
-    assert_eq!(units_of(&functions), [(moved.clone(), None, vec![0, 1])], "{functions:?}");
+    assert_eq!(units_of(&functions, Some(Order::Free)), [(moved.clone(), None, vec![0, 1])], "{functions:?}");
+    assert_eq!(units_of(&functions, Some(Order::Matters)), read(&functions), "{functions:?}");
+    assert_eq!(units_of(&functions, None), read(&functions), "{functions:?}");
   }
   // moved and changed, and a statement at another place of its function: changes of its behaviour
   let changed = function("one", "compute(doubled, 100)");
-  let reordered = one.replace(
+  let statements = one.replace(
     "  val doubled = x * 2\n  return compute(doubled, 1)\n",
     "  return compute(doubled, 1)\n  val doubled = x * 2\n",
   );
   assert_eq!(
-    units_of(&[two.clone(), three.clone(), changed, four.clone()]),
+    units_of(&[two.clone(), three.clone(), changed, four.clone()], Some(Order::Free)),
     [(UnitKind::Behaviour, Some("one".to_string()), vec![0, 1])]
   );
-  let behaviour: Vec<UnitKind> = units_of(&[reordered, two.clone(), three.clone(), four.clone()])
+  let behaviour: Vec<UnitKind> = units_of(&[statements, two.clone(), three.clone(), four.clone()], Some(Order::Free))
     .into_iter()
     .map(|(kind, _, _)| kind)
     .collect();
   assert_eq!(behaviour, [UnitKind::Behaviour]);
+  // with a property beside it in its blocks, which the index did not say is free: other code moved with it
+  let cached = "val cached: Int = compute(0, 0)\n".to_string();
+  let with_cached = file(&[cached.clone(), one.clone(), two.clone(), three.clone(), four.clone()]);
+  assert_eq!(
+    units_in(Some(&with_cached), &[two.clone(), three.clone(), four.clone(), cached, one.clone()], Some(Order::Free)),
+    [(UnitKind::Behaviour, Some("one".to_string()), vec![0, 1])]
+  );
   // a blank line added where the function stays: the same tokens in a block of one side, and no line of it moved
   let spaced = one.replace("  return", "\n  return");
   assert_eq!(
-    units_of(&[spaced, two, three, four]),
+    units_of(&[spaced, two, three, four], Some(Order::Free)),
     [(
       UnitKind::Mechanical {
         mechanical: MechanicalKind::Whitespace
@@ -424,15 +460,15 @@ fn a_declaration_at_another_place_with_the_same_code_is_moved() {
   );
 }
 
-/// A declaration that moved is folded only where its place has no meaning: a function or a type of Kotlin, Java, C#
-/// and Rust that crossed declarations alone, a hoisted function of TypeScript, a method of it without a decorator. A
-/// value with its initializer, an enum entry, a function that crossed a macro, an initializer block or the end of an
-/// `impl`, a function a `const` of TypeScript holds, a class of TypeScript, an overload among its overloads, a
-/// method that moved with its decorator or with a decorator of a parameter, one named by an expression, and a
-/// function of Starlark are changes of behaviour, each a unit that is read: where they stand is what the program
-/// does
+/// A declaration that moved is folded only where the accio of this machine says its place has no meaning: a function
+/// or a type of Kotlin, Java, C# and Rust that crossed declarations alone, a hoisted function of TypeScript, a method
+/// of it without a decorator. A value with its initializer, an enum entry, a function that crossed a macro, an
+/// initializer block or the end of an `impl`, a function a `const` of TypeScript holds, a class of TypeScript, an
+/// overload among its overloads, a method that moved with its decorator or with a decorator of a parameter, one named
+/// by an expression, and a function of Starlark are changes of behaviour, each a unit that is read: where they stand
+/// is what the program does. A machine without an accio that answers `moves` proves nothing here
 #[test]
-fn a_moved_declaration_is_folded_only_where_its_place_has_no_meaning() {
+fn a_moved_declaration_is_folded_only_where_the_index_says_its_place_has_no_meaning() {
   // each file: its path, its head, the declaration that moves (its lines), the declarations that stay, whether the
   // moved one stands after them in the end (before them at first), and the unit it is, `None` for the fold
   type Case = (&'static str, &'static str, &'static str, &'static str, bool, Option<&'static str>);
@@ -694,7 +730,13 @@ fn a_moved_declaration_is_folded_only_where_its_place_has_no_meaning() {
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files("Add", &before.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
   let head = repo.create_commit_with_files("Move", &after.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
-  let plan = plan(&repo, &base, &head);
+  let Some((accio, _env)) = indexed_by_accio(&repo) else {
+    eprintln!("no accio that answers moves on this machine: nothing asked");
+    return;
+  };
+  let canceled = || false;
+  let search = accio.search(&canceled);
+  let plan = plan_of(&repo, Some(&search), &range(&repo, &base, &head)).unwrap();
 
   let (mut folded, mut read): (Vec<&str>, Vec<(&str, &str)>) = (Vec::new(), Vec::new());
   for (kind, name, slices) in units(&plan) {

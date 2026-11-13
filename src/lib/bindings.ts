@@ -7298,6 +7298,20 @@ export type RenameProof =
  */
 "unavailable";
 
+/**
+ *  A move within a file whose declarations were reordered where their order is free: the lines of its two ends,
+ *  0-based, as the move names them (a move of `DiffMarks::moves` by `old_start`, `new_start` and `len` on both sides;
+ *  a move of a declaration by `start` and `len` at one end and `line` and `other_len` at the other), and the names of
+ *  those declarations in the order of their new lines
+ */
+export type ReorderMark = {
+	names: string[],
+	oldStart: number,
+	oldLen: number,
+	newStart: number,
+	newLen: number,
+};
+
 /**  Files that get the same edit: one hunk with the same removed and added lines, without whitespace */
 export type RepeatedEditGroup = {
 	/**  At their last paths, in tree order; 3 or more */
@@ -9817,6 +9831,12 @@ export type SubjectMarks = {
 	 *  after the rows of the file, so a view passes them and still shows each of their lines
 	 */
 	confirmed: number[],
+	/**
+	 *  The moves within this file, of `DiffMarks::moves` or of a declaration to this file itself, whose declarations
+	 *  the index says were put in another order where their order is free, by the ends of each move: what their notes
+	 *  say. Labels. Written without the field where there is none: the layout of a stored diff stays what it was
+	 */
+	reordered?: ReorderMark[],
 };
 
 /**

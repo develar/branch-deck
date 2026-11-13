@@ -5,11 +5,14 @@
 use crate::bindings::CodeSymbolBindings;
 use crate::marks_test::MarkedDiff;
 use code_tokens::tokens;
-use diff_marks::index::{Access, DeclaredAt, MovedDeclaration, MovesAnswer, RenameAnswer, RenameConflict, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
+use diff_marks::index::{
+  Access, DeclaredAt, MovedDeclaration, MovesAnswer, Order, RenameAnswer, RenameConflict, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Reordered, Resolved,
+};
 use diff_marks::leftovers::{Leftovers, PendingBlock, PendingRun};
 use diff_marks::marks::{is_quiet, marks_of, pair_grammar, pair_indented, without_moved_lines};
 use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject, as_confirmed};
 use diff_marks::model::{DeclarationMove, DiffMarks, FileMove, RenameProof, SubjectMarks};
+use diff_marks::reorder::ReorderMark;
 use line_diff::model::{BlockKind, DiffBudget, LineMove, LineRun, RunKind, diff_texts};
 use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
@@ -498,6 +501,112 @@ fn a_declaration_moved_under_another_owner_within_its_file_is_a_move_to_the_file
         file: 0,
         line: 2,
         declaration: declaration(1),
+      }]
+    )
+  );
+}
+
+/// The answer of `accio moves` of declarations of src/Ledger.kt a change put in another order among those of their
+/// owner: each its name, its lines before and after (from 1, both ends included) and its order
+fn reordered(declarations: &[(&str, [u32; 2], [u32; 2], Order)]) -> MovesAnswer {
+  let at = |name: &str, [line, end_line]: [u32; 2]| DeclaredAt {
+    file: "src/Ledger.kt".to_string(),
+    line,
+    end_line,
+    kind: "function".to_string(),
+    name: name.to_string(),
+    language: "kotlin".to_string(),
+    ..DeclaredAt::default()
+  };
+  let reordered = declarations
+    .iter()
+    .map(|&(name, old, new, order)| Reordered {
+      old: at(name, old),
+      new: at(name, new),
+      order,
+      why: String::new(),
+    })
+    .collect();
+  MovesAnswer {
+    reordered,
+    complete: true,
+    ..MovesAnswer::default()
+  }
+}
+
+/// A move within a file whose every declaration the index reordered is of free order is a reorder of them, by its two
+/// ends: of the pair where the lines are the same, of the declaration to the file itself where its layout is another.
+/// A move that holds a declaration whose order matters, or none the index reordered, is none; and nothing of the
+/// marks of the pair changes
+#[test]
+fn a_move_within_a_file_of_declarations_whose_order_is_free_is_a_reorder_of_them() {
+  const HEAD: [&str; 2] = ["class Ledger {", "  private val entries = mutableListOf<Entry>()"];
+  const TOTAL: [&str; 4] = ["", "  fun total(): Long {", "    return entries.sumOf { it.amount }", "  }"];
+  const COUNT: [&str; 4] = ["", "  fun count(): Int {", "    return entries.size", "  }"];
+  const LIMIT: [&str; 2] = ["", "  val limit: Int = entries.size * 2"];
+  let ledger = |parts: &[&[&str]]| joined(&[&[&HEAD[..]], parts, &[&["}"][..]]].concat());
+  // `total` moved below `count` as it is: lines 4 to 6 (from 1) to lines 8 to 10, a move of the pair
+  let case = Case::of(vec![changed("src/Ledger.kt", &ledger(&[&TOTAL, &COUNT]), &ledger(&[&COUNT, &TOTAL]))]);
+  let pair = case.pairs[0].0.marks.moves.clone();
+  assert_eq!(pair.iter().map(|moved| (moved.old_start, moved.new_start, moved.len)).collect::<Vec<_>>(), [(3, 7, 3)]);
+  let subject_of = |case: &Case, moves: &MovesAnswer| case.moved(moves)[0].clone().and_then(|marks| marks.subject);
+  let free = reordered(&[("total", [4, 6], [8, 10], Order::Free), ("count", [8, 10], [4, 6], Order::Free)]);
+  let subject = subject_of(&case, &free).unwrap();
+  assert_eq!(
+    subject.reordered,
+    [ReorderMark {
+      names: vec!["total".to_string()],
+      old_start: 3,
+      old_len: 3,
+      new_start: 7,
+      new_len: 3,
+    }]
+  );
+  assert_eq!((subject.moved_out, subject.moved_in), (vec![], vec![]));
+  assert_eq!(case.moved(&free)[0].as_ref().unwrap().moves, pair);
+  // its order matters, or the index reordered nothing the move holds: no reorder, and nothing else to say
+  let matters = reordered(&[("total", [4, 6], [8, 10], Order::Matters), ("count", [8, 10], [4, 6], Order::Free)]);
+  assert_eq!(subject_of(&case, &matters), None);
+  assert_eq!(subject_of(&case, &reordered(&[("count", [8, 10], [4, 6], Order::Free)])), None);
+
+  // with the property beside it, whose order matters: no reorder of the two
+  let case = Case::of(vec![changed("src/Ledger.kt", &ledger(&[&TOTAL, &LIMIT, &COUNT]), &ledger(&[&COUNT, &TOTAL, &LIMIT]))]);
+  let both = reordered(&[("total", [4, 6], [8, 10], Order::Free), ("limit", [8, 8], [12, 12], Order::Matters)]);
+  assert_eq!(subject_of(&case, &both).map(|subject| subject.reordered), None);
+
+  // `total` moved below `count` on one line: a move of the declaration to the file itself, a reorder by its two ends
+  let one_line = ["", "  fun total(): Long = entries.sumOf { it.amount }"];
+  let case = Case::of(vec![changed("src/Ledger.kt", &ledger(&[&TOTAL, &COUNT]), &ledger(&[&COUNT, &one_line]))]);
+  let subject = subject_of(&case, &reordered(&[("total", [4, 6], [8, 8], Order::Free)])).unwrap();
+  let declaration = |other_len: u32| {
+    Some(DeclarationMove {
+      name: "total".to_string(),
+      other_len,
+    })
+  };
+  assert_eq!(
+    (subject.moved_out, subject.moved_in, subject.reordered),
+    (
+      vec![FileMove {
+        start: 3,
+        len: 3,
+        file: 0,
+        line: 7,
+        declaration: declaration(1),
+      }],
+      vec![FileMove {
+        start: 7,
+        len: 1,
+        file: 0,
+        line: 3,
+        declaration: declaration(3),
+      }],
+      vec![ReorderMark {
+        names: vec!["total".to_string()],
+        old_start: 3,
+        old_len: 3,
+        new_start: 7,
+        new_len: 1,
       }]
     )
   );

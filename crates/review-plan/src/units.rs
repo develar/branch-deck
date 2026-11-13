@@ -16,9 +16,11 @@
 //!   its file with the same code moved (`SourceFile::moved_pair`): every line of it deleted in blocks of old lines
 //!   alone and added in blocks of new lines alone, the same tokens on both sides. Asked before whitespace, and without
 //!   the code around it, which a move changes: where a declaration stands is a change of its own, never whitespace.
-//!   It is the mechanical kind `Moved` only where its place has no meaning (`SourceFile::moved_freely`, `moved`: a
-//!   function or a type that crossed only declarations any order of which is the same program); a value with its
-//!   initializer, an enum entry, a macro, a function that crossed code of no declaration are `Behaviour`, read.
+//!   It is the mechanical kind `Moved` only where the index of the repository says its place has no meaning
+//!   (`SourceFile::reordered_freely`, `FreeOrder`: `accio moves` lists it among the declarations the commits put in
+//!   another order, `order: "free"`), and no other code moved with it; a value with its initializer, an enum entry, a
+//!   macro, a function that crossed code of no declaration are `Behaviour`, read, and so is every such pair before the
+//!   index answered and where no index answers (`PairUnits::moved` says the plan has one to ask of).
 //!   A declaration of one side alone inside another of that side alone is part of the unit of the outermost one.
 //! - **API and tests**: a unit of a declaration is `api` when the API of the plan lists it, or would by a change of its
 //!   form (`api::listed`, by the `Surface` of each side), and `test` when it is test code (`DeclarationForm::test`);
@@ -37,11 +39,12 @@
 
 use crate::api::{FormChange, form_changes, listed};
 use crate::files::{ChangedFile, FileKinds, MechanicalKind, lines_edit_key, without_whitespace};
-use crate::moved::{crossable, ordering_token, place_free};
 use crate::pair::{LineBlock, PairBlocks};
 use crate::whitespace::{Sides, TextTokens};
 use code_symbols::language::language_of;
 use code_tokens::indentation_matters;
+use diff_marks::index::MovesAnswer;
+use diff_marks::reorder::lines_of as declared_lines;
 use file_diffs::service::imports_only;
 use line_diff::text_lines::TextLines;
 use serde::Serialize;
@@ -190,6 +193,53 @@ pub(crate) fn digest<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
   })
 }
 
+/// The declarations the index of the repository says the commits put in another order among those of their owner,
+/// where their order is free (`MovesAnswer::reordered`, `Order::Free`): what folds a pair that moved
+/// (`SourceFile::reordered_freely`). By the paths of their file in the two trees, the lines of each on both sides as
+/// git counts them, from 0, the end excluded
+#[derive(Debug, Default)]
+pub(crate) struct FreeOrder {
+  by_paths: HashMap<(String, String), Vec<[Range<u32>; 2]>>,
+}
+
+impl FreeOrder {
+  /// The free reorders of `moves`, the answer of the index between the two sides of the pair
+  pub(crate) fn of(moves: &MovesAnswer) -> Self {
+    let mut by_paths: HashMap<(String, String), Vec<[Range<u32>; 2]>> = HashMap::new();
+    for reordered in moves.reordered.iter().filter(|reordered| reordered.order.is_free()) {
+      if let (Some(old), Some(new)) = (declared_lines(&reordered.old), declared_lines(&reordered.new)) {
+        by_paths.entry((reordered.old.file.clone(), reordered.new.file.clone())).or_default().push([old, new]);
+      }
+    }
+    Self { by_paths }
+  }
+
+  /// Whether the index said of no declaration that its order is free
+  pub(crate) fn is_empty(&self) -> bool {
+    self.by_paths.is_empty()
+  }
+
+  /// The free reorders of the file at `old_path` before the commits and at `new_path` after them, by the lines of the
+  /// diffs of each side (`TextLines::of_git`)
+  fn of_file(&self, old_path: &str, new_path: &str, old: &TextLines<'_>, new: &TextLines<'_>) -> Vec<[Range<u32>; 2]> {
+    self
+      .by_paths
+      .get(&(old_path.to_string(), new_path.to_string()))
+      .map_or_default(|reorders| reorders.iter().map(|[was, is]| [old.of_git(was.clone()), new.of_git(is.clone())]).collect())
+  }
+}
+
+/// The units of a pair (`review_units`)
+#[derive(Default)]
+pub(crate) struct PairUnits {
+  pub(crate) units: Vec<ReviewUnit>,
+  /// The paths whose commits change a test inside them
+  pub(crate) tests: HashSet<String>,
+  /// A pair stands at another place of its file with the same code (`SourceFile::moved_pair`), which the index did
+  /// not say has an order that is free: the units may fold it once the index answers (`FreeOrder`)
+  pub(crate) moved: bool,
+}
+
 /// The lines of `declaration` from 0, the end excluded
 const fn lines_of(declaration: &SpannedDeclaration) -> Range<u32> {
   declaration.start_line.saturating_sub(1)..declaration.end_line
@@ -325,6 +375,8 @@ struct Cut {
   deleted: BTreeMap<String, Vec<Placed>>,
   /// The paths of the files where a block of a repeated edit changes test code (`SourceFile::in_test`)
   repeated_tests: HashSet<String>,
+  /// A pair moved and was not folded (`PairUnits::moved`)
+  moved: bool,
 }
 
 /// The fewest deleted files of one directory that make one unit `DeletedFiles`
@@ -385,8 +437,10 @@ fn file_name(path: &str) -> &str {
 }
 
 /// The units of the pair of `files` (`pair::pair_blocks`, by place), in the order of the story: their kinds (`kinds`),
-/// the summaries of `input`, the hunk text `texts` (by blob) and the order of the plan's files `order`; with the paths
-/// whose commits change a test inside them (`changed_test_paths`)
+/// the summaries of `input`, the hunk text `texts` (by blob), the order of the plan's files `order` and the free
+/// reorders the index answered (`free`, empty before it answered); with the paths whose commits change a test inside
+/// them (`changed_test_paths`)
+#[expect(clippy::too_many_arguments, reason = "the facts of the plan a cut of its pair reads, each read once by the plan")]
 pub(crate) fn review_units(
   input: &SymbolInput,
   files: &[ChangedFile<'_>],
@@ -395,7 +449,8 @@ pub(crate) fn review_units(
   tokens: &TextTokens<'_>,
   kinds: &FileKinds,
   order: &[String],
-) -> (Vec<ReviewUnit>, HashSet<String>) {
+  free: &FreeOrder,
+) -> PairUnits {
   let place: HashMap<&str, usize> = order.iter().enumerate().map(|(index, path)| (path.as_str(), index)).collect();
   // file -> its group of repeated edits and the edit
   let mut group_of: HashMap<usize, (u32, &(String, String))> = HashMap::new();
@@ -445,6 +500,7 @@ pub(crate) fn review_units(
           (Some(old_text), Some(new_text), Some(before), Some(after)) => {
             let (old, new) = (TextLines::of(old_text), TextLines::of(new_text));
             let source = SourceFile {
+              free: free.of_file(file.first_path, file.path, &old, &new),
               pair_file: &pair_file,
               sides: tokens.sides(file.first_path, file.before, file.path, file.after),
               before: in_lines_of_diffs(before, &old),
@@ -466,6 +522,7 @@ pub(crate) fn review_units(
     repeated,
     deleted,
     repeated_tests,
+    moved,
   } = cut;
   for (directory, files) in deleted {
     if files.len() < MIN_DELETED_GROUP {
@@ -531,7 +588,7 @@ pub(crate) fn review_units(
   }
   debug_assert!(every_block_once(files, pairs, &units), "a block in no unit or in two: {units:#?}");
   let tests = changed_test_paths(input, files, &units, repeated_tests);
-  (units, tests)
+  PairUnits { units, tests, moved }
 }
 
 /// The paths of `files` whose commits change a test inside them: those of a unit of test code (`ReviewUnit::test`),
@@ -611,6 +668,9 @@ struct SourceFile<'a, 't> {
   after: FileDeclarations,
   /// Its group of repeated edits and the edit, when it is in one
   repeated: Option<(u32, &'a (String, String))>,
+  /// The declarations the index says the commits put in another order where it is free, by the lines of the diffs
+  /// on both sides (`FreeOrder`)
+  free: Vec<[Range<u32>; 2]>,
 }
 
 impl SourceFile<'_, '_> {
@@ -655,63 +715,33 @@ impl SourceFile<'_, '_> {
     self.sides.same_code(lines(before, old_side), lines(after, new_side))
   }
 
-  /// Whether the pair that moved (`moved_pair`) changed nothing but where it stands, so that a review may fold it
-  /// (`moved`). The lines that moved are its own with the blocks added with them, on the new side; they left the
-  /// places where the blocks of old lines alone stand there. The lines that moved are whole declarations whose
-  /// place has no meaning (the one of the pair, the one around it when that moved whole, the ones beside it in the
-  /// same blocks) and no other code, and hold no token that gives a place a meaning (`ordering_token`: a decorator);
-  /// between the two places stand only whole declarations beside them that each of them may cross, with blank lines
-  /// and comments
-  fn moved_freely(&self, before: &SpannedDeclaration, after: &SpannedDeclaration, blocks: &[UnitBlock]) -> bool {
-    let Some(grammar) = self.sides.grammar() else { return false };
-    if !place_free(grammar, &before.form) {
+  /// Whether the pair that moved (`moved_pair`) changed nothing but where it stands where no reader of the code sees
+  /// it, so that a review may fold it (`moved`), as the index says (`free`): the declaration the index reordered with
+  /// an order that is free holds its name on both sides (its own, or one around it that moved whole), and every line of
+  /// code its blocks add is a line of such a declaration, as the index or the summary of the file counts it (an
+  /// annotation, a doc before it): no other code moved with it. What it crossed is the index's to say: an enum entry, a
+  /// macro or a module of Rust, a namesake of TypeScript or code of no declaration makes a free one not free
+  fn reordered_freely(&self, before: &SpannedDeclaration, after: &SpannedDeclaration, blocks: &[UnitBlock]) -> bool {
+    let free = &self.free;
+    // the line of the name of a declaration, by the lines of the diffs of its side
+    let name = |side: &TextLines<'_>, declaration: &SpannedDeclaration| side.of_git(declaration.form.line.saturating_sub(1)..declaration.form.line).start;
+    let (old_name, new_name) = (name(&self.old, before), name(&self.new, after));
+    if !free.iter().any(|[was, is]| was.contains(&old_name) && is.contains(&new_name)) {
       return false;
     }
-    let added = blocks.iter().filter(|block| block.new_start < block.new_end);
-    let now = added.fold(lines_of(after), |reach, block| reach.start.min(block.new_start)..reach.end.max(block.new_end));
-    // a decorator that moved: what it stands on is applied in its turn
-    if ordering_token(grammar).is_some_and(|token| !self.sides.no_token(now.clone(), token)) {
-      return false;
-    }
-    let left = blocks.iter().filter(|block| block.new_start == block.new_end).map(|block| block.new_start);
-    let (from, to) = left.fold((now.start, now.end), |(from, to), place| (from.min(place), to.max(place)));
-    let within = |outer: &Range<u32>, inner: &Range<u32>| outer.start <= inner.start && inner.end <= outer.end;
-    // the outermost declaration that moved whole: the pair's own, or one around it
-    let around = self.after.declarations.iter().filter(|declaration| {
-      let lines = lines_of(declaration);
-      within(&now, &lines) && within(&lines, &lines_of(after))
-    });
-    let Some(outermost) = around.max_by_key(|declaration| (lines_of(declaration).len(), std::cmp::Reverse(declaration.form.containers.len()))) else {
-      return false;
+    let reordered = |line: u32| free.iter().any(|[_, is]| is.contains(&line));
+    let held = |line: u32| {
+      reordered(line)
+        || self
+          .after
+          .declarations
+          .iter()
+          .any(|declaration| lines_of(declaration).contains(&line) && reordered(name(&self.new, declaration)))
     };
-    // the declarations beside it, in the order of their lines
-    let mut beside: Vec<&SpannedDeclaration> = self
-      .after
-      .declarations
+    blocks
       .iter()
-      .filter(|declaration| declaration.form.containers == outermost.form.containers)
-      .collect();
-    beside.sort_by_key(|declaration| declaration.start_line);
-    let moved: Vec<&SpannedDeclaration> = beside.iter().copied().filter(|declaration| within(&now, &lines_of(declaration))).collect();
-    // `lines` hold nothing but whole declarations of `beside` that are `fine`, blank lines and comments
-    let only = |lines: Range<u32>, fine: &dyn Fn(&SpannedDeclaration) -> bool| {
-      let mut line = lines.start;
-      for declaration in beside.iter().filter(|declaration| {
-        let held = lines_of(declaration);
-        held.start < lines.end && lines.start < held.end
-      }) {
-        let held = lines_of(declaration);
-        if !within(&lines, &held) || !fine(declaration) || (line < held.start && !self.sides.no_code(line..held.start)) {
-          return false;
-        }
-        line = line.max(held.end);
-      }
-      line >= lines.end || self.sides.no_code(line..lines.end)
-    };
-    only(now.clone(), &|declaration| place_free(grammar, &declaration.form))
-      && [from..now.start, now.end..to]
-        .into_iter()
-        .all(|crossed| only(crossed, &|declaration| moved.iter().all(|moved| crossable(grammar, &moved.form, &declaration.form))))
+      .filter(|block| block.new_start < block.new_end)
+      .all(|block| (block.new_start..block.new_end).all(|line| held(line) || self.sides.no_code(line..line + 1)))
   }
 
   /// The text of `lines` (of the diffs) of a side as a fingerprint reads it, the same after a change of whitespace
@@ -873,7 +903,9 @@ impl SourceFile<'_, '_> {
           // meaning and is a change of behaviour elsewhere, never whitespace; or the same but for its whitespace: a
           // change of whitespace across lines
           let folded = if self.moved_pair(before, after, &unit_blocks) {
-            self.moved_freely(before, after, &unit_blocks).then_some(MechanicalKind::Moved)
+            let free = self.reordered_freely(before, after, &unit_blocks);
+            cut.moved |= !free;
+            free.then_some(MechanicalKind::Moved)
           } else {
             self.whitespace_pair(before, after, &unit_blocks).then_some(MechanicalKind::Whitespace)
           };

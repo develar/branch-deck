@@ -47,7 +47,6 @@ pub mod links;
 pub mod mark_reviewed;
 pub mod message_steps;
 pub mod modules;
-mod moved;
 pub mod order;
 pub mod pair;
 pub mod prose;
@@ -78,7 +77,7 @@ use crate::reading::PlanReading;
 use crate::registrations::{Registration, RegistrationsInput, changed_descriptors, registrations_of};
 use crate::steps::{ReviewSteps, StepsInput, review_steps};
 use crate::texts::{UiText, bundle_blobs, ui_texts};
-use crate::units::{ReviewUnit, review_units};
+use crate::units::{FreeOrder, PairUnits, ReviewUnit, review_units};
 use crate::whitespace::TextTokens;
 use anyhow::Result;
 use domain_types::branch_names::{BranchKind, kept_branch_name, strip_branch_namespace};
@@ -433,6 +432,14 @@ fn short_id(id: &str) -> &str {
   id.get(..8).unwrap_or(id)
 }
 
+/// What the plan tells of its pair: its units, its concerns, its brief and its steps, each read from the ones before
+struct Story {
+  units: PairUnits,
+  concerns: Vec<Concern>,
+  brief: ReviewBrief,
+  steps: ReviewSteps,
+}
+
 /// The plan of `subject` (`resolve_subject` of `params`), a fact of it shown when its query answered: `stage` gets the
 /// plan as it stands with what it still waits for, and the answer is the plan whole.
 /// - `PlanWait::Index`, before the index is asked, when there is a query to ask: the plan of git alone.
@@ -501,7 +508,8 @@ pub fn review_plan_of(
     .collect();
   // what the pair leaves to read, of the diffs the window shows of it, its renames asked of the index last: read first,
   // the blobs its diffs read are in the memory of the diffs for the texts of the plan
-  let mut pair_reading = PlanReading::collect(git, sources, repository_path, reading_source(params, &base, &head, interdiff.as_ref()))?;
+  let source = reading_source(params, &base, &head, interdiff.as_ref());
+  let mut pair_reading = PlanReading::collect(git, sources, repository_path, source.clone())?;
   let (mut texts, unread) = sources.file_diffs.texts_in_memory(&wanted);
   let input = if diffs.is_empty() {
     None
@@ -543,29 +551,44 @@ pub fn review_plan_of(
     added_manifests: &added_manifests,
   });
   let ui = ui_texts(&changed, &texts, &modules);
-  // the paths whose commits change a test inside them, for `untested`
-  let (units, inline_tests) = input
-    .as_ref()
-    .map_or_else(Default::default, |input| review_units(input, &changed, &pairs, &texts, &tokens, &kinds, &order));
   let declared = input.as_ref().map_or_else(HashSet::new, |input| declared_names(input, &changed));
-  let concerns = review_concerns(&units, &changed, &kinds.generated, &texts, &links, &declared, params.concern_edges);
-  let brief = review_brief(reviewed.iter().map(|(_, message)| message.as_str()), &units, &changed, &texts);
-  let steps = review_steps(&StepsInput {
-    commits: &reviewed,
-    message_changes: &message_changes,
-    diffs: &diffs,
-    changed: &changed,
-    pairs: &pairs,
-    units: &units,
-    concerns: &concerns,
-    input: input.as_ref(),
-    texts: &texts,
-    links: &links,
-    contract: &brief.contract,
-    api: &api,
-    issue: brief.issue.as_deref(),
-    modules: &modules,
-  });
+  // the API as the plan of git has it: the story is told by it, also when the moves the index answers tell it again
+  let story_api = api.clone();
+  // the units of the pair, its concerns, its brief and its steps, which the free reorders the index answered fold
+  let story = |free: &FreeOrder| -> Story {
+    let units = input
+      .as_ref()
+      .map_or_else(PairUnits::default, |input| review_units(input, &changed, &pairs, &texts, &tokens, &kinds, &order, free));
+    let concerns = review_concerns(&units.units, &changed, &kinds.generated, &texts, &links, &declared, params.concern_edges);
+    let brief = review_brief(reviewed.iter().map(|(_, message)| message.as_str()), &units.units, &changed, &texts);
+    let steps = review_steps(&StepsInput {
+      commits: &reviewed,
+      message_changes: &message_changes,
+      diffs: &diffs,
+      changed: &changed,
+      pairs: &pairs,
+      units: &units.units,
+      concerns: &concerns,
+      input: input.as_ref(),
+      texts: &texts,
+      links: &links,
+      contract: &brief.contract,
+      api: &story_api,
+      issue: brief.issue.as_deref(),
+      modules: &modules,
+    });
+    Story { units, concerns, brief, steps }
+  };
+  let Story {
+    units: PairUnits {
+      units,
+      tests: mut inline_tests,
+      moved,
+    },
+    concerns,
+    brief,
+    steps,
+  } = story(&FreeOrder::default());
   // the revisions the registrations compare: of Since Your Review the ends of its scope, none when its carry conflicted
   let sides = match interdiff.as_ref().filter(|_| params.since_reviewed) {
     Some(found) => found.scope.as_ref().map(|scope| (scope.base.clone(), scope.head.clone())),
@@ -587,7 +610,7 @@ pub fn review_plan_of(
     api: Vec::new(),
     verdict: BreakVerdict::Pending,
     files: Vec::new(),
-    links,
+    links: links.clone(),
     dependencies,
     modules: Vec::new(),
     registrations: Vec::new(),
@@ -597,11 +620,14 @@ pub fn review_plan_of(
     concerns,
     steps,
     brief,
-    order,
+    order: order.clone(),
     reading: pair_reading.reading(),
     index_note: None,
   };
+  // a declaration that moved with its code the same is folded where the index says its order is free
+  let asks_moves = moved && sources.index.is_some();
   let asks = api.iter().any(|change| change.kind != ApiChangeKind::Added)
+    || asks_moves
     || plan.steps.steps.iter().any(|step| !step.code.is_empty())
     || (sides.is_some() && !descriptors.is_empty())
     || modules.shapes.iter().any(|module| module.state == modules::ModuleState::Added);
@@ -630,6 +656,10 @@ pub fn review_plan_of(
   // one query of the index, at once; the plan waits for the tests last, with the answers of the others in it
   std::thread::scope(|reading| {
     let tests = reading.spawn(in_current_span(|| tests_ask.ask(sources.index, repository_path, &head)));
+    let moves = sources
+      .index
+      .filter(|_| asks_moves)
+      .map(|index| reading.spawn(in_current_span(|| sources.file_diffs.moves(index, repository_path, &source))));
     let shapes = &mut plan.modules;
     let (usages, registrations, entries) = std::thread::scope(|scope| {
       let registrations = scope.spawn(in_current_span(|| registrations_of(sources.index, &registrations_input)));
@@ -644,6 +674,18 @@ pub fn review_plan_of(
     let (registrations, registrations_note) = registrations?;
     entries?;
     let usages_note = usages?;
+    // the story again where the index says the order of a declaration that moved is free: it folds that move
+    if let Some(moves) = moves {
+      let answered = moves.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the moves panicked")))?;
+      let free = answered.map_or_default(|moves| FreeOrder::of(&moves));
+      if !free.is_empty() {
+        let told = story(&free);
+        (plan.units, inline_tests, plan.concerns, plan.brief, plan.steps) = (told.units.units, told.units.tests, told.concerns, told.brief, told.steps);
+        if tests_asked {
+          plan.steps.await_tests();
+        }
+      }
+    }
     // the group of a new module reads from its entry points
     order_by_entries(&mut plan.steps.steps, &plan.modules);
     plan.registrations = registrations;

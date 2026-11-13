@@ -214,6 +214,17 @@ pub struct MoveCounts {
   /// which of the equal lines moved, nothing says. In all, and of one line
   pub unanchored: usize,
   pub one_line_unanchored: usize,
+  /// With --index: the moves within a file whose declarations the index says were put in another order where their
+  /// order is free (`SubjectMarks::reordered`), of the pair or of a declaration to the file itself
+  #[serde(skip_serializing_if = "is_zero")]
+  pub free_order: usize,
+}
+
+/// Whether a count is zero: a field of a later measurement left out where it counted nothing, so the output of a
+/// run without it reads as before
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature serde asks of `skip_serializing_if`")]
+const fn is_zero(count: &usize) -> bool {
+  *count == 0
 }
 
 /// The renames of the files
@@ -549,6 +560,7 @@ impl MarkCounts {
     }
     moves.unanchored += more.unanchored;
     moves.one_line_unanchored += more.one_line_unanchored;
+    moves.free_order += more.free_order;
     if let Some(more) = &other.other_moves {
       let moves = self.other_moves.get_or_insert_default();
       moves.moves += more.moves;
@@ -695,6 +707,7 @@ fn count_file(counts: &mut MarkCounts, diff: &Values, text: Option<&MeasuredText
     for used in follows {
       *renames.follows_move_proofs.entry(proof_name(used.proof)).or_default() += 1;
     }
+    counts.moves.free_order += subject.reordered.len();
     let (declarations, rows): (Vec<&FileMove>, Vec<&FileMove>) = subject.moved_in.iter().partition(|moved| moved.declaration.is_some());
     counts.across.declarations += declarations.len();
     counts.across.declaration_lines += declarations.iter().map(|moved| u64::from(moved.len)).sum::<u64>();

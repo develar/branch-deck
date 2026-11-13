@@ -1191,7 +1191,17 @@ export class DiffPainter {
       kind: remark.kind,
       lines: remark.lines,
       open: remark.open,
-      move: move === null ? null : { at: move.at, move: move.move, other: move.other, file: move.file === null ? null : other(move.file), declaration: move.declaration ?? null },
+      move:
+        move === null
+          ? null
+          : {
+              at: move.at,
+              move: move.move,
+              other: move.other,
+              file: move.file === null ? null : other(move.file),
+              declaration: move.declaration ?? null,
+              reordered: move.reordered ?? null,
+            },
       renames:
         renames === null
           ? null

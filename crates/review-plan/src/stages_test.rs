@@ -3,9 +3,12 @@
 //! but the tests of the steps while that query still runs, then the plan whole
 
 use crate::api::BreakVerdict;
-use crate::fan_in_test::Counts;
+use crate::fan_in_test::{Counts, reordered};
+use crate::files::MechanicalKind;
 use crate::test_support::{PREFIX, range};
+use crate::units::UnitKind;
 use crate::{PlanSources, PlanWait, ReviewPlan, ReviewPlanParams, resolve_subject, review_plan_of};
+use diff_marks::index::Order;
 use file_diffs::accio::{DeclarationAt, ReachingTest, References, SymbolHit, SymbolIndex, TestClass, TestReach};
 use file_diffs::service::FileDiffs;
 use object_cache::cache::ObjectCache;
@@ -209,4 +212,33 @@ fn a_range_without_tests_has_no_stage_of_its_tests() {
   assert_eq!(index.tested(), Vec::<String>::new());
   let after = shown(&plan);
   assert_eq!((after.verdict, after.outside, after.awaited, after.answered), (BreakVerdict::Breaks, vec![2], false, true));
+}
+
+/// A function moved to the end of its file is read in the plan of git alone, before the index is asked, and folded in
+/// the plan the index answered, which says its order is free: the moves are asked once, the reading of the pair asking
+/// them of the same trees after the plan finds them in memory. A change where nothing moved asks no moves
+#[test]
+fn a_moved_declaration_is_read_in_the_plan_of_git_and_folded_once_the_index_says_its_order_is_free() {
+  let function = |name: &str| format!("fun {name}(x: Int): Int {{\n  return compute(x, \"{name}\")\n}}\n");
+  let file = |names: &[&str]| format!("package a\n\n{}", names.iter().map(|name| function(name)).collect::<Vec<_>>().join("\n"));
+  let repo = TestRepo::new();
+  let base = repo.create_commit("Add", "src/a/Store.kt", &file(&["one", "two", "three"]));
+  let head = repo.create_commit("Move one last", "src/a/Store.kt", &file(&["two", "three", "one"]));
+  let index = Counts::of(&[]).with_reordered(vec![reordered("src/a/Store.kt", "one", [3, 5], [11, 13], Order::Free)]);
+  let kinds = |plan: &ReviewPlan| plan.units.iter().map(|unit| unit.kind.clone()).collect::<Vec<_>>();
+  let (stages, plan) = staged(&repo, &index, &range(&repo, &base, &head), kinds, |_| {});
+  assert_eq!(stages, [(PlanWait::Index, vec![UnitKind::Behaviour])]);
+  assert_eq!(
+    kinds(&plan),
+    [UnitKind::Mechanical {
+      mechanical: MechanicalKind::Moved
+    }]
+  );
+  assert_eq!(index.moves_asked(), 1);
+
+  // nothing moved: no moves asked by the plan, nor by the reading, whose files only add a line
+  let added = repo.create_commit("Add four", "src/a/Store.kt", &file(&["two", "three", "one", "four"]));
+  let (_, plan) = staged(&repo, &index, &range(&repo, &head, &added), kinds, |_| {});
+  assert_eq!(kinds(&plan), [UnitKind::Added]);
+  assert_eq!(index.moves_asked(), 1);
 }

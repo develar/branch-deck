@@ -19,7 +19,18 @@ import {
   renamedNames,
   scrollDiffsTo,
 } from "../helpers/diff-helpers"
-import { answerStoreMoves, answerStoreRename, codeOf, lateSubjectMarks, MARKS_SUBJECT, MOVES_SUBJECT, openLedgerPreview, openMarksReview } from "../helpers/marks-helpers"
+import {
+  answerFreeReorder,
+  answerStoreMoves,
+  answerStoreRename,
+  codeOf,
+  lateSubjectMarks,
+  MARKS_SUBJECT,
+  MOVES_SUBJECT,
+  openLedgerPreview,
+  openMarksReview,
+  REORDER_SUBJECT,
+} from "../helpers/marks-helpers"
 import { chooseWhitespace, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
 import { nextAnswer, runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -365,6 +376,38 @@ test.describe("A declaration the index of the repository says moved whole, in th
     await expect(moveTargets(stands)).toHaveAccessibleName("Go to line 7 of src/Ledger.kt, where summary was")
     await moveTargets(stands).click()
     await expectLandedAloneOn(preview, summary)
+  })
+})
+
+test.describe("A move whose order the index of the repository says is free, in the preview of a commit", () => {
+  test("the notes of the total moved below the count in its class say its order does not matter once the index answers, and those of an enum entry, whose order matters, stay what they were", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("free_reorder")
+    answerFreeReorder(repo.path)
+    const release = await holdCommand(page, "get_index_marks")
+    await syncAndWaitForBranches()
+    await expandBranch(page, findBranchRow(page, "ledger"))
+    const preview = await openCommitPreview(page, getBranchCommitRow(page, "ledger", REORDER_SUBJECT))
+    await openCommitFilesSection(preview)
+    const ledger = await openFile(preview, "Ledger.kt")
+    // before the index answers: two moves of the pair, the function and the entry, as any move
+    await expect(moveNotes(ledger, "source")).toHaveText(["5 lines moved to line 8", "1 line moved to line 18"])
+    await expect(moveNotes(ledger, "destination")).toHaveText(["Moved from line 4", "Moved from line 16"])
+
+    const answered = nextAnswer(page, "get_index_marks")
+    release()
+    await answered
+    // the function: named at both ends, its order free; the entry: the notes it had
+    await expect(moveNotes(ledger, "source")).toHaveText(["Moved total to line 8 · order does not matter", "1 line moved to line 18"])
+    await expect(moveNotes(ledger, "destination")).toHaveText(["Moved total from line 4 · order does not matter", "Moved from line 16"])
+    // its note still shows the other end
+    const stands = moveNotes(ledger, "destination").filter({ hasText: "Moved total" })
+    await expect(moveTargets(stands)).toHaveAccessibleName("Go to line 4, where the lines were")
+    await moveTargets(stands).click()
+    await expectLandedAloneOn(preview, moveNotes(ledger, "source").filter({ hasText: "Moved total" }))
   })
 })
 

@@ -347,6 +347,18 @@ rest gets a label and stays a stop.
     before is there unchanged, the 199 rows of the same lines among them, and six declarations are added: four
     single lines moved to another file or under another owner (too short for a row, which needs two lines), two
     functions of three lines, one re-indented out of its class; each read and the same declaration at both ends.
+  - *A move of declarations whose order is free* (`SubjectMarks::reordered`, `diff_marks::reorder`): the answer of
+    `accio moves` names the declarations a change put in another order among those of their owner, with whether
+    their order is free (`reordered`, `order: "free"`, by the rule of the language and of what each crossed). A move
+    within a file, of its pair or of a declaration reordered in another layout (a move of the declaration to the file
+    itself), names the declarations it holds where every one the index reordered whose lines meet an end stands within
+    both ends and is free: its notes say so, "Moved total from line 4 · order does not matter". A label: the new
+    lines are read, as those of any move; a move with a declaration whose order matters in it (an enum entry, a value
+    whose initializer runs in its turn) says nothing more. The review plan folds such a pair by the same answer
+    ([Change Review](change-review.md), item 26). On the 400 commits of e8b5bb3d..008a0a18 of idea-1 accio answers
+    reorders in six (43 declarations, 10 of free order); `brd commits --mark-stats --index` of those six gives the
+    marks of the build before, every one, and one move of free order more (`UiComponent.kt` of 41fc8b52, a refactor
+    whose other reordered functions no move holds whole).
   - *The owner in front of the uses of a declaration moved under another owner* (`UsedRename::moved`): where a
     declaration moved from `Ledger` to `Report` with its name (accio's `owner`, and the `parent` of both places), a
     file that changed `Ledger` to `Report` at every place and declares neither may follow the move. accio's `renames`

@@ -486,7 +486,7 @@ the review.
    and is never whitespace. A statement that moved inside its function is another sequence of tokens, a change of
    behaviour; a function that moved with a changed line too.
    The move is the mechanical kind `moved`, folded as "Moved only", only where the place of the declaration has no
-   meaning (`crates/review-plan/src/moved.rs`); elsewhere it is a unit `behaviour`, read. The first version folded
+   meaning (by the rules below, the index's since 2026-11-14); elsewhere it is a unit `behaviour`, read. The first version folded
    every such pair, and the review of the lane found what principle 3 forbids: a Kotlin property moved below the
    property that reads it (a null in the constructor), an enum entry (its ordinal), a `const` of TypeScript below
    its use (a `ReferenceError` as the module loads), a Rust function above the `macro_rules!` it calls, all "Moved
@@ -500,8 +500,7 @@ the review.
    statement, the end of an `impl` and the start of the next are code a fold does not cross. Where the rule does
    not know, the answer is a stop: a function of Kotlin across an `init` block is read though no order of the two
    means anything.
-   A decorator of TypeScript and JavaScript gives a place a meaning of its own (`moved::ordering_token`, the second
-   round of the review): the decorators of a class are evaluated and applied in the order of its members, each a
+   A decorator of TypeScript and JavaScript gives a place a meaning of its own (the second round of the review): the decorators of a class are evaluated and applied in the order of its members, each a
    call of the program's code, and a framework that registers what they see keeps that order. The route `:id` of a
    NestJS controller moved above `search` and `stats` takes their requests, and the plan folded it as "Moved only"
    where the released `brd` read it. So lines that moved with a decorator (`@` is no other token of the two
@@ -512,6 +511,18 @@ the review.
    The kind is of a unit alone, never of a file, and stays in the mechanical group. The word is the one a diff has
    for the lines that moved ([Diff View](diff-view.md#marks)), found there from the lines alone and never quiet;
    the plan asks its declarations, by their tokens.
+   Since 2026-11-14 the rules are accio's (`accio moves`, `reordered`: each declaration a change put in another order
+   among those of its owner, `order: "free"` or `"matters"` and the rule that decides it, `extract::order`), ported
+   from the ones above, so every tool reads one answer: the plan folds a pair that moved where a declaration of free
+   order holds its name on both sides and its blocks add no other code (`units::FreeOrder`). The plan of git alone
+   reads the pair; the index is asked beside its other queries, only where a pair moved, in the query the diffs of the
+   pair ask, and the plan it answered tells its story again with the fold. The cases of the rules above, asked of the
+   accio of a machine, fold the same pairs (`a_moved_declaration_is_folded_only_where_the_index_says_its_place_has_no_meaning`).
+   On idea-1 the plans of 91 ranges of a commit or of five (the commits of e8b5bb3d..008a0a18 and of the history
+   before it whose files move lines, and the six where accio answers reorders) have the same units with either
+   build, and neither folds a pair: a declaration that moved as it was is rare there, and where accio says one moved
+   freely its lines changed with other code.
+   A diff names such a move too: "Moved total from line 4 · order does not matter" ([Diff View](diff-view.md#marks)).
 27. **A fact of the plan shows when its query answered** (2026-11-12). The plan asked the index four queries at once
    and waited for all of them: the usages, the registrations and the entry points answer in seconds, the tests of the
    steps are cold after each new tree of a branch and then take a minute or more on a loaded machine. The reviewer

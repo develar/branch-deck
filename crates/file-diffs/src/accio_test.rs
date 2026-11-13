@@ -913,6 +913,30 @@ fn the_accio_of_this_machine_says_a_declaration_moved_whole_in_another_layout() 
   assert!(asked.is_none_or(|(_, moves)| moves == 1), "{asked:?}");
 }
 
+/// The accio of this machine says which declarations a change put in another order among those of their owner and
+/// whether their order is free (`accio moves`, `reordered`), and the diffs of the commit mark the move of the pair that
+/// holds one of free order: a function of a class moved below another as it is, and not an enum entry moved below
+/// another, whose place is its ordinal. A machine without such an accio proves nothing here
+#[test]
+fn the_accio_of_this_machine_says_a_function_moved_below_another_in_its_class_is_a_reorder_of_free_order() {
+  const ENTRIES: &str = "package demo\n\nclass Ledger(val entries: List<Long>) {\n";
+  const TOTAL: &str = "  fun total(): Long {\n    return entries.sum()\n  }\n";
+  const COUNT: &str = "  fun count(): Int {\n    return entries.size\n  }\n";
+  const LEVEL: &str = "}\n\nenum class Level(val weight: Int) {\n";
+  let ledger = |functions: [&str; 2], entries: [&str; 3]| format!("{ENTRIES}{}\n{}{LEVEL}{}}}\n", functions[0], functions[1], entries.concat());
+  let entries = ["  LOW(computeLow()),\n", "  HIGH(computeHigh()),\n", "  HIGHER(computeHigher()),\n"];
+  let repo = test_utils::git_test_utils::TestRepo::new();
+  std::fs::create_dir_all(repo.path().join("src")).unwrap();
+  write(&repo, "src/Ledger.kt", ledger([TOTAL, COUNT], entries).as_bytes());
+  commit_all(&repo, "Initial");
+  write(&repo, "src/Ledger.kt", ledger([COUNT, TOTAL], [entries[1], entries[2], entries[0]]).as_bytes());
+  let second = commit_all(&repo, "Count before the total, the lowest level last");
+  read_twice_by_accio(&repo, second, AccioCli::answers_moves, |subject, read| {
+    let names: Vec<Vec<String>> = subject("src/Ledger.kt").reordered.into_iter().map(|reorder| reorder.names).collect();
+    assert_eq!(names, [vec!["total".to_string()]], "read {read}");
+  });
+}
+
 /// An index that counts the questions of `renames` and of `moves` it passes on to `index`
 struct CountedIndex<'a> {
   index: &'a dyn SymbolIndex,

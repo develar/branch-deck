@@ -18,8 +18,9 @@
 //! - **A range of lines** is asked with the code around it (`equal_by_tokens`): lines without a token are whitespace
 //!   only where the line breaks they add or remove change no token of the lines around them.
 //! - **Lines that moved** are asked without the code around them (`same_code`): the same tokens at another place of
-//!   the file are a move, never whitespace. The plan folds it (`MechanicalKind::Moved`) only where the place of the
-//!   declaration has no meaning (`moved`), and reads it as a change of behaviour elsewhere.
+//!   the file are a move, never whitespace. The plan folds it (`MechanicalKind::Moved`) only where the index of the
+//!   repository says the place of the declaration has no meaning (`units::FreeOrder`), and reads it as a change of
+//!   behaviour elsewhere.
 //!
 //! The tokens of a blob are read once per grammar for the whole plan (`TextTokens`), when first asked: by
 //! `whitespace_only` for a hunk that passed its check of blanks, and by the fingerprint of every unit of a source file
@@ -27,7 +28,7 @@
 //! source file that has a unit: about 0.1 s for the pairs of 141 files.
 
 use crate::files::without_whitespace;
-use code_tokens::{Equality, Token, TokenClass, Tokens, content, equal_by_tokens, same_without_blanks, tokens};
+use code_tokens::{Equality, Token, Tokens, content, equal_by_tokens, same_without_blanks, tokens};
 use code_tokens::{Grammar, grammar_of};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -129,36 +130,10 @@ impl Sides<'_, '_> {
     })
   }
 
-  /// The grammar both sides are read by; `None` for a file of no grammar and for sides of two grammars
-  pub(crate) fn grammar(&self) -> Option<Grammar> {
-    match self {
-      Self::Grammar {
-        old: Some((old, _)),
-        new: Some((new, _)),
-        ..
-      } if old == new => Some(*old),
-      _ => None,
-    }
-  }
-
   /// Whether the lines `lines` (of the diffs) of the new side hold no code: no token but comments. No without the
   /// tokens of both sides
   pub(crate) fn no_code(&self, lines: Range<u32>) -> bool {
     self.read().is_some_and(|(_, new_tokens)| new_tokens.in_lines(lines).iter().all(Token::is_comment))
-  }
-
-  /// Whether the code of the lines `lines` (of the diffs) of the new side holds no token `text`: none of its tokens
-  /// that is neither a name, a keyword, a literal (a string, the text of a JSX element) nor a comment is that text.
-  /// No without the tokens of both sides
-  pub(crate) fn no_token(&self, lines: Range<u32>, text: &str) -> bool {
-    let Self::Grammar { tokens, new: Some((_, blob)), .. } = self else {
-      return false;
-    };
-    let Some(source) = tokens.texts.get(*blob) else { return false };
-    self.read().is_some_and(|(_, new_tokens)| {
-      let mut code = new_tokens.in_lines(lines).iter().filter(|token| token.class == TokenClass::Other);
-      !code.any(|token| token.text_in(source) == text)
-    })
   }
 
   /// The text of the lines `lines` (of the diffs) of the old side, or of the new one (`new_side`), as a fingerprint

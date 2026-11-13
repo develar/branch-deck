@@ -700,8 +700,9 @@ pub trait SymbolIndex: Send + Sync {
   }
 
   /// The declarations a change moved whole between the tree of `base` and the tree of `head`: to another file or
-  /// under other owners, with the same words; `None` when the index answers no moves (an accio of another answer
-  /// revision, a fixture without them)
+  /// under other owners, with the same words, and those it put in another order among the declarations of their
+  /// owner, with whether their order is free (`MovesAnswer::reordered`); `None` when the index answers no moves (an
+  /// accio of another answer revision, a fixture without them)
   fn moves(&self, _repository_root: &str, _base: &str, _head: &str) -> Result<Option<MovesAnswer>> {
     Ok(None)
   }
@@ -824,9 +825,8 @@ impl AccioCli {
     Self::new(executable)
   }
 
-  /// Where this accio is, for a test that runs it itself
-  #[cfg(test)]
-  pub(crate) fn executable(&self) -> &Path {
+  /// Where this accio is, for a test that runs it itself (an index of a repository of its own)
+  pub fn executable(&self) -> &Path {
     &self.executable
   }
 
@@ -843,7 +843,7 @@ impl AccioCli {
   }
 
   /// Whether this accio answers `moves` as this reader reads it (`MOVES_ANSWER`), as `answers_renames` asks it
-  pub(crate) fn answers_moves(&self) -> bool {
+  pub fn answers_moves(&self) -> bool {
     self.answers().moves == Some(MOVES_ANSWER)
   }
 

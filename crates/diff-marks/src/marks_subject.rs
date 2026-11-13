@@ -15,6 +15,12 @@
 //!   another layout takes its lines: of a row that shares lines with it, the parts beside it stay moves where each is
 //!   a row by itself (`LeftRow::without`), so no blank line or lone brace between two declarations is a move of its
 //!   own. The same label as a row of the same lines, and a line of it is read as the line it was (`Subject::is_moved`).
+//!   A declaration the index says was put in another order among those of its owner (`MovesAnswer::reordered`) is
+//!   such a move within its file where its layout is another: the move of the pair does not hold it then.
+//! - **A move of declarations whose order is free** (`SubjectMarks::reordered`, `reorder::ReorderMark`): a move within
+//!   a file, of the pair or of a declaration to the file itself, whose every declaration the index reordered stands
+//!   within both its ends with an order no reader of the code sees. A label: its notes say so, and its lines are read
+//!   where they stand now as those of any move.
 //! - **The owner in front of the uses of a declaration moved under another owner** (`Used::moves`,
 //!   `UsedRename::moved`): a name that changed at every place of a file that declares neither, from the old owner of
 //!   such a declaration to its new one, may follow the move. The index is asked of the uses of those declarations
@@ -66,11 +72,12 @@
 //! asked by the window that shows them), so nothing it says takes a line out of a view: a view passes a confirmed run and shows each of its
 //! lines.
 
-use crate::index::{Access, MovedDeclaration, MovesAnswer, RenameAnswer, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
+use crate::index::{Access, MovedDeclaration, MovesAnswer, RenameAnswer, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Reordered, Resolved};
 use crate::leftovers::{Leftovers, PendingRun};
 use crate::marks::is_quiet;
 use crate::marks_renames::with_the_first;
 use crate::model::{DeclarationMove, DiffMarks, FileMove, Rename, RenameCheck, RenameProof, SubjectMarks, UsedRename};
+use crate::reorder::ReorderMark;
 use code_tokens::{Grammar, grammar_of};
 use line_diff::model::to_u32;
 use line_diff::model::{BlockKind, DiffBlock, LineMove, LineRun, RunKind, starts_of};
@@ -202,6 +209,8 @@ struct FileSubject<'a> {
   moved_out: Vec<FileMove>,
   moved_in: Vec<FileMove>,
   used: Vec<Used>,
+  /// The moves within it whose declarations were reordered where their order is free
+  reordered: Vec<ReorderMark>,
 }
 
 /// A declaration the index is asked of: the place `place` of the rename `rename` of the marks of the file `file`
@@ -359,18 +368,29 @@ impl<'a> Subject<'a> {
           moved_out: Vec::new(),
           moved_in: Vec::new(),
           used,
+          reordered: Vec::new(),
         })
       })
       .collect();
 
     // the moves between the files, among the lines no run took: those of the pairs, and those added here. Then the
     // declarations the index says moved whole that no row of the same lines holds as it is (another layout), whose
-    // lines are theirs: of a row that shares a line with one, the parts that are still a row
+    // lines are theirs: of a row that shares a line with one, the parts that are still a row. A declaration put in
+    // another order among those of its owner is one too, within its file
+    let whole: Vec<MovedDeclaration> = moves.map_or_default(|moves| {
+      let reordered = moves.reordered.iter().map(|reordered| MovedDeclaration {
+        old: reordered.old.clone(),
+        new: reordered.new.clone(),
+        file: false,
+        owner: false,
+      });
+      moves.moved.iter().cloned().chain(reordered).collect()
+    });
     let (found, declared, work) = {
       let rows: Vec<[Cow<'_, [LeftRow]>; 2]> = files.iter().map(|file| file.as_ref().map_or_else(Default::default, rows_of)).collect();
       let file_rows: Vec<FileRows<'_>> = rows.iter().map(|[old, new]| FileRows { old, new }).collect();
       let (found, work) = find_moves_across(&file_rows);
-      let declared = moves.map_or_default(|moves| declaration_moves(&files, &moves.moved, &found));
+      let declared = declaration_moves(&files, &whole, &found);
       (outside_declarations(found, &declared, &rows), declared, work)
     };
     for moved in &declared {
@@ -416,6 +436,13 @@ impl<'a> Subject<'a> {
     for file in files.iter_mut().flatten() {
       file.moved_out.sort_unstable_by_key(|moved| moved.start);
       file.moved_in.sort_unstable_by_key(|moved| moved.start);
+    }
+    if let Some(reordered) = moves.map(|moves| moves.reordered.as_slice()).filter(|reordered| !reordered.is_empty()) {
+      for (index, file) in (0u32..).zip(files.iter_mut()) {
+        if let Some(file) = file {
+          file.reordered = reorder_marks(file, index, reordered);
+        }
+      }
     }
 
     let mut subject = Self {
@@ -611,7 +638,7 @@ impl<'a> Subject<'a> {
             })
           })
           .collect();
-        if file.moved_out.is_empty() && file.moved_in.is_empty() && declared.is_empty() && used.is_empty() {
+        if file.moved_out.is_empty() && file.moved_in.is_empty() && declared.is_empty() && used.is_empty() && file.reordered.is_empty() {
           return None;
         }
         let confirmed = if checked.is_some() || !self.followed_sites.is_empty() {
@@ -640,6 +667,7 @@ impl<'a> Subject<'a> {
             declared,
             used,
             confirmed,
+            reordered: file.reordered.clone(),
           })),
         };
         Some(if is_quiet(RunKind::Renamed) { as_confirmed(&marks, blocks) } else { marks })
@@ -1276,6 +1304,35 @@ fn declaration_moves<'m>(files: &[Option<FileSubject<'_>>], moved: &'m [MovedDec
     });
   }
   found
+}
+
+/// The moves within `file`, the file `index` of its subject, whose declarations `reordered` (the answer of the index)
+/// put in another order where their order is free (`ReorderMark::of_move`): the moves of its pair and those of a
+/// declaration to the file itself, in the order of their new lines. None in a text whose lines the index counts
+/// otherwise than the diff does (a lone carriage return)
+fn reorder_marks(file: &FileSubject<'_>, index: u32, reordered: &[Reordered]) -> Vec<ReorderMark> {
+  let facts = &file.facts;
+  let (Some(old_path), Some(new_path)) = (facts.old_path, facts.new_path) else {
+    return Vec::new();
+  };
+  if facts.left.lone_returns.iter().any(|&lone| lone) {
+    return Vec::new();
+  }
+  let pair = facts
+    .marks
+    .moves
+    .iter()
+    .map(|moved| (moved.old_start..moved.old_start + moved.len, moved.new_start..moved.new_start + moved.len));
+  let declared = file.moved_out.iter().filter(|moved| moved.file == index).filter_map(|moved| {
+    let other = moved.declaration.as_ref()?.other_len;
+    Some((moved.start..moved.start + moved.len, moved.line..moved.line + other))
+  });
+  let mut marks: Vec<ReorderMark> = pair
+    .chain(declared)
+    .filter_map(|(old, new)| ReorderMark::of_move(old_path, new_path, old, new, reordered))
+    .collect();
+  marks.sort_unstable_by_key(|mark| (mark.new_start, mark.old_start));
+  marks
 }
 
 /// Whether the lines `lines` of a side of `file` may be an end of a declaration that moved whole: the changed lines

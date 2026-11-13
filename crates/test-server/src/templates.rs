@@ -40,6 +40,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("commit_whitespace", |path| templates::commit_whitespace().build(path)),
   ("commit_marks", |path| templates::commit_marks().build(path)),
   ("declaration_moves", |path| templates::declaration_moves().build(path)),
+  ("free_reorder", |path| templates::free_reorder().build(path)),
   ("review_whitespace", |path| templates::review_whitespace().build(path)),
   ("symbol_navigation", |path| templates::symbol_navigation().build(path)),
   ("repeated_edit", |path| templates::repeated_edit().build(path)),

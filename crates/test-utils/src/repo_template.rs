@@ -915,6 +915,43 @@ pub mod templates {
     serde_json::json!({ "moves": { "moved": [moved("summary", [7, 10], [12, 18]), moved("reportTitle", [12, 15], [7, 10])], "reordered": [], "total": 2, "complete": true } })
   }
 
+  /// A commit of the branch `ledger` that puts two declarations of src/Ledger.kt in another order as they are
+  /// (openspec/specs/commit/quiet-changes/spec.md, "Subject: A move of declarations whose order is free says so"):
+  /// the function `total` below `count` in its class, from its lines 4 to 7 (from 1) to the lines 9 to 12, and the enum
+  /// entry `LOW` below the other two, from its line 16 to the line 18. Only the index of the repository says the order
+  /// of the function is free and that of the entry matters (`free_reorder_index`)
+  pub fn free_reorder() -> RepoTemplate {
+    const HEAD: &str = "package ledger\n\nclass Ledger(private val entries: List<Long>) {\n";
+    const TOTAL: &str = "  fun total(): Long {\n    val sum = entries.sum()\n    return sum\n  }\n";
+    const COUNT: &str = "  fun count(): Int {\n    val size = entries.size\n    return size\n  }\n";
+    const LEVEL: &str = "}\n\nenum class Level(val weight: Int) {\n";
+    const ENTRIES: [&str; 3] = ["  LOW(computeLowWeight()),\n", "  HIGH(computeHighWeight()),\n", "  HIGHER(computeHigherWeight()),\n"];
+    let ledger = |functions: [&str; 2], entries: [&str; 3]| format!("{HEAD}{}\n{}{LEVEL}{}}}\n", functions[0], functions[1], entries.concat());
+    RepoTemplate::new("free_reorder")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("src/Ledger.kt", &ledger([TOTAL, COUNT], ENTRIES))], Some(1704117600))
+      .commit_with_timestamp(
+        "(ledger) count before the total, the lowest level last",
+        &[("src/Ledger.kt", &ledger([COUNT, TOTAL], [ENTRIES[1], ENTRIES[2], ENTRIES[0]]))],
+        Some(1704119400),
+      )
+  }
+
+  /// What the index of the repository answers of the commit of `free_reorder` (`accio moves`, the fixture of the test
+  /// server, `FixtureIndex`): `total` and `count` put in another order in their class, of free order, and the three
+  /// entries of `Level`, whose order matters
+  pub fn free_reorder_index() -> serde_json::Value {
+    let at = |line: u32, end_line: u32, name: &str, kind: &str, parent: &str| serde_json::json!({ "file": "src/Ledger.kt", "line": line, "end_line": end_line, "column": 6, "kind": kind, "name": name, "parent": parent, "language": "kotlin" });
+    let reordered = |name: &str, old: [u32; 2], new: [u32; 2], kind: &str, parent: &str, order: &str| serde_json::json!({ "old": at(old[0], old[1], name, kind, parent), "new": at(new[0], new[1], name, kind, parent), "order": order, "why": "" });
+    serde_json::json!({ "moves": { "moved": [], "reordered": [
+      reordered("total", [4, 7], [9, 12], "method", "Ledger", "free"),
+      reordered("LOW", [16, 16], [18, 18], "enum_member", "Level", "matters"),
+      reordered("count", [9, 12], [4, 7], "method", "Ledger", "free"),
+      reordered("HIGH", [17, 17], [16, 16], "enum_member", "Level", "matters"),
+      reordered("HIGHER", [18, 18], [17, 17], "enum_member", "Level", "matters"),
+    ], "total": 0, "complete": true } })
+  }
+
   /// The fixture of the index of a repository of `commit_marks` (`<git dir>/branch-deck-accio.json`,
   /// `file_diffs::accio::FixtureIndex`): the answer of an index that lists the declaration of the function the
   /// store renamed and its two calls in the report as every use of it in both trees, complete, final and without a

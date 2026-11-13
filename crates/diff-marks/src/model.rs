@@ -3,6 +3,7 @@
 //! is the one source of where a reader stops, the runs, the moves and the renames are what a view draws. A consumer
 //! that sends them to another program or keeps them on disk describes them by types of its own.
 
+use crate::reorder::ReorderMark;
 use line_diff::model::{LineMove, LineRun};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
@@ -49,6 +50,11 @@ pub struct SubjectMarks {
   /// place is proven: by the index for such a name, by the scopes of the file for a local one. Quiet; they came
   /// after the rows of the file, so a view passes them and still shows each of their lines
   pub confirmed: Vec<u32>,
+  /// The moves within this file, of `DiffMarks::moves` or of a declaration to this file itself among `moved_out`
+  /// and `moved_in`, whose declarations the index says were put in another order where their order is free
+  /// (`reorder`), by the ends of each move. Labels
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub reordered: Vec<ReorderMark>,
 }
 
 /// One end of lines that moved between two files of a subject without a change: `len` lines from `start` of this

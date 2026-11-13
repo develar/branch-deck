@@ -212,3 +212,44 @@ export function answerStoreMoves(repositoryPath: string): void {
     moves: { moved: [moved("summary", [7, 10], [12, 18]), moved("reportTitle", [12, 15], [7, 10])], reordered: [], total: 2, complete: true },
   })
 }
+
+/** The subject of the commit of the `free_reorder` template, without the prefix of its branch `ledger` */
+export const REORDER_SUBJECT = "count before the total, the lowest level last"
+
+/**
+ * The index of the repository says the change put the declarations `reordered` of the file at `path` in another order
+ * among those of their owner (`accio moves`, `reordered`, `FixtureIndex`): each by its name, its lines before and after
+ * (from 1, both ends included), its kind, its owner and its order, `free` or `matters`
+ */
+export function answerReordered(repositoryPath: string, path: string, reordered: readonly (readonly [string, [number, number], [number, number], string, string, string])[]): void {
+  const at = (line: number, endLine: number, name: string, kind: string, parent: string) => ({ file: path, line, end_line: endLine, column: 6, kind, name, parent, language: "kotlin" })
+  writeFixtureIndex(repositoryPath, {
+    moves: {
+      moved: [],
+      reordered: reordered.map(([name, [oldLine, oldEnd], [newLine, newEnd], kind, parent, order]) => ({
+        old: at(oldLine, oldEnd, name, kind, parent),
+        new: at(newLine, newEnd, name, kind, parent),
+        order,
+        why: "",
+      })),
+      total: 0,
+      complete: true,
+    },
+  })
+}
+
+/**
+ * The index of the repository of the commit of the `free_reorder` template (`crates/test-utils/src/repo_template.rs`)
+ * says which declarations of src/Ledger.kt it put in another order and whether their order is free, as
+ * `free_reorder_index` writes it: `total` and `count` of the class, free, from the lines 4 to 7 (from 1) to 9 to 12 and
+ * back; the entries of `Level`, whose order matters, `LOW` from 16 to 18
+ */
+export function answerFreeReorder(repositoryPath: string): void {
+  answerReordered(repositoryPath, "src/Ledger.kt", [
+    ["total", [4, 7], [9, 12], "method", "Ledger", "free"],
+    ["LOW", [16, 16], [18, 18], "enum_member", "Level", "matters"],
+    ["count", [9, 12], [4, 7], "method", "Ledger", "free"],
+    ["HIGH", [17, 17], [16, 16], "enum_member", "Level", "matters"],
+    ["HIGHER", [18, 18], [17, 17], "enum_member", "Level", "matters"],
+  ])
+}

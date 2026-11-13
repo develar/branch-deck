@@ -2,7 +2,7 @@ use crate::api::{ApiChange, ApiChangeKind, FormChange, UsageSite, Usages};
 use crate::fan_in::{NO_ACCIO, NO_INDEX, OUTSIDE_SITES, add_usages};
 use crate::pair::ChangedLines;
 use crate::test_support::{plan_of, range};
-use diff_marks::index::Resolved;
+use diff_marks::index::{DeclaredAt, MovesAnswer, Order, Reordered, Resolved};
 use file_diffs::accio::{CallArgument, DeclarationAt, ReferenceHit, References, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -28,6 +28,8 @@ pub(crate) struct Counts {
   unavailable: Vec<String>,
   /// The given tests of each query of `tests`
   given: Mutex<Vec<Vec<String>>>,
+  /// What `moves` answers it put in another order (`reordered`)
+  reordered: Vec<Reordered>,
 }
 
 /// The usages an answer holds at most, as accio's `--limit`
@@ -106,7 +108,18 @@ impl Counts {
       tests: HashMap::new(),
       unavailable: Vec::new(),
       given: Mutex::default(),
+      reordered: Vec::new(),
     }
+  }
+
+  /// Answers `moves` with the declarations `reordered` put in another order
+  pub(crate) fn with_reordered(self, reordered: Vec<Reordered>) -> Self {
+    Self { reordered, ..self }
+  }
+
+  /// How many times `moves` was asked
+  pub(crate) fn moves_asked(&self) -> usize {
+    self.queries.lock().unwrap().iter().filter(|(of, ..)| *of == "moves").count()
   }
 
   /// With the tests that reach each place
@@ -244,6 +257,37 @@ impl SymbolIndex for Counts {
   /// No declaration lookup: the usages need only references
   fn symbols(&self, _repository_root: &str, _query: &str, _revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
     Ok(None)
+  }
+
+  fn moves(&self, _repository_root: &str, _base: &str, head: &str) -> anyhow::Result<Option<MovesAnswer>> {
+    if !self.ask("moves", &[], head)? {
+      return Ok(None);
+    }
+    Ok(Some(MovesAnswer {
+      reordered: self.reordered.clone(),
+      complete: true,
+      ..MovesAnswer::default()
+    }))
+  }
+}
+
+/// A declaration of `path` named `name` the commits put in another order among those of its owner, from its lines `old`
+/// to its lines `new` (from 1, both ends included), its order `order`, as `accio moves` answers it
+pub(crate) fn reordered(path: &str, name: &str, old: [u32; 2], new: [u32; 2], order: Order) -> Reordered {
+  let at = |[line, end_line]: [u32; 2]| DeclaredAt {
+    file: path.to_string(),
+    line,
+    end_line,
+    kind: "function".to_string(),
+    name: name.to_string(),
+    language: "kotlin".to_string(),
+    ..DeclaredAt::default()
+  };
+  Reordered {
+    old: at(old),
+    new: at(new),
+    order,
+    why: String::new(),
   }
 }
 

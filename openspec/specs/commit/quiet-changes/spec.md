@@ -1,6 +1,6 @@
 ---
 name: Quiet Changes
-description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, a local one only where a line changed in it alone, proven by the bindings of both sides for a value of its body alone in a member nothing else of which changed, and quiet then, the lines that moved within a file, exact, indented or with a few edited lines, told by a line that stands once and never quiet, what the files of a subject say of each other (the lines that moved between two files, labels at both ends, the names one file declares and another uses, and what the index of the repository proves of them), the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, the measurement on real commits that switches a kind on (`brd commits --mark-stats`), and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, a rename named once at its declaration with its name in a mark of its own at every site, a move between two files with a note at each end that names the other file and shows it, a name another file declares named once where it is used with the file that declares it, what the index proved of a rename after the words of its note, the row at the top of a view kept as marks come late, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour, the colour of a move and the mark of a renamed name.
+description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, a local one only where a line changed in it alone, proven by the bindings of both sides for a value of its body alone in a member nothing else of which changed, and quiet then, the lines that moved within a file, exact, indented or with a few edited lines, told by a line that stands once and never quiet, a move of declarations whose order is free named so, what the files of a subject say of each other (the lines that moved between two files, labels at both ends, the names one file declares and another uses, and what the index of the repository proves of them), the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, the measurement on real commits that switches a kind on (`brd commits --mark-stats`), and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, a rename named once at its declaration with its name in a mark of its own at every site, a move between two files with a note at each end that names the other file and shows it, a name another file declares named once where it is used with the file that declares it, what the index proved of a rename after the words of its note, the row at the top of a view kept as marks come late, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour, the colour of a move and the mark of a renamed name.
 style: plain-1
 targets:
   - crates/line-diff/src/model.rs
@@ -63,7 +63,8 @@ reviewer who passes a quiet block that hid a change has reviewed nothing. This s
 blocks, decided in Rust for every view: which lines changed in their formatting alone (quiet), which in their
 comments alone (a label), which names the change renamed and which lines changed in such a name alone (quiet for
 a value of its body alone in a member nothing else of which changed, a label else), which lines moved
-within the file (a label: where lines stand is behaviour), what the files of a subject say
+within the file (a label: where lines stand is behaviour; a move of declarations the index says may stand in any
+order says so), what the files of a subject say
 of each other (the group Subject: the lines that moved from one file to another and the names one file declares and
 another uses, labels, and what the index of the repository proves of such a name), and where the reading of each
 block starts; and what a view draws of it (the group Views): a note before the lines of each run, a quiet run played
@@ -905,6 +906,11 @@ stay. A label.
 - **THEN** the file names both ends, each with the file itself as the other file
   [@test] crates/file-diffs/src/marks_subject_test.rs (`a_declaration_moved_under_another_owner_within_its_file_is_a_move_to_the_file_itself`)
 
+#### Scenario: Reordered in another layout
+- **WHEN** a method of three lines moves below another of its class on one line, and the index says it was put in another order there
+- **THEN** the file names both ends, the three old lines and the one new line, each with the file itself as the other file: a declaration the index reordered is such a move where no move of its pair holds it
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_move_within_a_file_of_declarations_whose_order_is_free_is_a_reorder_of_them`)
+
 #### Scenario: The accio of this machine
 - **WHEN** this machine has an accio that answers `moves` of the revision 2, and a commit moves a function to another file with its parameters one a line
 - **THEN** the diffs of the commit, with an index of the repository built for the test, name the four old lines and the seven new ones as one move of `reportTitle`
@@ -931,6 +937,31 @@ trees.
 - **AND** the second question tells the same stages from memory and starts no process
   [@test] crates/file-diffs/src/service_test.rs (`the_stages_of_the_answer_of_the_index_tell_the_renames_before_the_moves_are_asked`)
   [@test] src/stores/file-diffs.test.ts (`takes each stage of the answer of the index as it comes, the proofs of the renames before the moves`)
+
+### Requirement: Subject: A move of declarations whose order is free says so
+
+A move within a file, of its pair or of a declaration to the file itself, MUST name the declarations it holds
+(`reordered`, by its two ends) where every declaration the index reordered whose lines meet an end stands within both
+ends with an order that is free (`order: "free"`), and one does; else it MUST name none. A label: the lines are read
+where they stand now, and no run, move or stop changes. `brd commits --mark-stats --index` counts them
+(`moves.free_order`).
+
+#### Scenario: A function moved below another in its class
+- **WHEN** a method moves below another of its class as it is, a move of the pair, and the index says both were reordered with an order that is free
+- **THEN** the move names the method by its two ends, and the moves of the pair are those they were
+- **AND** where the index says its order matters, or reordered only the other method, the move names nothing; and with a property beside it whose order matters it names nothing either
+  [@test] crates/file-diffs/src/marks_subject_test.rs (`a_move_within_a_file_of_declarations_whose_order_is_free_is_a_reorder_of_them`)
+  [@test] crates/diff-marks/src/index_test.rs (`a_move_of_declarations_whose_order_is_free_is_a_mark_and_one_that_holds_an_order_that_matters_is_none`)
+
+#### Scenario: The accio of this machine
+- **WHEN** this machine has an accio that answers `moves` of the revision 2, and a commit moves a function below another in its class and an enum entry below the others
+- **THEN** the diffs of the commit, with an index of the repository built for the test, name the move of the function and not that of the entry
+  [@test] crates/file-diffs/src/accio_test.rs (`the_accio_of_this_machine_says_a_function_moved_below_another_in_its_class_is_a_reorder_of_free_order`)
+
+#### Scenario: Through the server
+- **WHEN** the `free_reorder` template is read through the server, then the index is asked of its commit
+- **THEN** the diffs give two moves of the pair, the function and the enum entry; the stage of the moves names the move of the function alone
+  [@test] crates/test-server/src/commit_files_test.rs (`a_move_of_a_declaration_whose_order_the_index_says_is_free_is_a_reorder_once_it_answered`)
 
 ### Requirement: Subject: The owner in front of the uses of a declaration moved under another owner follows the move
 
@@ -2056,10 +2087,10 @@ preview of a commit keeps no history and moves no focus.
   [@test] tests/e2e/commit-files/moved-lines.spec.ts (`a click on the place a note names jumps to the other end of the move, Back returns and Forward goes there again`)
 
 #### Scenario: In a review with its plan
-- **GIVEN** a commit that moves a function to the start of its class with one line edited, and one that moves it as it is, each in a review with its plan
+- **GIVEN** a commit that moves a function to the start of its class with one line edited, and one that moves it as it is, whose order the index says is free, each in a review with its plan
 - **WHEN** the user clicks the place in the heading of the change of the first, then presses G twice; and in the second expands the folded section of the moves, clicks the place of a note, presses G and Back, folds the section again and presses Forward
 - **THEN** the heading says the words of the move after the change ("compute — body changed · Moved from line 121 · 1 line edited") and names the key; the click shows the note where the lines left, marked, G returns to the row of the heading, and G goes there again
-- **AND** in the section of the moves the jump goes there and back, and Forward to a place in the section folded again opens it
+- **AND** in the section of the moves the notes say the order does not matter ("Moved compute from line 121 · order does not matter"), the jump goes there and back, and Forward to a place in the section folded again opens it
   [@test] tests/e2e/commit-files/moved-lines.spec.ts (`a move with an edited line says its words in the heading of the change: a click on its place and G go to where the lines left and back to the heading`, `a move as it was is in the folded section of the moves: a jump in it goes there and back, and Forward opens the section folded again`)
 
 #### Scenario: The row a jump lands on
@@ -2535,6 +2566,25 @@ move MUST say so and where the declaration went ("Follows a move", "title moved 
 - **THEN** it says "Follows a move", "title moved to Report.kt" with a button "Go to title in src/Report.kt", plain words "title stands in src/Report.kt now" where the view does not show the report, and "all uses in this change"; beside a rename the note is of renames
   [@test] src/presenters/diff-marks.test.ts (`says of the owner of a declaration that moved under another owner that the change follows the move, and where the declaration went`)
   [@test] src/lib/diff/block-parts.test.ts (`gives the block of the lines an end of the move, which names the file and the lines of the other end; none for lines no block holds whole`)
+
+### Requirement: Views: The note of a move of declarations whose order is free says so
+
+A note at an end of a move that names declarations of free order (`reordered`) MUST say their names before the place
+of the other end and that their order does not matter after it ("Moved total from line 4 · order does not matter",
+"Moved total to line 8 · order does not matter", of a declaration of another layout "Moved total from Ledger.kt:4 ·
+order does not matter"); its button and the key of the notes do what they do of any move.
+
+#### Scenario: The words
+- **WHEN** both ends of a move within the file that names `total`, one that names `total` and `count` and was indented again, one that names none, and a declaration of another layout moved within its file are worded
+- **THEN** they say "Moved total" "to line 210" "order does not matter", "Moved total and count" "from line 120" "order does not matter · re-indented", "Moved", and "Moved total" "from Ledger.kt:4" "order does not matter"
+  [@test] src/presenters/diff-marks.test.ts (`names the declarations of a move within the file the index says were put in another order where their order is free, and says it does not matter`)
+  [@test] src/lib/diff/block-parts.test.ts (`names the declarations of free order of a move within the file at both its ends, by the ends the subject names, and of no other move`)
+
+#### Scenario: The move of the template
+- **WHEN** the preview of the `free_reorder` template shows Ledger.kt, whose `total` moved below `count` and whose `LOW` moved below the other entries, and the index answers
+- **THEN** before the answer the notes say "5 lines moved to line 8" and "Moved from line 4"; after it "Moved total to line 8 · order does not matter" and "Moved total from line 4 · order does not matter", whose button shows the other end
+- **AND** the notes of the entry, whose order matters, say "1 line moved to line 18" and "Moved from line 16" before and after
+  [@test] tests/e2e/commit-files/subject-marks.spec.ts (`the notes of the total moved below the count in its class say its order does not matter once the index answers, and those of an enum entry, whose order matters, stay what they were`)
 
 ### Requirement: Views: The place a note names in another file shows it there
 

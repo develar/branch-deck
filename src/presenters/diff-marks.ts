@@ -1,5 +1,5 @@
 import type { LineMove, Rename, RenameProof, RunKind } from "@/lib/bindings"
-import { cutList } from "@/lib/text"
+import { cutList, joinNames } from "@/lib/text"
 
 /*
  * The words of the marks of a diff (openspec/specs/commit/quiet-changes/spec.md, "Views"): Rust decides which lines of
@@ -73,6 +73,11 @@ export interface RemarkFacts {
     readonly file?: OtherFile | null
     /** Of a declaration the index says moved whole between files, its name; null or absent for a row of the same lines */
     readonly declaration?: string | null
+    /**
+     * Of a move within the file whose declarations the index says were put in another order where their order is
+     * free (`SubjectMarks.reordered`), their names; null or absent for any other move
+     */
+    readonly reordered?: readonly string[] | null
   } | null
   /**
    * Of the note of the renames a view names at a block: the renames, worded as a list of the app is (the first, two of
@@ -197,6 +202,12 @@ export interface RemarkWords {
   readonly toggle: string | null
 }
 
+/**
+ * What the note of a move within the file says after where its other end is, where the index says its declarations
+ * were put in another order with an order no reader of the code sees: a label, the lines are read where they stand now
+ */
+const FREE_ORDER = "order does not matter"
+
 /** "1 line", "3 lines" */
 function lineCount(count: number): string {
   return `${count} ${count === 1 ? "line" : "lines"}`
@@ -256,7 +267,9 @@ function reachSentence(reach: ReachWords): string {
  * The words of the note before a run of lines, "Formatting only · 3 lines", at an end of a move: where the lines
  * left "14 lines moved to line 210", where they stand now "Moved from line 120 · re-indented · 1 line edited", of a
  * move between two files "Moved to Report.kt:12" and "Moved from Ledger.kt:40", of a declaration the index says moved
- * whole "Moved reportTitle to Report.kt:12" and "Moved reportTitle from Ledger.kt:40", or of the renames named at a block:
+ * whole "Moved reportTitle to Report.kt:12" and "Moved reportTitle from Ledger.kt:40", of a move within the file whose
+ * declarations the index says were put in another order where it is free "Moved total to line 8 · order does not matter"
+ * and "Moved total from line 4 · order does not matter", or of the renames named at a block:
  * "Renamed total → sum · 12 sites", two of them both ("Renamed total → sum · 12 sites · count → size · 3 sites"), of
  * three or more the first and the count of the others, "and 2 more" (`cutList`), then what the subject says of each
  * ("declared in Store.kt · all uses in this change"), of the owner of a declaration that moved under another owner
@@ -306,9 +319,12 @@ export function presentRemark(remark: RemarkFacts): RemarkWords {
     const detail = lineCount(newEnd - newStart)
     return { label, renamed: null, target: null, detail, more: null, reach: [], name: `${label}, ${detail}`, toggle }
   }
-  const { at, move, other, file, declaration } = remark.move
+  const { at, move, other, file, declaration, reordered } = remark.move
   // the first line of the other end, as a reader counts
   const line = other[0] + 1
+  // the declarations of free order the move holds: "total", "total and count"
+  const free = reordered == null || reordered.length === 0 ? null : joinNames(reordered)
+  const freeWords = free === null ? [] : [FREE_ORDER]
   if (file != null) {
     // a move between two files: every line of it shows at both ends, so the note counts none; the place is the file and the line
     // of a declaration that moved whole: its name, and where it is the declaration that stands there
@@ -320,35 +336,36 @@ export function presentRemark(remark: RemarkFacts): RemarkWords {
       label,
       renamed: null,
       target: { words, name: file.shown ? `Go to l${where}` : `L${where}`, jump: file.shown },
-      detail: "",
+      detail: freeWords.join(""),
       more: null,
       reach: [],
-      name: `${label} ${at === "source" ? "to" : "from"} line ${line} of ${file.path}`,
+      name: [`${label} ${at === "source" ? "to" : "from"} line ${line} of ${file.path}`, ...freeWords].join(", "),
       toggle,
     }
   }
   if (at === "source") {
-    const label = `${lineCount(old)} moved`
+    const label = free === null ? `${lineCount(old)} moved` : `Moved ${free}`
     return {
       label,
       renamed: null,
       target: { words: `to line ${line}`, name: `Go to line ${line}, where the lines stand now`, jump: true },
-      detail: "",
+      detail: freeWords.join(""),
       more: null,
       reach: [],
-      name: `${label} to line ${line}`,
+      name: [`${label} to line ${line}`, ...freeWords].join(", "),
       toggle,
     }
   }
-  const detail = [move.indent === 0 ? null : "re-indented", move.edited.length === 0 ? null : `${lineCount(move.edited.length)} edited`].filter(part => part !== null).join(" · ")
+  const parts = [...freeWords, move.indent === 0 ? null : "re-indented", move.edited.length === 0 ? null : `${lineCount(move.edited.length)} edited`].filter(part => part !== null)
+  const label = free === null ? "Moved" : `Moved ${free}`
   return {
-    label: "Moved",
+    label,
     renamed: null,
     target: { words: `from line ${line}`, name: `Go to line ${line}, where the lines were`, jump: true },
-    detail,
+    detail: parts.join(" · "),
     more: null,
     reach: [],
-    name: [`Moved from line ${line}`, ...(detail === "" ? [] : [detail.replaceAll(" · ", ", ")])].join(", "),
+    name: [`${label} from line ${line}`, ...parts].join(", "),
     toggle,
   }
 }

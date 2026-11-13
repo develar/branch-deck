@@ -22,7 +22,7 @@ import {
   remarkHits,
   scrollDiffsTo,
 } from "../helpers/diff-helpers"
-import { codeOf, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview } from "../helpers/marks-helpers"
+import { answerReordered, codeOf, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview } from "../helpers/marks-helpers"
 import { openPlanWindow, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -680,19 +680,22 @@ test.describe("The moves of a diff in a review with its plan", () => {
   }) => {
     const repo = await setupRepo("simple")
     await commitMovedCompute(repo, { edited: false })
+    // the index says the order of `compute` among the members of its class is free: the plan folds its move
+    answerReordered(repo.path, "src/Store.kt", [["compute", [122, 130], [2, 10], "method", "Store", "free"]])
     turnOnReviewPlan(repo)
     const window = await openPlanWindow(page, syncAndWaitForBranches, "store")
     const code = window.getByTestId("commit-review-code")
     const { back, forward } = diffHistoryKeys(browserName)
-    // the lines moved as they were: nothing of them to read, so their section stands folded at the end, no note shown
+    // the lines moved as they were, of an order that is free: nothing of them to read, so their section stands folded
+    // at the end, no note shown
     await expect(moveNotes(code)).toHaveCount(0)
     const expand = code.getByRole("button", { name: "Expand Store.kt" })
     await expect(expand).toHaveCount(1)
     await expand.click()
     const stands = moveNotes(code, "destination")
     const left = moveNotes(code, "source")
-    await expect(stands).toHaveText("Moved from line 121")
-    await expect(left).toHaveText("10 lines moved to line 2")
+    await expect(stands).toHaveText("Moved compute from line 121 · order does not matter")
+    await expect(left).toHaveText("Moved compute to line 2 · order does not matter")
 
     await moveTargets(stands).click()
     await expectLandedOn(left)

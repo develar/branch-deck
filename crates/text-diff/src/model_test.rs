@@ -1,6 +1,6 @@
 //! The wire model of a diff: its JSON, and the values of the comparison it maps to and back.
 
-use crate::model::{DiffMarks, FileMove, LineMove, LineRun, Rename, RenameCheck, RenameProof, RunKind, SubjectMarks, TextDiff, UsedRename};
+use crate::model::{DiffMarks, FileMove, LineMove, LineRun, Rename, RenameCheck, RenameProof, ReorderMark, RunKind, SubjectMarks, TextDiff, UsedRename};
 use line_diff::model::{DiffBudget, RangeKind, diff_texts};
 use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
@@ -105,6 +105,13 @@ fn the_marks_are_camel_case_json_with_every_field() {
         moved: Some("reportTitle".to_string()),
       }],
       confirmed: vec![0],
+      reordered: vec![ReorderMark {
+        names: vec!["accounts".to_string()],
+        old_start: 21,
+        old_len: 3,
+        new_start: 5,
+        new_len: 3,
+      }],
     })),
   };
   let json = serde_json::to_value(&result).expect("serializable");
@@ -130,6 +137,7 @@ fn the_marks_are_camel_case_json_with_every_field() {
           "file": 2, "line": 18, "proof": "asked", "moved": "reportTitle",
         }],
         "confirmed": [0],
+        "reordered": [{ "names": ["accounts"], "oldStart": 21, "oldLen": 3, "newStart": 5, "newLen": 3 }],
       },
     })
   );

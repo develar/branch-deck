@@ -947,8 +947,34 @@ describe("the ends of the moves between two files of a subject", () => {
     const declared = textDiff(58, 44, [left], { subject: subjectMarks({ movedOut: [{ ...fileMove(54, 4, 1, 17), declaration: { name: "reportTitle", otherLen: 7 } }] }) })
     expect(marksByBlock(declared)[0]!.sources.map(end => [end.lines, end.other, end.file, end.declaration])).toEqual([[[54, 58], [17, 24], 1, "reportTitle"]])
     expect(from!.sources[0]!.declaration).toBeUndefined()
+    // a declaration moved to the file itself whose order the index says is free: its name at both ends, by the ends
+    const reorder = { names: ["total"], oldStart: 54, oldLen: 4, newStart: 17, newLen: 7 }
+    const withinFile = textDiff(58, 51, [block(17, 17, 17, 24), left], {
+      subject: subjectMarks({
+        movedOut: [{ ...fileMove(54, 4, 0, 17), declaration: { name: "total", otherLen: 7 } }],
+        movedIn: [{ ...fileMove(17, 7, 0, 54), declaration: { name: "total", otherLen: 4 } }],
+        reordered: [reorder],
+      }),
+    })
+    const [standsBlock, leftBlock] = marksByBlock(withinFile)
+    expect([leftBlock!.sources[0]!.reordered, standsBlock!.destinations[0]!.reordered]).toEqual([["total"], ["total"]])
+    expect(marksByBlock(declared)[0]!.sources[0]!.reordered).toBeUndefined()
     // a diff of no subject, and a subject that says nothing of the file, add no end
     expect([marksByBlock(textDiff(58, 44, [left]))[0]!.sources, marksByBlock(textDiff(58, 44, [left], { subject: subjectMarks() }))[0]!.sources]).toEqual([[], []])
+  })
+
+  it("names the declarations of free order of a move within the file at both its ends, by the ends the subject names, and of no other move", () => {
+    const moves = [move(3, 7, 3), move(20, 30, 2)]
+    const diff = textDiff(40, 40, [block(3, 6, 3, 3), block(7, 7, 7, 10), block(20, 22, 20, 20), block(30, 30, 30, 32)], {
+      moves,
+      subject: subjectMarks({ reordered: [{ names: ["total", "count"], oldStart: 3, oldLen: 3, newStart: 7, newLen: 3 }] }),
+    })
+    const marks = marksByBlock(diff)
+    expect([marks[0]!.sources[0]!.reordered, marks[1]!.destinations[0]!.reordered]).toEqual([
+      ["total", "count"],
+      ["total", "count"],
+    ])
+    expect([marks[2]!.sources[0]!.reordered, marks[3]!.destinations[0]!.reordered]).toEqual([undefined, undefined])
   })
 
   it("shows every line of both ends in every layout, Inline too, after a note that opens nothing", () => {

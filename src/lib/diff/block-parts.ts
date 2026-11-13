@@ -59,6 +59,12 @@ export interface MoveEnd {
    * same lines
    */
   readonly declaration?: string
+  /**
+   * Of a move within the file whose declarations the index says were put in another order where their order is free
+   * (`SubjectMarks.reordered`, by the two ends of the move), their names in the order of their new lines. Absent for
+   * any other move
+   */
+  readonly reordered?: readonly string[]
 }
 
 /** The marks of one block of a diff: its runs, and the ends of the moves it holds */
@@ -349,6 +355,12 @@ export function marksByBlock(diff: TextDiff): readonly BlockMarks[] {
       }
     }
   }
+  // the names of the declarations of free order a move within the file holds, by its two ends (`SubjectMarks.reordered`)
+  const reorders = subject?.reordered ?? []
+  const reordered = (oldStart: number, oldLen: number, newStart: number, newLen: number): { reordered?: readonly string[] } => {
+    const found = reorders.find(it => it.oldStart === oldStart && it.oldLen === oldLen && it.newStart === newStart && it.newLen === newLen)
+    return found === undefined ? {} : { reordered: found.names }
+  }
   let sorted = true
   for (const move of moves) {
     const from = blockOf(diff.blocks, OLD, move.oldStart, move.len)
@@ -363,8 +375,9 @@ export function marksByBlock(diff: TextDiff): readonly BlockMarks[] {
     const stands: readonly [number, number] = [Math.max(move.newStart - move.blanksAfter, newStart), Math.min(move.newStart + move.len + move.blanksBefore, newEnd)]
     const sources = byBlock[from]!.sources
     sorted &&= sources.length === 0 || sources.at(-1)!.lines[0] <= left[0]
-    sources.push({ at: "source", move, lines: left, other: stands, otherBlock: to, file: null })
-    byBlock[to]!.destinations.push({ at: "destination", move, lines: stands, other: left, otherBlock: from, file: null })
+    const free = reordered(move.oldStart, move.len, move.newStart, move.len)
+    sources.push({ at: "source", move, lines: left, other: stands, otherBlock: to, file: null, ...free })
+    byBlock[to]!.destinations.push({ at: "destination", move, lines: stands, other: left, otherBlock: from, file: null, ...free })
   }
   // the lines that moved to or from another file of the subject: an end each, in the block that holds its lines
   const across = (at: MoveEnd["at"], { start, len, file, line, declaration }: FileMove) => {
@@ -376,9 +389,11 @@ export function marksByBlock(diff: TextDiff): readonly BlockMarks[] {
     const move: LineMove = { oldStart, newStart, len, indent: 0, blanksBefore: 0, blanksAfter: 0, edited: [], oldRanges: [], newRanges: [] }
     const ends = at === "source" ? byBlock[block]!.sources : byBlock[block]!.destinations
     sorted &&= ends.length === 0 || ends.at(-1)!.lines[0] <= start
-    // a declaration that moved whole has the lines of its other end, in its layout there
+    // a declaration that moved whole has the lines of its other end, in its layout there; one moved within the file
+    // where its order is free says so
     const otherLen = declaration?.otherLen ?? len
-    ends.push({ at, move, lines: [start, start + len], other: [line, line + otherLen], otherBlock: -1, file, ...(declaration == null ? {} : { declaration: declaration.name }) })
+    const named = declaration == null ? {} : { declaration: declaration.name, ...(at === "source" ? reordered(start, len, line, otherLen) : reordered(line, otherLen, start, len)) }
+    ends.push({ at, move, lines: [start, start + len], other: [line, line + otherLen], otherBlock: -1, file, ...named })
   }
   subject?.movedOut.forEach(moved => across("source", moved))
   subject?.movedIn.forEach(moved => across("destination", moved))

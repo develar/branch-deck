@@ -180,6 +180,11 @@ async fn the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_ind
   assert_eq!(report["content"]["marks"]["subject"]["used"][0]["proof"], "asked");
 }
 
+/// Writes `answers` as the fixture of the index of the repository at `repository_path` (`FixtureIndex`)
+fn answer_by_fixture(repository_path: &str, answers: &Value) {
+  std::fs::write(std::path::Path::new(repository_path).join(".git/branch-deck-accio.json"), answers.to_string()).unwrap();
+}
+
 /// The commit of the `declaration_moves` template through the server: the title function moved as it is, a row of the
 /// same lines the diffs mark at once; the summary moved with its parameters one a line, which only the index says.
 /// Asked, the index tells the renames first, nothing to prove here, then the moves: the summary at both ends, its four
@@ -194,11 +199,7 @@ async fn a_declaration_of_another_layout_is_a_move_once_the_index_says_it_moved_
   let ledger = events.iter().find(|event| event["kind"] == "marks" && event["index"] == 0).unwrap();
   assert_eq!(ledger["marks"]["subject"]["movedOut"], row);
 
-  std::fs::write(
-    std::path::Path::new(&repository_path).join(".git/branch-deck-accio.json"),
-    test_utils::repo_template::templates::declaration_moves_index().to_string(),
-  )
-  .unwrap();
+  answer_by_fixture(&repository_path, &test_utils::repo_template::templates::declaration_moves_index());
   let stages = index_stages(&client, addr, &subject).await;
   assert_eq!(stages.iter().map(|stage| stage["stage"].clone()).collect::<Vec<_>>(), [json!("moves")], "{stages:?}");
   let side = |path: &str, side: &str| {
@@ -213,5 +214,34 @@ async fn a_declaration_of_another_layout_is_a_move_once_the_index_says_it_moved_
   assert_eq!(
     side("src/Report.kt", "movedIn"),
     json!([{ "start": 6, "len": 4, "file": 0, "line": 11 }, { "start": 11, "len": 7, "file": 0, "line": 6, "declaration": summary(4) }])
+  );
+}
+
+/// The commit of the `free_reorder` template through the server: `total` moved below `count` and `LOW` below the other
+/// entries, moves of the pair the diffs mark at once. Asked, the index tells the moves: the move of `total`, whose order
+/// it says is free, is a reorder by its two ends; the move of the entry, whose order matters, is none
+#[tokio::test]
+async fn a_move_of_a_declaration_whose_order_the_index_says_is_free_is_a_reorder_once_it_answered() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (repository_path, subject, params) = head_subject(&client, addr, "free_reorder").await;
+  let events = stream(&client, addr, "get_file_diffs", params).await;
+  let content = events.iter().find(|event| event["kind"] == "content" && event["index"] == 0).unwrap();
+  let moves: Vec<(u64, u64, u64)> = content["content"]["marks"]["moves"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|moved| (moved["oldStart"].as_u64().unwrap(), moved["newStart"].as_u64().unwrap(), moved["len"].as_u64().unwrap()))
+    .collect();
+  assert_eq!(moves, [(3, 8, 4), (15, 17, 1)]);
+
+  answer_by_fixture(&repository_path, &test_utils::repo_template::templates::free_reorder_index());
+  let stages = index_stages(&client, addr, &subject).await;
+  assert_eq!(stages.iter().map(|stage| stage["stage"].clone()).collect::<Vec<_>>(), [json!("moves")], "{stages:?}");
+  let ledger = &stages[0]["files"][0];
+  assert_eq!(ledger["path"], "src/Ledger.kt");
+  assert_eq!(
+    ledger["marks"]["subject"]["reordered"],
+    json!([{ "names": ["total"], "oldStart": 3, "oldLen": 4, "newStart": 8, "newLen": 4 }])
   );
 }

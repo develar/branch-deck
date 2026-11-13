@@ -852,6 +852,15 @@ impl FileDiffs {
     }
   }
 
+  /// What `index` says of the declarations the change of `source` moved whole or put in another order among those
+  /// of their owner (`accio moves`), as the diffs of the same subject ask it (`index_marks`, "The moves"): from
+  /// memory where they asked it, else asked and kept by the two trees. `None` for a subject of no two trees (the
+  /// working tree, a name) and where the index answers no moves; an error when the query was canceled
+  pub fn moves(&self, index: &dyn SymbolIndex, repository_path: &str, source: &DiffSource) -> Result<Option<Arc<MovesAnswer>>> {
+    let Some((base, head)) = revisions_of(source) else { return Ok(None) };
+    Ok(self.moves_of(index, repository_path, &base, &head)?)
+  }
+
   /// What `index` says of the declarations a change moved whole between the trees `base` and `head`: from memory,
   /// else asked, its answer kept by the two trees, which never change, as the answer is bound by work alone. `None`
   /// when the index answers no moves (no index of the repository, one without the answer, a failed query), which

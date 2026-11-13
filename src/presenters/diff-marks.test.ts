@@ -103,6 +103,48 @@ describe("the words of a move", () => {
     expect(destination({ indent: 2, edited: [1, 4] })).toMatchObject({ detail: "re-indented · 2 lines edited", name: "Moved from line 120, re-indented, 2 lines edited" })
   })
 
+  it("names the declarations of a move within the file the index says were put in another order where their order is free, and says it does not matter", () => {
+    const reordered = (at: "source" | "destination", names: readonly string[], extra: Partial<LineMove> = {}) =>
+      presentRemark({
+        kind: "moved",
+        lines: at === "source" ? lines(119, 133, 300, 300) : lines(300, 300, 209, 223),
+        open: at === "source" ? false : null,
+        move: { at, move: move(extra), other: at === "source" ? [209, 223] : [119, 133], reordered: names },
+      })
+    expect(reordered("source", ["total"])).toEqual({
+      label: "Moved total",
+      renamed: null,
+      target: { words: "to line 210", name: "Go to line 210, where the lines stand now", jump: true },
+      detail: "order does not matter",
+      more: null,
+      reach: [],
+      name: "Moved total to line 210, order does not matter",
+      toggle: "Show the 14 old lines",
+    })
+    expect(reordered("destination", ["total", "count"], { indent: 2 })).toMatchObject({
+      label: "Moved total and count",
+      target: { words: "from line 120", name: "Go to line 120, where the lines were", jump: true },
+      detail: "order does not matter · re-indented",
+      name: "Moved total and count from line 120, order does not matter, re-indented",
+    })
+    // no names: a move like any other
+    expect(reordered("destination", []).label).toBe("Moved")
+    // a declaration of another layout moved within its file: the file and the line of the other end, and the order
+    const ledger: OtherFile = { path: "src/Ledger.kt", name: "Ledger.kt", shown: true }
+    const declared = presentRemark({
+      kind: "moved",
+      lines: lines(300, 300, 7, 8),
+      open: null,
+      move: { at: "destination", move: move(), other: [3, 6], file: ledger, declaration: "total", reordered: ["total"] },
+    })
+    expect([declared.label, declared.target?.words, declared.detail, declared.name]).toEqual([
+      "Moved total",
+      "from Ledger.kt:4",
+      "order does not matter",
+      "Moved total from line 4 of src/Ledger.kt, order does not matter",
+    ])
+  })
+
   it("names the action that shows the other end of a move, and says where it goes from each end", () => {
     expect([MOVE_END_LABEL, describeMoveEnd("source"), describeMoveEnd("destination")]).toEqual([
       "Go to Other End of Move",
