@@ -857,8 +857,9 @@ search of the repository, while requests wait), "Show All Reviews" (⌘2, [Revie
 
 A row, 36 px, MUST show the unread dot, the title (`font-medium`, the issue key it starts with muted and regular, where
 Rust split the title, `titleLead`), the labels of its pull request as muted chips (`Badge variant="secondary"`, the
-first two, then "+2"), and the meta "#101 · carol · 2 files · +12 −3" (muted line counts, as in every row); the labels
-and the meta are hidden below `sm`.
+first two, then "+2"), and the meta "#101 · carol · 2 files · +12 −3", which gives way before the title: the title is
+cut only once the meta has no room left, the labels after it (muted line counts, as in every row); the labels and the
+meta are hidden below `sm`.
 
 #### Scenario: Someone else than the author asked
 - **WHEN** someone else than the author asked for the review, as for a pull request a bot opened
