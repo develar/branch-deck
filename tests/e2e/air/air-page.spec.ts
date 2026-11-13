@@ -1,6 +1,6 @@
 // @spec openspec/specs/repository/ide-embedding/spec.md
 import { test as base } from "@playwright/test"
-import type { Page } from "@playwright/test"
+import type { FrameLocator, Page } from "@playwright/test"
 import { closeFakeIde, IDE_THEMES, openFakeIde } from "../air-host/fake-host"
 import type { FakeIde } from "../air-host/fake-host"
 import type { HostContextTheme } from "../air-host/host-page"
@@ -44,15 +44,20 @@ function nameOf(path: string): string {
   return path.split("/").at(-1)!
 }
 
-/** Syncs the main view by its button and waits for the end of the sync: the row of the branch `feature`, settled */
-async function syncedFeatureRow(ide: FakeIde) {
-  const main = ide.frame("main:1")
-  const sync = main.getByTestId("sync-button")
+/** Syncs a view by its button and waits for the end of the sync: its count moved, and the button is not busy */
+async function syncView(view: FrameLocator): Promise<void> {
+  const sync = view.getByTestId("sync-button")
   await expect(sync).toBeEnabled()
   const before = Number(await sync.getAttribute("data-sync-count"))
   await sync.click()
   await expect(sync).not.toHaveAttribute("data-sync-count", String(before))
   await expect(sync).not.toHaveAttribute("aria-busy", "true")
+}
+
+/** Syncs the main view by its button and waits for the end of the sync: the row of the branch `feature`, settled */
+async function syncedFeatureRow(ide: FakeIde) {
+  const main = ide.frame("main:1")
+  await syncView(main)
   const row = main.locator('[data-testid="branch-row"][data-branch-name="feature"]')
   await expect(row).toBeVisible()
   return row
@@ -176,12 +181,7 @@ test.describe("Branch Deck in the IDE", () => {
         ["subscribed", other.path],
       ])
     // the view of the picked root is live: its sync shows its branch
-    const sync = main.getByTestId("sync-button")
-    await expect(sync).toBeEnabled()
-    const before = Number(await sync.getAttribute("data-sync-count"))
-    await sync.click()
-    await expect(sync).not.toHaveAttribute("data-sync-count", String(before))
-    await expect(sync).not.toHaveAttribute("aria-busy", "true")
+    await syncView(main)
     await expect(main.locator('[data-testid="branch-row"][data-branch-name="test-branch"]')).toBeVisible()
   })
 
