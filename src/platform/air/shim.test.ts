@@ -44,8 +44,8 @@ class FakeHost implements FrameEndpoint {
     this.listener({ jsonrpc: "2.0", id, result })
   }
 
-  fail(id: number, code: number, reason: string): void {
-    this.listener({ jsonrpc: "2.0", id, error: { code, message: reason, data: { reason } } })
+  fail(id: number, code: number, reason: string, data: Record<string, unknown> = {}): void {
+    this.listener({ jsonrpc: "2.0", id, error: { code, message: reason, data: { reason, ...data } } })
   }
 
   tell(method: string, params: Record<string, unknown>): void {
@@ -150,14 +150,14 @@ describe("The shim of the page in the IDE", () => {
     expect(host.last()).toMatchObject({ method: "x-air-app/unsubscribe", params: { subscription: "x-air-ide:/appView/1" } })
   })
 
-  it("The end of a mirror, for each reason alike (sessionClosed, serverExited, a reason the page does not know): the page asks brd mcp for the snapshot, and a late change of the mirror reaches nothing", async () => {
+  it("The end of a mirror, for each reason alike (sessionClosed, serverExited, closed, a reason the page does not know): the snapshot of its repository is none, so the page subscribes again, and a late change of the mirror reaches nothing", async () => {
     const host = new FakeHost()
     const { tauri } = pageOn(host)
-    const bdInvoke = (command: string) => ({ method: "tools/call", params: { name: "bd_invoke", arguments: { command } } })
     for (const [reason, subscription] of [
       ["sessionClosed", "x-air-ide:/appView/1"],
       ["serverExited", "x-air-ide:/appView/2"],
-      ["somethingNew", "x-air-ide:/appView/3"],
+      ["closed", "x-air-ide:/appView/3"],
+      ["somethingNew", "x-air-ide:/appView/4"],
     ] as const) {
       const patches: ViewPatch[] = []
       const subscribed = tauri("subscribe_view", {
@@ -170,19 +170,42 @@ describe("The shim of the page in the IDE", () => {
       const { id } = await subscribed
 
       host.tell("x-air-app/subscriptionEnded", { subscription, reason })
-      // a patch from no base the page holds: the page asks for the snapshot, which the mirror no longer gives
+      // a patch from no base the page holds: the page asks for the snapshot, which is none, whatever session brd holds
       expect(patches).toEqual([{ base: { epoch: expect.any(Number), seq: -1 }, next: { epoch: expect.any(Number), seq: 0 }, changes: {} }])
-      void tauri("get_snapshot", { params: { repositoryPath: "/r" } })
-      await settle()
-      expect(host.last()).toMatchObject(bdInvoke("get_snapshot"))
+      const posted = host.posted.length
+      expect(await tauri("get_snapshot", { params: { repositoryPath: "/r" } })).toBeNull()
+      expect(host.posted).toHaveLength(posted)
 
       // a late change of the ended subscription, and the unsubscribe of the page, which Air already ended
       host.tell("x-air-app/action", { subscription, serverSeq: 9, action: { type: "x-air-app/viewChanged", ops: [{ op: "part", part: "order", value: ["late"] }] } })
       expect(patches).toHaveLength(1)
-      const posted = host.posted.length
       await tauri("unsubscribe_view", { params: { id } })
       expect(host.posted).toHaveLength(posted)
     }
+
+    // the page subscribes again: the frame opens the view anew, whose state is the snapshot from then on
+    const again = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } }) as Promise<ViewSubscription>
+    await settle()
+    expect(host.last()).toMatchObject({ method: "x-air-app/subscribe", params: { params: { repositoryPath: "/r" } } })
+    const state: RepositoryView = { ...emptyView({ epoch: 5, seq: 0 }), order: ["b"] }
+    host.answer(host.last().id!, { subscription: "x-air-ide:/appView/5", state, fromSeq: 9 })
+    expect((await again).view).toEqual(state)
+    expect(await tauri("get_snapshot", { params: { repositoryPath: "/r" } })).toEqual(state)
+  })
+
+  it("A subscription that brd refused fails with the ApiError brd answered, which Air passes on in the data of its error", async () => {
+    const host = new FakeHost()
+    const { tauri } = pageOn(host)
+    const subscribed = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } })
+    await settle()
+    const refusal = { code: "no_branch_prefix", message: "No branch prefix", details: { prefixSuggestion: "test" }, retry: "no", operation_id: null }
+    host.fail(host.last().id!, -32603, "badResponse", { error: refusal })
+    await expect(subscribed).rejects.toEqual({ ...refusal, name: "ApiError" })
+
+    // the view of the frame went with it: the next subscription subscribes the frame anew
+    void tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } })
+    await settle()
+    expect(host.posted.filter(message => message.method === "x-air-app/subscribe")).toHaveLength(2)
   })
 
   it("A switch of the repository before the first answer: the next repository subscribes once the view of the one before answered and was unsubscribed, so the frame holds one view", async () => {

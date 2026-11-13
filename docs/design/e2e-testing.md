@@ -618,13 +618,16 @@ of Tauri: the page runs on its own shim (`src/platform/air/`). The global setup 
 - **The rules of Air**: each mirror is one channel `x-air-ide:/appView/<n>`, which every view of it subscribes to, its
   state kept by the table rule (a later view takes that state, not the answer of brd), and each change one `serverSeq`
   of the host, which every view of the mirror gets. Each frame is one page connection, which holds one view: a
-  subscription while another runs is refused at once, one while the frame holds a view waits up to 1 s for its end and
-  is refused after it, and one of the mirror the frame holds answers that view. A view waits for at most 24 calls and
+  subscription while another runs is refused at once, one of another view while the frame holds a view waits up to 1 s
+  for its end and is refused after it, and one with the params of the view the frame holds answers that subscription,
+  `held` and without a state, as Air does. A view waits for at most 24 calls and
   the views of the app for 36. A refusal is `-32011` with the reason of Air (`viewOpen`, `tooManyCalls`), which the
   fake IDE keeps (`refusals`), and the fixture `repo` of the suite fails a test that had one. `ide.mirrorLog()` is what
   the views did with the mirrors (each subscription answered, each unsubscribe, each end of brd), and
   `holdSubscriptions` of `openFakeIde` keeps the subscriptions of the views before brd until
-  `ide.releaseSubscriptions()`, so a test acts while the first one waits.
+  `ide.releaseSubscriptions()`, so a test acts while the first one waits. `ide.closeMirror(path)` ends the mirror of a
+  repository for a cause of Air (`closed`): each view of it gets `x-air-app/subscriptionEnded`, and brd hears that each
+  instance left the mirror but keeps the session of the repository.
 - **The end of a test**: the IDE closes before the repositories of the test go (`closeFakeIde`: the page closes with
   its app link, so `brd mcp` ends its connection). The fixture `repo` closes it in its teardown; without that, the
   teardown removed the repository while the page still showed it, its session closed, brd ended the mirror with
@@ -638,7 +641,7 @@ of Tauri: the page runs on its own shim (`src/platform/air/`). The global setup 
 - **The focus of a frame**: the page refuses to focus a frame of another origin without the user
   (`focus-without-user-activation`), so a key for a view that has not had the focus goes after a click into its frame
   (Escape in a review tab); a key pressed without it reaches the frame that had the focus last.
-  [@test] tests/e2e/air/air-page.spec.ts (`the tool window shows the branches of the repository after a sync of the page, each patch of the mirror a change of its rows`, `Review Changes opens the review as a view of the IDE, whose diffs stream as the call events of its call`, `the page shows the theme of the IDE and follows its switch from Light to Dark without a reload`, `Escape in a review tab closes its place: brd asks the IDE to close the view of its instance`, `the actions in the title of the tool window: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`, `a pick of another root before the first subscription of the main view answered subscribes to it once that subscription answered and ended: the frame holds one view`)
+  [@test] tests/e2e/air/air-page.spec.ts (`the tool window shows the branches of the repository after a sync of the page, each patch of the mirror a change of its rows`, `Review Changes opens the review as a view of the IDE, whose diffs stream as the call events of its call`, `the page shows the theme of the IDE and follows its switch from Light to Dark without a reload`, `Escape in a review tab closes its place: brd asks the IDE to close the view of its instance`, `the actions in the title of the tool window: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`, `a pick of another root before the first subscription of the main view answered subscribes to it once that subscription answered and ended: the frame holds one view`, `a mirror that Air ends while brd keeps the session of its repository is subscribed to again, so the main view shows what a sync after the end changes`)
 
 ### The routes of the server
 

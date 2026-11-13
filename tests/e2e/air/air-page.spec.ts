@@ -29,11 +29,13 @@ async function repositoryOf(page: Page, template: string, use: (repo: TestReposi
   expect(refusals).toEqual([])
 }
 
-const test = base.extend<{ ide: FakeIde; repo: TestRepositoryBuilder; other: TestRepositoryBuilder }>({
+const test = base.extend<{ ide: FakeIde; repo: TestRepositoryBuilder; other: TestRepositoryBuilder; unprefixed: TestRepositoryBuilder }>({
   // `feature` with auth.js, and the unassigned "Fix critical bug" with bugfix.txt
   repo: ({ page }, use) => repositoryOf(page, "single_unassigned", use),
   // a second Git root of the project: `test-branch` with one commit
   other: ({ page }, use) => repositoryOf(page, "simple", use),
+  // a repository whose git config names no branch prefix
+  unprefixed: ({ page }, use) => repositoryOf(page, "simple_no_prefix", use),
   ide: async ({ page, repo }, use) => {
     await use(await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path }))
   },
@@ -207,6 +209,44 @@ test.describe("Branch Deck in the IDE", () => {
     expect(await repo.revision("team/virtual/feature")).toMatch(/^[0-9a-f]{40}$/)
     // one view all along: the main view subscribed once, and its mirror moved without an end
     expect((await ide.mirrorLog()).map(entry => [entry.instance, entry.kind])).toEqual([["main:1", "subscribed"]])
+  })
+
+  test("a repository without a branch prefix shows the welcome card in the main view, as brd refused its subscription with no_branch_prefix, and Save shows the repository", async ({
+    page,
+    unprefixed,
+  }) => {
+    const main = (await openFakeIde(page, { repoId: unprefixed.id, repositoryPath: unprefixed.path })).frame("main:1")
+    // the ApiError of brd reached the page: the prefix step with the suggestion of its details, not an error
+    const welcomeCard = main.getByTestId("welcome-card")
+    await expect(welcomeCard.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
+    await expect(welcomeCard.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test")
+
+    await welcomeCard.getByRole("button", { name: "Save" }).click()
+    await expectClosed(welcomeCard)
+    await expect(main.getByTestId("sync-button")).toBeEnabled()
+    await expect(main.getByTestId("ready-to-sync-card")).toBeVisible()
+  })
+
+  test("a mirror that Air ends while brd keeps the session of its repository is subscribed to again, so the main view shows what a sync after the end changes", async ({
+    ide,
+    repo,
+  }) => {
+    await syncedFeatureRow(ide)
+    await ide.closeMirror(repo.path)
+    // the snapshot of a mirror that ended is none, as of a session that went away: the main view subscribed again
+    await expect
+      .poll(async () => (await ide.mirrorLog()).map(entry => [entry.instance, entry.kind]))
+      .toEqual([
+        ["main:1", "subscribed"],
+        ["main:1", "ended"],
+        ["main:1", "subscribed"],
+      ])
+
+    // its new subscription is live: a commit of a new group is a row after a sync
+    await repo.commit("(pool) Add the pool config", { "pool.cfg": "size=10\n" }, 1704182400)
+    const main = ide.frame("main:1")
+    await syncView(main)
+    await expect(main.locator('[data-testid="branch-row"][data-branch-name="pool"]')).toBeVisible()
   })
 
   test("a Safe Push that fails while the IDE shows another tab is a notification of the IDE, whose action shows the branch in the tool window", async ({ page, repo }) => {

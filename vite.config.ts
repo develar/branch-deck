@@ -182,6 +182,8 @@ export default defineConfig({
       "**/*.icon/**",
       "crates/*/testdata/**",
       ".claude/**",
+      // the copy of the contract of Air, byte for byte as idea-1 writes it (docs/design/ide-embedding.md)
+      "docs/design/ide-embedding/protocol/**",
     ],
   },
   // Oxlint: the correctness category, the rules of the former ESLint presets (eslint, typescript-eslint, react-hooks,

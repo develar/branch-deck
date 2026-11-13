@@ -72,6 +72,7 @@ interface AirHost {
   mirrorLog(): MirrorEntry[]
   heldSubscriptions(): number
   releaseSubscriptions(): void
+  closeMirror(key: string): Promise<void>
 }
 
 /** The fake IDE of a test: the views it shows, what `brd mcp` asked of it, and the frame of a view */
@@ -105,6 +106,15 @@ export class FakeIde {
   /** Lets the subscriptions held reach `brd mcp`, and holds no more */
   releaseSubscriptions(): Promise<void> {
     return this.page.evaluate(() => (window as unknown as { __airHost: AirHost }).__airHost.releaseSubscriptions())
+  }
+
+  /**
+   * Air closes the channel of the mirror `key` (a repository path) for a cause of its own: each view of it gets
+   * `x-air-app/subscriptionEnded` with the reason `closed`, and `brd mcp` hears that each instance left the mirror but
+   * keeps the session of the repository
+   */
+  closeMirror(key: string): Promise<void> {
+    return this.page.evaluate(it => (window as unknown as { __airHost: AirHost }).__airHost.closeMirror(it), key)
   }
 
   setTheme(theme: HostContextTheme): Promise<void> {

@@ -65,10 +65,12 @@ interface FrameSubscription {
 
 /**
  * The one view of the frame (`x-air-app/subscribe` of a repository), which Air holds for each page connection: a
- * `subscribe` while another runs gets `-32011 viewOpen` at once, and one while a view is held waits for its end and then
- * gets the same. So every subscription of the page to the repository shares it (`subscribe_view` again, as
+ * `subscribe` while another runs gets `-32011 viewOpen` at once, one of the view the frame holds answers that
+ * subscription without its state (`held`), and one of another view waits up to 1 s for the end of the view held and
+ * then gets the same refusal. So every subscription of the page to the repository shares it (`subscribe_view` again, as
  * `resubscribeSession` of `src/model/store.ts` does after `prefix_changed`), and the next repository subscribes only
- * once the view before it answered and was unsubscribed or ended
+ * once the view before it answered and was unsubscribed or ended: the frame never subscribes to the view it holds, so
+ * no answer is `held`
  */
 class FrameView {
   /** The page subscriptions that hold the view, by their id; null until the page has its answer, so no patch reaches it */
@@ -121,9 +123,17 @@ function decodeBase64(text: string): ArrayBuffer {
   return bytes.buffer
 }
 
-/** A failure of the link (`connectionLost`, `serverExited`, `cancelled`) as the `ApiError` the page reads */
+/**
+ * A failure of the link as the `ApiError` the page reads: the one `brd mcp` answered in the data of its error, which Air
+ * passes on (a subscription brd refused, such as `no_branch_prefix`, which the page shows as the welcome card), else an
+ * `internal` one of the reason of the link (`connectionLost`, `serverExited`, `cancelled`)
+ */
 function linkFailure(error: unknown): unknown {
   if (error instanceof FrameLinkError) {
+    const answered = error.error.data?.error
+    if (typeof answered === "object" && answered !== null && typeof (answered as { code?: unknown }).code === "string") {
+      return commandError(answered)
+    }
     return commandError({ code: "internal", message: error.message, details: { reason: error.reason }, retry: "no", operation_id: null })
   }
   return error
@@ -140,6 +150,11 @@ export class AirPage {
   private readonly calls = new Map<number, PageChannel>()
   /** The view the frame holds or opens, at most one */
   private view: FrameView | null = null
+  /**
+   * The repositories whose mirror Air ended while the page held it: no session serves the subscriptions of the page
+   * there, whatever `brd mcp` holds, until the page subscribes to the repository again
+   */
+  private readonly unserved = new Set<string>()
   /** The id of the next subscription of the page (`ViewSubscription.id`) */
   private nextSubscriptionId = 1
   /** The epoch of the versions the page numbers itself, for a mirror whose state has no `version` */
@@ -186,7 +201,11 @@ export class AirPage {
     }
   }
 
-  /** A command of the page: the view's own (`subscribe_view`, `unsubscribe_view`, the snapshot of a mirror) or `bd_invoke` */
+  /**
+   * A command of the page: the view's own (`subscribe_view`, `unsubscribe_view`, the snapshot of a mirror) or
+   * `bd_invoke`. The snapshot of a repository whose mirror Air ended is none, as of a session that went away: the page
+   * then subscribes again (`refresh` of src/model/store.ts), which a snapshot of brd would not make it do
+   */
   async invoke(cmd: string, payload: Payload): Promise<unknown> {
     switch (cmd) {
       case "subscribe_view":
@@ -194,10 +213,13 @@ export class AirPage {
       case "unsubscribe_view":
         return this.unsubscribe(payload)
       case "get_snapshot": {
-        const repositoryPath = (payload?.params as { repositoryPath?: string } | undefined)?.repositoryPath
+        const repositoryPath = String((payload?.params as { repositoryPath?: string } | undefined)?.repositoryPath)
         const held = this.view
         if (held !== null && !held.closing && held.subscription !== null && held.repositoryPath === repositoryPath) {
           return viewOf(held.state, held.version)
+        }
+        if (this.unserved.has(repositoryPath)) {
+          return null
         }
         return this.runCommand(cmd, payload)
       }
@@ -239,6 +261,7 @@ export class AirPage {
     const repositoryPath = String(params.repositoryPath)
     const patches = channelArgument(payload, "patches") as PageChannel<ViewPatch> | null
     const id = this.nextSubscriptionId++
+    this.unserved.delete(repositoryPath)
     for (;;) {
       const held = this.view
       if (held === null) {
@@ -370,8 +393,9 @@ export class AirPage {
   }
 
   /**
-   * The end of a mirror: the page asks for the snapshot of the session, which `brd mcp` answers (null: it is gone); its
-   * subscriptions hold no view of the frame any more, and the next one subscribes anew
+   * The end of a mirror, whatever its reason: its subscriptions hold no view of the frame any more. The page asks for the
+   * snapshot of the session, which is none, so it subscribes again, as when its session went away in the desktop app;
+   * a snapshot of a session `brd mcp` still holds would leave it a subscription that nothing changes
    */
   private ended(subscription: string): void {
     const view = this.held(subscription)
@@ -379,6 +403,7 @@ export class AirPage {
       return
     }
     this.end(view)
+    this.unserved.add(view.repositoryPath)
     this.epoch++
     view.tell({ base: { epoch: this.epoch, seq: -1 }, next: { epoch: this.epoch, seq: 0 }, changes: {} })
     view.pages.clear()

@@ -1359,16 +1359,28 @@
       }
     },
     "ViewOpenResult": {
+      "description": "The subscription of the page to the channel of its mirror with its snapshot, or, for a viewOpen with the params of the view that the connection holds, held: true and the channel of that subscription without a snapshot.",
       "type": "object",
-      "required": ["channel", "snapshot"],
+      "required": ["channel"],
       "properties": {
         "channel": {
           "$ref": "#/$defs/AppViewChannel"
         },
         "snapshot": {
           "$ref": "#/$defs/Snapshot"
+        },
+        "held": {
+          "const": true
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": ["snapshot"]
+        },
+        {
+          "required": ["held"]
+        }
+      ]
     },
     "PageAction": {
       "type": "object",
@@ -2030,8 +2042,9 @@
       }
     },
     "FrameSubscribeResult": {
+      "description": "The subscription with its state, or, for a subscribe of the view that the frame holds, held: true and that subscription without a state.",
       "type": "object",
-      "required": ["subscription", "state", "fromSeq"],
+      "required": ["subscription"],
       "properties": {
         "subscription": {
           "type": "string"
@@ -2042,8 +2055,19 @@
         "fromSeq": {
           "type": "integer",
           "minimum": 0
+        },
+        "held": {
+          "const": true
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": ["state", "fromSeq"]
+        },
+        {
+          "required": ["held"]
+        }
+      ]
     },
     "FrameRequest": {
       "type": "object",
@@ -2547,7 +2571,7 @@
       "required": ["reason", "message"],
       "properties": {
         "reason": {
-          "enum": ["invalidFile", "unsupportedFormat", "idMismatch", "duplicateId", "noCommandForOs", "remoteProject", "requirementUnmet", "vocabularyVersion", "refused"]
+          "enum": ["invalidFile", "unsupportedFormat", "idMismatch", "duplicateId", "noCommandForOs", "invalidExecutable", "remoteProject", "requirementUnmet", "vocabularyVersion", "refused"]
         },
         "message": {
           "type": "string",

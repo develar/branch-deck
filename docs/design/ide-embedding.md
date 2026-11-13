@@ -18,7 +18,9 @@ twice. Air needed a general way to host an app of the user; Branch Deck is its f
 ## Solution Overview
 
 The IDE reads `~/.air/apps/branch-deck.yaml` (written by the installer of Branch Deck) and starts `branch-deck cli mcp`
-(`brd mcp`) for each project, after the user's consent. The page runs in a sandboxed frame of the IDE with its own
+(`brd mcp`) for each project, after the user's consent; it reads the executable of the command only after the user
+answered. The IDE side is behind the registry key `air.apps.enabled` of Air, off by default: without it a project opens
+no apps channel, and the IDE shows no app. The page runs in a sandboxed frame of the IDE with its own
 origin. Three links carry one protocol, `x-air-app`: the frame talks MCP Apps to a host page by postMessage; the host
 page talks to `air-ide` (the Rust library of Air) over a loopback WebSocket; `air-ide` talks MCP to `brd mcp` over
 stdio. Kotlin places the views and holds the browsers, but it is not in the path of the data. `air-ide` serves the host
@@ -65,7 +67,8 @@ channel, and `air-ide` from `brd mcp` by `resources/read`.
 Branch Deck speaks two of the links: the page the frame link, `brd mcp` the app link. The page link between the host
 page and `air-ide` is Air's, and a change of it changes neither. On it a mirror is one table channel,
 `x-air-ide:/appView/<n>`, which every view of the mirror subscribes to through `x-air-app/viewOpen`: one state and one
-`serverSeq` for each change, whatever the count of views. The events, the call events and the progress of the process
+`serverSeq` for each change, whatever the count of views; a `viewOpen` with the params of the view that its connection
+holds answers at once with that subscription (`held: true`, without a snapshot). The events, the call events and the progress of the process
 are notices of its own channel, `x-air-ide:/appLink/<n>`, which no page subscribes to and whose number changes with
 each run of `brd mcp`. The echo of an intent holds its result in `_meta["x-air-ide"].result`. A cancel of a page call
 is a notification of the root channel, which `air-ide` serves at once, never behind the call it cancels: the call gets
@@ -126,8 +129,8 @@ sequenceDiagram
    **Rationale**: the IDE gives detaching, persistence and focus for free; the desktop semantics map one to one.
 8. **Decision**: The contract is Air's, with a copy here.
    **Rationale**: Air serves other apps with the same protocol; `docs/design/ide-embedding/protocol/` holds the
-   schemas and the golden corpus of idea-1 plus `branch-deck-app.ndjson`, the app link as `brd mcp` writes it, which
-   the tests of `mcp-host` run.
+   schemas and the golden corpus of idea-1 byte for byte (the formatter of the page leaves the directory alone) plus
+   `branch-deck-app.ndjson`, the app link as `brd mcp` writes it, which the tests of `mcp-host` run.
 
 ### Implementation notes
 
@@ -221,7 +224,9 @@ sequenceDiagram
     the page mock of the E2E tests alike.
   - `src/platform/air/shim.ts`: `invoke` → `tools/call bd_invoke {command, args}` with the arguments as the page sent
     them; the `Channel` the table names gets the `x-air-app/callEvent` of its call (`callId` is the id of the
-    `tools/call`); `structuredContent.value`, `bytes` (base64) or `error`. `listen` hears `x-air-app/event`; `emit` and
+    `tools/call`); `structuredContent.value`, `bytes` (base64) or `error`. A failure of the frame link is the `ApiError`
+    that `brd mcp` put in the data of the error, which Air passes on (a subscription brd refused: `no_branch_prefix` is
+    the welcome card, with the prefix git suggests), else `internal` with the reason of the link. `listen` hears `x-air-app/event`; `emit` and
     `emit_to` are `bd_invoke` of `plugin:event|emit {event, payload, target}`, which `brd mcp` tells the views of the
     app. The plugins: `ui/open-link` for a link, the host tool `air_copy`, the log as `notifications/message`; the
     badge, the progress and the notification (the browser's `Notification` too) are `bd_invoke` of their plugin calls,
@@ -234,19 +239,24 @@ sequenceDiagram
     (`branches`, `stacks`, `pushes`, … as `TableChanges` removes them) by `set` and `remove` (a `set` of `branches` holds
     the whole `BranchView`), another part whole by `part`, and the sections, the Patronus view and the facts by the
     entries that differ from the state before. A resync replaces the state and sends a patch from no base, so the page
-    asks `get_snapshot`, which the shim answers from the state of the mirror; the end of a mirror
-    (`x-air-app/subscriptionEnded`, whatever its reason: `sessionClosed`, `serverExited` or one the page does not know)
-    does the same, and the snapshot then comes from `brd mcp`. A change to a version of another epoch (the mirror moved
-    to the session of another prefix) is no patch of the view the page holds either: the page asks for the snapshot.
+    asks `get_snapshot`, which the shim answers from the state of the mirror. The end of a mirror
+    (`x-air-app/subscriptionEnded`, whatever its reason: `sessionClosed`, `serverExited`, `closed` or one the page does
+    not know) sends the same patch, and the snapshot of its repository is then none until the page subscribes to it
+    again, whatever session `brd mcp` holds: the page subscribes again, as when its session went away in the desktop
+    app, and the frame opens the view anew. A snapshot of brd would leave the page a subscription that nothing changes.
+    A change to a version of another epoch (the mirror moved to the session of another prefix) is no patch of the view
+    the page holds either: the page asks for the snapshot.
   - **One view for each frame**: Air holds one view for each page connection, so for each frame. A `viewOpen` while
-    another runs gets `-32011 viewOpen` at once, and one while the connection holds a view waits up to 1 s for its end
-    and then gets the same. The page subscribes again before it leaves (`openSession` of another repository before the
+    another runs gets `-32011 viewOpen` at once, one with the params of the view the connection holds answers that
+    subscription (`held`, without a state), and one of another view waits up to 1 s for the end of the view held and
+    then gets the same refusal. The page subscribes again before it leaves (`openSession` of another repository before the
     first answer, `resubscribeSession` after `prefix_changed`, which holds the old subscription until the new one
     answers), so the shim keeps the one view of the frame (`FrameView`) and the subscriptions of the page share it: one
     of the repository the frame holds joins it and asks `brd mcp` with `bd_invoke` of `subscribe_view`, which moves the
     mirror before it answers, and its answer is the state of the mirror, or nothing when the page holds it at that
     version (`have`); one of another repository sends its `x-air-app/subscribe` once the view before it answered and
-    was unsubscribed or ended. The last subscription that leaves the view unsubscribes the frame.
+    was unsubscribed or ended. The last subscription that leaves the view unsubscribes the frame. So the frame never
+    subscribes to the view it holds, and no answer is `held`.
   - `src/platform/air/theme.ts`: each variable of the host (`styles.variables`, `com.jetbrains.air/variables`) is set on
     the root as `--air-host-<name>`, and the semantic tokens (`--background`, `--card`, `--primary`, `--border`, …) read
     them while the page shows the theme of the IDE: the canvas the first background of the host (the background of the

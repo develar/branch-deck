@@ -53,6 +53,9 @@
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/appView/1","serverSeq":2,"action":{"type":"x-air-app/viewChanged","ops":[{"op":"set","part":"branches","key":"b","value":{"n":3}}]}}},"conn":1}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/appView/1","serverSeq":2,"action":{"type":"x-air-app/viewChanged","ops":[{"op":"set","part":"branches","key":"b","value":{"n":3}}]}}},"conn":2}
 {"state":{"link":"page","channel":"x-air-ide:/appView/1","state":{"header":{"title":"r2"},"order":["b"],"branches":{"b":{"n":3}}}}}
+{"comment":"A viewOpen with the params of the view that its connection holds is for the mirror of that view, since the app names one mirror for the params of an instance within one run. It answers at once with the subscription that the page holds: held is true, and there is no snapshot, since the page holds the state of the subscription. The app hears nothing, and the actions of the mirror go on."}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":3,"method":"x-air-app/viewOpen","params":{"channel":"ahp-root://","params":{"repositoryPath":"/r"}}},"conn":1}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"result":{"channel":"x-air-ide:/appView/1","held":true}},"conn":1}
 {"comment":"An intent of a page goes to the app with the instance and the mirror. The state actions of the app come before its answer, and the echo comes after them."}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","method":"dispatchAction","params":{"channel":"x-air-ide:/appView/1","clientSeq":1,"action":{"type":"fixture/select","id":"b"}}},"conn":1}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":5,"method":"x-air-app/dispatchAction","params":{"instance":"main:1","mirror":"/r","action":{"type":"fixture/select","id":"b"}}}}
@@ -67,8 +70,8 @@
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"unknown action","data":{"reason":"unknownAction"}}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/appView/1","serverSeq":5,"action":{"type":"fixture/nothing"},"origin":{"clientId":"page","clientSeq":2},"rejectionReason":"unknownAction"}},"conn":1}
 {"comment":"unsubscribe of one view ends its subscription, and the app hears that its instance left the mirror. The channel stays for the other view."}
-{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":3,"method":"unsubscribe","params":{"channel":"x-air-ide:/appView/1"}},"conn":1}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"result":{}},"conn":1}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":4,"method":"unsubscribe","params":{"channel":"x-air-ide:/appView/1"}},"conn":1}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":4,"result":{}},"conn":1}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":7,"method":"x-air-app/unsubscribe","params":{"instance":"main:1"}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":7,"result":{}}}
 {"comment":"A change for a mirror that air-apps does not hold is dropped with one log entry."}
