@@ -215,7 +215,11 @@ orders the rewrites of the processes); no clean rule deletes the lock. A window'
 directory (`operations::registry_watch`, `notify`, no git): the operations of other processes show in its session
 and decide no admission there; `brd` touches
 `$GIT_COMMON_DIR/branch-deck/stamp` after every command that succeeded and is no read, in one place
-(`bd-cli::execute`), which syncs the watching sessions (`SyncReason::Stamp`). A start records what it sends before
+(`bd-cli::execute`), which syncs the watching sessions (`SyncReason::Stamp`) that sync of themselves. A sync that
+succeeded, of the app or of `brd`, marks its worktree once (`branch-deck/synced` in the git directory of the worktree,
+`sync_core::synced_mark::mark_synced`, through a temporary file and a rename, no git), which only the hosts of the
+app's sessions read (`SessionHost::synced_before`, without git) and only the return of a lease takes out of its slot
+(`forget_synced` in `finish_return`, `fs_retry`). A start records what it sends before
 its request goes out; an answer lost after it went out is `EffectStatus::Unknown`, never sent again: its record stays
 `unknown` and holds for every process until a read of Patronus settles it (`operations::reconcile`, at an admission
 and after a list of the robots) or the user forgets it (Forget This Start, `brd operation forget`)

@@ -15,6 +15,7 @@ use domain_types::landing::{PlannedEffect, StartRoute};
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Resource};
 use domain_types::patronus::{PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
 use domain_types::pull_request::{GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, TokenSource};
+use domain_types::session::SyncReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
@@ -821,12 +822,34 @@ pub async fn set_foreign_operation(
   Ok(Json(serde_json::json!({ "op": op, "pid": pid })))
 }
 
+/// What a test asks of the stamp fixture: `answer`, what the session of the repository did of a stamp
+#[derive(Deserialize, Default)]
+pub struct StampRequest {
+  #[serde(default)]
+  answer: bool,
+}
+
 /// `POST /repositories/{id}/stamp`: `bd` did a mutation in the repository behind the app's back, as after an agent's
-/// `brd group` (`touch_stamp`): the sessions a window shows sync once the inputs changed
-pub async fn touch_repository_stamp(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, (StatusCode, String)> {
+/// `brd group` (`touch_stamp`): the sessions a window shows sync once the inputs changed, of a repository synced before.
+/// With `answer`, the session of the repository is asked for that sync of a stamp too, as the watch asks it, and the
+/// fixture answers its outcome (`skipped` for a session that does not sync of itself): what the watch's own request
+/// did, which nothing waits for, a test cannot read
+pub async fn touch_repository_stamp(
+  Path(id): Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(request): Json<StampRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
   let path = path_of(&state, &id)?;
   touch_stamp(&std::path::Path::new(&path).join(".git"));
-  Ok(StatusCode::OK)
+  if !request.answer {
+    return Ok(Json(serde_json::json!({})));
+  }
+  let key = session_of(&state, &path).await?;
+  let answer = state.sessions.sync(&key, SyncReason::Stamp).wait().await;
+  Ok(Json(match answer {
+    Ok(answer) => serde_json::json!({ "outcome": answer.outcome }),
+    Err(error) => serde_json::json!({ "error": error.code }),
+  }))
 }
 
 /// `POST /repositories/{id}/agent-operation`: an agent's `bd` ran `intent` in a slot of the lease pool of the repository

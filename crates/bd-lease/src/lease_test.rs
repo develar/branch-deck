@@ -433,6 +433,23 @@ fn the_free_slot_returned_last_is_leased_first() {
   assert_eq!(path_of(&fixture.get(&[])), first);
 }
 
+/// A sync in a lease marks its worktree synced (`synced_mark`), in the git directory of the slot, which the slot keeps
+/// across its leases: the return takes the mark out, so the next lease of the slot is a worktree no sync built anything
+/// for, and a window that opens it shows the Ready to Sync card rather than syncing it of itself
+#[test_log::test]
+fn a_return_takes_out_the_mark_of_a_sync_in_the_lease() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let mark = slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", sync_core::synced_mark::SYNCED_FILE]);
+  sync_core::synced_mark::mark_synced(Path::new(mark.trim()));
+  assert!(sync_core::synced_mark::synced_before(&path));
+
+  fixture.give_back(&path);
+  assert!(!sync_core::synced_mark::synced_before(&path));
+  assert_eq!(path_of(&fixture.get(&[])), path, "the same slot again");
+  assert!(!sync_core::synced_mark::synced_before(&path));
+}
+
 /// The `status` of the pool writes the slot's index: after a get and its return, a `status` that may not write (the
 /// executor's default) finds the untracked cache filled and opens almost no directory, where a cold index opens all
 #[cfg(unix)]

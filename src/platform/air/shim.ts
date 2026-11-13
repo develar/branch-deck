@@ -273,9 +273,10 @@ export class AirPage {
       }
       if (held.repositoryPath === repositoryPath && !held.closing) {
         held.pages.set(id, null)
-        // the answer of the view first: brd subscribes the mirror it holds again. A refusal of the view is the answer of
-        // a subscription asked before this one, under the config as it was then (a prefix saved since): this one leaves
-        // the view, which Air holds no more, and subscribes anew
+        // the answer of the view first: brd subscribes the mirror it holds again. Any failure of the view answered a
+        // subscription asked before this one (a refusal of brd under the config as it was then, a prefix saved since; a
+        // link that broke then): this one leaves the view, which Air holds no more, and subscribes anew, so its failure,
+        // if any, is its own
         return this.joined(held, id, patches, params, async () => {
           try {
             await held.answered

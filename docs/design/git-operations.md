@@ -2240,6 +2240,9 @@ index for the dry run of the files, and the guards, none of which a return may t
 Reachability stays the fast path, and decides alone without a recorded branch and when the branch is gone; the output
 names the check (`landed_check`) and the proof of each commit found landed (`landed`). The proofs cost the processes of
 the pick and about twenty more, only when `log` found commits (`a_lease_return_whose_commit_landed_by_the_ladder`).
+The slot keeps its git directory across its leases, so the return takes out the mark a sync left there
+(`branch-deck/synced`, "The first sync"; `a_return_takes_out_the_mark_of_a_sync_in_the_lease`): the next lease is a
+worktree no sync built anything for, and a window that opens it shows the Ready to Sync card.
 
 Takeover: on 2026-10-29 a get cloned a new slot of idea-1, 16 GB and more than 15 minutes of checkout, while six
 slots of the pool had a `ready` lease of a dead holder, four of them with nothing unlanded: the get only named them

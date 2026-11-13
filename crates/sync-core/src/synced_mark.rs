@@ -7,6 +7,7 @@
 use git_ops::lease_slot::linked_worktree;
 use std::path::{Path, PathBuf};
 use sync_utils::atomic_file::{AtomicWrite, write_atomically};
+use sync_utils::fs_retry;
 use sync_utils::timestamp::unix_now;
 use tracing::warn;
 
@@ -32,6 +33,21 @@ pub fn mark_synced(path: &Path) {
 /// git process: the git directory is `.git` of the main worktree, or the admin directory a linked worktree names
 pub fn synced_before(worktree: &str) -> bool {
   git_dir_of(Path::new(worktree)).is_some_and(|git_dir| git_dir.join(SYNCED_FILE).is_file())
+}
+
+/// Takes the mark out of the worktree whose top level is `worktree`: a lease slot that goes back to its pool
+/// (`brd lease return`), whose git directory the next lease of the slot gets, which no sync built anything for yet
+///
+/// # Errors
+/// The removal of the mark failed
+pub fn forget_synced(worktree: &Path) -> std::io::Result<()> {
+  let Some(mark) = git_dir_of(worktree).map(|git_dir| git_dir.join(SYNCED_FILE)) else {
+    return Ok(());
+  };
+  match fs_retry::remove_file(&mark) {
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    removed => removed,
+  }
 }
 
 fn git_dir_of(worktree: &Path) -> Option<PathBuf> {

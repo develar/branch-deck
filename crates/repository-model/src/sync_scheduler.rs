@@ -8,15 +8,17 @@
 //! - `Manual` and `AfterRewrite` always run: at once, or as the follow-up of the run in flight.
 //! - `Focus` and `Open` run only when what a sync reads changed since the last run that ended (`read_sync_inputs`, one
 //!   cheap read); one of a session that never ran runs at once. A run that failed or that git deferred (a rebase in
-//!   progress) is remembered with what it read: a focus with the same inputs answers its error and runs nothing, so a
-//!   failed sync of a large repository is not repeated on every focus; an open, ⌘R and a change of the inputs (a commit,
-//!   the end of the rebase) run again. A push of the session moves the remote-tracking refs of
+//!   progress) is remembered with what it read, also with nothing when git could not read the inputs before it: a focus
+//!   with the same inputs, or that cannot read them either, answers its error and runs nothing, so a failed sync of a
+//!   large repository is not repeated on every focus; an open, ⌘R and a change of the inputs (a commit, the end of the
+//!   rebase) run again. A run that succeeded without inputs leaves nothing to compare: the next focus runs. A push of the session moves the remote-tracking refs of
 //!   what it sent, which a sync reads: the scheduler replaces them in what it knows (`pushed`), so a focus after the
 //!   push syncs nothing (the table has the push's outcome already). A focus while a run is in flight checks once after the
 //!   chain: a commit in the IDE during a long sync is not lost, and a sync that saw it costs no second one. A window that
 //!   opens while a run is in flight is served by that run: its end is the table the window shows.
 //! - `Stamp` (`bd` touched the stamp of the repository after a mutation, `operations::registry_watch`) is a focus that
-//!   no window gained: it runs only when the inputs changed, and while a run is in flight it checks once after the chain.
+//!   no window gained, decided as a focus: it runs when the inputs changed since the last run, at once in a session that
+//!   never ran, and while a run is in flight it checks once after the chain.
 //! - A focus or a stamp of a session without subscribers is skipped: no window shows it, so nothing runs. So is one of a
 //!   session that does not sync of itself (the request says it, `syncs_itself`): its worktree was never synced, by the
 //!   app or by `brd`, and the user asked no Sync and no rewrite of it yet. Its first sync is the user's, as it creates
@@ -177,8 +179,8 @@ impl<W> SyncScheduler<W> {
   /// A push of the session left the remote-tracking refs `refs`, each at its commit or gone (`None`): the table has its
   /// outcome, so what the last run read has them now, and so has what the check or the run in flight read
   pub(crate) fn pushed(&mut self, refs: Vec<(String, Option<String>)>) {
-    if let Some(last) = self.last.as_mut() {
-      with_pushed(&mut last.inputs, &refs);
+    if let Some(inputs) = self.last.as_mut().and_then(|last| last.inputs.as_mut()) {
+      with_pushed(inputs, &refs);
     }
     if self.phase != Phase::Idle {
       self.pushed_meanwhile.extend(refs);
@@ -186,15 +188,15 @@ impl<W> SyncScheduler<W> {
   }
 
   /// The inputs of the check came: the same as the last run read ends the check with its outcome (`Unchanged`, or its
-  /// error for focuses only); any other, or none (git could not tell), runs, and that run serves the requests that
-  /// waited for the check too
+  /// error for focuses only), and so do none (git could not tell) after a failed run that read none either; any other,
+  /// or none after a run that read some, runs, and that run serves the requests that waited for the check too
   pub(crate) fn inputs_read(&mut self, inputs: Option<SyncInputs>, watched: bool) -> Decision<W> {
     let Phase::Checking { open } = self.phase else {
       return Decision::next(Step::Nothing);
     };
     let inputs = self.with_pushed_meanwhile(inputs);
     let answer = match (&self.last, &inputs) {
-      (Some(last), Some(inputs)) if last.inputs == *inputs && last.answers(open) => Some(last.answer()),
+      (Some(last), inputs) if last.inputs == *inputs && last.answers(open) => Some(last.answer()),
       _ => None,
     };
     if let Some(answer) = answer {
@@ -221,13 +223,16 @@ impl<W> SyncScheduler<W> {
       // one silent retry, for the same requests: its tip was not this run's build
       RunEnd::Succeeded { retry: true } if !retried => return Decision::next(self.start(None, true)),
       RunEnd::Succeeded { .. } => {
-        self.last = inputs.map(|inputs| LastRun { inputs, outcome: Ok(()) });
+        self.last = inputs.map(|inputs| LastRun {
+          inputs: Some(inputs),
+          outcome: Ok(()),
+        });
         Ok(SyncOutcome::Synced)
       }
       // a run under a prefix the git config left builds nothing of this session: what it read is no outcome of it
       RunEnd::Failed(error) if error.code == ErrorCode::PrefixChanged => Err(error),
       RunEnd::Failed(error) => {
-        self.last = inputs.map(|inputs| LastRun {
+        self.last = Some(LastRun {
           inputs,
           outcome: Err(error.clone()),
         });
@@ -284,7 +289,9 @@ impl<W> SyncScheduler<W> {
 /// What the last run that ended read (with the remote-tracking refs the session's pushes moved since) and how it ended
 #[derive(Debug)]
 struct LastRun {
-  inputs: SyncInputs,
+  /// `None` only of a run that failed: git could not read them before it, and a check that cannot read them either is
+  /// the same repository as it failed
+  inputs: Option<SyncInputs>,
   /// `Err`: the run failed, or git deferred it (a rebase in progress, a detached HEAD)
   outcome: Result<(), ApiError>,
 }

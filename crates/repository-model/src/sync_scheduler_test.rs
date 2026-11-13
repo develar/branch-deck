@@ -219,6 +219,28 @@ fn a_focus_after_a_failed_run_with_the_same_inputs_answers_its_error_without_a_r
   assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).resolve, [("focus", Err(error))]);
 }
 
+/// A run that failed after git could not read its inputs is remembered too: a focus that cannot read them either answers
+/// its error without a run, so a failing sync of a large repository is not repeated on every focus; one that reads them
+/// runs, as git can tell now, and so does ⌘R
+#[test]
+fn a_focus_after_a_failed_run_without_inputs_answers_its_error_while_git_cannot_read_them() {
+  let error = ApiError::internal("broken");
+  let mut scheduler = SyncScheduler::new();
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(1, None, false));
+  assert_eq!(
+    scheduler.run_finished(1, None, RunEnd::Failed(error.clone()), true).resolve,
+    [("manual", Err(error.clone()))]
+  );
+
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
+  let decision = scheduler.inputs_read(None, true);
+  assert_eq!(decision.resolve, [("focus", Err(error))]);
+  assert_eq!(decision.next, Step::Nothing);
+
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
+  assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).next, run(2, Some(inputs(1)), false));
+}
+
 /// A change of what a sync reads (a commit, the end of a rebase) runs after a failed run; so do inputs git could not read
 #[test]
 fn a_focus_after_a_failed_run_runs_when_the_inputs_changed() {

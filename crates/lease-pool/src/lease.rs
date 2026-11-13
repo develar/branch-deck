@@ -40,6 +40,7 @@ use std::fmt;
 use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use sync_core::synced_mark::forget_synced;
 use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
@@ -3066,6 +3067,11 @@ fn finish_return(
   let detached_branch = read_head(git_executor, path)?.and_then(|(_, branch)| branch);
   if detached_branch.is_some() {
     detach_waiting_for_head_lock(git_executor, path)?;
+  }
+  // the next lease of the slot is a worktree no sync built anything for (`synced_mark`): a window that opens it shows
+  // the Ready to Sync card, never syncs it of itself. As the clean rules, it never fails the return
+  if let Err(error) = forget_synced(Path::new(path)) {
+    warn!(slot = %path, "cannot take the mark of a sync out of the slot: {error}");
   }
   // the rules of the source, as the seed is read; the slot's own when the source is gone. They never fail the return
   let rules_from = Some(Path::new(&lease.source))

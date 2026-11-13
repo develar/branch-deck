@@ -349,6 +349,23 @@ async fn a_focus_and_a_stamp_sync_a_worktree_never_synced_only_once_brd_synced_i
   assert_eq!(snapshot(&sessions, &key).await.order, ["auth"]);
 }
 
+/// A rewrite the user asked is a sync of the user too: after one whose sync failed, which committed no table, a focus of
+/// the session checks what a sync reads as after the user's Sync, and answers the error of that sync while nothing
+/// changed, where it was skipped before
+#[tokio::test]
+async fn a_focus_after_a_rewrite_whose_sync_failed_checks_the_inputs() {
+  let host = Arc::new(ScriptedHost::default());
+  host.set_inputs(1);
+  let error = ApiError::internal("broken");
+  host.push(Vec::new(), Err(error.clone()));
+  let (sessions, key) = watched(&host).await;
+  assert_eq!(outcome(sessions.set_window_focus(&key, true).unwrap()).await, Ok(SyncOutcome::Skipped));
+
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::AfterRewrite)).await, Err(error.clone()));
+  assert_eq!(outcome(sessions.set_window_focus(&key, true).unwrap()).await, Err(error));
+  assert_eq!(host.runs(), 1, "the focus ran nothing");
+}
+
 /// The ticket of a request resolves when the run that serves it ends: a request during a run waits for the quiet
 /// follow-up, the first one does not; every patch the window got leads to the snapshot
 #[tokio::test]

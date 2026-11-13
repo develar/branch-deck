@@ -726,6 +726,14 @@ export class TestRepositoryBuilder {
     await this.setFixture("stamp", {})
   }
 
+  /**
+   * `touchStamp`, and what the session of the repository did of the stamp, as the watch of its window asks it:
+   * `skipped` for a session that does not sync of itself, else `synced` or `unchanged`
+   */
+  async touchStampAndAnswer(): Promise<string> {
+    return ((await (await this.postFixture("stamp", { answer: true })).json()) as { outcome?: string; error?: string }).outcome ?? "error"
+  }
+
   private async setFixture(name: string, value: unknown): Promise<void> {
     await this.postFixture(name, value)
   }

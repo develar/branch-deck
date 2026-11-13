@@ -12,6 +12,7 @@ import {
   focusWindow,
   focusWindowRefused,
   runAndWaitForAnswer,
+  runAndWaitForSync,
   syncBranches,
   syncOnWindowFocus,
   viewEpoch,
@@ -430,6 +431,20 @@ test.describe("Git setup", () => {
   })
 })
 
+/**
+ * The Ready to Sync card of a repository never synced stays over `ask`, a focus or a stamp of `brd`, which the session
+ * answers `skipped`: no sync ran before, none after
+ */
+async function expectNothingRunsBeforeTheFirstSync(page: Page, ask: () => Promise<string | undefined>): Promise<void> {
+  const card = page.getByTestId("ready-to-sync-card")
+  const sync = page.getByTestId("sync-button")
+  await expect(card).toBeVisible()
+  await expect(sync).toHaveAttribute("data-sync-count", "0")
+  expect(await ask()).toBe("skipped")
+  await expect(card).toBeVisible()
+  await expect(sync).toHaveAttribute("data-sync-count", "0")
+}
+
 test.describe("Sync on focus", () => {
   /** Rewords the commit of feature-docs in a terminal, into feature-documentation: a change the next sync shows */
   async function rewordDocsInTerminal(page: Page, repo: TestRepositoryBuilder): Promise<void> {
@@ -440,15 +455,9 @@ test.describe("Sync on focus", () => {
 
   test("syncs nothing on a focus before the first sync, which is the user's: the Ready to Sync card stays", async ({ page, setupRepo }) => {
     await setupRepo("simple", { prepopulateStore: true })
-    const card = page.getByTestId("ready-to-sync-card")
-    const sync = page.getByTestId("sync-button")
-    await expect(card).toBeVisible()
-    await expect(sync).toHaveAttribute("data-sync-count", "0")
     // Auto-sync on Focus is on: the window tells its session the focus, and the session answers that it ran nothing,
     // as the first sync writes the branches and the notes
-    expect((await focusWindow(page))?.outcome).toBe("skipped")
-    await expect(card).toBeVisible()
-    await expect(sync).toHaveAttribute("data-sync-count", "0")
+    await expectNothingRunsBeforeTheFirstSync(page, async () => (await focusWindow(page))?.outcome)
   })
 
   test("syncs on a focus after the user's first Sync once what a sync reads changed", async ({ page, setupRepo }) => {
@@ -463,6 +472,19 @@ test.describe("Sync on focus", () => {
     await repo.commit("(focus-docs) Add the docs", { "focus-docs.md": "docs\n" }, 1_704_200_000)
     await syncOnWindowFocus(page)
     await expect(findBranchRow(page, "focus-docs")).toBeVisible()
+  })
+
+  test("syncs nothing on a stamp of brd before the first sync, as on a focus, and what a mutation of brd changed once the user synced", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    // a mutation of brd in a terminal (an agent's `brd reword`, a `brd lease get` beside): the session runs nothing
+    await expectNothingRunsBeforeTheFirstSync(page, () => repo.touchStampAndAnswer())
+
+    // once the user synced, a stamp syncs what a mutation of brd changed
+    await page.getByTestId("ready-to-sync-card").getByTestId("ready-to-sync-button").click()
+    await waitForSyncComplete(page, 0)
+    await repo.commit("(stamp-docs) Add the docs", { "stamp-docs.md": "docs\n" }, 1_704_200_000)
+    await runAndWaitForSync(page, () => repo.touchStamp())
+    await expect(findBranchRow(page, "stamp-docs")).toBeVisible()
   })
 
   test("syncs on focus only when what a sync reads changed, and says when it checked", async ({ page, setupRepo, syncAndWaitForBranches }) => {
