@@ -83,7 +83,7 @@ use domain_types::patronus::{
   REVIEW_APPROVAL_SUBSYSTEM,
 };
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
-use domain_types::repository_view::PatronusView;
+use domain_types::repository_view::{PatronusView, RobotLandedBranch};
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::Version;
 use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, PatronusPart, RobotsHead, RobotsView, SyncState};
@@ -726,7 +726,9 @@ impl FactStore {
     }
   }
 
-  /// The pull requests the merge of `robot_id` closes, as the Patronus view names what it landed; none without a view
+  /// The pull requests the merge of `robot_id` closes, as the Patronus view names what it landed; none without a view,
+  /// and none of a branch the view doesn't know as the table has it now (a view of another table, stale after a
+  /// derivation for this one failed: what it says landed the branch is of other commits)
   #[must_use]
   pub fn closes(&self, state: &TableState, robot_id: &str) -> Vec<LandedPullRequest> {
     let part = self.patronus.part();
@@ -737,10 +739,18 @@ impl FactStore {
     ) else {
       return Vec::new();
     };
-    let landed = part.view.landed_by_robot.get(robot_id).map_or(&[][..], Vec::as_slice);
-    let pull_requests = Some(self.pull_requests.view());
     let (table, remote) = (&table.table, &table.remote);
-    pull_requests_to_close(&Landing::Robot { robot, landed }, |branch| {
+    let landed: Vec<RobotLandedBranch> = part
+      .view
+      .landed_by_robot
+      .get(robot_id)
+      .map_or(&[][..], Vec::as_slice)
+      .iter()
+      .filter(|landed| table.view_knows(&landed.branch, part.view.branches.get(&landed.branch).and_then(|facts| facts.landed_by.as_ref())))
+      .cloned()
+      .collect();
+    let pull_requests = Some(self.pull_requests.view());
+    pull_requests_to_close(&Landing::Robot { robot, landed: &landed }, |branch| {
       table.branch(branch).map(|found| landed_subject(table, remote, Of::Branch(&found.name), pull_requests))
     })
   }

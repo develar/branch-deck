@@ -33,20 +33,21 @@ pub struct LandedFacts<'a> {
   /// baseline; `None` where nothing keeps them (`bd`)
   pub pushed: Option<&'a BTreeMap<String, BaselinePush>>,
   /// The branches of the table as they are now, whose commits the answers of `view` are read against: a view derived for
-  /// an older table (stale while the view of the new one is derived) names no commit added since, which is work left
-  /// (`LandedByView::is_whole_of`); `None`: the answers of the view as they are
+  /// another table (stale while the view of this one is derived) says nothing of a branch whose commits it doesn't know
+  /// (`LandedByView::knows`); `None`: the answers of the view as they are
   pub branches: Option<&'a [GroupedBranchInfo]>,
 }
 
 impl LandedFacts<'_> {
-  /// What a merged Safe Push landed of `name` as the view says it, with the commits of the branch as it is now
+  /// What a merged Safe Push landed of `name` as the view says it, while the view knows the branch as it is now, with
+  /// its commits
   fn landed_by(&self, name: &str) -> Option<(&LandedByView, Option<&[Commit]>)> {
     let landed = self.view?.branches.get(name)?.landed_by.as_ref()?;
     let commits = self
       .branches
       .and_then(|branches| branches.iter().find(|branch| branch.name == name))
       .map(|branch| branch.commits.as_slice());
-    Some((landed, commits))
+    commits.is_none_or(|commits| landed.knows(commits)).then_some((landed, commits))
   }
 
   /// What a merged Safe Push landed of `name` whole, as the view says it, of the branch as it is now

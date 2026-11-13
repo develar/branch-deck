@@ -210,11 +210,21 @@ export function formatRobotRestartLabel(robot: PatronusRobot): string {
  * What the details say about the commit the robot took, null when it took the branch as it is. A branch only rebuilt on
  * a newer baseline gets a quiet line; a changed one, the commits and the action the details offer for it (for a running
  * robot of the branch, the cancel first); of a merged robot of an earlier state, that the merge didn't land the newest
- * commits.
+ * commits, or, of one whose commit Patronus didn't name, that it may not have.
  */
-export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<PatronusChipState, "commit">, localTip: string | undefined, action: RobotRestartAction): string | null {
-  if (chip.commit === "current" || robot.sourceRevision === null) {
+export function formatRobotCommitNotice(
+  robot: PatronusRobot,
+  chip: Pick<PatronusChipState, "commit" | "outdated">,
+  localTip: string | undefined,
+  action: RobotRestartAction,
+): string | null {
+  const merged = robot.status === "success" && robot.pushMode !== "dryRun"
+  if (chip.commit === "current") {
     return null
+  }
+  if (robot.sourceRevision === null) {
+    // Rust takes a merge of no named commit for one of an earlier state: nothing proves it took the branch as it is
+    return merged && chip.outdated ? "Patronus named no commit of this merge, so it may not have landed the newest commits." : null
   }
   if (chip.commit === "rebased") {
     // every sync rebuilds the branch on the newer baseline: the robot has its commits on an older one
@@ -224,7 +234,7 @@ export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<Patronu
   const now = localTip === undefined || localTip === "" ? "" : ` (now ${formatShortHash(localTip)})`
   // the robot of the whole stack tests the stack branch
   const what = robot.branchName === null && robot.stackRoot != null ? "stack" : "branch"
-  if (robot.status === "success" && robot.pushMode !== "dryRun") {
+  if (merged) {
     // a merge landed only the commits it took: the newest ones are the work left
     return `Merged ${formatShortHash(robot.sourceRevision)}; the ${what} has changed since${now}: the merge didn't land the newest commits.`
   }

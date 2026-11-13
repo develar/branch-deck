@@ -1,4 +1,4 @@
-use crate::branch_table::RemoteFact;
+use crate::branch_table::{BranchTable, RemoteFact};
 use crate::facts::{
   Applied, AskedRobots, FactRecord, FactResult, FactStore, Finished, Needs, Observation, PatronusFact, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence,
   robots_digest, session_remote,
@@ -497,6 +497,29 @@ fn a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why() {
   );
 }
 
+/// GitHub lists the open pull requests `(branch, number, head)` of the virtual branches under the prefix `test`
+fn listed_at_tips(pull_requests: &[(&str, u32, &str)]) -> FactResult {
+  let at_tip = |branch: &str, number, tip: &str| PullRequest {
+    head_ref_oid: tip.to_owned(),
+    head_ref_name: format!("test/virtual/{branch}"),
+    ..pull_request(branch, number)
+  };
+  FactResult::PullRequests(PullRequestsResult {
+    viewer_permission: None,
+    merge_methods: None,
+    availability: PullRequestAvailability::Available {
+      owner: "acme".to_owned(),
+      name: "monorepo".to_owned(),
+    },
+    pull_requests: pull_requests
+      .iter()
+      .map(|(branch, number, tip)| ((*branch).to_owned(), at_tip(branch, *number, tip)))
+      .collect(),
+    stack_pull_requests: BTreeMap::new(),
+    github_stacks: false,
+  })
+}
+
 /// A merge of the table waits for the Patronus view of the robots it merged in (none while a derivation runs) and is told
 /// with the open pull requests of the branches it landed whole besides its own, which the app closes (D7): login's robot
 /// landed auth, whose pull request is at its tip; its own pull request is Patronus' to close
@@ -513,25 +536,7 @@ fn a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_land
       result: listed(vec![login(PatronusRobotStatus::Running)]),
     },
   );
-  let at_tip = |branch: &str, number, tip: &str| PullRequest {
-    head_ref_oid: tip.to_owned(),
-    head_ref_name: format!("test/virtual/{branch}"),
-    ..pull_request(branch, number)
-  };
-  facts.apply(
-    at(3, 0, 3),
-    FactResult::PullRequests(PullRequestsResult {
-      viewer_permission: None,
-      merge_methods: None,
-      availability: PullRequestAvailability::Available {
-        owner: "acme".to_owned(),
-        name: "monorepo".to_owned(),
-      },
-      pull_requests: BTreeMap::from([("auth".to_owned(), at_tip("auth", 5, "va1")), ("login".to_owned(), at_tip("login", 6, "vl1"))]),
-      stack_pull_requests: BTreeMap::new(),
-      github_stacks: false,
-    }),
-  );
+  facts.apply(at(3, 0, 3), listed_at_tips(&[("auth", 5, "va1"), ("login", 6, "vl1")]));
   facts.apply(
     at(4, 0, 4),
     FactResult::Robots {
@@ -563,6 +568,76 @@ fn a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_land
     facts.news().iter().map(|news| news.event.clone()).collect::<Vec<_>>(),
     vec![NewsEvent::RobotMerged { robot_id: "r".into(), closes }]
   );
+}
+
+/// A merge told with a view of another table (stale after a derivation for this one failed) closes no pull request of a
+/// branch the view doesn't know as the table has it now: auth got a commit since the view said login's robot landed it
+/// whole, and its pull request stays open; of the table the view was derived for, it closes
+#[test]
+fn a_merge_closes_no_pull_request_of_a_branch_the_view_does_not_know() {
+  use crate::patronus_view::patronus_view_test::table;
+  let closes_of = |table: BranchTable| {
+    let state = TableState::with_prefix("user");
+    let mut facts = FactStore::new();
+    let _ = facts.table.answer(at(1, 0, 1), Ok(Arc::new(table.clone())));
+    let merged = robot("r", Some("login"), PatronusRobotStatus::Success, 20);
+    facts.apply(
+      at(2, 0, 2),
+      FactResult::Robots {
+        read: FULL_LIST,
+        result: listed(vec![merged]),
+      },
+    );
+    facts.apply(at(3, 0, 3), listed_at_tips(&[("auth", 5, "va1")]));
+    let view = PatronusView {
+      branches: BTreeMap::from([(
+        "auth".to_owned(),
+        BranchPatronus {
+          landed_by: Some(LandedByView {
+            by: domain_types::fixtures::robot_of("login", "r"),
+            own: false,
+            landed: vec!["a1".to_owned()],
+            after: Vec::new(),
+          }),
+          ..BranchPatronus::default()
+        },
+      )]),
+      landed_by_robot: BTreeMap::from([(
+        "r".to_owned(),
+        vec![RobotLandedBranch {
+          branch: "auth".to_owned(),
+          own: false,
+          after: Vec::new(),
+        }],
+      )]),
+      ..PatronusView::default()
+    };
+    assert!(facts.patronus.begin(4, Duration::from_secs(4)));
+    facts.patronus.answer(at(4, 4, 4), Ok(view));
+    let _ = facts.patronus.publish(&table);
+    facts.closes(&state, "r")
+  };
+  let as_it_was = table(&[("login", Some("auth"), &[("l1", "vl1")]), ("auth", None, &[("a1", "va1")])]);
+  assert_eq!(
+    closes_of(as_it_was),
+    vec![LandedPullRequest {
+      branch: "auth".to_owned(),
+      number: 5
+    }]
+  );
+  // its remote branch is at the pull request, a commit after it: the pull request holds nothing the branch lacks
+  let mut grown = table(&[("login", Some("auth"), &[("l1", "vl1")]), ("auth", None, &[("a2", "va2"), ("a1", "va1")])]);
+  grown.remote.branches.insert(
+    "auth".to_owned(),
+    RemoteFact {
+      remote_tip: Some("va1".to_owned()),
+      up_to_date: false,
+      known: true,
+      drops: 0,
+      others: 0,
+    },
+  );
+  assert_eq!(closes_of(grown), Vec::new(), "a commit since the view");
 }
 
 /// The running robots a failed required check dooms are part of what the Patronus view is derived of: their answer

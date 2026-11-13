@@ -89,13 +89,13 @@ type Room = NonNullable<RunningRowRobotProps["titleBar"]>
 /** The running robot of the branch `name` */
 function BranchRobot({ name, robot, room }: { name: string; robot: PatronusRobot; room: Room }) {
   const branch = useBranch(name)
-  const chip = useRobotChip(robot, name, branch?.commits[0]?.hash, branch?.remoteStatus ?? null)
+  const chip = useRobotChip(robot, branch?.commits[0]?.hash, branch?.remoteStatus ?? null)
   return <RunningRowRobot branchName={name} robot={robot} chip={chip} stackPath={false} titleBar={room} />
 }
 
 /** The running robot of the whole stack of `root`, on its stack branch: its commit is the stack branch's */
 function StackRobot({ root, robot, room }: { root: string; robot: PatronusRobot; room: Room }) {
   const stack = useStackBranch(root)
-  const chip = useRobotChip(robot, stackReadinessKey(root), stack?.tip ?? undefined, stack?.remoteStatus ?? null)
+  const chip = useRobotChip(robot, stack?.tip ?? undefined, stack?.remoteStatus ?? null)
   return <RunningRowRobot branchName={root} robot={robot} chip={chip} stackPath={false} stackRoot={root} titleBar={room} />
 }

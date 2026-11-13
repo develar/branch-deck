@@ -58,16 +58,24 @@ pub struct LandedByView {
 }
 
 impl LandedByView {
-  /// It landed all of the branch whose commits are now `commits`: nothing after it, and every commit of the branch one
-  /// it landed. A view derived for an older table (stale while the view of the new one is derived) names no commit
-  /// added since, which is work left
+  /// It knows the branch whose commits are now `commits` (original ids): each of them one it landed or names after it.
+  /// A view derived for another table (stale while the view of this one is derived) doesn't when the branch changed
+  /// since: a new commit, or new ids of the same changes (a reword, a squash or a move of an older commit rewrites the
+  /// commits above it, an update its copies): what it says of the branch is of other commits
   #[must_use]
-  pub fn is_whole_of(&self, commits: &[Commit]) -> bool {
-    self.after.is_empty() && commits.iter().all(|commit| self.landed.contains(&commit.id))
+  pub fn knows(&self, commits: &[Commit]) -> bool {
+    commits.iter().all(|commit| self.landed.contains(&commit.id) || self.after.contains(&commit.id))
   }
 
-  /// The commits of the branch whose commits are now `commits` that it did not land, newest first: `after` of a view of
-  /// the same table, and the commits added since a view of an older table
+  /// It landed all of the branch whose commits are now `commits`: every commit of the branch one it landed (`left_of`
+  /// is empty), the commits it named after it that the branch no longer has included
+  #[must_use]
+  pub fn is_whole_of(&self, commits: &[Commit]) -> bool {
+    self.left_of(commits).is_empty()
+  }
+
+  /// The commits of the branch whose commits are now `commits` that it did not land, newest first: `after` as it names
+  /// them, of those the branch still has
   #[must_use]
   pub fn left_of(&self, commits: &[Commit]) -> Vec<String> {
     commits.iter().filter(|commit| !self.landed.contains(&commit.id)).map(|commit| commit.id.clone()).collect()

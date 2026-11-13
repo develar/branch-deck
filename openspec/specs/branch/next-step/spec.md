@@ -457,7 +457,7 @@ fact, the branch is not landed, and its step MUST be the one of new work, also b
 
 #### Scenario: Patronus pending, or a failed sync
 - **WHEN** such a branch's Patronus answer is pending, or its sync failed
-- **THEN** the step waits for Patronus (row 0), or is row 1 of the failure, and nothing of the branch is landed by the robot
+- **THEN** the step waits for Patronus (row 0), or is row 1 of the failure, and nothing of the branch is landed by the robot; the step names no robot of an earlier state while Patronus is pending
   [@test] crates/domain-policy/src/next_step_test.rs (`a_merged_robot_lands_only_the_commits_it_took_also_before_a_remote_status`)
 
 #### Scenario: The whole stack
@@ -467,10 +467,21 @@ fact, the branch is not landed, and its step MUST be the one of new work, also b
   [@test] crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 
 #### Scenario: A view of an older table
-- **WHEN** the Patronus view the session shows was derived for an older table (stale while the view of the new one is derived) and says a branch landed whole, which has a commit since
-- **THEN** the branch is not landed whole: the commit since is work left, its start is not refused as landed, and the hold of what landed holds its push no more
-  [@test] crates/domain-policy/src/landed_test.rs (`a_view_of_an_older_table_lands_no_commit_added_since`)
+- **WHEN** the Patronus view the session shows was derived for another table (stale while the view of this one is derived) and doesn't know a commit a branch has now: one added since, or the same changes under new ids (a reword, a squash or a move of an older commit rewrites the commits above it; an update)
+- **THEN** Patronus is pending for the branch: row 0, no start, not landed, no robot of an earlier state; what that view says landed it holds its push no more, lands nothing a start, the count of a Safe Push or Push with Children reads, offers Push Up to Here of every commit the remote lacks, and a merge closes no pull request of it
+- **AND** a whole stack with such a branch is pending too, and what is left of it, and whether its own robot landed it, is read of the table as it is
+  [@test] crates/domain-policy/src/landed_test.rs (`a_view_of_another_table_says_nothing_of_a_branch_whose_commits_it_does_not_know`)
   [@test] crates/repository-model/src/derive_test.rs (`a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote_status`)
+  [@test] crates/repository-model/src/derive_test.rs (`a_view_of_another_table_lands_no_ancestor_and_no_whole_stack_whose_commits_changed_since`)
+  [@test] crates/repository-model/src/derive_test.rs (`a_start_reads_no_landing_and_no_hold_of_a_branch_whose_commits_changed_since_the_view`)
+  [@test] crates/repository-model/src/derive_test.rs (`push_up_to_here_reads_what_landed_only_of_a_view_that_knows_the_branch`)
+  [@test] crates/repository-model/src/action_view_test.rs (`push_with_children_is_landed_once_merged_safe_pushes_landed_the_branch_and_every_branch_stacked_on_it`)
+  [@test] crates/repository-model/src/facts_test.rs (`a_merge_closes_no_pull_request_of_a_branch_the_view_does_not_know`)
+
+#### Scenario: Commits named after what landed that the branch no longer has
+- **WHEN** the view knows a branch and names commits after what landed that the branch no longer has (dropped, moved to another branch)
+- **THEN** every commit it has landed, and every rule reads it landed whole: what landed it, the reason of its start, its own robot
+  [@test] crates/domain-policy/src/landed_test.rs (`a_view_of_another_table_says_nothing_of_a_branch_whose_commits_it_does_not_know`)
 
 ### Requirement: The table: Rows 8 to 10 count only the groups still short of approvals
 

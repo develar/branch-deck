@@ -64,7 +64,7 @@ use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, lande
 use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
-use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
+use domain_policy::next_step::{Listing, Needs, PatronusAnswer, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::{github_repository_known, layer_base_of};
 use domain_policy::push::{
@@ -84,7 +84,9 @@ use domain_types::operation::{Resource, RunningOperation};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
-use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
+use domain_types::repository_view::{
+  BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding, WholeStackRest,
+};
 use domain_types::session::{
   BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, GitHubLayer, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo,
   RobotAttention, RobotsView, StackBranchAlong, SubjectReadiness, TableHeader, WholeStackView, stack_readiness_key,
@@ -432,7 +434,13 @@ impl UpToPushView {
 fn up_to_of<'h>(repo: &Repository<'_>, parts: &TableParts, facts: &FactStore, push_facts: &PushFacts<'_>, holds: &dyn Fn() -> Holds<'h>, name: &str) -> Option<UpToPushView> {
   let branch = parts.branches.get(name)?;
   let status = branch.remote.status.as_ref()?;
-  let landed = push_facts.patronus.branches.get(name).and_then(|facts| facts.landed_by.as_ref());
+  // what landed it, while the view knows the branch as it is (a view of another table says nothing of it)
+  let landed = push_facts
+    .patronus
+    .branches
+    .get(name)
+    .and_then(|facts| facts.landed_by.as_ref())
+    .filter(|landed| landed.knows(&branch.commits));
   // the commits of a merged Safe Push are in the target as commits the remote has: only those added after them offer it
   let commits: Vec<String> = status
     .unpushed_commits
@@ -444,8 +452,7 @@ fn up_to_of<'h>(repo: &Repository<'_>, parts: &TableParts, facts: &FactStore, pu
           .iter()
           .position(|it| it.hash.as_deref() == Some(copy.as_str()))
           .and_then(|at| branch.commits.get(at));
-        // a commit it did not land: after it, or added since a view of an older table
-        original.is_some_and(|commit| !landed.landed.contains(&commit.id))
+        original.is_some_and(|commit| landed.after.contains(&commit.id))
       })
     })
     .cloned()
@@ -803,17 +810,7 @@ impl<'a> LandingFacts<'a> {
   fn stack_landing(&self, stack: &StackBranchUpdate) -> StackLanding {
     let start = Start::WholeStack(self.stack_start(stack));
     let replaces = self.stack_replaces(stack).map(str::to_string);
-    let members = whole_stack_members(&self.repo, &stack.root, &stack.members);
-    let rest = whole_stack_rest(&stack.root, &members, stack.commit_count, |name| {
-      // of a view of an older table, a branch with a commit since is not landed whole: all of it is left
-      let landed = self
-        .view
-        .branches
-        .get(name)
-        .and_then(|facts| facts.landed_by.as_ref())
-        .filter(|landed| !landed.after.is_empty() || self.table.landed_whole(name, landed));
-      (landed, self.table.branch(name).map_or(0, |branch| u32::try_from(branch.commits.len()).unwrap_or(u32::MAX)))
-    });
+    let rest = stack_rest(self.table, self.view, &self.repo, stack);
     StackLanding {
       hold: self.stack_hold(stack),
       start: start_refusal(&start, PatronusPushMode::RebaseAutosquash, &self.robots),
@@ -1379,6 +1376,27 @@ fn with_land_facts<'s, T>(
 
 /// The declared needs a start of the whole stack of `stack` breaks: those of every branch it lands, each once, by the
 /// branch that declared it (a need one of them inherits from another one of them is that one's own)
+/// What the Safe Push of the whole stack of `stack` lands of `table` as it is now (`whole_stack_rest`), by what `view`
+/// says merged Safe Pushes landed of each branch of it while it knows the branch as it is (`BranchTable::known_landed`):
+/// the view the session shows may be of another table, stale while the view of this one is derived
+pub(crate) fn stack_rest(table: &BranchTable, view: &PatronusView, repo: &Repository<'_>, stack: &StackBranchUpdate) -> WholeStackRest {
+  let members = whole_stack_members(repo, &stack.root, &stack.members);
+  whole_stack_rest(&stack.root, &members, stack.commit_count, |name| {
+    let landed = view.branches.get(name).and_then(|facts| facts.landed_by.as_ref());
+    (table.known_landed(name, landed), table.left_after(name, landed))
+  })
+}
+
+/// The answer of Patronus for a subject the view knows as it is (`known`); of one it doesn't (the view the session shows
+/// is of another table, stale while the view of this one is derived) Patronus is pending: what the view says of it is of
+/// other commits, so no step and no landing is decided on it
+const fn patronus_of(patronus: PatronusAnswer<'_>, known: bool) -> PatronusAnswer<'_> {
+  match patronus {
+    PatronusAnswer::Answers { .. } if !known => PatronusAnswer::Pending,
+    answer => answer,
+  }
+}
+
 fn whole_stack_declared(declared: &BTreeMap<String, Vec<LandingRefusal>>, stack: &StackBranchUpdate) -> Vec<LandingRefusal> {
   let lands = |name: &str| name == stack.root || stack.members.iter().any(|member| member == name);
   stack
@@ -1604,7 +1622,8 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let landing = facts.map(|facts| &facts.landing);
     let robot = sources.step_robot(facts.and_then(|facts| facts.robot_id.as_deref()), |_| true);
     let landed_by = facts.and_then(|facts| facts.landed_by.as_ref());
-    // all of the branch as the table has it now: a view of an older table names no commit added since
+    let known = sources.table.view_knows(name, landed_by);
+    // all of the branch as the table has it now: every commit of it one the robot landed
     let own_robot_landed = landed_by
       .zip(robot)
       .is_some_and(|(landed, robot)| landed.own && sources.table.landed_whole(name, landed) && landed.by.robot_id == robot.robot.id);
@@ -1628,7 +1647,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
-      patronus,
+      patronus: patronus_of(patronus, known),
       syncing: row.syncing,
       sync_failed: row.sync_failed,
       problem: row.problem.as_deref(),
@@ -1682,7 +1701,12 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let key = stack_readiness_key(&stack.root);
     let facts = sources.view.stacks.get(&stack.root);
     let landing = facts.map(|facts| &facts.landing);
-    let rest = landing.map(|landing| &landing.rest);
+    // of the table as it is now: the view the session shows may be of another one
+    let rest = stack_rest(sources.table, sources.view, &repo, stack);
+    let known = stack.members.iter().all(|member| {
+      let landed = sources.view.branches.get(member).and_then(|facts| facts.landed_by.as_ref());
+      sources.table.view_knows(member, landed)
+    });
     let robot = sources.step_robot(facts.and_then(|facts| facts.robot_id.as_deref()), |robot| {
       robot.branch_name.is_none() && robot.stack_root.is_some()
     });
@@ -1690,14 +1714,16 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let root_row = rows.get(stack.root.as_str());
     let held = matches!(landing.and_then(|landing| landing.hold.as_ref()), Some(Reason::StackHeld { robot_id, .. }) if sources.robot(Some(robot_id)).is_some_and(holds_pushes));
     // before the view names what is left of it, every branch of its stack branch
-    let lands = rest
-      .filter(|rest| !rest.members.is_empty() || !rest.landed.is_empty())
-      .map_or(stack.members.len(), |rest| rest.members.len());
+    let lands = if rest.members.is_empty() && rest.landed.is_empty() {
+      stack.members.len()
+    } else {
+      rest.members.len()
+    };
     let declared = whole_stack_declared(sources.declared, stack);
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
-      patronus,
+      patronus: patronus_of(patronus, known),
       syncing: stack.members.iter().any(|member| rows.get(member.as_str()).is_some_and(|row| row.syncing)),
       sync_failed: false,
       problem: None,
@@ -1718,7 +1744,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
         .map_or(stack.tip.as_deref(), |view| view.tip.as_deref()),
       remote: sources.remote.stacks.get(&stack.root).and_then(RemoteFact::branch),
       robot,
-      own_robot_landed: rest.is_some_and(|rest| rest.by_own_robot && rest.members.is_empty()),
+      own_robot_landed: rest.by_own_robot && rest.members.is_empty(),
       listing,
       pull_request: sources.pull_requests.stack_pull_requests.get(&stack.root).map(|pull_request| StepPullRequest {
         pull_request,

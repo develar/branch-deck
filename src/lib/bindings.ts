@@ -5326,7 +5326,8 @@ export type NextStep = {
 	 *  The robot of the subject, by id, while it is of an earlier state of it: it took other commits than the subject has
 	 *  now (a merged one included: it landed only what it took), so the step is that of the subject as it is; its chip
 	 *  keeps it in the preview and the overview with the warning dot and the notice of what changed. `None` without a
-	 *  robot, and for a robot of the subject as it is
+	 *  robot, for a robot of the subject as it is, and while Patronus is pending for the subject (its view, which may
+	 *  say the robot landed it as it is, is not in)
 	 */
 	earlierRobot?: string | null,
 };

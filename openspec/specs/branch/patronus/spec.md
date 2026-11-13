@@ -908,6 +908,7 @@ it is, also before a remote status.
 - **GIVEN** a merged robot of the branch that took other commits than the branch has now
 - **WHEN** the preview or the landing overview shows it
 - **THEN** its chip says "Merged" with the warning dot, and the details say that the merge didn't land the newest commits, while the row offers a Safe Push
+- **AND** of a merge whose commit Patronus didn't name, the details say that it may not have landed the newest commits
   [@test] src/lib/patronus.test.ts (`marks a merged robot of an earlier state as Rust finds it, whatever the remote status loaded so far says`)
   [@test] src/lib/patronus.test.ts (`says that a merge of an earlier state didn't land the newest commits, and nothing of a merge of the branch as it is`)
   [@test] src/lib/robot-overview.test.ts (`marks the merged robot of a whole stack that Rust found of an earlier state of it, and no other`)
@@ -1035,7 +1036,7 @@ remote commits the branch lacks, as the [remote status](../../../../docs/design/
 #### Scenario: The branch changed since the robot's commit
 - **WHEN** the remote branch is at another commit than the robot's, or the branch is not up to date with it by content
 - **THEN** the robot gets a `warning` dot
-  [@test] src/lib/patronus.test.ts (`marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, never a merged one`)
+  [@test] src/lib/patronus.test.ts (`marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, nor of itself a merged one`)
   [@test] src/lib/review-commit.test.ts (`compares with the remote branch and the remote status by content, not with the hash of the local tip`)
 
 ### Requirement: Robot of a row: No dot for a merged robot, the local tip or a rebuilt branch
@@ -1048,7 +1049,7 @@ dot, but of a robot Rust finds of an earlier state of the branch (`NextStep.earl
 #### Scenario: A merged robot and a rebuilt branch
 - **WHEN** the robot merged the branch as it is, or the branch was only rebuilt on a newer baseline
 - **THEN** the robot gets no dot
-  [@test] src/lib/patronus.test.ts (`marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, never a merged one`)
+  [@test] src/lib/patronus.test.ts (`marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, nor of itself a merged one`)
   [@test] src/lib/patronus.test.ts (`marks a merged robot of an earlier state as Rust finds it, whatever the remote status loaded so far says`)
 
 #### Scenario: The robot of the local tip, or no remote status yet

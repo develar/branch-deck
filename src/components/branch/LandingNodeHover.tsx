@@ -5,10 +5,9 @@ import { LinkedText } from "@/components/commit/LinkedText"
 import { RobotRow } from "@/components/repository/RobotRows"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { useLandedIn } from "@/hooks/useLandedIn"
-import { useEarlierRobot } from "@/hooks/useRowRobot"
 import { getPatronusChipState } from "@/lib/patronus"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
-import { formatWholeStackStart, stackReadinessKey } from "@/lib/whole-stack"
+import { formatWholeStackStart } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
 import type { LandingNode } from "@/presenters/landing-node"
 import { presentRowMark } from "@/presenters/row-status"
@@ -104,11 +103,10 @@ function BranchNodeRobot({ name }: { name: string }) {
   const remote = useBranchRemoteStatus(name)
   const needsReview = useRobotNeedsReview(robot?.id)
   const failing = useRobotFailing(robot?.id)
-  const earlier = useEarlierRobot(name, robot?.id)
   if (robot === undefined) {
     return null
   }
-  const entry: RobotOverviewEntry = { branchName: name, hasRow: true, robot, chip: getPatronusChipState(robot, localTip, remote, { needsReview, failing, earlier }) }
+  const entry: RobotOverviewEntry = { branchName: name, hasRow: true, robot, chip: getPatronusChipState(robot, localTip, remote, { needsReview, failing }) }
   return <NodeRobot entry={entry} />
 }
 
@@ -117,7 +115,6 @@ function StackNodeRobot({ root }: { root: string }) {
   const stack = useStackBranch(root)
   const needsReview = useRobotNeedsReview(robot?.id)
   const failing = useRobotFailing(robot?.id)
-  const earlier = useEarlierRobot(stackReadinessKey(root), robot?.id)
   if (robot === undefined) {
     return null
   }
@@ -126,7 +123,7 @@ function StackNodeRobot({ root }: { root: string }) {
     hasRow: true,
     stackRoot: root,
     robot,
-    chip: getPatronusChipState(robot, stack?.tip ?? undefined, stack?.remoteStatus ?? null, { needsReview, failing, earlier }),
+    chip: getPatronusChipState(robot, stack?.tip ?? undefined, stack?.remoteStatus ?? null, { needsReview, failing }),
   }
   return <NodeRobot entry={entry} />
 }

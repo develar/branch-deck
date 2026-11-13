@@ -24,6 +24,7 @@ use domain_policy::next_step::{Listing, PatronusStanding};
 use domain_policy::pull_request::github_repository_known;
 use domain_types::actions::{ActionState, NothingBeyond};
 use domain_types::branch_names::{baseline_on_remote, kept_branch_name, to_final_branch_name};
+use domain_types::commit::Commit;
 use domain_types::landing::{LandDecisions, Landed, StartRoute};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
@@ -110,7 +111,13 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
     let children = sources.pushes.get(name).and_then(|push| push.children.as_ref()).map(|push| Children {
       push,
       statuses_pending: sync_running && !push.offers && unparked_line(parts, name, branch).any(|it| parts.branches.get(it).is_none_or(|it| it.remote.status.is_none())),
-      landed: landed_with_children(&part.view, robots, &parts.branches, name, &branch.structure.descendants),
+      landed: landed_with_children(
+        &part.view,
+        robots,
+        |name| parts.branches.get(name).map(|it| it.commits.as_slice()),
+        name,
+        &branch.structure.descendants,
+      ),
     });
     let facts = BranchFacts {
       row: Row {
@@ -315,14 +322,20 @@ fn unparked_line<'a>(parts: &'a crate::table::TableParts, name: &'a str, branch:
 /// Merged Safe Pushes landed `name` and every branch stacked on it whole: each robot once, in the order they merged;
 /// `own` when the robot of the whole stack of `name` landed them all. `None` for a branch without descendants, or while
 /// one of them is left
-fn landed_with_children(view: &PatronusView, robots: &RobotsView, branches: &BTreeMap<String, BranchView>, name: &str, descendants: &[String]) -> Option<NothingBeyond> {
+fn landed_with_children<'c>(
+  view: &PatronusView,
+  robots: &RobotsView,
+  commits_of: impl Fn(&str) -> Option<&'c [Commit]>,
+  name: &str,
+  descendants: &[String],
+) -> Option<NothingBeyond> {
   if descendants.is_empty() {
     return None;
   }
   let mut by: Vec<(&RobotOf, u32, &str)> = Vec::new();
   for branch in std::iter::once(name).chain(descendants.iter().map(String::as_str)) {
-    // all of it as the table has it now: a view of an older table names no commit added since
-    let commits = branches.get(branch).map(|it| it.commits.as_slice());
+    // all of it as the table has it now: every commit of it one the robot landed
+    let commits = commits_of(branch);
     let landed = view
       .branches
       .get(branch)?

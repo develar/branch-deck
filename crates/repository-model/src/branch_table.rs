@@ -76,11 +76,37 @@ impl BranchTable {
   }
 
   /// `landed`, what a merged Safe Push landed of `name` as a view says it, is all of the branch as the table has it now
-  /// (`LandedByView::is_whole_of`: a view of an older table names no commit added since); of a branch the table lacks,
-  /// as the view says it
+  /// (`LandedByView::is_whole_of`: every commit of it one it landed); of a branch the table lacks, as the view says it
   #[must_use]
   pub fn landed_whole(&self, name: &str, landed: &LandedByView) -> bool {
     self.branch(name).map_or(landed.after.is_empty(), |branch| landed.is_whole_of(&branch.commits))
+  }
+
+  /// `landed`, what a merged Safe Push landed of `name` as a view says it, while the view knows the branch as the table
+  /// has it now (`LandedByView::knows`): a view derived for another table (stale while the view of this one is derived)
+  /// says nothing of a branch whose commits changed since; of a branch the table lacks, the answer as it is
+  #[must_use]
+  pub fn known_landed<'v>(&self, name: &str, landed: Option<&'v LandedByView>) -> Option<&'v LandedByView> {
+    landed.filter(|landed| self.branch(name).is_none_or(|branch| landed.knows(&branch.commits)))
+  }
+
+  /// The view whose answer of `name` is `landed` knows the branch as the table has it now: it names no answer of it, or
+  /// one of its commits as they are (`known_landed`)
+  #[must_use]
+  pub fn view_knows(&self, name: &str, landed: Option<&LandedByView>) -> bool {
+    landed.is_none() || self.known_landed(name, landed).is_some()
+  }
+
+  /// The commits of `name` left after what `landed` landed (`known_landed`), as the table has it now; all of it without
+  /// an answer the view knows
+  #[must_use]
+  pub fn left_after(&self, name: &str, landed: Option<&LandedByView>) -> u32 {
+    let left = match (self.known_landed(name, landed), self.branch(name)) {
+      (Some(landed), Some(branch)) => landed.left_of(&branch.commits).len(),
+      (Some(landed), None) => landed.after.len(),
+      (None, branch) => branch.map_or(0, |branch| branch.commits.len()),
+    };
+    u32::try_from(left).unwrap_or(u32::MAX)
   }
 
   /// The tip of the virtual branch of `name`, the build of its commits: `None` for a branch the sync did not build,

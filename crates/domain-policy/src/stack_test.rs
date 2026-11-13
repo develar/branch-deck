@@ -188,8 +188,8 @@ fn the_rest_of_a_whole_stack_is_what_merged_safe_pushes_left_of_it() {
   let by_login = landed_by("login", false, &[]);
   let with_after = landed_by("login", false, &["o1"]);
   let rest = whole_stack_rest("auth", &members, 9, |name| match name {
-    "auth" | "login" => (Some(&by_login), 2),
-    "oauth" => (Some(&with_after), 5),
+    "auth" | "login" => (Some(&by_login), 0),
+    "oauth" => (Some(&with_after), 1),
     _ => (None, 3),
   });
   assert_eq!(
@@ -200,6 +200,6 @@ fn the_rest_of_a_whole_stack_is_what_merged_safe_pushes_left_of_it() {
   let all = whole_stack_rest("auth", &members, 9, |_| (None, 1));
   assert_eq!((all.members.len(), all.commit_count, all.landed.len(), all.by_own_robot), (4, 9, 0, false));
   let by_own = landed_by("auth", true, &[]);
-  let rest = whole_stack_rest("auth", &members, 9, |_| (Some(&by_own), 1));
+  let rest = whole_stack_rest("auth", &members, 9, |_| (Some(&by_own), 0));
   assert!(rest.members.is_empty() && rest.by_own_robot, "{rest:?}");
 }

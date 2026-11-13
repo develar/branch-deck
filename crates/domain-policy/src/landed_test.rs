@@ -1,5 +1,6 @@
 use crate::facts::{RemoteBranch, Robots};
 use crate::landed::{LandedFacts, LandedSubject, Landing, Of, landed_reason, landed_state, merged_pull_request, pull_requests_to_close};
+use domain_types::GroupedBranchInfo;
 use domain_types::fixtures::{grouped_branch, pull_request, robot, robot_of, stack_robot, whole_stack_robot_of};
 use domain_types::landed::LandedBranch;
 use domain_types::landing::{BaselinePush, Landed, LandedBy, LandedPullRequest};
@@ -585,37 +586,50 @@ fn a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed() {
   assert_eq!(landed_state(&facts, &stack), in_master);
 }
 
-/// The answers of the Patronus view are read against the branches as the table has them now: of a view derived for an
-/// older table (stale while the view of the new one is derived) a branch with a commit added since is not landed whole,
-/// that commit is the work left, and a start of it is not refused as landed; without the table, the view's answers as
-/// they are
+/// The answers of the Patronus view are read against the branches as the table has them now. A view derived for another
+/// table (stale while the view of this one is derived) says nothing of a branch whose commits it doesn't know: a commit
+/// added since, or the same changes under new ids (a reword of an older commit rewrites the ones above it), of a whole
+/// stack of it too; a start of it is not refused as landed. A view that knows the branch lands it whole once every
+/// commit it has is one the view says landed, those it named after it and the branch no longer has left out. Without
+/// the table, the view's answers as they are
 #[test]
-fn a_view_of_an_older_table_lands_no_commit_added_since() {
+fn a_view_of_another_table_says_nothing_of_a_branch_whose_commits_it_does_not_know() {
   let auth = robot_of("auth", "r");
-  let view = view(&auth, &[("auth", true, &[])]);
   let robots = [merged("r", "auth")];
   let robots = Robots::new(&robots);
   let no_landing = LandedSection::default();
-  let grown = [grouped_branch("auth", &["auth-2", "auth-1"])];
-  let facts = |branches| LandedFacts {
-    pushed: None,
-    baseline: &no_landing,
-    view: Some(&view),
-    robots: &robots,
-    branches,
-  };
-  let stale = facts(Some(&grown));
-  assert_eq!(landed_state(&stale, &branch("auth", None)).map(|landed| landed.after), Some(vec!["auth-2".to_owned()]));
-  assert_eq!(landed_reason(&stale, &branch("auth", None)), None, "the commit since is left to land");
-  let as_the_view_says = facts(None);
-  assert_eq!(landed_state(&as_the_view_says, &branch("auth", None)).map(|landed| landed.after), Some(Vec::new()));
-  assert!(landed_reason(&as_the_view_says, &branch("auth", None)).is_some());
-  // a whole stack of it: not landed while a branch of it has a commit since
+  let landed_whole = view(&auth, &[("auth", true, &[])]);
+  fn facts<'a>(view: &'a PatronusView, robots: &'a Robots<'a>, baseline: &'a LandedSection, branches: Option<&'a [GroupedBranchInfo]>) -> LandedFacts<'a> {
+    LandedFacts {
+      pushed: None,
+      baseline,
+      view: Some(view),
+      robots,
+      branches,
+    }
+  }
   let members = ["auth".to_owned()];
   let whole_stack = LandedSubject {
     of: Of::WholeStack { root: "auth", members: &members },
     ..branch("auth", None)
   };
-  assert_eq!(landed_state(&stale, &whole_stack), None, "the commit since is left to land");
+  for (what, commits) in [("a commit since", ["auth-2", "auth-1"].as_slice()), ("reworded", ["auth-1b"].as_slice())] {
+    let changed = [grouped_branch("auth", commits)];
+    let stale = facts(&landed_whole, &robots, &no_landing, Some(&changed));
+    assert_eq!(landed_state(&stale, &branch("auth", None)), None, "{what}");
+    assert_eq!(landed_reason(&stale, &branch("auth", None)), None, "{what}");
+    assert_eq!(landed_state(&stale, &whole_stack), None, "{what}: of the whole stack");
+  }
+  // it named login-2 after what landed, which the branch no longer has: all of it landed, as every rule reads it
+  let (_, _, landed_part) = landed_by_oauth();
+  let robots_of_oauth = [merged("r", "oauth")];
+  let oauth_robots = Robots::new(&robots_of_oauth);
+  let dropped = [grouped_branch("login", &["login-1"])];
+  let known = facts(&landed_part, &oauth_robots, &no_landing, Some(&dropped));
+  assert_eq!(landed_state(&known, &branch("login", None)).map(|landed| landed.after), Some(Vec::new()));
+  assert!(landed_reason(&known, &branch("login", None)).is_some(), "the start says it landed");
+  let as_the_view_says = facts(&landed_whole, &robots, &no_landing, None);
+  assert_eq!(landed_state(&as_the_view_says, &branch("auth", None)).map(|landed| landed.after), Some(Vec::new()));
+  assert!(landed_reason(&as_the_view_says, &branch("auth", None)).is_some());
   assert!(landed_state(&as_the_view_says, &whole_stack).is_some());
 }

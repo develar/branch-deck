@@ -80,7 +80,7 @@ describe("getPatronusChipState", () => {
     expect(getPatronusChipState(robot({ status: "failure" }), "tip", null, { failing: true }).label).toBe("Failed")
   })
 
-  it("marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, never a merged one", () => {
+  it("marks a robot whose branch changed since its commit, not one whose branch was only rebuilt, nor of itself a merged one", () => {
     // the remote branch moved on since the robot took its commit
     expect(getPatronusChipState(robot({ status: "failure" }), "newer", testRemoteStatus({ remoteTip: "newer" }))).toMatchObject({ commit: "changedOnRemote", outdated: true })
     // a fix the remote lacks
@@ -136,6 +136,11 @@ describe("formatRobotCommitNotice", () => {
     const earlier = getPatronusChipState(merged, localTip, null, { earlier: true })
     expect(formatRobotCommitNotice(merged, earlier, localTip, null)).toBe("Merged 3264f30f; the branch has changed since (now 88de421d): the merge didn't land the newest commits.")
     expect(formatRobotCommitNotice(merged, getPatronusChipState(merged, localTip, null), localTip, null)).toBeNull()
+    // Patronus named no commit of it: nothing proves it took the branch as it is
+    const unnamed = robot({ status: "success", sourceRevision: null })
+    expect(formatRobotCommitNotice(unnamed, getPatronusChipState(unnamed, localTip, null, { earlier: true }), localTip, null)).toBe(
+      "Patronus named no commit of this merge, so it may not have landed the newest commits.",
+    )
   })
 
   it("says quietly that a robot tests the same commits on an older baseline, nothing for the branch as it is", () => {

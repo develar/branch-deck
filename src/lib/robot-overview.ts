@@ -64,8 +64,9 @@ export const NO_ROW_ROBOTS: RowRobots = { branches: {}, stacks: {} }
  * failed for missing approvals, `failing` the running ones that will fail, `needsUser` the subjects whose robot needs
  * the user as Rust decides it (`RepositoryView.attention`, `domain_policy::attention`): a failure it doesn't name (on a
  * branch changed since, one another robot holds, lands a part of or landed, one the baseline has, a stack branch not
- * built) is in the line of the last day. `nextSteps` name the robot of each subject that is of an earlier state of it
- * (`NextStep.earlierRobot`), whose chip has the dot.
+ * built) is in the line of the last day. `nextSteps` name the robot of each whole stack that is of an earlier state of
+ * it (`NextStep.earlierRobot`), whose chip has the dot: a robot of a branch is listed only while it runs or failed on
+ * the branch as it is, whose dot the remote status measures as Rust does.
  */
 export function collectRobotOverview(
   order: readonly string[],
@@ -83,7 +84,7 @@ export function collectRobotOverview(
   if (robots === undefined) {
     return EMPTY_ROBOT_OVERVIEW
   }
-  // the robot of `subject` that Rust found of an earlier state of it; elsewhere the remote status tells
+  // the robot of the whole stack `subject` that Rust found of an earlier state of it; elsewhere the remote status tells
   const flagsOf = (id: string, subject?: string) => ({
     needsReview: needsReview[id] === true,
     failing: failing[id] === true,
@@ -95,7 +96,7 @@ export function collectRobotOverview(
       branchName,
       hasRow: branch !== undefined,
       robot,
-      chip: getPatronusChipState(robot, branch?.commits[0]?.hash, branch?.remoteStatus ?? null, flagsOf(robot.id, branchName)),
+      chip: getPatronusChipState(robot, branch?.commits[0]?.hash, branch?.remoteStatus ?? null, flagsOf(robot.id)),
     }
   }
 

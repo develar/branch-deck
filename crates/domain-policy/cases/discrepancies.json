@@ -157,7 +157,7 @@
     "today": {
       "app": [
         "crates/operations/src/close.rs#pub fn close_landed_plan(",
-        "crates/repository-model/src/facts.rs#pull_requests_to_close(&Landing::Robot { robot, landed }, |branch| {"
+        "crates/repository-model/src/facts.rs#pull_requests_to_close(&Landing::Robot { robot, landed: &landed }, |branch| {"
       ],
       "bd": ["crates/bd-remote/src/robot_command.rs#let closes = pull_requests_to_close(&Landing::Robot { robot, landed }, |branch| {"],
       "why": "the rule is one; only the app closes, brd lists (owner decision 4: docs/design/landing.md keeps the close the app's)"

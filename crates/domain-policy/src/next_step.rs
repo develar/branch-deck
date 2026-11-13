@@ -357,7 +357,12 @@ pub fn next_step(facts: &StepFacts<'_>) -> NextStep {
   };
   step.landed = landed;
   step.lands = facts.lands;
-  step.earlier_robot = facts.robot.map(|robot| robot.robot).filter(|robot| is_earlier(facts, robot)).map(|robot| robot.id.clone());
+  // while Patronus is pending, the view that may say its robot landed the subject as it is is not in
+  step.earlier_robot = facts
+    .robot
+    .map(|robot| robot.robot)
+    .filter(|robot| matches!(facts.patronus, PatronusAnswer::Answers { .. }) && is_earlier(facts, robot))
+    .map(|robot| robot.id.clone());
   step.unlisted = match facts.listing {
     Listing::Unlisted { why } => why.cloned(),
     Listing::Loading | Listing::Listed => None,

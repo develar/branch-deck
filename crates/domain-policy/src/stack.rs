@@ -215,9 +215,9 @@ pub fn whole_stack_members<'m>(repo: &Repository<'_>, root: &str, members: &'m [
 }
 
 /// What the Safe Push of the whole stack of `root` lands: of `members` (as a sentence names them, `whole_stack_members`)
-/// those merged Safe Pushes did not land whole, their commits (`of` a member: what landed it, and its commit count; one
-/// landed with commits after it lands those only; while none landed, `commit_count`, the stack branch's), what landed
-/// the others, each robot once, and whether the robot of the whole stack itself landed all of it
+/// those merged Safe Pushes did not land whole, their commits (`of` a member: what landed it, and the commits of it left,
+/// after what landed or all of it; one with none left landed whole; while none landed, `commit_count`, the stack
+/// branch's), what landed the others, each robot once, and whether the robot of the whole stack itself landed all of it
 #[must_use]
 pub fn whole_stack_rest<'v>(root: &str, members: &[&str], commit_count: u32, of: impl Fn(&str) -> (Option<&'v LandedByView>, u32)) -> WholeStackRest {
   let mut rest = WholeStackRest {
@@ -225,9 +225,9 @@ pub fn whole_stack_rest<'v>(root: &str, members: &[&str], commit_count: u32, of:
     ..WholeStackRest::default()
   };
   for &name in members {
-    let (landed, commit_count) = of(name);
+    let (landed, left) = of(name);
     match landed {
-      Some(landed) if landed.after.is_empty() => {
+      Some(landed) if left == 0 => {
         rest.landed.push(name.to_string());
         if !rest.by.iter().any(|by| same_subject(by, &landed.by)) {
           rest.by.push(landed.by.clone());
@@ -236,7 +236,7 @@ pub fn whole_stack_rest<'v>(root: &str, members: &[&str], commit_count: u32, of:
       }
       _ => {
         rest.members.push(name.to_string());
-        rest.commit_count += landed.map_or(commit_count, |landed| u32::try_from(landed.after.len()).unwrap_or(u32::MAX));
+        rest.commit_count += left;
         rest.by_own_robot = false;
       }
     }
