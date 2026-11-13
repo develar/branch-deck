@@ -73,3 +73,26 @@ pub fn request_rows(requests: &[ReviewRequest]) -> Vec<RequestRow> {
   }
   rows
 }
+
+/// The layers of the stack of `top` down to `bottom`, the bottom first: from `top` the pull request whose head branch is
+/// the base of the layer above, of `known` (every pull request a listing named) and not from a fork, preferring one of
+/// `listed` (the requests of the last listing) and then the newest, until `bottom`, a layer into the default branch, or a
+/// base no pull request has. Empty when `known` lacks `top`
+#[must_use]
+pub fn stack_layers(top: u32, bottom: u32, known: &[&ReviewRequest], listed: &[u32]) -> Vec<u32> {
+  let Some(mut layer) = known.iter().find(|request| request.number == top) else {
+    return Vec::new();
+  };
+  let mut layers = vec![top];
+  while layer.number != bottom && !layer.base_is_default {
+    let below = known
+      .iter()
+      .filter(|request| !request.is_cross_repository && request.head_ref_name == layer.base_ref_name && !layers.contains(&request.number))
+      .max_by_key(|request| (listed.contains(&request.number), request.number));
+    let Some(below) = below else { break };
+    layers.push(below.number);
+    layer = below;
+  }
+  layers.reverse();
+  layers
+}

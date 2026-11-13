@@ -131,6 +131,8 @@ export type RequestGroup =
       readonly layers: readonly ReviewRequest[]
       /** All layers of the stack, also those a filter left out */
       readonly size: number
+      /** The numbers of all its layers, the bottom first: what Review Stack opens */
+      readonly numbers: readonly number[]
     }
 
 /**
@@ -152,7 +154,7 @@ export function requestGroups(rows: readonly RequestRow[], requests: readonly Re
     const layers = row.layers.flatMap(number => byNumber.get(number) ?? [])
     if (layers.length > 0) {
       row.layers.forEach(number => byNumber.delete(number))
-      groups.push({ kind: "stack", key: `stack:${row.layers[0]}`, layers, size: row.layers.length })
+      groups.push({ kind: "stack", key: `stack:${row.layers[0]}`, layers, size: row.layers.length, numbers: row.layers })
     }
   }
   for (const request of byNumber.values()) {

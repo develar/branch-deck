@@ -173,7 +173,7 @@ export function ReviewPage() {
     <>
       {shown.kind === "commits" ? (
         <CommitsReviewWindow key={key} data={shown} back={backButton} onPlace={reportPlace} />
-      ) : shown.kind === "pullRequest" ? (
+      ) : shown.kind === "pullRequest" || shown.kind === "pullRequestStack" ? (
         <LazyPullRequestReview key={key} data={shown} back={backButton} onPlace={reportPlace} />
       ) : (
         <BranchReviewWindow key={key} data={shown} back={backButton} onPlace={reportPlace} dialogOpen={dialogBranch !== null} />
@@ -199,11 +199,11 @@ function loadPullRequestReview(): Promise<typeof import("@/pages/PullRequestRevi
 }
 
 /**
- * The review of a pull request once its chunk loaded (`src/lib/review-window-reads.ts` asks for it with the page): no
- * `React.lazy` under `Suspense`, whose fallback would hold the content back (`src/router.ts`); the window shows by its
- * content anyway (`readyByContent`)
+ * The review of a pull request or of a stack of them once its chunk loaded (`src/lib/review-window-reads.ts` asks for
+ * it with the page): no `React.lazy` under `Suspense`, whose fallback would hold the content back (`src/router.ts`); the
+ * window shows by its content anyway (`readyByContent`)
  */
-function LazyPullRequestReview(props: { data: Extract<ShownReviewWindow, { kind: "pullRequest" }>; back: ReactNode; onPlace: ReportPlace }) {
+function LazyPullRequestReview(props: { data: Extract<ShownReviewWindow, { kind: "pullRequest" | "pullRequestStack" }>; back: ReactNode; onPlace: ReportPlace }) {
   const [loaded, setLoaded] = useState(pullRequestModule)
   useEffect(() => {
     if (loaded !== null) {
@@ -223,7 +223,15 @@ function LazyPullRequestReview(props: { data: Extract<ShownReviewWindow, { kind:
       current = false
     }
   }, [loaded])
-  return loaded === null ? null : <loaded.PullRequestReviewWindow {...props} />
+  if (loaded === null) {
+    return null
+  }
+  const { data, back, onPlace } = props
+  return data.kind === "pullRequestStack" ? (
+    <loaded.PullRequestStackReviewWindow data={data} back={back} />
+  ) : (
+    <loaded.PullRequestReviewWindow data={data} back={back} onPlace={onPlace} />
+  )
 }
 
 /** A refusal of the main window, or the toast of the Safe Push of a pull request it started for the window */

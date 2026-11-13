@@ -1,7 +1,10 @@
 //! The commits of a pull request to review, without the working tree, the index or the repository lock: nothing when
 //! both commits are local, else one fetch of its head (and of its base when that is missing) into
-//! `refs/branch-deck/review/<n>/{head,base}`; then the merge base and the commits of the range. Pruning deletes those
-//! refs in one CAS transaction. See "Review fetch" in `docs/design/git-operations.md`.
+//! `refs/branch-deck/review/<n>/{head,base}`; then the merge base and the commits of the range. A stack of pull requests
+//! is the same fetch of the head of its top with the base of its bottom, its range cut into the layers at their heads;
+//! only a layer whose head is not on it (restacked) is a fetch of its own, into
+//! `refs/branch-deck/review/<top>/layers/<n>/{head,base}`. Pruning deletes those refs in one CAS transaction. See
+//! "Review fetch" in `docs/design/git-operations.md`.
 
 use crate::github_repository::{GitHubRepository, GitHubRepositorySource, parse_github_repository, resolve_github_repository_source};
 use crate::remote_command::execute_remote_command_with_progress_until;
@@ -12,6 +15,7 @@ use git_executor::git_command_executor::{GitCommandExecutor, ProgressStop, Stopp
 use git_ops::cat_file_batch::object_types;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{is_ancestor, is_object_id, merge_base};
+use std::collections::HashMap;
 use std::time::Duration;
 use sync_utils::commit_body::has_body;
 use tracing::{instrument, warn};
@@ -57,6 +61,27 @@ pub fn review_ref(number: u32, side: &str) -> String {
   format!("{REVIEW_REF_PREFIX}{number}/{side}")
 }
 
+/// The review ref of the restacked layer `number` of the stack of `top`: `head` or `base`, kept and pruned with the
+/// refs of `top`
+pub fn stack_layer_ref(top: u32, number: u32, side: &str) -> String {
+  format!("{REVIEW_REF_PREFIX}{top}/layers/{number}/{side}")
+}
+
+/// Where a review fetch writes what it fetched: the head and the base branch
+struct ReviewRefs {
+  head: String,
+  base: String,
+}
+
+impl ReviewRefs {
+  fn of(number: u32) -> Self {
+    Self {
+      head: review_ref(number, "head"),
+      base: review_ref(number, "base"),
+    }
+  }
+}
+
 /// The head (and, if missing, the base) of a pull request, fetched unless both commits are local, and the range to
 /// review. `is_cancelled` kills the fetch, and a fetch that reports nothing for `REVIEW_FETCH_IDLE_TIMEOUT` is killed;
 /// the error is then a `StoppedCommand`.
@@ -82,6 +107,17 @@ pub fn fetch_review_head(
 pub fn fetch_review_head_until(
   git: &GitCommandExecutor,
   params: &FetchReviewHeadParams,
+  on_progress: &mut dyn FnMut(TransferProgress),
+  stop: &ProgressStop<'_>,
+) -> Result<ReviewRange> {
+  fetch_into(git, params, &ReviewRefs::of(params.number), on_progress, stop)
+}
+
+/// `fetch_review_head_until` into `refs`
+fn fetch_into(
+  git: &GitCommandExecutor,
+  params: &FetchReviewHeadParams,
+  refs: &ReviewRefs,
   on_progress: &mut dyn FnMut(TransferProgress),
   stop: &ProgressStop<'_>,
 ) -> Result<ReviewRange> {
@@ -112,6 +148,7 @@ pub fn fetch_review_head_until(
   let mut fetch = ReviewFetch {
     git,
     params,
+    refs,
     on_progress,
     stop,
     negotiation_tip,
@@ -159,6 +196,87 @@ pub fn fetch_review_head_until(
   };
   let (head, head_state) = classify_head(git, repo, &params.head_ref_oid, tip)?;
   range_of(git, params, head, &base, head_state, source)
+}
+
+/// The ranges of a stack of pull requests: of the whole stack and of each layer, in the order of the layers
+#[derive(Debug)]
+pub struct StackRanges {
+  pub range: ReviewRange,
+  pub layers: Vec<LayerRange>,
+}
+
+/// The range of a layer of a stack, and whether it was a fetch of its own
+#[derive(Debug)]
+pub struct LayerRange {
+  pub range: ReviewRange,
+  pub restacked: bool,
+}
+
+/// The commits of a stack of pull requests, `layers` the bottom first, each into the head branch of the one below: one
+/// `fetch_review_head` of the head of the top with the base of the bottom (nothing when both are local), whose range
+/// holds every layer that is built on the one below, cut at their heads; a layer that is not (its head is not on the
+/// range, or the head below is not under it: restacked) is a `fetch_review_head` of its own, from its own base, into
+/// `refs/branch-deck/review/<top>/layers/<n>/`. Stopped as `fetch_review_head`.
+///
+/// # Errors
+/// No layers, a fetch that failed or was stopped
+#[instrument(skip_all, fields(layers = layers.len()))]
+pub fn fetch_review_stack(
+  git: &GitCommandExecutor,
+  layers: &[FetchReviewHeadParams],
+  on_progress: &mut dyn FnMut(TransferProgress),
+  is_cancelled: &dyn Fn() -> bool,
+) -> Result<StackRanges> {
+  let stop = ProgressStop {
+    idle_timeout: Some(REVIEW_FETCH_IDLE_TIMEOUT),
+    is_cancelled,
+  };
+  let (Some(bottom), Some(top)) = (layers.first(), layers.last()) else {
+    bail!("A stack has no layers");
+  };
+  let whole = FetchReviewHeadParams {
+    base_ref_name: bottom.base_ref_name.clone(),
+    base_ref_oid: bottom.base_ref_oid.clone(),
+    ..top.clone()
+  };
+  let range = fetch_into(git, &whole, &ReviewRefs::of(top.number), on_progress, &stop)?;
+  // the end of each layer in the commits of the stack, oldest first: after its head
+  let ends: HashMap<&str, usize> = range.commits.iter().enumerate().map(|(index, commit)| (commit.id.as_str(), index + 1)).collect();
+  let mut cut = Vec::with_capacity(layers.len());
+  // where the layer above starts: after the head of this one, while it is on the range
+  let mut start = Some(0);
+  for (index, layer) in layers.iter().enumerate() {
+    let is_top = index + 1 == layers.len();
+    let end = if is_top {
+      Some(range.commits.len())
+    } else {
+      ends.get(layer.head_ref_oid.as_str()).copied()
+    };
+    let own = match (start, end) {
+      (Some(from), Some(to)) if from <= to => Some(ReviewRange {
+        base: if from == 0 { range.base.clone() } else { range.commits[from - 1].id.clone() },
+        head: if is_top { range.head.clone() } else { layer.head_ref_oid.clone() },
+        head_state: if is_top { range.head_state } else { ReviewHeadState::Same },
+        source: range.source,
+        commits: range.commits[from..to].to_vec(),
+      }),
+      _ => None,
+    };
+    cut.push(if let Some(range) = own {
+      LayerRange { range, restacked: false }
+    } else {
+      let refs = ReviewRefs {
+        head: stack_layer_ref(top.number, layer.number, "head"),
+        base: stack_layer_ref(top.number, layer.number, "base"),
+      };
+      LayerRange {
+        range: fetch_into(git, layer, &refs, on_progress, &stop)?,
+        restacked: true,
+      }
+    });
+    start = end;
+  }
+  Ok(StackRanges { range, layers: cut })
 }
 
 /// A remote and whether it is GitHub, for the error of a refused fetch
@@ -213,6 +331,7 @@ fn remote_urls(git: &GitCommandExecutor, repo: &str) -> Result<Vec<(String, Stri
 struct ReviewFetch<'a> {
   git: &'a GitCommandExecutor,
   params: &'a FetchReviewHeadParams,
+  refs: &'a ReviewRefs,
   on_progress: &'a mut dyn FnMut(TransferProgress),
   stop: &'a ProgressStop<'a>,
   negotiation_tip: Option<String>,
@@ -225,9 +344,7 @@ impl ReviewFetch<'_> {
   /// Fetch `source_ref` of `source` into the head review ref, and the base branch into the base review ref while the
   /// base commit is missing; returns the fetched head tip
   fn run(&mut self, source: &FetchSource, source_ref: &str) -> Result<String> {
-    let number = self.params.number;
-    let head_ref = review_ref(number, "head");
-    let base_ref = review_ref(number, "base");
+    let ReviewRefs { head: head_ref, base: base_ref } = self.refs;
     let negotiation_tip = self.negotiation_tip.as_ref().map(|tip| format!("--negotiation-tip={tip}"));
     let head_refspec = format!("+{source_ref}:{head_ref}");
     let base_refspec = format!("+refs/heads/{}:{base_ref}", self.params.base_ref_name);
@@ -266,10 +383,10 @@ impl ReviewFetch<'_> {
       })?
       .into_text();
     if !self.base_present {
-      self.base_tip = fetched_tip(&output, &base_ref);
+      self.base_tip = fetched_tip(&output, base_ref);
       self.base_present = self.base_tip.as_ref().is_some_and(|tip| *tip == self.params.base_ref_oid);
     }
-    fetched_tip(&output, &head_ref).ok_or_else(|| anyhow!("git fetch did not report {head_ref}"))
+    fetched_tip(&output, head_ref).ok_or_else(|| anyhow!("git fetch did not report {head_ref}"))
   }
 }
 
@@ -416,4 +533,4 @@ pub fn prune_review_refs(git: &GitCommandExecutor, repo: &str, keep: &[u32]) -> 
 
 #[cfg(test)]
 #[path = "review_fetch_test.rs"]
-mod review_fetch_test;
+pub(crate) mod review_fetch_test;

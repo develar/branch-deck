@@ -64,6 +64,7 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
     | Intent::UpdateProject { .. }
     | Intent::DismissLanded
     | Intent::FetchReview { .. }
+    | Intent::FetchReviewStack { .. }
     | Intent::Pick { .. } => Vec::new(),
   }
 }

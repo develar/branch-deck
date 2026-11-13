@@ -4,13 +4,20 @@ import { formatShortHash } from "@/lib/hash"
 import type { ReviewSource } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { formatWholeStack } from "@/lib/whole-stack"
-import type { BranchReviewWindowData, CommitsReviewWindowData, KeptReview, PullRequestReviewWindowData, ReviewWindowData } from "@/types/sub-window"
+import type {
+  BranchReviewWindowData,
+  CommitsReviewWindowData,
+  KeptReview,
+  PullRequestReviewWindowData,
+  PullRequestStackReviewWindowData,
+  ReviewWindowData,
+} from "@/types/sub-window"
 
 /**
  * A review the window shows: the data of the open it started from (or of a move to a commit of it), with the start it
  * belongs to (the key of the review: a new start shows another review) and whether the last open moved it
  */
-export type ShownReviewWindow = (BranchReviewWindowData | CommitsReviewWindowData | PullRequestReviewWindowData) & {
+export type ShownReviewWindow = (BranchReviewWindowData | CommitsReviewWindowData | PullRequestReviewWindowData | PullRequestStackReviewWindowData) & {
   /** The open that started the review: the window starts over when it changes, and the review it left goes to its history */
   readonly startedAt: number
   /** The last open moved the review to a commit of it (`openedAt` of the data names it): it keeps its part and filter */
@@ -28,6 +35,7 @@ export type ShownReview = { readonly repositoryPath: string; readonly startedAt:
   | { readonly kind: "branch"; readonly chain: readonly string[]; readonly wholeStack: boolean; readonly kept?: KeptReview }
   | { readonly kind: "commits"; readonly listLabel: string | null; readonly ids: readonly string[] }
   | { readonly kind: "pullRequest"; readonly source: ReviewSource; readonly number: number }
+  | { readonly kind: "pullRequestStack"; readonly top: number }
 )
 
 /** What an open asks the review window to show */
@@ -54,6 +62,12 @@ export type ReviewOpenRequest = { readonly repositoryPath: string } & (
       readonly number: number
       /** A write of the row's menu, or "review" (D on the row): a place */
       readonly intent: ReviewIntent | null
+    }
+  | {
+      readonly kind: "pullRequestStack"
+      readonly top: number
+      /** "review" (D on the header of the stack): a place */
+      readonly intent: "review" | null
     }
 )
 
@@ -90,6 +104,11 @@ export function planReviewOpen(shown: ShownReview | null, request: ReviewOpenReq
   if (shown === null || shown.repositoryPath !== request.repositoryPath) {
     return restart
   }
+  if (shown.kind === "pullRequestStack" || request.kind === "pullRequestStack") {
+    // the stack on screen, by its top, without a place: brought to the front as it is
+    const same = shown.kind === "pullRequestStack" && request.kind === "pullRequestStack" && shown.top === request.top && request.intent === null
+    return same ? { shown, move: false } : restart
+  }
   if (shown.kind === "pullRequest" || request.kind === "pullRequest") {
     // the request on screen, opened from the same list, without a write: shown again (↑/↓ may have walked away from it)
     const same = shown.kind === "pullRequest" && request.kind === "pullRequest" && shown.source === request.source && shown.number === request.number
@@ -121,6 +140,8 @@ function shownOfRequest(request: ReviewOpenRequest, now: number): ShownReview {
       return { kind: "commits", repositoryPath, listLabel: request.listLabel, ids: request.ids, startedAt: now }
     case "pullRequest":
       return { kind: "pullRequest", repositoryPath, source: request.source, number: request.number, startedAt: now }
+    case "pullRequestStack":
+      return { kind: "pullRequestStack", repositoryPath, top: request.top, startedAt: now }
     case "branch":
       return { kind: "branch", repositoryPath, chain: request.chain, wholeStack: request.wholeStack, ...(request.kept !== undefined && { kept: request.kept }), startedAt: now }
   }
@@ -134,6 +155,8 @@ export function shownReviewOf(data: ShownReviewWindow): ShownReview {
       return { kind: "commits", repositoryPath, listLabel: data.listLabel, ids: data.commits.map(it => it.id), startedAt }
     case "pullRequest":
       return { kind: "pullRequest", repositoryPath, source: data.source, number: data.number, startedAt }
+    case "pullRequestStack":
+      return { kind: "pullRequestStack", repositoryPath, top: data.top, startedAt }
     case "branch":
       return { kind: "branch", repositoryPath, chain: data.chain, wholeStack: data.wholeStack === true, ...(data.kept !== undefined && { kept: data.kept }), startedAt }
   }
@@ -146,6 +169,9 @@ export function shownReviewOf(data: ShownReviewWindow): ShownReview {
 export function reviewSubjectName(data: ReviewWindowData): string {
   if (data.kind === "pullRequest") {
     return pullRequestName(data.request)
+  }
+  if (data.kind === "pullRequestStack") {
+    return stackName(data.bottom, data.top)
   }
   if (data.kind === "commits") {
     const commit = data.commits[data.index]
@@ -163,8 +189,13 @@ export function pullRequestName(request: Pick<ReviewRequest, "number" | "title">
   return `#${request.number} ${request.title}`
 }
 
+/** "Stack #979–#991": how the window names a stack of pull requests, by its bottom and its top */
+export function stackName(bottom: number, top: number): string {
+  return bottom === top ? `Stack #${top}` : `Stack #${bottom}–#${top}`
+}
+
 /**
- * "Review login", "Review login · 1a2b3c4d" at a commit, "Review a1b2c3d Sort the start-up report", "Review #101 Sort the
+ * "Review login", "Review login · 1a2b3c4d" at a commit, "Review Stack #979–#991", "Review a1b2c3d Sort the start-up report", "Review #101 Sort the
  * start-up report": the native title
  */
 export function reviewWindowTitle(data: ReviewWindowData): string {
@@ -190,6 +221,8 @@ function openRequestOf(data: ReviewWindowData): ReviewOpenRequest {
       return { kind: "commits", repositoryPath, listLabel: data.listLabel, ids: data.commits.map(it => it.id), path: data.path }
     case "pullRequest":
       return { kind: "pullRequest", repositoryPath, source: data.source, number: data.number, intent: data.intent }
+    case "pullRequestStack":
+      return { kind: "pullRequestStack", repositoryPath, top: data.top, intent: data.intent }
     case "branch":
       return {
         kind: "branch",
@@ -250,6 +283,8 @@ export function restoredReview(data: ShownReviewWindow, place: ReviewPlace | und
     case "pullRequest":
       // the request it showed, without the write the open asked for: that was offered once
       return { ...data, ...open, intent: null, ...(place?.kind === "pullRequest" && { number: place.request.number, request: place.request, index: place.index }) }
+    case "pullRequestStack":
+      return { ...data, ...open, intent: null }
     case "branch":
       return { ...data, ...open, ...(place?.kind === "branch" && { focus: place.focus }) }
   }

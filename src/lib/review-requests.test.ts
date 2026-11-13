@@ -96,9 +96,9 @@ describe("stacks", () => {
       { kind: "single" as const, number: 700 },
     ]
     expect(numbersOf(requestGroups(rows, requests))).toEqual([[979, 980, 981], 700])
-    // filtered: the stack keeps its size, a stack with no layer left goes
+    // filtered: the stack keeps its size and every layer Review Stack opens, a stack with no layer left goes
     const filtered = requestGroups(rows, [requests[1]!])
-    expect(filtered).toEqual([{ kind: "stack", key: "stack:979", layers: [requests[1]], size: 3 }])
+    expect(filtered).toEqual([{ kind: "stack", key: "stack:979", layers: [requests[1]], size: 3, numbers: [979, 980, 981] }])
     expect(numbersOf(requestGroups([rows[0]!], [requests[3]!])), "a request no row names").toEqual([700])
   })
 

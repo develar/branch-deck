@@ -135,8 +135,8 @@ written only there) in that transaction.
   creation of its pull request, Request Review) and by Push with Children of the root once it is on the remote or its
   pull request is open. Its build is remembered by the base and the original ids (`StackBuilds`), never by
   `CommitKey`, which an amend keeps ([Stack branch](../design/git-operations.md#stack-branch)).
-- `refs/branch-deck/review/<n>/{head,base}`: only `review_fetch.rs` (the intent `FetchReview` of the session),
-  through its own fetch refspecs; always `--refmap=` and `--no-prune`, so no remote-tracking ref moves; never under
+- `refs/branch-deck/review/<n>/{head,base}` (of a stack also `<top>/layers/<n>/{head,base}`): only `review_fetch.rs`
+  (the intents `FetchReview` and `FetchReviewStack` of the session), through its own fetch refspecs; always `--refmap=` and `--no-prune`, so no remote-tracking ref moves; never under
   the repository lock; no fetch when both commits are local; killed on `cancel_operation`, the close of its window or
   120 s of silence; pruned by the session at each change of its review windows, with one `for-each-ref` and one CAS
   `update-ref --stdin`. Range diffs (`DiffSubject::Range`) never go into the object cache (`RangeFilesCache` in

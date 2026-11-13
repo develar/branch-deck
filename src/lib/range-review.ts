@@ -1,4 +1,4 @@
-import type { ReviewSegment, Interdiff, RangeScope, ReviewCommit, ReviewPlan } from "@/lib/bindings"
+import type { ReviewSegment, Interdiff, RangeScope, ReviewCommit, ReviewPlan, ReviewRequest } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import { formatPairState } from "@/presenters/review-plan"
@@ -54,6 +54,63 @@ export function pullRequestItems(commits: readonly ReviewCommit[], reviewedCommi
     items.push({ kind: "commit", key: commit.id, commit, ...(index === since && { divider: `Your review · ${formatShortHash(commit.id)}`, review: "Your review" }) })
   }
   return items
+}
+
+/** The key of the scope of a layer of a stack (Review Stack): its own changes */
+export function layerScopeKey(number: number): string {
+  return `layer:${number}`
+}
+
+/** A layer of a stack as its column shows it: its pull request and, once fetched, its own range */
+export interface StackColumnLayer {
+  readonly request: Pick<ReviewRequest, "number" | "title">
+  /** Its commits, oldest first; null while the stack is fetched */
+  readonly commits: readonly ReviewCommit[] | null
+  /** Not built on the head of the layer below (`ReviewStackLayer.restacked`) */
+  readonly restacked: boolean
+}
+
+/**
+ * The column of a stack of pull requests (Review Stack): "All Changes" of the whole stack (`total` commits), a scope per
+ * layer in the order of the card, the bottom first ("#202 Drop workTreeRoot", its commits, "not rebased" for one not on
+ * the head below), then the commits of the layers newest first, each layer under its heading; a commit two layers list
+ * (a layer not rebased has the older commits of the one below) once
+ */
+export function stackItems(layers: readonly StackColumnLayer[], total: number): RangeReviewItem[] {
+  const items: RangeReviewItem[] = [{ kind: "scope", key: ALL_CHANGES, label: "All Changes", detail: formatCommitCount(total) }]
+  for (const layer of layers) {
+    const count = layer.commits === null ? null : formatCommitCount(layer.commits.length)
+    const detail = layer.restacked ? [count, "not rebased"].filter(it => it !== null).join(" · ") : count
+    items.push({
+      kind: "scope",
+      key: layerScopeKey(layer.request.number),
+      label: `#${layer.request.number} ${layer.request.title}`,
+      ...(detail !== null && { detail }),
+      ...(layer.commits !== null && { commits: new Set(layer.commits.map(commit => commit.id)) }),
+    })
+  }
+  const listed = new Set<string>()
+  for (const layer of [...layers].reverse()) {
+    let first = true
+    for (const commit of [...(layer.commits ?? [])].reverse()) {
+      if (listed.has(commit.id)) {
+        continue
+      }
+      listed.add(commit.id)
+      items.push({ kind: "commit", key: commit.id, commit, ...(first && { group: `#${layer.request.number} ${layer.request.title}` }) })
+      first = false
+    }
+  }
+  return items
+}
+
+/**
+ * The layer of the item `key` of the column of a stack: its scope, a commit of it (of the highest layer that has it, as
+ * the column lists it); null for All Changes
+ */
+export function layerOfItem(layers: readonly StackColumnLayer[], key: string): number | null {
+  const layer = layers.find(it => layerScopeKey(it.request.number) === key) ?? layers.findLast(it => it.commits?.some(commit => commit.id === key) === true)
+  return layer?.request.number ?? null
 }
 
 /**

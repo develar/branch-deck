@@ -12,13 +12,16 @@ export interface ReviewRowKeys {
   readonly onOpen: (number: number) => void
   /** The header of a stack (`data-review-stack`, its key): Enter shows or hides its layers, → shows them, ← hides them */
   readonly onStack?: (stack: string, open: boolean | "toggle") => void
+  /** D on the header of a stack: Review Stack, its changes */
+  readonly onReviewStack?: (stack: string) => void
 }
 
 /**
  * The keys of a list of pull requests (Your Turn, a section of Reviews), its rows by their keys (`data-review-row`: the
  * number of a pull request, the key of the header of a stack): ↑/↓ move the focus between its rows (one tab stop,
- * `setFocused`), Enter, D and O by `keys` (the physical keys, in any keyboard layout), the context menu key and
- * Shift+F10 the menu of the row at its start (`openMenuByKey`). Space does nothing: it is Quick Look elsewhere, and a
+ * `setFocused`), Enter, D and O by `keys` (the physical keys, in any keyboard layout; on the header of a stack Enter, →
+ * and ← its layers, D Review Stack), the context menu key and Shift+F10 the menu of the row at its start
+ * (`openMenuByKey`). Space does nothing: it is Quick Look elsewhere, and a
  * pull request has none
  */
 export function handleReviewRowKeys(event: KeyboardEvent<HTMLElement>, rows: readonly string[], keys: ReviewRowKeys, setFocused: (row: string) => void): void {
@@ -46,6 +49,11 @@ export function handleReviewRowKeys(event: KeyboardEvent<HTMLElement>, rows: rea
     if (open !== null && !event.shiftKey) {
       event.preventDefault()
       keys.onStack?.(stack, open)
+    } else if (event.code === "KeyD" && !event.shiftKey) {
+      event.preventDefault()
+      keys.onReviewStack?.(stack)
+    } else if (isMenuKey(event)) {
+      openRowMenu(event, row)
     }
     return
   }
@@ -60,7 +68,12 @@ export function handleReviewRowKeys(event: KeyboardEvent<HTMLElement>, rows: rea
     event.preventDefault()
     keys.onOpen(number)
   } else if (isMenuKey(event)) {
-    const rect = row.getBoundingClientRect()
-    openMenuByKey(event, row, rect.left + 24, rect.bottom)
+    openRowMenu(event, row)
   }
+}
+
+/** The menu of `row` at its start, as a right click there opens it */
+function openRowMenu(event: KeyboardEvent<HTMLElement>, row: HTMLElement): void {
+  const rect = row.getBoundingClientRect()
+  openMenuByKey(event, row, rect.left + 24, rect.bottom)
 }

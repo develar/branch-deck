@@ -2,7 +2,7 @@ import { useEffect } from "react"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { REVIEW_RUN_EVENTS, runReviewRequest } from "@/lib/review-runs"
 import type { ReviewRunRequest } from "@/lib/review-runs"
-import { openPullRequestReview } from "@/lib/review-window"
+import { openPullRequestReview, openPullRequestStackReview } from "@/lib/review-window"
 import { connectReviewWindow } from "@/stores/review-requests"
 import { reviewRows } from "@/stores/reviews"
 
@@ -16,6 +16,7 @@ export function useReviewRuns(): void {
   useEffect(() => {
     connectReviewWindow({
       open: (repositoryPath, request, index, intent, source) => void openPullRequestReview(repositoryPath, request, index, intent, source),
+      openStack: (repositoryPath, layers, intent) => void openPullRequestStackReview(repositoryPath, layers, intent),
       rowsOf: repositoryPath => reviewRows(repositoryPath).requests,
     })
   }, [])

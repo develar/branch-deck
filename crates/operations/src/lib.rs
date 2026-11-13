@@ -59,8 +59,8 @@
 //!   robot landed with it (D7), each with its comment, one GitHub refuses stopping none of the others
 //! - `review`: the review of a pull request of someone else and its Safe Push: the `/patronus merge` comment while
 //!   GitHub shows the approved commit, its robot looked for a while after the reply
-//! - `review_fetch`: the fetch of the pull request a review window shows (`Intent::FetchReview`), into its review refs
-//!   unless its commits are local
+//! - `review_fetch`: the fetch of the pull request a review window shows (`Intent::FetchReview`), or of a stack of them
+//!   (`Intent::FetchReviewStack`), into its review refs unless its commits are local
 //! - `rewrite`: the rewrites of the checked out branch and of the refs of Branch Deck and their undo
 //!   (`Intent::Rewrite`): `Resource::Head` held, what the intent names resolved on HEAD as it is when it runs (its
 //!   `TableWitness`, the new ids of the rewrites before it, the commit keys after a sync), the core of `history-rewrite`,

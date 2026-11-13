@@ -344,6 +344,29 @@ pub struct ReviewRange {
   pub commits: Vec<ReviewCommit>,
 }
 
+/// What the review of a stack of pull requests diffs (`Intent::FetchReviewStack`): the whole stack, from the base of its
+/// bottom to the head of its top, and each layer apart, the bottom first
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewStack {
+  pub range: ReviewRange,
+  pub layers: Vec<ReviewStackLayer>,
+}
+
+/// A layer of a stack to review: its pull request as the review requests of the session had it, and its own range,
+/// `head of the layer below..its head`, as GitHub's "Files changed" of it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewStackLayer {
+  pub request: ReviewRequest,
+  pub range: ReviewRange,
+  /// Its head is not on the range of the stack, or the head of the layer below is not under it (its author rewrote a
+  /// layer below and did not rebase this one): its range is a fetch of its own, from its own base
+  pub restacked: bool,
+}
+
 /// Two commits of the repository to diff, `base..head`
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

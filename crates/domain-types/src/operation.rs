@@ -10,7 +10,7 @@ use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, 
 use crate::patronus::{PatronusPushMode, PatronusRobot};
 use crate::pull_request::{CreatedPullRequest, PullRequestReviewEvent, RequestedReviewers};
 use crate::reason::Reason;
-use crate::review_request::ReviewRange;
+use crate::review_request::{ReviewRange, ReviewStack};
 use crate::rewrite::{RewriteIntent, RewriteResult, UndoToken};
 use crate::session::Version;
 use crate::update_project::UpdateProjectResult;
@@ -97,6 +97,11 @@ pub enum Intent {
   /// (`refs/branch-deck/review/<n>/{head,base}`) unless both are local, and its range answered (`operations::review_fetch`):
   /// the head and the base GitHub names, as the review requests of the session have them
   FetchReview { number: u32 },
+  /// The commits of a stack of pull requests a review window shows (Review Stack), its layers from `top` down to
+  /// `bottom` as the review requests of the session chain them now (`ReviewRequestsFact::stack`), are fetched by one
+  /// fetch of the head of `top` with the base of the bottom into the review refs of `top`, unless both are local, and
+  /// its range is cut into the layers (`operations::review_fetch`)
+  FetchReviewStack { top: u32, bottom: u32 },
   /// The commits of another worktree (`source`: its directory as `brd pick --from` named it) or of a range of revisions
   /// (`source`: `<rev>` or `<a>..<b>`) are replayed onto the checked out branch (`brd pick`, `brd lease pick`): only the
   /// record of a run of `bd` in the operations registry of the repository, which the view and the journal show; the
@@ -128,7 +133,7 @@ impl Intent {
       Self::FetchBaseline => OperationKind::FetchBaseline,
       Self::UpdateProject { .. } => OperationKind::UpdateProject,
       Self::DismissLanded => OperationKind::DismissLanded,
-      Self::FetchReview { .. } => OperationKind::FetchReview,
+      Self::FetchReview { .. } | Self::FetchReviewStack { .. } => OperationKind::FetchReview,
       Self::Pick { .. } => OperationKind::Pick,
     }
   }
@@ -491,6 +496,9 @@ pub enum OperationResult {
   Update(Box<UpdateProjectResult>),
   /// The range a review fetch answered, `base..head` (`Intent::FetchReview`); the journal keeps it without its commits
   ReviewRange(Box<ReviewRange>),
+  /// The ranges a review fetch of a stack answered, of the stack and of each layer (`Intent::FetchReviewStack`); the
+  /// journal keeps them without their commits
+  ReviewStack(Box<ReviewStack>),
 }
 
 /// What a fetch of the baseline answered

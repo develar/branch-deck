@@ -40,7 +40,7 @@ export function startReviewWindowReads(): void {
       void loadFilesOfSubject(subject)
       loadFileDiffs(subject, getDiffWhitespacePolicy(), { priorityPaths: data.path == null ? [] : [data.path] })
     }
-  } else if (data.kind === "pullRequest") {
+  } else if (data.kind === "pullRequest" || data.kind === "pullRequestStack") {
     // the review of a pull request is a chunk of its own, which the page asks for once it renders: asked now
     void import("@/pages/PullRequestReviewWindow")
   } else {

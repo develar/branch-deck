@@ -231,6 +231,29 @@ fn a_submitted_review_and_a_shown_pull_request_outlive_the_listing() {
   assert_eq!(fact.approved(&reviewed), Some("head"));
 }
 
+/// The stack of a review window is the chain under its top as the pull requests of the listings link it now: a layer
+/// the user reviewed (gone from the listing) stays, a merged bottom leaves once its upper layer goes into master
+#[test]
+fn the_stack_of_a_review_window_keeps_a_reviewed_layer_and_drops_a_merged_one() {
+  let layer = |number: u32, head: &str, base: &str| ReviewRequest {
+    head_ref_name: head.to_owned(),
+    base_ref_name: base.to_owned(),
+    base_is_default: base == "master",
+    ..review_request(number, number)
+  };
+  let numbers = |layers: Vec<ReviewRequest>| layers.iter().map(|request| request.number).collect::<Vec<_>>();
+  let mut fact = ReviewRequestsFact::default();
+  fact.answer(at(1), available(vec![layer(10, "p/1", "master"), layer(11, "p/2", "p/1"), layer(12, "p/3", "p/2")]));
+  assert_eq!(numbers(fact.stack(12, 10)), [10, 11, 12]);
+  // the user approved #11: the listing has it no more
+  fact.answer(at(2), available(vec![layer(10, "p/1", "master"), layer(12, "p/3", "p/2")]));
+  assert_eq!(numbers(fact.stack(12, 10)), [10, 11, 12]);
+  // #10 merged, GitHub moved #11 onto master
+  fact.answer(at(3), available(vec![layer(11, "p/2", "master"), layer(12, "p/3", "p/2")]));
+  assert_eq!(numbers(fact.stack(12, 10)), [11, 12]);
+  assert_eq!(numbers(fact.stack(13, 10)), Vec::<u32>::new());
+}
+
 /// A link the user adds joins the links of Reviews at once, newest first and remembered for its review window, and one
 /// the user removes leaves them at once, both before the listing they ask for
 #[test]

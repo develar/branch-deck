@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
-import type { PullRequestReviewWindowData } from "../../../src/types/sub-window"
+import type { PullRequestReviewWindowData, PullRequestStackReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
@@ -19,6 +19,7 @@ import {
   getYourTurnCard,
   openRequestReview,
   pressDecisionKey,
+  reviewFetched,
   reviewRequest,
   routeReviewFetch,
 } from "../helpers/review-request-helpers"
@@ -1640,3 +1641,103 @@ async function box(locator: Locator): Promise<{ x: number; y: number; width: num
 function isCut(locator: Locator): Promise<boolean> {
   return locator.evaluate(element => element.scrollWidth > element.clientWidth)
 }
+
+// the `stacked_chain` template: oauth on login on auth, a commit each, as the branches of others; the requests go each
+// into the branch of the one below
+const LAYER_AUTH = reviewRequest("auth", 301, 6, { title: "Add the auth module", author: "niyaz" })
+const LAYER_LOGIN = reviewRequest("login", 302, 5, { title: "Add the login form", author: "niyaz", baseRefName: LAYER_AUTH.headRefName, baseIsDefault: false })
+const LAYER_OAUTH = reviewRequest("oauth", 303, 4, { title: "Add the OAuth provider", author: "niyaz", baseRefName: LAYER_LOGIN.headRefName, baseIsDefault: false })
+
+test.describe("Review Stack", () => {
+  test("should open one window of a stack by the button, the menu and D of its header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_chain", { reviewRequests: availableReviewRequests([LAYER_AUTH, LAYER_LOGIN, LAYER_OAUTH]) })
+    await syncAndWaitForBranches()
+    const stack = getYourTurnCard(page).getByTestId("review-stack-row")
+    await expect(stack.getByTestId("review-stack-title")).toHaveText("Stack of 3 pull requests")
+
+    // the button on hover: the stack, not its layers
+    await stack.hover()
+    await stack.getByTestId("review-stack-review").click()
+    const byButton = await openedReview<PullRequestStackReviewWindowData>(page, 1)
+    expect(byButton).toMatchObject({ title: "Review Stack #301–#303", data: { kind: "pullRequestStack", top: 303, bottom: 301, intent: null } })
+    expect(byButton.data.layers.map(layer => layer.number)).toEqual([301, 302, 303])
+    await expect(stack).toHaveAttribute("aria-expanded", "false")
+
+    // the menu by Shift+F10 on the focused header, then by a right click
+    await stack.focus()
+    await page.keyboard.press("Shift+F10")
+    await page.getByRole("menuitem", { name: "Review Stack" }).click()
+    expect((await openedReview<PullRequestStackReviewWindowData>(page, 2)).data).toMatchObject({ kind: "pullRequestStack", top: 303, intent: null })
+    await stack.click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Show Pull Requests" }).click()
+    await expect(stack).toHaveAttribute("aria-expanded", "true")
+
+    // D: its changes; Enter still shows or hides the layers
+    await stack.focus()
+    await page.keyboard.press("d")
+    expect((await openedReview<PullRequestStackReviewWindowData>(page, 3)).data).toMatchObject({ kind: "pullRequestStack", top: 303, intent: "review" })
+    await expect(stack).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(stack).toHaveAttribute("aria-expanded", "false")
+  })
+
+  test("should review all changes of a stack and each layer, and approve the layer shown on its head", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stacked_chain", { reviewRequests: availableReviewRequests([LAYER_AUTH, LAYER_LOGIN, LAYER_OAUTH]) })
+    await syncAndWaitForBranches()
+    const stack = getYourTurnCard(page).getByTestId("review-stack-row")
+    await stack.hover()
+    await stack.getByTestId("review-stack-review").click()
+    const opened = await openedReview<PullRequestStackReviewWindowData>(page, 1)
+    let fetched!: Promise<unknown>
+    const reviewPage = await openLinkedSubWindow(page, opened, {
+      beforeLoad: async window => {
+        fetched = reviewFetched(window)
+      },
+    })
+    const review = reviewPage.getByTestId("review-window")
+    await fetched
+
+    // All Changes: the stack, its layers to choose; no decision is of the whole stack
+    await expect(review.getByTestId("review-navigation")).toContainText("Stack")
+    await expect(review.getByTestId("review-dialog-position")).toHaveCount(0)
+    await expect(review.getByTestId("review-stack-header").getByRole("heading")).toHaveText("Stack of 3 pull requests")
+    await expect(review.getByTestId("review-stack-meta")).toHaveText("#301–#303 · niyaz · into master")
+    await expect(review.getByTestId("review-stack-layer")).toHaveText(["#301Add the auth module1 commit", "#302Add the login form1 commit", "#303Add the OAuth provider1 commit"])
+    await expect(review.getByTestId("review-commits").getByTestId("review-commit")).toHaveCount(3)
+    await expect(review.getByTestId("review-approve")).toBeDisabled()
+
+    // the changes: All Changes of the stack, a scope per layer, the commits under their layers
+    await reviewPage.keyboard.press("d")
+    const column = review.getByTestId("range-review-commits").getByTestId("range-review-commit")
+    await expect(column).toHaveText([
+      /^All Changes3 commits$/,
+      /^#301 Add the auth module1 commit$/,
+      /^#302 Add the login form1 commit$/,
+      /^#303 Add the OAuth provider1 commit$/,
+      /Add OAuth provider/,
+      /Add login form/,
+      /Add auth module/,
+    ])
+    await expect(column.first()).toHaveAttribute("aria-selected", "true")
+    // a layer's scope: its own changes, its decisions in the title bar
+    await column.nth(2).click()
+    await expect(column.nth(2)).toHaveAttribute("aria-selected", "true")
+    await expect(review.getByTestId("review-dialog-position")).toHaveText("2 of 3")
+    await expect(review.getByRole("heading", { name: "Add the login form" })).toBeVisible()
+    await reviewPage.keyboard.press("Escape")
+    await expect(review.getByTestId("review-commits").getByTestId("review-commit")).toHaveCount(1)
+    await expect(review.getByTestId("review-description")).toContainText("The change of login.")
+
+    // Approve: the layer shown, on its head
+    await pressDecisionKey(reviewPage, review, "a")
+    await expect(reviewPage.locator("[data-slot=toast-title]", { hasText: "Approved #302" })).toBeVisible()
+    expect(await gitHubRequests(repo, "POST", "pulls", 302, "reviews")).toEqual([{ event: "APPROVE", commit_id: await repo.revision("user-name/virtual/login") }])
+    expect(await gitHubRequests(repo, "POST", "pulls", 303, "reviews")).toEqual([])
+
+    // ↓ walks the layers: the top, its own description
+    await review.getByTestId("review-dialog-body").focus()
+    await reviewPage.keyboard.press("ArrowDown")
+    await expect(review.getByRole("heading", { name: "Add the OAuth provider" })).toBeVisible()
+    await expect(review.getByTestId("review-dialog-position")).toHaveText("3 of 3")
+  })
+})

@@ -70,7 +70,7 @@ with its base, its head and its commits, or the commits of a list. A pull reques
 
 Every review MUST be one window, `review` (`/review`, `ReviewPage`), whose data says what it shows
 (`ReviewWindowData`): a branch with its stack ancestors, the whole stack of a root or a kept branch, a commit of a
-list, or a pull request waiting for the user's review.
+list, a pull request waiting for the user's review, or a stack of them.
 
 #### Scenario: A branch, the whole stack of a root or a kept branch
 - **WHEN** the window shows a branch with its stack ancestors, the whole stack of a root or a kept branch
@@ -92,10 +92,16 @@ list, or a pull request waiting for the user's review.
 - **THEN** its data is `kind: "pullRequest"`: the request, its place in Your Turn or Reviews, the write the row asked
   for ([Review Requests](../../repository/review-requests/spec.md#review-window))
 
+#### Scenario: A stack of pull requests
+- **WHEN** the window shows a stack of requests of Your Turn (Review Stack)
+- **THEN** its data is `kind: "pullRequestStack"`: its top, its bottom, its layers when it opened, and "review" for `D`
+  ([Review Requests](../../repository/review-requests/spec.md#requirement-review-window-review-stack-reviews-a-stack-in-one-window))
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should open one window of a stack by the button, the menu and D of its header`)
+
 ### Requirement: One window: The review of a pull request is a chunk of its own
 
-The review of a pull request MUST be a chunk of its own that the page loads only for it, so the first frame of the
-others keeps its size.
+The review of a pull request, and of a stack of them, MUST be a chunk of its own that the page loads only for it, so
+the first frame of the others keeps its size.
 
 #### Scenario: The window shows no pull request
 - **WHEN** the window shows a branch or a list of commits
@@ -156,6 +162,12 @@ any window (`takeOpen`): an opener only says what to show.
 - **THEN** a plain open of the request it shows keeps its review
 - **AND** another request or an intent starts it over
   [@test] src/lib/review-reuse.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
+
+#### Scenario: A stack of pull requests
+- **WHEN** the window shows a stack and gets an open
+- **THEN** a plain open of the stack of the same top keeps its review
+- **AND** another stack, `D` on its header or a pull request starts it over
+  [@test] src/lib/review-reuse.test.ts (`brings the stack on screen to the front for a plain open of it, and starts over for another stack, D or a pull request`, `names a stack by its bottom and its top`)
 
 #### Scenario: A branch
 - **WHEN** the window shows a branch and gets an open

@@ -359,6 +359,8 @@ function failureTitle(intent: Intent, subject: string): string {
       return "Cannot dismiss the landed commits"
     case "fetchReview":
       return `Cannot fetch pull request #${intent.number}`
+    case "fetchReviewStack":
+      return `Cannot fetch the stack of #${intent.top}`
     case "pick":
       return "Cannot pick the commits"
   }

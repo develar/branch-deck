@@ -39,6 +39,7 @@ import { useSelectedProjectPath } from "@/stores/repository"
 import {
   openRequestOnGitHub,
   openReviewRequest,
+  openReviewStack,
   refreshReviewRequests,
   useIsRefreshingReviewRequests,
   useReviewRequestRows,
@@ -270,6 +271,13 @@ export function YourTurnBody({ requests, returned, repositoryPath, filterText = 
           }
         },
         onStack: setStackOpen,
+        // D on the header of a stack reviews its changes, as D on a request does
+        onReviewStack: key => {
+          const group = groups.find(it => it.kind === "stack" && it.key === key)
+          if (group?.kind === "stack") {
+            openReviewStack(repositoryPath, group.numbers, "review")
+          }
+        },
       },
       setFocused,
     )
@@ -301,6 +309,7 @@ export function YourTurnBody({ requests, returned, repositoryPath, filterText = 
                   unread={group.layers.some(layer => unread.has(reviewRequestKey(layer)))}
                   tabStop={group.key === tabStop}
                   onOpenChange={open => setStackOpen(group.key, open)}
+                  onReview={() => openReviewStack(repositoryPath, group.numbers)}
                 />
                 {isOpen(group.key) && group.layers.map(layer => requestRow(layer, true))}
               </Fragment>

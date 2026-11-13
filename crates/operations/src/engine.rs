@@ -118,7 +118,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::ForgetStart { .. } => forget::forget_plan(&intent).map(Some),
     Intent::Rewrite(rewrite) => Ok(prepare_rewrite(sessions, key, *rewrite).await),
     intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => Ok(update::prepare_update(sessions, key, intent).await),
-    Intent::FetchReview { number } => Ok(review_fetch::prepare_review_fetch(sessions, key, number).await),
+    intent @ (Intent::FetchReview { .. } | Intent::FetchReviewStack { .. }) => Ok(review_fetch::prepare_review_fetch(sessions, key, intent).await),
     // only `bd` runs it: no plan the app could run
     Intent::Pick { .. } => Ok(None),
   }
@@ -157,6 +157,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     Intent::UpdateProject { fetch } => Box::pin(update::execute_update(registry, key, fetch, hosts, events)).await,
     Intent::DismissLanded => update::execute_dismiss(registry, key, hosts, events).await,
     Intent::FetchReview { number } => review_fetch::execute_review_fetch(registry, key, number, hosts, events).await,
+    Intent::FetchReviewStack { top, bottom } => review_fetch::execute_review_stack_fetch(registry, key, top, bottom, hosts, events).await,
     intent @ Intent::Pick { .. } => Err(runs_only_in_bd(&intent)),
   }
 }
@@ -342,7 +343,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     intent @ Intent::ForgetStart { .. } => forget::forget_request(intent),
     Intent::Rewrite(rewrite) => rewrite_request(prefix, rewrite),
     intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => update::update_request(intent, update::planned_upstream(plan)),
-    Intent::FetchReview { number } => review_fetch::review_fetch_request(*number),
+    intent @ (Intent::FetchReview { .. } | Intent::FetchReviewStack { .. }) => review_fetch::review_fetch_request(intent.clone()),
     intent @ Intent::Pick { .. } => pick_request(intent),
   }
 }

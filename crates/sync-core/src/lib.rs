@@ -67,7 +67,8 @@
 //! - `baseline_push`: the push of a copy into the branch of the baseline on its remote, a fast-forward by the push URL,
 //!   where the repository lands by a push (`branchdeck.landing=push`)
 //! - `remote_url`: the host and the repository path of a remote URL
-//! - `review_fetch`: the commits of a pull request to review, into `refs/branch-deck/review/<n>/`
+//! - `review_fetch`: the commits of a pull request to review, into `refs/branch-deck/review/<n>/`; of a stack, one fetch of
+//!   its top cut into its layers
 //! - `review_target`: what a review shows of a target: the stack of a branch, a whole stack, a kept branch, a list of
 //!   commits
 //!

@@ -1,4 +1,6 @@
-use crate::review_fetch::{GitHubCredentials, NoCommonHistory, fetch_review_head, fetch_review_head_until, prune_review_refs, review_refs_to_prune};
+use crate::review_fetch::{
+  GitHubCredentials, NoCommonHistory, StackRanges, fetch_review_head, fetch_review_head_until, fetch_review_stack, prune_review_refs, review_refs_to_prune,
+};
 use domain_types::review_request::{FetchReviewHeadParams, ReviewHeadState, ReviewRange, ReviewSource};
 use git_executor::git_command_executor::{ProgressStop, StoppedCommand};
 use pretty_assertions::assert_eq;
@@ -87,6 +89,121 @@ impl Fixture {
       .map(str::to_string)
       .collect()
   }
+}
+
+/// `github` (github.com/acme/monorepo, its `origin`) has a stack of three pull requests on `master`, one commit each:
+/// #10 of `p/1` into master, #11 of `p/2` into `p/1`, #12 of `p/3` into `p/2`, each also as `refs/pull/<n>/head`.
+/// `local` was cloned from it before the stack, so it has none of their commits
+pub(crate) struct StackFixture {
+  pub(crate) github: TestRepo,
+  pub(crate) local: TestRepo,
+  pub(crate) base: String,
+  /// The heads of #10, #11 and #12
+  pub(crate) heads: Vec<String>,
+}
+
+pub(crate) fn stack_fixture() -> StackFixture {
+  let github = TestRepo::new();
+  let base = github.create_commit("Initial", "README.md", "# Test\n");
+  let local = TestRepo::new_empty();
+  local.clone_from(github.path()).unwrap();
+  let mut heads = Vec::new();
+  for (index, number) in [10, 11, 12].into_iter().enumerate() {
+    github.checkout_new_branch(&format!("p/{}", index + 1)).unwrap();
+    let head = github.create_commit(&format!("Part {}", index + 1), &format!("part{index}.txt"), "part\n");
+    git(&github, &["update-ref", &format!("refs/pull/{number}/head"), &head]);
+    heads.push(head);
+  }
+  github.checkout("master").unwrap();
+  local.set_config(&github_rewrite(&github), GITHUB_URL).unwrap();
+  local.set_config("branchdeck.githubRepository", "acme/monorepo").unwrap();
+  git(&local, &["remote", "set-url", "origin", GITHUB_URL]);
+  StackFixture { github, local, base, heads }
+}
+
+impl StackFixture {
+  /// The layers as GitHub names them, the bottom first: each into the head branch of the one below, at its head
+  pub(crate) fn params(&self) -> Vec<FetchReviewHeadParams> {
+    [10, 11, 12]
+      .into_iter()
+      .enumerate()
+      .map(|(index, number)| FetchReviewHeadParams {
+        repository_path: path(&self.local).to_string(),
+        number,
+        head_ref_name: format!("p/{}", index + 1),
+        head_ref_oid: self.heads[index].clone(),
+        base_ref_name: if index == 0 { "master".to_string() } else { format!("p/{index}") },
+        base_ref_oid: if index == 0 { self.base.clone() } else { self.heads[index - 1].clone() },
+        is_cross_repository: false,
+      })
+      .collect()
+  }
+
+  pub(crate) fn fetch(&self, layers: &[FetchReviewHeadParams]) -> anyhow::Result<StackRanges> {
+    fetch_review_stack(self.local.git_executor(), layers, &mut |_| {}, &|| false)
+  }
+}
+
+#[test]
+fn a_stack_is_one_fetch_of_its_top_cut_into_its_layers() {
+  let fixture = stack_fixture();
+  let stack = fixture.fetch(&fixture.params()).unwrap();
+  let heads: Vec<&str> = fixture.heads.iter().map(String::as_str).collect();
+  assert_eq!((stack.range.base.as_str(), stack.range.head.as_str()), (fixture.base.as_str(), heads[2]));
+  assert_eq!(commit_ids(&stack.range), heads);
+  // each layer from the head below to its own, as GitHub shows its changes
+  let layers: Vec<(&str, &str, Vec<&str>, bool)> = stack
+    .layers
+    .iter()
+    .map(|layer| (layer.range.base.as_str(), layer.range.head.as_str(), commit_ids(&layer.range), layer.restacked))
+    .collect();
+  assert_eq!(
+    layers,
+    [
+      (fixture.base.as_str(), heads[0], vec![heads[0]], false),
+      (heads[0], heads[1], vec![heads[1]], false),
+      (heads[1], heads[2], vec![heads[2]], false),
+    ]
+  );
+  assert_eq!(stack.layers[2].range.source, ReviewSource::Origin);
+  // only the refs of the top: its head brought every layer
+  assert_eq!(review_refs(&fixture.local), ["refs/branch-deck/review/12/head"]);
+}
+
+#[test]
+fn a_restacked_layer_is_a_fetch_of_its_own() {
+  let fixture = stack_fixture();
+  // the author amended #11 and pushed it without rebasing #12 onto it: #12 is still on the head #11 had
+  git(&fixture.github, &["checkout", "-q", "p/2"]);
+  git(&fixture.github, &["commit", "-q", "--amend", "-m", "Part 2, amended"]);
+  let amended = git(&fixture.github, &["rev-parse", "HEAD"]);
+  git(&fixture.github, &["update-ref", "refs/pull/11/head", &amended]);
+  git(&fixture.github, &["checkout", "-q", "master"]);
+  let mut layers = fixture.params();
+  layers[1].head_ref_oid.clone_from(&amended);
+  layers[2].base_ref_oid.clone_from(&amended);
+
+  let stack = fixture.fetch(&layers).unwrap();
+  let restacked: Vec<bool> = stack.layers.iter().map(|layer| layer.restacked).collect();
+  // the bottom is under the top; #11 is not, so neither is the base of #12
+  assert_eq!(restacked, [false, true, true]);
+  assert_eq!(commit_ids(&stack.layers[1].range), [amended.as_str()]);
+  // #12 as GitHub shows it: from the merge base with the amended #11, the old part 2 included
+  assert_eq!(commit_ids(&stack.layers[2].range), [fixture.heads[1].as_str(), fixture.heads[2].as_str()]);
+  assert_eq!(stack.layers[2].range.base, fixture.heads[0]);
+  // a restacked layer's refs are kept with the top's
+  assert_eq!(
+    review_refs(&fixture.local),
+    ["refs/branch-deck/review/12/head", "refs/branch-deck/review/12/layers/11/head"]
+  );
+  prune_review_refs(fixture.local.git_executor(), path(&fixture.local), &[12]).unwrap();
+  assert_eq!(review_refs(&fixture.local).len(), 2, "the window of the stack keeps them by its top");
+}
+
+#[test]
+fn a_stack_without_layers_is_an_error() {
+  let fixture = stack_fixture();
+  fixture.fetch(&[]).unwrap_err();
 }
 
 fn commit_ids(range: &ReviewRange) -> Vec<&str> {

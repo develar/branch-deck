@@ -33,11 +33,23 @@ export interface ReviewToolbarProps {
   actions: ReviewRequestActions
   /** The list the window walks: "Your Turn", "Reviews" */
   source: ReviewSource
+  /** The name of the list when it is no list of the main window: "Stack", whose layers ↑/↓ walk */
+  list?: string
 }
 
-/** ↑ ↓ and "Your Turn › 2 of 5" ("Reviews › 3 of 14"): where the request is in its list, the start of the title bar of the review window */
-export function ReviewNavigation({ index, count, onPrevious, onNext, source }: Pick<ReviewToolbarProps, "index" | "count" | "onPrevious" | "onNext" | "source">) {
-  const list = source === "reviews" ? "Reviews" : "Your Turn"
+/**
+ * ↑ ↓ and "Your Turn › 2 of 5" ("Reviews › 3 of 14", "Stack › 2 of 3"): where the request is in its list, the start of
+ * the title bar of the review window
+ */
+export function ReviewNavigation({
+  index,
+  count,
+  onPrevious,
+  onNext,
+  source,
+  list: named,
+}: Pick<ReviewToolbarProps, "index" | "count" | "onPrevious" | "onNext" | "source" | "list">) {
+  const list = named ?? (source === "reviews" ? "Reviews" : "Your Turn")
   return (
     <div className="flex min-w-0 items-center gap-2" data-testid="review-navigation">
       <NavigationButton label="Previous request" keyHint="↑" icon={<ChevronUpIcon />} onClick={onPrevious} testId="review-previous" />

@@ -11,6 +11,7 @@ import {
   getReviewBusy,
   openRequestOnGitHub,
   openReviewRequest,
+  openReviewStack,
   refreshReviewRequests,
   resetReviewRequests,
   reviewRequestsStore,
@@ -174,11 +175,18 @@ function entry(path = "/repo") {
 }
 
 /** The review window as the store sees it: the opens it got, the request it shows */
-const reviewWindow = { opens: [] as { number: number; index: number; intent: string | null }[], shown: null as number | null }
+const reviewWindow = {
+  opens: [] as { number: number; index: number; intent: string | null }[],
+  stacks: [] as { numbers: number[]; intent: string | null }[],
+  shown: null as number | null,
+}
 connectReviewWindow({
   open: (_repositoryPath, request, index, intent) => {
     reviewWindow.opens.push({ number: request.number, index, intent })
     reviewWindow.shown = request.number
+  },
+  openStack: (_repositoryPath, layers, intent) => {
+    reviewWindow.stacks.push({ numbers: layers.map(layer => layer.number), intent })
   },
   rowsOf: () => [],
 })
@@ -189,6 +197,7 @@ beforeEach(() => {
   resetReviewRequests()
   resetOsNotification()
   reviewWindow.opens = []
+  reviewWindow.stacks = []
   reviewWindow.shown = null
   gh.selected = "/repo"
   gh.result = available()
@@ -270,6 +279,22 @@ describe("answers", () => {
     expect(toasts).toEqual([])
     setWindowFocus(true)
     expect(toasts.map(it => it.title)).toEqual(["bob requested your review"])
+  })
+})
+
+describe("Review Stack", () => {
+  it("opens the window on every layer of the stack Your Turn lists, the bottom first, with the intent of D", () => {
+    listed(available(request(201), request(202), request(203)))
+    openReviewStack("/repo", [201, 202, 203])
+    openReviewStack("/repo", [201, 202, 203], "review")
+    // a layer the listing has no more is left out; another repository opens nothing
+    openReviewStack("/repo", [201, 209])
+    openReviewStack("/other", [201, 202])
+    expect(reviewWindow.stacks).toEqual([
+      { numbers: [201, 202, 203], intent: null },
+      { numbers: [201, 202, 203], intent: "review" },
+      { numbers: [201], intent: null },
+    ])
   })
 })
 

@@ -26,24 +26,25 @@ import { useReviewPosition } from "@/hooks/useReviewPosition"
 import { SelectReviewFileContext, linkNavigator } from "@/hooks/useSelectReviewFile"
 import type { ReviewLink } from "@/hooks/useSelectReviewFile"
 import type { ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest } from "@/lib/bindings"
+import { formatCommitCount } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { FROM_MENU } from "@/lib/menu"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewSource } from "@/lib/pull-request-review"
-import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, pullRequestItems, shownKey } from "@/lib/range-review"
+import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, layerScopeKey, pullRequestItems, shownKey, stackItems } from "@/lib/range-review"
 import { ownerPaths, reviewFilterChips, reviewOwnerMarks } from "@/lib/review-owners"
 import type { ReviewOwners } from "@/lib/review-owners"
 import { planFacts } from "@/lib/review-plan-answer"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions } from "@/lib/review-request-actions"
+import { formatStackMeta, formatStackTitle } from "@/lib/review-requests"
 import { presentMap } from "@/presenters/review-map"
 import { withCommitTitles } from "@/presenters/review-steps"
 import { presentApprovalScope } from "@/presenters/reviews"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import type { ReviewFetch } from "@/stores/review-fetch"
-import { reviewFetchKey, startReviewFetch, useReviewFetch } from "@/stores/review-fetch"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 
 /** What the review of a pull request shows and does, from the session of the review window (`PullRequestReviewWindow`) */
@@ -85,6 +86,30 @@ export interface PullRequestReviewHost {
   readonly approve: (commitId: string) => Promise<boolean>
   readonly requestChanges: (commitId: string, body: string) => Promise<boolean>
   readonly startSafePush: (commitId: string) => Promise<boolean>
+  /** The fetch of what the window reviews (the window starts it): of the pull request, of a stack */
+  readonly fetch: ReviewFetch | undefined
+  /** Fetches it again (Retry of a failed fetch) */
+  readonly fetchAgain: () => void
+  /** The item of the commit column the changes show: all changes, a scope, a commit; the window keeps it */
+  readonly selected: string
+  readonly onSelect: (key: string) => void
+  /** Review Stack: the layers of the stack and the one of the item shown; absent for a pull request */
+  readonly stack?: ReviewStackView
+}
+
+/** A stack of pull requests in the review window (Review Stack) */
+export interface ReviewStackView {
+  /** The layers, the bottom first: each one's pull request and, once fetched, its own range */
+  readonly layers: readonly ReviewStackLayerView[]
+  /** The layer of the item shown (its scope, a commit of it), whose decisions the title bar holds; null for All Changes */
+  readonly layer: number | null
+}
+
+export interface ReviewStackLayerView {
+  readonly request: ReviewRequest
+  /** Its own range, `head below..its head`; null while the stack is fetched */
+  readonly range: ReviewRange | null
+  readonly restacked: boolean
 }
 
 export interface PullRequestReviewProps {
@@ -104,16 +129,18 @@ export interface PullRequestReviewProps {
  * changes (else the files) and the commits of the fetched range; Changes is the review of `base..head` (the tree beside
  * all diffs, J/K, N/P), its document led by the summary of the description and "Description", which shows the overview.
  * A write is on the fetched head, the commit the user sees; the keys work in both views (`getReviewRequestActions`, as
- * the row's menu).
+ * the row's menu). A stack (Review Stack, `host.stack`) is one review: its column has All Changes of the whole stack, a
+ * scope per layer and the commits under their layers; ↑ ↓ walk its layers, the decisions are those of the layer of
+ * the item shown, disabled on All Changes; the overview of All Changes lists the layers.
  */
 export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProps) {
-  const { request, repositoryPath, requests, index } = host
-  const fetch = useReviewFetch(reviewFetchKey(repositoryPath, request))
-  const range = fetch?.status === "fetched" ? fetch.range : null
+  const { request, repositoryPath, requests, index, fetch, stack, selected, onSelect: setSelected } = host
+  // of a stack the whole of it; the range of the review is of the layer shown, of all changes the whole stack
+  const fetched = fetch?.status === "fetched" ? fetch.range : null
+  const shownLayer = stack?.layers.find(layer => layer.request.number === stack.layer) ?? null
+  const range = stack === undefined || stack.layer === null ? fetched : (shownLayer?.range ?? null)
 
   const [tab, setTab] = useState<ReviewTab>("overview")
-  // the item of the commit column: all changes, since the user's review, a commit
-  const [selected, setSelected] = useState(ALL_CHANGES)
   // a file chosen in the rail, a link of the overview: the review starts over at it
   const [jump, setJump] = useState(0)
   // the link of the overview the changes follow once read: the file at its line, the use outside, the step
@@ -121,7 +148,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   // the files the window showed, for what Approve counts ("You opened 3 of its 5 files"), by request and head for the
   // life of the window: ↓ to another request and back keeps them, a new head of a request counts from zero; a report is
   // of the head of the render that made its callback
-  const shownHead = fetch?.status === "fetched" ? fetch.range.head : null
+  const shownHead = range?.head ?? null
   const shownNumber = request.number
   const [opened, setOpened] = useState<ReadonlyMap<number, OpenedFiles>>(NO_OPENED_FILES)
   // each file the review shows counts for Approve
@@ -158,10 +185,6 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     }
   }, [descriptionShown])
 
-  useEffect(() => {
-    startReviewFetch(repositoryPath, request)
-  }, [repositoryPath, request])
-
   // opened from the row's menu for a write: the comment form at once, the Approve button once there is a commit
   const { intent, openToken } = host
   const [handledIntent, setHandledIntent] = useState<unknown>(null)
@@ -178,11 +201,10 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
       approveRef.current?.focus()
     }
   }, [intent, range])
-  // D on the row: the changes, at once the pull request is fetched
+  // D on the row: the changes of all of it (the item an open starts at), at once the pull request is fetched
   const [appliedView, setAppliedView] = useState<unknown>(null)
   if (intent === "review" && range !== null && appliedView !== openToken) {
     setAppliedView(openToken)
-    setSelected(ALL_CHANGES)
     setLastPath(null)
     setLink(null)
     setJump(jump + 1)
@@ -191,16 +213,27 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
 
   // the commit column: the scopes, then the commits newest first; a scope that left (the user reviewed the head) or a
   // commit a force push dropped shows all changes
-  const items = range === null ? [] : pullRequestItems(range.commits, canShowSinceReview(request, host.involvement, range) ? request.reviewedCommit : null)
+  const items =
+    fetched === null
+      ? []
+      : stack !== undefined
+        ? stackItems(
+            stack.layers.map(layer => ({ request: layer.request, commits: layer.range?.commits ?? null, restacked: layer.restacked })),
+            fetched.commits.length,
+          )
+        : pullRequestItems(fetched.commits, canShowSinceReview(request, host.involvement, fetched) ? request.reviewedCommit : null)
   const selectedKey = shownKey(items, selected)
+  const scopeRange = stack?.layers.find(layer => layerScopeKey(layer.request.number) === selectedKey)?.range
   const subject: DiffSubject | null =
-    range === null
+    fetched === null
       ? null
       : selectedKey === ALL_CHANGES
-        ? { kind: "range", base: range.base, head: range.head }
+        ? { kind: "range", base: fetched.base, head: fetched.head }
         : selectedKey === SINCE_REVIEW
-          ? { kind: "range", base: request.reviewedCommit!, head: range.head }
-          : { kind: "commit", id: selectedKey }
+          ? { kind: "range", base: request.reviewedCommit!, head: fetched.head }
+          : scopeRange != null
+            ? { kind: "range", base: scopeRange.base, head: scopeRange.head }
+            : { kind: "commit", id: selectedKey }
   const reviewing = tab === "changes" && subject !== null
   // the plan of what the review shows (openspec/specs/branch/review-units/spec.md): its overview and the story of its diffs, unless the
   // repository turns the plan off; the overview tab tells the plan of all changes as the same document
@@ -227,7 +260,10 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     }
   }, [rangeId])
 
-  const reviewedCommit = getReviewedCommit(request, fetch)
+  // the scope of what the overview shows: all changes, of a stack the layer shown
+  const rangeItem = stack !== undefined && stack.layer !== null ? layerScopeKey(stack.layer) : ALL_CHANGES
+  const reviewedCommit: ReviewedCommit =
+    stack !== undefined && stack.layer === null ? { id: null, reason: "Choose a pull request of the stack" } : getReviewedCommit(request, fetch, range)
 
   // the owner chips (openspec/specs/repository/review-requests/spec.md, "Owner chips"): the groups of the request, the owners by
   // the OWNERSHIP files of the baseline (of the base of the pull request until a sync of the window names it), of the files
@@ -273,12 +309,12 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     setTab(next)
   }
 
-  /** The changes of all of the pull request at the place of a link of the overview, as the link in them shows it */
+  /** The changes of all of the pull request (of the layer shown) at the place of a link of the overview, as the link in them shows it */
   const showLink = (next: ReviewLink) => {
     if (range === null) {
       return
     }
-    setSelected(ALL_CHANGES)
+    setSelected(rangeItem)
     // the file the diffs read first: of a changed file its own; the others start at the overview
     setLastPath(next.kind === "show" ? next.place.path : null)
     setLink(next)
@@ -389,6 +425,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     request,
     index,
     count: requests.length,
+    list: stack === undefined ? undefined : "Stack",
     onPrevious: previousOf(host) === null ? null : () => showRequest(previousOf(host)!),
     onNext: nextOf(host) === null ? null : () => showRequest(nextOf(host)!),
     actions,
@@ -397,13 +434,17 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   const top = (
     <div className="flex min-w-0 flex-col">
       <div className={cn("flex min-w-0 flex-col px-6", reviewing ? "gap-2 pt-3 pb-2" : "gap-4 pt-4 pb-3")}>
-        <ReviewHeader request={request} involvement={host.involvement} submitted={host.submitted} compact={reviewing} onOpenOnGitHub={host.openOnGitHub}>
-          {range !== null && firstHead?.number === request.number && firstHead.head !== range.head && (
-            <p className="text-xs text-warning" data-testid="review-new-commits">
-              {`#${request.number} got new commits while it was open: the review shows ${formatShortHash(range.head)} now`}
-            </p>
-          )}
-        </ReviewHeader>
+        {stack !== undefined && stack.layer === null ? (
+          <StackHeader layers={stack.layers} compact={reviewing} />
+        ) : (
+          <ReviewHeader request={request} involvement={host.involvement} submitted={host.submitted} compact={reviewing} onOpenOnGitHub={host.openOnGitHub}>
+            {range !== null && firstHead?.number === request.number && firstHead.head !== range.head && (
+              <p className="text-xs text-warning" data-testid="review-new-commits">
+                {`#${request.number} got new commits while it was open: the review shows ${formatShortHash(range.head)} now`}
+              </p>
+            )}
+          </ReviewHeader>
+        )}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <ReviewTabs
             tab={reviewing ? "changes" : "overview"}
@@ -425,18 +466,27 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   // what the author wrote, read as a commit message: whole in the overview, its summary the lead of the changes
   const message = `${request.title}\n\n${request.body}`
   const empty = request.body.trim() === ""
-  const description = empty ? <NoDescription /> : <CommitBodyView body={message} />
-  const lead = empty ? (
-    <NoDescription />
-  ) : (
-    <DescriptionLead
-      message={message}
-      onShowDescription={() => {
-        showTab("overview")
-        setDescriptionShown(descriptionShown + 1)
-      }}
-    />
-  )
+  const description =
+    stack !== undefined && stack.layer === null ? (
+      <StackLayers layers={stack.layers} onShowLayer={number => setSelected(layerScopeKey(number))} />
+    ) : empty ? (
+      <NoDescription />
+    ) : (
+      <CommitBodyView body={message} />
+    )
+  // of All Changes of a stack none: each layer has its own description
+  const lead =
+    stack !== undefined && stack.layer === null ? null : empty ? (
+      <NoDescription />
+    ) : (
+      <DescriptionLead
+        message={message}
+        onShowDescription={() => {
+          showTab("overview")
+          setDescriptionShown(descriptionShown + 1)
+        }}
+      />
+    )
   // the commits of the rail named as the changes name them, by the plan of all changes the overview tells
   const railTitles = withCommitTitles(NO_TITLES, plan.plan?.steps.steps ?? [])
   // the shape of all changes in the rail once their plan is read, the rows of the map (openspec/specs/branch/review-tour/spec.md,
@@ -455,11 +505,16 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
             {host.source === "reviews" ? "No longer in Reviews" : "No longer waiting for your review"}
           </p>
         )}
+        {shownLayer?.restacked === true && (
+          <Callout tone="warning" data-testid="review-layer-restacked" title={`#${request.number} is not rebased onto the pull request below it as it is now`}>
+            <p>Its changes show from where it was cut: older commits of the pull request below may be among them.</p>
+          </Callout>
+        )}
         {fetch?.status === "failed" && (
-          <Callout tone="destructive" title={`Cannot fetch pull request #${request.number}`} data-testid="review-fetch-failed">
+          <Callout tone="destructive" title={stack === undefined ? `Cannot fetch pull request #${request.number}` : "Cannot fetch the stack"} data-testid="review-fetch-failed">
             <p>{fetch.message}</p>
             <div className="-ml-2 flex gap-1">
-              <Button size="xs" variant="ghost" data-testid="review-fetch-retry" onClick={() => startReviewFetch(repositoryPath, request)}>
+              <Button size="xs" variant="ghost" data-testid="review-fetch-retry" onClick={host.fetchAgain}>
                 <RotateCwIcon data-icon="inline-start" />
                 Retry
               </Button>
@@ -474,7 +529,12 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           <Callout tone="warning" data-testid="review-head-missing" title={`${sourceName(range)} has commits the pull request does not have yet; the review shows them.`} />
         )}
         {/* the description whole, as its author wrote it: the document of the changes leads with its summary alone */}
-        <section ref={descriptionRef} aria-label="Description" className="flex min-w-0 scroll-mt-5 flex-col" data-testid="review-description">
+        <section
+          ref={descriptionRef}
+          aria-label={stack !== undefined && stack.layer === null ? "Pull Requests" : "Description"}
+          className="flex min-w-0 scroll-mt-5 flex-col"
+          data-testid="review-description"
+        >
           {description}
         </section>
       </div>
@@ -487,7 +547,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
             commits={range?.commits ?? null}
             titles={railTitles}
             progress={fetch?.status === "fetching" ? fetch.progress : null}
-            onOpenFile={path => showTab("changes", { path, item: ALL_CHANGES })}
+            onOpenFile={path => showTab("changes", { path, item: rangeItem })}
             onOpenCommit={id => showTab("changes", { item: id })}
           />
         </SelectReviewFileContext>
@@ -620,16 +680,57 @@ function nextOf(host: PullRequestReviewHost): number | null {
  * when the fetch failed, or when the commit the pull request shows could not be fetched (the review shows the source
  * branch then)
  */
-function getReviewedCommit(request: ReviewRequest, fetch: ReviewFetch | undefined): ReviewedCommit {
-  if (fetch?.status === "fetched") {
-    return fetch.range.headState === "missing"
-      ? { id: null, reason: `The commit #${request.number} shows could not be fetched: the review would be on another one` }
-      : { id: fetch.range.head }
+function getReviewedCommit(request: ReviewRequest, fetch: ReviewFetch | undefined, range: ReviewRange | null): ReviewedCommit {
+  if (range !== null) {
+    return range.headState === "missing" ? { id: null, reason: `The commit #${request.number} shows could not be fetched: the review would be on another one` } : { id: range.head }
   }
   if (fetch?.status === "failed") {
     return { id: null, reason: `#${request.number} could not be fetched: a review is on the commit you saw` }
   }
   return { id: null, reason: `Wait until #${request.number} is fetched: a review is on the commit you saw` }
+}
+
+/** The header of All Changes of a stack: "Stack of 3 pull requests", "#201–#203 · niyaz", the base of its bottom */
+function StackHeader({ layers, compact }: { layers: readonly ReviewStackLayerView[]; compact: boolean }) {
+  const requests = layers.map(layer => layer.request)
+  const bottom = requests[0]
+  return (
+    <div className="flex min-w-0 flex-col gap-2" data-testid="review-stack-header">
+      <h2 className="min-w-0 text-base leading-6 font-medium text-pretty text-foreground select-text">{formatStackTitle(requests.length)}</h2>
+      {!compact && bottom !== undefined && (
+        <p className="text-xs text-muted-foreground" data-testid="review-stack-meta">
+          {`${formatStackMeta(requests)} · into ${bottom.baseRefName}`}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The overview of All Changes of a stack: its layers, the bottom first, each a link to its own changes and decisions
+ * ("#202 Drop workTreeRoot · 1 commit")
+ */
+function StackLayers({ layers, onShowLayer }: { layers: readonly ReviewStackLayerView[]; onShowLayer: (number: number) => void }) {
+  return (
+    <ol className="flex min-w-0 flex-col gap-1" aria-label="Pull requests of the stack" data-testid="review-stack-layers">
+      {layers.map(layer => (
+        <li key={layer.request.number} className="flex min-w-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto min-w-0 justify-start gap-2 py-1.5 text-left font-normal"
+            data-testid="review-stack-layer"
+            onClick={() => onShowLayer(layer.request.number)}
+          >
+            <span className="shrink-0 text-muted-foreground tabular-nums">{`#${layer.request.number}`}</span>
+            <span className="min-w-0 truncate">{layer.request.title}</span>
+            {layer.range !== null && <span className="shrink-0 text-xs text-muted-foreground">{formatCommitCount(layer.range.commits.length)}</span>}
+            {layer.restacked && <span className="shrink-0 text-xs text-warning">not rebased</span>}
+          </Button>
+        </li>
+      ))}
+    </ol>
+  )
 }
 
 /**

@@ -100,6 +100,23 @@ describe("planReviewOpen of a pull request", () => {
   })
 })
 
+describe("planReviewOpen of a stack", () => {
+  it("brings the stack on screen to the front for a plain open of it, and starts over for another stack, D or a pull request", () => {
+    const stack: ShownReview = { kind: "pullRequestStack", repositoryPath: "/repo", top: 203, startedAt: 1 }
+    const openStack = (top: number, intent: "review" | null = null) => planReviewOpen(stack, { kind: "pullRequestStack", repositoryPath: "/repo", top, intent }, 9)
+    expect(openStack(203)).toEqual({ shown: stack, move: false })
+    expect(openStack(204).shown).toEqual({ kind: "pullRequestStack", repositoryPath: "/repo", top: 204, startedAt: 9 })
+    expect(openStack(203, "review").shown.startedAt).toBe(9)
+    expect(planReviewOpen(stack, { kind: "pullRequest", repositoryPath: "/repo", source: "yourTurn", number: 203, intent: null }, 9).shown.startedAt).toBe(9)
+  })
+
+  it("names a stack by its bottom and its top", () => {
+    const data: ShownReviewWindow = { kind: "pullRequestStack", repositoryPath: "/repo", top: 203, bottom: 201, layers: [], intent: null, openedAt: 1, startedAt: 1, move: false }
+    expect(reviewWindowTitle(data)).toBe("Review Stack #201–#203")
+    expect(restoredReview({ ...data, intent: "review" }, undefined, 50)).toEqual({ ...data, openedAt: 50, startedAt: 50 })
+  })
+})
+
 describe("takeOpen", () => {
   it("keeps the review on screen for a plain open of it, moves to a commit of it, and starts over for anything else", () => {
     // the first open starts the window

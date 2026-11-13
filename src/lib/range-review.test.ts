@@ -7,6 +7,8 @@ import {
   formatRangeWithoutChanges,
   isSingleCommit,
   keepCommit,
+  layerOfItem,
+  layerScopeKey,
   localSinceReview,
   pullRequestItems,
   reviewedCommitOf,
@@ -14,6 +16,7 @@ import {
   segmentItems,
   shownInterdiff,
   shownKey,
+  stackItems,
   storyCommits,
 } from "@/lib/range-review"
 import { reviewPlan } from "@/test-support/review-step"
@@ -164,6 +167,45 @@ describe("pullRequestItems", () => {
     // the scope that left falls back to all changes
     expect(shownKey(pullRequestItems(commits, "c3"), SINCE_REVIEW)).toBe("all")
     expect(shownKey(pullRequestItems(commits, "c1"), SINCE_REVIEW)).toBe(SINCE_REVIEW)
+  })
+})
+
+describe("stackItems", () => {
+  const layers = [
+    { request: { number: 201, title: "Record the session id" }, commits: [commit("a1", "Record")], restacked: false },
+    { request: { number: 202, title: "Drop workTreeRoot" }, commits: [commit("b1", "Drop"), commit("b2", "Drop more")], restacked: false },
+    // not rebased onto #202 as it is: the older commit of #202 is among its own
+    { request: { number: 203, title: "Count the parts" }, commits: [commit("b0", "Drop (old)"), commit("b2", "Drop more"), commit("c1", "Count")], restacked: true },
+  ]
+
+  it("lists All Changes of the stack, a scope per layer the bottom first, then the commits newest first under their layers, each once", () => {
+    const items = stackItems(layers, 5)
+    expect(items.map(item => (item.kind === "scope" ? `${item.label} · ${item.detail}` : `${item.group ?? ""}:${item.commit.subject}`))).toEqual([
+      "All Changes · 5 commits",
+      "#201 Record the session id · 1 commit",
+      "#202 Drop workTreeRoot · 2 commits",
+      "#203 Count the parts · 3 commits · not rebased",
+      "#203 Count the parts:Count",
+      ":Drop more",
+      ":Drop (old)",
+      "#202 Drop workTreeRoot:Drop",
+      "#201 Record the session id:Record",
+    ])
+    // the story of a layer's scope lists its own commits
+    expect(storyCommits(items, layerScopeKey(202)).map(item => item.key)).toEqual(["b2", "b1"])
+  })
+
+  it("names the layer of the item shown: its scope, a commit of it, none for All Changes", () => {
+    expect(layerOfItem(layers, layerScopeKey(202))).toBe(202)
+    expect(layerOfItem(layers, "a1")).toBe(201)
+    // a commit two layers have is of the one the column lists it under
+    expect(layerOfItem(layers, "b2")).toBe(203)
+    expect(layerOfItem(layers, ALL_CHANGES)).toBeNull()
+  })
+
+  it("has a scope per layer, without counts, while the stack is fetched", () => {
+    const fetching = layers.map(layer => ({ ...layer, commits: null, restacked: false }))
+    expect(stackItems(fetching, 0).map(item => item.key)).toEqual(["all", "layer:201", "layer:202", "layer:203"])
   })
 })
 

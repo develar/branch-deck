@@ -86,6 +86,9 @@ targets:
   - src/components/branch/BranchCreator.tsx
   - src/App.tsx
   - src/model/intents.ts
+  - src/types/sub-window.ts
+  - src/lib/review-reuse.ts
+  - src/lib/review-row-keys.ts
 ---
 
 # Review Requests
@@ -890,6 +893,20 @@ layers under it, the bottom first, indented, each a row of a request; a click ag
 - **THEN** the stack shows open with the layers that match, its title counting all of them: still "Stack of 3 pull requests"
   [@test] src/lib/review-requests.test.ts (`groups the requests by the rows of the session, a stack with the layers a filter left`)
 
+### Requirement: Card: Review Stack opens a stack in one window
+
+The header of a stack MUST open the whole stack in one review window, Review Stack: its button on hover
+(`FileDiffIcon`, "Review Stack", as the button of a row opens its pull request), the item "Review Stack" (`D`) of its
+menu (the right click, the context menu key, Shift+F10), beside "Show Pull Requests" / "Hide Pull Requests" (Enter),
+and `D` on it. It opens every layer of the stack, also the ones a filter hides, and marks them read.
+
+#### Scenario: The button, the menu and D of the header
+- **WHEN** the user clicks the button of the header of a stack, chooses Review Stack in its menu, or presses `D` on it
+- **THEN** the review window opens on the stack, "Review Stack #301–#303", its layers the bottom first; `D` opens it in Changes
+- **AND** the header keeps its layers shown or hidden: Enter and Show Pull Requests still do that
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should open one window of a stack by the button, the menu and D of its header`)
+  [@test] src/stores/review-requests.test.ts (`opens the window on every layer of the stack Your Turn lists, the bottom first, with the intent of D`)
+
 ### Requirement: Card: A row shows the dots of the checks
 
 A row MUST show a `destructive` dot for failing and a `warning` dot for running checks.
@@ -1028,9 +1045,10 @@ The actions MUST be those Rust decides of the pull request (`pull:<number>` of `
 ### Requirement: Card: The keys of the rows
 
 ↑/↓ MUST move the focus between the rows (one tab stop), the header of a stack and its shown layers among them, Enter
-reviews, `D` reviews its changes (the window opens in Changes once the pull request is fetched, as D in the review shows
-them); the main window keeps the focus on the row. On the header of a stack, Enter MUST show or hide its layers, →
-show them and ← hide them. Space MUST do nothing: it is Quick Look elsewhere, and a pull request has none.
+reviews, `D` reviews its changes (in Changes once fetched); the main window keeps the focus on the row. On the header
+of a stack, Enter MUST show or hide its layers, → show them, ← hide them, `D` review the stack
+([Review Stack](#requirement-card-review-stack-opens-a-stack-in-one-window)). Space MUST do nothing: it is Quick Look
+elsewhere, and a pull request has none.
 
 #### Scenario: The arrows and Enter
 - **WHEN** the user presses ↑/↓ and Enter on the rows
@@ -1042,6 +1060,11 @@ show them and ← hide them. Space MUST do nothing: it is Quick Look elsewhere, 
 - **THEN** ← hides its layers, → shows them, Enter shows or hides them
 - **AND** ↓ moves to its first layer, where Enter reviews it
   [@test] tests/e2e/review-requests/review-requests.spec.ts (`should show a chain of requests as one stack, its layers under it by a click and the keys, each with its labels`)
+
+#### Scenario: D and the menu key on the header of a stack
+- **WHEN** the user presses `D` on the header of a stack, or Shift+F10
+- **THEN** `D` opens Review Stack in Changes and the main window keeps the focus on the header; Shift+F10 opens its menu
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should open one window of a stack by the button, the menu and D of its header`)
 
 #### Scenario: D on a row
 - **WHEN** the user presses `D` on a row
@@ -1580,6 +1603,77 @@ no longer names it); the stores of the files and the diffs of a range are the wi
 - **THEN** the files of its range, loaded by its id `base..head`, and its diffs are forgotten
   [@test] src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
   [@test] src/stores/file-diffs.test.ts (`keeps the last subjects only, and forgets the subjects of a closed review under every policy`)
+
+### Requirement: Review window: Review Stack reviews a stack in one window
+
+The review of a stack MUST be one review of the window (`kind: "pullRequestStack"`), titled "Review Stack #979–#991".
+Its column MUST hold All Changes, a scope per layer, the bottom first (head of the layer below to its head, as
+GitHub's "Files changed"), then the commits newest first under their layers, each once. A scope or a commit of a layer MUST show that layer, "Stack › 2 of 3"; ↑/↓ in the overview walk the layers. The
+overview of All Changes MUST list the layers.
+
+#### Scenario: All Changes and the layers of a stack
+- **WHEN** the window reviews a stack of three layers of a commit each
+- **THEN** the overview says "Stack of 3 pull requests" and lists "#301 Add the auth module · 1 commit" and the two others, the rail the three commits
+- **AND** Changes lists All Changes, a scope per layer and the commits under their layers, All Changes chosen
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should review all changes of a stack and each layer, and approve the layer shown on its head`)
+  [@test] src/lib/range-review.test.ts (`lists All Changes of the stack, a scope per layer the bottom first, then the commits newest first under their layers, each once`, `has a scope per layer, without counts, while the stack is fetched`)
+
+#### Scenario: A layer of the stack
+- **WHEN** the user chooses the scope of a layer, or a commit of it, or walks to it with ↓
+- **THEN** the island shows its pull request, "Stack › 2 of 3", and the overview its description, files and commits
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should review all changes of a stack and each layer, and approve the layer shown on its head`)
+  [@test] src/lib/range-review.test.ts (`names the layer of the item shown: its scope, a commit of it, none for All Changes`)
+
+### Requirement: Review window: The decisions of a stack are those of the layer shown
+
+Approve, Request Changes… and Safe Push… of the title bar MUST act on the layer of the item shown, with that layer's
+actions as Rust decides them (`pull:<number>`: an approval Patronus would not count where the layer goes into another
+branch than its target is refused there, never in the page), on the head of that layer as the fetch of the stack
+answered it. On All Changes they MUST be disabled: "Choose a pull request of the stack".
+
+#### Scenario: Approve a layer
+- **WHEN** the user approves while a layer is shown
+- **THEN** GitHub gets the review of that pull request with the head of the layer as its commit, and no other pull request of the stack gets one
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should review all changes of a stack and each layer, and approve the layer shown on its head`)
+
+#### Scenario: All Changes of a stack
+- **WHEN** All Changes of a stack is shown
+- **THEN** Approve and Request Changes… are disabled with "Choose a pull request of the stack"
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should review all changes of a stack and each layer, and approve the layer shown on its head`)
+
+### Requirement: Review window: A stack is one fetch of its top
+
+The fetch of a stack MUST be one operation (`fetchReviewStack { top, bottom }`, holding the review refs of its top):
+one review fetch of the head of the top with the base of the bottom (`fetch_review_stack`), its range cut into the
+layers at their heads, no process per layer. A layer not on the head of the layer below (restacked) MUST be a fetch of
+its own into `refs/branch-deck/review/<top>/layers/<n>/`, kept and pruned with the top; its scope says "not rebased".
+
+#### Scenario: A stack of three on GitHub
+- **WHEN** the window reviews a stack of three pull requests none of whose commits are local
+- **THEN** one fetch of the head of the top brings them, only `refs/branch-deck/review/<top>/head` is written, and each layer is its range from the head below
+- **AND** the processes are those of the review fetch of one pull request; with the commits local, no fetch
+  [@test] crates/sync-core/src/review_fetch_test.rs (`a_stack_is_one_fetch_of_its_top_cut_into_its_layers`, `a_stack_without_layers_is_an_error`)
+  [@test] crates/sync-core/src/process_budget_test.rs (`a_review_fetch_of_a_stack_is_one_fetch`)
+  [@test] crates/operations/src/review_fetch_test.rs (`a_review_fetch_of_a_stack_answers_the_range_of_each_layer`)
+
+#### Scenario: A layer not rebased onto the one below
+- **WHEN** the author amended a middle layer and did not rebase the one above it
+- **THEN** the middle layer and the one above are fetches of their own, the upper one from where it was cut, the older commits of the middle one among its own
+- **AND** their refs stand under the refs of the top, and a prune that keeps the top keeps them
+  [@test] crates/sync-core/src/review_fetch_test.rs (`a_restacked_layer_is_a_fetch_of_its_own`)
+
+### Requirement: Review window: The layers of a stack are those Rust chains now
+
+The layers of a stack MUST be a rule of Rust (`domain_policy::review_request_chains::stack_layers`): from the top down,
+the pull request whose head branch is the base of the layer above, of every pull request a listing named, until the
+bottom the window opened with. A layer the user reviewed stays, a merged one leaves, one put in between joins. The
+window MUST fetch again when a layer it knows, or of the row of its top, moves, comes or goes.
+
+#### Scenario: A reviewed, a merged and an inserted layer
+- **WHEN** the user approved a middle layer, the bottom merged, or a pull request was put between two layers
+- **THEN** the approved layer stays a layer, the merged bottom is no layer any more, the inserted one is one
+  [@test] crates/domain-policy/src/review_request_chains_test.rs (`the_stack_of_a_review_window_is_the_chain_under_its_top_as_the_known_pull_requests_link_it`)
+  [@test] crates/repository-model/src/review_request_facts_test.rs (`the_stack_of_a_review_window_keeps_a_reviewed_layer_and_drops_a_merged_one`)
 
 ### Requirement: Owner chips: Changes has the owner chips of the review of a branch
 
@@ -2260,7 +2354,8 @@ token and sign-in on Accounts ([GitHub Sign-In](../github-sign-in/spec.md#settin
   `crates/sync-core/src/review_fetch_test.rs` (local bare remotes), `crates/git-ops/src/commit_files_test.rs`, `crates/git-executor/src/git_command_executor_test.rs`,
   `crates/test-server/src/review_requests_test.rs`.
   [@test] crates/test-server/src/review_requests_test.rs (`review_routes_answer_the_fixture_without_a_network`)
-- `pnpm e2e`: `tests/e2e/review-requests/review-requests.spec.ts` with the `issue_links` template.
+- `pnpm e2e`: `tests/e2e/review-requests/review-requests.spec.ts` with the `issue_links` template; Review Stack with
+  `stacked_chain`, whose virtual branches are stacked, so the head of each layer is under the one above.
   `POST /repositories/{id}/review-requests` sets what the session of the repository reads of GitHub
   (`availableReviewRequests` for `acme/monorepo`) and, with `fetchError`, makes the review fetch fail; `GET` returns
   `{ calls, fetchCalls, prunes }`; a poll comes when the test moves the clock of its sessions
@@ -2283,6 +2378,9 @@ token and sign-in on Accounts ([GitHub Sign-In](../github-sign-in/spec.md#settin
 
 ## Open Questions / Risks
 
+- "Approve N Pull Requests" of a stack (one write that approves every layer on the head the window shows, refusing a
+  layer whose head moved since the fetch, by its number) is not built: each layer is approved on its own. Whether
+  Patronus counts the approval of a layer whose base is not its target is to be checked on a real chain first.
 - Whether Patronus starts a robot for a `/patronus merge` of someone who is not the author, and whose robot it is
   (the list asks for `owner=me`), is to be checked in a live run; a robot not among the user's is not watched, so its
   merge is told by the pull request, not by the app.

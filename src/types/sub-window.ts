@@ -87,10 +87,10 @@ interface ReviewWindowOpen {
 
 /**
  * `__INIT_DATA__` of the review window (`REVIEW_WINDOW`, opened by `@/lib/review-window`): a branch with its stack, the
- * whole stack of a root or a kept branch (`kind: "branch"`), a list of commits (`kind: "commits"`), or a pull request
- * waiting for the user's review (`kind: "pullRequest"`)
+ * whole stack of a root or a kept branch (`kind: "branch"`), a list of commits (`kind: "commits"`), a pull request
+ * waiting for the user's review (`kind: "pullRequest"`), or a stack of them (`kind: "pullRequestStack"`)
  */
-export type ReviewWindowData = BranchReviewWindowData | CommitsReviewWindowData | PullRequestReviewWindowData
+export type ReviewWindowData = BranchReviewWindowData | CommitsReviewWindowData | PullRequestReviewWindowData | PullRequestStackReviewWindowData
 
 /** The review of a branch: its chain, the whole stack of its root, or a kept branch (`openBranchReviewWindow`, …) */
 export interface BranchReviewWindowData extends ReviewWindowOpen {
@@ -144,4 +144,19 @@ export interface PullRequestReviewWindowData extends ReviewWindowOpen {
   /** The write the row's menu asked for, or "review" (D on the row): an open with one starts the window over */
   intent: ReviewIntent | null
   source: ReviewSource
+}
+
+/**
+ * The review of a stack of pull requests of Your Turn (`openPullRequestStackReview`, Review Stack): named by its top and
+ * its bottom, its layers as the fetch of the window answers them (Rust chains them between the two, so a merged layer
+ * leaves and one put in between joins); the window fetches it itself
+ */
+export interface PullRequestStackReviewWindowData extends ReviewWindowOpen {
+  kind: "pullRequestStack"
+  top: number
+  bottom: number
+  /** The layers when it opened, the bottom first: the window shows them until its fetch answers */
+  layers: ReviewRequest[]
+  /** "review" (D on the header of the stack): the changes at once */
+  intent: "review" | null
 }

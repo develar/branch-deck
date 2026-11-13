@@ -55,7 +55,7 @@ impl EventSink for WindowFetchEvents {
 /// `operations::engine::execute` on the plan the page showed, over the services and the rewrites of the context; the
 /// review fetch of a window is stopped when the window closes
 pub async fn execute(ctx: &AppContext, call: &Call, key: SessionKey, params: ExecuteParams, events: Sink<OperationEvent>) -> Result<Outcome, ApiError> {
-  let events: Arc<dyn EventSink> = if matches!(params.intent, Intent::FetchReview { .. }) {
+  let events: Arc<dyn EventSink> = if matches!(params.intent, Intent::FetchReview { .. } | Intent::FetchReviewStack { .. }) {
     Arc::new(WindowFetchEvents {
       events: PageEvents(events),
       windows: Arc::clone(&ctx.windows),

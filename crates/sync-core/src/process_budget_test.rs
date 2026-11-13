@@ -11,6 +11,8 @@ use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBran
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
 use crate::repository_config::write_companion;
+use crate::review_fetch::fetch_review_stack;
+use crate::review_fetch::review_fetch_test::stack_fixture;
 use crate::review_target::ReviewMemo;
 use crate::robot_landing::{robot_landings, robot_spans};
 use crate::stack_branch::forget_builds;
@@ -1266,4 +1268,20 @@ fn a_review_of_a_branch_a_kept_branch_and_a_list_of_commits() {
   memo.get(&git, PREFIX, &kept).unwrap();
   memo.get(&git, PREFIX, &list).unwrap();
   assert_processes(&git, &[("for-each-ref", 2)]);
+}
+
+/// The review fetch of a stack of three pull requests (`review_fetch::fetch_review_stack`): what one of a pull request
+/// runs, once, for the top with the base of the bottom (the presence of both, the GitHub repository and the remotes,
+/// the fetch, the merge base and the log), and nothing per layer: the commits of the range are cut at their heads. A
+/// stack whose commits are local runs no fetch
+#[test]
+fn a_review_fetch_of_a_stack_is_one_fetch() {
+  let fixture = stack_fixture();
+  let git = counting();
+  let stack = fetch_review_stack(&git, &fixture.params(), &mut |_| {}, &|| false).unwrap();
+  assert_eq!(stack.layers.iter().filter(|layer| layer.restacked).count(), 0);
+  assert_processes(&git, &[("cat-file", 1), ("config", 2), ("fetch", 1), ("log", 1), ("merge-base", 1)]);
+  let git = counting();
+  fetch_review_stack(&git, &fixture.params(), &mut |_| {}, &|| false).unwrap();
+  assert_processes(&git, &[("cat-file", 1), ("log", 1), ("merge-base", 1)]);
 }

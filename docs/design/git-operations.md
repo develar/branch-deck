@@ -155,7 +155,8 @@ pick`, the unapply and the reapply, and the drop of commits (their own sections 
 3. **Every ref move is one `update-ref --stdin` transaction** (`crates/git-ops/src/ref_transaction.rs`) with an
    old-value CAS and a `branch-deck: <operation>` reflog message. Related ref changes go into the same transaction:
    the unapply's move of the virtual branch together with the move of HEAD, and the deletion of temporary refs. **One named exception:** the
-   review fetch writes `refs/branch-deck/review/<n>/{head,base}` through `git fetch` itself (its refspecs, forced, no
+   review fetch writes `refs/branch-deck/review/<n>/{head,base}` (of a stack also `…/<top>/layers/<n>/{head,base}`)
+   through `git fetch` itself (its refspecs, forced, no
    CAS, no reflog message): those refs only keep the fetched commits of a pull request reachable, nothing reads their
    old value, and no other operation writes them. Their pruning is a CAS transaction (see "Review fetch").
 
@@ -3516,6 +3517,17 @@ its commits.
   its old value (the `sweep_stale_temp_refs` pattern). A ref that moved meanwhile (a review fetch of another window)
   fails the transaction, which is only logged: the next change of the windows deletes it. It is best effort across app instances;
   the diffs are read by object id, and gc keeps unreachable objects for about two weeks.
+- **A stack** (Review Stack, the intent `FetchReviewStack { top, bottom }`): its layers are the chain from the top down
+  to the bottom as the pull requests the listings named link them now (`ReviewRequestsFact::stack`, the rule
+  `domain_policy::review_request_chains::stack_layers`), each one's head and base as the requests name them. Its core
+  `fetch_review_stack` is the steps above once, for the head of the top with the base of the bottom, into the refs of
+  the top: every lower head is under the top's, so the one fetch brings every layer (nothing when both are local). The
+  `log` of the range is then cut into the layers at their heads, no process per layer: a layer's range is from the head
+  of the layer below (of the bottom, the merge base) to its own. A layer whose head is not on that range, or whose
+  layer below ends after it (its author amended a lower layer and did not rebase this one: restacked), is the steps
+  above for its own head and base, into `refs/branch-deck/review/<top>/layers/<n>/{head,base}`: pruning reads the
+  number of a ref from its first segment, so the window of the stack, which demands its top, keeps them. The stack
+  holds the review refs of its top (`Resource::Ref`), as a fetch of the top alone, which waits for it.
 - **Never** the repository lock: the fetch moves no branch, and a fetch never runs under the lock (Update Project
   fetches before it takes it).
 

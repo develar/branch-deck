@@ -88,6 +88,8 @@ function runningWords(intent: Intent, resources: readonly Resource[] = []): read
       return ["Dismissing the landed commits", "the dismissal of the landed commits"]
     case "fetchReview":
       return [`Fetching #${intent.number} to review`, `a fetch of #${intent.number} to review`]
+    case "fetchReviewStack":
+      return [`Fetching the stack of #${intent.top} to review`, `a fetch of the stack of #${intent.top} to review`]
     case "pick":
       return ["Picking commits", "a pick of commits"]
   }

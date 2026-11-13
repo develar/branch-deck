@@ -288,6 +288,21 @@ export function openReviewRequest(repositoryPath: string, number: number, intent
 }
 
 /**
+ * Reviews the stack of requests `numbers` of Your Turn (the bottom first, every layer of its row, also those a filter
+ * hides) in one review window (Review Stack); "review" (D on its header) shows its changes at once
+ */
+export function openReviewStack(repositoryPath: string, numbers: readonly number[], intent: "review" | null = null): void {
+  if (repositoryPath !== currentRepositoryPath()) {
+    return
+  }
+  const requests = (reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY).requests
+  const layers = numbers.flatMap(number => requests.find(it => it.number === number) ?? [])
+  if (layers.length > 0) {
+    reviewWindow.openStack(repositoryPath, layers, intent)
+  }
+}
+
+/**
  * Opens the pull request on GitHub from the card or the review: it is read then, and the next focus asks GitHub at once
  * (an approved pull request leaves the list)
  */
@@ -458,11 +473,13 @@ function markRead(repositoryPath: string, request: ReviewRequest): void {
 export interface ReviewWindowConnection {
   /** Shows the request in the window, opened or reused */
   readonly open: (repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, source: ReviewSource) => void
+  /** Shows a stack of requests in the window (Review Stack), its layers the bottom first */
+  readonly openStack: (repositoryPath: string, layers: readonly ReviewRequest[], intent: "review" | null) => void
   /** The rows of a list other than Your Turn the window walks (Reviews) */
   readonly rowsOf: (repositoryPath: string, source: ReviewSource) => readonly ReviewRequest[]
 }
 
-let reviewWindow: ReviewWindowConnection = { open: () => {}, rowsOf: () => [] }
+let reviewWindow: ReviewWindowConnection = { open: () => {}, openStack: () => {}, rowsOf: () => [] }
 
 export function connectReviewWindow(connection: ReviewWindowConnection): void {
   reviewWindow = connection

@@ -234,49 +234,95 @@ export interface ReviewStackHeaderProps {
   /** The row the list's focus is on: the one tab stop of the list */
   tabStop: boolean
   onOpenChange: (open: boolean) => void
+  /** Review Stack: all of its changes and each layer in one review window */
+  onReview: () => void
 }
 
 /**
  * The header of a stack of requests, each into the branch of the one below (Rust's `RequestRow`), one 36 px line as a
  * request: its chevron, "Stack of 12 pull requests" and the unread dot of its layers, the muted meta ("#979–#991 · alice · +120 −30",
  * the base of its bottom when it is not the default branch), how long its longest waiting layer waits. A click, Enter
- * and → show its layers under it, ← hides them; collapsed it is one row of the card
+ * and → show its layers under it, ← hides them; collapsed it is one row of the card. Review Stack opens the stack in one
+ * review window: the button on hover, D, and its menu (the right click, the context menu key, Shift+F10), which also
+ * shows or hides the layers
  */
-export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, layers, size, open, unread, tabStop, onOpenChange }: ReviewStackHeaderProps) {
+export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, layers, size, open, unread, tabStop, onOpenChange, onReview }: ReviewStackHeaderProps) {
   const bottom = layers[0]!
   const oldest = layers.reduce((first, layer) => (layer.waitingSince < first.waitingSince ? layer : first))
   const additions = layers.reduce((sum, layer) => sum + layer.additions, 0)
   const deletions = layers.reduce((sum, layer) => sum + layer.deletions, 0)
   const Chevron = open ? ChevronDownIcon : ChevronRightIcon
+  const menu: MenuItemGroups = [
+    [{ id: "review-stack", label: "Review Stack", icon: FileDiffIcon, kbds: ["d"], onSelect: onReview }],
+    [
+      {
+        id: "toggle-stack",
+        label: open ? "Hide Pull Requests" : "Show Pull Requests",
+        icon: open ? ChevronDownIcon : ChevronRightIcon,
+        kbds: ["enter"],
+        onSelect: () => onOpenChange(!open),
+      },
+    ],
+  ]
   return (
-    <li
-      data-testid="review-stack-row"
-      data-review-row={stackKey}
-      data-review-stack={stackKey}
-      data-unread={unread || undefined}
-      tabIndex={tabStop ? 0 : -1}
-      aria-expanded={open}
-      aria-label={`${formatStackTitle(size)} ${formatStackMeta(layers)}`}
-      className="group flex h-9 animate-in cursor-pointer items-center gap-2 px-4 text-sm duration-150 fade-in-0 outline-none bd-focus-inset hover:bg-muted focus-visible:bd-focus sm:px-6"
-      onClick={() => onOpenChange(!open)}
-    >
-      {/* the chevron in the place of the unread dot: the titles line up */}
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        <Chevron aria-hidden className="size-3.5 text-muted-foreground" />
-      </span>
-      <span className="min-w-0 truncate font-medium" data-testid="review-stack-title">
-        {formatStackTitle(size)}
-      </span>
-      {unread && <UnreadDot unread />}
-      <span className="hidden min-w-0 shrink-[1000] truncate text-xs text-muted-foreground sm:inline" data-testid="review-stack-meta">
-        {`${formatStackMeta(layers)} · `}
-        <LineCounts additions={additions} deletions={deletions} colored={false} />
-        {!bottom.baseIsDefault && ` · → ${bottom.baseRefName}`}
-      </span>
-      <span className="ml-auto flex shrink-0 items-center gap-2">
-        <WaitingAge waitingSince={oldest.waitingSince} reRequested={oldest.reRequested} backToYou={oldest.backToYou} />
-      </span>
-    </li>
+    <ContextMenu>
+      <ContextMenuTrigger
+        render={
+          <li
+            data-testid="review-stack-row"
+            data-review-row={stackKey}
+            data-review-stack={stackKey}
+            data-unread={unread || undefined}
+            tabIndex={tabStop ? 0 : -1}
+            aria-expanded={open}
+            aria-label={`${formatStackTitle(size)} ${formatStackMeta(layers)}`}
+            className="group flex h-9 animate-in cursor-pointer items-center gap-2 px-4 text-sm duration-150 fade-in-0 outline-none bd-focus-inset hover:bg-muted focus-visible:bd-focus sm:px-6"
+            onClick={() => onOpenChange(!open)}
+          />
+        }
+      >
+        {/* the chevron in the place of the unread dot: the titles line up */}
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <Chevron aria-hidden className="size-3.5 text-muted-foreground" />
+        </span>
+        <span className="min-w-0 truncate font-medium" data-testid="review-stack-title">
+          {formatStackTitle(size)}
+        </span>
+        {unread && <UnreadDot unread />}
+        <span className="hidden min-w-0 shrink-[1000] truncate text-xs text-muted-foreground sm:inline" data-testid="review-stack-meta">
+          {`${formatStackMeta(layers)} · `}
+          <LineCounts additions={additions} deletions={deletions} colored={false} />
+          {!bottom.baseIsDefault && ` · → ${bottom.baseRefName}`}
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={`Review the stack of #${bottom.number}`}
+                  data-testid="review-stack-review"
+                  className="text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  tabIndex={-1}
+                  onClick={event => {
+                    event.stopPropagation()
+                    onReview()
+                  }}
+                />
+              }
+            >
+              <FileDiffIcon />
+            </TooltipTrigger>
+            <TooltipContent>Review Stack</TooltipContent>
+          </Tooltip>
+          <WaitingAge waitingSince={oldest.waitingSince} reRequested={oldest.reRequested} backToYou={oldest.backToYou} />
+        </span>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItems groups={menu} />
+      </ContextMenuContent>
+    </ContextMenu>
   )
 })
 

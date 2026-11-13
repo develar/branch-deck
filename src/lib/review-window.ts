@@ -224,6 +224,22 @@ export async function openPullRequestReview(repositoryPath: string, request: Rev
 }
 
 /**
+ * Reviews a stack of requests of Your Turn (`layers`, the bottom first, as its row has them) in one review window
+ * (Review Stack): all of its changes and each layer apart, the decisions of the layer chosen; with `intent` "review" (D
+ * on the header of the stack) the changes at once. The window fetches the stack itself, keyed by its top. Main window
+ * only: it marks its layers read.
+ */
+export async function openPullRequestStackReview(repositoryPath: string, layers: readonly ReviewRequest[], intent: "review" | null): Promise<boolean> {
+  const bottom = layers[0]
+  const top = layers.at(-1)
+  if (bottom === undefined || top === undefined) {
+    return false
+  }
+  layers.forEach(layer => markReviewRequestRead(repositoryPath, layer))
+  return openWindow({ kind: "pullRequestStack", repositoryPath, top: top.number, bottom: bottom.number, layers: [...layers], intent, openedAt: Date.now() })
+}
+
+/**
  * Reviews the commits `ids` (in that order) as a list named `listLabel`, at `ids[index]`: a list whose rows carry no
  * message (a landed report, the remote commits a force push drops), so the commits are read first, by the one resolver
  * of a review (`get_review` of the target `commits`). Resolves to whether the window opened; a failure is told.

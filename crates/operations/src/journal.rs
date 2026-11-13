@@ -28,7 +28,7 @@ use crate::registry_file::{ProcessRegistry, Record};
 use domain_types::activity::{ActivityLog, PageActivity, PageEntry, RepositoryJournal};
 use domain_types::error::ApiError;
 use domain_types::operation::{Intent, JournalEntry, JournalTransition, OperationResult, OperationStats, Outcome, Resource};
-use domain_types::review_request::ReviewRange;
+use domain_types::review_request::{ReviewRange, ReviewStack, ReviewStackLayer};
 use history_rewrite::repository_lock::lock_file;
 use lease_pool::lease::{Pool, canonical_path};
 use serde::Deserialize;
@@ -161,12 +161,25 @@ pub fn stats_of(tally: &OperationTally) -> OperationStats {
   }
 }
 
-/// What the journal keeps of what an operation answered: a review range without its commits, which git has
+/// What the journal keeps of what an operation answered: a review range (of a stack, each one) without its commits,
+/// which git has
 fn journal_result(result: &OperationResult) -> OperationResult {
+  let without_commits = |range: &ReviewRange| ReviewRange {
+    commits: Vec::new(),
+    ..range.clone()
+  };
   match result {
-    OperationResult::ReviewRange(range) => OperationResult::ReviewRange(Box::new(ReviewRange {
-      commits: Vec::new(),
-      ..(**range).clone()
+    OperationResult::ReviewRange(range) => OperationResult::ReviewRange(Box::new(without_commits(range))),
+    OperationResult::ReviewStack(stack) => OperationResult::ReviewStack(Box::new(ReviewStack {
+      range: without_commits(&stack.range),
+      layers: stack
+        .layers
+        .iter()
+        .map(|layer| ReviewStackLayer {
+          range: without_commits(&layer.range),
+          ..layer.clone()
+        })
+        .collect(),
     })),
     result => result.clone(),
   }

@@ -118,16 +118,20 @@ export async function openRequestReview(
 }
 
 /**
- * The answer of the review fetch of `window` (the intent `fetchReview` of `execute`), which the window asks as it opens
+ * The answer of the review fetch of `window` (the intent `fetchReview` of `execute`, of a stack `fetchReviewStack`), which the window asks as it opens
  * and after which Changes (D) is enabled, however long the fetch takes: under load seconds, past the 5 s of a look at
  * the tab. Asked before the window loads, so a fetch that answered before the call is not missed
  */
 export function reviewFetched(window: Page): Promise<unknown> {
   return window.waitForEvent("requestfinished", {
-    predicate: request => request.url().endsWith("/invoke/execute") && ((request.postDataJSON() as { intent?: { kind?: string } } | null)?.intent?.kind ?? null) === "fetchReview",
+    predicate: request =>
+      request.url().endsWith("/invoke/execute") && REVIEW_FETCHES.includes((request.postDataJSON() as { intent?: { kind?: string } } | null)?.intent?.kind ?? ""),
     timeout: 0,
   })
 }
+
+/** The intents of a review fetch: of a pull request, of a stack */
+const REVIEW_FETCHES = ["fetchReview", "fetchReviewStack"]
 
 /** The button of each key of a decision of the review window */
 const DECISION_BUTTONS = { a: "review-approve", r: "review-request-changes", m: "review-safe-push" } as const

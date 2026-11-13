@@ -20,7 +20,7 @@
 use crate::facts::{Observation, seed_head};
 use crate::pull_request_facts::availability_error;
 use domain_policy::news::{request_key, review_requested, tells_after};
-use domain_policy::review_request_chains::request_rows;
+use domain_policy::review_request_chains::{request_rows, stack_layers};
 use domain_types::patronus::{ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewsAnswer};
@@ -273,6 +273,19 @@ impl ReviewRequestsFact {
   #[must_use]
   pub fn pull_request(&self, number: u32) -> Option<&ReviewRequest> {
     self.remembered.get(&number).map(|(request, _)| request)
+  }
+
+  /// The layers of the stack of `top` down to `bottom`, the bottom first, as the pull requests a listing named last link
+  /// them now (`domain_policy::review_request_chains::stack_layers`): what a review of the stack fetches
+  /// (`operations::review_fetch`); empty when no listing named `top`
+  #[must_use]
+  pub fn stack(&self, top: u32, bottom: u32) -> Vec<ReviewRequest> {
+    let known: Vec<&ReviewRequest> = self.remembered.values().map(|(request, _)| request).collect();
+    let listed: Vec<u32> = self.view.requests.iter().map(|request| request.number).collect();
+    stack_layers(top, bottom, &known, &listed)
+      .into_iter()
+      .filter_map(|number| self.pull_request(number).cloned())
+      .collect()
   }
 
   /// The pull requests the review windows show that no listing has now, as a listing named them last
