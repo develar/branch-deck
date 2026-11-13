@@ -1949,7 +1949,11 @@ test.describe("Read ahead", () => {
     ])
   })
 
-  test("should say a private member renamed where the repository has no index is not proven, and not read it again on the next listing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should say a private member renamed where the repository has no index is not proven, and not read it again on the next listing", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const renamed = reviewRequest("rename", 405, 4, { title: "Rename the sum helper", author: "niyaz", labels: ["refactoring"] })
     const repo = await setupHeld(setupRepo, syncAndWaitForBranches, [renamed])
     await repo.holdRemoteAnswers({ release: ["readAhead"] })

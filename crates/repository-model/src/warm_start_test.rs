@@ -103,65 +103,9 @@ fn a_frame_reads_back_from_the_object_cache_as_it_was_written() {
 fn a_frame_keeps_what_only_rust_reads_of_the_patronus_view_beside_its_wire() {
   use crate::branch_table::BranchTable;
   use crate::derive::derive_budget_test::answer_patronus;
-  use domain_types::fixtures::{robot_of, whole_stack_robot_of};
-  use domain_types::reason::Reason;
-  use domain_types::repository_view::{
-    BranchLanding, BranchPatronus, HoldKind, HoldView, LandedByView, PatronusView, RobotLandedBranch, StackLanding, StackPatronus, WholeStackRest,
-  };
-  use std::collections::BTreeMap;
+  use domain_types::fixtures::view_of_every_field;
 
-  let view = PatronusView {
-    branches: BTreeMap::from([(
-      "auth".to_owned(),
-      BranchPatronus {
-        robot_id: Some("r1".to_owned()),
-        landed_by: Some(LandedByView {
-          by: robot_of("auth", "r1"),
-          own: true,
-          landed: vec!["a1".to_owned()],
-          after: Vec::new(),
-        }),
-        landing: BranchLanding {
-          hold: Some(HoldView {
-            kind: HoldKind::Landed,
-            by: robot_of("auth", "r1"),
-            carried: None,
-          }),
-          ..BranchLanding::default()
-        },
-        ..BranchPatronus::default()
-      },
-    )]),
-    stacks: BTreeMap::from([(
-      "auth".to_owned(),
-      StackPatronus {
-        landing: StackLanding {
-          hold: Some(Reason::StackParked {
-            root: "auth".to_owned(),
-            member: "ui".to_owned(),
-          }),
-          rest: WholeStackRest {
-            members: vec!["ui".to_owned()],
-            commit_count: 1,
-            landed: vec!["auth".to_owned()],
-            by: vec![whole_stack_robot_of("auth", "r1")],
-            by_own_robot: false,
-          },
-          ..StackLanding::default()
-        },
-        ..StackPatronus::default()
-      },
-    )]),
-    landed_by_robot: BTreeMap::from([(
-      "r1".to_owned(),
-      vec![RobotLandedBranch {
-        branch: "auth".to_owned(),
-        own: true,
-        after: Vec::new(),
-      }],
-    )]),
-    ..PatronusView::default()
-  };
+  let view = view_of_every_field();
   let mut facts = answered_facts();
   answer_patronus(&mut facts, 4, view.clone(), &BranchTable::default());
   let dir = tempfile::tempdir().unwrap();
