@@ -2972,7 +2972,10 @@ Auto-sync on Focus syncs only when what a sync reads changed since the last sync
 processes and the stats of nine files, no object read (three processes when HEAD's branch tracks another remote branch than
 a `master` or `main`; `a_focus_with_unchanged_inputs_reads_only_the_fingerprint`). The session decides it, not the
 page: the main window tells the session its focus (`set_window_focus`), and Rust reads the setting
-(`SessionHost::syncs_on_focus`); with it off, a focus starts no process.
+(`SessionHost::syncs_on_focus`); with it off, a focus starts no process. Nor does a focus of a session that was asked
+no sync of another reason yet (the open of a worktree synced before, the user's Sync, a rewrite, a stamp of `brd`;
+`SyncScheduler`): the first sync of a worktree never synced is the user's, as it writes its branches and notes, so the
+Ready to Sync card stays until its Sync (`skipped`).
 
 1. `rev-parse --path-format=absolute --git-dir --git-common-dir`: where `config` and `config.worktree` are.
 2. One `for-each-ref --format='%(HEAD)%(objectname) %(refname)%(if)%(HEAD)%(then) %(upstream)%(end)'` over the local

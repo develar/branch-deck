@@ -112,6 +112,23 @@ fn a_focus_runs_only_when_the_inputs_changed() {
   assert_eq!(scheduler.inputs_read(None, true).next, run(3, None, false));
 }
 
+/// The first sync of a worktree never synced is the user's: a focus of a session that was asked no sync of another
+/// reason runs nothing, also with a window, and the user's Sync runs; from then on a focus syncs what changed
+#[test]
+fn a_focus_before_the_first_sync_of_a_worktree_never_synced_runs_nothing() {
+  let mut scheduler = SyncScheduler::new();
+  let decision = scheduler.request(SyncReason::Focus, "before", true);
+  assert_eq!(decision.resolve, [("before", Ok(SyncOutcome::Skipped))]);
+  assert_eq!(decision.next, Step::Nothing);
+  assert!(scheduler.is_idle());
+
+  assert_eq!(scheduler.request(SyncReason::Manual, "sync", true).next, run(1, None, false));
+  assert_eq!(scheduler.run_finished(1, Some(inputs(1)), OK, true).resolve, [("sync", SYNCED)]);
+  // a commit since the Sync of the user: the focus syncs it
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).next, run(2, Some(inputs(2)), false));
+}
+
 /// A stamp of `bd` is a focus no window gained: it runs only when the inputs changed, a stamp while a run is in flight
 /// checks once after the chain, and a session no window shows runs nothing
 #[test]

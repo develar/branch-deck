@@ -7,7 +7,7 @@
 //! ends, never the chain after it: an update waits for its own sync, not for the follow-up a ⌘R during it asked for.
 //! - `Manual` and `AfterRewrite` always run: at once, or as the follow-up of the run in flight.
 //! - `Focus` and `Open` run only when what a sync reads changed since the last run that ended (`read_sync_inputs`, one
-//!   cheap read); a session that never synced runs at once. A run that failed or that git deferred (a rebase in
+//!   cheap read); an open of a session that never ran runs at once. A run that failed or that git deferred (a rebase in
 //!   progress) is remembered with what it read: a focus with the same inputs answers its error and runs nothing, so a
 //!   failed sync of a large repository is not repeated on every focus; an open, ⌘R and a change of the inputs (a commit,
 //!   the end of the rebase) run again. A push of the session moves the remote-tracking refs of
@@ -17,7 +17,10 @@
 //!   opens while a run is in flight is served by that run: its end is the table the window shows.
 //! - `Stamp` (`bd` touched the stamp of the repository after a mutation, `operations::registry_watch`) is a focus that
 //!   no window gained: it runs only when the inputs changed, and while a run is in flight it checks once after the chain.
-//! - A focus or a stamp of a session without subscribers is skipped: no window shows it, so nothing runs.
+//! - A focus or a stamp of a session without subscribers is skipped: no window shows it, so nothing runs. So is a focus
+//!   of a session that was asked no sync of another reason yet (the open of a worktree synced before, the user's Sync, a
+//!   rewrite, a stamp): a worktree never synced waits for the Sync of the user, as its first sync creates its branches
+//!   and notes (openspec/specs/repository/onboarding/spec.md, "No automatic first sync").
 
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{SyncOutcome, SyncReason};
@@ -94,6 +97,8 @@ pub(crate) struct SyncScheduler<W> {
   recheck: Vec<W>,
   /// What the last run that ended read and how it ended; `None` before one, or when git could not tell
   last: Option<LastRun>,
+  /// A sync of another reason than a focus was asked: before, a focus runs nothing
+  asked: bool,
   /// The remote-tracking refs the session's pushes moved while the check or the run in flight ran (at their commit, or
   /// gone): it may have read them before, so they go into what it read
   pushed_meanwhile: Vec<(String, Option<String>)>,
@@ -108,6 +113,7 @@ impl<W> SyncScheduler<W> {
       follow_up: Vec::new(),
       recheck: Vec::new(),
       last: None,
+      asked: false,
       pushed_meanwhile: Vec::new(),
       last_run: 0,
     }
@@ -131,12 +137,14 @@ impl<W> SyncScheduler<W> {
   pub(crate) fn request(&mut self, reason: SyncReason, waiter: W, watched: bool) -> Decision<W> {
     let checks_inputs = matches!(reason, SyncReason::Focus | SyncReason::Stamp | SyncReason::Open);
     let rechecks = matches!(reason, SyncReason::Focus | SyncReason::Stamp);
-    if rechecks && !watched {
+    // no window shows the session, or a focus comes before the first sync of its worktree, which is the user's
+    if (rechecks && !watched) || (reason == SyncReason::Focus && !self.asked) {
       return Decision {
         resolve: vec![(waiter, Ok(SyncOutcome::Skipped))],
         next: Step::Nothing,
       };
     }
+    self.asked = true;
     let open = reason == SyncReason::Open;
     match self.phase {
       Phase::Idle => {

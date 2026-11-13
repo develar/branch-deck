@@ -255,7 +255,8 @@ pub fn request_of_readiness_key(key: &str) -> Option<u32> {
 pub enum SyncReason {
   /// ⌘R, the Sync button: always runs
   Manual,
-  /// A window gained focus: runs when the inputs changed
+  /// A window gained focus: runs when the inputs changed, once a sync of another reason was asked of the session (a
+  /// worktree never synced waits for the user's)
   Focus,
   /// A rewrite, its undo or a fetch changed the branches: always runs, as a quiet follow-up while one is in flight
   AfterRewrite,
@@ -275,7 +276,8 @@ pub enum SyncOutcome {
   Synced,
   /// Nothing a sync reads changed since the last successful sync: no run
   Unchanged,
-  /// A focus of a session that no window shows: nothing ran
+  /// A focus or a stamp of a session that no window shows, or a focus of one that was asked no other sync yet: nothing
+  /// ran
   Skipped,
 }
 

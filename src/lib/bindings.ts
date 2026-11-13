@@ -9864,7 +9864,10 @@ export type SyncOutcome =
 "synced" | 
 /**  Nothing a sync reads changed since the last successful sync: no run */
 "unchanged" | 
-/**  A focus of a session that no window shows: nothing ran */
+/**
+ *  A focus or a stamp of a session that no window shows, or a focus of one that was asked no other sync yet: nothing
+ *  ran
+ */
 "skipped";
 
 export type SyncParams = {
@@ -9876,7 +9879,10 @@ export type SyncParams = {
 export type SyncReason = 
 /**  ⌘R, the Sync button: always runs */
 "manual" | 
-/**  A window gained focus: runs when the inputs changed */
+/**
+ *  A window gained focus: runs when the inputs changed, once a sync of another reason was asked of the session (a
+ *  worktree never synced waits for the user's)
+ */
 "focus" | 
 /**  A rewrite, its undo or a fetch changed the branches: always runs, as a quiet follow-up while one is in flight */
 "afterRewrite" | 

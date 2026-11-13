@@ -438,6 +438,23 @@ test.describe("Sync on focus", () => {
     await repo.reword(hash!, "(feature-documentation) Update documentation")
   }
 
+  test("syncs nothing on a focus before the first sync, which is the user's: the Ready to Sync card stays until its Sync", async ({ page, setupRepo }) => {
+    await setupRepo("simple", { prepopulateStore: true })
+    const card = page.getByTestId("ready-to-sync-card")
+    await expect(card).toBeVisible()
+    const syncs = await finishedSyncCount(page)
+    // Auto-sync on Focus is on: the session hears the focus and runs nothing, as the first sync writes the branches
+    expect((await focusWindow(page))?.outcome).toBe("skipped")
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(syncs))
+    await expect(card).toBeVisible()
+
+    // the Sync of the card syncs, and a focus from then on checks what a sync reads
+    await card.getByTestId("ready-to-sync-button").click()
+    await waitForSyncComplete(page, syncs)
+    await expect(findBranchRow(page, "test-branch")).toBeVisible()
+    expect((await focusWindow(page))?.outcome).toBe("unchanged")
+  })
+
   test("syncs on focus only when what a sync reads changed, and says when it checked", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
