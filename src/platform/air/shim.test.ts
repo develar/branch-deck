@@ -35,6 +35,11 @@ class FakeHost implements FrameEndpoint {
     return () => {}
   }
 
+  /** The views the frame opened: its `x-air-app/subscribe` requests */
+  subscribes(): Message[] {
+    return this.posted.filter(message => message.method === "x-air-app/subscribe")
+  }
+
   /** The last request of the frame */
   last(): Message {
     return this.posted.at(-1)!
@@ -205,13 +210,38 @@ describe("The shim of the page in the IDE", () => {
     // the view of the frame went with it: the next subscription subscribes the frame anew
     void tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } })
     await settle()
-    expect(host.posted.filter(message => message.method === "x-air-app/subscribe")).toHaveLength(2)
+    expect(host.subscribes()).toHaveLength(2)
+  })
+
+  it("A subscription asked while the view of the frame opens gets an answer of brd asked after it: the refusal of that view, asked before a prefix was saved, makes it subscribe anew", async () => {
+    const host = new FakeHost()
+    const { tauri } = pageOn(host)
+    // the focus of the window asks the subscription again while the repository has no prefix
+    const first = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } })
+    await settle()
+    const opening = host.last()
+    // Save of the welcome card wrote the prefix: the page subscribes again, which joins the view that opens
+    const second = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } }) as Promise<ViewSubscription>
+    await settle()
+    expect(host.subscribes()).toHaveLength(1)
+
+    // brd read the config before the prefix: the first is refused, the second subscribes the frame anew
+    const refusal = { code: "no_branch_prefix", message: "No branch prefix", details: { prefixSuggestion: "test" }, retry: "no", operation_id: null }
+    host.fail(opening.id!, -32603, "badResponse", { error: refusal })
+    await expect(first).rejects.toMatchObject({ name: "ApiError", code: "no_branch_prefix" })
+    await settle()
+    expect(host.subscribes()).toHaveLength(2)
+    expect(host.last()).toMatchObject({ method: "x-air-app/subscribe", params: { params: { repositoryPath: "/r" } } })
+    const state = emptyView({ epoch: 1, seq: 0 })
+    host.answer(host.last().id!, { subscription: "x-air-ide:/appView/1", state, fromSeq: 0 })
+    expect((await second).view).toEqual(state)
+    // the frame holds the one view it opened: no unsubscribe, no bd_invoke of a subscribe again
+    expect(host.posted.map(message => message.method)).toEqual(["x-air-app/subscribe", "x-air-app/subscribe"])
   })
 
   it("A switch of the repository before the first answer: the next repository subscribes once the view of the one before answered and was unsubscribed, so the frame holds one view", async () => {
     const host = new FakeHost()
     const { tauri } = pageOn(host)
-    const subscribes = () => host.posted.filter(message => message.method === "x-air-app/subscribe")
     const first = tauri("subscribe_view", { params: { repositoryPath: "/a" }, patches: { onmessage: () => {} } }) as Promise<ViewSubscription>
     await settle()
     const subscribeA = host.last()
@@ -219,14 +249,14 @@ describe("The shim of the page in the IDE", () => {
     const patches: ViewPatch[] = []
     const second = tauri("subscribe_view", { params: { repositoryPath: "/b" }, patches: { onmessage: (patch: ViewPatch) => patches.push(patch) } }) as Promise<ViewSubscription>
     await settle()
-    expect(subscribes()).toEqual([expect.objectContaining({ params: { params: { repositoryPath: "/a" } } })])
+    expect(host.subscribes()).toEqual([expect.objectContaining({ params: { params: { repositoryPath: "/a" } } })])
 
     host.answer(subscribeA.id!, { subscription: "x-air-ide:/appView/1", state: emptyView({ epoch: 1, seq: 3 }), fromSeq: 0 })
     const { id } = await first
     void tauri("unsubscribe_view", { params: { id } })
     await settle()
     expect(host.last()).toMatchObject({ method: "x-air-app/unsubscribe", params: { subscription: "x-air-ide:/appView/1" } })
-    expect(subscribes()).toHaveLength(1)
+    expect(host.subscribes()).toHaveLength(1)
     host.answer(host.last().id!, {})
     await settle()
     expect(host.last()).toMatchObject({ method: "x-air-app/subscribe", params: { params: { repositoryPath: "/b" } } })

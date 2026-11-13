@@ -254,7 +254,9 @@ export class AirPage {
    * `subscribe_view`: the mirror of the repository, its state the view and each change of it a patch of the channel. The
    * frame holds one view (`FrameView`): a subscription of the repository it holds joins it and asks `brd mcp` to
    * subscribe again (`bd_invoke` of `subscribe_view`), which moves the mirror to the session of the prefix the git
-   * config names now before it answers; a subscription of another repository waits until the view before it ended
+   * config names now before it answers, or, when the `subscribe` of the view failed, subscribes anew: every subscription
+   * gets an answer of brd asked after it, as in the desktop app; a subscription of another repository waits until the
+   * view before it ended
    */
   private async subscribe(payload: Payload): Promise<ViewSubscription> {
     const params = (payload?.params ?? {}) as { repositoryPath?: string; have?: Version }
@@ -271,9 +273,16 @@ export class AirPage {
       }
       if (held.repositoryPath === repositoryPath && !held.closing) {
         held.pages.set(id, null)
-        // the answer of the view first: brd subscribes the mirror it holds again
+        // the answer of the view first: brd subscribes the mirror it holds again. A refusal of the view is the answer of
+        // a subscription asked before this one, under the config as it was then (a prefix saved since): this one leaves
+        // the view, which Air holds no more, and subscribes anew
         return this.joined(held, id, patches, params, async () => {
-          await held.answered
+          try {
+            await held.answered
+          } catch {
+            held.pages.delete(id)
+            return
+          }
           await this.runCommand("subscribe_view", { params })
         })
       }
