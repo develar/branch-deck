@@ -37,10 +37,19 @@ import type { ReviewAction } from "@/stores/review-requests"
 import { openRequestOnGitHub, openReviewRequest, useRequestReading, useReviewAction, useStackReading } from "@/stores/review-requests"
 
 /**
- * The muted meta after the title of a row, which gives way before the title: by a weight so far above the title's that
- * the title loses no fraction of a pixel while the meta has any (a fraction would cut the title with an ellipsis)
+ * The muted meta after the title of a row, in its `MetaPlace`: cut at its end, and hidden whole where the place has
+ * less room than its first part ("#1234 · …") needs, so no bare "#" stays
  */
-const META_CLASS_NAME = "hidden min-w-0 shrink-[100000] truncate text-xs text-muted-foreground sm:inline"
+const META_CLASS_NAME = "hidden min-w-0 truncate text-xs text-muted-foreground @max-[4rem]:invisible sm:block"
+
+/**
+ * The place of the meta of a row (and of its checks dot, `dot`): the room the row has left after its title and its
+ * chips, never more, so the meta gives way first, to nothing, before the title is cut and without a weight that could
+ * cut it by a fraction of a pixel; a query container, so its meta hides whole when the room is too small
+ */
+function MetaPlace({ dot = false, children }: { dot?: boolean; children: ReactNode }) {
+  return <span className={cn("@container flex min-w-0 grow basis-0 items-center gap-2", dot && "min-w-4")}>{children}</span>
+}
 
 export interface ReviewRequestRowProps {
   request: ReviewRequest
@@ -150,7 +159,6 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
   const size = `${files} · +${request.additions} −${request.deletions}`
   const hint = [metaHint, quiet ? size : undefined].filter(it => it !== undefined && it !== "").join(" · ")
   const metaLine = (
-    // the meta gives way first
     <span className={META_CLASS_NAME} data-testid="review-request-meta">
       {meta ?? formatRequestMeta(request)}
       {!quiet && (
@@ -189,16 +197,18 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
         </span>
         <RequestLabels number={request.number} labels={request.labels ?? []} />
         <RequestTitleClaim number={request.number} />
-        {hint === "" ? (
-          metaLine
-        ) : (
-          <Tooltip>
-            <TooltipTrigger render={metaLine} />
-            <TooltipContent>{hint}</TooltipContent>
-          </Tooltip>
-        )}
-        {request.checksState === "failing" && <StatusChipDot color="error" testId="review-request-checks-failing" />}
-        {request.checksState === "pending" && <StatusChipDot color="warning" testId="review-request-checks-pending" />}
+        <MetaPlace dot={request.checksState === "failing" || request.checksState === "pending"}>
+          {hint === "" ? (
+            metaLine
+          ) : (
+            <Tooltip>
+              <TooltipTrigger render={metaLine} />
+              <TooltipContent>{hint}</TooltipContent>
+            </Tooltip>
+          )}
+          {request.checksState === "failing" && <StatusChipDot color="error" testId="review-request-checks-failing" />}
+          {request.checksState === "pending" && <StatusChipDot color="warning" testId="review-request-checks-pending" />}
+        </MetaPlace>
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger
@@ -300,11 +310,13 @@ export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, lay
           {formatStackTitle(size)}
         </span>
         {unread && <UnreadDot unread />}
-        <span className={META_CLASS_NAME} data-testid="review-stack-meta">
-          {`${formatStackMeta(layers)} · `}
-          <LineCounts additions={additions} deletions={deletions} colored={false} />
-          {!bottom.baseIsDefault && ` · → ${bottom.baseRefName}`}
-        </span>
+        <MetaPlace>
+          <span className={META_CLASS_NAME} data-testid="review-stack-meta">
+            {`${formatStackMeta(layers)} · `}
+            <LineCounts additions={additions} deletions={deletions} colored={false} />
+            {!bottom.baseIsDefault && ` · → ${bottom.baseRefName}`}
+          </span>
+        </MetaPlace>
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger
@@ -617,9 +629,11 @@ export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ ite
         <span className="min-w-0 truncate font-medium" data-testid="returned-pull-request-title">
           <PullRequestTitle title={pullRequest.title} lead={pullRequest.titleLead} />
         </span>
-        <span className={META_CLASS_NAME} data-testid="returned-pull-request-meta">
-          {formatReturnedMeta(pullRequest)}
-        </span>
+        <MetaPlace>
+          <span className={META_CLASS_NAME} data-testid="returned-pull-request-meta">
+            {formatReturnedMeta(pullRequest)}
+          </span>
+        </MetaPlace>
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger

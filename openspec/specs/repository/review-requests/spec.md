@@ -880,12 +880,14 @@ meta are hidden below `sm`.
 ### Requirement: Card: A narrow row gives way in one order
 
 A row too narrow for all it says MUST give way in one order: the meta first, to nothing, then the title, then the
-labels, each cut with an ellipsis, never without one; what it leaves to read and its age never shrink.
+labels, each cut with an ellipsis, never without one; a meta with no room for its first part ("#402") is hidden whole;
+what it leaves to read and its age never shrink.
 
 #### Scenario: A long title and two labels at 1000 pt
-- **WHEN** a request with a long title and two labels waits, and the window is 1000 pt wide
+- **WHEN** a request with a long title and two labels waits, and the window is 1000 pt wide, then wider
 - **THEN** its meta is gone, its title is cut with an ellipsis, its labels, what it leaves to read and its age show whole
-  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should give way in a narrow row with the meta first, then the title, its labels, its reading and its age whole`)
+- **AND** as the window widens, the meta is hidden whole or shows "#402" whole, never a bare part of it
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should give way in a narrow row with the meta first, hidden whole without room for its number, then the title, its labels, its reading and its age whole`)
 
 #### Scenario: Narrow and wider in Reviews
 - **WHEN** a row of Reviews with a long title is narrow, then wider
@@ -2472,8 +2474,8 @@ each time that set changes: a change of the windows and a listing alike.
   "Checking…" while it is read, `text-xs text-muted-foreground`; it and the age never shrink. The labels are
   `secondary` `h-4` chips, items of the row, each cut with an ellipsis; a label the diff proves wrong is first and
   `warning`, its hover why; a word of the title the diff proves wrong is a `warning` `Badge` "refactor: in the title"
-  after the labels, from `md` on. The meta gives way first (`shrink-[100000]`), then the title, then the labels
-  (`shrink-[0.0001]`). A stack header has the sum of its layers in the place of a request's chip.
+  after the labels, from `md` on. The meta gives way first (`MetaPlace`, hidden whole below `4rem`), then the title,
+  then the labels (`shrink-[0.0001]`). A stack header has the sum of its layers in the place of a request's chip.
 - The column of Review Stack: the scope of each layer has its compact reading as an `h-4` `Badge` after its title,
   `success` for "Nothing to read", else `outline` muted, its hover the whole verdict; the title of a layer with nothing
   to read `text-muted-foreground`.

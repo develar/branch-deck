@@ -1885,7 +1885,11 @@ test.describe("Read ahead", () => {
     await expect(getReviewRow(page, 401).getByTestId("review-request-label")).not.toHaveAttribute("data-claim")
   })
 
-  test("should give way in a narrow row with the meta first, then the title, its labels, its reading and its age whole", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should give way in a narrow row with the meta first, hidden whole without room for its number, then the title, its labels, its reading and its age whole", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const long = reviewRequest("check", 402, 7, {
       title: "Ledger: rename the sum helper, check the user and keep every other part of the ledger unchanged",
       author: "github-actions",
@@ -1908,6 +1912,26 @@ test.describe("Read ahead", () => {
     }
     expect(await cut(row.getByTestId("review-request-reading").locator("span"))).toBe(false)
     expect(await cut(row.getByTestId("review-request-age"))).toBe(false)
+
+    // as the window widens, the meta is hidden whole or shows its number whole ("#402…"), never a bare part of it
+    const meta = row.getByTestId("review-request-meta")
+    const states = new Set<string>()
+    for (let width = 1000; width <= 1600; width += 10) {
+      await page.setViewportSize({ width, height: 720 })
+      states.add(
+        await meta.evaluate(element => {
+          if (element.clientWidth === 0 || getComputedStyle(element).visibility === "hidden") {
+            return "hidden"
+          }
+          const text = element.firstChild!
+          const number = document.createRange()
+          number.setStart(text, 0)
+          number.setEnd(text, text.textContent!.indexOf(" · "))
+          return number.getBoundingClientRect().width <= element.clientWidth ? "number" : "cut"
+        }),
+      )
+    }
+    expect([...states].sort()).toEqual(["hidden", "number"])
   })
 
   test("should sum a stack in its header and say what each layer under it leaves to read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
