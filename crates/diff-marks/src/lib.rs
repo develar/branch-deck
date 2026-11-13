@@ -1,6 +1,6 @@
 //! The marks of a diff (openspec/specs/commit/quiet-changes/spec.md; docs/design/diff-view.md, "Marks"): what a reader
 //! of a change may pass and what a view labels. The runs of lines that changed in their formatting, their comments or
-//! a renamed name alone (`marks`, `marks_runs`), the names a change renamed within a file (`marks_renames`), the lines
+//! a renamed name alone (`marks`, `marks_runs`, the blocks the comparison cut out of one change `marks_joined`), the names a change renamed within a file (`marks_renames`), the lines
 //! that moved, and the line the reading of each block starts at; what a pair of blobs leaves to the other files of its
 //! change (`leftovers`) and what those files say of each other (`marks_subject`).
 //!
@@ -20,6 +20,7 @@ pub mod bindings;
 pub mod index;
 pub mod leftovers;
 pub mod marks;
+pub mod marks_joined;
 pub mod marks_renames;
 pub mod marks_runs;
 pub mod marks_subject;

@@ -123,7 +123,7 @@ rest gets a label and stays a stop.
 | a renamed name that is not local, in the file that declares it and in the files that use it (`subject.declared`, `used`) | yes | only its uses, where the code that declares the name changed in names alone and the index of the repository lists every use of the declaration in both trees, each a place of the rename (`subject.confirmed`). The declaration is always read |
 
 - **The marks change no block.** They are a field beside the blocks: `runs` (rows of lines inside one block that
-  changed in one way alone), `moves` (the lines that moved within the file), `renames` (the names the change renamed
+  changed in one way alone, with lines on both sides but for the part of a run across blocks read as one), `moves` (the lines that moved within the file), `renames` (the names the change renamed
   within the file) and `starts`. The scans of the dependencies, the patches of `brd` and the review plan read the blocks they read before.
 - **One source of the stops.** `starts` names, for each block with something to read, the line its reading starts
   at (`line_diff::model::starts_of`): the first line outside its quiet runs that, of its old lines, no move took. A
@@ -153,6 +153,17 @@ rest gets a label and stays a stop.
   proves. A subsequence pairs a token with any of its likes (the `)` of `b(1, 2)` with the `)` of the call after it),
   so tokens only one side has are put on whole lines where it leaves the choice; a wrong choice loses a run, never
   makes one.
+- **Blocks the comparison cut out of one change are read as one** (`marks_joined.rs`). The comparison of lines anchors
+  on a line that is the same text on both sides though it is two lines of the code: of a body indented again with
+  its lambda wrapped, the old `    }` that ends the function is the new `    }` that ends the lambda, so the change is
+  two blocks, the first without the `}` on its new side, the second the `}` the function ends with now, and neither
+  is the same tokens alone. Blocks in a row that keep a start after their own reading (at most eight, with text,
+  none the policy cut off) are asked as one region with the lines between them: first by their characters without
+  blanks (counted, then compared), then read as one block by its tokens. The region is taken only when the parts of
+  its runs, cut at the ends of its blocks, leave no line of them to read; a part may have lines on one side alone
+  (the added `}`). From each block on the smallest such region is taken. The review plan already compared a whole
+  declaration for its unit of whitespace (`units::whitespace_pair`); so its units and the reading of the diff say the
+  same of such a reformat.
 - **A rename is a binding under two names** (`marks_renames.rs`). Where the alignment of the tokens of a block
   put a name of the new side at the place of a name of the old one, the two are a candidate: two names that stand
   alike in the tree, each one plain word. One parse of each side then answers for all of them

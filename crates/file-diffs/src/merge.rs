@@ -37,8 +37,9 @@ use tracing::{debug, instrument};
 /// holds a diff, with its marks), the merge or the scopes change. `stored_layout_test.rs` pins the layout with it. 10:
 /// a merge of one side whose lines ran out of time is not stored either (`BudgetedDiff::out_of_time`); 11: nor a merge
 /// of three sides whose lines ran out (`BudgetedMerge::out_of_time`), so a store of 10 may hold one block of three whole
-/// texts that the time made; 12: the scopes are by the lines of the diffs (`service::side_facts`)
-pub(crate) const MERGE_MODEL_VERSION: u32 = 12;
+/// texts that the time made; 12: the scopes are by the lines of the diffs (`service::side_facts`); 13: the marks read the
+/// blocks the comparison cut out of one change as one (`diff_marks::marks_joined`)
+pub(crate) const MERGE_MODEL_VERSION: u32 = 13;
 
 /// The memory key of a merge: the options byte and the base, left and right blob ids, empty for a missing side
 pub(crate) type MergeMemoryKey = (u8, String, String, String);

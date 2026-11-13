@@ -96,8 +96,9 @@ use tracing::{debug, instrument, warn};
 /// `stored_layout_test.rs` pins the layout of both with it. 15: a diff whose lines ran out of time is not stored either
 /// (`BudgetedDiff::out_of_time`), so a store of 14 may hold one block of two whole texts that the time made. 19: the
 /// scopes and the blocks of the imports alone are by the lines of the diffs (`side_facts`), so a store of 18 may hold
-/// those of a text with a lone `\r` by the lines of git
-pub const MODEL_VERSION: u32 = 19;
+/// those of a text with a lone `\r` by the lines of git. 20: the marks read the blocks the comparison cut out of one
+/// change as one (`diff_marks::marks_joined`), so a store of 19 may hold a start in each of them
+pub const MODEL_VERSION: u32 = 20;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
 /// are read from (`code_tokens::tokens_version`: the parsers of this build and the rules of the tokens), the

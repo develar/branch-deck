@@ -49,7 +49,9 @@ pub struct LineDiff {
 }
 
 /// A run of lines inside one block that changed in one way alone: the old lines `[old_start, old_end)` became the new
-/// lines `[new_start, new_end)` (0-based, the ends exclusive)
+/// lines `[new_start, new_end)` (0-based, the ends exclusive).
+/// Lines on both sides, but for the part of a run read across the blocks the comparison cut out of one change
+/// (`diff_marks::marks_joined`) in a block with lines on one side alone
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineRun {

@@ -1368,6 +1368,45 @@ fn rename_facts(path: &str, diff: &MarkedDiff, texts: [&str; 2]) -> Vec<RenameFa
     .collect()
 }
 
+/// For each run of `diff`, the lines of each run it may be a part of when the blocks the comparison cut out of one
+/// change were read as one (`diff_marks::marks_joined`): runs of formatting in blocks in a row, each but the last
+/// ending with its block on both sides and each but the first starting with its block, with the lines between the
+/// blocks. Empty for a run that is no such part
+fn joined_runs(diff: &MarkedDiff) -> Vec<Vec<(Range<u32>, Range<u32>)>> {
+  let runs = &diff.marks.runs;
+  let block_of = |run: &line_diff::model::LineRun| {
+    diff
+      .blocks
+      .iter()
+      .position(|block| block.old_start <= run.old_start && run.old_end <= block.old_end && block.new_start <= run.new_start && run.new_end <= block.new_end)
+  };
+  let ends_block = |run: &line_diff::model::LineRun, block: usize| run.old_end == diff.blocks[block].old_end && run.new_end == diff.blocks[block].new_end;
+  let starts_block = |run: &line_diff::model::LineRun, block: usize| run.old_start == diff.blocks[block].old_start && run.new_start == diff.blocks[block].new_start;
+  let mut joined = vec![Vec::new(); runs.len()];
+  let mut first = 0;
+  while first < runs.len() {
+    let mut last = first;
+    while let (Some(at), Some(next)) = (block_of(&runs[last]), runs.get(last + 1)) {
+      let joins =
+        runs[last].kind == RunKind::Formatting && next.kind == RunKind::Formatting && block_of(next) == Some(at + 1) && ends_block(&runs[last], at) && starts_block(next, at + 1);
+      if !joins {
+        break;
+      }
+      last += 1;
+    }
+    for from in first..=last {
+      for to in from + 1..=last {
+        let lines = (runs[from].old_start..runs[to].old_end, runs[from].new_start..runs[to].new_end);
+        for of in &mut joined[from..=to] {
+          of.push(lines.clone());
+        }
+      }
+    }
+    first = last + 1;
+  }
+  joined
+}
+
 /// The tokens of the two texts with the two names of every place of every rename of `marks` read as one: a text of
 /// that place alone on both sides
 fn renames_read_as_one(marks: &DiffMarks, old: &Tokens, new: &Tokens) -> [Tokens; 2] {
@@ -1403,9 +1442,10 @@ pub(crate) fn check_marks(path: &str, diff: &MarkedDiff, texts: [&str; 2], old: 
   let facts = rename_facts(path, diff, texts);
   let [old_as_one, new_as_one] = renames_read_as_one(marks, old, new);
   let (mut old_end, mut new_end) = (0, 0);
-  for run in &marks.runs {
+  let joined = joined_runs(diff);
+  for (run, joined) in marks.runs.iter().zip(&joined) {
     let context = format!("{path}: {run:?} of {}", show(diff));
-    assert!(run.old_start < run.old_end && run.new_start < run.new_end, "{context}");
+    assert!(run.old_start < run.old_end || run.new_start < run.new_end, "{context}");
     assert!(run.old_start >= old_end && run.new_start >= new_end, "{context}");
     (old_end, new_end) = (run.old_end, run.new_end);
     let block = diff
@@ -1413,6 +1453,19 @@ pub(crate) fn check_marks(path: &str, diff: &MarkedDiff, texts: [&str; 2], old: 
       .iter()
       .find(|block| block.old_start <= run.old_start && run.old_end <= block.old_end && block.new_start <= run.new_start && run.new_end <= block.new_end);
     assert!(block.is_some_and(|block| block.kind != BlockKind::Ignored), "{context}");
+    let alone =
+      run.old_start < run.old_end && run.new_start < run.new_end && compare(old.in_lines(run.old_start..run.old_end), new.in_lines(run.new_start..run.new_end)) == Equality::Same;
+    if run.kind == RunKind::Formatting && !alone && !joined.is_empty() {
+      // a part of a run across the lines between blocks: the run has lines on both sides, the same tokens, and is
+      // quiet
+      assert!(run.quiet, "{context}");
+      let proven = joined.iter().any(|(lines_old, lines_new)| {
+        !lines_old.is_empty() && !lines_new.is_empty() && compare(old.in_lines(lines_old.clone()), new.in_lines(lines_new.clone())) == Equality::Same
+      });
+      assert!(proven, "{context}: no run across blocks of the same tokens among {joined:?}");
+      continue;
+    }
+    assert!(run.old_start < run.old_end && run.new_start < run.new_end, "{context}");
     if run.kind == RunKind::Renamed {
       let answer = compare(old_as_one.in_lines(run.old_start..run.old_end), new_as_one.in_lines(run.new_start..run.new_end));
       assert_eq!(answer, Equality::Same, "{context}");
@@ -1698,4 +1751,63 @@ fn the_marks_template_has_each_case_in_a_block_of_its_own() {
     ),
   ];
   assert_eq!(shown, expected);
+}
+
+/// A Kotlin file reformatted whole (indents of 4 to 2, lambdas and calls wrapped): the comparison anchors on old lines
+/// that stand twice in the new text (`    }`), and cuts the changes of `entriesBetween` and `formatted` into two blocks
+/// each (`testdata/split-reformat`)
+const LEDGER_OLD: &str = include_str!("../testdata/split-reformat/Ledger.old.kt");
+const LEDGER_NEW: &str = include_str!("../testdata/split-reformat/Ledger.new.kt");
+
+/// openspec/specs/commit/quiet-changes/spec.md, "Runs: Blocks the comparison cut out of one change are read as one"
+#[test]
+fn blocks_the_comparison_cut_out_of_one_change_are_read_as_one() {
+  let class = |body: &str| format!("class Ledger {{\n{body}}}\n");
+  let old = class("    fun formatted(): String {\n        return entries.joinToString(\"\\n\") { formatEntry(it) }\n    }\n");
+  let new = class("  fun formatted(): String {\n    return entries.joinToString(\"\\n\") {\n      formatEntry(it)\n    }\n  }\n");
+  let changed = new.replace("formatEntry(it)", "formatEntry(it.note)");
+  // the same characters but for the blanks, and a space inside the string: other tokens
+  let spaced = new.replace("(\"\\n\")", "(\"\\n \")");
+  let spaced_old = old.replace("(\"\\n\")", "(\"\\n\" )");
+  check_cases(&[
+    // the old `    }` that ends the function is the new `    }` that ends the lambda: two blocks, the first without
+    // the `}` on its new side, the second the `}` of the function, one run each, and nothing to read
+    (
+      "a.kt",
+      Exact,
+      &old,
+      &new,
+      "blocks [1..3/1..4, 4..4/5..6] runs [1..3/1..4 formatting quiet, 4..4/5..6 formatting quiet] starts []",
+    ),
+    // a change inside: each block is read alone, and both are stops
+    (
+      "a.kt",
+      Exact,
+      &old,
+      &changed,
+      "blocks [1..3/1..4, 4..4/5..6] runs [1..2/1..2 formatting quiet] starts [0, 1, 2, 1, 1, 5]",
+    ),
+    // the same characters but for the blanks are not the same tokens: a space inside a string
+    (
+      "a.kt",
+      Exact,
+      &spaced_old,
+      &spaced,
+      "blocks [1..3/1..4, 4..4/5..6] runs [1..2/1..2 formatting quiet] starts [0, 1, 2, 1, 1, 5]",
+    ),
+    // blank lines alone are never marked, beside each other too
+    (
+      "a.kt",
+      Exact,
+      "fun a() = 1\nfun b() = 2\nfun c() = 3\n",
+      "fun a() = 1\n\nfun b() = 2\n\nfun c() = 3\n",
+      "blocks [1..1/1..2, 2..2/3..4] runs [] starts [0, 1, 1, 1, 1, 3]",
+    ),
+  ]);
+
+  // the whole file: every block of its ten members passed, those the comparison cut in two too
+  let diff = read("src/main/kotlin/probe/Ledger.kt", LEDGER_OLD, LEDGER_NEW, Exact);
+  assert_eq!(diff.blocks.len(), 12, "{}", show(&diff));
+  assert_eq!(diff.marks.runs.iter().filter(|run| run.quiet).count(), 12, "{}", show(&diff));
+  assert_eq!(diff.marks.starts, Vec::<u32>::new(), "{}", show(&diff));
 }

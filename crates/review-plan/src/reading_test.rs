@@ -114,6 +114,29 @@ fn a_reading_sums_what_the_badge_of_each_file_counts_by_its_role_and_names_what_
   assert_eq!(reading.to_read(), badges(&repo, &formatted, &head), "the sum is the sum of the badges");
 }
 
+/// openspec/specs/commit/quiet-changes/spec.md, "Runs: Blocks the comparison cut out of one change are read as one": a
+/// Kotlin file reformatted whole, whose changes of two members the comparison cut in two, leaves nothing to read, and
+/// its plan folds every block into the one unit of whitespace: the reading and the units say the same of the diff
+#[test]
+fn a_reformat_the_comparison_cut_in_two_leaves_nothing_to_read_and_one_unit_of_whitespace() {
+  let path = "src/main/kotlin/probe/Ledger.kt";
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Initial", &[(path, include_str!("../../file-diffs/testdata/split-reformat/Ledger.old.kt"))]);
+  let head = repo.create_commit_with_files("Reformat", &[(path, include_str!("../../file-diffs/testdata/split-reformat/Ledger.new.kt"))]);
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(
+    plan.reading,
+    RangeReading {
+      roles: vec![role(FileRole::Code, 1, 0, 12, 0)],
+      unproven: vec![],
+      proofs: vec![QuietProof::Formatting],
+    },
+  );
+  let units: Vec<&str> = plan.units.iter().map(|unit| unit.id.as_str()).collect();
+  assert_eq!(units, ["mechanical:whitespace"]);
+  assert_eq!((plan.steps.coverage.blocks, plan.steps.coverage.mechanical), (12, 12));
+}
+
 /// openspec/specs/review/range-reading/spec.md, "The layers of a stack are read at once"
 #[test]
 fn the_layers_of_a_stack_are_read_in_one_process_a_phase() {

@@ -12,6 +12,7 @@ targets:
   - crates/line-diff/src/lcs/diff.rs
   - crates/diff-marks/src/marks.rs
   - crates/diff-marks/src/marks_runs.rs
+  - crates/diff-marks/src/marks_joined.rs
   - crates/diff-marks/src/marks_renames.rs
   - crates/diff-marks/src/marks_subject.rs
   - crates/diff-marks/src/leftovers.rs
@@ -110,14 +111,16 @@ and tints, and the row at the top of the view stays where it is
 - A name another file declares that the file does not rename at every place alike (a use added or deleted beside
   the renamed ones): its calls are read as changes. A name renamed in lines that moved.
 - A jump to a file no view shows: the place is plain words there, and the search of a review is not cleared for it.
-- A block with a side of no lines: an added comment is an added line.
+- A block with a side of no lines by itself: an added comment is an added line. Only a part of the blocks the
+  comparison cut out of one change is read with them.
 - The one-sided diffs of a conflict: they have their starts and no runs.
 - The marks in the patches of `brd` for agents.
 
 ## Concepts
 
 - **A run** is a row of lines inside one block, with lines on both sides, that changed in one way alone
-  (`formatting`, `comments`, `renamed`).
+  (`formatting`, `comments`, `renamed`); the part of a run of the blocks the comparison cut out of one change, read as
+  one, may have lines on one side alone.
 - **A rename** is one binding of each text with the same places, under two names: a declaration inside a body with
   every name bound to it (`local`), else every name of a spelling that no body binds. **A place** of it is a name
   of the binding in each text; a place whose line changed in nothing else is in a run of the kind `renamed`. A
@@ -265,7 +268,7 @@ a run of comments. It MUST never be quiet: a view labels it, and the reading sto
 A block of several changes MUST be cut where both sides have a line boundary, crossed by no token, with the same
 tokens of the code before it. Between the cuts, the longest rows of lines whose tokens are the same are runs of
 formatting, the blank lines inside them with them; lines between such rows that differ in their comments alone are a
-run of comments. A run MUST have lines on both sides and lie inside one block.
+run of comments. A run MUST lie inside one block, with lines on both sides but as a part of blocks read as one.
 
 #### Scenario: Lines wrapped into a block, a change beside lines indented again
 - **WHEN** lines are wrapped into a new `if` and indented, or indented lines stand beside a line that really changed
@@ -297,6 +300,32 @@ run, where the reader stops.
 - **THEN** they are no run
 - **AND** with the lines that differ inside the block, the call is a run in it
   [@test] crates/file-diffs/src/marks_test.rs (`a_run_at_an_end_of_its_block_needs_the_code_around_the_block_to_read_the_same`)
+
+### Requirement: Runs: Blocks the comparison cut out of one change are read as one
+
+Blocks in a row that keep a start after their own reading, at most eight, with text and none cut off, MUST be read as
+one region with the lines between them where their characters but for the blanks are the same on both sides: one
+change the comparison cut. Its runs are cut at the ends of its blocks, a part with lines on
+one side alone where a block has no other. The region MUST be taken only when the parts leave no line of its blocks to
+read, the smallest from each block on.
+
+#### Scenario: A function indented again with its lambda wrapped
+- **WHEN** a function of Kotlin is indented from four columns to two and the body of its lambda is put on a line of its own, and the comparison pairs the old `    }` that ends the function with the new `    }` that ends the lambda
+- **THEN** its two blocks, the second only the `}` the function ends with now, are a quiet run of formatting each, and neither has a start
+- **AND** a file of ten members reformatted so has nothing to read; its review plan folds every block into the unit of whitespace, and its reading has nothing to read, by formatting
+  [@test] crates/file-diffs/src/marks_test.rs (`blocks_the_comparison_cut_out_of_one_change_are_read_as_one`)
+  [@test] crates/review-plan/src/reading_test.rs (`a_reformat_the_comparison_cut_in_two_leaves_nothing_to_read_and_one_unit_of_whitespace`)
+
+#### Scenario: What a region does not prove
+- **WHEN** a change stands inside such blocks, a space inside a string makes the same characters other tokens, or the blocks are blank lines alone
+- **THEN** each block is read alone, and keeps its start
+  [@test] crates/file-diffs/src/marks_test.rs (`blocks_the_comparison_cut_out_of_one_change_are_read_as_one`)
+
+#### Scenario: Edited at random
+- **WHEN** files of every grammar are edited at random and compared with themselves
+- **THEN** a run of formatting whose lines are not the same tokens alone is the quiet part of a run of blocks in a row whose lines are
+- **AND** when no block of a diff that ignores nothing has a start, the two texts have the same tokens
+  [@test] crates/file-diffs/src/marks_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`)
 
 ### Requirement: Renames: A binding whose every name changed alike is a rename
 
@@ -1059,7 +1088,8 @@ the same pair in another subject has the marks of its pair alone.
 
 A block with a side of no lines (added lines, deleted lines, an added comment), lines that are blank on both sides
 and a block the policy cut off MUST have no run: a quiet run needs tokens that are the same on both sides. The first
-two MUST stay stops.
+two MUST stay stops. A block with a side of no lines MAY be the part of a run of the blocks the comparison cut out of
+one change, read as one: the tokens of the region are the same.
 
 #### Scenario: Added and deleted lines, blank lines
 - **WHEN** a block adds lines, deletes lines, adds a comment on a line of its own, adds a blank line, or has blank lines alone on both sides

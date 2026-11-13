@@ -18,7 +18,9 @@
 //!    block reads the same there. A run that reaches an end of its block is a run only then (`same_before`,
 //!    `same_after`): at its other ends stand lines of the same block that are no quiet run, where the reader stops.
 //!
-//! A run of formatting has a character that is no blank; a run always has lines on both sides.
+//! A run of formatting has a character that is no blank; a run always has lines on both sides. Read for a row of
+//! blocks the comparison cut out of one change (`marks_joined`), a run is cut at the ends of the blocks, and its part
+//! in a block may have lines on one side alone.
 //!
 //! **A reading with the two names of a rename read as one** (`marks_renames`, the second reading of a block) says
 //! which lines hold a place of a rename (`renamed`), and a run is of one kind there too: a group of the same tokens

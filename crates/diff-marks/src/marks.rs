@@ -7,14 +7,16 @@
 //!   (`code_tokens`, openspec/specs/commit/equal-by-tokens/spec.md): the same tokens parse to the same tree, so
 //!   the lines are the same program. A pair whose sides are not read by one grammar, a text without tokens and a side
 //!   over the size the inner ranges are compared for have no runs, and every block of them stays a stop.
-//! - **What is never marked**: a block the policy cut off (`Ignored`); a block with a side of no lines; lines that are
-//!   blank on both sides. A pale block (`WhitespaceOnly`) passes the same test of tokens as any other, with no
+//! - **What is never marked**: a block the policy cut off (`Ignored`); a block with a side of no lines, but as a block
+//!   the comparison cut out of one change with the blocks beside it (`marks_joined`); lines that are blank on both
+//!   sides. A pale block (`WhitespaceOnly`) passes the same test of tokens as any other, with no
 //!   shortcut: a space inside a string is equal under the `Ignore` policy and is no formatting.
 //! - **Before the tokens**, a block is asked a question of its characters alone (`may_have_run`,
 //!   `marks_renames::may_hold_rename`) that every block with a run answers with yes, so a file whose blocks all answer
 //!   no is never parsed for its marks.
 //! - **Limits by work, never by time**: the size of a side (`MAX_INNER_BYTES`, `MAX_INNER_LINES` of the comparison),
-//!   the tokens of a block (`MAX_BLOCK_TOKENS`), the tokens that differ in it (`MAX_TOKEN_EDITS`), the comparisons of
+//!   the tokens of a block (`MAX_BLOCK_TOKENS`), the tokens that differ in it (`MAX_TOKEN_EDITS`), the blocks read as
+//!   one (`marks_joined::MAX_JOINED_BLOCKS`), the comparisons of
 //!   a file (`MAX_FILE_TOKEN_WORK`), the line pairs of the question before the tokens (`MAX_LINE_PAIRS`) and the names
 //!   asked of a file (`MAX_RENAME_WORK`). The runs read the blocks and the tokens, never the inner ranges, so a diff
 //!   whose inner ranges ran out of their time (`line_level_only` within the size) has the runs of its blocks: the
@@ -43,10 +45,12 @@
 //!   indentation of the file has a meaning (`code_tokens::indentation_matters`, of either path) decides what
 //!   a line at another indent is in a move, so it is in the key of the diff (Branch Deck's `file_diffs::service::diff_options`).
 //!
-//! `marks_runs` reads the runs of one block from its tokens, `marks_renames` the renames of a file.
+//! `marks_runs` reads the runs of one block from its tokens, `marks_joined` the blocks the comparison cut out of one
+//! change as one, `marks_renames` the renames of a file.
 
 use crate::bindings::Bindings;
 use crate::leftovers::PendingBlock;
+use crate::marks_joined::read_joined;
 use crate::marks_renames::{Candidates, may_hold_rename, renames_of};
 use crate::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
 use crate::model::{DiffMarks, Rename};
@@ -330,7 +334,8 @@ pub struct FirstReading {
   work: u64,
 }
 
-/// The first reading of the blocks of `diff` (`runs_of`, which says what `ask_first` and `tokens` are)
+/// The first reading of the blocks of `diff` (`runs_of`, which says what `ask_first` and `tokens` are): each block by
+/// itself, then the blocks the comparison cut out of one change as one (`marks_joined::read_joined`)
 pub fn read_blocks(diff: &LineDiff, old: &SideText<'_>, new: &SideText<'_>, ask_first: bool, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>) -> FirstReading {
   let mut runs: Vec<Vec<LineRun>> = vec![Vec::new(); diff.blocks.len()];
   let mut candidates = Candidates::default();
@@ -354,11 +359,7 @@ pub fn read_blocks(diff: &LineDiff, old: &SideText<'_>, new: &SideText<'_>, ask_
     if ask_first && !renamed && !may_have_run(old, new, &lines) {
       continue;
     }
-    let read = read.get_or_insert_with(|| {
-      let read = [tokens(false)?, tokens(true)?];
-      // the lines of the tokens are the lines of the blocks, or nothing is proven
-      (read[0].line_count() == diff.old_line_count && read[1].line_count() == diff.new_line_count).then_some(read)
-    });
+    let read = read.get_or_insert_with(|| pair_tokens(diff, tokens));
     let Some([old_tokens, new_tokens]) = read else { break };
     let cut = runs_of_block(old_tokens, new_tokens, &lines, &asked, &mut work, &mut |old_token, new_token| {
       if renamed {
@@ -367,12 +368,24 @@ pub fn read_blocks(diff: &LineDiff, old: &SideText<'_>, new: &SideText<'_>, ask_
     });
     *runs = cut.unwrap_or_default();
   }
+  // the blocks the comparison cut out of one change, read as one where the tokens prove them
+  if !matches!(read, Some(None)) {
+    let mut joined_tokens = || read.get_or_insert_with(|| pair_tokens(diff, tokens)).clone();
+    read_joined(&diff.blocks, [old, new], &mut runs, &asked, &mut joined_tokens, &mut work);
+  }
   FirstReading {
     runs,
     candidates,
     tokens: read.flatten(),
     work,
   }
+}
+
+/// The tokens of the two sides of `diff`, read by `tokens`: `None` without them, and when their lines are not the
+/// lines of the blocks, so nothing is proven
+fn pair_tokens(diff: &LineDiff, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>) -> Option<[Arc<Tokens>; 2]> {
+  let read = [tokens(false)?, tokens(true)?];
+  (read[0].line_count() == diff.old_line_count && read[1].line_count() == diff.new_line_count).then_some(read)
 }
 
 /// Whether lines of a side of a pair (`true` the new one) hold a character that is no blank
