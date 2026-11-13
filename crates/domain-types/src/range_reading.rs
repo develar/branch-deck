@@ -38,6 +38,11 @@ pub struct RoleReading {
   /// Those with a start, past the blocks of the imports alone (`DiffReading::stops(true)`): what the badge of each
   /// file of a review with its plan counts, so the sum here is the sum of those badges
   pub to_read: u32,
+  /// Of `files_to_read`, those the reading proves (none of `RangeReading::unproven`)
+  pub files_to_read_proven: u32,
+  /// Of `to_read`, those in the files the reading proves: what the diff proves is left to read. A change of a file
+  /// no proof can be made of is counted to read, and proves nothing (`domain_policy::author_claim::check`)
+  pub to_read_proven: u32,
 }
 
 /// Why a file cannot be proven to need no reading: its count, if any, is all of its changes
@@ -200,7 +205,7 @@ pub struct AuthorClaim {
 }
 
 /// The diff proves the author's word wrong: it leaves `to_read` changes in `files` files outside the role the word
-/// names (`domain_policy::author_claim::check`)
+/// names, each a file the reading proves (`domain_policy::author_claim::check`)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -218,7 +223,8 @@ pub struct RangeReadingView {
   pub reading: RangeReading,
   pub summary: ReadingSummary,
   /// The diff proves the author's word wrong; `None` when it holds, when the author said nothing of the closed list,
-  /// and while a rename waits for the index
+  /// and when every change left outside its role is in a file the reading cannot prove (a rename that waits for the
+  /// index or that it did not prove too)
   pub conflict: Option<ClaimConflict>,
 }
 

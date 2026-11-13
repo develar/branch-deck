@@ -1,6 +1,7 @@
 use crate::PlanSources;
 use crate::reading::{READING_POLICY, ahead_readings, layer_readings};
 use crate::test_support::plan_of_range;
+use domain_types::fixtures::role_reading as role;
 use domain_types::range_reading::{FileRole, QuietProof, RangeReading, RoleReading, Unproven, UnprovenFile};
 use file_diffs::model::{DiffContent, DiffSource};
 use file_diffs::reading::DiffReading;
@@ -17,16 +18,6 @@ const REPORT_FORMATTED: &str = "package a\n\nclass Report {\n  fun total(a: Int,
 /// `REPORT_FORMATTED` with another body of `total`
 const REPORT_CHANGED: &str = "package a\n\nclass Report {\n  fun total(a: Int, b: Int): Int {\n    return a * b\n  }\n\n  fun name(): String {\n    return \"report\"\n  }\n}\n";
 const TEST: &str = "package a\n\nclass ReportTest {\n  fun total() {\n    check(Report().total(1, 2) == 3)\n  }\n}\n";
-
-fn role(role: FileRole, files: u32, files_to_read: u32, changes: u32, to_read: u32) -> RoleReading {
-  RoleReading {
-    role,
-    files,
-    files_to_read,
-    changes,
-    to_read,
-  }
-}
 
 /// The sum of the badges of the files of `base..head` as the review window counts them with its plan
 fn badges(repo: &TestRepo, base: &str, head: &str) -> u32 {
@@ -94,7 +85,12 @@ fn a_reading_sums_what_the_badge_of_each_file_counts_by_its_role_and_names_what_
         role(FileRole::Code, 1, 1, 1, 1),
         role(FileRole::Tests, 1, 1, 1, 1),
         role(FileRole::Prose, 1, 1, 1, 1),
-        role(FileRole::Resources, 2, 1, 1, 1),
+        // the change of `notes.cfg`, a text without a grammar, is counted and proves nothing
+        RoleReading {
+          files_to_read_proven: 0,
+          to_read_proven: 0,
+          ..role(FileRole::Resources, 2, 1, 1, 1)
+        },
       ],
       unproven: vec![
         UnprovenFile {
@@ -135,6 +131,29 @@ fn a_reformat_the_comparison_cut_in_two_leaves_nothing_to_read_and_one_unit_of_w
   let units: Vec<&str> = plan.units.iter().map(|unit| unit.id.as_str()).collect();
   assert_eq!(units, ["mechanical:whitespace"]);
   assert_eq!((plan.steps.coverage.blocks, plan.steps.coverage.mechanical), (12, 12));
+}
+
+/// openspec/specs/review/range-reading/spec.md, "Reading: A file no proof can be made of is named with why": a private
+/// member of the reformatted file renamed (`sumOf` to `totalOf`) where no index answers leaves its changes to read in
+/// a file not proven, apart from what the reading proves
+#[test]
+fn the_changes_of_a_file_no_proof_is_made_of_are_summed_apart() {
+  let path = "src/main/kotlin/probe/Ledger.kt";
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Reformat", &[(path, include_str!("../../file-diffs/testdata/split-reformat/Ledger.new.kt"))]);
+  let head = repo.create_commit_with_files("Rename sumOf", &[(path, include_str!("../../file-diffs/testdata/split-reformat/Ledger.renamed.kt"))]);
+  let reading = plan_of_range(&repo, &base, &head).reading;
+  assert_eq!(
+    reading.unproven,
+    [UnprovenFile {
+      path: path.to_string(),
+      role: FileRole::Code,
+      why: Unproven::RenamesUnanswered,
+    }],
+  );
+  let [code] = reading.roles.as_slice() else { panic!("{reading:?}") };
+  assert!(code.to_read > 0, "{reading:?}");
+  assert_eq!((code.files_to_read_proven, code.to_read_proven), (0, 0), "{reading:?}");
 }
 
 /// openspec/specs/review/range-reading/spec.md, "The layers of a stack are read at once"

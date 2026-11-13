@@ -1465,7 +1465,7 @@ export type ChildrenPush = {
 
 /**
  *  The diff proves the author's word wrong: it leaves `to_read` changes in `files` files outside the role the word
- *  names (`domain_policy::author_claim::check`)
+ *  names, each a file the reading proves (`domain_policy::author_claim::check`)
  */
 export type ClaimConflict = {
 	claim: AuthorClaim,
@@ -6688,7 +6688,8 @@ export type RangeReadingView = {
 	summary: ReadingSummary,
 	/**
 	 *  The diff proves the author's word wrong; `None` when it holds, when the author said nothing of the closed list,
-	 *  and while a rename waits for the index
+	 *  and when every change left outside its role is in a file the reading cannot prove (a rename that waits for the
+	 *  index or that it did not prove too)
 	 */
 	conflict: ClaimConflict | null,
 };
@@ -8596,6 +8597,13 @@ export type RoleReading = {
 	 *  file of a review with its plan counts, so the sum here is the sum of those badges
 	 */
 	toRead: number,
+	/**  Of `files_to_read`, those the reading proves (none of `RangeReading::unproven`) */
+	filesToReadProven: number,
+	/**
+	 *  Of `to_read`, those in the files the reading proves: what the diff proves is left to read. A change of a file
+	 *  no proof can be made of is counted to read, and proves nothing (`domain_policy::author_claim::check`)
+	 */
+	toReadProven: number,
 };
 
 /**  The facts of GitHub a gate reads */

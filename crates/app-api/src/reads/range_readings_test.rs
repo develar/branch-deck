@@ -16,6 +16,9 @@ fn reading(why: Option<Unproven>) -> RangeReading {
       files_to_read: u32::from(why.is_some()),
       changes: 1,
       to_read: u32::from(why.is_some()),
+      // the change to read is in the file no proof is made of
+      files_to_read_proven: 0,
+      to_read_proven: 0,
     }],
     unproven: why
       .map(|why| UnprovenFile {

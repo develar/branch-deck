@@ -3,6 +3,7 @@
 
 use crate::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use crate::pull_request::{PullRequest, PullRequestState};
+use crate::range_reading::{FileRole, RoleReading};
 use crate::review_request::ReviewRequest;
 
 /// A Safe Push of the virtual branch `branch_name` (`None`: of a temporary ref, matched by its revision) at the revision
@@ -328,5 +329,18 @@ pub fn grouped_branch(name: &str, commits: &[&str]) -> crate::GroupedBranchInfo 
     origin: crate::BranchOrigin::Prefix,
     issue_key: None,
     stack: None,
+  }
+}
+
+/// `files` files of `role`, `files_to_read` of them with `to_read` of their `changes` to read, every file proven
+pub const fn role_reading(role: FileRole, files: u32, files_to_read: u32, changes: u32, to_read: u32) -> RoleReading {
+  RoleReading {
+    role,
+    files,
+    files_to_read,
+    changes,
+    to_read,
+    files_to_read_proven: files_to_read,
+    to_read_proven: to_read,
   }
 }

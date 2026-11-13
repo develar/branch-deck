@@ -47,6 +47,8 @@ fn a_listing_asks_the_waiting_requests_without_their_last_reading() {
       files_to_read: 1,
       changes: 1,
       to_read: 1,
+      files_to_read_proven: 1,
+      to_read_proven: 1,
     }],
     ..RangeReading::default()
   };

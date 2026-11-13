@@ -34,8 +34,9 @@ pub const READING_POLICY: WhitespacePolicy = WhitespacePolicy::Default;
 pub const READING_POLICY_KEY: u8 = READING_POLICY as u8;
 
 /// The version of the rules of a reading: bump it when what `range_reading` sums or names changes, so no reading kept by
-/// an older binary is shown (`reading_version`)
-const READING_RULES: u32 = 1;
+/// an older binary is shown (`reading_version`). 2: the changes of the files it proves are summed apart
+/// (`RoleReading::to_read_proven`)
+const READING_RULES: u32 = 2;
 
 /// The version a final reading is kept under on disk (`object_cache::range_reading`): the rules of the reading with the
 /// version of the model of the diffs it sums (`file_diffs::service::model_version`)
@@ -71,6 +72,8 @@ pub fn range_reading(read: &Collected) -> RangeReading {
         files_to_read: 0,
         changes: 0,
         to_read: 0,
+        files_to_read_proven: 0,
+        to_read_proven: 0,
       });
       roles.len() - 1
     });
@@ -79,6 +82,10 @@ pub fn range_reading(read: &Collected) -> RangeReading {
     summed.files_to_read += u32::from(to_read > 0);
     summed.changes += reading.changes;
     summed.to_read += to_read;
+    if why.is_none() {
+      summed.files_to_read_proven += u32::from(to_read > 0);
+      summed.to_read_proven += to_read;
+    }
     if let Some(why) = why {
       unproven.push(UnprovenFile {
         path: header.path.clone(),

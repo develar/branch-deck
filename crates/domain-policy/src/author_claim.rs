@@ -1,8 +1,8 @@
 //! The author's word of a pull request (openspec/specs/review/range-reading/spec.md, "The author's word"): what its
 //! labels or the conventional type of its title say it is, from a closed list (`claim_of`), and the one case the diff
 //! proves it wrong (`check`): the author says refactor, tests or docs, and the range leaves changes to read outside
-//! that role. A fix or a feature is never checked: nothing in a diff proves one. The word is the author's: the window
-//! shows it as such, never as a fact.
+//! that role in files the reading proves; a file no proof can be made of proves nothing. A fix or a feature is never
+//! checked: nothing in a diff proves one. The word is the author's: the window shows it as such, never as a fact.
 
 use domain_types::range_reading::{AuthorClaim, ClaimConflict, ClaimKind, ClaimSource, FileRole, RangeReading};
 
@@ -60,13 +60,12 @@ pub fn claim_of(title: &str, labels: &[String]) -> Option<AuthorClaim> {
 }
 
 /// The diff proves `claim` wrong: `reading` leaves changes to read outside the role it names (refactor: of code, tests:
-/// outside the tests, docs: outside the prose). `None` when it holds, and while a rename waits for the index, whose
-/// answer may pass the changes left
+/// outside the tests, docs: outside the prose) in files it proves (`RoleReading::to_read_proven`). `None` when it
+/// holds, and when every change left outside the role is in a file no proof can be made of (`RangeReading::unproven`:
+/// a rename that waits for the index or that it did not prove, a text without a grammar, a binary file): such a
+/// change is counted to read and proves nothing, and the summary names the file as not proven
 #[must_use]
 pub fn check(claim: AuthorClaim, reading: &RangeReading) -> Option<ClaimConflict> {
-  if reading.pending() {
-    return None;
-  }
   let outside = |role: FileRole| match claim.kind {
     ClaimKind::Refactor => role == FileRole::Code,
     ClaimKind::Tests => role != FileRole::Tests,
@@ -76,6 +75,6 @@ pub fn check(claim: AuthorClaim, reading: &RangeReading) -> Option<ClaimConflict
     .roles
     .iter()
     .filter(|role| outside(role.role))
-    .fold((0, 0), |(to_read, files), role| (to_read + role.to_read, files + role.files_to_read));
+    .fold((0, 0), |(to_read, files), role| (to_read + role.to_read_proven, files + role.files_to_read_proven));
   (to_read > 0).then_some(ClaimConflict { claim, to_read, files })
 }

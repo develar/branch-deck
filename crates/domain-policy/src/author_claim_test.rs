@@ -62,20 +62,38 @@ fn the_word_of_the_author_is_a_label_or_a_conventional_type_of_a_closed_list() {
   }
 }
 
+/// Of `role`, `files_to_read` files with `to_read` changes to read, every file proven
 fn role(role: FileRole, files_to_read: u32, to_read: u32) -> RoleReading {
+  proven(role, files_to_read, to_read, files_to_read, to_read)
+}
+
+/// Of `role`, `files_to_read` files with `to_read` changes to read, `files_proven` of them with `to_read_proven` of
+/// those in files the reading proves
+fn proven(role: FileRole, files_to_read: u32, to_read: u32, files_proven: u32, to_read_proven: u32) -> RoleReading {
   RoleReading {
     role,
     files: files_to_read.max(1),
     files_to_read,
     changes: to_read,
     to_read,
+    files_to_read_proven: files_proven,
+    to_read_proven,
   }
 }
 
-/// openspec/specs/review/range-reading/spec.md, "The author's word is checked against the reading"
+fn not_proven(path: &str, role: FileRole, why: Unproven) -> UnprovenFile {
+  UnprovenFile {
+    path: path.to_string(),
+    role,
+    why,
+  }
+}
+
+/// openspec/specs/review/range-reading/spec.md, "Author's word: The diff proves the word wrong in one case"
 #[test]
 fn the_word_is_wrong_only_when_the_diff_leaves_changes_to_read_outside_its_role() {
   let reading = |roles: Vec<RoleReading>| RangeReading { roles, ..RangeReading::default() };
+  let with = |roles: Vec<RoleReading>, unproven: Vec<UnprovenFile>| RangeReading { roles, unproven, proofs: vec![] };
   let refactor = labelled(ClaimKind::Refactor, "refactor");
   let tests = titled(ClaimKind::Tests, "test");
   let docs = labelled(ClaimKind::Docs, "docs");
@@ -100,10 +118,46 @@ fn the_word_is_wrong_only_when_the_diff_leaves_changes_to_read_outside_its_role(
       conflict(&refactor, 3, 2),
     ),
     (
+      "a private member renamed where no index answers: its changes are in a file not proven, and prove nothing",
+      refactor.clone(),
+      with(
+        vec![proven(FileRole::Code, 1, 4, 0, 0)],
+        vec![not_proven("Ledger.kt", FileRole::Code, Unproven::RenamesUnanswered)],
+      ),
+      None,
+    ),
+    (
+      "a rename that waits for the index proves nothing either, until its answer",
+      refactor.clone(),
+      with(
+        vec![proven(FileRole::Code, 1, 2, 0, 0)],
+        vec![not_proven("Report.kt", FileRole::Code, Unproven::RenamesPending)],
+      ),
+      None,
+    ),
+    (
+      "code to read in a proven file beside one not proven: the proven file alone is the conflict",
+      refactor.clone(),
+      with(
+        vec![proven(FileRole::Code, 2, 5, 1, 2)],
+        vec![not_proven("Ledger.kt", FileRole::Code, Unproven::RenamesUnanswered)],
+      ),
+      conflict(&refactor, 2, 1),
+    ),
+    (
       "tests that change code",
       tests.clone(),
       reading(vec![role(FileRole::Code, 1, 1), role(FileRole::Tests, 2, 4), role(FileRole::Build, 1, 1)]),
       conflict(&tests, 2, 2),
+    ),
+    (
+      "tests beside a changed script of no grammar: nothing is proven of the script",
+      tests.clone(),
+      with(
+        vec![role(FileRole::Tests, 2, 4), proven(FileRole::Resources, 1, 1, 0, 0)],
+        vec![not_proven("build.sh", FileRole::Resources, Unproven::NoGrammar)],
+      ),
+      None,
     ),
     ("tests alone hold", tests, reading(vec![role(FileRole::Tests, 2, 4)]), None),
     (
@@ -117,16 +171,4 @@ fn the_word_is_wrong_only_when_the_diff_leaves_changes_to_read_outside_its_role(
   for (name, claim, reading, expected) in cases {
     assert_eq!(check(claim, &reading), expected, "{name}");
   }
-
-  // a rename that waits for the index may be passed by its answer: no verdict on the word until then
-  let waiting = RangeReading {
-    roles: vec![role(FileRole::Code, 1, 2)],
-    unproven: vec![UnprovenFile {
-      path: "Report.kt".to_string(),
-      role: FileRole::Code,
-      why: Unproven::RenamesPending,
-    }],
-    proofs: vec![],
-  };
-  assert_eq!(check(refactor, &waiting), None, "a pending rename");
 }

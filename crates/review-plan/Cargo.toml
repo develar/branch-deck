@@ -55,6 +55,8 @@ schemars = ["dep:schemars", "git-ops/schemars", "generated-files/schemars", "dom
 specta = ["dep:specta", "git-ops/specta", "generated-files/specta", "domain-types/specta"]
 
 [dev-dependencies]
+# the builders of the readings
+domain-types = { path = "../domain-types", features = ["fixtures"] }
 test-utils = { path = "../test-utils" }
 pretty_assertions.workspace = true
 test-log.workspace = true

@@ -1,5 +1,5 @@
 use crate::range_reading::{ReadAheadOf, reading_summary, reading_view, request_readings, stack_summary};
-use domain_types::fixtures::review_request;
+use domain_types::fixtures::{review_request, role_reading as role};
 use domain_types::range_reading::{
   AuthorClaim, ClaimConflict, ClaimKind, ClaimSource, FileRole, QuietProof, RangeReading, ReadingSummary, ReadingVerdict, RequestReading, RequestReadingState, RoleReading,
   StackReading, StackReadingState, StackRowReading, Unproven, UnprovenFile,
@@ -7,17 +7,6 @@ use domain_types::range_reading::{
 use domain_types::review_request::{RequestRow, ReviewRequest};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
-
-/// `files` files of `role`, `files_to_read` of them with `to_read` of their `changes` to read
-fn role(role: FileRole, files: u32, files_to_read: u32, changes: u32, to_read: u32) -> RoleReading {
-  RoleReading {
-    role,
-    files,
-    files_to_read,
-    changes,
-    to_read,
-  }
-}
 
 fn unproven(path: &str, role: FileRole, why: Unproven) -> UnprovenFile {
   UnprovenFile {
