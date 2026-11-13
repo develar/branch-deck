@@ -49,6 +49,13 @@ export const SetupRepoOptionsSchema = z.object({
   waitForSync: z.boolean().default(true),
 
   /**
+   * Whether the setup waits for the page to mount (the header, or the branch creator without a repository); false for a
+   * page whose render fails, which shows the failure instead (`PageFailure`)
+   * Default: true
+   */
+  waitForPage: z.boolean().default(true),
+
+  /**
    * How many branches that last sync had (`lastBranchCount` of `repositoryState`), with `syncedAgoMs`: the table loads in
    * their room until the first sync's rows come
    * Default: undefined - not recorded, the loading table is one row tall

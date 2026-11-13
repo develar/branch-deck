@@ -203,7 +203,9 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   // Wait for the React app to mount and render content
   // The ConfigurationHeader contains the sync button we need
   // Skip this wait if prepopulateStore is false since no repository is loaded
-  if (shouldPopulateStore) {
+  if (!parsedOptions.waitForPage) {
+    // the test looks at a page that never mounts
+  } else if (shouldPopulateStore) {
     await page.waitForSelector("[data-testid='configuration-header']", { timeout: 45000 })
   } else {
     // For empty store scenarios (like welcome card), wait for the app to be mounted

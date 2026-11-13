@@ -444,7 +444,14 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
       return null
     },
     "plugin:path": handlePathCommand,
-    "plugin:log": () => null, // Ignore log commands
+    // the lines of the error level (`LogLevel.Error`, 5), recorded in `__e2eErrorLogs` as `{ line, keyValues }`: what
+    // reached the log of the app
+    "plugin:log": (_cmd: string, payload: any) => {
+      if (payload?.level === 5) {
+        ;((window as any).__e2eErrorLogs ??= []).push({ line: payload.message, keyValues: payload.keyValues ?? {} })
+      }
+      return null
+    },
     // the app's name (`getName` of `@tauri-apps/api/app`): the `productName` of tauri.conf.json
     "plugin:app": (cmd: string) => {
       if (cmd !== "plugin:app|name") {

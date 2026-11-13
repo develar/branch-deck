@@ -461,6 +461,8 @@ Mock implementation:
   `tests/e2e/helpers/title-bar-helpers.ts`: macOS, Windows, GNOME layouts, KDE). The browser says it is Windows, so the
   lone Alt tap of the main menu is on. `emit` and `emit_to` are recorded in `__e2eEmittedEvents` and go through the
   test server to the pages of the repository (**Events of the app**)
+- **Log**: `plugin:log` records the lines of the error level in `__e2eErrorLogs` (`line`, `keyValues`): what of an
+  error reached the log of the app; the other levels go nowhere
 - **Sub-windows**: `open_sub_window` runs on the server as the app runs it (`app_api::app::windows`): the desktop of the
   test repository builds no window and records each open (the window that asked, the label, the URL, the title, the
   parsed data and the settings it starts from, `store` and `storeVersion`: the writer's copy, as the app builds the
