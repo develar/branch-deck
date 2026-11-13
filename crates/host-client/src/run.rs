@@ -14,9 +14,10 @@
 //!    Ctrl+C before this step stops the local work, and nothing runs on the host. A start whose reply does not come is
 //!    cancelled, so the host does not wait for its pack.
 //! 3. Follows the output (`Follow`) on a thread of its own from the start on, so the steps of the host show while the
-//!    pack builds. Each stderr line goes to the stderr sink as it comes, and the stdout lines to the stdout sink. A
-//!    connection that is quiet for 120 s is lost: the client connects again from the last offset, with a backoff, for up
-//!    to 10 min after the last reply of the agent. `Reply::Phases` before the end gives the steps of the host.
+//!    pack builds. The bytes of each piece of output, with its line end when it has one, go to the output sink as they
+//!    come (`Client::with_output`). A connection that is quiet for 120 s is lost: the client connects again from the
+//!    last offset, with a backoff, for up to 10 min after the last reply of the agent. `Reply::Phases` before the end
+//!    gives the steps of the host.
 //! 4. Meanwhile it builds the thin pack of the commits that the host lacks, while the host takes the slot, and sends it
 //!    (`Pack` with `PackTarget::Run`) on a connection of its own (`pack`). When the pack fails, the client cancels the
 //!    run, stops the follow, and refuses with the code of the pack.
@@ -127,8 +128,8 @@ pub struct RunFacts {
 pub struct RunOutcome {
   /// The exit code of the command. A command that a signal ended answers 128 plus the signal number
   pub code: i32,
-  /// The stdout lines of the command, each with its line end; empty with `Client::with_stdout`
-  pub stdout: String,
+  /// The bytes of the stdout of the command; empty with `Client::with_output`
+  pub stdout: Vec<u8>,
   pub facts: RunFacts,
 }
 
@@ -158,7 +159,8 @@ impl RunFailure {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Followed {
   pub code: i32,
-  pub stdout: String,
+  /// The bytes of the stdout of the command; empty with `Client::with_output`
+  pub stdout: Vec<u8>,
   /// The steps of the run on the host, from `Reply::Phases`. Empty when the agent sent none
   pub phases: Vec<Phase>,
 }
@@ -766,13 +768,15 @@ impl Client<'_> {
   fn follow_loop(&self, host: &mut Host, run: &str, watch: &Watch) -> Ended {
     let mut state = FollowState {
       offset: 0,
-      stdout: String::new(),
+      stdout: Vec::new(),
+      stderr: Vec::new(),
       last_reply: Instant::now(),
       backoff: self.timing.first_backoff,
       phases: Vec::new(),
     };
     loop {
       let once = self.follow_once(host, run, watch, &mut state);
+      self.say_open_stderr(&mut state);
       if watch.abandoned.load(Ordering::Acquire) {
         return Ended::Unseen(Refusal::new(
           Code::Interrupted,
@@ -838,18 +842,14 @@ impl Client<'_> {
       let reply = host.recv_beating(&mut channel, self.timing.read, &mut heard).map_err(classify)?;
       heard();
       match reply {
-        Reply::Output { stream, text, end } => {
+        Reply::Output { stream, piece, end } => {
           // A record that a lost connection had delivered already comes again after the new `Follow`
           if end > state.offset {
             state.offset = end;
-            match (stream, self.stdout) {
-              (Stream::Stderr, _) => (self.say)(&text),
-              (Stream::Stdout, Some(stdout)) => stdout(&text),
-              (Stream::Stdout, None) => {
-                state.stdout.push_str(&text);
-                state.stdout.push('\n');
-              }
-            }
+            let bytes = piece
+              .into_stream_bytes()
+              .map_err(|message| Broken::Refused(Refusal::new(Code::Link, format!("the agent on {} sent {message}", host.alias()))))?;
+            self.put_output(stream, &bytes, state);
           }
         }
         // A new connection after a lost one can bring the steps again, and the last ones hold
@@ -861,6 +861,31 @@ impl Client<'_> {
         Reply::Refused { code, message } => return Err(Broken::Refused(host.agent_refusal(&code, &message))),
         reply => return Err(Broken::Refused(host.unexpected(&reply))),
       }
+    }
+  }
+
+  /// Gives the bytes of a piece of output to the output sink. Without one, the stdout collects, and each complete line
+  /// of the stderr goes to `say`
+  fn put_output(&self, stream: Stream, bytes: &[u8], state: &mut FollowState) {
+    match (stream, self.output) {
+      (_, Some(output)) => output(stream, bytes),
+      (Stream::Stdout, None) => state.stdout.extend_from_slice(bytes),
+      (Stream::Stderr, None) => {
+        state.stderr.extend_from_slice(bytes);
+        while let Some(newline) = state.stderr.iter().position(|&byte| byte == b'\n') {
+          let line: Vec<u8> = state.stderr.drain(..=newline).collect();
+          (self.say)(&String::from_utf8_lossy(&line[..newline]));
+        }
+      }
+    }
+  }
+
+  /// Gives `say` the stderr line without its line end that the follow holds, when the client has no output sink: the
+  /// line of the client that comes next stays on a line of its own
+  fn say_open_stderr(&self, state: &mut FollowState) {
+    if !state.stderr.is_empty() {
+      (self.say)(&String::from_utf8_lossy(&state.stderr));
+      state.stderr.clear();
     }
   }
 }
@@ -894,7 +919,10 @@ enum Taken<T> {
 /// What a follow keeps across its connections
 struct FollowState {
   offset: u64,
-  stdout: String,
+  /// The stdout of the command, without an output sink
+  stdout: Vec<u8>,
+  /// The bytes of the stderr after its last line end, without an output sink
+  stderr: Vec<u8>,
   last_reply: Instant,
   backoff: Duration,
   /// The steps of the host from the last `Reply::Phases`

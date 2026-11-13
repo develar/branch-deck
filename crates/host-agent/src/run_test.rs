@@ -143,15 +143,15 @@ fn the_log_gives_complete_events_with_their_end_offsets() {
   let dir = tempfile::tempdir().expect("a temporary directory");
   let path = dir.path().join("events.log");
   let log = EventLog::open(&path).expect("opened");
-  log.write(Stream::Stdout, "one");
-  log.write(Stream::Stderr, "two \"quoted\"");
+  log.line(Stream::Stdout, "one");
+  log.line(Stream::Stderr, "two \"quoted\"");
   let events = read_events(&path, 0, 1 << 20).expect("read");
   assert_eq!(events.len(), 2);
   assert_eq!(
     events[0].0,
     Event {
       stream: Stream::Stdout,
-      text: "one".to_owned(),
+      piece: Piece::of(b"one", false),
     }
   );
   let first_end = events[0].1;
@@ -160,7 +160,7 @@ fn the_log_gives_complete_events_with_their_end_offsets() {
   assert!(!is_line_start(&path, events[1].1 + 1).expect("checked"));
   let rest = read_events(&path, first_end, 1 << 20).expect("read");
   assert_eq!(rest.len(), 1);
-  assert_eq!(rest[0].0.text, "two \"quoted\"");
+  assert_eq!(rest[0].0.piece.text, "two \"quoted\"");
 
   // a line without its end waits for a later read.
   OpenOptions::new()
@@ -171,16 +171,69 @@ fn the_log_gives_complete_events_with_their_end_offsets() {
   assert_eq!(read_events(&path, events[1].1, 1 << 20).expect("read"), Vec::new());
 
   log.close();
-  log.write(Stream::Stdout, "dropped");
+  log.line(Stream::Stdout, "dropped");
   assert_eq!(read_events(&path, 0, 1 << 20).expect("read").len(), 2);
+
+  // an event of an older supervisor has no `partial`: a whole line
+  let older = dir.path().join("older.log");
+  fs::write(&older, b"{\"stream\":\"stdout\",\"text\":\"older\"}\n").expect("written");
+  assert_eq!(read_events(&older, 0, 1 << 20).expect("read")[0].0.piece, Piece::of(b"older", false));
 }
 
+/// The bytes of each stream of the log: the bytes of each piece, each followed by its line end unless it is partial
+fn streams(path: &Path) -> (Vec<u8>, Vec<u8>) {
+  let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+  for (event, _) in read_events(path, 0, 1 << 20).expect("read") {
+    let bytes = event.piece.into_stream_bytes().expect("the bytes");
+    match event.stream {
+      Stream::Stdout => stdout.extend(bytes),
+      Stream::Stderr => stderr.extend(bytes),
+    }
+  }
+  (stdout, stderr)
+}
+
+/// A piece longer than an event becomes several events, cut between two characters, and only the last one has the line
+/// end. A source goes on with its open line, and the line of another source of the stream ends that line first
 #[test]
-fn a_long_line_becomes_several_events() {
-  let text = "é".repeat(MAX_EVENT_TEXT);
-  let pieces = pieces(&text);
-  assert_eq!(pieces.len(), 2);
-  assert!(pieces.iter().all(|piece| piece.len() <= MAX_EVENT_TEXT));
-  assert_eq!(pieces.concat(), text);
-  assert_eq!(super::pieces(""), vec![""]);
+fn a_long_piece_becomes_several_events_and_another_source_ends_an_open_line() {
+  let dir = tempfile::tempdir().expect("a temporary directory");
+  let path = dir.path().join("events.log");
+  let log = EventLog::open(&path).expect("opened");
+  let text = format!("a{}", "é".repeat(MAX_EVENT_BYTES));
+  log.line(Stream::Stdout, &text);
+  let pieces: Vec<(usize, bool)> = read_events(&path, 0, 1 << 20)
+    .expect("read")
+    .iter()
+    .map(|(event, _)| (event.piece.text.len(), event.piece.partial))
+    .collect();
+  assert_eq!(pieces, [(MAX_EVENT_BYTES - 1, true), (MAX_EVENT_BYTES, true), (2, false)], "each é stays whole");
+  assert_eq!(streams(&path).0, format!("{text}\n").into_bytes());
+
+  let dir = tempfile::tempdir().expect("a temporary directory");
+  let path = dir.path().join("events.log");
+  let log = EventLog::open(&path).expect("opened");
+  let (out, err) = (log.source(), log.source());
+  log.write(out, Stream::Stdout, b"one ", true);
+  log.write(err, Stream::Stderr, b"half", true);
+  log.line(Stream::Stderr, "brd-host: a line of the agent");
+  log.write(out, Stream::Stdout, b"line", false);
+  log.write(err, Stream::Stderr, b"\xff rest", false);
+  log.write(err, Stream::Stderr, b"no end", true);
+  assert_eq!(streams(&path), (b"one line\n".to_vec(), b"half\nbrd-host: a line of the agent\n\xff rest\nno end".to_vec()));
+}
+
+/// A cut moves the start of a character to the next piece, and leaves bytes that are not UTF-8 where they are
+#[test]
+fn a_cut_keeps_each_character_whole() {
+  let smile = "😀".as_bytes();
+  for kept in 1..smile.len() {
+    assert_eq!(char_cut(&[b"ab", &smile[..kept]].concat()), 2, "{kept} bytes of 😀");
+  }
+  assert_eq!(char_cut(&[b"ab", smile].concat()), 6);
+  assert_eq!(char_cut("aé".as_bytes()), 3);
+  assert_eq!(char_cut(b"a\xc3"), 1);
+  assert_eq!(char_cut(b"\xff\xff\xff\xff"), 4);
+  assert_eq!(char_cut(b"\x80\x80\x80\x80"), 4);
+  assert_eq!(char_cut(b""), 0);
 }

@@ -1,5 +1,5 @@
 use crate::proto::{
-  DEFAULT_PORT, FileKind, PackTarget, Phase, Reply, RepositorySlots, Request, RunInfo, RunSpec, SCHEMA_VERSION, Stream, VersionLine, feature, features, is_run_id,
+  DEFAULT_PORT, FileKind, PackTarget, Phase, Piece, Reply, RepositorySlots, Request, RunInfo, RunSpec, SCHEMA_VERSION, Stream, VersionLine, feature, features, is_run_id,
 };
 use crate::refusal::Code;
 use pretty_assertions::assert_eq;
@@ -44,7 +44,7 @@ fn a_request_and_a_reply_have_a_tagged_json_shape() {
 
   let reply = Reply::Output {
     stream: Stream::Stderr,
-    text: "a line".to_owned(),
+    piece: Piece::of(b"a line", false),
     end: 9,
   };
   assert_eq!(
@@ -56,6 +56,52 @@ fn a_request_and_a_reply_have_a_tagged_json_shape() {
     serde_json::to_string(&refused).expect("json"),
     r#"{"reply":"refused","code":"slot_timeout","message":"no slot within an hour"}"#
   );
+}
+
+/// The reply of a piece as an older client reads it: before `partial` and `base64`
+#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(tag = "reply", rename_all = "snake_case")]
+enum OlderReply {
+  Output { stream: Stream, text: String, end: u64 },
+}
+
+/// A piece of UTF-8 is its text, and a piece that is not UTF-8 has its bytes in base64 beside its lossy text. A partial
+/// piece has no line end after it in its stream. The fields are optional: a piece of an older agent is a whole line,
+/// and an older client reads the text of a piece of a newer agent
+#[test]
+fn a_piece_keeps_its_bytes_and_an_older_end_reads_it() {
+  let partial = Reply::Output {
+    stream: Stream::Stdout,
+    piece: Piece::of(b"\xff\xfe a", true),
+    end: 12,
+  };
+  let json = serde_json::to_string(&partial).expect("json");
+  assert_eq!(
+    serde_json::from_str::<serde_json::Value>(&json).expect("parsed"),
+    serde_json::json!({"reply": "output", "stream": "stdout", "text": "\u{fffd}\u{fffd} a", "partial": true, "base64": "//4gYQ==", "end": 12})
+  );
+  assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), partial);
+  assert_eq!(
+    serde_json::from_str::<OlderReply>(&json).expect("an older client reads it"),
+    OlderReply::Output {
+      stream: Stream::Stdout,
+      text: "\u{fffd}\u{fffd} a".to_owned(),
+      end: 12
+    }
+  );
+  let Reply::Output { piece, .. } = partial else { unreachable!() };
+  assert_eq!(piece.into_stream_bytes().expect("the bytes"), b"\xff\xfe a", "no line end after a partial piece");
+
+  let older: Reply = serde_json::from_str(r#"{"reply":"output","stream":"stderr","text":"a line","end":7}"#).expect("a piece of an older agent");
+  let Reply::Output { piece, .. } = older else { panic!("{older:?}") };
+  assert_eq!(piece, Piece::of(b"a line", false));
+  assert_eq!(piece.into_stream_bytes().expect("the bytes"), b"a line\n", "a whole line");
+
+  let bad = Piece {
+    base64: Some("not base64!".to_owned()),
+    ..Piece::default()
+  };
+  assert!(bad.into_stream_bytes().is_err(), "base64 that does not decode is an error of the protocol");
 }
 
 #[test]

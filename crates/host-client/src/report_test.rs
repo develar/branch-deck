@@ -36,7 +36,7 @@ fn the_report_of_a_run_is_the_golden_json_of_the_spec() {
   ];
   let outcome = RunOutcome {
     code: 0,
-    stdout: String::new(),
+    stdout: Vec::new(),
     facts: RunFacts {
       run: Some("1793181600000-4242".to_owned()),
       commit: Some(commit.to_owned()),

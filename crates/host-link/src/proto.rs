@@ -10,11 +10,14 @@
 //! A run lives on the agent, not on the connection. `Request::Start` answers at once, and `Request::Follow` reads the
 //! output from an offset, so a client that lost its connection follows again from the last offset it saw.
 //!
-//! A change that an older end cannot read raises `SCHEMA_VERSION`. The client and the agent are replaced together, so
-//! the protocol keeps no field for an older end, with one exception: the upgrade. The hello, `Request::Upgrade`,
-//! `Reply::Upgraded` and `VersionLine` keep their shapes, so the agent of a host takes the next binary over the link
+//! A change that an older end cannot read raises `SCHEMA_VERSION`. A new optional field that an older end ignores stays
+//! within the schema, such as `Piece::partial`: the older end reads the message as before. The hello,
+//! `Request::Upgrade`, `Reply::Upgraded` and `VersionLine` keep their shapes, so the agent of a host takes the next
+//! binary over the link
 
 use crate::refusal::{Code, Refusal};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::{Deserialize, Serialize};
 use sync_utils::host_ref_name::is_host_ref_name;
 
@@ -225,10 +228,12 @@ pub enum Reply {
   Started {
     run: String,
   },
-  /// One line of the output of a run, without its line end. `end` is the offset after it
+  /// One piece of the output of a run: a line without its line end, or a part of a line. `end` is the offset after it
+  /// in the log of the run
   Output {
     stream: Stream,
-    text: String,
+    #[serde(flatten)]
+    piece: Piece,
     end: u64,
   },
   Heartbeat {
@@ -318,6 +323,56 @@ impl FileKind {
 pub enum Stream {
   Stdout,
   Stderr,
+}
+
+/// One piece of one stream of the output of a run, as `Reply::Output` and the log of the agent carry it: a line without
+/// its line end, or a part of a line. The bytes of a stream are the bytes of its pieces in their order, each followed
+/// by a line end unless it is `partial`.
+///
+/// An older client ignores `partial` and `base64`, and writes `text` and a line end. An older agent sends neither, so
+/// each of its pieces is a whole line
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Piece {
+  /// The bytes of the piece. A piece that is not UTF-8 has its lossy text here, and its bytes in `base64`
+  pub text: String,
+  /// No line end comes after the piece: the next piece of the stream goes on with its line, or the stream ended
+  /// without a line end
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub partial: bool,
+  /// The bytes of a piece that is not UTF-8, in standard base64 with padding
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub base64: Option<String>,
+}
+
+impl Piece {
+  /// The piece of `bytes`; `partial`: no line end comes after them
+  pub fn of(bytes: &[u8], partial: bool) -> Self {
+    match std::str::from_utf8(bytes) {
+      Ok(text) => Self {
+        text: text.to_owned(),
+        partial,
+        base64: None,
+      },
+      Err(_) => Self {
+        text: String::from_utf8_lossy(bytes).into_owned(),
+        partial,
+        base64: Some(BASE64.encode(bytes)),
+      },
+    }
+  }
+
+  /// The bytes of the piece in its stream: its bytes, then its line end unless it is partial. A piece whose `base64` does
+  /// not decode is an error of the protocol
+  pub fn into_stream_bytes(self) -> Result<Vec<u8>, String> {
+    let mut bytes = match self.base64 {
+      Some(base64) => BASE64.decode(base64).map_err(|error| format!("a piece of output whose base64 does not decode: {error}"))?,
+      None => self.text.into_bytes(),
+    };
+    if !self.partial {
+      bytes.push(b'\n');
+    }
+    Ok(bytes)
+  }
 }
 
 /// A run that the agent keeps

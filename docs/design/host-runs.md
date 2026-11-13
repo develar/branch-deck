@@ -99,12 +99,33 @@ The lend table, the give-back, the clean and the shrink are in "Host slots" of
 - **Sleep.** `serve` holds the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after
   its hello, and each supervisor holds them for its whole life. So a command runs to its end without its client.
 
+### The output of a run
+
+The supervisor reads the stdout and the stderr of the command and writes them to `events.log` of the run as pieces
+(`host_link::proto::Piece`). A piece is a line without its line end, or a part of a line: a line longer than 64 KiB is
+several pieces, cut between two characters. `partial` tells that no line end comes after a piece, so a cut and a last
+line without a line end add no line end. A piece that is not UTF-8 has its bytes in `base64` beside its lossy `text`.
+The reader keeps every byte, a carriage return included. A follow sends each piece as `Reply::Output`, and the client
+writes its bytes and, unless it is partial, a line end. So the stdout of `brd-host run` and of `brd-host follow` is the
+stdout of the command, byte for byte. A line comes when it ends, and a line longer than 64 KiB comes in parts.
+
+The stderr of a run holds every byte of the stderr of the command in its order, and the lines of brd-host. A line of
+brd-host starts a line of its own: the client ends a stderr line of the command that stopped inside a line before it
+writes its own line. The log of the agent ends the open line of a stream before a line of the agent, and before a piece
+of another pipe. Each pipe is a source of the log (`EventLog::source`); a prepare step writes both of its pipes to the
+stderr.
+
 ### Versions and the upgrade
 
 The hello carries the protocol schema, the version of Branch Deck (`package.json`, as `brd version` reads it) and the
 SHA-256 of the binary as its build id. A different schema refuses with `schema`, exit 75. A different build of the
 same schema runs, and the client adds one line that names `brd-host upgrade <alias>`. The client hashes its own binary
 only for a run and for `hello`, the commands that compare the builds; the hash reads the whole executable.
+
+A change that an older end cannot read raises the schema. A new field that an older end ignores stays within it, such
+as `partial` and `base64` of a piece of output: an older client writes `text` and a line end after each piece, and an
+older agent sends neither field, so each of its pieces is a whole line. Only a client and an agent of this build or
+later keep every byte of the output.
 
 `brd-host upgrade <alias>` keeps the behavior of `yonder upgrade`:
 
@@ -147,6 +168,12 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
    needs `brd`, the binary of the app. An agent that wanted to free the disk of the Studio upgraded `brd-host`, found
    the `brd` of an old app there, and copied the app binary over. `brd-host upgrade` replaces only the agent, so every
    function a host needs lives in the agent.
+6. **Decision**: A piece of output says whether a line end comes after it (`partial`), and a piece that is not UTF-8
+   carries its bytes in base64; the schema stays 1 (2026-11-13).
+   **Rationale**: Each event was a line, so the cut of a line longer than 64 KiB added a line end, and bt of the IntelliJ
+   monorepo could not parse the JSON on the stdout of a run. A raised schema would refuse each run of an older client
+   with `schema`, and the agent of an older build refuses a binary of another schema in `brd-host upgrade`, so each host
+   would need `brd-host setup` again. The optional fields keep both older ends as they were.
 
 ## Alternatives Considered
 

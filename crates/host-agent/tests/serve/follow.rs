@@ -1,9 +1,9 @@
-//! What a follow and a fetch send: a follow from an offset in the middle of a run, and the TLS records of a fetch of many
-//! small files
+//! What a follow and a fetch send: a follow from an offset in the middle of a run, the bytes of the pieces of a long
+//! line, and the TLS records of a fetch of many small files
 
 use super::{ALL_PHASES, Agent, DEADLINE, World, wait_for};
 use host_link::channel::{Channel, ClientTls};
-use host_link::proto::{Reply, Request, Stream};
+use host_link::proto::{Piece, Reply, Request, Stream};
 use pretty_assertions::assert_eq;
 use std::fs;
 use std::io::{Read, Write};
@@ -19,7 +19,8 @@ impl Agent<'_> {
     let mut lines = Vec::new();
     loop {
       match channel.recv::<Reply>().unwrap_or_else(|error| panic!("{error}; {}", self.dump(run))) {
-        Reply::Output { stream, text: line, end } => {
+        Reply::Output { stream, piece, end } => {
+          let line = piece.text;
           let seen = line == text;
           lines.push((stream, line, end));
           if seen {
@@ -31,6 +32,60 @@ impl Agent<'_> {
       }
     }
   }
+
+  /// Follows a run from `offset` to its end with the exit code 0, and answers each piece with the offset after it
+  fn pieces_from(&self, run: &str, offset: u64) -> Vec<(Stream, Piece, u64)> {
+    let mut channel = self.ask(&Request::Follow { run: run.to_owned(), offset });
+    let mut pieces = Vec::new();
+    loop {
+      match channel.recv::<Reply>().unwrap_or_else(|error| panic!("{error}; {}", self.dump(run))) {
+        Reply::Output { stream, piece, end } => pieces.push((stream, piece, end)),
+        Reply::Heartbeat { .. } | Reply::Phases { .. } => {}
+        Reply::Exit { code: 0 } => return pieces,
+        other => panic!("{other:?}; {}", self.dump(run)),
+      }
+    }
+  }
+}
+
+/// The bytes of `stream` in `pieces`: each piece, then its line end unless it is partial
+fn stream_bytes(pieces: &[(Stream, Piece, u64)], stream: Stream) -> Vec<u8> {
+  pieces
+    .iter()
+    .filter(|(of, ..)| *of == stream)
+    .flat_map(|(_, piece, _)| piece.clone().into_stream_bytes().expect("the bytes of a piece"))
+    .collect()
+}
+
+/// A line of 100 KiB without a line end is partial pieces of at most 64 KiB in the log, and a follow of the ended run
+/// gives the bytes of each stream as the command wrote them: a carriage return, a byte that is not UTF-8, a last line
+/// without a line end. A follow from the offset after the first piece goes on inside its line
+#[test]
+fn a_follow_of_an_ended_run_gives_the_bytes_of_each_stream() {
+  let world = World::new(1, &[]);
+  let agent = world.serve();
+  agent.start(world.spec("4-1", r"head -c 102400 /dev/zero | tr '\0' a; printf 'x\r\n\377\n'; printf 'no end' >&2"));
+  let pieces = agent.pieces_from("4-1", 0);
+  let mut stdout = vec![b'a'; 102_400];
+  stdout.extend(b"x\r\n\xff\n");
+  assert_eq!(stream_bytes(&pieces, Stream::Stdout), stdout, "{}", agent.dump("4-1"));
+  let stderr = stream_bytes(&pieces, Stream::Stderr);
+  assert!(
+    stderr.ends_with(b"\nno end"),
+    "the lines of the agent are whole, and the last piece of the command is partial: {}",
+    String::from_utf8_lossy(&stderr)
+  );
+  let stdout_pieces: Vec<(usize, bool, bool)> = pieces
+    .iter()
+    .filter(|(stream, ..)| *stream == Stream::Stdout)
+    .map(|(_, piece, _)| (piece.text.len(), piece.partial, piece.base64.is_some()))
+    .collect();
+  // the second piece ends the line with `x\r`; the byte 0xFF is U+FFFD in the text, and itself in base64
+  assert_eq!(stdout_pieces, [(64 * 1024, true, false), (102_400 - 64 * 1024 + 2, false, false), (3, false, true)]);
+
+  let first = pieces.iter().find(|(stream, ..)| *stream == Stream::Stdout).expect("the first piece").2;
+  let rest = agent.pieces_from("4-1", first);
+  assert_eq!(stream_bytes(&rest, Stream::Stdout), stdout[64 * 1024..], "{}", agent.dump("4-1"));
 }
 
 /// A follow from the offset after a line in the middle of a run goes on from the next line. The steps before the

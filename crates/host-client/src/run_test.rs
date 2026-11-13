@@ -1,7 +1,7 @@
 use super::*;
 use crate::testkit::{ALIAS, AgentStop, FakeProcesses, Hello, Said, Setup, calm};
 use host_link::channel::{Channel, Frame};
-use host_link::proto::{FileKind, is_run_id};
+use host_link::proto::{FileKind, Piece, is_run_id};
 use pretty_assertions::assert_eq;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
@@ -205,12 +205,13 @@ fn step(name: &str, ms: u64) -> Phase {
   Phase { name: name.to_owned(), ms }
 }
 
+/// Sends the line `text` of `stream`
 fn output(channel: &mut Channel, stream: Stream, text: &str, end: u64) {
-  let _ = channel.send(&Reply::Output {
-    stream,
-    text: text.to_owned(),
-    end,
-  });
+  send_piece(channel, stream, Piece::of(text.as_bytes(), false), end);
+}
+
+fn send_piece(channel: &mut Channel, stream: Stream, piece: Piece, end: u64) {
+  let _ = channel.send(&Reply::Output { stream, piece, end });
 }
 
 fn send_kind(channel: &mut Channel, path: &str, bytes: &[u8], kind: FileKind) {
@@ -283,7 +284,7 @@ fn a_run_starts_follows_packs_syncs_the_base_and_fetches_in_order() {
   let say = |line: &str| said.push(line);
   let outcome = run_in(&setup, &say, &calm, &fetch(), RunOptions::default()).unwrap();
 
-  assert_eq!((outcome.code, outcome.stdout.as_str()), (3, "the digest\n"));
+  assert_eq!((outcome.code, outcome.stdout.as_slice()), (3, b"the digest\n".as_slice()));
   assert_eq!((outcome.facts.commit.as_deref(), outcome.facts.head.as_deref()), (Some(head.as_str()), Some(head.as_str())));
   assert_eq!(outcome.facts.repository.as_deref(), Some("~/projects/idea-1"));
   assert_eq!(outcome.facts.fetched, ["out/bt-runs/0000000002000/test.log"]);
@@ -539,7 +540,7 @@ fn a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255() {
   let said = Said::default();
   let say = |line: &str| said.push(line);
   let outcome = run_in(&setup, &say, &calm, &[], RunOptions::default()).unwrap();
-  assert_eq!(outcome.stdout, "done\n");
+  assert_eq!(outcome.stdout, b"done\n");
   let lines = said.lines();
   assert_eq!(lines.iter().filter(|line| *line == "first").count(), 1, "{lines:#?}");
   assert!(
@@ -569,6 +570,84 @@ fn a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255() {
   assert!(failure.refusal.message.contains("whether its command ran is unknown"), "{}", failure.refusal.message);
   assert!(failure.refusal.message.contains("`brd-host runs studio`"), "{}", failure.refusal.message);
   assert!(!kinds(&setup).contains(&"forget"), "{:?}", kinds(&setup));
+}
+
+/// An agent whose `Follow` sends the pieces of two lines of each stream: the first connection breaks inside both lines,
+/// and the second one goes on from the offset of the last piece
+fn agent_with_pieces() -> Setup {
+  let Commits { repo, head, .. } = two_commits();
+  agent_following(repo, known(vec![head]), |offset, channel| {
+    if offset == 0 {
+      send_piece(channel, Stream::Stdout, Piece::of(b"a long ", true), 10);
+      send_piece(channel, Stream::Stderr, Piece::of(b"warn", true), 20);
+      return;
+    }
+    send_piece(channel, Stream::Stdout, Piece::of(b"line\r", false), 30);
+    send_piece(channel, Stream::Stderr, Piece::of(b"ing", false), 40);
+    send_piece(channel, Stream::Stdout, Piece::of(b"\xff\xfe", false), 50);
+    send_piece(channel, Stream::Stderr, Piece::of(b"no end", true), 60);
+    send_piece(channel, Stream::Stdout, Piece::of(b"last", true), 70);
+    exit(channel, 0);
+  })
+  .0
+}
+
+/// The sink of the output gets the bytes of each stream as the command wrote them: no line end after a partial piece,
+/// none between the pieces of a line that a lost connection cut, and the bytes of a piece that is not UTF-8
+#[test]
+fn the_output_sink_gets_the_bytes_of_each_stream() {
+  let setup = agent_with_pieces();
+  let got: Mutex<(Vec<u8>, Vec<u8>)> = Mutex::default();
+  let output = |stream: Stream, bytes: &[u8]| {
+    let mut got = got.lock().unwrap_or_else(PoisonError::into_inner);
+    match stream {
+      Stream::Stdout => got.0.extend_from_slice(bytes),
+      Stream::Stderr => got.1.extend_from_slice(bytes),
+    }
+  };
+  let processes = FakeProcesses::default();
+  let quiet = |_: &str| {};
+  let client = setup.client(&processes, &quiet, &calm).with_output(&output);
+  let outcome = run_by(&client, &setup, &[], RunOptions::default()).unwrap();
+  assert_eq!(outcome.stdout, b"", "the sink has the stdout");
+  let (stdout, stderr) = got.into_inner().unwrap_or_else(PoisonError::into_inner);
+  assert_eq!(stdout, b"a long line\r\n\xff\xfe\nlast");
+  assert_eq!(stderr, b"warning\nno end");
+}
+
+/// Without an output sink the stdout collects as bytes, and `say` gets each stderr line: a line without its end before
+/// the next line of the client, and at the end of the follow
+#[test]
+fn without_a_sink_the_stdout_collects_and_say_gets_each_stderr_line() {
+  let setup = agent_with_pieces();
+  let said = Said::default();
+  let say = |line: &str| said.push(line);
+  let outcome = run_in(&setup, &say, &calm, &[], RunOptions::default()).unwrap();
+  assert_eq!(outcome.stdout, b"a long line\r\n\xff\xfe\nlast");
+  let lines = said.lines();
+  let at = |line: &str| lines.iter().position(|said| said == line).unwrap_or_else(|| panic!("{line:?} in {lines:#?}"));
+  let again = lines.iter().position(|line| line.contains("following the run")).unwrap_or_else(|| panic!("{lines:#?}"));
+  assert!(at("warn") < again && again < at("ing"), "the line of the client comes after the open line: {lines:#?}");
+  assert!(at("ing") < at("no end"), "{lines:#?}");
+}
+
+/// A piece whose base64 does not decode is an error of the protocol: the run refuses with `link`, exit 255 after the
+/// start
+#[test]
+fn a_piece_whose_base64_does_not_decode_refuses_with_link() {
+  let Commits { repo, head, .. } = two_commits();
+  let (setup, _) = agent_following(repo, known(vec![head]), |_, channel| {
+    let piece = Piece {
+      text: "x".to_owned(),
+      base64: Some("not base64!".to_owned()),
+      ..Piece::default()
+    };
+    send_piece(channel, Stream::Stdout, piece, 10);
+    exit(channel, 0);
+  });
+  let failure = run_in(&setup, &|_| {}, &calm, &[], RunOptions::default()).unwrap_err();
+  assert_eq!((failure.refusal.code, failure.exit), (Code::Link, Exit::Refused), "{}", failure.refusal.message);
+  assert!(failure.refusal.message.contains("base64 does not decode"), "{}", failure.refusal.message);
 }
 
 /// An agent that ends while the client follows its run refuses each new connection. The command can still run on the

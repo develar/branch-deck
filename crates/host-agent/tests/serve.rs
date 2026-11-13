@@ -248,7 +248,7 @@ impl Agent<'_> {
     let mut phases = Vec::new();
     loop {
       match channel.recv::<Reply>().unwrap_or_else(|error| panic!("{error}; {}", self.dump(run))) {
-        Reply::Output { stream, text, .. } => lines.push((stream, text)),
+        Reply::Output { stream, piece, .. } => lines.push((stream, piece.text)),
         Reply::Heartbeat { .. } => {}
         Reply::Phases { phases: got } => phases = got,
         end => return Followed { lines, phases, end },
@@ -261,7 +261,7 @@ impl Agent<'_> {
     let mut channel = self.ask(&Request::Follow { run: run.to_owned(), offset: 0 });
     loop {
       match channel.recv::<Reply>().unwrap_or_else(|error| panic!("{error}; {}", self.dump(run))) {
-        Reply::Output { text: line, .. } if line == text => return,
+        Reply::Output { piece, .. } if piece.text == text => return,
         Reply::Output { .. } | Reply::Heartbeat { .. } | Reply::Phases { .. } => {}
         end => panic!("the run ended before {text:?}: {end:?}; {}", self.dump(run)),
       }

@@ -47,7 +47,7 @@ mod lib_test;
 use config::Config;
 use git_executor::git_command_executor::GitCommandExecutor;
 use host::Host;
-use host_link::proto::{HEARTBEAT_SECONDS, UPGRADE_DRAIN_SECONDS, UPGRADE_WATCHDOG_SECONDS};
+use host_link::proto::{HEARTBEAT_SECONDS, Stream, UPGRADE_DRAIN_SECONDS, UPGRADE_WATCHDOG_SECONDS};
 use host_link::refusal::{Code, Exit, Refusal};
 use process::Processes;
 use std::path::Path;
@@ -126,16 +126,20 @@ impl Timing {
   };
 }
 
-/// The client of one process: its configuration, its build, its git, its seam for ssh, the sink of its stderr lines,
-/// and the count of the Ctrl+C presses
+/// The sink of the bytes of the output of a run: each piece of a stream, with its line end when it has one
+pub type OutputSink<'a> = &'a (dyn Fn(Stream, &[u8]) + Sync);
+
+/// The client of one process: its configuration, its build, its git, its seam for ssh, the sink of its lines, the sink
+/// of the output of a run, and the count of the Ctrl+C presses
 pub struct Client<'a> {
   config: Config,
   build: Build,
   git: GitCommandExecutor,
   processes: &'a dyn Processes,
   say: &'a (dyn Fn(&str) + Sync),
-  /// The sink of the stdout lines of a run, or `None` to collect them into `RunOutcome::stdout`
-  stdout: Option<&'a (dyn Fn(&str) + Sync)>,
+  /// The sink of the bytes of the output of a run, or `None` to collect the stdout into `RunOutcome::stdout` and to
+  /// give each stderr line to `say`
+  output: Option<OutputSink<'a>>,
   presses: &'a (dyn Fn() -> u32 + Sync),
   timing: Timing,
   /// How long the build of a pack waits before git starts, so a test can press Ctrl+C or count keepalives meanwhile;
@@ -144,9 +148,9 @@ pub struct Client<'a> {
 }
 
 impl<'a> Client<'a> {
-  /// `say` takes each stderr line of a run as it comes, and each progress line of the client. `presses` answers how
-  /// many times the person pressed Ctrl+C; `interrupt::presses` is the count of the terminal. The git of the client is
-  /// the one that `GitCommandExecutor::new` finds, and `with_git` names another one
+  /// `say` takes each progress line of the client, and each stderr line of a run without `with_output`. `presses`
+  /// answers how many times the person pressed Ctrl+C; `interrupt::presses` is the count of the terminal. The git of the
+  /// client is the one that `GitCommandExecutor::new` finds, and `with_git` names another one
   pub fn new(config: Config, build: Build, processes: &'a dyn Processes, say: &'a (dyn Fn(&str) + Sync), presses: &'a (dyn Fn() -> u32 + Sync)) -> Self {
     Self {
       config,
@@ -154,7 +158,7 @@ impl<'a> Client<'a> {
       git: GitCommandExecutor::new(),
       processes,
       say,
-      stdout: None,
+      output: None,
       presses,
       timing: Timing::DEFAULT,
       hold_pack: Duration::ZERO,
@@ -168,10 +172,12 @@ impl<'a> Client<'a> {
     self
   }
 
-  /// Sends each stdout line of a run to `stdout` as it comes, instead of `RunOutcome::stdout` at the end
+  /// Sends the bytes of the output of a run to `output` as they come. Each piece goes with its line end when it has one
+  /// (`host_link::proto::Piece`). The stdout of the command comes byte for byte, and its stderr with the lines of the
+  /// agent. Without it, the stdout collects into `RunOutcome::stdout`, and each stderr line goes to `say`
   #[must_use]
-  pub const fn with_stdout(mut self, stdout: &'a (dyn Fn(&str) + Sync)) -> Self {
-    self.stdout = Some(stdout);
+  pub const fn with_output(mut self, output: OutputSink<'a>) -> Self {
+    self.output = Some(output);
     self
   }
 

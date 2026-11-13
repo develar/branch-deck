@@ -21,8 +21,9 @@
 //!    inputs changed since its last success in this slot (`prepare`). For a client that asks for them, remove the
 //!    outputs of the config, and take the tree of the slot before the command (`repo::Repository::snapshot`).
 //! 5. Run the command in the slot root, in its own process group, with stdin `/dev/null`, the environment of step 4 and
-//!    the niceness of the spec. Its lines go to `events.log`. When the command exits, the other processes of its group
-//!    get SIGTERM, and SIGKILL 5 s later.
+//!    the niceness of the spec. The bytes of its stdout and its stderr go to `events.log` as they are, in pieces of
+//!    at most a line (`read_pieces`). When the command exits, the other processes of its group get SIGTERM, and
+//!    SIGKILL 5 s later.
 //! 6. Stage: the patch of the changes of the command, the outputs, and the new entries of each `fetch` directory, into
 //!    the run directory: nothing reads the slot after the run.
 //!
@@ -35,8 +36,9 @@
 //! to `supervisor.log`. The `cancel` file of the run, or SIGINT, SIGTERM or SIGHUP, interrupts the run. Before the
 //! command starts, the run ends with the exit code 130 after the current step; a checkout and a scan of the slot run to
 //! their end, since the pool runs their git in process. After the command started, the command group gets SIGINT, and
-//! SIGKILL after the grace time. The progress lines go to `events.log` as stderr events with the prefix `brd-host: `. A
-//! prepare step writes both of its streams as stderr events, so the stdout of a run holds only the lines of its command
+//! SIGKILL after the grace time. The progress lines go to `events.log` as stderr events with the prefix `brd-host: `,
+//! each on a line of its own (`EventLog::write`). A prepare step writes both of its streams as stderr events, so the
+//! stdout of a run holds only the bytes of the stdout of its command
 
 use crate::files::{FILE_MODE, open_private, private_dir, remove_entry, try_flock};
 use crate::home::Home;
@@ -44,7 +46,7 @@ use crate::log::supervisor;
 use crate::login_env::LoginEnv;
 use crate::prepare::Prepared;
 use crate::repo::Repository;
-use crate::run::{EventLog, ExitRecord, MAX_EVENT_TEXT, RunDir, epoch_ms};
+use crate::run::{EventLog, ExitRecord, MAX_EVENT_BYTES, RunDir, char_cut, epoch_ms};
 use crate::{awake, login_env, prepare, run_env, run_git, slots, sys, tuning};
 use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::proto::{Phase, RunSpec, Stream};
@@ -234,7 +236,7 @@ struct Context<'a> {
 
 impl Context<'_> {
   fn say(&self, message: &str) {
-    self.log.write(Stream::Stderr, &format!("{SAY}{message}"));
+    self.log.line(Stream::Stderr, &format!("{SAY}{message}"));
   }
 }
 
@@ -618,8 +620,8 @@ pub(crate) fn wait_for_pack(
 }
 
 /// Runs `argv` in the slot root, in its own process group, with the environment and the niceness of `launch`, and
-/// answers its exit code. Its stdout goes to `events.log` as events of `stdout`, and its stderr as stderr events. The
-/// other processes of the group end before the answer
+/// answers its exit code. The bytes of its stdout go to `events.log` as events of `stdout`, and of its stderr as stderr
+/// events, each pipe a source of its own. The other processes of the group end before the answer
 fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>, stop: &dyn Fn() -> bool, stdout: Stream) -> Result<i32, Refusal> {
   let Some((program, arguments)) = argv.split_first() else {
     return Err(Refusal::new(Code::SpawnFailed, "the run has no command"));
@@ -648,8 +650,9 @@ fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>,
   ] {
     let (log, done) = (Arc::clone(log), done.clone());
     if let Some(pipe) = pipe {
+      let source = log.source();
       thread::spawn(in_current_span(move || {
-        read_lines(pipe, &mut |line| log.write(stream, line));
+        read_pieces(pipe, &mut |piece, partial| log.write(source, stream, piece, partial));
         let _ = done.send(());
       }));
     }
@@ -675,7 +678,7 @@ fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>,
       interrupted = Some(Instant::now());
     }
     if interrupted.is_some_and(|at| at.elapsed() >= grace) {
-      log.write(Stream::Stderr, &format!("{SAY}the command did not end {} ms after SIGINT; SIGKILL", grace.as_millis()));
+      log.line(Stream::Stderr, &format!("{SAY}the command did not end {} ms after SIGINT; SIGKILL", grace.as_millis()));
       sys::signal_group(group, libc::SIGKILL);
       // a command that left its group still gets the signal through its pid, which std has not reaped yet
       let _ = child.kill();
@@ -711,12 +714,12 @@ fn end_group(group: u32, log: &EventLog) {
   if settle(group) {
     return;
   }
-  log.write(Stream::Stderr, &format!("{SAY}the command left processes in its group; SIGTERM"));
+  log.line(Stream::Stderr, &format!("{SAY}the command left processes in its group; SIGTERM"));
   sys::signal_group(group, libc::SIGTERM);
   let (started, term_wait) = (Instant::now(), tuning::group_term_wait());
   while sys::group_alive(group) {
     if started.elapsed() >= term_wait {
-      log.write(Stream::Stderr, &format!("{SAY}the processes of the group did not end after SIGTERM; SIGKILL"));
+      log.line(Stream::Stderr, &format!("{SAY}the processes of the group did not end after SIGTERM; SIGKILL"));
       sys::signal_group(group, libc::SIGKILL);
       settle(group);
       return;
@@ -742,18 +745,13 @@ pub(crate) fn exit_code(status: ExitStatus) -> i32 {
   status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
 }
 
-/// Calls `line` with each line of `reader`, without its line end. A line longer than [`MAX_EVENT_TEXT`] comes in pieces.
-/// A last line without its end comes too
-pub(crate) fn read_lines(reader: impl Read, line: &mut dyn FnMut(&str)) {
+/// Calls `piece` with the bytes of `reader` as they are, one line without its line end at a time, and `partial` when no
+/// line end comes after them. A line longer than [`MAX_EVENT_BYTES`] comes in partial pieces, cut between two
+/// characters (`char_cut`). A last line without its line end comes as a partial piece too. No byte goes or changes:
+/// the bytes of the pieces, each followed by a line end unless it is partial, are the bytes of `reader`
+pub(crate) fn read_pieces(reader: impl Read, piece: &mut dyn FnMut(&[u8], bool)) {
   let mut reader = BufReader::new(reader);
   let mut pending: Vec<u8> = Vec::new();
-  let emit = |bytes: &mut Vec<u8>, line: &mut dyn FnMut(&str)| {
-    if bytes.last() == Some(&b'\r') {
-      bytes.pop();
-    }
-    line(&String::from_utf8_lossy(bytes));
-    bytes.clear();
-  };
   loop {
     let available = match reader.fill_buf() {
       Ok([]) => break,
@@ -761,19 +759,25 @@ pub(crate) fn read_lines(reader: impl Read, line: &mut dyn FnMut(&str)) {
       Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
       Err(_) => break,
     };
-    // a full piece goes out before more bytes come, and its line end goes with it
-    if pending.len() >= MAX_EVENT_TEXT {
+    // a full piece goes out before more bytes come: whole with its line end when that comes next, else cut
+    if pending.len() >= MAX_EVENT_BYTES {
       if available[0] == b'\n' {
         reader.consume(1);
+        piece(&pending, false);
+        pending.clear();
+      } else {
+        let end = char_cut(&pending);
+        piece(&pending[..end], true);
+        pending.drain(..end);
       }
-      emit(&mut pending, line);
       continue;
     }
-    let room = MAX_EVENT_TEXT - pending.len();
+    let room = MAX_EVENT_BYTES - pending.len();
     if let Some(newline) = available.iter().take(room + 1).position(|&byte| byte == b'\n') {
       pending.extend_from_slice(&available[..newline]);
       reader.consume(newline + 1);
-      emit(&mut pending, line);
+      piece(&pending, false);
+      pending.clear();
     } else {
       let taken = available.len().min(room);
       pending.extend_from_slice(&available[..taken]);
@@ -781,7 +785,7 @@ pub(crate) fn read_lines(reader: impl Read, line: &mut dyn FnMut(&str)) {
     }
   }
   if !pending.is_empty() {
-    emit(&mut pending, line);
+    piece(&pending, true);
   }
 }
 

@@ -3,7 +3,7 @@
 //! | File | Content |
 //! |---|---|
 //! | `spec.json` | the [`RunSpec`]; its time of change is the start of the run |
-//! | `events.log` | one [`Event`] per line, as JSON |
+//! | `events.log` | one [`Event`] per line, as JSON: a piece of the stdout or the stderr of the run |
 //! | `phases.json` | the steps of the run that have ended so far, each with its duration, as a JSON array of [`Phase`] |
 //! | `exit.json` | the [`ExitRecord`] and all the phases, when the run has ended; its time of change is the end of the run |
 //! | `lock` | the flock of the supervisor, held for its whole life |
@@ -23,7 +23,7 @@
 //! the mode 0600
 
 use crate::files::{append_private, open_private, private_dir, try_flock, try_flock_shared, write_private};
-use host_link::proto::{Phase, RunInfo, RunSpec, Stream, is_run_id};
+use host_link::proto::{Phase, Piece, RunInfo, RunSpec, Stream, is_run_id};
 use host_link::refusal::{Code, Refusal};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -48,9 +48,9 @@ const OUTPUT_ROOTS: &str = "outputs.json";
 const CHANGES: &str = "changes.patch";
 pub(crate) const SUPERVISOR_LOG: &str = "supervisor.log";
 
-/// The largest text of one event. A longer line becomes several events, so each reply stays far below the message
-/// limit of the channel
-pub(crate) const MAX_EVENT_TEXT: usize = 64 * 1024;
+/// The most bytes of one event. A longer line becomes several events, so each reply stays far below the message limit
+/// of the channel, and a reader of a pipe holds at most this many bytes of a line
+pub(crate) const MAX_EVENT_BYTES: usize = 64 * 1024;
 
 /// How long the agent keeps a run after its end
 pub(crate) const KEEP: Duration = Duration::from_hours(24);
@@ -58,11 +58,12 @@ pub(crate) const KEEP: Duration = Duration::from_hours(24);
 /// The exit code that [`RunInfo::exit`] gives a run that ended with a refusal. A client also exits with it
 pub(crate) const REFUSED_EXIT: i32 = 255;
 
-/// One line of the output of a run
+/// One piece of the output of a run: a line of one stream without its line end, or a part of a line
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Event {
   pub(crate) stream: Stream,
-  pub(crate) text: String,
+  #[serde(flatten)]
+  pub(crate) piece: Piece,
 }
 
 /// How a run ended: `{"code": N}`, or `{"refused": {"code": "…", "message": "…"}}`
@@ -382,55 +383,119 @@ impl Runs {
   }
 }
 
-/// The writer of `events.log`. The stdout and the stderr readers of a run share it. After [`EventLog::close`] it drops
+/// Who writes a piece into `events.log`: the agent, or one pipe of a process of the run
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Source(u64);
+
+/// The writer of `events.log`. The agent and the pipe readers of a run share it. After [`EventLog::close`] it drops
 /// each event, so no event follows `exit.json`
 #[derive(Debug)]
 pub(crate) struct EventLog {
-  file: Mutex<Option<File>>,
+  state: Mutex<LogState>,
+}
+
+#[derive(Debug)]
+struct LogState {
+  file: Option<File>,
+  /// For each stream, the source whose last piece is partial: its line is open
+  open: [Option<Source>; 2],
+  /// The last source that [`EventLog::source`] gave
+  sources: u64,
 }
 
 impl EventLog {
+  /// The source of the lines of the agent
+  pub(crate) const AGENT: Source = Source(0);
+
   pub(crate) fn open(path: &Path) -> io::Result<Self> {
     let file = append_private(path)?;
-    Ok(Self { file: Mutex::new(Some(file)) })
+    Ok(Self {
+      state: Mutex::new(LogState {
+        file: Some(file),
+        open: [None; 2],
+        sources: 0,
+      }),
+    })
   }
 
-  /// Appends one event per piece of `text` of at most [`MAX_EVENT_TEXT`] bytes. Each event is one write, so the lines of
-  /// two streams never mix
-  pub(crate) fn write(&self, stream: Stream, text: &str) {
-    let mut file = self.file.lock().unwrap_or_else(PoisonError::into_inner);
+  /// A new source for one pipe
+  pub(crate) fn source(&self) -> Source {
+    let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+    state.sources += 1;
+    Source(state.sources)
+  }
+
+  /// Appends one line of the agent to `stream`
+  pub(crate) fn line(&self, stream: Stream, text: &str) {
+    self.write(Self::AGENT, stream, text.as_bytes(), false);
+  }
+
+  /// Appends `bytes` of `source` to `stream`, one event per piece of at most [`MAX_EVENT_BYTES`] bytes, cut between two
+  /// characters. `partial`: no line end comes after the bytes. When another source has the open line of the stream,
+  /// an event of a line end ends that line first, so the lines of two sources never mix. Each event is one write
+  pub(crate) fn write(&self, source: Source, stream: Stream, bytes: &[u8], partial: bool) {
+    let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+    let LogState { file, open, .. } = &mut *state;
     let Some(file) = file.as_mut() else {
       return;
     };
-    for piece in pieces(text) {
-      let event = Event { stream, text: piece.to_owned() };
+    let open = &mut open[stream_index(stream)];
+    let mut append = |piece: &[u8], partial: bool| {
+      let event = Event {
+        stream,
+        piece: Piece::of(piece, partial),
+      };
       if let Ok(mut line) = serde_json::to_vec(&event) {
         line.push(b'\n');
         let _ = file.write_all(&line);
       }
+    };
+    if open.is_some_and(|holder| holder != source) {
+      append(b"", false);
     }
+    let mut rest = bytes;
+    while rest.len() > MAX_EVENT_BYTES {
+      let end = char_cut(&rest[..MAX_EVENT_BYTES]);
+      append(&rest[..end], true);
+      rest = &rest[end..];
+    }
+    append(rest, partial);
+    *open = partial.then_some(source);
   }
 
   /// Drops each later event. A follower reads the log from the page cache, so the close waits for no disk
   pub(crate) fn close(&self) {
-    self.file.lock().unwrap_or_else(PoisonError::into_inner).take();
+    self.state.lock().unwrap_or_else(PoisonError::into_inner).file.take();
   }
 }
 
-/// `text` cut into pieces of at most [`MAX_EVENT_TEXT`] bytes, at char boundaries. An empty text is one empty piece
-pub(crate) fn pieces(text: &str) -> Vec<&str> {
-  let mut pieces = Vec::new();
-  let mut rest = text;
-  while rest.len() > MAX_EVENT_TEXT {
-    let mut end = MAX_EVENT_TEXT;
-    while !rest.is_char_boundary(end) {
-      end -= 1;
-    }
-    pieces.push(&rest[..end]);
-    rest = &rest[end..];
+const fn stream_index(stream: Stream) -> usize {
+  match stream {
+    Stream::Stdout => 0,
+    Stream::Stderr => 1,
   }
-  pieces.push(rest);
-  pieces
+}
+
+/// The length of the longest start of `bytes` that does not end inside a UTF-8 character. A cut there keeps each
+/// character in one piece: it moves at most the first three bytes of the last character to the next piece. Bytes that
+/// are not UTF-8 stay where they are
+pub(crate) fn char_cut(bytes: &[u8]) -> usize {
+  let len = bytes.len();
+  for back in 1..=len.min(3) {
+    let byte = bytes[len - back];
+    // a continuation byte: the start of the character is further back
+    if byte & 0b1100_0000 == 0b1000_0000 {
+      continue;
+    }
+    let width = match byte {
+      0xC0..=0xDF => 2,
+      0xE0..=0xEF => 3,
+      0xF0..=0xF7 => 4,
+      _ => 1,
+    };
+    return if width > back { len - back } else { len };
+  }
+  len
 }
 
 /// The complete events of `events.log` from the byte offset `offset`, each with the offset after it. A line without its

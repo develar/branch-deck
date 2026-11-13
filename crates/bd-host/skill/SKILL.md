@@ -44,7 +44,7 @@ brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--nice
 - The run goes to the repository of the same name as this one on the host, beside the main repository of the host
   file. `--repo` names another one.
 - `--report-fd <n>` writes one JSON report of the run to the descriptor `n` on every way out. stdout then holds only
-  the stdout of the command. `brd-host schema` prints the shape of the report.
+  the stdout of the command, byte for byte. `brd-host schema` prints the shape of the report.
 - The command gets the login environment of the user on the host, 65536 open files, and `BD_HOST_RUN`,
   `BD_HOST_AFFINITY`, `BD_HOST_COMMIT` and `BD_HOST_SLOT`. The tools come from the login `PATH` of the host.
 - The command needs no login shell: it has the login environment already. A shell line goes through `zsh -c`. On
@@ -67,7 +67,10 @@ only and refuses a dirty tree. The new run directories of `out/bt-runs` come bac
   command.
 - `brd-host: phases: …` comes at the end. Read it before you guess where the time went.
 
-All the lines of `brd-host` and the stderr of the command go to stderr. stdout is only the stdout of the command.
+All the lines of `brd-host` and the stderr of the command go to stderr. stdout is only the stdout of the command, byte for
+byte: a long line, a carriage return and a last line without a line end arrive as the command wrote them. An agent of
+an older build does not keep every byte: it cuts a line longer than 64 KiB, drops a carriage return and ends a last
+line. `brd-host upgrade <host>` replaces it after the user agrees.
 
 | Step | Where | A long step means |
 |---|---|---|

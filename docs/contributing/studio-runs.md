@@ -42,8 +42,9 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
 - **Exit codes**: the command's own; 75 when the Studio did not run it (unreachable, a refusal before the command):
   run the same command here then; 130 after Ctrl+C, which cancels the run there.
   `brd-host schema` lists every refusal code with its exit code.
-- **Output**: stdout is only the stdout of the command. stderr has the lines of brd-host, and the run ends with
-  `brd-host: phases: … command …, total …`: read that line before you guess where the time went.
+- **Output**: stdout is only the stdout of the command, byte for byte, when the agent of the Studio is not older than
+  the local brd-host. stderr has the lines of brd-host, and the run ends with `brd-host: phases: … command …, total …`:
+  read that line before you guess where the time went.
 
 ## Measured
 

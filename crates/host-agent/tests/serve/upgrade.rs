@@ -171,7 +171,7 @@ fn an_upgrade_swaps_the_binary_and_ends_serve_and_a_run_and_the_watchdog_see_the
   });
   let offset = loop {
     match streaming.recv::<Reply>().expect("a reply of the follow") {
-      Reply::Output { text, end, .. } if text == "before" => break end,
+      Reply::Output { piece, end, .. } if piece.text == "before" => break end,
       Reply::Output { .. } | Reply::Heartbeat { .. } => {}
       end => panic!("the run ended before its first line: {end:?}"),
     }

@@ -238,7 +238,7 @@ fn follow_to_end(run: &RunDir, offset: u64, channel: &FollowChannel<'_>, watch: 
         .into_iter()
         .map(|(event, end)| Reply::Output {
           stream: event.stream,
-          text: event.text,
+          piece: event.piece,
           end,
         })
         .collect();

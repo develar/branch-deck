@@ -17,16 +17,17 @@ use host_client::report::{HelloRefusal, HelloReport, REPORT_SCHEMA, RunReport, c
 use host_client::run::{RunOptions, RunRequest};
 use host_client::setup::SetupRequest;
 use host_client::upgrade::{UpgradeRequest, UpgradeWay, Upgraded};
-use host_client::{Build, Client, affinity, request_exit};
+use host_client::{Build, Client, OutputSink, affinity, request_exit};
 use host_link::digest::sha256_file;
 use host_link::identity::Fingerprint;
-use host_link::proto::{DEFAULT_PORT, RepositorySlots, RunInfo};
+use host_link::proto::{DEFAULT_PORT, RepositorySlots, RunInfo, Stream};
 use host_link::refusal::{Code, Exit, Reached, Refusal};
 use serde::Serialize;
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
@@ -53,7 +54,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
   /// Runs a command of the working tree of this checkout on the host: HEAD plus the tracked and untracked changes that
-  /// git does not ignore. The output streams as it comes, and the exit code is the one of the command, or 75 when the
+  /// git does not ignore. The output streams line by line, and the exit code is the one of the command, or 75 when the
   /// host did not run it. Ctrl+C cancels the run on the host
   Run(RunArgs),
   /// Follows the output of a run from its first line. Ctrl+C leaves, and the run goes on
@@ -246,7 +247,7 @@ enum SkillCommand {
 }
 
 /// The sinks of one process: stdout for the answers and the stdout of a command, the stderr for every line of
-/// brd-host. Each stdout line goes out with a flush, as it comes
+/// brd-host and the stderr of a command. Each write goes out with a flush, as it comes
 struct Out {
   stdout: Mutex<std::io::Stdout>,
 }
@@ -260,10 +261,34 @@ impl Out {
   fn json<T: Serialize>(&self, value: &T) {
     self.line(&serde_json::to_string(value).unwrap_or_default());
   }
+
+  /// The bytes of the output of a run, as they come: the stdout of the command to stdout, its stderr to the stderr
+  fn output(&self, stream: Stream, bytes: &[u8]) {
+    match stream {
+      Stream::Stdout => {
+        let mut stdout = self.stdout.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = stdout.write_all(bytes).and_then(|()| stdout.flush());
+      }
+      Stream::Stderr => {
+        let mut stderr = std::io::stderr().lock();
+        if let Some(&last) = bytes.last() {
+          STDERR_OPEN.store(last != b'\n', Ordering::Relaxed);
+        }
+        let _ = stderr.write_all(bytes);
+      }
+    }
+  }
 }
 
+/// The stderr of the command stopped inside a line: the next line of brd-host ends that line first. It changes only
+/// under the lock of the stderr
+static STDERR_OPEN: AtomicBool = AtomicBool::new(false);
+
+/// A line of brd-host on the stderr, on a line of its own
 fn say(line: &str) {
-  let _ = writeln!(std::io::stderr().lock(), "{line}");
+  let mut stderr = std::io::stderr().lock();
+  let end = if STDERR_OPEN.swap(false, Ordering::Relaxed) { "\n" } else { "" };
+  let _ = writeln!(stderr, "{end}{line}");
 }
 
 fn refuse(refusal: &Refusal) {
@@ -333,19 +358,19 @@ fn this_exe() -> Result<PathBuf, Refusal> {
 }
 
 /// The client of this process with the git of `GitInfo::discover_for_cli`, for the commands that run git
-fn client_with_git<'a>(out: &'a (dyn Fn(&str) + Sync), say: &'a (dyn Fn(&str) + Sync), build: Build) -> Result<Client<'a>, Refusal> {
+fn client_with_git<'a>(out: OutputSink<'a>, say: &'a (dyn Fn(&str) + Sync), build: Build) -> Result<Client<'a>, Refusal> {
   let git = GitInfo::discover_for_cli(None).map_err(|hint| Refusal::new(Code::GitFailed, hint))?;
   Ok(client_of(out, say, build)?.with_git(GitCommandExecutor::with_info(git)))
 }
 
 /// The client of a request that never reads the SHA-256 of this binary
-fn client<'a>(out: &'a (dyn Fn(&str) + Sync), say: &'a (dyn Fn(&str) + Sync)) -> Result<Client<'a>, Refusal> {
+fn client<'a>(out: OutputSink<'a>, say: &'a (dyn Fn(&str) + Sync)) -> Result<Client<'a>, Refusal> {
   client_of(out, say, unhashed_build())
 }
 
-fn client_of<'a>(out: &'a (dyn Fn(&str) + Sync), say: &'a (dyn Fn(&str) + Sync), build: Build) -> Result<Client<'a>, Refusal> {
+fn client_of<'a>(out: OutputSink<'a>, say: &'a (dyn Fn(&str) + Sync), build: Build) -> Result<Client<'a>, Refusal> {
   let config = host_client::config::Config::of_user()?;
-  Ok(Client::new(config, build, &OsProcesses, say, &interrupt::presses).with_stdout(out))
+  Ok(Client::new(config, build, &OsProcesses, say, &interrupt::presses).with_output(out))
 }
 
 /// The options of a run from its command line
@@ -387,8 +412,8 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     Ok(checkout) => checkout,
     Err(refusal) => return write_report(&refused(&refusal)),
   };
-  let line_out = |line: &str| out.line(line);
-  let client = match client_with_git(&line_out, &say, this_build()) {
+  let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
+  let client = match client_with_git(&output, &say, this_build()) {
     Ok(client) => client,
     Err(refusal) => return write_report(&refused(&refusal)),
   };
@@ -427,34 +452,34 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
 }
 
 fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
-  let line_out = |line: &str| out.line(line);
+  let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
   match command {
     Command::Run(_) => unreachable!("run_command takes a run"),
     Command::Agent(_) => unreachable!("host_agent::command takes an agent command"),
     Command::Follow { alias, run } => {
       install_interrupt("Ctrl+C ends this process, and the run goes on on the host");
-      let followed = client(&line_out, &say)?.follow_run(&alias, &run)?;
+      let followed = client(&output, &say)?.follow_run(&alias, &run)?;
       if !followed.phases.is_empty() {
         say(&phases_line(&followed.phases));
       }
       Ok(command_exit_code(followed.code))
     }
     Command::Cancel { alias, run } => {
-      out.line(&client(&line_out, &say)?.cancel(&alias, &run)?);
+      out.line(&client(&output, &say)?.cancel(&alias, &run)?);
       Ok(0)
     }
     Command::Fetch { alias, run, fetch } => {
       let checkout = checkout_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))?;
-      let fetched = client_with_git(&line_out, &say, unhashed_build())?.fetch(&alias, &run, &checkout, &fetch)?;
+      let fetched = client_with_git(&output, &say, unhashed_build())?.fetch(&alias, &run, &checkout, &fetch)?;
       out.line(&format!("copied {} files of the run {run} into {}", fetched.len(), checkout.display()));
       Ok(0)
     }
     Command::Forget { alias, run } => {
-      out.line(&client(&line_out, &say)?.forget(&alias, &run)?);
+      out.line(&client(&output, &say)?.forget(&alias, &run)?);
       Ok(0)
     }
     Command::Runs { alias, json } => {
-      let runs = client(&line_out, &say)?.runs(&alias)?;
+      let runs = client(&output, &say)?.runs(&alias)?;
       if json {
         out.json(&RunsOutput {
           schema: REPORT_SCHEMA,
@@ -482,7 +507,7 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
         say(&said);
       }
       let binary = binary.map_or_else(this_exe, Ok)?;
-      let upgraded = client(&line_out, &say)?.upgrade(&UpgradeRequest {
+      let upgraded = client(&output, &say)?.upgrade(&UpgradeRequest {
         alias: &alias,
         binary: &binary,
         force,
@@ -526,9 +551,9 @@ struct RunsOutput<'a> {
 
 /// `brd-host hello`
 fn hello(alias: &str, json: bool, out: &Out) -> Result<u8, Refusal> {
-  let line_out = |line: &str| out.line(line);
+  let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
   // the SHA-256 once the agent answered: a refused hello compares no build
-  let answer: Result<(AgentInfo, Build), Refusal> = client(&line_out, &say).and_then(|client| Ok((client.hello(alias)?, this_build())));
+  let answer: Result<(AgentInfo, Build), Refusal> = client(&output, &say).and_then(|client| Ok((client.hello(alias)?, this_build())));
   match answer {
     Ok((info, build)) => {
       let report = HelloReport::new(alias, &info, &build);
@@ -574,8 +599,8 @@ fn slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
     return local_slots(args, out);
   }
   let alias = args.alias.as_deref().unwrap_or_default();
-  let line_out = |line: &str| out.line(line);
-  let repositories = client(&line_out, &say)?.slots(alias)?;
+  let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
+  let repositories = client(&output, &say)?.slots(alias)?;
   if args.json {
     out.json(&SlotsOutput {
       schema: REPORT_SCHEMA,
@@ -627,8 +652,8 @@ fn each_host(
   ask: impl Fn(&Client<'_>, &str) -> Result<serde_json::Value, Refusal>,
   lines: impl Fn(&serde_json::Value, &str) -> serde_json::Result<Vec<String>>,
 ) -> Result<u8, Refusal> {
-  let line_out = |line: &str| out.line(line);
-  let client = client(&line_out, &say)?;
+  let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
+  let client = client(&output, &say)?;
   let aliases = match alias {
     Some(alias) => vec![alias.to_owned()],
     None => host_client::config::Config::of_user()?.aliases(),
@@ -750,10 +775,10 @@ fn local_slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
 fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   if let Some(alias) = &args.alias {
     install_interrupt("Ctrl+C ends this process, and an ssh call goes on");
-    let line_out = |line: &str| out.line(line);
+    let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
     let binary = args.binary.clone().map_or_else(this_exe, Ok)?;
     let name = args.name.clone().unwrap_or_else(|| format!("brd-host on {}", local_name(&OsProcesses)));
-    let prepared = client(&line_out, &say)?.setup(&SetupRequest {
+    let prepared = client(&output, &say)?.setup(&SetupRequest {
       alias,
       binary: &binary,
       port: args.port,

@@ -16,6 +16,8 @@ sha2 = "0.11.1"
 # the messages of the protocol (`proto`)
 serde.workspace = true
 serde_json.workspace = true
+# the bytes of a piece of output that is not UTF-8 (`proto::Piece`)
+base64 = "0.23.1"
 # the JSON schemas of a refusal and of a step, which `brd-host schema` prints (`refusal`, `proto`)
 schemars.workspace = true
 # the errors of the link, of `[host]` and the refusals (`channel`, `config`, `refusal`)

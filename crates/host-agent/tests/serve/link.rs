@@ -141,7 +141,7 @@ fn a_new_event_is_pushed_to_the_follow_on_macos_and_polled_elsewhere() {
     log.write_all(line.as_bytes()).expect("appended");
     loop {
       match channel.recv::<Reply>() {
-        Ok(Reply::Output { text: got, .. }) if got == text => break,
+        Ok(Reply::Output { piece, .. }) if piece.text == text => break,
         Ok(Reply::Heartbeat { .. }) => {}
         other => panic!("{text} did not come before the read deadline, so it waited for a poll: {other:?}"),
       }

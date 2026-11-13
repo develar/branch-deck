@@ -7,27 +7,65 @@ use std::process::Command;
 use sync_utils::fs_retry;
 use test_utils::git_test_utils::TestRepo;
 
-fn lines(input: &[u8]) -> Vec<String> {
-  let mut lines = Vec::new();
-  read_lines(input, &mut |line| lines.push(line.to_owned()));
-  lines
+/// The pieces of `input`, each with whether it is partial
+fn pieces(input: &[u8]) -> Vec<(Vec<u8>, bool)> {
+  let mut pieces = Vec::new();
+  read_pieces(input, &mut |piece, partial| pieces.push((piece.to_vec(), partial)));
+  pieces
+}
+
+/// The bytes of `pieces` in their stream: each piece, then its line end unless it is partial
+fn joined(pieces: &[(Vec<u8>, bool)]) -> Vec<u8> {
+  pieces
+    .iter()
+    .flat_map(|(piece, partial)| piece.iter().copied().chain((!partial).then_some(b'\n')))
+    .collect()
+}
+
+fn piece(bytes: &[u8], partial: bool) -> (Vec<u8>, bool) {
+  (bytes.to_vec(), partial)
 }
 
 #[test]
-fn lines_lose_their_ends_and_a_last_line_without_an_end_comes_too() {
-  assert_eq!(lines(b"one\ntwo\r\n\nthree"), vec!["one", "two", "", "three"]);
-  assert_eq!(lines(b""), Vec::<String>::new());
+fn a_line_comes_without_its_line_end_and_a_last_line_without_one_comes_partial() {
+  let input = b"one\ntwo\r\n\nthree";
+  let got = pieces(input);
+  assert_eq!(got, [piece(b"one", false), piece(b"two\r", false), piece(b"", false), piece(b"three", true)]);
+  assert_eq!(joined(&got), input, "no byte goes or changes, a carriage return included");
+  assert_eq!(pieces(b""), []);
+  assert_eq!(pieces(b"\xff\xfe\n"), [piece(b"\xff\xfe", false)], "bytes that are not UTF-8 stay");
 }
 
 #[test]
-fn a_long_line_comes_in_pieces() {
-  let mut input = vec![b'x'; MAX_EVENT_TEXT * 2 + 5];
+fn a_long_line_comes_in_partial_pieces() {
+  let mut input = vec![b'x'; MAX_EVENT_BYTES * 2 + 5];
   input.push(b'\n');
   input.extend_from_slice(b"next\n");
-  let pieces = lines(&input);
-  assert_eq!(pieces.iter().map(String::len).collect::<Vec<_>>(), vec![MAX_EVENT_TEXT, MAX_EVENT_TEXT, 5, 4]);
-  let exact = [vec![b'y'; MAX_EVENT_TEXT], b"\n".to_vec()].concat();
-  assert_eq!(lines(&exact).len(), 1, "a line of exactly the limit is one event");
+  let got = pieces(&input);
+  assert_eq!(
+    got.iter().map(|(piece, partial)| (piece.len(), *partial)).collect::<Vec<_>>(),
+    [(MAX_EVENT_BYTES, true), (MAX_EVENT_BYTES, true), (5, false), (4, false)]
+  );
+  assert_eq!(joined(&got), input);
+  let exact = [vec![b'y'; MAX_EVENT_BYTES], b"\n".to_vec()].concat();
+  assert_eq!(pieces(&exact), [(vec![b'y'; MAX_EVENT_BYTES], false)], "a line of exactly the limit is one piece");
+  let unended = vec![b'z'; MAX_EVENT_BYTES + 1];
+  assert_eq!(joined(&pieces(&unended)), unended, "a long last line without a line end gets none");
+}
+
+/// A character across the bound of a piece, 1, 2 and 3 bytes before it, goes whole into the next piece
+#[test]
+fn a_character_across_the_bound_goes_whole_into_the_next_piece() {
+  for before in 1..=3 {
+    let input = [vec![b'x'; MAX_EVENT_BYTES - before], "😀\n".as_bytes().to_vec()].concat();
+    let got = pieces(&input);
+    assert_eq!(
+      got,
+      [(vec![b'x'; MAX_EVENT_BYTES - before], true), ("😀".as_bytes().to_vec(), false)],
+      "{before} bytes before the bound"
+    );
+    assert_eq!(joined(&got), input);
+  }
 }
 
 #[test]

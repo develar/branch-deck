@@ -11,8 +11,8 @@ use host_link::identity::Identity;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::fs;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::io::{BufRead, BufReader, Read};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -171,6 +171,150 @@ fn stdout_holds_only_the_command_and_the_lines_of_brd_host_go_to_stderr() {
   assert_eq!(phases.first(), Some(&"slot"), "no pack travels: {phases:?}");
   assert_eq!(phases.last(), Some(&"total"), "{phases:?}");
   assert_eq!(fs::read_to_string(world.repo.path().join("out/bt-runs/a/summary.json")).expect("the fetched file"), "r\n");
+}
+
+/// The bound of one event of the log of the agent: a longer line of the command is several events there
+const EVENT_BOUND: usize = 64 * 1024;
+
+/// `brd-host run` of the shell line `script` in the repository, whose working tree has the file `printed` of `bytes`:
+/// the run ships it, so the command prints it on the host
+fn run_printing(world: &World, bytes: &[u8], script: &str) -> Output {
+  fs::write(world.repo.path().join("printed"), bytes).expect("the file to print");
+  world.bd_host(&["run", ALIAS, "--", "/bin/sh", "-c", script])
+}
+
+/// Fails at the first byte where `got` and `want` differ, with the bytes around it instead of all of them
+fn assert_bytes(got: &[u8], want: &[u8], what: &str) {
+  if got == want {
+    return;
+  }
+  let first = got.iter().zip(want).position(|(got, want)| got != want).unwrap_or_else(|| got.len().min(want.len()));
+  let around = |bytes: &[u8]| String::from_utf8_lossy(&bytes[first.saturating_sub(8).min(bytes.len())..(first + 8).min(bytes.len())]).into_owned();
+  panic!(
+    "{what}: {} bytes where {} are expected, the first difference at byte {first}: {:?} where {:?} is expected",
+    got.len(),
+    want.len(),
+    around(got),
+    around(want)
+  );
+}
+
+/// The offset of `part` in `bytes`
+fn find(bytes: &[u8], part: &[u8]) -> Option<usize> {
+  bytes.windows(part.len()).position(|window| window == part)
+}
+
+/// One stdout line of 200 KiB without a line end is four events of the log of the agent, and stdout gets its bytes
+/// without a line end between them or after them
+#[test]
+fn a_line_of_200_kib_without_a_line_end_reaches_stdout_byte_for_byte() {
+  let world = World::new();
+  let _agent = world.serve();
+  let line: Vec<u8> = b"abcdefghijklmnopqrstuvwxyz".iter().copied().cycle().take(200 * 1024).collect();
+  let ran = run_printing(&world, &line, "cat printed");
+  assert_eq!(ran.status.code(), Some(0), "{}\nserve: {}", text(&ran.stderr), world.serve_log());
+  assert_bytes(&ran.stdout, &line, "stdout");
+}
+
+/// A character of 4 bytes across the bound of an event, 1, 2 and 3 bytes before it, keeps its bytes on stdout and on
+/// stderr
+#[test]
+fn a_character_across_the_bound_of_an_event_reaches_stdout_and_stderr_unchanged() {
+  let world = World::new();
+  let _agent = world.serve();
+  let mut printed = Vec::new();
+  for before in 1..=3 {
+    printed.extend(std::iter::repeat_n(b'x', EVENT_BOUND - before));
+    printed.extend("😀".as_bytes());
+    printed.push(b'\n');
+  }
+  let ran = run_printing(&world, &printed, "cat printed; cat printed >&2");
+  assert_eq!(ran.status.code(), Some(0), "{}\nserve: {}", text(&ran.stderr), world.serve_log());
+  assert_bytes(&ran.stdout, &printed, "stdout");
+  assert!(find(&ran.stderr, &printed).is_some(), "stderr has the bytes of the command: {}", text(&ran.stderr));
+}
+
+/// Short lines, an empty line, a line of CR LF, one line of 150 KiB, bytes that are not UTF-8 and a last line without
+/// a line end keep every byte and every line end. On stderr the line of the phases starts a line of its own after the
+/// last line of the command
+#[test]
+fn short_lines_and_a_long_line_keep_every_line_end() {
+  let world = World::new();
+  let _agent = world.serve();
+  let mut printed = b"one\ntwo\r\n\nthree\n".to_vec();
+  printed.extend(std::iter::repeat_n(b'y', 150 * 1024));
+  printed.extend(b"\nfour\n\xff\xfe not UTF-8\nlast");
+  let ran = run_printing(&world, &printed, "cat printed; cat printed >&2");
+  assert_eq!(ran.status.code(), Some(0), "{}\nserve: {}", text(&ran.stderr), world.serve_log());
+  assert_bytes(&ran.stdout, &printed, "stdout");
+  let at = find(&ran.stderr, &printed).unwrap_or_else(|| panic!("stderr has the bytes of the command: {}", text(&ran.stderr)));
+  let after = text(&ran.stderr[at + printed.len()..]);
+  assert!(after.starts_with("\nbrd-host: phases: "), "the line of the phases starts a line of its own: {after:?}");
+}
+
+/// The client of a run and the hold file of its command, which waits while the file exists. The drop kills the client
+/// and removes the file, and so does the removal of the temporary home after a failed test. So no process stays: the
+/// supervisor has a session of its own, and the drop of `serve` does not stop it
+struct Held {
+  client: Child,
+  hold: PathBuf,
+}
+
+impl Drop for Held {
+  fn drop(&mut self) {
+    let _ = self.client.kill();
+    let _ = self.client.wait();
+    let _ = fs::remove_file(&self.hold);
+  }
+}
+
+/// `brd-host follow` of a run that ended after its client went gives the bytes of its stdout. They are a carriage
+/// return, a character across the bound of an event, and a last line without a line end. That line came after the
+/// client went
+#[test]
+fn follow_of_an_ended_run_gives_the_bytes_of_its_stdout() {
+  let world = World::new();
+  let _agent = world.serve();
+  let mut printed = b"short\r\n".to_vec();
+  printed.extend(std::iter::repeat_n(b'z', EVENT_BOUND - 2));
+  printed.extend("😀\n".as_bytes());
+  fs::write(world.repo.path().join("printed"), &printed).expect("the file to print");
+  let hold = world.home.path().join("hold");
+  fs::write(&hold, "").expect("the hold file");
+  // the last line has no line end, so it comes only at the end of the stream, after the hold. A test that the runner
+  // kills leaves the command for at most 60 s
+  let script = format!(
+    "cat printed; i=0; while [ -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done; printf last",
+    hold.display()
+  );
+  let client = world
+    .command()
+    .args(["run", ALIAS, "--", "/bin/sh", "-c", &script])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .spawn()
+    .expect("a run");
+  let mut held = Held { client, hold };
+  let mut got = vec![0; printed.len()];
+  let read = held.client.stdout.take().expect("the stdout").read_exact(&mut got);
+  // the client goes, and the run goes on: nothing forgets it on the host
+  drop(held);
+  read.unwrap_or_else(|error| panic!("the stdout of the run: {error}\nserve: {}", world.serve_log()));
+  assert_bytes(&got, &printed, "the stdout of run");
+
+  // the id of the run once it ended with 0
+  let ended_run = || {
+    let listed: Value = serde_json::from_slice(&world.bd_host(&["runs", ALIAS, "--json"]).stdout).ok()?;
+    let run = &listed["runs"][0];
+    if run["exit"] == json!(0) { run["run"].as_str().map(str::to_owned) } else { None }
+  };
+  wait_until("the end of the run", || ended_run().is_some());
+  let id = ended_run().expect("the ended run");
+  let followed = world.bd_host(&["follow", ALIAS, &id]);
+  assert_eq!(followed.status.code(), Some(0), "{}\nserve: {}", text(&followed.stderr), world.serve_log());
+  printed.extend(b"last");
+  assert_bytes(&followed.stdout, &printed, "the stdout of follow");
+  assert!(text(&followed.stderr).ends_with('\n'), "{}", text(&followed.stderr));
 }
 
 #[test]

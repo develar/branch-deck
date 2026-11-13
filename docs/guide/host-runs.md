@@ -171,7 +171,9 @@ brd-host run studio --head -- pnpm e2e
 - `--head` sends the committed HEAD only, and refuses a checkout with local changes.
 - A shell line goes through `zsh -c`. Never use `bash -lc` on macOS: its profile puts the old git of Apple first.
 
-stdout holds only the stdout of the command. brd-host writes its own lines to stderr:
+stdout holds only the stdout of the command, byte for byte. An agent of an older build does not keep every byte: it cuts
+a line longer than 64 KiB, drops a carriage return and ends a last line. `brd-host upgrade <alias>` replaces it. The
+stderr holds the stderr of the command and the lines of brd-host, each on a line of its own:
 
 ```text
 brd-host: run 01M63T… of 5a47e402 on studio          <- keep the run id
