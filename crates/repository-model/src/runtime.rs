@@ -189,6 +189,13 @@ pub(crate) enum Message {
     reason: SyncReason,
     waiter: Waiter,
   },
+  /// A focus or a stamp of a session that did not sync of itself, once the host said again whether the worktree was
+  /// synced before (`SessionHost::synced_before`: `brd sync` in a terminal may have marked it since the open)
+  SyncedBeforeRead {
+    reason: SyncReason,
+    waiter: Waiter,
+    synced_before: bool,
+  },
   /// A change of the table outside a sync; `reply` gets the version of the view after its patch
   Apply {
     change: Box<dyn FnOnce(&mut TableState) + Send>,
@@ -278,6 +285,7 @@ pub(crate) fn spawn_actor(
     moved: MovedFetches::default(),
     frames,
     synced_before: false,
+    asked: false,
   };
   span.in_scope(|| runtime.spawn(actor.run(messages, frame).in_current_span()));
   (mailbox, frames_saved)
@@ -373,9 +381,12 @@ struct Actor {
   /// The last fetch of each remote branch whose pull request showed a head it lacked
   moved: MovedFetches,
   frames: FrameSaves,
-  /// The worktree was synced before, as the host said when the session opened (`SessionHost::synced_before`): it syncs
-  /// when it opens and when a window watches it anew
+  /// The worktree was synced before, as the host said when the session opened (`SessionHost::synced_before`), or later
+  /// to a focus or a stamp: it syncs when it opens and when a window watches it anew
   synced_before: bool,
+  /// The user asked a sync of the session or a rewrite of its branches (`Manual`, `AfterRewrite`), which succeeded or
+  /// not: a focus and a stamp then sync it too (`syncs_itself`)
+  asked: bool,
 }
 
 impl Actor {
@@ -477,7 +488,7 @@ impl Actor {
   /// syncs as it opens (`SyncReason::Open`: it joins the run in flight, the one of the open among them, else it runs
   /// when what a sync reads changed), so a window that comes back to a session kept idle shows its branches current
   fn watched_anew(&mut self) {
-    if self.synced_before || self.facts.table.value().is_some() {
+    if self.synced() {
       let waiter = Waiter::unheard(&self.life);
       self.handle(Message::Sync { reason: SyncReason::Open, waiter });
     }
@@ -664,9 +675,10 @@ impl Actor {
       Message::ReadinessDigestOf(reply) => {
         let _ = reply.send(self.facts.readiness.digest().clone());
       }
-      Message::Sync { reason, waiter } => {
-        let decision = self.scheduler.request(reason, waiter, self.is_watched());
-        self.follow(decision);
+      Message::Sync { reason, waiter } => self.request_sync(reason, waiter),
+      Message::SyncedBeforeRead { reason, waiter, synced_before } => {
+        self.synced_before |= synced_before;
+        self.decide_sync(reason, waiter);
       }
       Message::Apply { change, reply } => {
         change(&mut self.state);
@@ -761,6 +773,50 @@ impl Actor {
 
   fn is_watched(&self) -> bool {
     !self.subscribers.is_empty()
+  }
+
+  /// The worktree was synced before (by the app or by `brd`), or a sync of this session committed its table: the
+  /// session syncs as it opens and as a window watches it anew
+  const fn synced(&self) -> bool {
+    self.synced_before || self.facts.table.value().is_some()
+  }
+
+  /// The session syncs without the user: it is `synced`, or the user asked a sync or a rewrite of it, which may have
+  /// failed (a focus after the fix of what failed syncs again). A focus and a stamp of a session that does not run
+  /// nothing: the first sync of a worktree never synced is the user's (openspec/specs/repository/onboarding/spec.md,
+  /// "A focus syncs nothing before the first sync")
+  const fn syncs_itself(&self) -> bool {
+    self.synced() || self.asked
+  }
+
+  /// A request of a sync. A focus or a stamp of a watched session that does not sync of itself asks the host again
+  /// whether its worktree was synced before, on the blocking pool, and is decided with the answer: `brd sync` in a
+  /// terminal marks a worktree the session read as never synced when it opened
+  fn request_sync(&mut self, reason: SyncReason, waiter: Waiter) {
+    if matches!(reason, SyncReason::Manual | SyncReason::AfterRewrite) {
+      self.asked = true;
+    }
+    if matches!(reason, SyncReason::Focus | SyncReason::Stamp)
+      && self.is_watched()
+      && !self.syncs_itself()
+      && let Some(mailbox) = self.mailbox.upgrade()
+    {
+      let (host, key) = (Arc::clone(&self.host), self.key.clone());
+      tokio::spawn(
+        async move {
+          let synced_before = tokio::task::spawn_blocking(in_current_span(move || host.synced_before(&key))).await.unwrap_or(false);
+          let _ = mailbox.send(Message::SyncedBeforeRead { reason, waiter, synced_before });
+        }
+        .in_current_span(),
+      );
+      return;
+    }
+    self.decide_sync(reason, waiter);
+  }
+
+  fn decide_sync(&mut self, reason: SyncReason, waiter: Waiter) {
+    let decision = self.scheduler.request(reason, waiter, self.is_watched(), self.syncs_itself());
+    self.follow(decision);
   }
 
   /// A window went: the scheduler hears of the demand without it, and of the last window

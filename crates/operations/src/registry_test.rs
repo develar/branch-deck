@@ -16,10 +16,13 @@ use sync_core::sync_inputs::SyncInputs;
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::clock::TestClock;
 
-/// A host whose sessions never sync: no window asks one here; a sync asked all the same fails, and wakes `runs`
+/// A host whose sessions never sync: no window asks one here; a sync asked all the same fails, and wakes `runs`.
+/// `marked`: a sync of `brd` marked the worktree synced since (`SessionHost::synced_before`), which a focus and a stamp
+/// read
 #[derive(Default)]
 pub(crate) struct IdleHost {
   pub(crate) runs: Option<tokio::sync::mpsc::UnboundedSender<()>>,
+  pub(crate) marked: std::sync::atomic::AtomicBool,
 }
 
 impl SessionHost for IdleHost {
@@ -44,6 +47,10 @@ impl SessionHost for IdleHost {
 
   fn landing_needs(&self, _key: &SessionKey, _landed: &HashSet<String>) -> Result<Needs, ApiError> {
     Ok(Needs::new())
+  }
+
+  fn synced_before(&self, _key: &SessionKey) -> bool {
+    self.marked.load(std::sync::atomic::Ordering::SeqCst)
   }
 }
 

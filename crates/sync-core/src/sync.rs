@@ -16,6 +16,7 @@ use crate::landed::record_sync;
 use crate::remote_status::RemoteStatusMemo;
 use crate::repo_facts::{CommandFacts, RepoFacts, read_repo_facts};
 use crate::stack_branch::{BuildResult, FinishedStacks, StackBranchSync, StackBuilds, StackFinish, build_planned, finish_stack_branches, plan_stack_branches};
+use crate::synced_mark::mark_synced;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::common::ListedBranch;
@@ -1081,6 +1082,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   // branch of the former `(foo)` still exists (git's directory/file rule). Only ref writes, fast. Its failure fails
   // the detection only, the branches are still rebuilt.
   let active_branches: HashSet<String> = branches.keys().cloned().collect();
+  let synced_mark = facts.synced_mark();
   let RepoFacts {
     baseline: baseline_branch,
     baseline_commit,
@@ -1247,6 +1249,8 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   report.copies = copies.lock().map_or_default(|copies| copies.clone());
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   report.companion_needs = detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
+  // the worktree was synced: a session of the app opened later, or one that hears the stamp of `brd`, syncs of itself
+  mark_synced(&synced_mark);
   Ok(report)
 }
 

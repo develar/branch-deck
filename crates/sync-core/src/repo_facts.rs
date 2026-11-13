@@ -61,6 +61,12 @@ impl RepoFacts {
     on_local_baseline(&self.baseline, &self.branch)
   }
 
+  /// The mark the sync leaves in the worktree once it succeeded (`synced_mark::SYNCED_FILE`): beside the landed state,
+  /// in `branch-deck/` of the git directory of the worktree
+  pub(crate) fn synced_mark(&self) -> PathBuf {
+    self.landed_state.with_file_name("synced")
+  }
+
   /// What the update check of the sync needs; `None` for a local baseline, which has nothing to update from
   pub(crate) fn known_baseline(&self) -> Option<KnownBaseline> {
     Some(KnownBaseline {

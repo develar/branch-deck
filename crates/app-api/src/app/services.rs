@@ -203,9 +203,10 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
     read_ahead_requests(self.source.context(), key, requests);
   }
 
-  /// The `lastSyncTime` of the repository in the state the writer of the settings keeps
+  /// The `lastSyncTime` of the repository in the state the writer of the settings keeps, or the mark a sync left in the
+  /// worktree, which `brd sync` in a terminal leaves too (`synced_mark`)
   fn synced_before(&self, key: &SessionKey) -> bool {
-    synced_before(&self.source.context().settings, &key.worktree)
+    synced_before(&self.source.context().settings, &key.worktree) || sync_core::synced_mark::synced_before(&key.worktree)
   }
 }
 

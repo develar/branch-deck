@@ -2704,7 +2704,8 @@ remote>/master`, `/main`, or the local ones) and the branches under the prefix, 
 `origin`. HEAD and the baseline commit are the tips that listing read, `FETCH_HEAD` and the landed state of the
 worktree (`branch-deck/landed.json`, which the update check records) paths in the git directory: no process of their
 own (without the directories, or for a branch without commits, one `rev-parse --git-path FETCH_HEAD --git-path
-branch-deck/landed.json HEAD^{commit} <baseline>^{commit}`). A caller that read HEAD's branch and the remotes for the
+branch-deck/landed.json HEAD^{commit} <baseline>^{commit}`). Beside the landed state, a sync that succeeded leaves the
+mark of the worktree once (`branch-deck/synced`, `sync_core::synced_mark`: "The first sync"), no process either. A caller that read HEAD's branch and the remotes for the
 same operation passes them (`SyncOptions::facts`, `CommandFacts`: `brd`, from `RepoContext::command_facts`): the guards
 take the branch instead of their `symbolic-ref` and the listing the remotes instead of its `remote -v`; the app's
 session passes none, and its sync reads both. HEAD's branch is passed only when no network call ran since it was read
@@ -2972,10 +2973,12 @@ Auto-sync on Focus syncs only when what a sync reads changed since the last sync
 processes and the stats of nine files, no object read (three processes when HEAD's branch tracks another remote branch than
 a `master` or `main`; `a_focus_with_unchanged_inputs_reads_only_the_fingerprint`). The session decides it, not the
 page: the main window tells the session its focus (`set_window_focus`), and Rust reads the setting
-(`SessionHost::syncs_on_focus`); with it off, a focus starts no process. Nor does a focus of a session that was asked
-no sync of another reason yet (the open of a worktree synced before, the user's Sync, a rewrite, a stamp of `brd`;
-`SyncScheduler`): the first sync of a worktree never synced is the user's, as it writes its branches and notes, so the
-Ready to Sync card stays until its Sync (`skipped`).
+(`SessionHost::syncs_on_focus`); with it off, a focus starts no process. Nor does a focus, or a stamp of `brd`, of a
+session that does not sync of itself (`Actor::syncs_itself`, an argument of `SyncScheduler::request`): its worktree was
+never synced (below, "The first sync") and no sync of it committed a table, and the user asked no Sync and no rewrite
+of it in the session. The first sync of a worktree never synced is the user's, as it writes its branches and notes, so
+the Ready to Sync card stays until its Sync (`skipped`). Such a focus or stamp asks the host again whether the worktree
+was synced before, on the blocking pool, as `brd sync` in a terminal may have marked it since the session opened.
 
 1. `rev-parse --path-format=absolute --git-dir --git-common-dir`: where `config` and `config.worktree` are.
 2. One `for-each-ref --format='%(HEAD)%(objectname) %(refname)%(if)%(HEAD)%(then) %(upstream)%(end)'` over the local
@@ -5152,7 +5155,9 @@ While the table is the frame because its first sync failed or git deferred it, b
 that they wait for, and the error says what to fix.
 
 **The first sync**: a worktree synced before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the
-app's writer keeps, `app_settings::projects::synced_before`) syncs when its session opens (`Open`, with or without a
+app's writer keeps, `app_settings::projects::synced_before`, or the mark every sync that succeeds leaves in the git
+directory of the worktree, `branch-deck/synced` of `sync_core::synced_mark`, which `brd sync` leaves too and which is
+read without git) syncs when its session opens (`Open`, with or without a
 window), so the first sync of the start runs while the window loads, and so does a session a window watches anew (a
 switch back within `IDLE_LIMIT`; also one a sync of this session committed), which then runs only when what a sync
 reads changed; a window that opens or gains the focus during it is served by it or checks once after it. The page asks

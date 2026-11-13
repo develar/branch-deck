@@ -23,7 +23,7 @@ fn inputs(rest: u64) -> SyncInputs {
 /// A scheduler whose first sync read the inputs `f1`
 fn synced_once() -> SyncScheduler<&'static str> {
   let mut scheduler = SyncScheduler::new();
-  assert_eq!(scheduler.request(SyncReason::Open, "open", true).next, run(1, None, false));
+  assert_eq!(scheduler.request(SyncReason::Open, "open", true, true).next, run(1, None, false));
   let decision = scheduler.run_finished(1, Some(inputs(1)), OK, true);
   assert_eq!(decision.resolve, [("open", SYNCED)]);
   assert_eq!(decision.next, Step::Nothing);
@@ -35,11 +35,11 @@ fn synced_once() -> SyncScheduler<&'static str> {
 #[test]
 fn a_ticket_resolves_when_the_run_that_serves_it_ends() {
   let mut scheduler = synced_once();
-  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
-  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "rewrite", true).next, Step::Nothing);
-  assert_eq!(scheduler.request(SyncReason::Manual, "again", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "rewrite", true, true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Manual, "again", true, true).next, Step::Nothing);
   // a window that opens meanwhile is served by the run in flight
-  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true, true).next, Step::Nothing);
 
   let decision = scheduler.run_finished(2, Some(inputs(2)), OK, true);
   assert_eq!(decision.resolve, [("manual", SYNCED), ("window", SYNCED)]);
@@ -55,10 +55,10 @@ fn a_ticket_resolves_when_the_run_that_serves_it_ends() {
 #[test]
 fn a_focus_during_a_run_checks_the_inputs_once_after_the_chain() {
   let mut scheduler = synced_once();
-  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::Nothing);
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus again", true).next, Step::Nothing);
-  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "rewrite", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus again", true, true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "rewrite", true, true).next, Step::Nothing);
 
   let decision = scheduler.run_finished(2, Some(inputs(2)), OK, true);
   assert_eq!(decision.resolve, [("manual", SYNCED)]);
@@ -77,9 +77,9 @@ fn a_focus_during_a_run_checks_the_inputs_once_after_the_chain() {
 #[test]
 fn a_focus_during_the_first_run_of_an_opened_session_checks_once_after_it() {
   let mut scheduler = SyncScheduler::new();
-  assert_eq!(scheduler.request(SyncReason::Open, "opened", false).next, run(1, None, false));
-  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, Step::Nothing);
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Open, "opened", false, true).next, run(1, None, false));
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true, true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::Nothing);
 
   let decision = scheduler.run_finished(1, Some(inputs(1)), OK, true);
   assert_eq!(decision.resolve, [("opened", SYNCED), ("window", SYNCED)]);
@@ -94,13 +94,13 @@ fn a_focus_during_the_first_run_of_an_opened_session_checks_once_after_it() {
 #[test]
 fn a_focus_runs_only_when_the_inputs_changed() {
   let mut scheduler = synced_once();
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   let decision = scheduler.inputs_read(Some(inputs(1)), true);
   assert_eq!(decision.resolve, [("focus", Ok(SyncOutcome::Unchanged))]);
 
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
-  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, Step::Nothing);
-  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "rewrite", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true, true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "rewrite", true, true).next, Step::Nothing);
   let decision = scheduler.inputs_read(Some(inputs(2)), true);
   assert_eq!(decision.resolve.len(), 0);
   assert_eq!(decision.next, run(2, Some(inputs(2)), false));
@@ -108,25 +108,37 @@ fn a_focus_runs_only_when_the_inputs_changed() {
   assert_eq!(decision.resolve, [("focus", SYNCED), ("window", SYNCED), ("rewrite", SYNCED)]);
 
   // inputs git could not read run
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(None, true).next, run(3, None, false));
 }
 
-/// The first sync of a worktree never synced is the user's: a focus of a session that was asked no sync of another
-/// reason runs nothing, also with a window, and the user's Sync runs; from then on a focus syncs what changed
+/// The first sync of a worktree never synced is the user's: a focus or a stamp of a session that does not sync of itself
+/// runs nothing, also with a window; the user's Sync runs, and from then on (the actor says the session syncs of itself)
+/// a focus syncs what changed
 #[test]
-fn a_focus_before_the_first_sync_of_a_worktree_never_synced_runs_nothing() {
+fn a_focus_or_a_stamp_of_a_session_that_does_not_sync_of_itself_runs_nothing() {
   let mut scheduler = SyncScheduler::new();
-  let decision = scheduler.request(SyncReason::Focus, "before", true);
-  assert_eq!(decision.resolve, [("before", Ok(SyncOutcome::Skipped))]);
-  assert_eq!(decision.next, Step::Nothing);
-  assert!(scheduler.is_idle());
+  for reason in [SyncReason::Focus, SyncReason::Stamp] {
+    let decision = scheduler.request(reason, "before", true, false);
+    assert_eq!(decision.resolve, [("before", Ok(SyncOutcome::Skipped))]);
+    assert_eq!(decision.next, Step::Nothing);
+    assert!(scheduler.is_idle());
+  }
 
-  assert_eq!(scheduler.request(SyncReason::Manual, "sync", true).next, run(1, None, false));
+  assert_eq!(scheduler.request(SyncReason::Manual, "sync", true, false).next, run(1, None, false));
   assert_eq!(scheduler.run_finished(1, Some(inputs(1)), OK, true).resolve, [("sync", SYNCED)]);
   // a commit since the Sync of the user: the focus syncs it
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).next, run(2, Some(inputs(2)), false));
+}
+
+/// `brd sync` in a terminal built the branches of a worktree the app never synced (its mark, `synced_mark`), and touched
+/// the stamp: the session, which syncs of itself now, runs at once, as it read nothing of the worktree before
+#[test]
+fn a_stamp_after_brd_synced_a_worktree_the_app_never_synced_runs() {
+  let mut scheduler = SyncScheduler::new();
+  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp", true, true).next, run(1, None, false));
+  assert_eq!(scheduler.run_finished(1, Some(inputs(1)), OK, true).resolve, [("stamp", SYNCED)]);
 }
 
 /// A stamp of `bd` is a focus no window gained: it runs only when the inputs changed, a stamp while a run is in flight
@@ -134,18 +146,18 @@ fn a_focus_before_the_first_sync_of_a_worktree_never_synced_runs_nothing() {
 #[test]
 fn a_stamp_of_bd_runs_only_when_the_inputs_changed_as_a_focus() {
   let mut scheduler = synced_once();
-  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).resolve, [("stamp", Ok(SyncOutcome::Unchanged))]);
 
-  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).next, run(2, Some(inputs(2)), false));
-  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp during the run", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp during the run", true, true).next, Step::Nothing);
   let decision = scheduler.run_finished(2, Some(inputs(2)), OK, true);
   assert_eq!(decision.resolve, [("stamp", SYNCED)]);
   assert_eq!(decision.next, Step::CheckInputs, "one check after the chain");
   assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).resolve, [("stamp during the run", Ok(SyncOutcome::Unchanged))]);
 
-  let decision = scheduler.request(SyncReason::Stamp, "unwatched", false);
+  let decision = scheduler.request(SyncReason::Stamp, "unwatched", false, true);
   assert_eq!(decision.resolve, [("unwatched", Ok(SyncOutcome::Skipped))]);
   assert!(scheduler.is_idle());
 }
@@ -154,7 +166,7 @@ fn a_stamp_of_bd_runs_only_when_the_inputs_changed_as_a_focus() {
 #[test]
 fn a_run_that_asks_for_a_retry_is_retried_once() {
   let mut scheduler = synced_once();
-  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
   let decision = scheduler.run_finished(2, Some(inputs(2)), RunEnd::Succeeded { retry: true }, true);
   assert_eq!(decision.resolve.len(), 0, "the request waits for the retry");
   assert_eq!(decision.next, run(3, None, true));
@@ -168,19 +180,19 @@ fn a_run_that_asks_for_a_retry_is_retried_once() {
 #[test]
 fn a_failed_run_settles_its_requests_with_the_error() {
   let mut scheduler = synced_once();
-  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
   assert_eq!(scheduler.run_finished(1, Some(inputs(0)), OK, true).next, Step::Nothing);
   let deferred = ApiError::new(ErrorCode::OperationInProgress, "Not synced: rebase is in progress");
   let decision = scheduler.run_finished(2, Some(inputs(2)), RunEnd::Failed(deferred.clone()), true);
   assert_eq!(decision.resolve, [("manual", Err(deferred))]);
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).next, run(3, Some(inputs(1)), false));
 }
 
 /// A scheduler whose first run read `inputs(1)` and failed with `error`
 fn failed_once(error: &ApiError) -> SyncScheduler<&'static str> {
   let mut scheduler = SyncScheduler::new();
-  assert_eq!(scheduler.request(SyncReason::Open, "open", true).next, run(1, None, false));
+  assert_eq!(scheduler.request(SyncReason::Open, "open", true, true).next, run(1, None, false));
   let decision = scheduler.run_finished(1, Some(inputs(1)), RunEnd::Failed(error.clone()), true);
   assert_eq!(decision.resolve, [("open", Err(error.clone()))]);
   scheduler
@@ -192,15 +204,15 @@ fn failed_once(error: &ApiError) -> SyncScheduler<&'static str> {
 fn a_focus_after_a_failed_run_with_the_same_inputs_answers_its_error_without_a_run() {
   let error = ApiError::internal("broken");
   let mut scheduler = failed_once(&error);
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   let decision = scheduler.inputs_read(Some(inputs(1)), true);
   assert_eq!(decision.resolve, [("focus", Err(error.clone()))]);
   assert_eq!(decision.next, Step::Nothing);
   assert!(scheduler.is_idle());
 
   // ⌘R runs; a focus during it checks once after it, against what that run read
-  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::Nothing);
   let decision = scheduler.run_finished(2, Some(inputs(1)), RunEnd::Failed(error.clone()), true);
   assert_eq!(decision.resolve, [("manual", Err(error.clone()))]);
   assert_eq!(decision.next, Step::CheckInputs);
@@ -212,13 +224,13 @@ fn a_focus_after_a_failed_run_with_the_same_inputs_answers_its_error_without_a_r
 fn a_focus_after_a_failed_run_runs_when_the_inputs_changed() {
   let deferred = ApiError::new(ErrorCode::OperationInProgress, "Not synced: a rebase is in progress");
   let mut scheduler = failed_once(&deferred);
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).next, run(2, Some(inputs(2)), false));
   let decision = scheduler.run_finished(2, Some(inputs(2)), OK, true);
   assert_eq!(decision.resolve, [("focus", SYNCED)]);
 
   let mut scheduler = failed_once(&deferred);
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(None, true).next, run(2, None, false));
 }
 
@@ -227,11 +239,11 @@ fn a_focus_after_a_failed_run_runs_when_the_inputs_changed() {
 fn an_open_after_a_failed_run_runs_again_also_joining_a_focus_check() {
   let error = ApiError::internal("broken");
   let mut scheduler = failed_once(&error);
-  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true, true).next, run(2, None, false));
   scheduler.run_finished(2, Some(inputs(1)), RunEnd::Failed(error.clone()), true);
 
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
-  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true, true).next, Step::Nothing);
   let decision = scheduler.inputs_read(Some(inputs(1)), true);
   assert_eq!(decision.resolve.len(), 0);
   assert_eq!(decision.next, run(3, Some(inputs(1)), false));
@@ -239,7 +251,7 @@ fn an_open_after_a_failed_run_runs_again_also_joining_a_focus_check() {
   assert_eq!(decision.resolve, [("focus", SYNCED), ("window", SYNCED)]);
 
   // after a success an open checks as a focus does
-  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).resolve, [("window", Ok(SyncOutcome::Unchanged))]);
 }
 
@@ -248,10 +260,10 @@ fn an_open_after_a_failed_run_runs_again_also_joining_a_focus_check() {
 #[test]
 fn a_prefix_change_is_not_remembered() {
   let mut scheduler = synced_once();
-  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
   let changed = ApiError::new(ErrorCode::PrefixChanged, "The branch prefix of the repository is \"b\" now");
   scheduler.run_finished(2, Some(inputs(2)), RunEnd::Failed(changed), true);
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).resolve, [("focus", Ok(SyncOutcome::Unchanged))]);
 }
 
@@ -259,12 +271,12 @@ fn a_prefix_change_is_not_remembered() {
 #[test]
 fn a_focus_without_subscribers_runs_nothing() {
   let mut scheduler = synced_once();
-  let decision = scheduler.request(SyncReason::Focus, "focus", false);
+  let decision = scheduler.request(SyncReason::Focus, "focus", false, true);
   assert_eq!(decision.resolve, [("focus", Ok(SyncOutcome::Skipped))]);
   assert_eq!(decision.next, Step::Nothing);
 
-  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::Nothing);
   let decision = scheduler.run_finished(2, Some(inputs(2)), OK, false);
   assert_eq!(decision.resolve, [("manual", SYNCED), ("focus", Ok(SyncOutcome::Skipped))]);
   assert_eq!(decision.next, Step::Nothing);
@@ -288,15 +300,15 @@ const AUTH: &str = "refs/remotes/origin/test/virtual/auth";
 fn a_focus_after_the_sessions_own_push_runs_nothing() {
   let mut scheduler = synced_once();
   scheduler.pushed(vec![(AUTH.to_string(), Some("pushed".to_string()))]);
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   let decision = scheduler.inputs_read(Some(pushed_inputs(1, "pushed")), true);
   assert_eq!(decision.resolve, [("focus", Ok(SyncOutcome::Unchanged))]);
 
-  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
   scheduler.pushed(vec![(AUTH.to_string(), Some("pushed again".to_string()))]);
   let decision = scheduler.run_finished(2, Some(pushed_inputs(1, "pushed")), OK, true);
   assert_eq!(decision.resolve, [("manual", SYNCED)]);
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   scheduler.pushed(vec![(AUTH.to_string(), None)]);
   let decision = scheduler.inputs_read(Some(pushed_inputs(1, "pushed again")), true);
   assert_eq!(
@@ -305,6 +317,6 @@ fn a_focus_after_the_sessions_own_push_runs_nothing() {
     "the check read before the push removed the branch"
   );
 
-  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).next, run(3, Some(inputs(2)), false));
 }

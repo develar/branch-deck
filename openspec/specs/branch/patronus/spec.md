@@ -5770,11 +5770,12 @@ that Patronus may still run it.
 
 ### Requirement: Pushing into a branch whose Safe Push runs: A mutation of brd syncs the session a window shows
 
-After a mutation of `brd` (an agent's `brd group`, `brd push`), the session a window shows MUST sync once what a sync
-reads changed, without a focus: `brd` touched the stamp of the repository, which the window watches.
+After a mutation of `brd` (an agent's `brd group`, `brd push`), the session a window shows of a repository synced
+before (by the app, or by `brd`, whose sync marks the worktree) MUST sync once what a sync reads changed, without a
+focus: `brd` touched the stamp of the repository, which the window watches.
 
 #### Scenario: brd touched the stamp of the repository
-- **GIVEN** a window shows the session of the repository
+- **GIVEN** a window shows the session of a repository synced before
 - **WHEN** `brd` touched the stamp of the repository after a mutation
 - **THEN** the session syncs without a focus, only when what a sync reads changed
   [@test] crates/operations/src/registry_watch_test.rs (`a_stamp_of_bd_syncs_the_session_a_window_shows`)

@@ -23,6 +23,8 @@
 //! - `branch_processor`: the build of one virtual branch, then its ref move with compare-and-swap and its remote status
 //! - `repo_facts`: `RepoFacts`, what a sync reads once at its start: the baseline, HEAD, the branches under the prefix
 //! - `sync_inputs`: what a sync reads (`read_sync_inputs`), so that a focus syncs only when it changed
+//! - `synced_mark`: the mark a sync that succeeded leaves in the worktree, which tells a session of the app that it was
+//!   synced before, also by `brd`
 //! - `grouping`: the grouping of a sync without its builds, for the reads of `bd`
 //! - `stack_branch`: the stack branch `{prefix}/stack/<root>` of a stack that forks: all its commits in one branch
 //! - `issue_navigation`: the issue key patterns of `.idea/vcs.xml`
@@ -129,6 +131,7 @@ pub mod robot_landing;
 pub mod stack_branch;
 pub mod sync;
 pub mod sync_inputs;
+pub mod synced_mark;
 pub mod target_conflict;
 pub mod transfer_progress;
 pub mod unapply_branch;
@@ -204,6 +207,8 @@ mod stack_parents_test;
 mod sync_inputs_test;
 #[cfg(test)]
 mod sync_test;
+#[cfg(test)]
+mod synced_mark_test;
 #[cfg(test)]
 mod unapply_branch_test;
 #[cfg(test)]

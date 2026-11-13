@@ -112,12 +112,19 @@ async fn a_stamp_of_bd_syncs_the_session_a_window_shows() {
   let mut child = sleeping_child();
   file.insert_of_another_process(record("bd", &agent(&child), &safe_push("auth"), unix_now())).unwrap();
   let (synced, mut syncs) = mpsc::unbounded_channel();
-  let (registry, key, mut patched) = watched(Arc::new(IdleHost { runs: Some(synced) }), directory.path()).await;
+  let host = Arc::new(IdleHost {
+    runs: Some(synced),
+    ..IdleHost::default()
+  });
+  let (registry, key, mut patched) = watched(Arc::clone(&host) as Arc<dyn SessionHost>, directory.path()).await;
   after_patches(&registry, &key, &mut patched, |operations| operations.len() == 1).await;
   file.remove(&id("bd")).unwrap();
   after_patches(&registry, &key, &mut patched, <[RunningOperation]>::is_empty).await;
 
   assert!(syncs.try_recv().is_err(), "no sync before the stamp");
+  // the mutation was `brd sync`, which marked the worktree synced: the session, which read it as never synced when it
+  // opened, syncs of itself now
+  host.marked.store(true, std::sync::atomic::Ordering::SeqCst);
   touch_stamp(directory.path());
   syncs.recv().await.unwrap();
   child.kill().unwrap();

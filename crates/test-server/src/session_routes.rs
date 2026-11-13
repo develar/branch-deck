@@ -171,13 +171,14 @@ impl SessionEnvironment for TestSessionEnvironment {
   }
 
   /// The `lastSyncTime` of the repository in the store of its test (`syncedAgoMs` of the setup), as the app's writer
-  /// keeps it
+  /// keeps it, or the mark a sync left in the worktree (`synced_mark`), as the app's host reads them
   fn synced_before(&self, key: &SessionKey) -> bool {
     self
       .state
       .upgrade()
       .and_then(|state| state.repository(&key.worktree).ok().map(|repository| synced_before(&repository.store, &key.worktree)))
       .unwrap_or(false)
+      || sync_core::synced_mark::synced_before(&key.worktree)
   }
 
   /// The git of the test repository (`AppState::git_of`): a sync reads the `branchdeck.*` keys of its global config, as

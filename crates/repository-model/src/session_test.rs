@@ -331,6 +331,24 @@ async fn snapshot(sessions: &Sessions, key: &SessionKey) -> RepositoryView {
   sessions.get_snapshot(key).await.unwrap()
 }
 
+/// A window shows the session of a worktree never synced: a focus and a stamp run nothing, as its first sync is the
+/// user's. `brd sync` in a terminal marks the worktree synced (`SessionHost::synced_before`, read again for them): the
+/// next stamp syncs it, and so would a focus
+#[tokio::test]
+async fn a_focus_and_a_stamp_sync_a_worktree_never_synced_only_once_brd_synced_it() {
+  let host = Arc::new(ScriptedHost::default());
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, key) = watched(&host).await;
+  assert_eq!(outcome(sessions.set_window_focus(&key, true).unwrap()).await, Ok(SyncOutcome::Skipped));
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Stamp)).await, Ok(SyncOutcome::Skipped));
+  assert_eq!(host.runs(), 0);
+
+  *host.synced_before.lock().unwrap() = true;
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Stamp)).await, Ok(SyncOutcome::Synced));
+  assert_eq!(host.runs(), 1);
+  assert_eq!(snapshot(&sessions, &key).await.order, ["auth"]);
+}
+
 /// The ticket of a request resolves when the run that serves it ends: a request during a run waits for the quiet
 /// follow-up, the first one does not; every patch the window got leads to the snapshot
 #[tokio::test]
@@ -518,7 +536,8 @@ async fn a_focus_after_a_failed_sync_reads_only_the_fingerprint() {
     prefix: "test".to_string(),
   };
   let (git, sessions, window) = watched_with_focus(&key, true).await;
-  let error = outcome(sessions.sync(&key, SyncReason::Open)).await.unwrap_err();
+  // the user's Sync: the session syncs of itself from then on, also after a run that failed
+  let error = outcome(sessions.sync(&key, SyncReason::Manual)).await.unwrap_err();
   let failed = snapshot(&sessions, &key).await;
   assert_eq!(failed.sync, SyncState::Failed { error: error.clone() });
   window.take();

@@ -438,21 +438,31 @@ test.describe("Sync on focus", () => {
     await repo.reword(hash!, "(feature-documentation) Update documentation")
   }
 
-  test("syncs nothing on a focus before the first sync, which is the user's: the Ready to Sync card stays until its Sync", async ({ page, setupRepo }) => {
+  test("syncs nothing on a focus before the first sync, which is the user's: the Ready to Sync card stays", async ({ page, setupRepo }) => {
     await setupRepo("simple", { prepopulateStore: true })
     const card = page.getByTestId("ready-to-sync-card")
+    const sync = page.getByTestId("sync-button")
     await expect(card).toBeVisible()
-    const syncs = await finishedSyncCount(page)
-    // Auto-sync on Focus is on: the session hears the focus and runs nothing, as the first sync writes the branches
+    await expect(sync).toHaveAttribute("data-sync-count", "0")
+    // Auto-sync on Focus is on: the window tells its session the focus, and the session answers that it ran nothing,
+    // as the first sync writes the branches and the notes
     expect((await focusWindow(page))?.outcome).toBe("skipped")
-    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(syncs))
     await expect(card).toBeVisible()
+    await expect(sync).toHaveAttribute("data-sync-count", "0")
+  })
 
-    // the Sync of the card syncs, and a focus from then on checks what a sync reads
+  test("syncs on a focus after the user's first Sync once what a sync reads changed", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    const card = page.getByTestId("ready-to-sync-card")
     await card.getByTestId("ready-to-sync-button").click()
-    await waitForSyncComplete(page, syncs)
+    await waitForSyncComplete(page, 0)
     await expect(findBranchRow(page, "test-branch")).toBeVisible()
-    expect((await focusWindow(page))?.outcome).toBe("unchanged")
+    await expect(card).toHaveCount(0)
+
+    // a commit in a terminal: the next focus syncs it
+    await repo.commit("(focus-docs) Add the docs", { "focus-docs.md": "docs\n" }, 1_704_200_000)
+    await syncOnWindowFocus(page)
+    await expect(findBranchRow(page, "focus-docs")).toBeVisible()
   })
 
   test("syncs on focus only when what a sync reads changed, and says when it checked", async ({ page, setupRepo, syncAndWaitForBranches }) => {

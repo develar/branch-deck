@@ -9908,8 +9908,8 @@ export type SyncOutcome =
 /**  Nothing a sync reads changed since the last successful sync: no run */
 "unchanged" | 
 /**
- *  A focus or a stamp of a session that no window shows, or a focus of one that was asked no other sync yet: nothing
- *  ran
+ *  A focus or a stamp of a session that no window shows, or of one that does not sync of itself (a worktree never
+ *  synced): nothing ran
  */
 "skipped";
 
@@ -9923,8 +9923,8 @@ export type SyncReason =
 /**  ⌘R, the Sync button: always runs */
 "manual" | 
 /**
- *  A window gained focus: runs when the inputs changed, once a sync of another reason was asked of the session (a
- *  worktree never synced waits for the user's)
+ *  A window gained focus: runs when the inputs changed, of a session that syncs of itself (its worktree was synced
+ *  before, or the user asked a sync of it); a worktree never synced waits for the user's Sync
  */
 "focus" | 
 /**  A rewrite, its undo or a fetch changed the branches: always runs, as a quiet follow-up while one is in flight */
@@ -9933,7 +9933,8 @@ export type SyncReason =
 "open" | 
 /**
  *  `bd` changed the repository: it touched `$GIT_COMMON_DIR/branch-deck/stamp` after a mutation, which
- *  `operations::registry_watch` saw; runs when the inputs changed, as a focus does
+ *  `operations::registry_watch` saw; runs when the inputs changed, as a focus does, and as a focus only of a session
+ *  that syncs of itself (a `brd sync` marks the worktree synced)
  */
 "stamp";
 
