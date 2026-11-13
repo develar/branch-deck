@@ -26,21 +26,48 @@
 //!   (`PlanReader::read`); accio keeps what the killed query resolved. The read ahead goes on with its next branch.
 //! - **No memory of its own**: the plans go into the memory of the plans (`ReviewPlans`), the only one of Branch Deck
 //!   (docs/design/change-review.md, decision 16): the speed comes from accio.
+//!
+//! The waiting requests of Your Turn are read ahead too (`read_ahead_requests`; openspec/specs/repository/review-requests/spec.md,
+//! "Read ahead"): each listing of the review requests of a session names the waiting requests it has no last reading of
+//! (`SessionHost::review_requests_listed`), and what each leaves to read goes to the session
+//! (`Sessions::review_readings`), whose rows show it before any window opens.
+//!
+//! - **One read for all of them**, a phase a process: the requests whose commits are here are paired (one `cat-file`,
+//!   one `rev-parse` of the merge bases, `sync_core::review_fetch::local_review_pairs`) and those memory or the store of
+//!   the readings has are told at once, the others `Checking`; then one fetch of every head that is missing (two for a
+//!   mirror, `fetch_review_pairs`) and one read of the diffs of all of them (`review_plan::reading::ahead_readings`: one
+//!   `diff-tree --stdin`, one `cat-file --batch`). Never a read per request: on the IntelliJ monorepo one read of 20
+//!   pull requests ran 2 git processes warm, one per request 20 to 41.
+//! - **Without the index**: a query of accio of a tree far from its index costs tens of seconds (JetBrains/accio#777),
+//!   so a rename that is not local waits for it (`checking renames`) until a review window of the request asks the index
+//!   itself; such a reading is asked again by the next listing, and memory then has what the window read.
+//! - **One read of a repository at a time**: a listing that comes while one runs leaves its requests for the next read,
+//!   which runs once the one in flight ends, so two never fetch into the same refs; nothing is killed. Only a repository
+//!   that reads review plans (`branchdeck.reviewExperimental`) is read; the others' requests are told `Unread` and show
+//!   nothing.
 
 use crate::context::AppContext;
 use crate::operation::{operation, run_blocking};
+use crate::reads::range_readings::{is_final, keep_readings, kept_readings};
 use crate::reads::review_plan::{Asked, Canceled, PlanReader};
 use crate::transport::WindowId;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ApiError;
+use domain_types::review_request::{FetchReviewHeadParams, ReviewRequest};
+use git_executor::git_command_executor::ProgressStop;
+use operations::rewrite::RewriteHost;
 use repository_model::branch_table::BranchTable;
-use repository_model::session::SessionKey;
+use repository_model::review_readings::{ReadAheadAnswer, ReadAheadState};
+use repository_model::session::{SessionKey, Sessions};
+use review_plan::PlanSources;
 use review_plan::concerns::ConcernEdges;
 use review_plan::mark_reviewed::{NoCommonHistory, UnknownReviewBase, UnknownReviewBranch};
+use review_plan::reading::ahead_readings;
 use review_plan::{ReviewPlanParams, ReviewSubject};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use sync_core::review_fetch::{AheadPair, REVIEW_FETCH_IDLE_TIMEOUT, fetch_review_pairs, local_review_pairs};
 use sync_utils::child_process::ChildPriority;
 use tracing::{Instrument, debug, info_span};
 
@@ -62,6 +89,17 @@ struct Watches {
   commits: HashMap<String, Arc<AtomicU64>>,
   /// The number of the last ask
   last: u64,
+  /// The read ahead of the waiting requests of each repository, by worktree
+  requests: HashMap<String, AheadQueue>,
+}
+
+/// The read ahead of the waiting requests of a repository: one runs at a time, and the requests a listing names meanwhile
+/// wait for the next
+#[derive(Default)]
+struct AheadQueue {
+  running: bool,
+  /// The session and the requests of the next read, the last listing's of a number
+  next: Option<(SessionKey, Vec<ReviewRequest>)>,
 }
 
 /// A branch a window asked the plan of, as it asked it
@@ -187,6 +225,31 @@ impl Prefetch {
     }
   }
 
+  /// The listing of `key` leaves `requests` to read ahead: they join the next read of the repository; whether a read is
+  /// to start now (none runs)
+  fn queue_requests(&self, key: &SessionKey, requests: Vec<ReviewRequest>) -> bool {
+    let mut watches = self.watches();
+    let queue = watches.requests.entry(key.worktree.clone()).or_default();
+    let next = queue.next.get_or_insert_with(|| (key.clone(), Vec::new()));
+    next.0 = key.clone();
+    for request in requests {
+      next.1.retain(|known| known.number != request.number);
+      next.1.push(request);
+    }
+    !std::mem::replace(&mut queue.running, true)
+  }
+
+  /// The next read of the waiting requests of `worktree`, `None` once none waits: no read runs from then on
+  fn next_requests(&self, worktree: &str) -> Option<(SessionKey, Vec<ReviewRequest>)> {
+    let mut watches = self.watches();
+    let queue = watches.requests.get_mut(worktree)?;
+    let next = queue.next.take();
+    if next.is_none() {
+      watches.requests.remove(worktree);
+    }
+    next
+  }
+
   /// The ask `number` of `branch` no longer resolves (the branch or its base went): forgotten, unless asked again since
   fn forget(&self, repository: &str, branch: &str, number: u64) {
     if let Some(branches) = self.watches().asked.get_mut(repository)
@@ -274,4 +337,169 @@ fn is_gone(error: &anyhow::Error) -> bool {
   error
     .chain()
     .any(|cause| cause.is::<UnknownReviewBranch>() || cause.is::<UnknownReviewBase>() || cause.is::<NoCommonHistory>())
+}
+
+/// Reads ahead what `requests`, waiting in the listing of `key`, leave to read (module doc), on the runtime of the app;
+/// returns at once
+pub fn read_ahead_requests(ctx: &AppContext, key: &SessionKey, requests: Vec<ReviewRequest>) {
+  let reader = PlanReader::of(ctx);
+  if !reader.plans.prefetch.queue_requests(key, requests) {
+    return;
+  }
+  let (sessions, rewrites, worktree) = (Arc::clone(&ctx.sessions), Arc::clone(&ctx.rewrites), key.worktree.clone());
+  let span = info_span!("review_read_ahead", repository_path = %worktree);
+  let reading = async move {
+    while let Some((key, requests)) = reader.plans.prefetch.next_requests(&worktree) {
+      let answers = match operation(read_requests(&reader, &sessions, &*rewrites, &key, &requests)).await {
+        Ok(answers) => answers,
+        Err(error) => {
+          debug!("the waiting requests were not read ahead: {}", error.message);
+          unread(&requests)
+        }
+      };
+      sessions.review_readings(&key, answers).await;
+    }
+  }
+  .instrument(span);
+  // its span is a child of the span of the session that listed the requests
+  ctx.runtime.spawn(reading.in_current_span());
+}
+
+/// What a request the read ahead could not read is told
+fn unread(requests: &[ReviewRequest]) -> Vec<ReadAheadAnswer> {
+  requests.iter().map(|request| answer(request, ReadAheadState::Unread)).collect()
+}
+
+/// `state` of `request` at the head and the base its listing names
+fn answer(request: &ReviewRequest, state: ReadAheadState) -> ReadAheadAnswer {
+  ReadAheadAnswer {
+    number: request.number,
+    head: request.head_ref_oid.clone(),
+    base: request.base_ref_oid.clone(),
+    state,
+  }
+}
+
+/// Reads what `requests` of `key` leave to read: those memory or the store of the readings has told to the session at
+/// once with the others `Checking`, then the answers of the others; every request `Unread` in a repository that reads no
+/// review plans
+async fn read_requests(
+  reader: &PlanReader,
+  sessions: &Sessions,
+  rewrites: &dyn RewriteHost,
+  key: &SessionKey,
+  requests: &[ReviewRequest],
+) -> Result<Vec<ReadAheadAnswer>, ApiError> {
+  let repository = key.worktree.clone();
+  let enabled = {
+    let (reader, repository) = (reader.clone(), repository.clone());
+    run_blocking(move || reader.enabled(&repository)).await?
+  };
+  if !enabled {
+    return Ok(unread(requests));
+  }
+  // the head and the base GitHub names, as a review fetch takes them (the E2E server fills what a fixture leaves out)
+  let params: Vec<FetchReviewHeadParams> = requests
+    .iter()
+    .map(|request| {
+      rewrites.review_fetch(FetchReviewHeadParams {
+        repository_path: repository.clone(),
+        number: request.number,
+        head_ref_name: request.head_ref_name.clone(),
+        head_ref_oid: request.head_ref_oid.clone(),
+        base_ref_name: request.base_ref_name.clone(),
+        base_ref_oid: request.base_ref_oid.clone(),
+        is_cross_repository: request.is_cross_repository,
+      })
+    })
+    .collect::<Result<_, _>>()?;
+  let local = {
+    let (reader, repository, params) = (reader.clone(), repository.clone(), params.clone());
+    run_blocking(move || {
+      let pairs = local_review_pairs(reader.git(), &repository, &params)?;
+      let ranges: Vec<(String, String)> = pairs.iter().filter_map(range_of).collect();
+      let mut kept = kept_readings(&reader.plans, &reader.object_cache(&repository), &repository, &ranges).into_iter();
+      let kept: Vec<Option<_>> = pairs.iter().map(|pair| range_of(pair).and_then(|_| kept.next().flatten())).collect();
+      anyhow::Ok((pairs, kept))
+    })
+    .await?
+  };
+  let (mut pairs, kept) = local;
+  let told: Vec<ReadAheadAnswer> = requests
+    .iter()
+    .zip(&kept)
+    .map(|(request, kept)| match kept {
+      Some(reading) => answer(
+        request,
+        ReadAheadState::Read {
+          reading: reading.clone(),
+          last: true,
+        },
+      ),
+      None => answer(request, ReadAheadState::Checking),
+    })
+    .collect();
+  sessions.review_readings(key, told).await;
+  if kept.iter().all(Option::is_some) {
+    return Ok(Vec::new());
+  }
+
+  let known: Vec<bool> = kept.iter().map(Option::is_some).collect();
+  let (reader, repository) = (reader.clone(), repository.clone());
+  let read = run_blocking(move || {
+    // the heads that are missing, in one fetch
+    let missing: Vec<usize> = (0..params.len()).filter(|&index| pairs[index] == AheadPair::Missing).collect();
+    if !missing.is_empty() {
+      let stop = ProgressStop {
+        idle_timeout: Some(REVIEW_FETCH_IDLE_TIMEOUT),
+        is_cancelled: &|| false,
+      };
+      let fetching: Vec<FetchReviewHeadParams> = missing.iter().map(|&index| params[index].clone()).collect();
+      for (index, pair) in missing.into_iter().zip(fetch_review_pairs(reader.git(), &repository, &fetching, &stop)?) {
+        pairs[index] = pair;
+      }
+    }
+    // the diffs of those no memory had, in one read
+    let unread: Vec<usize> = (0..pairs.len()).filter(|&index| !known[index] && range_of(&pairs[index]).is_some()).collect();
+    let ranges: Vec<(String, String)> = unread.iter().filter_map(|&index| range_of(&pairs[index])).collect();
+    let indexed = reader.indexes.search(&|| false, ChildPriority::Background).is_some();
+    let cache = reader.object_cache(&repository);
+    let sources = PlanSources {
+      cache: &cache,
+      file_diffs: reader.file_diffs(),
+      index: None,
+    };
+    let mut readings = vec![None; ranges.len()];
+    ahead_readings(reader.git(), sources, &repository, &ranges, indexed, |at, reading| readings[at] = Some(reading))?;
+    let read: Vec<(&(String, String), &_)> = ranges.iter().zip(&readings).filter_map(|(range, reading)| Some((range, reading.as_ref()?))).collect();
+    keep_readings(&reader.plans, &cache, &repository, &read, false);
+    let mut by_place = vec![None; pairs.len()];
+    for (index, reading) in unread.into_iter().zip(readings) {
+      by_place[index] = reading;
+    }
+    anyhow::Ok(by_place)
+  })
+  .await?;
+  Ok(
+    requests
+      .iter()
+      .zip(kept.iter().zip(read))
+      .filter_map(|(request, (kept, read))| match (kept, read) {
+        (Some(_), _) => None,
+        (None, Some(reading)) => {
+          let last = is_final(&reading, false);
+          Some(answer(request, ReadAheadState::Read { reading, last }))
+        }
+        (None, None) => Some(answer(request, ReadAheadState::Unread)),
+      })
+      .collect(),
+  )
+}
+
+/// The range a pair is read by
+fn range_of(pair: &AheadPair) -> Option<(String, String)> {
+  match pair {
+    AheadPair::Pair(pair) => Some((pair.base.clone(), pair.head.clone())),
+    AheadPair::Missing | AheadPair::Unrelated => None,
+  }
 }

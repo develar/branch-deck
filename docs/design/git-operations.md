@@ -155,8 +155,8 @@ pick`, the unapply and the reapply, and the drop of commits (their own sections 
 3. **Every ref move is one `update-ref --stdin` transaction** (`crates/git-ops/src/ref_transaction.rs`) with an
    old-value CAS and a `branch-deck: <operation>` reflog message. Related ref changes go into the same transaction:
    the unapply's move of the virtual branch together with the move of HEAD, and the deletion of temporary refs. **One named exception:** the
-   review fetch writes `refs/branch-deck/review/<n>/{head,base}` (of a stack also `…/<top>/layers/<n>/{head,base}`)
-   through `git fetch` itself (its refspecs, forced, no
+   review fetch writes `refs/branch-deck/review/<n>/{head,base}` (of a stack also `…/<top>/layers/<n>/{head,base}`, of
+   the read ahead of the waiting requests `…/<n>/ahead/{head,base}`) through `git fetch` itself (its refspecs, forced, no
    CAS, no reflog message): those refs only keep the fetched commits of a pull request reachable, nothing reads their
    old value, and no other operation writes them. Their pruning is a CAS transaction (see "Review fetch").
 
@@ -3516,9 +3516,10 @@ its commits.
   credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)". The card can show the request
   with a token git does not have (`GH_TOKEN`, `gh` without its git helper), so the fetch may still need git's
   credential helper for github.com.
-- **Pruning.** The review refs are those of the pull requests the review windows show: at each change of the review
-  windows of its demand (`Demand::review_windows`) the session prunes the others (`SessionHost::prune_review_refs`, on
-  the blocking pool, never waited for). `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
+- **Pruning.** The review refs are those of the pull requests the review windows show and of those that wait for the
+  user (the read ahead's): each time that set changes, at a change of the review windows of its demand
+  (`Demand::review_windows`) or at a listing of the review requests, the session prunes the others
+  (`SessionHost::prune_review_refs`, on the blocking pool, never waited for). `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
   refs/branch-deck/review/` and one `update-ref --stdin` deleting every review ref of a number not in `keep` with
   its old value (the `sweep_stale_temp_refs` pattern). A ref that moved meanwhile (a review fetch of another window)
   fails the transaction, which is only logged: the next change of the windows deletes it. It is best effort across app instances;
@@ -3534,12 +3535,30 @@ its commits.
   above for its own head and base, into `refs/branch-deck/review/<top>/layers/<n>/{head,base}`: pruning reads the
   number of a ref from its first segment, so the window of the stack, which demands its top, keeps them. The stack
   holds the review refs of its top (`Resource::Ref`), as a fetch of the top alone, which waits for it.
+- **The read ahead of the waiting requests** (`app_api::reads::review_prefetch::read_ahead_requests`,
+  [Read ahead of the waiting requests](change-review.md#read-ahead-of-the-waiting-requests)): every request a listing
+  names without its last reading, in one read, a phase a process, no operation of the registry and no hold.
+  `local_review_pairs`: the validation of every id, one `cat-file --batch-check` of every head and base, and one
+  `rev-parse <head>...<base> …` of every pair whose commits are local, whose lines are the base, the head and the merge
+  bases (`^<id>`) of each in turn (the first is the one `merge-base` names; none: no common history, not read).
+  `fetch_review_pairs` of the missing ones: one `cat-file --batch-check` of their heads, bases, the tracking refs of the
+  bases and `HEAD` (the negotiation tips, each present tracking ref one `--negotiation-tip`), the source as above, then
+  one fetch with every refspec, the flags above: from a GitHub origin `+refs/pull/<n>/head:refs/branch-deck/review/<n>/ahead/head`
+  of each, and each missing base branch once into the `ahead/base` of its first request (not the base of a layer of a
+  stack, the head of the layer below, which the fetch brings); from a mirror its branches first, then one fetch from
+  GitHub of a fork's and of a branch the mirror has behind (a failure of GitHub then leaves only those missing); then
+  `local_review_pairs` again, a moved base its fetched tip. The `ahead/` refs are apart from those of a window, so a
+  window's fetch never waits for the lock of the read ahead's; one read of a repository runs at a time and is never
+  killed, so two never fetch into the same refs. Then the diffs of every pair in one read
+  (`review_plan::reading::ahead_readings`). Process budget: `the_read_ahead_of_n_waiting_requests_is_one_fetch_and_one_diff_tree`
+  of `crates/bd-cli/src/process_budget_test.rs`.
 - **Never** the repository lock: the fetch moves no branch, and a fetch never runs under the lock (Update Project
   fetches before it takes it).
 
 Code: `crates/operations/src/review_fetch.rs`, `crates/sync-core/src/review_fetch.rs`,
 `crates/sync-core/src/remote_command.rs`, `crates/git-executor/src/git_command_executor.rs`,
-`crates/repository-model/src/runtime.rs` (the prune), `crates/app-api/src/session/operations.rs` (the close of a window).
+`crates/repository-model/src/runtime.rs` (the prune), `crates/app-api/src/session/operations.rs` (the close of a window),
+`crates/app-api/src/reads/review_prefetch.rs` (the read ahead).
 
 #### Review plan
 

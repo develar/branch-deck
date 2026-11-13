@@ -26,4 +26,6 @@ mod conflict_fix_test;
 #[cfg(test)]
 mod diffs_test;
 #[cfg(test)]
+mod range_readings_test;
+#[cfg(test)]
 mod review_prefetch_test;

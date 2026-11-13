@@ -12,7 +12,7 @@ use crate::app::sign_in::account_changed;
 use crate::context::AppContext;
 use crate::events::{activity_changed, settings_changed};
 use crate::operation::run_blocking;
-use crate::reads::review_prefetch::prefetch_after_commit;
+use crate::reads::review_prefetch::{prefetch_after_commit, read_ahead_requests};
 use crate::repository_state::RepositoryStateCache;
 use crate::transport::{AppEvents, AppHost, Desktop};
 use app_settings::linked_pull_requests::{forget, linked};
@@ -23,7 +23,7 @@ use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestB
 use domain_types::calendar::Calendar;
 use domain_types::cli_tools::CliTool;
 use domain_types::error::{ApiError, HolderTool};
-use domain_types::review_request::LinkedPullRequest;
+use domain_types::review_request::{LinkedPullRequest, ReviewRequest};
 use domain_types::sign_in::Account;
 use domain_types::youtrack::YouTrackAuthStatus;
 use file_diffs::service::FileDiffs;
@@ -196,6 +196,11 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
   /// The plans of the branches the review windows asked, which the sync moved, read ahead in the background
   fn table_committed(&self, key: &SessionKey, table: &BranchTable) {
     prefetch_after_commit(self.source.context(), key, table);
+  }
+
+  /// What the waiting requests leave to read, read ahead in the background
+  fn review_requests_listed(&self, key: &SessionKey, requests: Vec<ReviewRequest>) {
+    read_ahead_requests(self.source.context(), key, requests);
   }
 
   /// The `lastSyncTime` of the repository in the state the writer of the settings keeps

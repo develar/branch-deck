@@ -177,7 +177,7 @@ function factsChange(before: FactsView, after: FactsView): FactsChanges {
   if (!same(before.pullRequests, after.pullRequests)) {
     change.pullRequests = pullRequestsChange(before.pullRequests, after.pullRequests)
   }
-  for (const part of ["rules", "profiles", "reviewRequests", "auth"] as const) {
+  for (const part of ["rules", "profiles", "reviewRequests", "reviewReadings", "auth"] as const) {
     if (!same(before[part], after[part])) {
       Object.assign(change, { [part]: after[part] })
     }

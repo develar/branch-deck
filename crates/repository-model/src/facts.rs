@@ -56,7 +56,8 @@
 //! The details of the robots the windows demand (`robot_details`, the part `facts.robotDetails` by robot): `Loading`
 //! from the demand on, gone with it; what they name beyond a list goes onto the robots (`RobotsFact::details_answer`).
 //! The review requests of others (`review_request_facts::ReviewRequestsFact`, the part `facts.reviewRequests`) with
-//! the news of the new ones.
+//! the news of the new ones, and what they leave to read, read ahead (`review_readings::ReviewReadingsFact`, the part
+//! `facts.reviewReadings`, which no frame keeps).
 //!
 //! The sign-ins of the app's accounts (`auth`, the part `facts.auth`): `Loading` until the read of the open, `Stale`
 //! with the reason after a read that failed, one status of the app in every session.
@@ -68,6 +69,7 @@ use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
 use crate::patronus_view::{ContentMemo, landed_commits, match_robots, patronus_view, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
+use crate::review_readings::ReviewReadingsFact;
 use crate::review_request_facts::ReviewRequestsFact;
 use crate::table::TableState;
 use crate::warm_start::{CachedFacts, CachedNeeds};
@@ -432,6 +434,8 @@ pub struct FactStore {
   pub robot_details: BTreeMap<String, FactRecord<PatronusRobotDetails>>,
   /// The pull requests of others that wait for the user's review
   pub review_requests: ReviewRequestsFact,
+  /// What the waiting requests leave to read, read ahead
+  pub review_readings: ReviewReadingsFact,
   /// The sign-ins of the app's accounts: `Loading` until the read of the open
   pub auth: FactRecord<AuthStatus>,
   /// What the pushes of the session into the target left: the copies they landed, the last refusal of the server
@@ -465,6 +469,7 @@ impl FactStore {
       readiness: ReadinessFact::default(),
       robot_details: BTreeMap::new(),
       review_requests: ReviewRequestsFact::default(),
+      review_readings: ReviewReadingsFact::default(),
       auth: FactRecord::loading(),
       baseline_pushes: BaselinePushes::default(),
       landed_closes: LandedCloses::default(),
@@ -597,6 +602,10 @@ impl FactStore {
         let (changed, news) = self.review_requests.answer(observation, result);
         if let Some(news) = news {
           self.tell(news);
+        }
+        if changed {
+          // the readings follow the requests that wait now
+          self.review_readings.listed(self.review_requests.view());
         }
         changed
       }

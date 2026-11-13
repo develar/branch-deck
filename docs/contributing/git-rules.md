@@ -135,11 +135,13 @@ written only there) in that transaction.
   creation of its pull request, Request Review) and by Push with Children of the root once it is on the remote or its
   pull request is open. Its build is remembered by the base and the original ids (`StackBuilds`), never by
   `CommitKey`, which an amend keeps ([Stack branch](../design/git-operations.md#stack-branch)).
-- `refs/branch-deck/review/<n>/{head,base}` (of a stack also `<top>/layers/<n>/{head,base}`): only `review_fetch.rs`
-  (the intents `FetchReview` and `FetchReviewStack` of the session), through its own fetch refspecs; always `--refmap=` and `--no-prune`, so no remote-tracking ref moves; never under
+- `refs/branch-deck/review/<n>/{head,base}` (of a stack also `<top>/layers/<n>/{head,base}`, of the read ahead of the
+  waiting requests `<n>/ahead/{head,base}`): only `review_fetch.rs` (the intents `FetchReview` and `FetchReviewStack` of
+  the session, and `fetch_review_pairs` of the read ahead, `app_api::reads::review_prefetch`), through its own fetch
+  refspecs; always `--refmap=` and `--no-prune`, so no remote-tracking ref moves; never under
   the repository lock; no fetch when both commits are local; killed on `cancel_operation`, the close of its window or
-  120 s of silence; pruned by the session at each change of its review windows, with one `for-each-ref` and one CAS
-  `update-ref --stdin`. Range diffs (`DiffSubject::Range`) never go into the object cache (`RangeFilesCache` in
+  120 s of silence; pruned by the session whenever the pull requests its review windows show or the waiting ones
+  change, keeping both, with one `for-each-ref` and one CAS `update-ref --stdin`. Range diffs (`DiffSubject::Range`) never go into the object cache (`RangeFilesCache` in
   memory) ([Review fetch](../design/git-operations.md#review-fetch)).
 - `refs/branch-deck/reviewed/<sha256 of the branch's full name>/{base,tip}` (`reviewed_refs.rs`): only
   `mark_reviewed_core` (`brd mark-reviewed`, the app's `mark_branch_reviewed`), in one `update-ref --stdin` with CAS on every ref of the `for-each-ref`

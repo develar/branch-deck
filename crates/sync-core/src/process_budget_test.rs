@@ -11,8 +11,8 @@ use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBran
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
 use crate::repository_config::write_companion;
-use crate::review_fetch::fetch_review_stack;
 use crate::review_fetch::review_fetch_test::stack_fixture;
+use crate::review_fetch::{fetch_review_pairs, fetch_review_stack, local_review_pairs};
 use crate::review_target::ReviewMemo;
 use crate::robot_landing::{robot_landings, robot_spans};
 use crate::stack_branch::forget_builds;
@@ -1284,4 +1284,25 @@ fn a_review_fetch_of_a_stack_is_one_fetch() {
   let git = counting();
   fetch_review_stack(&git, &fixture.params(), &mut |_| {}, &|| false).unwrap();
   assert_processes(&git, &[("cat-file", 1), ("log", 1), ("merge-base", 1)]);
+}
+
+/// The read ahead of three waiting requests of Your Turn the clone lacks (`review_fetch::local_review_pairs`, then
+/// `fetch_review_pairs` of the missing): one `cat-file` finds them missing; then the presence of their heads, bases and
+/// tracking refs, the GitHub repository and the remotes, one fetch of every head, and one `cat-file` and one `rev-parse`
+/// of every merge base: nothing per request. Warm, one `cat-file` and one `rev-parse`
+#[test]
+fn the_read_ahead_of_the_waiting_requests_is_one_fetch_and_one_rev_parse() {
+  let fixture = stack_fixture();
+  let path = fixture.local.path().to_str().unwrap();
+  let stop = git_executor::git_command_executor::ProgressStop {
+    idle_timeout: None,
+    is_cancelled: &|| false,
+  };
+  let git = counting();
+  local_review_pairs(&git, path, &fixture.params()).unwrap();
+  fetch_review_pairs(&git, path, &fixture.params(), &stop).unwrap();
+  assert_processes(&git, &[("cat-file", 3), ("config", 2), ("fetch", 1), ("rev-parse", 1)]);
+  let git = counting();
+  local_review_pairs(&git, path, &fixture.params()).unwrap();
+  assert_processes(&git, &[("cat-file", 1), ("rev-parse", 1)]);
 }

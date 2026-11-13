@@ -8,9 +8,12 @@ import type {
   PatronusRobot,
   PullRequestAvailability,
   PullRequestReviewEvent,
+  RequestReadingState,
   RequestRow,
+  ReviewReadingsView,
   ReviewRequest,
   RunningOperation,
+  StackReadingState,
 } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
@@ -56,6 +59,10 @@ export interface RepositoryReviewRequests {
   readonly unread: ReadonlySet<string>
   /** The reviews the user submitted from the app in this session, by pull request number */
   readonly reviewed: Readonly<Record<number, SubmittedReview>>
+  /** What each waiting request leaves to read as the session read it ahead (`facts.reviewReadings`), by number */
+  readonly readings: ReadonlyMap<number, RequestReadingState>
+  /** What each stack leaves to read, by the number of its bottom */
+  readonly stackReadings: ReadonlyMap<number, StackReadingState>
 }
 
 /** A review the user submitted from the app: the review says it, and keeps the request once it left the list */
@@ -84,6 +91,8 @@ const EMPTY: RepositoryReviewRequests = {
   isRefreshing: false,
   unread: new Set(),
   reviewed: {},
+  readings: new Map(),
+  stackReadings: new Map(),
 }
 
 // ---- hooks ----
@@ -121,6 +130,16 @@ export function useIsRefreshingReviewRequests(): boolean {
 
 export function useUnreadReviewRequests(): ReadonlySet<string> {
   return useEntry(entry => entry.unread)
+}
+
+/** What the request `number` of the selected repository leaves to read, read ahead; undefined while nothing is known */
+export function useRequestReading(number: number): RequestReadingState | undefined {
+  return useEntry(entry => entry.readings.get(number))
+}
+
+/** What the stack whose bottom is `bottom` leaves to read, read ahead; undefined while nothing is known */
+export function useStackReading(bottom: number): StackReadingState | undefined {
+  return useEntry(entry => entry.stackReadings.get(bottom))
 }
 
 /** What waits for the user's review, for the badge of the Dock */
@@ -178,6 +197,40 @@ export function applyReviewRequestsFacts(repositoryPath: string, facts: FactsVie
     const rows = sameRows(known.rows, part.rows) ? known.rows : part.rows
     update(repositoryPath, { availability: part.head.value, requests, rows, totalCount: part.totalCount, checkedAt: part.checkedAt * 1000, unread })
   }
+  const known = reviewRequestsStore.getState().repositories[repositoryPath]
+  if ((change === null || change.reviewReadings != null) && known !== undefined) {
+    update(repositoryPath, readingsOf(known, facts.reviewReadings))
+  }
+}
+
+/**
+ * The readings of `part` by number, each keeping its object where it did not change, so a row whose reading stayed
+ * renders nothing again
+ */
+function readingsOf(known: RepositoryReviewRequests, part: ReviewReadingsView): Pick<RepositoryReviewRequests, "readings" | "stackReadings"> {
+  return {
+    readings: keptByKey(
+      known.readings,
+      part.requests.map(({ number, state }) => [number, state]),
+    ),
+    stackReadings: keptByKey(
+      known.stackReadings,
+      part.stacks.map(({ bottom, state }) => [bottom, state]),
+    ),
+  }
+}
+
+/** `entries` as a map, each value the one of `known` where it is the same; `known` itself where nothing changed */
+function keptByKey<T>(known: ReadonlyMap<number, T>, entries: readonly (readonly [number, T])[]): ReadonlyMap<number, T> {
+  const next = new Map<number, T>()
+  let same = known.size === entries.length
+  for (const [key, value] of entries) {
+    const before = known.get(key)
+    const kept = before !== undefined && JSON.stringify(before) === JSON.stringify(value) ? before : value
+    same &&= kept === before
+    next.set(key, kept)
+  }
+  return same ? known : next
 }
 
 function sameRows(a: readonly RequestRow[], b: readonly RequestRow[]): boolean {

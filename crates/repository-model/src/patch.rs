@@ -195,9 +195,11 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     robot_details,
     removed_robot_details,
     review_requests,
+    review_readings,
     auth,
   } = facts.unwrap_or_default();
   set_if_some(&mut view.facts.review_requests, review_requests);
+  set_if_some(&mut view.facts.review_readings, review_readings);
   set_if_some(&mut view.facts.auth, auth);
   apply_keyed(&mut view.facts.readiness, readiness, &removed_readiness);
   apply_keyed(&mut view.facts.robot_details, robot_details, &removed_robot_details);
@@ -564,6 +566,7 @@ fn facts_view_change(from: &FactsView, to: &FactsView) -> Option<FactsChanges> {
     robot_details,
     removed_robot_details,
     review_requests: changed(&from.review_requests, &to.review_requests),
+    review_readings: changed(&from.review_readings, &to.review_readings),
     auth: changed(&from.auth, &to.auth),
   };
   (change != FactsChanges::default()).then_some(change)

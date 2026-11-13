@@ -3233,6 +3233,8 @@ export type FactsChanges = {
 	removedRobotDetails?: string[],
 	/**  The whole part when it changed: at most 50 requests */
 	reviewRequests?: ReviewRequestsView | null,
+	/**  The whole part when it changed: a few entries per waiting request */
+	reviewReadings?: ReviewReadingsView | null,
 	auth?: Fact<AuthStatus> | null,
 };
 
@@ -3267,6 +3269,8 @@ export type FactsView = {
 	 */
 	robotDetails: { [key in string]: Fact<PatronusRobotDetails> },
 	reviewRequests: ReviewRequestsView,
+	/**  What the waiting requests of `review_requests` leave to read, read ahead; no frame keeps it */
+	reviewReadings: ReviewReadingsView,
 	/**
 	 *  The sign-ins of the app's accounts and where their tokens come from (`remote_facts::sign_in`): one status of the
 	 *  app, which every session reads by its rule (`domain_policy::refresh::auth_due`)
@@ -7442,6 +7446,22 @@ export type RepositoryView = {
 	news: News[],
 };
 
+/**  The reading of one waiting request, by its number */
+export type RequestReading = {
+	number: number,
+	state: RequestReadingState,
+};
+
+/**
+ *  What a waiting request of Your Turn leaves to read as the session read it ahead
+ *  (openspec/specs/repository/review-requests/spec.md, "Read ahead"), at the head and the base its listing names
+ */
+export type RequestReadingState = 
+/**  Its head is fetched, or its diffs read */
+{ kind: "checking" } | 
+/**  Its reading, its verdict and its author's word checked against it */
+{ kind: "read"; view: RangeReadingView };
+
 /**
  *  A row of the requests of Your Turn (`domain_policy::review_request_chains::request_rows`): one request, or a chain of
  *  requests each into the branch of the one below it, which shows as one stack
@@ -7785,6 +7805,17 @@ export type ReviewReadinessBranch = {
 	reviewers?: Reviewer[],
 	/**  The author of the pull request of the start */
 	author?: string | null,
+};
+
+/**
+ *  What the waiting requests leave to read as the session read them ahead (openspec/specs/repository/review-requests/spec.md,
+ *  "Read ahead"; `domain_policy::range_reading::request_readings`): each request being read or read at the head and
+ *  the base its listing names, in the order of the requests, and each stack of the rows with a layer being read or every
+ *  layer read; a request the read ahead could not read, or of a repository that reads no review plans, has none
+ */
+export type ReviewReadingsView = {
+	requests: RequestReading[],
+	stacks: StackRowReading[],
 };
 
 /**
@@ -9204,6 +9235,19 @@ export type StackReading = {
 	 *  below it is not known, and when every layer has nothing to read
 	 */
 	firstToRead: number | null,
+};
+
+/**  What the layers of a stack of Your Turn leave to read, read ahead */
+export type StackReadingState = 
+/**  A layer is being read */
+{ kind: "checking" } | 
+/**  Every layer is read: their sum (`domain_policy::range_reading::stack_summary`) */
+{ kind: "read"; summary: StackReading };
+
+/**  The reading of a stack of Your Turn, by the number of its bottom */
+export type StackRowReading = {
+	bottom: number,
+	state: StackReadingState,
 };
 
 /**  A use of a name that a commit of an ancestor adds, by a commit of the branch */

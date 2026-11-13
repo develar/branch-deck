@@ -1,8 +1,12 @@
-use crate::range_reading::{reading_summary, reading_view, stack_summary};
+use crate::range_reading::{ReadAheadOf, reading_summary, reading_view, request_readings, stack_summary};
+use domain_types::fixtures::review_request;
 use domain_types::range_reading::{
-  AuthorClaim, ClaimConflict, ClaimKind, ClaimSource, FileRole, QuietProof, RangeReading, ReadingSummary, ReadingVerdict, RoleReading, StackReading, Unproven, UnprovenFile,
+  AuthorClaim, ClaimConflict, ClaimKind, ClaimSource, FileRole, QuietProof, RangeReading, ReadingSummary, ReadingVerdict, RequestReading, RequestReadingState, RoleReading,
+  StackReading, StackReadingState, StackRowReading, Unproven, UnprovenFile,
 };
+use domain_types::review_request::{RequestRow, ReviewRequest};
 use pretty_assertions::assert_eq;
+use std::collections::HashMap;
 
 /// `files` files of `role`, `files_to_read` of them with `to_read` of their `changes` to read
 fn role(role: FileRole, files: u32, files_to_read: u32, changes: u32, to_read: u32) -> RoleReading {
@@ -177,4 +181,84 @@ fn a_stack_counts_its_layers_and_opens_on_the_first_one_to_read_once_those_below
   for (name, layers, expected) in cases {
     assert_eq!(stack_summary(&layers), expected, "{name}");
   }
+}
+
+/// openspec/specs/repository/review-requests/spec.md, "Read ahead: Each row says what its request leaves to read": a
+/// request being read is checking, a read one its view with the word of its author checked, one the read ahead could not
+/// read nothing; a stack is checking while a layer is, the sum of its layers once every one is read, and nothing while a
+/// layer could not be read
+#[test]
+fn the_waiting_requests_say_what_they_leave_to_read_and_a_stack_the_sum_of_its_layers() {
+  let formatting = reading(vec![role(FileRole::Code, 1, 0, 1, 0)], vec![], vec![QuietProof::Formatting]);
+  let body = reading(vec![role(FileRole::Code, 1, 1, 1, 1)], vec![], vec![]);
+  let labelled = |number: u32, labels: &[&str]| ReviewRequest {
+    labels: labels.iter().map(|label| (*label).to_string()).collect(),
+    ..review_request(number, 100)
+  };
+  let requests = vec![
+    labelled(1, &[]),
+    labelled(2, &["refactoring"]),
+    labelled(3, &[]),
+    labelled(4, &[]),
+    labelled(5, &[]),
+    labelled(6, &[]),
+  ];
+  let known: HashMap<u32, ReadAheadOf<'_>> = HashMap::from([
+    (1, ReadAheadOf::Read(&formatting)),
+    (2, ReadAheadOf::Read(&body)),
+    (3, ReadAheadOf::Checking),
+    (5, ReadAheadOf::Read(&formatting)),
+  ]);
+  let rows = vec![
+    RequestRow::Stack { layers: vec![1, 2] },
+    RequestRow::Stack { layers: vec![3, 1] },
+    RequestRow::Stack { layers: vec![4, 5] },
+    RequestRow::Single { number: 6 },
+  ];
+  let view = request_readings(&requests, &rows, |request| known.get(&request.number).copied());
+  let read = |number: u32, of: &RangeReading, labels: &[String]| RequestReading {
+    number,
+    state: RequestReadingState::Read {
+      view: reading_view(of.clone(), Some(&format!("Change {number}")), labels),
+    },
+  };
+  assert_eq!(
+    view.requests,
+    vec![
+      read(1, &formatting, &[]),
+      read(2, &body, &["refactoring".to_string()]),
+      RequestReading {
+        number: 3,
+        state: RequestReadingState::Checking
+      },
+      read(5, &formatting, &[]),
+    ],
+    "#4 and #6 the read ahead could not read: nothing"
+  );
+  let RequestReadingState::Read { view: flagged } = &view.requests[1].state else {
+    unreachable!()
+  };
+  assert!(flagged.conflict.is_some(), "a refactoring that changes a body is flagged in its row");
+  assert_eq!(
+    view.stacks,
+    vec![
+      StackRowReading {
+        bottom: 1,
+        state: StackReadingState::Read {
+          summary: StackReading {
+            nothing_to_read: 1,
+            to_read_layers: 1,
+            to_read: 1,
+            unknown: 0,
+            first_to_read: Some(1),
+          }
+        }
+      },
+      StackRowReading {
+        bottom: 3,
+        state: StackReadingState::Checking
+      },
+    ],
+    "the stack of #4 has a layer the read ahead could not read: no sum"
+  );
 }

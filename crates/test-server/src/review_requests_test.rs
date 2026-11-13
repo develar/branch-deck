@@ -75,7 +75,7 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   assert_eq!(files["commitId"], format!("{}..{}", ids[1], ids[0]));
   assert_eq!(files["files"][0]["path"], "file2.txt");
 
-  // a review window shows #7: the session prunes the review refs of the others
+  // #7 waits and a review window shows it: the session prunes the review refs of the others once
   let demand = |windows: Value| {
     json!({ "subscription": subscribed["id"], "demand": {
       "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [], "robotDetails": [], "watchedRobots": [],

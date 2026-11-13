@@ -1,10 +1,10 @@
-import type { ClaimConflict, QuietProof, RangeReadingView, ReadingSummary, StackReading, Unproven } from "@/lib/bindings"
+import type { ClaimConflict, QuietProof, RangeReadingView, ReadingSummary, RequestReadingState, StackReading, StackReadingState, Unproven } from "@/lib/bindings"
 
 /*
  * The words of what a range leaves to read (openspec/specs/review/range-reading/spec.md): the verdict Rust proved from
  * the marks of the diffs (`domain_policy::range_reading`), the author's word it proved wrong (`author_claim`), the sum
- * of the layers of a stack. Words only: what is left, what cannot be proven and what contradicts the author is decided
- * in Rust.
+ * of the layers of a stack, and what a row of Your Turn says of its request read ahead. Words only: what is left, what
+ * cannot be proven and what contradicts the author is decided in Rust.
  */
 
 const PROOF_WORDS: Record<QuietProof, string> = {
@@ -109,4 +109,17 @@ export function formatStackReading(stack: StackReading): string {
     stack.unknown > 0 ? `${stack.unknown} being read` : "",
   ]
   return parts.filter(part => part !== "").join(" · ")
+}
+
+/** What is said while a request or a stack is read ahead */
+export const CHECKING = "Checking…"
+
+/** What a row of Your Turn says of what its request leaves to read: "Checking…" while it is read ahead, else its verdict */
+export function formatRequestReading(state: RequestReadingState): string {
+  return state.kind === "checking" ? CHECKING : formatReading(state.view.summary)
+}
+
+/** What the header of a stack of Your Turn says of its layers: "Checking…" while one is read ahead, else their sum */
+export function formatStackRowReading(state: StackReadingState): string {
+  return state.kind === "checking" ? CHECKING : formatStackReading(state.summary)
 }

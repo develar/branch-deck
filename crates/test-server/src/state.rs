@@ -163,7 +163,8 @@ pub struct TestHosts {
 /// The symbol index of the test repository `repository` is its fixture, `.git/branch-deck-accio.json` (`FixtureIndex`),
 /// as accio answers: for the symbol searches and for the queries of a review plan (`get_review_plan`); read at once,
 /// but its answer of the tests of the steps, which waits while a test holds it (`HeldAnswer::StepTests`), until the
-/// release or the cancel of its search
+/// release or the cancel of its search, and a search below the app, which waits while a test holds the read ahead
+/// (`HeldAnswer::ReadAhead`)
 pub struct FixtureIndexes {
   pub state: std::sync::Weak<AppState>,
   /// The id of the test repository
@@ -173,8 +174,20 @@ pub struct FixtureIndexes {
 }
 
 impl app_api::reads::symbols::SymbolIndexes for FixtureIndexes {
-  fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync), _priority: sync_utils::child_process::ChildPriority) -> Option<Box<dyn file_diffs::accio::SymbolIndex + 'a>> {
+  fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync), priority: sync_utils::child_process::ChildPriority) -> Option<Box<dyn file_diffs::accio::SymbolIndex + 'a>> {
+    if priority == sync_utils::child_process::ChildPriority::Background {
+      self.pass_held(crate::remote_host::HeldAnswer::ReadAhead);
+    }
     Some(Box::new(FixtureSearch { indexes: self, canceled }))
+  }
+}
+
+impl FixtureIndexes {
+  /// Waits while a test holds `held`, once a test started the fakes: until the release or the deletion of the repository
+  fn pass_held(&self, held: crate::remote_host::HeldAnswer) {
+    if let Some(remote) = self.state.upgrade().and_then(|state| state.repositories.get(&self.repository)?.existing_remote()) {
+      self.runtime.block_on(remote.pass_held(held));
+    }
   }
 }
 

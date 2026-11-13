@@ -9,6 +9,8 @@ targets:
   - crates/domain-policy/src/range_reading.rs
   - crates/domain-policy/src/author_claim.rs
   - crates/app-api/src/reads/range_readings.rs
+  - crates/app-api/src/reads/review_prefetch.rs
+  - crates/object-cache/src/range_reading.rs
   - src/hooks/useRangeReadings.ts
   - src/presenters/range-reading.ts
   - src/components/review/ReviewHeader.tsx
@@ -39,7 +41,8 @@ flagged, without a guess, a setting or an LLM.
 
 - Guessing a feature or a fix; an LLM; a setting or a toggle.
 - Writing anything to GitHub (a label, a comment).
-- Reading ahead what the requests of Your Turn leave to read (the next phase): a row shows nothing of it yet.
+- Asking the index in the background: the read ahead of the waiting requests of Your Turn leaves the renames across
+  files to the review window of a request (Open Questions).
 
 ## Requirements
 
@@ -102,6 +105,17 @@ layer, the bottom first; a layer is told as its diffs say it, and once more with
 - **THEN** they leave nothing, one change of code and one of tests to read, and the read runs one `diff-tree` and one `cat-file`
   [@test] crates/review-plan/src/reading_test.rs (`the_layers_of_a_stack_are_read_in_one_process_a_phase`)
   [@test] crates/git-ops/src/commit_files_test.rs (`the_files_of_several_ranges_come_from_one_diff_tree`)
+
+### Requirement: Reading: The read ahead asks no index
+
+What the read ahead of the waiting requests reads MUST ask no index (a query of a tree far from the index costs tens of
+seconds, JetBrains/accio#777): while the machine has an index, a rename across files waits for it, "· checking renames",
+until a review window of the request asks the index itself; without one it is not proven, as the window says it.
+
+#### Scenario: A rename across files
+- **WHEN** the read ahead reads a range that renames a function and its use in another file
+- **THEN** the rename waits for the index on a machine with one, and is not proven on one without; nothing is asked
+  [@test] crates/review-plan/src/reading_test.rs (`the_read_ahead_leaves_a_rename_across_files_to_the_index_and_asks_none`)
 
 ### Requirement: Verdict: Nothing to read only when nothing is left and every file is proven
 
@@ -175,6 +189,19 @@ a word the diff proves wrong as a warning chip after them, "Labelled refactoring
 - **THEN** the output of `brd review-plan` with its `reading` matches it
   [@test] crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 
+### Requirement: Memory: A final reading is kept on disk
+
+A final reading that is what it is whatever the index (no rename waits for one, none left unproven for want of one)
+MUST be kept in memory and in the store of the repository (`object_cache::range_reading`) by the version of the
+readings, its whitespace policy and its two commits, so the next start reads no diff of it; any other reading MUST
+stay out of the store.
+
+#### Scenario: The next start
+- **WHEN** a final reading, one that waits for the index and one no index proved are kept, and the app starts again
+- **THEN** the first is read from the store and kept in memory again; the others are not
+  [@test] crates/app-api/src/reads/range_readings_test.rs (`a_final_reading_is_kept_on_disk_and_shows_in_the_next_process_at_once`)
+  [@test] crates/object-cache/src/cache_test.rs (`range_readings_are_read_by_their_version_and_policy`)
+
 ## User Experience
 
 - The header of a pull request, under its chips (and alone under the title while its changes show): `text-xs
@@ -198,6 +225,14 @@ a word the diff proves wrong as a warning chip after them, "Labelled refactoring
   `stacked_reading` template (four branches over `auth.js`, two of them formatting alone), the review plan turned on
   in the repository (`turnOnReviewPlan`).
 
+## Measurements
+
+- 2026-11-13, the IntelliJ monorepo (idea-1), 20 waiting pull requests: one batched `layer_readings` without the index
+  took about 1 s wall, 0.5 s CPU and 2 git processes warm, 2 s wall and 5 s CPU cold; one call per pull request cost 4 to
+  5 times more, 20 to 41 processes. With the index, `accio renames` of a tree far from the index took 20 to 28 s and about
+  140 s CPU a call, and accio's cache keeps only the last pair of trees, so alternating heads were cold each time
+  (JetBrains/accio#777): the read ahead asks no index.
+
 ## Open Questions / Risks
 
 - The reading is under the default whitespace policy, as the plan reads its pair: a window on another policy may show
@@ -208,6 +243,12 @@ a word the diff proves wrong as a warning chip after them, "Labelled refactoring
   yet; the memory of the answers serves every later one. The plan asks last to make that rare.
 - The window opens a stack on its first layer to read even when that is the bottom; whether a stack with nothing
   folded should open on All Changes is to be seen with real chains.
+- The read ahead of the waiting requests asks no index (JetBrains/accio#777, fixed in accio, not worked around here): a
+  rename across files says "checking renames" in its row until a review window of the request asks the index, and the
+  next listing takes that window's reading from memory. Once a query of a tree far from the index is cheap, the
+  background read asks the index too, below the app.
+- A reading kept on disk names a file not in the clone (a partial clone) as not proven, though a later fetch may bring
+  it; the version of the readings or the store being cleared reads it again.
 
 ## References
 
@@ -215,4 +256,3 @@ a word the diff proves wrong as a warning chip after them, "Labelled refactoring
 - [Review Requests](../../repository/review-requests/spec.md#requirement-review-window-review-stack-reviews-a-stack-in-one-window): Review Stack.
 - [Review Plan](../../branch/review-plan/spec.md): `ReviewPlan.reading`, `brd review-plan`.
 - [Change Review](../../../../docs/design/change-review.md), decision 28.
-

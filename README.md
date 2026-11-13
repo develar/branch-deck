@@ -151,8 +151,8 @@ publisher: choose More info → Run anyway.
   ([quiet changes](openspec/specs/commit/quiet-changes/spec.md)). Your Turn lists the pull requests that wait for your
   review and opens them in the same window to approve or request changes; the Reviews view (⌘2) shows every pull
   request you take part in, and one added by its link. A pull request, and each layer of a stack, says what it
-  leaves to read as its diff proves it, "Nothing to read · formatting, renamed names" of a refactoring, and flags a
-  label its diff contradicts ([what is left to read](openspec/specs/review/range-reading/spec.md), [commit](openspec/specs/commit/commit-review/spec.md), [branch](openspec/specs/branch/branch-review/spec.md), [set aside](openspec/specs/review/review-window/spec.md),
+  leaves to read as its diff proves it, in its row of Your Turn before you open it, "Nothing to read · formatting,
+  renamed names" of a refactoring, and flags a label its diff contradicts ([what is left to read](openspec/specs/review/range-reading/spec.md), [commit](openspec/specs/commit/commit-review/spec.md), [branch](openspec/specs/branch/branch-review/spec.md), [set aside](openspec/specs/review/review-window/spec.md),
   [navigation](openspec/specs/commit/symbol-navigation/spec.md), [Your Turn](openspec/specs/repository/review-requests/spec.md), [Reviews](openspec/specs/repository/reviews/spec.md)).
 
   <picture>

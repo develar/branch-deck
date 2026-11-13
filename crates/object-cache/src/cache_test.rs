@@ -677,6 +677,31 @@ fn session_frames_are_read_by_their_schema_and_replaced_by_the_next_save() {
   assert_eq!(cache.get_session_frame(2, &[2; 32]).as_deref(), Some("{\"seq\":4}"));
 }
 
+/// A reading of a range is read by its version and its whitespace policy, in the order asked; the first write of another
+/// version clears the readings of the old one
+#[test_log::test]
+fn range_readings_are_read_by_their_version_and_policy() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let reading = "nothing to read".to_string();
+  cache.put_range_readings(1, 0, &[(("b1", "h1"), &reading)]);
+  assert_eq!(cache.get_range_readings::<String>(1, 0, &[("b2", "h2"), ("b1", "h1")]), [None, Some(reading.clone())]);
+  assert_eq!(
+    cache.get_range_readings::<String>(1, 1, &[("b1", "h1")]),
+    [None],
+    "a reading of another policy is never read"
+  );
+  assert_eq!(
+    cache.get_range_readings::<String>(2, 0, &[("b1", "h1")]),
+    [None],
+    "a reading of another version is never read"
+  );
+
+  cache.put_range_readings(2, 0, &[(("b2", "h2"), &reading)]);
+  assert_eq!(cache.get_range_readings::<String>(1, 0, &[("b1", "h1")]), [None]);
+  assert_eq!(cache.get_range_readings::<String>(2, 0, &[("b2", "h2")]), [Some(reading)]);
+}
+
 /// An environment that cannot be opened misses only its stores: one failure disabled the whole cache, and a semaphore
 /// set another process removed under `merges/` left a repository without any
 #[test_log::test]

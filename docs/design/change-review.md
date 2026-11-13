@@ -194,6 +194,27 @@ watches the 4 branches of a repository asked last: `brd update` moves every bran
 again on each update. At the measured warm cost, 15 full plans would use about 2.6 min of user CPU at nice 19
 (`15 × 10.49 s`); the cold cost was not recorded. The watch remains at 4 branches.
 
+### Read ahead of the waiting requests
+
+A reviewer with 12 to 30 waiting pull requests drops the refactorings and the layers that change nothing first, so Your
+Turn says what each leaves to read before any window opens ([decision 29](#decisions-and-reversals);
+[Review Requests → Read ahead](../../openspec/specs/repository/review-requests/spec.md#requirement-read-ahead-one-read-for-every-waiting-request)).
+Each listing of the review requests names the waiting requests the session has no last reading of
+(`repository_model::review_readings`), and the app reads them in one read (`app_api::reads::review_prefetch`,
+`read_ahead_requests`), a phase a process: one `cat-file` and one `rev-parse` of the merge bases of those whose commits
+are here, those memory or the store of the readings has told at once and the others "Checking…"; one fetch of every
+missing head into `refs/branch-deck/review/<n>/ahead/` (two for a mirror); one `diff-tree --stdin` and one `cat-file
+--batch` of every diff (`review_plan::reading::ahead_readings`). On the IntelliJ monorepo one batched read of 20 pull
+requests took about 1 s wall, 0.5 s CPU and 2 git processes warm, 2 s and 5 s CPU cold; one read per pull request cost 4
+to 5 times more, 20 to 41 processes. It asks no index: `accio renames` of a tree far from the index took 20 to 28 s and
+about 140 s CPU a call, and accio keeps the last pair of trees only (JetBrains/accio#777, fixed in accio, not worked
+around here), so a rename across files says "checking renames" until a review window of the request asks the index;
+the next listing reads that window's reading from memory. A final reading that no index could prove more of is kept on
+disk too (`object_cache::range_reading`, by the version of the readings), the one reading Branch Deck keeps beside the
+memory of the plans: a reading is a few hundred bytes and costs a read of every diff, so the next start shows it at once.
+The session words nothing of it: the readings are the part `facts.reviewReadings` of its view, derived by
+`domain_policy::range_reading::request_readings`, which no frame keeps.
+
 ## Research
 
 What other work offers for the parts that are not done, read on 2026-10-31. These are claims of the papers and the
@@ -273,6 +294,7 @@ the review.
 | The map says each thing once | Landed | this change | the last look at the map on the template of #1512 and the plan of #1512 itself: the folders of a module are those its code and tests share, its resources apart (view.gui read "com/example 7 · messages 1" on the template, then "ui/embeds 22 … embeds 7" on #1512 while split per source directory; now "ui/embeds 29 · ui/markdown 11 · ui/util 2"); "No use left outside breaks" stood on the API line and again in the fold under it, now the changes it covers fold under the verdict on the line, and the line names only what no row opens wider; the opening of a step named the new declarations of a new module on three lines, now "New module view.gui.media: 8 declarations", their names in the hover; a pair of modules counts its links in parentheses; a JSON list of the module names a change adds (`*.dev-plan.json`, its `{` and `},`) is wiring, so the step of #1512 has no group of one file | the openings of the groups (a group's uses, registrations and new API above its first card) are the next round |
 | Openings of the groups | Landed | this change | each group of a module or a folder of a large step opens above its first card, in place of its divider: its name, "New module", "also shared/code", the tests of the change that reach its code and its code none reaches (`StepGroup.tested`, from the same answer of accio as the step, schema 28), its new API by name, what it opens wider, its new uses between modules by direction ("Now uses view.gui (32 links)", "Now used by view.gui.media"), what its module registers, its texts of the UI; the opening of the step keeps its story and its contract, the wall of 26 test files and 50 names of step 1 of IJAI-5083 goes to the groups where that code is | the entry points of a new module (JetBrains/accio#541) are not named yet, nor do they order its group |
 | What enters a new module | Landed | this change, JetBrains/accio#541 | the declarations of a module the change adds that something outside it uses, from `accio surface` at the head (one process for every new module, a budget of 15 s, beside the usages and the tests; `ModuleShape.entries`, schema 29): its group opens with "Entered by TranscriptEmbedPlayersImpl (applicationService of TranscriptEmbedPlayers)" and reads from that file on; on idea-1 IJAI-5083 (#1512) the one entry of view.gui.media, complete; a module nothing enters says so | a module the change changes is not asked; the budget can cut a large new module (`complete: false`, said in the opening) |
+| What a range leaves to read, read ahead in Your Turn | Landed | 316b12d76, this change | each row and stack header says what its request leaves to read before any window opens, one read of every waiting request a listing names (one fetch, one `rev-parse`, one `diff-tree`), the final readings on disk | the read ahead asks no index (JetBrains/accio#777): a rename across files waits for a window |
 | LLM tour with a hard coverage gate | Not started: the author's tour (`brd tour`) first | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -525,6 +547,16 @@ the review.
    already as its diffs ended, and the memory of the answers (`ANSWERS_CACHE_BYTES`) answers the plan without a query.
    A stack opens on its first layer to read; a layer with nothing to read folds in the overview of All Changes with its
    proofs and its Approve, and ↑/↓ pass it.
+
+29. **What the waiting requests leave to read is read ahead** (2026-11-13). Decision 28 proved what a pull request
+   leaves to read, but only once its window fetched it, and the reviewer of a morning of requests chooses before
+   opening any. Each listing now reads the waiting requests ahead in one read for all of them: one fetch of every
+   missing head, one `rev-parse` of the merge bases, one `diff-tree` of every diff; a read per request cost 4 to 5
+   times more. It asks no index, whose query of a tree far from it costs tens of seconds (JetBrains/accio#777): a
+   rename across files waits for a review window instead of a workaround here. Its refs are apart from a window's
+   (`ahead/`), so the two never wait for each other's lock, and the prunes keep the refs of the requests that wait. No
+   row moves by its verdict: the order is how long each waits, and a list that reorders as answers come is read twice.
+   A final reading is kept on disk as well as in memory ([Read ahead of the waiting requests](#read-ahead-of-the-waiting-requests)).
 
 ## Review Rounds
 

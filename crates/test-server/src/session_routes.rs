@@ -22,7 +22,7 @@ use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
 use app_api::api_error::{api_error, patronus_error};
 use app_api::operation::run_blocking;
-use app_api::reads::review_prefetch::prefetch_after_commit;
+use app_api::reads::review_prefetch::{prefetch_after_commit, read_ahead_requests};
 use app_settings::projects::synced_before;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -196,6 +196,15 @@ impl SessionEnvironment for TestSessionEnvironment {
       && let Ok(repository) = state.repository(&key.worktree)
     {
       prefetch_after_commit(&repository.context, key, table);
+    }
+  }
+
+  /// What the waiting requests of the repository leave to read, read ahead as the app reads them
+  fn review_requests_listed(&self, key: &SessionKey, requests: Vec<domain_types::review_request::ReviewRequest>) {
+    if let Some(state) = self.state.upgrade()
+      && let Ok(repository) = state.repository(&key.worktree)
+    {
+      read_ahead_requests(&repository.context, key, requests);
     }
   }
 
@@ -414,7 +423,8 @@ impl operations::rewrite::RewriteHost for TestServices {
 
   /// Counts the fetch of the repository (`fetchCalls` of `GET /repositories/{id}/review-requests`) and fails it with the
   /// `fetchError` of its fixture; an empty head of a request is the branch it names (else `HEAD`), an empty base the
-  /// baseline (else an earlier commit of `HEAD`), so the review has a range on the template
+  /// branch it names when that is a branch of the template but the baseline (a layer of a stack, into the branch below),
+  /// else the baseline (else an earlier commit of `HEAD`), so the review has a range on the template
   fn review_fetch(&self, mut params: domain_types::review_request::FetchReviewHeadParams) -> Result<domain_types::review_request::FetchReviewHeadParams, ApiError> {
     let state = self.state()?;
     let repo = state.repository(&params.repository_path)?;
@@ -430,7 +440,15 @@ impl operations::rewrite::RewriteHost for TestServices {
       params.head_ref_oid = commit(&format!("refs/heads/{}", params.head_ref_name)).or_else(|_| commit("HEAD")).map_err(api_error)?;
     }
     if params.base_ref_oid.is_empty() {
-      let baseline = history_rewrite::baseline::detect_baseline_branch(git, &path).and_then(|baseline| commit(&baseline));
+      let baseline_branch = history_rewrite::baseline::detect_baseline_branch(git, &path);
+      let into_baseline = baseline_branch
+        .as_ref()
+        .is_ok_and(|baseline| baseline.rsplit('/').next() == Some(params.base_ref_name.as_str()));
+      let named = (!into_baseline)
+        .then(|| commit(&format!("refs/heads/{}", params.base_ref_name)).ok())
+        .flatten()
+        .filter(|base| *base != params.head_ref_oid);
+      let baseline = named.map_or_else(|| baseline_branch.and_then(|baseline| commit(&baseline)), Ok);
       params.base_ref_oid = match baseline {
         Ok(baseline) if baseline != params.head_ref_oid => baseline,
         // a template with fewer commits has a shorter range

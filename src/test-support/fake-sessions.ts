@@ -97,6 +97,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
       readiness: {},
       robotDetails: {},
       reviewRequests: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, requests: [], rows: [], totalCount: 0, checkedAt: 0 },
+      reviewReadings: { requests: [], stacks: [] },
       auth: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 },
     },
     news: [],

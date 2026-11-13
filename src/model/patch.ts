@@ -128,6 +128,7 @@ function patchedFacts(facts: FactsView, change: FactsChanges): FactsView {
     readiness: keyed(facts.readiness, change.readiness, change.removedReadiness),
     robotDetails: keyed(facts.robotDetails, change.robotDetails, change.removedRobotDetails),
     reviewRequests: change.reviewRequests ?? facts.reviewRequests,
+    reviewReadings: change.reviewReadings ?? facts.reviewReadings,
     auth: change.auth ?? facts.auth,
   }
 }

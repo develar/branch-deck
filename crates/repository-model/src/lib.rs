@@ -41,6 +41,7 @@
 //!   their order, the news that approvals arrived
 //! - `review_request_facts`: the pull requests of others that wait for the user's review, as the listings leave them,
 //!   and the news of the requests a listing added
+//! - `review_readings`: what those requests leave to read, as the host reads them ahead on each listing
 //! - `review_view`: what the view derives of the pull requests to review: the sections of Reviews and the actions of
 //!   each pull request by `pull:<number>`
 //! - `refusal_words`: the words of the refusals of the rules for `bd`, the engine and the push guard
@@ -84,6 +85,7 @@ pub mod push_guard;
 pub mod readiness_facts;
 pub mod ref_claims;
 pub mod refusal_words;
+pub mod review_readings;
 pub mod review_request_facts;
 pub mod review_view;
 pub mod runtime;

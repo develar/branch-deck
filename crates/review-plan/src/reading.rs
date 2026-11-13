@@ -10,6 +10,9 @@
 //! - **The layers of a stack** (`layer_readings`) are read in one phase each: one `diff-tree --stdin` of their lists and
 //!   one `cat-file --batch` of the blobs no cache has (`FileDiffs::ready_ranges`), then their marks from memory, then the
 //!   index asked layer by layer, the bottom first.
+//! - **The waiting requests of Your Turn** (`ahead_readings`) are read the same way, all in one read, without asking the
+//!   index: a rename that is not local waits for it (`Unproven::RenamesPending`) while the machine has an index, until a
+//!   review window asks it (JetBrains/accio#777: a query of a tree far from the index costs tens of seconds).
 
 use crate::PlanSources;
 use crate::modules::reading_role;
@@ -26,6 +29,20 @@ use text_diff::model::{RenameProof, RunKind, TextDiff, WhitespacePolicy};
 
 /// The whitespace policy a reading is of: the default, as the plan reads its pair
 pub const READING_POLICY: WhitespacePolicy = WhitespacePolicy::Default;
+
+/// `READING_POLICY` in the key of a reading kept on disk (`object_cache::range_reading`)
+pub const READING_POLICY_KEY: u8 = READING_POLICY as u8;
+
+/// The version of the rules of a reading: bump it when what `range_reading` sums or names changes, so no reading kept by
+/// an older binary is shown (`reading_version`)
+const READING_RULES: u32 = 1;
+
+/// The version a final reading is kept under on disk (`object_cache::range_reading`): the rules of the reading with the
+/// version of the model of the diffs it sums (`file_diffs::service::model_version`)
+#[must_use]
+pub fn reading_version() -> u32 {
+  file_diffs::service::model_version().rotate_left(8) ^ READING_RULES
+}
 
 /// What the diffs of `read` leave to read, file by file as their badges count it
 #[must_use]
@@ -154,8 +171,13 @@ pub(crate) struct PlanReading {
 
 impl PlanReading {
   pub(crate) fn collect(git: &GitCommandExecutor, sources: PlanSources<'_>, repository_path: &str, source: DiffSource) -> Result<Self> {
+    Self::collect_asking(git, sources, repository_path, source, sources.index.is_some())
+  }
+
+  /// `collect`, whose renames wait for an index when `asks_index`: one there that this read does not ask
+  fn collect_asking(git: &GitCommandExecutor, sources: PlanSources<'_>, repository_path: &str, source: DiffSource, asks_index: bool) -> Result<Self> {
     let params = reading_params(repository_path, source);
-    let read = sources.file_diffs.collect(git, sources.cache, sources.index.is_some(), &params, &mut |_| {})?;
+    let read = sources.file_diffs.collect(git, sources.cache, asks_index, &params, &mut |_| {})?;
     Ok(Self { params, read })
   }
 
@@ -182,16 +204,49 @@ pub fn layer_readings(
   ranges: &[(String, String)],
   mut read: impl FnMut(usize, RangeReading),
 ) -> Result<()> {
+  let waiting = diff_readings(git, sources, repository_path, ranges, sources.index.is_some(), &mut read)?;
+  for (index, mut layer) in waiting {
+    layer.answer(git, sources)?;
+    read(index, layer.reading());
+  }
+  Ok(())
+}
+
+/// What each of `ranges` (`(base, head)`, full commit ids: the waiting requests of Your Turn) leaves to read as their
+/// diffs say it, told once to `read` by the place of the range: the diffs of every range in one phase each, as
+/// `layer_readings`, the index asked of nothing. `indexed`: the machine has an index of the repository, so a rename that
+/// is not local waits for it (`Unproven::RenamesPending`) until a review window asks it; without one it is not proven
+/// (`Unproven::RenamesUnanswered`), as the window says it
+pub fn ahead_readings(
+  git: &GitCommandExecutor,
+  sources: PlanSources<'_>,
+  repository_path: &str,
+  ranges: &[(String, String)],
+  indexed: bool,
+  mut read: impl FnMut(usize, RangeReading),
+) -> Result<()> {
+  diff_readings(git, sources, repository_path, ranges, indexed, &mut read).map(drop)
+}
+
+/// The readings of `ranges` as their diffs say them, told to `read`, the diffs of every range in one phase each
+/// (`FileDiffs::ready_ranges`); the ranges whose renames wait for an index (`asks_index`), by their place
+fn diff_readings(
+  git: &GitCommandExecutor,
+  sources: PlanSources<'_>,
+  repository_path: &str,
+  ranges: &[(String, String)],
+  asks_index: bool,
+  read: &mut impl FnMut(usize, RangeReading),
+) -> Result<Vec<(usize, PlanReading)>> {
   let pairs: Vec<(&str, &str)> = ranges.iter().map(|(base, head)| (base.as_str(), head.as_str())).collect();
   sources.file_diffs.ready_ranges(git, repository_path, sources.cache, &pairs, READING_POLICY)?;
-  // the layers whose renames wait for the index, by their place
   let mut waiting: Vec<(usize, PlanReading)> = Vec::new();
   for (index, (base, head)) in ranges.iter().enumerate() {
     let source = DiffSource::Range {
       base: base.clone(),
       head: head.clone(),
     };
-    let layer = PlanReading::collect(git, sources, repository_path, source)?;
+    let layer = PlanReading::collect_asking(git, sources, repository_path, source, asks_index)?;
     let reading = layer.reading();
     let pending = reading.pending();
     read(index, reading);
@@ -199,9 +254,5 @@ pub fn layer_readings(
       waiting.push((index, layer));
     }
   }
-  for (index, mut layer) in waiting {
-    layer.answer(git, sources)?;
-    read(index, layer.reading());
-  }
-  Ok(())
+  Ok(waiting)
 }

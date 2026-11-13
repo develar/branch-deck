@@ -1,5 +1,5 @@
 use crate::PlanSources;
-use crate::reading::{READING_POLICY, layer_readings};
+use crate::reading::{READING_POLICY, ahead_readings, layer_readings};
 use crate::test_support::plan_of_range;
 use domain_types::range_reading::{FileRole, QuietProof, RangeReading, RoleReading, Unproven, UnprovenFile};
 use file_diffs::model::{DiffContent, DiffSource};
@@ -142,4 +142,38 @@ fn the_layers_of_a_stack_are_read_in_one_process_a_phase() {
   assert_eq!(readings[2].as_ref().unwrap().roles, [role(FileRole::Tests, 1, 1, 1, 1)]);
   // the lists of every layer in one `diff-tree --stdin`, the blobs of every pair in one `cat-file --batch`
   assert_processes(&git, &[("cat-file", 1), ("diff-tree", 1)]);
+}
+
+/// openspec/specs/review/range-reading/spec.md, "Reading: The read ahead asks no index": a rename across files waits for
+/// the index while the machine has one, and is not proven without one; the read asks nothing
+#[test]
+fn the_read_ahead_leaves_a_rename_across_files_to_the_index_and_asks_none() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Initial", &[("src/a/Report.kt", REPORT), ("test/a/ReportTest.kt", TEST)]);
+  let renamed = repo.create_commit_with_files(
+    "Rename total to sum",
+    &[
+      ("src/a/Report.kt", &REPORT.replace("fun total", "fun sum")),
+      ("test/a/ReportTest.kt", &TEST.replace(".total(", ".sum(")),
+    ],
+  );
+  let ranges = vec![(base, renamed)];
+  let (cache, file_diffs) = (ObjectCache::disabled(), FileDiffs::default());
+  let sources = PlanSources {
+    cache: &cache,
+    file_diffs: &file_diffs,
+    index: None,
+  };
+  let why = |indexed: bool| {
+    let mut whys = Vec::new();
+    ahead_readings(repo.git_executor(), sources, repo.path_str(), &ranges, indexed, |_, reading| {
+      whys = reading.unproven.iter().map(|file| file.why).collect();
+    })
+    .unwrap();
+    whys.sort();
+    whys.dedup();
+    whys
+  };
+  assert_eq!(why(true), [Unproven::RenamesPending], "checking renames until a window asks the index");
+  assert_eq!(why(false), [Unproven::RenamesUnanswered], "no index on the machine: not proven");
 }

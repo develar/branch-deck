@@ -26,6 +26,7 @@ use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
+use crate::review_readings::ReadAheadAnswer;
 use crate::runtime::{Message, spawn_actor};
 use crate::state::Joined;
 use crate::sync_scheduler::Settled;
@@ -38,7 +39,7 @@ use domain_types::landing::BaselinePush;
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
-use domain_types::review_request::ReviewEntry;
+use domain_types::review_request::{ReviewEntry, ReviewRequest};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewPatch};
 use history_rewrite::commit_grouper::{GroupingInputs, group_of};
 use history_rewrite::store_lines::StoreLines;
@@ -207,6 +208,11 @@ pub trait SessionHost: Send + Sync + 'static {
   /// the windows get the patch of the table, so it must not block: a host starts what it does on a commit and returns
   /// (the app reads ahead the review plans of the branches the sync moved). Nothing by default
   fn table_committed(&self, _key: &SessionKey, _table: &BranchTable) {}
+
+  /// A listing of the review requests of `key` answered, and `requests` wait without their last reading
+  /// (`review_readings::ReviewReadingsFact::asks`): the host reads what each leaves to read and tells the session
+  /// (`Sessions::review_readings`). Called on the actor of the session, so it must not block. Nothing by default
+  fn review_requests_listed(&self, _key: &SessionKey, _requests: Vec<ReviewRequest>) {}
 
   /// Whether the worktree of `key` was synced before (the `lastSyncTime` of its state, which the app's writer keeps): the
   /// session then syncs when it opens (`SyncReason::Open`), with or without a window. Blocking, called with `frame`.
@@ -465,6 +471,13 @@ impl Sessions {
   /// open
   pub async fn review_fetched(&self, key: &SessionKey, number: u32, head: String) -> Option<Version> {
     self.ask(key, |reply| Message::ReviewFetched { number, head, reply }).await
+  }
+
+  /// What the read ahead says of waiting requests of the open session of `key` (`ReviewReadingsFact::answer`): an
+  /// answer of a head or a base the listing no longer names is kept but shows nothing. Answers the version of the view
+  /// after its patch; `None` for a session that is not open
+  pub async fn review_readings(&self, key: &SessionKey, answers: Vec<ReadAheadAnswer>) -> Option<Version> {
+    self.ask(key, |reply| Message::ReviewReadings { answers, reply }).await
   }
 
   /// The write of the app to a pull request (`PullRequestWrite`, as its command answered it) goes into the pull

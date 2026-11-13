@@ -49,6 +49,7 @@ use crate::moved_remote::{FetchedRemote, MovedFetches};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
+use crate::review_readings::ReadAheadAnswer;
 use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
 use crate::state::{Joined, View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
@@ -59,7 +60,8 @@ use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
-use domain_types::session::{Demand, FactFamily, FactRefreshReason, FactState, RepositoryView, SyncReason, SyncState, SyncStep, Version};
+use domain_types::review_request::ReviewRequest;
+use domain_types::session::{Demand, FactFamily, FactRefreshReason, FactState, FactsChanges, RepositoryView, SyncReason, SyncState, SyncStep, Version};
 use domain_types::stack::BlockReason;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -166,6 +168,12 @@ pub(crate) enum Message {
     head: String,
     reply: oneshot::Sender<Version>,
   },
+  /// What the read ahead says of waiting requests (`Sessions::review_readings`); `reply` gets the version of the view
+  /// after its patch
+  ReviewReadings {
+    answers: Vec<ReadAheadAnswer>,
+    reply: oneshot::Sender<Version>,
+  },
   /// Check Approvals Again for `subject`: its readiness is `Stale` at once and asked again; the scheduler answers `reply`
   /// with the version after the answer
   Recheck {
@@ -262,6 +270,7 @@ pub(crate) fn spawn_actor(
     told_demand: Demand::default(),
     told_digest: None,
     told_readiness: ReadinessDigest::default(),
+    told_kept_reviews: Vec::new(),
     flush_at: None,
     last_flush: None,
     held: None,
@@ -352,6 +361,8 @@ struct Actor {
   told_digest: Option<(Version, [Vec<String>; 2], RobotsDigest)>,
   /// The subjects of the readiness the scheduler was told last
   told_readiness: ReadinessDigest,
+  /// The pull requests whose review refs the last prune kept: those the review windows show and those that wait
+  told_kept_reviews: Vec<u32>,
   /// When the pending patch goes out
   flush_at: Option<Instant>,
   last_flush: Option<Instant>,
@@ -570,7 +581,11 @@ impl Actor {
           self.facts.patronus.retry();
         }
         let lists_pull_requests = matches!(result, FactResult::PullRequests(_));
+        let lists_review_requests = matches!(result, FactResult::ReviewRequests(_));
         self.facts.apply(observation, result);
+        if lists_review_requests {
+          self.review_requests_listed();
+        }
         let moved_remotes = match self.facts.table.value() {
           Some(table) if lists_pull_requests => self.moved.asks(self.life.now(), table, &self.state, &self.facts.pull_requests.view().pull_requests),
           _ => Vec::new(),
@@ -633,6 +648,11 @@ impl Actor {
       }
       Message::ReviewFetched { number, head, reply } => {
         self.facts.review_requests.fetched(number, head);
+        self.flush();
+        let _ = reply.send(self.version());
+      }
+      Message::ReviewReadings { answers, reply } => {
+        self.facts.review_readings.answer(answers, self.facts.review_requests.view());
         self.flush();
         let _ = reply.send(self.version());
       }
@@ -753,15 +773,46 @@ impl Actor {
   }
 
   /// Tells the scheduler the union of the demands when it changed; when the pull requests the review windows show
-  /// changed, the review refs of the others go (`SessionHost::prune_review_refs`)
+  /// changed, the review refs of the others go but those of the waiting requests (`prune_kept_reviews`)
   fn tell_demand(&mut self) {
     let demand = self.demand();
     if demand != self.told_demand {
-      if demand.review_windows != self.told_demand.review_windows {
-        self.prune_review_refs(demand.review_windows.clone());
-      }
       self.told_demand = demand.clone();
       self.events.emit(&self.key, SessionEventKind::Demand(demand));
+      self.prune_kept_reviews();
+    }
+  }
+
+  /// A listing of the review requests answered: the waiting requests it has no last reading of are read ahead by the
+  /// host (`SessionHost::review_requests_listed`), after a listing that GitHub answered, and the review refs of the
+  /// requests that no longer wait go
+  fn review_requests_listed(&mut self) {
+    let requests = self.facts.review_requests.view();
+    if requests.head.state == FactState::Fresh {
+      let asks = self.facts.review_readings.asks(requests);
+      if !asks.is_empty() {
+        self.host.review_requests_listed(&self.key, asks);
+      }
+    }
+    self.prune_kept_reviews();
+  }
+
+  /// The review refs of every pull request go but those the review windows show and those that wait, read ahead
+  /// (`SessionHost::prune_review_refs`), when that set changed since the last prune
+  fn prune_kept_reviews(&mut self) {
+    let waiting = self.facts.review_requests.view().requests.iter().map(|request| request.number);
+    let keep: Vec<u32> = self
+      .told_demand
+      .review_windows
+      .iter()
+      .copied()
+      .chain(waiting)
+      .collect::<BTreeSet<u32>>()
+      .into_iter()
+      .collect();
+    if keep != self.told_kept_reviews {
+      self.told_kept_reviews.clone_from(&keep);
+      self.prune_review_refs(keep);
     }
   }
 
@@ -1096,7 +1147,7 @@ impl Actor {
       self.tell_digest();
       return;
     };
-    if patch.changes.facts.is_some() || patch.changes.patronus.is_some() {
+    if patch.changes.facts.as_ref().is_some_and(kept_by_frame) || patch.changes.patronus.is_some() {
       self.facts_changed();
     }
     let life = &self.life;
@@ -1144,6 +1195,16 @@ fn prefix_changed(session_prefix: &str, config_prefix: &str) -> ApiError {
     ErrorCode::PrefixChanged,
     format!("The branch prefix of the repository is {config_prefix:?} now, not {session_prefix:?}: its session syncs under the new one"),
   )
+}
+
+/// A change of the facts the frame keeps: any part but the readings of the waiting requests (`warm_start`)
+fn kept_by_frame(change: &FactsChanges) -> bool {
+  change.review_readings.is_none()
+    || *change
+      != FactsChanges {
+        review_readings: change.review_readings.clone(),
+        ..FactsChanges::default()
+      }
 }
 
 async fn read_inputs(host: Arc<dyn SessionHost>, key: SessionKey) -> Option<SyncInputs> {
@@ -1230,6 +1291,10 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   /// A sync of `key` committed `table` (`SessionHost::table_committed`): the app reads ahead the review plans its
   /// windows asked whose branches the sync moved (`app_api::reads::review_prefetch`); nothing by default. Not blocking
   fn table_committed(&self, _key: &SessionKey, _table: &BranchTable) {}
+
+  /// A listing of `key` leaves `requests` waiting without their last reading (`SessionHost::review_requests_listed`):
+  /// the app reads them ahead (`app_api::reads::review_prefetch::read_ahead_requests`); nothing by default. Not blocking
+  fn review_requests_listed(&self, _key: &SessionKey, _requests: Vec<ReviewRequest>) {}
 
   /// Whether the worktree of `key` was synced before (`SessionHost::synced_before`): the `lastSyncTime` of its state in
   /// the app's settings; false by default
@@ -1325,6 +1390,10 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn table_committed(&self, key: &SessionKey, table: &BranchTable) {
     self.environment.table_committed(key, table);
+  }
+
+  fn review_requests_listed(&self, key: &SessionKey, requests: Vec<ReviewRequest>) {
+    self.environment.review_requests_listed(key, requests);
   }
 
   fn synced_before(&self, key: &SessionKey) -> bool {

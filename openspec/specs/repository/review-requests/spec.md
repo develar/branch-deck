@@ -9,6 +9,9 @@ targets:
   - crates/remote-facts/src/review_requests.rs
   - crates/domain-policy/src/news.rs
   - crates/repository-model/src/review_request_facts.rs
+  - crates/repository-model/src/review_readings.rs
+  - crates/domain-policy/src/range_reading.rs
+  - crates/app-api/src/reads/review_prefetch.rs
   - crates/remote-facts/src/scheduler_review_requests.rs
   - crates/domain-policy/src/refresh.rs
   - crates/sync-core/src/review_fetch.rs
@@ -1596,7 +1599,8 @@ Open Pull Request MUST open GitHub from the window and ask the main window to ma
 ### Requirement: Review window: The close of the window prunes its refs and its stores
 
 The close of the window MUST stop its fetch, and the session MUST prune the refs of the request it showed (the demand
-no longer names it); the stores of the files and the diffs of a range are the window's and go with it.
+no longer names it) unless the request still waits; the stores of the files and the diffs of a range are the window's
+and go with it.
 
 #### Scenario: The stores of a closed review
 - **WHEN** the window closes
@@ -2345,12 +2349,93 @@ token and sign-in on Accounts ([GitHub Sign-In](../github-sign-in/spec.md#settin
 - **WHEN** the user opens General, Branches or Accounts
 - **THEN** General has "Suggest branch names", Branches the branch prefix, Accounts the GitHub token and sign-in
 
+### Requirement: Read ahead: A listing reads ahead the requests without their last reading
+
+Each listing GitHub answered MUST read ahead the waiting requests the session has no last reading of at the head and
+the base the listing names: never one being read; again one that could not be read and one whose renames wait for the
+index. A repository that reads no review plans (`branchdeck.reviewExperimental`) reads none, and its rows show nothing.
+
+#### Scenario: What a listing asks
+- **WHEN** a listing names three requests, one being read, one read, one whose renames wait; then a new head of one
+- **THEN** only the one that waits is asked, a failure is asked again, and the new head is asked and shows nothing of the old one
+  [@test] crates/repository-model/src/review_readings_test.rs (`a_listing_asks_the_waiting_requests_without_their_last_reading`)
+  [@test] crates/repository-model/src/session_test.rs (`a_listing_reads_ahead_its_waiting_requests_and_the_prunes_keep_their_refs`)
+
+### Requirement: Read ahead: One read for every waiting request
+
+The read ahead MUST be one read of every request a listing asks, a phase a process: one `cat-file` and one `rev-parse` of
+the merge bases of those whose commits are here; one fetch of every missing head (two for a mirror) into
+`refs/branch-deck/review/<n>/ahead/`, apart from the refs of a window; one `diff-tree --stdin` and one `cat-file --batch`
+of their diffs. It asks no index, and one read of a repository runs at a time.
+
+#### Scenario: Three requests the clone lacks
+- **WHEN** three waiting requests are read ahead whose heads the clone lacks
+- **THEN** one fetch brings the three heads, one `rev-parse` gives their merge bases and one `diff-tree` their diffs; warm, one `cat-file` and one `rev-parse`
+  [@test] crates/bd-cli/src/process_budget_test.rs (`the_read_ahead_of_n_waiting_requests_is_one_fetch_and_one_diff_tree`)
+  [@test] crates/sync-core/src/process_budget_test.rs (`the_read_ahead_of_the_waiting_requests_is_one_fetch_and_one_rev_parse`)
+  [@test] crates/sync-core/src/review_fetch_test.rs (`the_heads_of_the_waiting_requests_are_one_fetch_and_their_merge_bases_one_rev_parse`)
+
+#### Scenario: A mirror
+- **WHEN** origin is a mirror of GitHub, and a head has no common history with its base
+- **THEN** the heads come from the branches of the mirror, and that request is not read
+  [@test] crates/sync-core/src/review_fetch_test.rs (`the_waiting_requests_of_a_mirror_come_from_its_branches`)
+
+### Requirement: Read ahead: Each row says what its request leaves to read
+
+Each row of a waiting request MUST say what it leaves to read before any window opens: "Checking…" while it is read,
+then its verdict as a chip before its age; the author's word its diff proves wrong as a warning chip after its labels;
+a stack header the sum of its layers, each layer its own chip. No row moves by its verdict; the rows of Reviews, the
+same row, show the same chips.
+
+#### Scenario: Two requests read ahead
+- **WHEN** a request of formatting alone and one that changes a body wait, the read ahead held, then released
+- **THEN** both say "Checking…", then "Nothing to read · formatting" and "1 change to read in 1 file", in the same order, no window opened
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should say what each request leaves to read before any window opens, checking first, its rows in place`)
+  [@test] crates/domain-policy/src/range_reading_test.rs (`the_waiting_requests_say_what_they_leave_to_read_and_a_stack_the_sum_of_its_layers`)
+  [@test] src/presenters/range-reading.test.ts (`says what a row of Your Turn reads ahead: checking, then the verdict of its request or the sum of its stack`)
+
+#### Scenario: A refactoring that changes a body
+- **WHEN** a request labelled refactoring changes the body of a function
+- **THEN** its row shows "Labelled refactoring · 1 change to read" after its label, its hover why
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should flag in its row a request labelled a refactoring whose diff changes a body`)
+
+#### Scenario: A stack
+- **WHEN** a stack of four layers waits, two of formatting alone
+- **THEN** its header says "Checking…", then "2 with nothing to read · 2 to read · 2 changes", and each layer under it its own reading
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should sum a stack in its header and say what each layer under it leaves to read`)
+
+### Requirement: Read ahead: A final reading shows at once after a restart
+
+A reading that is final MUST show again after a restart of the app without a read of its diff: memory and the store of
+the readings have it ([Range Reading](../../review/range-reading/spec.md#requirement-memory-a-final-reading-is-kept-on-disk)),
+and the read ahead tells it with the first answer of the new session, never "Checking…" first.
+
+#### Scenario: A restart
+- **WHEN** a request was read, and the app starts again with the read ahead held
+- **THEN** its row shows its reading, never "Checking…"
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should show a final reading after a restart without reading it again`)
+
+### Requirement: Read ahead: The review refs of a waiting request stay
+
+The session MUST prune the review refs of every pull request but those the review windows show and those that wait,
+each time that set changes: a change of the windows and a listing alike.
+
+#### Scenario: A listing and a window
+- **WHEN** a listing names #7 and #8, then a window shows #9
+- **THEN** the first prune keeps #7 and #8, the next #7, #8 and #9
+  [@test] crates/repository-model/src/session_test.rs (`a_listing_reads_ahead_its_waiting_requests_and_the_prunes_keep_their_refs`)
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should keep the review when the request is withdrawn meanwhile, and its refs`)
+
 ## User Experience
 
 - The card is a `Card` island (`CollapsibleCard`), its rows `divide-y`, the hover `bg-muted`; the focus outline of a row is
   inside it (`bd-focus-inset`), without the hover tint. The unread dot is `size-1.5 bg-primary`, the checks dots are `StatusChipDot`. The status line of a failure is
   the footer, `text-xs`.
 - `UserCheckIcon` means "a review for the user" (the card, the Activity entry, the Review menu item).
+- What a request leaves to read, read ahead, is a `Badge` before its age, `max-w-72` (`max-w-40` below `md`), cut at
+  its end: `success` for "Nothing to read · formatting", else `outline` muted, its hover the files not proven;
+  "Checking…" while it is read, `text-xs text-muted-foreground`. The author's word the diff proves wrong is a `warning`
+  `Badge` after the labels, from `md` on; a stack header has the sum of its layers in the place of a request's chip.
 - The decisions on the pull request are in the title bar, as the actions of every review window are on its object
   ([Title Bar](../title-bar/spec.md)): the window-level actions as `sm` ghost buttons with icon, label and key, then the
   decisions as `sm` buttons (`MenuItemButton size="sm"`: the icon, the label, the key last, the reason of a disabled
@@ -2381,7 +2466,10 @@ token and sign-in on Accounts ([GitHub Sign-In](../github-sign-in/spec.md#settin
   requests GitHub got (`gitHubRequests`: the review with its event and commit, the `/patronus merge`
   comment); `answerGitHub` scripts a refused review or another head (e2e-testing.md, Remote services).
   The review fetch runs the real operation on the template (`RewriteHost::review_fetch` of the server fills the
-  commits: an empty head is the branch the request names, an empty base the baseline, the source `local`); a test holds
+  commits: an empty head is the branch the request names, an empty base the branch it names when that is a branch of
+  the template but the baseline, as a layer of a stack is into the branch below, else the baseline, the source
+  `local`); the read ahead takes the same commits and is held by `holdRemoteAnswers({ hold: ["readAhead"] })` (its search
+  of the fixture index below the app), its rows "Checking…" until the release; a test holds
   its `execute` in the page for the progress (`routeReviewFetch`), and the prunes of the session are recorded (`prunes`). The Dock and
   ⌘-click tests take the user agent of macOS. The review window is the page `/pull-request-review` with the recorded
   data (`openSubWindowPage`); the label stays `main`, so Escape closing the window and Activity staying in the main
@@ -2407,6 +2495,13 @@ token and sign-in on Accounts ([GitHub Sign-In](../github-sign-in/spec.md#settin
 - A request of a team the user is in is not shown, by design; a CODEOWNERS-heavy repository may show little.
 - Whether macOS shows a notification of the app in front ("Send Test Notification" while Branch Deck is frontmost) is
   to be checked in the app.
+- A reading that waits for the index (a rename across files, JetBrains/accio#777) is read again by each listing; the
+  reading a review window of the request finishes reaches its row with the next listing, up to five minutes later, not
+  at once.
+- The rows keep the order of how long each request waits whatever its verdict: whether Your Turn should sort or group
+  the requests with nothing to read is to be seen with real mornings of requests.
+- The E2E server keeps no object cache: its restart test shows the memory of the readings across sessions, the store on
+  disk is tested in Rust (`range_readings_test.rs`).
 
 ## References
 

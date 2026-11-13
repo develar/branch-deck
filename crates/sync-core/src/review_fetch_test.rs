@@ -1,5 +1,6 @@
 use crate::review_fetch::{
-  GitHubCredentials, NoCommonHistory, StackRanges, fetch_review_head, fetch_review_head_until, fetch_review_stack, prune_review_refs, review_refs_to_prune,
+  AheadPair, GitHubCredentials, NoCommonHistory, ReviewPair, StackRanges, fetch_review_head, fetch_review_head_until, fetch_review_pairs, fetch_review_stack, local_review_pairs,
+  prune_review_refs, review_refs_to_prune,
 };
 use domain_types::review_request::{FetchReviewHeadParams, ReviewHeadState, ReviewRange, ReviewSource};
 use git_executor::git_command_executor::{ProgressStop, StoppedCommand};
@@ -168,6 +169,69 @@ fn a_stack_is_one_fetch_of_its_top_cut_into_its_layers() {
   assert_eq!(stack.layers[2].range.source, ReviewSource::Origin);
   // only the refs of the top: its head brought every layer
   assert_eq!(review_refs(&fixture.local), ["refs/branch-deck/review/12/head"]);
+}
+
+fn pair(base: &str, head: &str) -> AheadPair {
+  AheadPair::Pair(ReviewPair {
+    base: base.to_string(),
+    head: head.to_string(),
+  })
+}
+
+/// The read ahead of waiting requests (openspec/specs/repository/review-requests/spec.md, "Read ahead"): what the clone
+/// lacks is missing, one fetch brings every head into the refs of the read ahead, apart from those of a window, and each
+/// request is read from the merge base of its head and its base, as GitHub shows it; then they are all local
+#[test]
+fn the_heads_of_the_waiting_requests_are_one_fetch_and_their_merge_bases_one_rev_parse() {
+  let fixture = stack_fixture();
+  let (executor, local) = (fixture.local.git_executor(), path(&fixture.local));
+  let params = fixture.params();
+  assert_eq!(local_review_pairs(executor, local, &params).unwrap(), vec![AheadPair::Missing; 3]);
+  let stop = ProgressStop {
+    idle_timeout: None,
+    is_cancelled: &|| false,
+  };
+  let heads = &fixture.heads;
+  let expected = vec![pair(&fixture.base, &heads[0]), pair(&heads[0], &heads[1]), pair(&heads[1], &heads[2])];
+  assert_eq!(fetch_review_pairs(executor, local, &params, &stop).unwrap(), expected);
+  assert_eq!(
+    review_refs(&fixture.local),
+    [
+      "refs/branch-deck/review/10/ahead/head",
+      "refs/branch-deck/review/11/ahead/head",
+      "refs/branch-deck/review/12/ahead/head"
+    ]
+  );
+  assert_eq!(local_review_pairs(executor, local, &params).unwrap(), expected);
+}
+
+/// A mirror (a Space repository GitHub mirrors) gives the branches of the waiting requests; a request whose head has no
+/// common history with its base is unrelated
+#[test]
+fn the_waiting_requests_of_a_mirror_come_from_its_branches() {
+  let fixture = fixture();
+  let _space = fixture.mirror();
+  let (executor, local) = (fixture.local.git_executor(), path(&fixture.local));
+  let stop = ProgressStop {
+    idle_timeout: None,
+    is_cancelled: &|| false,
+  };
+  assert_eq!(
+    fetch_review_pairs(executor, local, &[fixture.params()], &stop).unwrap(),
+    vec![pair(&fixture.base, &fixture.head)]
+  );
+  assert_eq!(
+    fixture.refs("refs/branch-deck/review/"),
+    [format!("refs/branch-deck/review/{NUMBER}/ahead/head {}", fixture.head)]
+  );
+
+  let tree = git(&fixture.local, &["rev-parse", "HEAD^{tree}"]);
+  let orphan = git(&fixture.local, &["commit-tree", "-m", "Unrelated", &tree]);
+  let unrelated = FetchReviewHeadParams {
+    head_ref_oid: orphan,
+    ..fixture.params()
+  };
+  assert_eq!(local_review_pairs(executor, local, &[unrelated]).unwrap(), vec![AheadPair::Unrelated]);
 }
 
 #[test]

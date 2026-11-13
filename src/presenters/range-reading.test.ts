@@ -1,7 +1,15 @@
 // @spec openspec/specs/review/range-reading/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ClaimConflict, RangeReadingView, ReadingSummary } from "@/lib/bindings"
-import { describeClaimConflict, describeUnproven, formatClaimConflict, formatReading, formatStackReading } from "@/presenters/range-reading"
+import {
+  describeClaimConflict,
+  describeUnproven,
+  formatClaimConflict,
+  formatReading,
+  formatRequestReading,
+  formatStackReading,
+  formatStackRowReading,
+} from "@/presenters/range-reading"
 
 const summary = (verdict: ReadingSummary["verdict"], unproven = 0, pending = false): ReadingSummary => ({ verdict, unproven, pending })
 
@@ -58,5 +66,18 @@ describe("the words of what a range leaves to read", () => {
   it("sums the layers of a stack", () => {
     expect(formatStackReading({ nothingToRead: 10, toReadLayers: 2, toRead: 7, unknown: 0, firstToRead: 3 })).toBe("10 with nothing to read · 2 to read · 7 changes")
     expect(formatStackReading({ nothingToRead: 1, toReadLayers: 0, toRead: 0, unknown: 2, firstToRead: null })).toBe("1 with nothing to read · 2 being read")
+  })
+
+  it("says what a row of Your Turn reads ahead: checking, then the verdict of its request or the sum of its stack", () => {
+    const view: RangeReadingView = {
+      reading: { roles: [], unproven: [], proofs: ["formatting"] },
+      summary: summary({ kind: "nothingToRead", proofs: ["formatting"] }),
+      conflict: null,
+    }
+    expect([formatRequestReading({ kind: "checking" }), formatRequestReading({ kind: "read", view })]).toEqual(["Checking…", "Nothing to read · formatting"])
+    expect([
+      formatStackRowReading({ kind: "checking" }),
+      formatStackRowReading({ kind: "read", summary: { nothingToRead: 10, toReadLayers: 2, toRead: 3, unknown: 0, firstToRead: 4 } }),
+    ]).toEqual(["Checking…", "10 with nothing to read · 2 to read · 3 changes"])
   })
 })

@@ -239,3 +239,44 @@ pub struct StackReading {
   /// below it is not known, and when every layer has nothing to read
   pub first_to_read: Option<u32>,
 }
+
+/// What a waiting request of Your Turn leaves to read as the session read it ahead
+/// (openspec/specs/repository/review-requests/spec.md, "Read ahead"), at the head and the base its listing names
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum RequestReadingState {
+  /// Its head is fetched, or its diffs read
+  Checking,
+  /// Its reading, its verdict and its author's word checked against it
+  Read { view: RangeReadingView },
+}
+
+/// The reading of one waiting request, by its number
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RequestReading {
+  pub number: u32,
+  pub state: RequestReadingState,
+}
+
+/// What the layers of a stack of Your Turn leave to read, read ahead
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum StackReadingState {
+  /// A layer is being read
+  Checking,
+  /// Every layer is read: their sum (`domain_policy::range_reading::stack_summary`)
+  Read { summary: StackReading },
+}
+
+/// The reading of a stack of Your Turn, by the number of its bottom
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackRowReading {
+  pub bottom: u32,
+  pub state: StackReadingState,
+}

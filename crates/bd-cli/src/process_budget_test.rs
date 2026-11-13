@@ -2193,3 +2193,72 @@ fn the_host_objects_have_ingest_and_show() {
   assert_eq!(lease_pool::host_refs::delete_run_ref(&none.git, &none.dirs, "run-1", none.lock_timeout).unwrap(), None);
   assert_git_processes(&none.git, &[("rev-parse", 1)]);
 }
+
+/// The read ahead of the waiting requests of Your Turn (`app_api::reads::review_prefetch`) of three pull requests into
+/// master whose heads the clone lacks: one `cat-file` finds them missing; one fetch of every head (the presence of the
+/// heads, the bases and their tracking refs, the GitHub repository and the remotes, the fetch), one `cat-file` and one
+/// `rev-parse` of every merge base; then one `diff-tree --stdin` of every range and one `cat-file --batch` of their
+/// blobs. Nothing per request: on the IntelliJ monorepo a read per request ran 20 to 41 processes for 20 of them
+#[test]
+fn the_read_ahead_of_n_waiting_requests_is_one_fetch_and_one_diff_tree() {
+  use domain_types::review_request::FetchReviewHeadParams;
+  use file_diffs::service::FileDiffs;
+  use git_executor::git_command_executor::ProgressStop;
+  use object_cache::cache::ObjectCache;
+  use review_plan::PlanSources;
+  use review_plan::reading::ahead_readings;
+  use sync_core::review_fetch::{AheadPair, fetch_review_pairs, local_review_pairs};
+  const GITHUB_URL: &str = "https://github.com/acme/monorepo.git";
+
+  // github.com/acme/monorepo: three pull requests into master, a file each, also as `refs/pull/<n>/head`; the clone was
+  // made before them
+  let github = TestRepo::new();
+  let base = github.create_commit("Initial", "README.md", "# Test\n");
+  let local = TestRepo::new_empty();
+  local.clone_from(github.path()).unwrap();
+  let mut params = Vec::new();
+  for number in 1..=3u32 {
+    github.checkout("master").unwrap();
+    github.checkout_new_branch(&format!("p/{number}")).unwrap();
+    let head = github.create_commit(&format!("Part {number}"), &format!("part{number}.txt"), "part\n");
+    git(&github, &["update-ref", &format!("refs/pull/{number}/head"), &head]);
+    params.push(FetchReviewHeadParams {
+      repository_path: local.path_str().to_string(),
+      number,
+      head_ref_name: format!("p/{number}"),
+      head_ref_oid: head,
+      base_ref_name: "master".to_string(),
+      base_ref_oid: base.clone(),
+      is_cross_repository: false,
+    });
+  }
+  local.set_config(&format!("url.{}.insteadOf", github.path_str()), GITHUB_URL).unwrap();
+  local.set_config("branchdeck.githubRepository", "acme/monorepo").unwrap();
+  git(&local, &["remote", "set-url", "origin", GITHUB_URL]);
+
+  let git = test_utils::process_budget::counting();
+  let path = local.path_str();
+  assert!(local_review_pairs(&git, path, &params).unwrap().iter().all(|pair| *pair == AheadPair::Missing));
+  let stop = ProgressStop {
+    idle_timeout: None,
+    is_cancelled: &|| false,
+  };
+  let ranges: Vec<(String, String)> = fetch_review_pairs(&git, path, &params, &stop)
+    .unwrap()
+    .into_iter()
+    .map(|pair| match pair {
+      AheadPair::Pair(pair) => (pair.base, pair.head),
+      other => panic!("not fetched: {other:?}"),
+    })
+    .collect();
+  let (cache, file_diffs) = (ObjectCache::disabled(), FileDiffs::default());
+  let sources = PlanSources {
+    cache: &cache,
+    file_diffs: &file_diffs,
+    index: None,
+  };
+  let mut to_read = vec![0; ranges.len()];
+  ahead_readings(&git, sources, path, &ranges, false, |index, reading| to_read[index] = reading.to_read()).unwrap();
+  assert_eq!(to_read, [1, 1, 1], "each adds a text to read");
+  assert_git_processes(&git, &[("cat-file", 4), ("config", 2), ("diff-tree", 1), ("fetch", 1), ("rev-parse", 1)]);
+}

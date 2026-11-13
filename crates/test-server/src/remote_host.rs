@@ -75,7 +75,8 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::Sync
     | HeldAnswer::YouTrackConfig
     | HeldAnswer::HostDisks
-    | HeldAnswer::StepTests => None,
+    | HeldAnswer::StepTests
+    | HeldAnswer::ReadAhead => None,
   }
 }
 
@@ -185,6 +186,9 @@ pub enum HeldAnswer {
   /// The tests of the steps of a review plan (`SymbolIndex::tests` of the fixture index, `FixtureIndexes`): the plan
   /// shows what the other queries of the index answered until the release
   StepTests,
+  /// The read ahead of the waiting requests (its search of the fixture index below the app, `FixtureIndexes`): the rows
+  /// say "Checking…" until the release
+  ReadAhead,
 }
 
 /// The route of the fake GitHub that gives `answer`: held there
@@ -211,7 +215,8 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
     | HeldAnswer::Sync
     | HeldAnswer::YouTrackConfig
     | HeldAnswer::HostDisks
-    | HeldAnswer::StepTests => None,
+    | HeldAnswer::StepTests
+    | HeldAnswer::ReadAhead => None,
   }
 }
 
@@ -491,7 +496,8 @@ impl RemoteHost {
         | HeldAnswer::CliTools
         | HeldAnswer::Sync
         | HeldAnswer::HostDisks
-        | HeldAnswer::StepTests => Arc::new(FakeGate::default()),
+        | HeldAnswer::StepTests
+        | HeldAnswer::ReadAhead => Arc::new(FakeGate::default()),
       };
       if let Some(before) = held.insert(*answer, gate) {
         before.open();

@@ -30,10 +30,11 @@ import { openBranchReviewWindow } from "@/lib/review-window"
 import { cutList } from "@/lib/text"
 import { useRowPart } from "@/model/store"
 import type { OperationWords } from "@/presenters/operations"
+import { describeClaimConflict, describeUnproven, formatClaimConflict, formatRequestReading, formatStackRowReading } from "@/presenters/range-reading"
 import { useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import type { ReviewAction } from "@/stores/review-requests"
-import { openRequestOnGitHub, openReviewRequest, useReviewAction } from "@/stores/review-requests"
+import { openRequestOnGitHub, openReviewRequest, useRequestReading, useReviewAction, useStackReading } from "@/stores/review-requests"
 
 export interface ReviewRequestRowProps {
   request: ReviewRequest
@@ -179,6 +180,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
           <PullRequestTitle title={request.title} lead={request.titleLead} />
         </span>
         <RequestLabels labels={request.labels ?? []} />
+        <RequestClaim number={request.number} />
         {hint === "" ? (
           metaLine
         ) : (
@@ -211,6 +213,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
             </TooltipTrigger>
             <TooltipContent>Open Pull Request</TooltipContent>
           </Tooltip>
+          <RequestReadingChip number={request.number} />
           {age ?? <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} backToYou={request.backToYou} />}
         </span>
       </ContextMenuTrigger>
@@ -316,6 +319,7 @@ export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, lay
             </TooltipTrigger>
             <TooltipContent>Review Stack</TooltipContent>
           </Tooltip>
+          <StackReadingChip bottom={bottom.number} />
           <WaitingAge waitingSince={oldest.waitingSince} reRequested={oldest.reRequested} backToYou={oldest.backToYou} />
         </span>
       </ContextMenuTrigger>
@@ -325,6 +329,92 @@ export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, lay
     </ContextMenu>
   )
 })
+
+/**
+ * What the request leaves to read, read ahead (Rust's `RequestReading`), before its age: "Checking…" muted while it is
+ * read, then its verdict as a chip, `success` when nothing is left to read, its hover the files not proven; nothing
+ * while the session knows nothing of it (a repository that reads no review plans, a request it could not read)
+ */
+function RequestReadingChip({ number }: { number: number }) {
+  const state = useRequestReading(number)
+  if (state === undefined) {
+    return null
+  }
+  const text = formatRequestReading(state)
+  if (state.kind === "checking") {
+    return <ReadingText text={text} testId="review-request-reading" />
+  }
+  const nothing = state.view.summary.verdict.kind === "nothingToRead"
+  return <ReadingBadge text={text} nothing={nothing} hint={describeUnproven(state.view)} testId="review-request-reading" />
+}
+
+/**
+ * What the layers of a stack leave to read, read ahead, before its age: "Checking…" while a layer is read, then their
+ * sum ("10 with nothing to read · 2 to read · 3 changes"), `success` when no layer is left to read
+ */
+function StackReadingChip({ bottom }: { bottom: number }) {
+  const state = useStackReading(bottom)
+  if (state === undefined) {
+    return null
+  }
+  const text = formatStackRowReading(state)
+  if (state.kind === "checking") {
+    return <ReadingText text={text} testId="review-stack-reading" />
+  }
+  return <ReadingBadge text={text} nothing={state.summary.toReadLayers === 0} hint={null} testId="review-stack-reading" />
+}
+
+/** "Checking…": quiet, in the place of the chip it becomes */
+function ReadingText({ text, testId }: { text: string; testId: string }) {
+  return (
+    <span className="text-xs whitespace-nowrap text-muted-foreground" data-testid={testId} data-checking>
+      {text}
+    </span>
+  )
+}
+
+/** A verdict as a chip, cut at its end in a narrow window; its hover what it leaves unproven, if anything */
+function ReadingBadge({ text, nothing, hint, testId }: { text: string; nothing: boolean; hint: string | null; testId: string }) {
+  const badge = (
+    <Badge
+      variant={nothing ? "success" : "outline"}
+      className={cn("max-w-40 justify-start md:max-w-72", !nothing && "text-muted-foreground")}
+      data-testid={testId}
+      data-nothing={nothing || undefined}
+    >
+      <span className="truncate">{text}</span>
+    </Badge>
+  )
+  if (hint === null) {
+    return badge
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger render={badge} />
+      <TooltipContent>{hint}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * The author's word the diff of the request proves wrong (Rust's `ClaimConflict`), a `warning` chip after its labels:
+ * "Labelled refactoring · 1 change to read", its hover why; hidden below `md`, where the title needs the room
+ */
+function RequestClaim({ number }: { number: number }) {
+  const state = useRequestReading(number)
+  const conflict = state?.kind === "read" ? state.view.conflict : null
+  if (conflict == null) {
+    return null
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<Badge variant="warning" className="hidden h-4 shrink-0 px-1.5 md:inline-flex" data-testid="review-request-claim" />}>
+        <span className="truncate">{formatClaimConflict(conflict)}</span>
+      </TooltipTrigger>
+      <TooltipContent>{describeClaimConflict(conflict)}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 /**
  * The labels of the pull request on GitHub, muted chips after the title (the first two, then "+3"), which give way with

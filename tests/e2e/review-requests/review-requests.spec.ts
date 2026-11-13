@@ -1044,8 +1044,9 @@ test.describe("Review window", () => {
     await syncAndWaitForBranches()
     const { review } = await openRequestReview(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
-    // the window shows #101: the session prunes the review refs of every other pull request, an earlier start's too
-    await expect.poll(async () => (await repo.getReviewRequestsFixture()).prunes).toEqual([[101]])
+    // the session prunes the review refs of every pull request but those that wait, an earlier start's too; the window of
+    // #101 keeps the same
+    await expect.poll(async () => (await repo.getReviewRequestsFixture()).prunes).toEqual([[101, 102]])
     await repo.setReviewRequests(availableReviewRequests([RECENT]))
     await moveClockUntil(repo, 300_000, () => review.getByTestId("review-withdrawn").isVisible())
     await expect(review.getByTestId("review-withdrawn")).toHaveText("No longer waiting for your review")
@@ -1054,7 +1055,7 @@ test.describe("Review window", () => {
     // the window fetched it and still shows it: no listing prunes its refs
     const fixture = await repo.getReviewRequestsFixture()
     expect(fixture.fetchCalls).toBe(1)
-    expect(fixture.prunes).toEqual([[101]])
+    expect(fixture.prunes).toEqual([[101, 102]])
   })
 })
 
@@ -1826,5 +1827,81 @@ test.describe("What a range leaves to read", () => {
     await expect(reviewPage.locator("[data-slot=toast-title]", { hasText: "Approved #403" })).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 403, "reviews")).toEqual([{ event: "APPROVE", commit_id: await repo.revision("user-name/virtual/tidy") }])
     expect(await gitHubRequests(repo, "POST", "pulls", 401, "reviews")).toEqual([])
+  })
+})
+
+test.describe("Read ahead", () => {
+  /** #401 reformats `auth.js`, #402 changes a body over it: each into master, both labelled a refactoring */
+  const FORMAT_ALONE = reviewRequest("format", 401, 8, { title: "Format auth", author: "niyaz", labels: ["refactoring"] })
+  const CHECK_ALONE = reviewRequest("check", 402, 7, { title: "Check the user", author: "niyaz", labels: ["refactoring"] })
+
+  /** `stacked_reading` with `requests` waiting and the review plan on, the read ahead held: each row says "Checking…" */
+  async function setupHeld(setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>, requests: ReturnType<typeof reviewRequest>[]): Promise<TestRepositoryBuilder> {
+    const repo = await setupRepo("stacked_reading", { reviewRequests: availableReviewRequests(requests), remoteAnswers: { hold: ["readAhead"] } })
+    turnOnReviewPlan(repo)
+    // the listing after the sync reads the requests ahead with the review plan on
+    await syncAndWaitForBranches()
+    return repo
+  }
+
+  test("should say what each request leaves to read before any window opens, checking first, its rows in place", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupHeld(setupRepo, syncAndWaitForBranches, [FORMAT_ALONE, CHECK_ALONE])
+    const card = getYourTurnCard(page)
+    const titles = card.getByTestId("review-request-title")
+    await expect(card.getByTestId("review-request-reading")).toHaveText(["Checking…", "Checking…"])
+    await expect(titles).toHaveText(["Format auth", "Check the user"])
+
+    await repo.holdRemoteAnswers({ release: ["readAhead"] })
+    const formatted = getReviewRow(page, 401).getByTestId("review-request-reading")
+    await expect(formatted).toHaveText("Nothing to read · formatting")
+    await expect(formatted).toHaveAttribute("data-nothing", "true")
+    await expect(getReviewRow(page, 402).getByTestId("review-request-reading")).toHaveText("1 change to read in 1 file")
+    // no row moved by its verdict, and no window opened
+    await expect(titles).toHaveText(["Format auth", "Check the user"])
+    expect(await getOpenedSubWindows(page)).toEqual([])
+    // the review refs of both stay: they wait
+    expect((await repo.getReviewRequestsFixture()).prunes).toEqual([[401, 402]])
+  })
+
+  test("should flag in its row a request labelled a refactoring whose diff changes a body", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupHeld(setupRepo, syncAndWaitForBranches, [FORMAT_ALONE, CHECK_ALONE])
+    await repo.holdRemoteAnswers({ release: ["readAhead"] })
+    const claim = getReviewRow(page, 402).getByTestId("review-request-claim")
+    await expect(claim).toHaveText("Labelled refactoring · 1 change to read")
+    await claim.hover()
+    await expect(openTooltip(page)).toHaveText("The author calls it refactoring, but 1 change of code in 1 file is left to read: no formatting, rename, import or move proves it")
+    // the label of a refactoring of formatting alone holds
+    await expect(getReviewRow(page, 401).getByTestId("review-request-reading")).toHaveText("Nothing to read · formatting")
+    await expect(getReviewRow(page, 401).getByTestId("review-request-claim")).toHaveCount(0)
+  })
+
+  test("should sum a stack in its header and say what each layer under it leaves to read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupHeld(setupRepo, syncAndWaitForBranches, [READ_FORMAT, READ_CHECK, READ_TIDY, READ_LOGIN])
+    const stack = getYourTurnCard(page).getByTestId("review-stack-row")
+    await expect(stack.getByTestId("review-stack-reading")).toHaveText("Checking…")
+    await repo.holdRemoteAnswers({ release: ["readAhead"] })
+    await expect(stack.getByTestId("review-stack-reading")).toHaveText("2 with nothing to read · 2 to read · 2 changes")
+    await stack.click()
+    await expect(getYourTurnCard(page).getByTestId("review-request-row").getByTestId("review-request-reading")).toHaveText([
+      "Nothing to read · formatting",
+      "1 change to read in 1 file",
+      "Nothing to read · formatting",
+      "1 change to read in 1 file",
+    ])
+  })
+
+  test("should show a final reading after a restart without reading it again", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupHeld(setupRepo, syncAndWaitForBranches, [FORMAT_ALONE])
+    await repo.holdRemoteAnswers({ release: ["readAhead"] })
+    const reading = getReviewRow(page, 401).getByTestId("review-request-reading")
+    await expect(reading).toHaveText("Nothing to read · formatting")
+
+    // a new session, the read ahead held: a reading it read again would say "Checking…" until the release
+    await repo.holdRemoteAnswers({ hold: ["readAhead"] })
+    await repo.closeSessions()
+    await page.reload()
+    await expect(reading).toHaveText("Nothing to read · formatting")
+    await expect(getYourTurnCard(page).locator("[data-testid=review-request-reading][data-checking]")).toHaveCount(0)
+    await repo.holdRemoteAnswers({ release: ["readAhead"] })
   })
 })

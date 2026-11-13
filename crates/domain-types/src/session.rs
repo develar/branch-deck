@@ -28,6 +28,7 @@ use crate::next_step::NextStepView;
 use crate::operation::{OperationId, RunningOperation};
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, MergeMethods, PullRequest, PullRequestAvailability, PullRequestView, ViewerPermission};
+use crate::range_reading::{RequestReading, StackRowReading};
 use crate::reason::Reason;
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
 use crate::review_request::{RequestRow, ReviewEntry, ReviewRequest};
@@ -555,6 +556,8 @@ pub struct FactsView {
   /// changes and every `RUNNING_DETAILS_REFRESH` while it runs; a robot no window demands any more has none
   pub robot_details: BTreeMap<String, Fact<PatronusRobotDetails>>,
   pub review_requests: ReviewRequestsView,
+  /// What the waiting requests of `review_requests` leave to read, read ahead; no frame keeps it
+  pub review_readings: ReviewReadingsView,
   /// The sign-ins of the app's accounts and where their tokens come from (`remote_facts::sign_in`): one status of the
   /// app, which every session reads by its rule (`domain_policy::refresh::auth_due`)
   pub auth: Fact<AuthStatus>,
@@ -580,6 +583,18 @@ pub struct ReviewRequestsView {
   pub total_count: u32,
   /// Unix seconds of the last answer with the requests, 0 = never: how old the rows are after a failure
   pub checked_at: u32,
+}
+
+/// What the waiting requests leave to read as the session read them ahead (openspec/specs/repository/review-requests/spec.md,
+/// "Read ahead"; `domain_policy::range_reading::request_readings`): each request being read or read at the head and
+/// the base its listing names, in the order of the requests, and each stack of the rows with a layer being read or every
+/// layer read; a request the read ahead could not read, or of a repository that reads no review plans, has none
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewReadingsView {
+  pub requests: Vec<RequestReading>,
+  pub stacks: Vec<StackRowReading>,
 }
 
 /// Reviews (openspec/specs/repository/reviews/spec.md) as the session derives it: how the rest of Reviews beside the requests by
@@ -1459,6 +1474,10 @@ pub struct FactsChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub review_requests: Option<ReviewRequestsView>,
+  /// The whole part when it changed: a few entries per waiting request
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub review_readings: Option<ReviewReadingsView>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub auth: Option<Fact<AuthStatus>>,

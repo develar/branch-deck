@@ -119,10 +119,11 @@ pub(crate) enum Store {
   WordResolution,
   SessionFrame,
   FileLeftovers,
+  RangeReading,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 19;
+const STORE_COUNT: usize = 20;
 
 /// The stores that no binary writes any more: `commit_patch`, the patches of the old diff views (now `file_diff`)
 const RETIRED_STORES: [&str; 1] = ["commit_patch"];
@@ -150,6 +151,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::WordResolution,
   Store::SessionFrame,
   Store::FileLeftovers,
+  Store::RangeReading,
 ];
 
 impl Store {
@@ -171,7 +173,7 @@ impl Store {
       Self::CommitDiff => 7,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`,
       // `remote_status`, `build_result`, `conflict_chain`, `stack_branch`, `word_resolution`, the schema of
-      // `session_frame`)
+      // `session_frame`, the version of the readings of `range_reading`)
       Self::CommitTree
       | Self::MergeResult
       | Self::BlobSummary
@@ -187,7 +189,8 @@ impl Store {
       | Self::FileMerge
       | Self::WordResolution
       | Self::SessionFrame
-      | Self::FileLeftovers => 1,
+      | Self::FileLeftovers
+      | Self::RangeReading => 1,
     }
   }
 
@@ -206,7 +209,8 @@ impl Store {
       | Self::StackBranch
       | Self::PatronusRobots
       | Self::PatronusHistory
-      | Self::SessionFrame => Environment::Main,
+      | Self::SessionFrame
+      | Self::RangeReading => Environment::Main,
     }
   }
 
@@ -236,6 +240,7 @@ impl Store {
       Self::WordResolution => "word_resolution",
       Self::SessionFrame => "session_frame",
       Self::FileLeftovers => "file_leftovers",
+      Self::RangeReading => "range_reading",
     }
   }
 }

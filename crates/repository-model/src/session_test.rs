@@ -96,6 +96,8 @@ struct ScriptedHost {
   view_gate: Mutex<Option<ViewGate>>,
   /// The worktree and the baseline of each table a sync committed, in order (`SessionHost::table_committed`)
   commits: Mutex<Vec<(String, String)>>,
+  /// The numbers of the waiting requests each listing asked to read ahead (`SessionHost::review_requests_listed`)
+  read_ahead: Mutex<Vec<Vec<u32>>>,
 }
 
 /// What holds the derivations of the Patronus view of a `ScriptedHost` (`ScriptedHost::hold_views`)
@@ -254,6 +256,10 @@ impl SessionHost for ScriptedHost {
 
   fn synced_before(&self, _key: &SessionKey) -> bool {
     *self.synced_before.lock().unwrap()
+  }
+
+  fn review_requests_listed(&self, _key: &SessionKey, requests: Vec<domain_types::review_request::ReviewRequest>) {
+    self.read_ahead.lock().unwrap().push(requests.iter().map(|request| request.number).collect());
   }
 
   fn table_committed(&self, key: &SessionKey, table: &BranchTable) {
@@ -1136,16 +1142,28 @@ async fn the_demand_of_a_session_is_the_union_of_its_windows_and_goes_with_each(
   assert_eq!(shown_details(snapshot(&sessions, &other).await), vec![]);
 }
 
-/// The review refs are those of the pull requests the review windows of the session show: each change of them (a
-/// window shows one, another, none, or goes) prunes the others, and a demand that keeps them prunes nothing
-#[tokio::test]
-async fn a_change_of_the_review_windows_prunes_the_review_refs_of_the_others() {
+/// A window of the session of `/repo` whose host sends the `keep` of each prune of the review refs
+async fn pruned_window() -> (
+  Arc<ScriptedHost>,
+  tokio::sync::mpsc::UnboundedReceiver<Vec<u32>>,
+  Sessions,
+  SessionKey,
+  crate::session::SubscriptionId,
+) {
   let host = Arc::new(ScriptedHost::default());
-  let (sent, mut prunes) = tokio::sync::mpsc::unbounded_channel();
+  let (sent, prunes) = tokio::sync::mpsc::unbounded_channel();
   *host.prunes.lock().unwrap() = Some(sent);
   let (sessions, _clock) = scripted(&host);
   let repo = key("/repo");
   let (main, _) = sessions.subscribe(&repo, Box::new(Window::default())).await.unwrap();
+  (host, prunes, sessions, repo, main)
+}
+
+/// The review refs are those of the pull requests the review windows of the session show: each change of them (a
+/// window shows one, another, none, or goes) prunes the others, and a demand that keeps them prunes nothing
+#[tokio::test]
+async fn a_change_of_the_review_windows_prunes_the_review_refs_of_the_others() {
+  let (_host, mut prunes, sessions, repo, main) = pruned_window().await;
   let (review, _) = sessions.subscribe(&repo, Box::new(Window::default())).await.unwrap();
   let windows = |numbers: &[u32]| Demand {
     review_windows: numbers.to_vec(),
@@ -1167,6 +1185,44 @@ async fn a_change_of_the_review_windows_prunes_the_review_refs_of_the_others() {
   sessions.set_demand(main, &windows(&[]));
   sessions.unsubscribe(review);
   assert_eq!(prunes.recv().await, Some(vec![]), "no review window: every review ref goes");
+}
+
+/// openspec/specs/repository/review-requests/spec.md, "Read ahead": a listing asks the host to read ahead its waiting
+/// requests, the readings it tells come to the windows in the part `reviewReadings`, which no frame keeps, and the review
+/// refs the prunes keep are those of the waiting requests with those of the review windows
+#[tokio::test]
+async fn a_listing_reads_ahead_its_waiting_requests_and_the_prunes_keep_their_refs() {
+  use crate::review_readings::{ReadAheadAnswer, ReadAheadState};
+  use crate::review_request_facts::review_request_facts_test::available;
+  use domain_types::fixtures::review_request;
+  let (host, mut prunes, sessions, repo, main) = pruned_window().await;
+  let ticket = sessions.begin(&repo).await.unwrap();
+  let listing = available(vec![review_request(7, 100), review_request(8, 200)]);
+  sessions.apply_facts(&repo, ticket, FactResult::ReviewRequests(listing)).await.unwrap();
+  assert_eq!(prunes.recv().await, Some(vec![7, 8]), "the refs of the requests that wait stay");
+  assert_eq!(*host.read_ahead.lock().unwrap(), vec![vec![7, 8]]);
+
+  let checking = ReadAheadAnswer {
+    number: 7,
+    head: String::new(),
+    base: String::new(),
+    state: ReadAheadState::Checking,
+  };
+  sessions.review_readings(&repo, vec![checking]).await.unwrap();
+  let readings = snapshot(&sessions, &repo).await.facts.review_readings.requests;
+  assert_eq!(readings.iter().map(|reading| reading.number).collect::<Vec<_>>(), vec![7]);
+  // the same listing again asks only what is not being read
+  let ticket = sessions.begin(&repo).await.unwrap();
+  let listing = available(vec![review_request(7, 100), review_request(8, 200)]);
+  sessions.apply_facts(&repo, ticket, FactResult::ReviewRequests(listing)).await.unwrap();
+  assert_eq!(*host.read_ahead.lock().unwrap(), vec![vec![7, 8], vec![8]]);
+
+  let windows = Demand {
+    review_windows: vec![9],
+    ..Demand::default()
+  };
+  sessions.set_demand(main, &windows);
+  assert_eq!(prunes.recv().await, Some(vec![7, 8, 9]), "a window of another pull request keeps its refs too");
 }
 
 /// A timer of a session waits on the session clock: on a test clock until an advance reaches its time, not before; a

@@ -9,19 +9,23 @@
 //!   range is read or the index answers it.
 //! - **Memory** (`ReviewPlans::readings`): a reading no rename of which waits for the index, nor the index left
 //!   unanswered, is kept by its repository and its two commits, which never change: a window that shows the range again
-//!   reads no git.
+//!   reads no git. **On disk** (`object_cache::range_reading`, `kept_readings`, `store_readings`): of those, a reading
+//!   that is what it is whatever the index (no rename left unproven for want of one), by the version of the readings,
+//!   so a start of the app, and the read ahead of the waiting requests of Your Turn (`review_prefetch`), find it.
 //! - **One read per window** (`Windows::begin_range_readings`): a newer one of the window, its close or its reload
 //!   supersedes the one in flight, whose queries of the index are killed; it ends without another event.
 
 use crate::context::AppContext;
 use crate::operation::{operation, run_blocking};
 use crate::reads::review_plan::PlanReader;
+use crate::reads::review_plan::ReviewPlans;
 use crate::transport::{Call, Sink};
 use domain_policy::range_reading::{reading_view, stack_summary};
 use domain_types::error::ApiError;
 use domain_types::range_reading::{RangeReading, RangeReadingView, StackReading, Unproven};
+use object_cache::cache::ObjectCache;
 use review_plan::PlanSources;
-use review_plan::reading::layer_readings;
+use review_plan::reading::{READING_POLICY_KEY, layer_readings, reading_version};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use sync_utils::child_process::ChildPriority;
@@ -68,9 +72,53 @@ pub(crate) type ReadingKey = (String, String, String);
 
 /// A reading is what it would be whenever it is asked: no rename waits for the index, and an index that is there left
 /// none unanswered (its clock may have cut the query)
-fn is_final(reading: &RangeReading, with_index: bool) -> bool {
+pub(crate) fn is_final(reading: &RangeReading, with_index: bool) -> bool {
   let unanswered = with_index && reading.unproven.iter().any(|file| file.why == Unproven::RenamesUnanswered);
   !reading.pending() && !unanswered
+}
+
+/// A reading that is what it is whatever the index: final, and no rename left unproven for want of one (an index built
+/// since may prove it); the one kind kept on disk
+fn persists(reading: &RangeReading) -> bool {
+  !reading.pending() && !reading.unproven.iter().any(|file| file.why == Unproven::RenamesUnanswered)
+}
+
+/// The final readings of `ranges` (`(base, head)`) of `repository_path`, by their place: memory first, then the store of
+/// the repository in one read, whose readings memory keeps from then on
+pub(crate) fn kept_readings(plans: &ReviewPlans, cache: &ObjectCache, repository_path: &str, ranges: &[(String, String)]) -> Vec<Option<RangeReading>> {
+  let key = |(base, head): &(String, String)| -> ReadingKey { (repository_path.to_string(), base.clone(), head.clone()) };
+  let mut kept: Vec<Option<RangeReading>> = ranges.iter().map(|range| plans.readings.get(&key(range)).map(|kept| (*kept).clone())).collect();
+  let missing: Vec<usize> = (0..ranges.len()).filter(|&index| kept[index].is_none()).collect();
+  if missing.is_empty() || !cache.is_enabled() {
+    return kept;
+  }
+  let pairs: Vec<(&str, &str)> = missing.iter().map(|&index| (ranges[index].0.as_str(), ranges[index].1.as_str())).collect();
+  let stored = cache.get_range_readings::<RangeReading>(reading_version(), READING_POLICY_KEY, &pairs);
+  for (index, reading) in missing.into_iter().zip(stored) {
+    if let Some(reading) = reading {
+      plans.readings.insert(key(&ranges[index]), Arc::new(reading.clone()));
+      kept[index] = Some(reading);
+    }
+  }
+  kept
+}
+
+/// Keeps the final `readings` of `repository_path` (`is_final` with or without an index, `with_index`): in memory, and
+/// those that persist on disk, in one transaction
+pub(crate) fn keep_readings(plans: &ReviewPlans, cache: &ObjectCache, repository_path: &str, readings: &[(&(String, String), &RangeReading)], with_index: bool) {
+  let mut stored: Vec<((&str, &str), &RangeReading)> = Vec::new();
+  for ((base, head), reading) in readings {
+    if !is_final(reading, with_index) {
+      continue;
+    }
+    plans
+      .readings
+      .insert((repository_path.to_string(), base.clone(), head.clone()), Arc::new((*reading).clone()));
+    if persists(reading) {
+      stored.push(((base.as_str(), head.as_str()), *reading));
+    }
+  }
+  cache.put_range_readings(reading_version(), READING_POLICY_KEY, &stored);
 }
 
 /// The readings of `params.ranges` on `events` (module doc), as the read of the window of `call`
@@ -104,12 +152,9 @@ pub(crate) fn read_ranges(
     send(RangeReadingsEvent::Disabled);
     return Ok(());
   }
-  let key = |range: &ReadingRange| -> ReadingKey { (repository_path.to_string(), range.base.clone(), range.head.clone()) };
-  let mut readings: Vec<Option<RangeReading>> = params
-    .ranges
-    .iter()
-    .map(|range| reader.plans.readings.get(&key(range)).map(|kept| (*kept).clone()))
-    .collect();
+  let cache = reader.object_cache(repository_path);
+  let pairs: Vec<(String, String)> = params.ranges.iter().map(|range| (range.base.clone(), range.head.clone())).collect();
+  let mut readings = kept_readings(&reader.plans, &cache, repository_path, &pairs);
   let missing: Vec<usize> = (0..params.ranges.len()).filter(|&index| readings[index].is_none()).collect();
   let event = |readings: &[Option<RangeReading>]| {
     let views: Vec<Option<RangeReadingView>> = readings
@@ -126,7 +171,6 @@ pub(crate) fn read_ranges(
   if missing.is_empty() || canceled() {
     return Ok(());
   }
-  let cache = reader.object_cache(repository_path);
   let index = reader.indexes.search(canceled, ChildPriority::Normal);
   let with_index = index.is_some();
   let sources = PlanSources {
@@ -134,16 +178,14 @@ pub(crate) fn read_ranges(
     file_diffs: reader.file_diffs(),
     index: index.as_deref(),
   };
-  let ranges: Vec<(String, String)> = missing
-    .iter()
-    .map(|&index| (params.ranges[index].base.clone(), params.ranges[index].head.clone()))
-    .collect();
+  let ranges: Vec<(String, String)> = missing.iter().map(|&index| pairs[index].clone()).collect();
   layer_readings(reader.git(), sources, repository_path, &ranges, |at, reading| {
-    let index = missing[at];
-    if is_final(&reading, with_index) && !canceled() {
-      reader.plans.readings.insert(key(&params.ranges[index]), Arc::new(reading.clone()));
-    }
-    readings[index] = Some(reading);
+    readings[missing[at]] = Some(reading);
     send(event(&readings));
-  })
+  })?;
+  if !canceled() {
+    let read: Vec<(&(String, String), &RangeReading)> = missing.iter().zip(&ranges).filter_map(|(&index, range)| Some((range, readings[index].as_ref()?))).collect();
+    keep_readings(&reader.plans, &cache, repository_path, &read, with_index);
+  }
+  Ok(())
 }
