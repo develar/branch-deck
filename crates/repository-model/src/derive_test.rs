@@ -1198,3 +1198,96 @@ fn the_structure_of_a_branch_names_the_needs_it_declared() {
   assert_eq!(needs("auth"), Some(vec!["ci-config:prepare".to_string(), "docs".to_string()]));
   assert_eq!(needs("docs"), Some(Vec::new()));
 }
+
+/// A merged robot of a branch landed only the commits it took (openspec/specs/branch/next-step/spec.md, "A merged robot
+/// lands only the commits it took"): before any remote status (the first view of a session, `brd status`), docs, whose
+/// robot took earlier commits under its name and landed none of what it has now, is new work, not landed, its step the
+/// one of new work; cache, whose robot took its tip, and notes, whose robot the view says landed all of it by content,
+/// are landed, "Merged by Patronus"
+#[test]
+fn a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote_status() {
+  use crate::derive::{landed_states_of, next_steps_of};
+  use domain_types::next_step::{RowFact, StepBlocker, StepFact};
+  use domain_types::repository_view::{LandedByView, LandingNeeds};
+  use std::collections::HashMap;
+
+  let branch_names = ["docs", "cache", "notes"];
+  let branches: Vec<GroupedBranchInfo> = branch_names.iter().map(|name| on(name, None)).collect();
+  let mut events = vec![grouping(branches.clone(), &[], &[])];
+  for name in branch_names {
+    events.push(synced(name, &format!("{name}-1"), CommitSyncStatus::Created));
+    events.push(branch_status(name, BranchSyncStatus::Created));
+  }
+  let mut state = TableState::with_prefix("user");
+  run_sync(&mut state, events);
+  // no remote status said what the remote branches have
+  let table = BranchTable {
+    prefix: "user".to_string(),
+    baseline: "origin/master".to_string(),
+    branches,
+    tips: branch_names
+      .iter()
+      .map(|name| (format!("user/virtual/{name}"), format!("copy-{name}-1")))
+      .collect::<HashMap<_, _>>(),
+    ..BranchTable::default()
+  };
+  let mut facts = synced_facts(&table);
+  let merged = |name: &str, source: &str| PatronusRobot {
+    source_revision: Some(source.to_string()),
+    finish_time: Some(20),
+    ..robot(&format!("{name}-merged"), Some(name), PatronusRobotStatus::Success, 10)
+  };
+  facts.apply(
+    at(2),
+    FactResult::Robots {
+      read: RobotsRead::List { full: true },
+      result: PatronusRobotsResult {
+        availability: PatronusAvailability::Available,
+        robots: vec![merged("docs", "earlier"), merged("cache", "copy-cache-1"), merged("notes", "rebuilt")],
+        github_repository: Some("acme/monorepo".to_string()),
+      },
+    },
+  );
+  let row = |name: &str| BranchPatronus {
+    robot_id: Some(format!("{name}-merged")),
+    landing_needs: LandingNeeds::Known { refusals: Vec::new() },
+    ..BranchPatronus::default()
+  };
+  let view = PatronusView {
+    branches: BTreeMap::from([
+      ("docs".to_string(), row("docs")),
+      ("cache".to_string(), row("cache")),
+      (
+        "notes".to_string(),
+        BranchPatronus {
+          landed_by: Some(LandedByView {
+            by: robot_of("notes", "notes-merged"),
+            own: true,
+            landed: names(&["notes-1"]),
+            after: Vec::new(),
+          }),
+          ..row("notes")
+        },
+      ),
+    ]),
+    ..PatronusView::default()
+  };
+  answer_patronus(&mut facts, 3, view, &table);
+
+  let steps = next_steps_of(&state, &facts, &BTreeMap::new(), &landed_states_of(&state, &facts));
+  let docs = &steps["docs"];
+  assert_eq!(
+    (&docs.step.kind, &docs.step.safe_push, &docs.step.landed),
+    (&StepKind::Pending { fact: StepFact::PullRequests }, &Some(StepBlocker::Step), &None),
+    "new work under the name of a landed robot: {docs:?}"
+  );
+  assert_ne!(docs.node.kind, LandingNodeKind::InMaster);
+  assert_eq!(docs.status.main, None, "the Status cell shows the branch as it is");
+  for name in ["cache", "notes"] {
+    let landed = &steps[name];
+    assert_eq!((landed.step.row, &landed.step.kind), (StepRow::One, &StepKind::Settled), "{name}");
+    assert!(landed.step.landed.is_some(), "{name}");
+    assert_eq!(landed.node.kind, LandingNodeKind::InMaster, "{name}");
+    assert_eq!(landed.status.main, Some(RowFact::Robot { running: false, failed: false }), "{name}");
+  }
+}

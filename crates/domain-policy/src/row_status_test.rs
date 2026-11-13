@@ -377,4 +377,37 @@ fn a_robot_of_an_earlier_state_of_the_branch_gives_way_to_its_push_state_unless_
     };
     assert_eq!(status, expected, "{robot:?}");
   }
+  // a merged robot landed only what it took: at another tip it is of an earlier state before any remote status (brd
+  // status), unless the view says by content that it landed the branch as it is; its node is no landing either
+  for (own_robot_landed, merged) in [(false, false), (true, true)] {
+    let fixture = Row {
+      robot: Robot::Merged,
+      ..Row::plain()
+    }
+    .fixture()
+    .with(|it| {
+      it.tip = Some("t2".to_string());
+      it.remote = None;
+      it.own_robot_landed = own_robot_landed;
+    });
+    let standing = fixture.standing();
+    let node = NodeFacts {
+      step: fixture.facts(&standing),
+      status: BranchStatus::Unchanged,
+      blocked_by: None,
+      lands_with: None,
+      lands_failing: false,
+      push_pending: false,
+    };
+    let expected = if merged {
+      RowStatus {
+        main: Some(RowFact::Robot { running: false, failed: false }),
+        also: Vec::new(),
+      }
+    } else {
+      RowStatus::default()
+    };
+    assert_eq!(row_status(&node), expected, "landed by content: {own_robot_landed}");
+    assert_eq!(landing_node(&node).kind == LandingNodeKind::InMaster, merged, "landed by content: {own_robot_landed}");
+  }
 }

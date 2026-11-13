@@ -35,7 +35,7 @@
 
 use crate::facts::RemoteBranch;
 use crate::github_stack::layers_below;
-use crate::holds::is_active;
+use crate::holds::{is_active, is_pushing};
 use crate::land::merges_on_github;
 use crate::land_direct::{MergeAnswer, merge_of};
 use crate::pull_request::merged_elsewhere;
@@ -303,9 +303,10 @@ pub(crate) fn slot(facts: &StepFacts<'_>) -> Slot {
       canceling: it.status == PatronusRobotStatus::Canceling,
     };
   }
-  // a merged robot is done; a subject with other commits since (the same name, new work) starts anew
-  if offered && !facts.own_robot_landed && is_outdated(it.source_revision.as_deref(), facts.tip, facts.remote) {
-    return Slot::Start;
+  // a robot of an earlier state of the subject (the same name, other commits: new work) is a past fact, a merged one
+  // too: it landed only what it took, so the subject as it is has no robot, and a start lands it anew
+  if !facts.own_robot_landed && is_outdated(it, facts.tip, facts.remote) {
+    return if offered { Slot::Start } else { Slot::None };
   }
   Slot::Finished(match it.status {
     PatronusRobotStatus::Failure if robot.needs_review == Some(true) => Chip::NeedsReview,
@@ -317,12 +318,22 @@ pub(crate) fn slot(facts: &StepFacts<'_>) -> Slot {
   })
 }
 
-/// The robot took other commits than the subject has: changed locally since (the remote lacks work), or on the remote
-fn is_outdated(source: Option<&str>, tip: Option<&str>, remote: Option<RemoteBranch<'_>>) -> bool {
-  let (Some(source), Some(remote)) = (source, remote) else {
+/// The robot took other commits than the subject has: changed locally since (the remote lacks work), or on the remote.
+/// While no remote status compared them, a subject at another tip than the robot's commit has the same commits rebuilt
+/// on a newer baseline, or new work: of a merged robot it is new work, as a merge landed only what it took (the view
+/// says by content when it landed all of the subject as it is, `own_robot_landed`, which the caller reads first); of any
+/// other robot the slot keeps it until a remote status tells
+fn is_outdated(robot: &PatronusRobot, tip: Option<&str>, remote: Option<RemoteBranch<'_>>) -> bool {
+  let Some(source) = robot.source_revision.as_deref() else {
     return false;
   };
-  source != tip.unwrap_or_default() && (!remote.up_to_date || remote.tip != Some(source))
+  if tip == Some(source) {
+    return false;
+  }
+  remote.map_or_else(
+    || robot.status == PatronusRobotStatus::Success && is_pushing(robot),
+    |remote| !remote.up_to_date || remote.tip != Some(source),
+  )
 }
 
 /// The next step of the subject of `facts`: the first row of the table that matches (module docs)
@@ -348,7 +359,7 @@ pub fn next_step(facts: &StepFacts<'_>) -> NextStep {
 }
 
 /// What landed all of the subject: the view's landed state with nothing after it; before the view, its own robot that
-/// merged
+/// merged on the subject as it is (`slot`: its tip, or its remote branch at the robot's commit with what it has)
 pub(crate) fn landed_whole(facts: &StepFacts<'_>, slot: Slot) -> Option<Landed> {
   if let Some(landed) = facts.landed.filter(|landed| landed.is_whole()) {
     return Some(landed.clone());

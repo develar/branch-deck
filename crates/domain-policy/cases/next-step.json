@@ -158,6 +158,34 @@
     }
   },
   {
+    "id": "row-11-merged-robot-of-earlier-commits",
+    "group": "next-step-rows",
+    "title": "a Safe Push of the branch merged earlier commits under its name, and the branch now has only commits that robot never took: new work, which takes the step of new work, in brd status too, which reads no remote status",
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-table:11",
+      "openspec/specs/branch/next-step/spec.md#requirement-the-table-a-merged-robot-lands-only-the-commits-it-took",
+      "openspec/specs/branch/patronus/spec.md#requirement-robot-of-a-row-a-robot-of-an-earlier-state-gives-way-to-the-git-status",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
+    "given": {
+      "robot": {
+        "state": "success",
+        "on": "older"
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "11",
+        "kind": "safePush"
+      },
+      "land": {
+        "start": "api",
+        "pushes": ["auth"]
+      },
+      "status": []
+    }
+  },
+  {
     "id": "row-1-merged-pull-request",
     "group": "next-step-rows",
     "title": "GitHub merged the pull request #7 with the commits of the branch: it landed, both hold it (domain_policy::landed, D13)",

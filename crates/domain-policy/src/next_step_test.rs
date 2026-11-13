@@ -431,6 +431,67 @@ fn row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts(
   assert_eq!((after.step().row, after.step().landed), (StepRow::Eleven, None));
 }
 
+/// A merged robot of the branch landed only the commits it took: the branch at its commit, its remote branch there with
+/// what the branch has (rebuilt on a newer baseline), or all of the branch as it is by content (`own_robot_landed`) is
+/// landed, row 1; other commits since are new work under the same name, a past robot, whose next step is that of new
+/// work: also before a remote status said what the remote has (`brd status`), while Patronus is pending, and while the
+/// branch failed to sync
+#[test]
+fn a_merged_robot_lands_only_the_commits_it_took_also_before_a_remote_status() {
+  let merged = |tip: &str, remote: Option<(&str, bool)>, own_robot_landed: bool| {
+    Fixture::branch().with(|it| {
+      it.robot = Some((robot_on_tip(PatronusRobotStatus::Success), None, None, false));
+      it.tip = Some(tip.to_string());
+      it.remote = remote.map(|(tip, up_to_date)| (Some(tip.to_string()), up_to_date));
+      it.own_robot_landed = own_robot_landed;
+    })
+  };
+  let own = rule(Reason::Landed {
+    branch: "auth".to_string(),
+    by: robot_of("auth", "r1"),
+    own: true,
+    target: "master".to_string(),
+  });
+  let as_it_is = [
+    ("at its commit", merged("t1", None, false)),
+    ("rebuilt on a newer baseline", merged("t2", Some(("t1", true)), false)),
+    ("landed whole by content", merged("t2", None, true)),
+  ];
+  for (what, fixture) in as_it_is {
+    let step = fixture.step();
+    assert_eq!(shape(&step), (StepRow::One, StepKind::Settled, own.clone(), own.clone()), "{what}");
+    assert!(step.landed.is_some(), "{what}");
+  }
+  let new_work = [
+    ("no remote status yet", merged("t2", None, false)),
+    ("its remote lacks the new commits", merged("t2", Some(("t1", false)), false)),
+    ("pushed since", merged("t2", Some(("t2", true)), false)),
+  ];
+  for (what, fixture) in new_work {
+    let step = fixture.step();
+    assert_eq!(
+      (step.row, step.kind, step.safe_push, step.landed),
+      (StepRow::Eleven, StepKind::SafePush, None, None),
+      "{what}"
+    );
+  }
+  // Patronus pending, the sync failed: no robot of the branch as it is, so nothing of it landed
+  for remote in [None, Some(("t1", false))] {
+    let pending = merged("t2", remote, false).with(|it| it.view = FactState::Loading);
+    assert_eq!((pending.step().row, pending.step().landed), (StepRow::Zero, None), "pending, {remote:?}");
+    let failed = merged("t2", remote, false).with(|it| it.sync_failed = true);
+    let step = failed.step();
+    assert_eq!(
+      (step.safe_push, step.landed),
+      (Some(StepBlocker::SyncFailed { problem: None }), None),
+      "sync failed, {remote:?}"
+    );
+  }
+  // a failed robot keeps its slot until a remote status tells that the branch changed since
+  let failed = merged("t2", None, false).with(|it| it.robot = Some((robot_on_tip(PatronusRobotStatus::Failure), Some(false), None, true)));
+  assert_eq!(failed.step().row, StepRow::Two);
+}
+
 fn loading<T>() -> Fact<T> {
   Fact::default()
 }

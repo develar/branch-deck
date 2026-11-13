@@ -395,6 +395,15 @@ The whole stack is an object of its own in the app, beside its branches, named "
   a sync read changed, never for a sync of the same inputs, so an unchanged table costs nothing. The same content decides what a running robot holds
   (`robot_spans`): only the branches whose commits its commit has, so a parent a restack placed below its branch after
   the start pushes and lands on its own, and the pieces stay as small as the stacks cut them.
+- **A merged robot lands only what it took.** A branch keeps its name across Safe Pushes: after a merge the user adds
+  commits to it, and the update archives the landed ones. The robot of the row is then a past fact, and the row is the
+  one of new work: a merged robot is the branch's as it is only by the hashes (the branch at its commit, its remote
+  branch there with what the branch has) or by what the view says it landed by content, never by its name alone. No
+  remote status yet (the first view of a session, `brd status`, which reads none), Patronus still pending or a failed
+  sync prove nothing either way, so they leave a branch at another tip not landed (`domain_policy::next_step::slot`;
+  a failed robot keeps its slot until a remote status tells, as a restart pushes the change first anyway).
+  - *Rationale:* a fact of an earlier state taken for the state of the branch disabled the Safe Push of new commits:
+    "landed: nothing of it is left to land" of a branch whose two commits neither master nor the remote had.
 - **What is left of the whole stack.** Its stack branch carries every commit of the stack, the landed ones too, and
   Patronus finds those in the target. So after a piece landed its main line, the Safe Push of the whole stack lands the
   rest and says only the rest ("Lands 1 branch · 1 commit into master in one Safe Push: session; auth, login and oauth
