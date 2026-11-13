@@ -1949,6 +1949,29 @@ test.describe("Read ahead", () => {
     ])
   })
 
+  test("should say a private member renamed where the repository has no index is not proven, and not read it again on the next listing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const renamed = reviewRequest("rename", 405, 4, { title: "Rename the sum helper", author: "niyaz", labels: ["refactoring"] })
+    const repo = await setupHeld(setupRepo, syncAndWaitForBranches, [renamed])
+    await repo.holdRemoteAnswers({ release: ["readAhead"] })
+    const row = getReviewRow(page, 405)
+    const reading = row.getByTestId("review-request-reading")
+    // no index of the repository will answer the rename: not proven, never "checking renames"
+    await expect(reading).toHaveText("4 changes to read in 1 file · 1 file not proven")
+    // nothing proven contradicts the label: it stays muted
+    await expect(row.getByTestId("review-request-label")).toHaveText("refactoring")
+    await expect(row.getByTestId("review-request-label")).not.toHaveAttribute("data-claim")
+
+    // the next listing, the read ahead held: the request it reads says "Checking…", the final one keeps its reading
+    await repo.holdRemoteAnswers({ hold: ["readAhead"] })
+    await repo.setReviewRequests(availableReviewRequests([renamed, FORMAT_ALONE]))
+    const rows = getYourTurnCard(page).getByTestId("review-request-row")
+    await moveClockUntil(repo, 300_000, async () => (await rows.count()) === 2)
+    await expect(getReviewRow(page, 401).getByTestId("review-request-reading")).toHaveText("Checking…")
+    await expect(reading).toHaveText("4 changes to read in 1 file · 1 file not proven")
+    await repo.holdRemoteAnswers({ release: ["readAhead"] })
+    await expect(getReviewRow(page, 401).getByTestId("review-request-reading")).toHaveText("Nothing to read · formatting")
+  })
+
   test("should show a final reading after a restart without reading it again", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupHeld(setupRepo, syncAndWaitForBranches, [FORMAT_ALONE])
     await repo.holdRemoteAnswers({ release: ["readAhead"] })

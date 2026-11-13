@@ -96,6 +96,9 @@ pub struct ReviewPlans {
   pub(crate) prefetch: Arc<Prefetch>,
   /// What the ranges of the windows leave to read (`range_readings`), the final ones, by their repository and commits
   pub(crate) readings: Cache<ReadingKey, Arc<RangeReading>>,
+  /// Whether each repository has an index that may answer its renames (`range_readings::repository_indexed`), for
+  /// `INDEXED_FOR`: an index built or removed since is known by then
+  pub(crate) indexed: Arc<Cache<String, bool>>,
 }
 
 /// What a reading in flight shows the callers that joined it, beside its flight: the plan as it stands, and whether it
@@ -145,6 +148,8 @@ const MAX_BYTES: u64 = 64 * 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(600);
 /// The readings of ranges memory keeps at most: some kilobytes each, the layers of the stacks a window showed
 const MAX_READINGS: u64 = 4096;
+/// How long memory keeps whether a repository has an index (`ReviewPlans::indexed`)
+const INDEXED_FOR: Duration = Duration::from_secs(600);
 /// How often a caller that waits for the reading of another asks whether its own caller went away
 const CANCEL_POLL: Duration = Duration::from_millis(20);
 
@@ -157,6 +162,7 @@ impl Default for ReviewPlans {
       stages: Arc::default(),
       prefetch: Arc::default(),
       readings: Cache::builder().max_capacity(MAX_READINGS).time_to_idle(IDLE).build(),
+      indexed: Arc::new(Cache::builder().max_capacity(MAX_READINGS).time_to_live(INDEXED_FOR).build()),
     }
   }
 }

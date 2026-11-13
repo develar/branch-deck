@@ -1,6 +1,6 @@
 //! The readings of ranges kept (`range_readings::keep_readings`, `kept_readings`): a final one in memory and on disk, so
-//! the next process shows it at once; one that waits for the index nowhere; one whose renames no index proved in memory
-//! alone, as an index built since may prove them
+//! the next process shows it at once; one that waits for the index nowhere; one whose renames no index proved, in a
+//! repository without one, in both until the repository has an index, which may prove them
 
 use crate::reads::range_readings::{keep_readings, kept_readings};
 use crate::reads::review_plan::ReviewPlans;
@@ -44,24 +44,49 @@ fn a_final_reading_is_kept_on_disk_and_shows_in_the_next_process_at_once() {
   let (proven, pending, unanswered) = (reading(None), reading(Some(Unproven::RenamesPending)), reading(Some(Unproven::RenamesUnanswered)));
   let ranges = [range("proven"), range("pending"), range("unanswered")];
   let plans = ReviewPlans::default();
+  let no_index = &mut || false;
   keep_readings(&plans, &cache, "/repo", &[(&ranges[0], &proven), (&ranges[1], &pending), (&ranges[2], &unanswered)], false);
   assert_eq!(
-    kept_readings(&plans, &ObjectCache::disabled(), "/repo", &ranges),
-    [Some(proven.clone()), None, Some(unanswered)],
+    kept_readings(&plans, &ObjectCache::disabled(), "/repo", &ranges, no_index),
+    [Some(proven.clone()), None, Some(unanswered.clone())],
     "memory: what is final without an index"
   );
 
   // the next start of the app: another memory, the same store
   let restarted = ReviewPlans::default();
-  assert_eq!(kept_readings(&restarted, &cache, "/repo", &ranges), [Some(proven.clone()), None, None]);
   assert_eq!(
-    kept_readings(&restarted, &ObjectCache::disabled(), "/repo", &ranges[..1]),
-    [Some(proven)],
+    kept_readings(&restarted, &cache, "/repo", &ranges, no_index),
+    [Some(proven.clone()), None, Some(unanswered)],
+    "the store: what is final without an index"
+  );
+  assert_eq!(
+    kept_readings(&restarted, &ObjectCache::disabled(), "/repo", &ranges[..1], no_index),
+    [Some(proven.clone())],
     "memory keeps what the store had"
   );
   assert_eq!(
-    kept_readings(&restarted, &ObjectCache::disabled(), "/other", &ranges[..1]),
+    kept_readings(&restarted, &ObjectCache::disabled(), "/other", &ranges[..1], no_index),
     [None],
     "memory keeps it by its repository"
   );
+
+  // an index of the repository built since may prove the renames: the reading without it is dropped, from memory too
+  let mut asked = 0;
+  let mut built = || {
+    asked += 1;
+    true
+  };
+  assert_eq!(kept_readings(&restarted, &cache, "/repo", &ranges, &mut built), [Some(proven), None, None]);
+  assert_eq!(asked, 1, "the repository is asked once");
+  assert_eq!(
+    kept_readings(&restarted, &ObjectCache::disabled(), "/repo", &ranges[2..], no_index),
+    [None],
+    "memory forgot it"
+  );
+
+  // a reading the index of the repository left unanswered (its clock cut the query) is kept nowhere
+  let fresh = ReviewPlans::default();
+  let cut = reading(Some(Unproven::RenamesUnanswered));
+  keep_readings(&fresh, &ObjectCache::disabled(), "/repo", &[(&range("cut"), &cut)], true);
+  assert_eq!(kept_readings(&fresh, &ObjectCache::disabled(), "/repo", &[range("cut")], no_index), [None]);
 }

@@ -40,7 +40,9 @@
 //!   pull requests ran 2 git processes warm, one per request 20 to 41.
 //! - **Without the index**: a query of accio of a tree far from its index costs tens of seconds (JetBrains/accio#777),
 //!   so a rename that is not local waits for it (`checking renames`) until a review window of the request asks the index
-//!   itself; such a reading is asked again by the next listing, and memory then has what the window read.
+//!   itself; such a reading is asked again by the next listing, and memory then has what the window read. It waits only
+//!   for an index of this repository (`range_readings::repository_indexed`, `accio stats`): without one the rename is not
+//!   proven, the reading final and kept, and no listing reads it again.
 //! - **One read of a repository at a time**: a listing that comes while one runs leaves its requests for the next read,
 //!   which runs once the one in flight ends, so two never fetch into the same refs; nothing is killed. Only a repository
 //!   that reads review plans (`branchdeck.reviewExperimental`) is read; the others' requests are told `Unread` and show
@@ -48,7 +50,7 @@
 
 use crate::context::AppContext;
 use crate::operation::{operation, run_blocking};
-use crate::reads::range_readings::{is_final, keep_readings, kept_readings};
+use crate::reads::range_readings::{is_final, keep_readings, kept_readings, known_indexed, repository_indexed};
 use crate::reads::review_plan::{Asked, Canceled, PlanReader};
 use crate::transport::WindowId;
 use domain_types::branch_names::to_final_branch_name;
@@ -418,7 +420,12 @@ async fn read_requests(
     run_blocking(move || {
       let pairs = local_review_pairs(reader.git(), &repository, &params)?;
       let ranges: Vec<(String, String)> = pairs.iter().filter_map(range_of).collect();
-      let mut kept = kept_readings(&reader.plans, &reader.object_cache(&repository), &repository, &ranges).into_iter();
+      let never = || false;
+      let mut indexed = || {
+        known_indexed(&reader.plans, &repository)
+          .unwrap_or_else(|| repository_indexed(&reader.plans, reader.indexes.search(&never, ChildPriority::Background).as_deref(), &repository))
+      };
+      let mut kept = kept_readings(&reader.plans, &reader.object_cache(&repository), &repository, &ranges, &mut indexed).into_iter();
       let kept: Vec<Option<_>> = pairs.iter().map(|pair| range_of(pair).and_then(|_| kept.next().flatten())).collect();
       anyhow::Ok((pairs, kept))
     })
@@ -446,7 +453,7 @@ async fn read_requests(
 
   let known: Vec<bool> = kept.iter().map(Option::is_some).collect();
   let (reader, repository) = (reader.clone(), repository.clone());
-  let read = run_blocking(move || {
+  let (read, indexed) = run_blocking(move || {
     // the heads that are missing, in one fetch
     let missing: Vec<usize> = (0..params.len()).filter(|&index| pairs[index] == AheadPair::Missing).collect();
     if !missing.is_empty() {
@@ -462,7 +469,9 @@ async fn read_requests(
     // the diffs of those no memory had, in one read
     let unread: Vec<usize> = (0..pairs.len()).filter(|&index| !known[index] && range_of(&pairs[index]).is_some()).collect();
     let ranges: Vec<(String, String)> = unread.iter().filter_map(|&index| range_of(&pairs[index])).collect();
-    let indexed = reader.indexes.search(&|| false, ChildPriority::Background).is_some();
+    // a rename waits for an index of this repository, never for accio alone: without one it is not proven, final
+    let never = || false;
+    let indexed = repository_indexed(&reader.plans, reader.indexes.search(&never, ChildPriority::Background).as_deref(), &repository);
     let cache = reader.object_cache(&repository);
     let sources = PlanSources {
       cache: &cache,
@@ -472,12 +481,12 @@ async fn read_requests(
     let mut readings = vec![None; ranges.len()];
     ahead_readings(reader.git(), sources, &repository, &ranges, indexed, |at, reading| readings[at] = Some(reading))?;
     let read: Vec<(&(String, String), &_)> = ranges.iter().zip(&readings).filter_map(|(range, reading)| Some((range, reading.as_ref()?))).collect();
-    keep_readings(&reader.plans, &cache, &repository, &read, false);
+    keep_readings(&reader.plans, &cache, &repository, &read, indexed);
     let mut by_place = vec![None; pairs.len()];
     for (index, reading) in unread.into_iter().zip(readings) {
       by_place[index] = reading;
     }
-    anyhow::Ok(by_place)
+    anyhow::Ok((by_place, indexed))
   })
   .await?;
   Ok(
@@ -487,7 +496,7 @@ async fn read_requests(
       .filter_map(|(request, (kept, read))| match (kept, read) {
         (Some(_), _) => None,
         (None, Some(reading)) => {
-          let last = is_final(&reading, false);
+          let last = is_final(&reading, indexed);
           Some(answer(request, ReadAheadState::Read { reading, last }))
         }
         (None, None) => Some(answer(request, ReadAheadState::Unread)),

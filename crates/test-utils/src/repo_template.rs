@@ -1124,13 +1124,18 @@ pub mod templates {
 
   /// What a stack leaves to read (openspec/specs/review/range-reading/spec.md): a chain of four branches over `auth.js`,
   /// `tidy` on `check` on `format` and `login` on `tidy`, one commit each: `format` and `tidy` change the spaces between
-  /// tokens alone (nothing to read, formatting), `check` and `login` the body of a function (a change to read each)
+  /// tokens alone (nothing to read, formatting), `check` and `login` the body of a function (a change to read each);
+  /// and `rename` alone, a private member of `ledger/Ledger.kt` renamed, which no index of the repository proves
   pub fn stacked_reading() -> RepoTemplate {
     RepoTemplate::new("stacked_reading")
       .branch_prefix("user-name")
       .commit_with_timestamp(
         "Initial project setup",
-        &[("README.md", "# Auth\n"), ("auth.js", "export function auth(user) {\n  return user.name+\"!\"\n}\n")],
+        &[
+          ("README.md", "# Auth\n"),
+          ("auth.js", "export function auth(user) {\n  return user.name+\"!\"\n}\n"),
+          ("ledger/Ledger.kt", include_str!("../../file-diffs/testdata/split-reformat/Ledger.new.kt")),
+        ],
         Some(1704117600),
       )
       .commit_with_timestamp(
@@ -1152,6 +1157,12 @@ pub mod templates {
         "(tidy/login) Log the user in",
         &[("auth.js", "export function auth( user ) {\n  return user.login + \"?\"\n}\n")],
         Some(1704124800),
+      )
+      // a private member renamed, which only an index of the repository proves; the repository has none
+      .commit_with_timestamp(
+        "(rename) Rename the sum helper",
+        &[("ledger/Ledger.kt", include_str!("../../file-diffs/testdata/split-reformat/Ledger.renamed.kt"))],
+        Some(1704126600),
       )
   }
 

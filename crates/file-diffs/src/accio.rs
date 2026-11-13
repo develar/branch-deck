@@ -683,6 +683,13 @@ pub trait SymbolIndex: Send + Sync {
   fn renames(&self, _repository_root: &str, _pairs: &[RenamePair], _base: &str, _head: &str) -> Result<Option<Vec<RenameAnswer>>> {
     Ok(None)
   }
+
+  /// Whether the repository has an index the queries may answer from, or one is being built: `None` when the index
+  /// does not say, which a caller reads as one that may answer. Without one every query answers that there is none
+  /// (`IndexUnavailable`), and a rename that waits for it would wait for ever
+  fn has_index(&self, _repository_root: &str) -> Result<Option<bool>> {
+    Ok(None)
+  }
 }
 
 /// accio has no usable index of the repository (`--no-build` answered `available: false`): why, with a format mismatch
@@ -1109,6 +1116,16 @@ impl SymbolIndex for AccioSearch<'_> {
     let stdout = self.run(&mut command, Some(listed.into_bytes()))?;
     self.entries(&stdout, pairs.len()).map(Some)
   }
+
+  /// `accio stats --no-build`: some tens of milliseconds where the repository has no index (`available: false`)
+  fn has_index(&self, repository_root: &str) -> Result<Option<bool>> {
+    let mut command = windowless_command_at(&self.accio.executable, self.priority);
+    command.args(["stats", "--no-build", "--format", "json", "--project", repository_root]);
+    let stdout = self.run(&mut command, None)?;
+    let stats: serde_json::Value = serde_json::from_slice(&stdout).context("the answer of accio stats")?;
+    let flag = |name: &str| stats.get(name).and_then(serde_json::Value::as_bool);
+    Ok(flag("indexed").map(|indexed| indexed || flag("building") == Some(true)))
+  }
 }
 
 /// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer;
@@ -1321,6 +1338,11 @@ impl SymbolIndex for FixtureIndex {
         })
         .collect()
     }))
+  }
+
+  /// A repository has an index where it has a fixture
+  fn has_index(&self, repository_root: &str) -> Result<Option<bool>> {
+    Ok(Some(Path::new(repository_root).join(".git/branch-deck-accio.json").is_file()))
   }
 }
 

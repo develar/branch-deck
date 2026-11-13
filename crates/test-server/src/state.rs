@@ -225,6 +225,10 @@ impl FixtureSearch<'_> {
 }
 
 impl file_diffs::accio::SymbolIndex for FixtureSearch<'_> {
+  fn has_index(&self, repository_root: &str) -> anyhow::Result<Option<bool>> {
+    file_diffs::accio::FixtureIndex.has_index(repository_root)
+  }
+
   fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> anyhow::Result<Option<Vec<file_diffs::accio::SymbolHit>>> {
     file_diffs::accio::FixtureIndex.symbols(repository_root, query, revision)
   }

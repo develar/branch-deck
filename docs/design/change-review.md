@@ -209,7 +209,9 @@ requests took about 1 s wall, 0.5 s CPU and 2 git processes warm, 2 s and 5 s CP
 to 5 times more, 20 to 41 processes. It asks no index: `accio renames` of a tree far from the index took 20 to 28 s and
 about 140 s CPU a call, and accio keeps the last pair of trees only (JetBrains/accio#777, fixed in accio, not worked
 around here), so a rename across files says "checking renames" until a review window of the request asks the index;
-the next listing reads that window's reading from memory. A final reading that no index could prove more of is kept on
+the next listing reads that window's reading from memory. It waits only for an index of the repository (`accio stats
+--no-build`, tens of milliseconds without one, kept ten minutes): a repository without one leaves the rename not proven,
+and that reading is final, read by no later listing, until the repository has an index. A final reading is kept on
 disk too (`object_cache::range_reading`, by the version of the readings), the one reading Branch Deck keeps beside the
 memory of the plans: a reading is a few hundred bytes and costs a read of every diff, so the next start shows it at once.
 The session words nothing of it: the readings are the part `facts.reviewReadings` of its view, derived by
