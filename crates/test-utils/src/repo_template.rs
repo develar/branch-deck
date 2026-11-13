@@ -884,7 +884,7 @@ pub mod templates {
 
   /// The fixture of the index of a repository of `commit_marks` (`<git dir>/branch-deck-accio.json`,
   /// `file_diffs::accio::FixtureIndex`): the answer of an index that lists the declaration of the function the
-  /// store renamed and its two calls in the report as every use of it in both trees, complete and without a
+  /// store renamed and its two calls in the report as every use of it in both trees, complete, final and without a
   /// conflict
   pub fn commit_marks_index() -> serde_json::Value {
     let used = |file: &str, line: u32, column: u32, end: u32, kind: &str| serde_json::json!({ "file": file, "line": line, "column": column, "end_column": end, "kind": kind, "resolved": "import" });
@@ -897,7 +897,7 @@ pub mod templates {
       ] })
     };
     let kotlin = serde_json::json!({ "language": "kotlin" });
-    let renamed = serde_json::json!({ "same": true, "complete": true, "old": kotlin, "new": kotlin, "base": uses(13), "head": uses(16), "conflicts": [] });
+    let renamed = serde_json::json!({ "same": true, "complete": true, "final": true, "old": kotlin, "new": kotlin, "base": uses(13), "head": uses(16), "conflicts": [] });
     serde_json::json!({ "renames": { "src/Store.kt:19:5": renamed } })
   }
 

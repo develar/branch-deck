@@ -26,10 +26,9 @@
 //!   a subject read ahead of its view starts none. The pairs come from the caches again; the answer is the marks of
 //!   the files it says something of, which add words and what a reader may pass, never a row. Memory keeps the
 //!   answers of the last subjects (`ANSWERS_CACHE_BYTES`) by their two trees and their questions: two trees never
-//!   change, and a subject shown again asks no process. Only an answer that is final for each of its pairs is kept
-//!   (`RenameAnswer::is_final`): one that the budget of the query, its limit or the state of the index cut short
-//!   says what that query got to, on that machine at that load, and the subject is asked again when it is shown
-//!   again.
+//!   change, and a subject shown again asks no process. Only a final answer is kept (`RenameAnswer::is_final`, accio's
+//!   `final`), complete or not: one that the clock of the query cut says what that query got to, on that machine at
+//!   that load, and its pair is asked again when the subject is shown again, without the pairs memory has.
 //! - **Caches.** A diff is keyed by its blob pair, the whitespace policy and how each side is read (`DiffKey`,
 //!   `diff_options`): its grammar, since the scopes and the marks depend on it, `.kt` and `.kts`, `.ts`, `.tsx` and
 //!   `.js` each their own; without a grammar, whether its indentation has a meaning, which the moves depend on, so a
@@ -62,7 +61,7 @@ use code_symbols::navigate::RULES_VERSION;
 use code_symbols::summary::{FileSummary, LineSpan};
 use code_tokens::grammar_of;
 use code_tokens::{Tokens, indentation_matters, tokens_version};
-use diff_marks::index::{RenameAnswer, RenamePair};
+use diff_marks::index::{Cut, RenameAnswer, RenamePair};
 use diff_marks::leftovers::Leftovers;
 use diff_marks::marks::pair_indented;
 use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject, facts_of};
@@ -125,7 +124,7 @@ pub const BLOB_CACHE_BYTES: u64 = 128 << 20;
 const MAX_CACHED_CONFLICTS: u64 = 256;
 /// The answers of the index that memory keeps, weighed by the uses they list: those of the subjects a window showed
 /// last, each some kilobytes, one of a name used all over a repository a megabyte. Final ones alone
-/// (`RenameAnswer::is_final`)
+/// (`RenameAnswer::is_final`), a question of another one holding an empty answer
 pub const ANSWERS_CACHE_BYTES: u64 = 16 << 20;
 /// The leftovers of the pairs (`diff_marks::leftovers::Leftovers`) that memory keeps, weighed by their size
 pub const LEFTOVERS_CACHE_BYTES: u64 = 16 << 20;
@@ -196,6 +195,15 @@ pub(crate) struct MarksMemory {
 /// The key of an answer of the index: the repository, the two trees as they were asked (full object ids, so they
 /// name the same trees for ever) and the declarations asked
 pub(crate) type AnswersKey = (String, String, String, Vec<RenamePair>);
+
+/// The answer of a question the index did not answer: no proof (`RenameProof::Unavailable`), and never final, so it
+/// is asked again
+fn no_answer() -> RenameAnswer {
+  RenameAnswer {
+    unavailable: true,
+    ..RenameAnswer::default()
+  }
+}
 
 /// The weight of an answer of the index in memory, roughly in bytes
 fn answers_weight(answers: &[RenameAnswer]) -> u32 {
@@ -661,11 +669,11 @@ impl FileDiffs {
   /// whoever asks again.
   ///
   /// Asked after the diffs of the subject: its pairs come from the caches, and a pair they lost is compared again,
-  /// silently. Every declaration goes into one process, and an answer that is final for each of them
-  /// (`RenameAnswer::is_final`) is kept in memory by its two trees and its questions (`ANSWERS_CACHE_BYTES`), so a
-  /// subject shown again starts none; an answer that the query cut short is used for this question alone. An index
-  /// that does not answer (none, one without the answer, no index of the repository, a failed query) leaves every
-  /// asked proof `unavailable`: it fails no read
+  /// silently. Every declaration goes into one process, and each final answer (`RenameAnswer::is_final`) is kept in
+  /// memory by its two trees and the questions of the subject (`ANSWERS_CACHE_BYTES`), so a subject shown again starts
+  /// none; an answer that the clock of the query cut is used for this question alone, and the next one asks its pair
+  /// again (`ask_again`). An index that does not answer (none, one without the answer, no index of the repository, a
+  /// failed query) leaves every proof it was asked `unavailable`: it fails no read
   #[instrument(skip(self, git, cache, index, params), fields(repository_path = %params.repository_path, source = ?params.source))]
   pub fn rename_proofs(&self, git: &GitCommandExecutor, cache: &ObjectCache, index: Option<&dyn SymbolIndex>, params: &GetRenameProofsParams) -> Result<Option<Vec<FileMarks>>> {
     let (repository_path, policy) = (params.repository_path.as_str(), params.policy);
@@ -695,31 +703,11 @@ impl FileDiffs {
       return Ok(Some(Vec::new()));
     }
     let key: AnswersKey = (repository_path.to_string(), base, head, questions.to_vec());
-    let answers = match (self.marks_memory.answers.get(&key), index) {
-      (Some(answers), _) => Some(answers),
-      (None, None) => None,
-      (None, Some(index)) => match index.renames(repository_path, questions, &key.1, &key.2) {
-        Ok(Some(answers)) if answers.len() == questions.len() => {
-          let answers = Arc::new(answers);
-          // an answer the budget or the state of the index cut short is one of this query alone: the next
-          // question of the subject asks the index again
-          if answers.iter().all(RenameAnswer::is_final) {
-            self.marks_memory.answers.insert(key, Arc::clone(&answers));
-          } else {
-            debug!("the index did not answer every rename of the subject to its end: the answer is not kept");
-          }
-          Some(answers)
-        }
-        Ok(_) => None,
-        Err(error) if error.is::<SearchCanceled>() => return Ok(None),
-        Err(error) if error.is::<IndexUnavailable>() => {
-          debug!(%error, "the index of the repository answers no rename");
-          None
-        }
-        Err(error) => {
-          warn!(error = %format!("{error:#}"), "the index of the repository did not answer the renames of the subject");
-          None
-        }
+    let answers = match self.marks_memory.answers.get(&key) {
+      Some(kept) if kept.iter().all(RenameAnswer::is_final) => Some(kept),
+      kept => match self.ask_again(index, key, kept.as_ref().map(|kept| kept.as_slice())) {
+        Ok(answers) => answers,
+        Err(SearchCanceled) => return Ok(None),
       },
     };
     let asked = subject.marks(IndexAnswer::Asked);
@@ -738,6 +726,59 @@ impl FileDiffs {
         })
         .collect(),
     ))
+  }
+
+  /// The answer of each question of `key` between its two trees, in their order: the final ones of `kept`, what memory
+  /// keeps of them, and the others asked of `index` in one call. Memory keeps what the call adds of final answers, a
+  /// question whose answer is not final holding `no_answer` there, asked again by the next question of the subject.
+  /// The questions asked again are the subject's but those memory has a final answer of: an answer is final for the
+  /// pairs asked together (the call shares the relations its pairs read), but the clock of a call unsettles every pair
+  /// of it that read anything, so the only final answers of a call the clock cut read nothing (a pair accio could not
+  /// ask), and a call without them answers as one with them (accio's decision 2026-11-13-rename-answer-says-final).
+  /// `None` when no question has an answer: no index, one that does not answer, nothing in memory; a question
+  /// whose answer the index did not give is `no_answer`. `SearchCanceled` when the query was
+  fn ask_again(&self, index: Option<&dyn SymbolIndex>, key: AnswersKey, kept: Option<&[RenameAnswer]>) -> Result<Option<Arc<Vec<RenameAnswer>>>, SearchCanceled> {
+    let (repository_path, base, head, questions) = (&key.0, &key.1, &key.2, &key.3);
+    let open: Vec<usize> = (0..questions.len()).filter(|&number| !kept.is_some_and(|kept| kept[number].is_final())).collect();
+    let pairs: Vec<RenamePair> = open.iter().map(|&number| questions[number].clone()).collect();
+    let asked = match index.map(|index| index.renames(repository_path, &pairs, base, head)) {
+      Some(Ok(Some(asked))) if asked.len() == pairs.len() => Some(asked),
+      Some(Err(error)) if error.is::<SearchCanceled>() => return Err(SearchCanceled),
+      Some(Err(error)) if error.is::<IndexUnavailable>() => {
+        debug!(%error, "the index of the repository answers no rename");
+        None
+      }
+      Some(Err(error)) => {
+        warn!(error = %format!("{error:#}"), "the index of the repository did not answer the renames of the subject");
+        None
+      }
+      None | Some(Ok(_)) => None,
+    };
+    // no answer of the questions asked again: what memory keeps, with those questions `no_answer`
+    let Some(asked) = asked else {
+      return Ok(kept.map(|kept| Arc::new(kept.to_vec())));
+    };
+    let mut answers: Vec<RenameAnswer> = kept.map_or_else(|| vec![no_answer(); questions.len()], <[RenameAnswer]>::to_vec);
+    for (number, answer) in open.into_iter().zip(asked) {
+      answers[number] = answer;
+    }
+    let answers = Arc::new(answers);
+    let unsettled = answers.iter().filter(|answer| !answer.is_final()).count();
+    if unsettled == 0 {
+      self.marks_memory.answers.insert(key, Arc::clone(&answers));
+    } else {
+      // an answer the clock of the call cut is one of this query alone: the next question asks its pair again
+      let timed_out = answers.iter().filter(|answer| answer.cut == Some(Cut::Time)).count();
+      debug!(
+        unsettled,
+        timed_out, "the index did not answer every rename of the subject to its end: those answers are not kept"
+      );
+      if unsettled < answers.len() {
+        let finals = answers.iter().map(|answer| if answer.is_final() { answer.clone() } else { no_answer() }).collect();
+        self.marks_memory.answers.insert(key, Arc::new(finals));
+      }
+    }
+    Ok(Some(answers))
   }
 
   /// What the caches have of the files `entries` with the keys `keys`, read in the order `order`: the content of a

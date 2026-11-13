@@ -25,6 +25,7 @@ pub struct RenamePair {
 /// What accio says of a `RenamePair` between two trees (`accio renames`, answer revision `RENAMES_ANSWER`; the
 /// contract is accio's decision 2026-11-11-rename-read-in-two-trees). Only the fields a diff decides by are read
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[expect(clippy::struct_excessive_bools, reason = "the fields of the answer of accio, as it writes them")]
 pub struct RenameAnswer {
   /// The pair could not be asked: a place names no declaration, or reads as none. Never "no use"
   #[serde(default)]
@@ -49,18 +50,41 @@ pub struct RenameAnswer {
   /// What the rename changed beyond the name
   #[serde(default)]
   pub conflicts: Vec<RenameConflict>,
+  /// What cut the answer short, when something did: a bound of the work, the same on every run, or the clock of the
+  /// call, an answer of its load (`RenameAnswer::is_final` says which a reader may keep)
+  #[serde(default)]
+  pub cut: Option<Cut>,
+  /// The same two trees, asked the same pairs with the same work and limit, give this answer again
+  /// (`RenameAnswer::is_final`); absent, as an accio before the field writes it, it is false
+  #[serde(default, rename = "final")]
+  pub is_final: bool,
 }
 
 impl RenameAnswer {
-  /// Whether the answer is all the index says of the pair between its two trees, whenever it is asked: a pair it
-  /// could not ask, two places that are not one declaration, or a complete answer with the uses of both trees. Any
-  /// other one is what a query got to: the budget of the call ran out before the pair or in it (accio shares one
-  /// between the pairs, and a cold index spends it), the limit cut its uses, or the index could not read a relation
-  /// as it was then. Asked again, the index may say more, so such an answer is a function of the load of the
-  /// machine and of the state of the index, not of the two trees
+  /// Whether the answer is all the index says of the pair between its two trees, asked with the same pairs, as
+  /// accio says it (`final`, its decision 2026-11-13-rename-answer-says-final): complete or not, no clock cut it.
+  /// A pair it could not ask, two places that are not one declaration, a use tied by the name alone, a relation not
+  /// read, a bound of the work and a list cut by the limit are final: no later query of the same trees reads more.
+  /// The clock of a call (accio shares one between its pairs, and a cold index spends it) unsettles every pair of the
+  /// call that read anything, since the relations of the call are shared: asked again, the index may say more, so such
+  /// an answer is a function of the load of the machine, not of the two trees. An accio before the field writes none,
+  /// and none of its answers is final
   pub const fn is_final(&self) -> bool {
-    self.unavailable || !self.same || (self.complete && self.base.is_some() && self.head.is_some())
+    self.is_final
   }
+}
+
+/// What cut an answer of `renames` short (`RenameAnswer::cut`), the worse of its two sides and its relations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Cut {
+  /// A bound of the work: the candidate files of a side, a bound of the relations; the same answer on every run
+  Work,
+  /// The clock of the call: a pair not asked before it ran out, or a scan it stopped; an answer of the load of the run
+  Time,
+  /// A word of a later accio
+  #[serde(other)]
+  Unknown,
 }
 
 /// A declaration of a `RenameAnswer`

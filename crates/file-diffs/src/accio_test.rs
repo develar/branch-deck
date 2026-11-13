@@ -510,7 +510,7 @@ fn the_renames_of_a_subject_are_asked_in_one_process() {
   let dir = tempfile::tempdir().unwrap();
   let (started, args, stdin) = (dir.path().join("started"), dir.path().join("args"), dir.path().join("stdin"));
   let answered: serde_json::Value = serde_json::from_str(RENAMED_STORE_ANSWER).unwrap();
-  let unasked = r#"{"old_at":"src/Body.kt:2","new_at":"src/Body.kt:2","unavailable":true,"reason":"base: no declaration","same":false,"complete":false}"#;
+  let unasked = r#"{"old_at":"src/Body.kt:2","new_at":"src/Body.kt:2","unavailable":true,"reason":"base: no declaration","same":false,"complete":false,"cut":null,"final":true}"#;
   let answer = format!("[{},{unasked}]", answered[0]);
   let accio = fake_accio_with_versions(
     dir.path(),
@@ -550,7 +550,8 @@ fn the_renames_of_a_subject_are_asked_in_one_process() {
   );
 
   let renamed = &answers[0];
-  assert!(renamed.same && renamed.complete && !renamed.unavailable);
+  assert!(renamed.same && renamed.complete && !renamed.unavailable && renamed.is_final());
+  assert_eq!(renamed.cut, None);
   assert_eq!(renamed.conflicts, []);
   assert_eq!(renamed.old.as_ref().map(|it| it.language.as_str()), Some("kotlin"));
   let (base, head) = (renamed.base.as_ref().unwrap(), renamed.head.as_ref().unwrap());
@@ -572,6 +573,7 @@ fn the_renames_of_a_subject_are_asked_in_one_process() {
     answers[1],
     RenameAnswer {
       unavailable: true,
+      is_final: true,
       ..RenameAnswer::default()
     }
   );
@@ -717,7 +719,8 @@ fn renames_without_an_index_answer_no_index_and_a_canceled_query_is_killed() {
 /// The accio of this machine, when it answers `renames` as they are read, asked of a real repository through the
 /// diffs of a commit: an index of its own (`ACCIO_HOME`), built once, then the query as the app runs it. The rename
 /// of a function with its two calls in another file is proven: the calls are confirmed runs, the declaration is
-/// read. A machine without such an accio proves nothing here
+/// read. The answer is final (`final`): the subject read again through the same diffs starts no accio. A machine
+/// without such an accio proves nothing here
 #[test]
 fn the_accio_of_this_machine_proves_the_rename_of_a_real_repository() {
   let Some(accio) = AccioCli::discover().filter(|accio| accio.answers_renames()) else {
@@ -735,23 +738,61 @@ fn the_accio_of_this_machine_proves_the_rename_of_a_real_repository() {
 
   let canceled = || false;
   let search = accio.search(&canceled);
-  let source = DiffSource::Commit { id: second };
-  let files = unhurried()
-    .read_checked(
-      repo.git_executor(),
-      repo_path(&repo),
-      &ObjectCache::disabled(),
-      Some(&search),
-      &source,
-      WhitespacePolicy::Default,
-    )
-    .unwrap();
-  let subject = |path: &str| {
-    let file = files.iter().find(|file| file.path == path).unwrap();
-    let DiffContent::Text(diff) = &file.content else { panic!("{path}: {:?}", file.content) };
-    diff.marks.subject.clone().unwrap_or_else(|| panic!("the subject says nothing of {path}"))
+  let counted = CountedRenames {
+    index: &search,
+    asked: std::sync::atomic::AtomicUsize::new(0),
   };
-  let report = subject("src/Report.kt");
-  assert_eq!((report.used[0].proof, &report.confirmed), (RenameProof::Confirmed, &vec![0, 1]));
-  assert_eq!(subject("src/Store.kt").declared[0].proof, RenameProof::Confirmed);
+  let source = DiffSource::Commit { id: second };
+  let diffs = unhurried();
+  for read in 0..2 {
+    let files = diffs
+      .read_checked(
+        repo.git_executor(),
+        repo_path(&repo),
+        &ObjectCache::disabled(),
+        Some(&counted),
+        &source,
+        WhitespacePolicy::Default,
+      )
+      .unwrap();
+    let subject = |path: &str| {
+      let file = files.iter().find(|file| file.path == path).unwrap();
+      let DiffContent::Text(diff) = &file.content else { panic!("{path}: {:?}", file.content) };
+      diff.marks.subject.clone().unwrap_or_else(|| panic!("the subject says nothing of {path}"))
+    };
+    let report = subject("src/Report.kt");
+    assert_eq!((report.used[0].proof, &report.confirmed), (RenameProof::Confirmed, &vec![0, 1]), "read {read}");
+    assert_eq!(subject("src/Store.kt").declared[0].proof, RenameProof::Confirmed, "read {read}");
+  }
+  // the answer is final: memory keeps it, and the subject read again started no accio
+  assert_eq!(counted.asked.load(Ordering::SeqCst), 1);
+}
+
+/// An index that counts the questions of `renames` it passes on to `index`
+struct CountedRenames<'a> {
+  index: &'a dyn SymbolIndex,
+  asked: std::sync::atomic::AtomicUsize,
+}
+
+impl SymbolIndex for CountedRenames<'_> {
+  fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
+    self.index.symbols(repository_root, query, revision)
+  }
+
+  fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> anyhow::Result<Option<crate::accio::References>> {
+    self.index.references(repository_root, name, revision)
+  }
+
+  fn references_at(&self, repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> anyhow::Result<Option<Vec<crate::accio::References>>> {
+    self.index.references_at(repository_root, declarations, revision)
+  }
+
+  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], given: &[String], revision: &str) -> anyhow::Result<Option<Vec<crate::accio::TestReach>>> {
+    self.index.tests(repository_root, declarations, given, revision)
+  }
+
+  fn renames(&self, repository_root: &str, pairs: &[RenamePair], base: &str, head: &str) -> anyhow::Result<Option<Vec<RenameAnswer>>> {
+    self.asked.fetch_add(1, Ordering::SeqCst);
+    self.index.renames(repository_root, pairs, base, head)
+  }
 }

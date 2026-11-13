@@ -108,7 +108,7 @@ impl Case {
   }
 
   /// The answer of an index that lists the places of every rename of the two names as the uses of the one
-  /// declaration: what accio answers of a rename that is complete
+  /// declaration: what accio answers of a rename that is complete and final
   fn answer(&self, old_name: &str, new_name: &str) -> RenameAnswer {
     let facts = self.facts();
     let subject = Subject::of(&facts);
@@ -146,6 +146,8 @@ impl Case {
       base: uses(base),
       head: uses(head),
       conflicts: Vec::new(),
+      cut: None,
+      is_final: true,
     }
   }
 }

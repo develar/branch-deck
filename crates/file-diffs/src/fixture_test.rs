@@ -73,14 +73,15 @@ pub(crate) fn renamed_store() -> (TestRepo, String) {
 }
 
 /// What `accio renames --pair src/Store.kt:6:5 src/Store.kt:6:5` answered of the two commits of `renamed_store`
-/// (accio 0.23.0 built from its main at 3dc3a17f4, answer revision 1), as it wrote it but for the white space
+/// (accio 0.29.0 built from its main at 500917d9f, answer revision 1 with `final`), as it wrote it but for the white
+/// space
 pub(crate) const RENAMED_STORE_ANSWER: &str = r#"[{
-  "base": {"by_name": 0, "complete": true, "total": 3, "uses": [
+  "base": {"by_name": 0, "complete": true, "cut": null, "total": 3, "uses": [
     {"column": 14, "end_column": 23, "file": "src/Report.kt", "kind": "call", "line": 4, "resolved": "import"},
     {"column": 33, "end_column": 42, "file": "src/Report.kt", "kind": "call", "line": 8, "resolved": "import"},
     {"column": 4, "end_column": 13, "file": "src/Store.kt", "kind": "declaration", "line": 6, "resolved": "typed"}]},
-  "body_equal": true, "complete": true, "conflicts": [],
-  "head": {"by_name": 0, "complete": true, "total": 3, "uses": [
+  "body_equal": true, "complete": true, "conflicts": [], "cut": null, "final": true,
+  "head": {"by_name": 0, "complete": true, "cut": null, "total": 3, "uses": [
     {"column": 14, "end_column": 26, "file": "src/Report.kt", "kind": "call", "line": 4, "resolved": "import"},
     {"column": 33, "end_column": 45, "file": "src/Report.kt", "kind": "call", "line": 8, "resolved": "import"},
     {"column": 4, "end_column": 16, "file": "src/Store.kt", "kind": "declaration", "line": 6, "resolved": "typed"}]},

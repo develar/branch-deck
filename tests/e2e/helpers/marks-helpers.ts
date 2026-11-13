@@ -159,7 +159,7 @@ export async function lateSubjectMarks(page: Page, path: string): Promise<void> 
 /**
  * What the index of the repository answers of the function the store of the `commit_marks` template declares and
  * renamed (`openStore` to `connectStore`, src/Store.kt, used twice in src/Report.kt), as accio answers
- * (`accio renames`, `RenameAnswer` of crates/file-diffs/src/accio.rs): the fixture of the test server
+ * (`accio renames`, `RenameAnswer` of crates/diff-marks/src/index.rs, final): the fixture of the test server
  * (`FixtureIndex`), written into the repository at `repositoryPath` before a view asks. Its declaration and its two
  * calls in both trees, every use a place of the rename: a proof. With `outside` a call more of the old name in the
  * old tree, in a file the commit left alone: the rename is proven no more, and the name is used outside the change
@@ -178,6 +178,6 @@ export function answerStoreRename(repositoryPath: string, { outside = false }: {
   }
   const kotlin = { language: "kotlin" }
   const base = uses(9, outside ? [use("src/Main.kt", 3, 14, 23, "call")] : [])
-  const renamed = { same: true, complete: true, old: kotlin, new: kotlin, base, head: uses(12), conflicts: [] }
+  const renamed = { same: true, complete: true, final: true, old: kotlin, new: kotlin, base, head: uses(12), conflicts: [] }
   writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ renames: { "src/Store.kt:19:5": renamed } }))
 }

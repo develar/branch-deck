@@ -374,13 +374,16 @@ rest gets a label and stays a stop.
   gives way to the next one, and the backend kills its query (one request of a kind per window, as a symbol search;
   also once the window closes or loads again). A question that got no answer leaves the names `asked`, and the
   subject is asked again when a view shows it again; an answer is kept in memory by the two trees and the
-  declarations asked, so that costs no process. Only an answer that is final for each of its declarations is kept
-  (`RenameAnswer::is_final`: a pair accio could not ask, two places that are not one declaration, a complete answer
-  with the uses of both trees). accio shares one budget of 30 s between the declarations of a call, and a cold
-  index spends it: an answer it cut short (`complete: false`, with no uses when the budget ran out before the
-  pair), or one that lacks a relation the index could not read then, says what that query got to, on that machine
-  at that load. It is the answer of its question (`incomplete`) and is asked for again by the next one, so a
-  result of the load never outlives the query that had it. The answer is the marks of the files it says something of, and it
+  declarations asked, so that costs no process. Only a final answer is kept (`RenameAnswer::is_final`, accio's
+  `final`: the same trees asked the same pairs give it again), complete or not: a pair accio could not ask, two
+  places that are not one declaration, a use tied by the name alone, a side cut by the work. accio shares one budget
+  of 30 s between the declarations of a call, and a cold index spends it: an answer the clock cut (`cut: time`, with
+  no uses when the budget ran out before the pair) says what that query got to, on that machine at that load, and
+  since the pairs of a call share the relations they read, accio then says no pair of it that read anything is
+  final. Such an answer is the answer of its question (`incomplete`), and the next question asks its pair again,
+  without the pairs memory has a final answer of (a call the clock cut has no other final pair than one accio could
+  not ask, which read nothing), so a result of the load never outlives the query that had it. An accio before
+  `final` writes none, and none of its answers is kept. The answer is the marks of the files it says something of, and it
   comes after their rows: a view passes a confirmed run and shows each of its lines, where a quiet run of the pair
   is shown once. That is why `confirmed` is a list of its own beside `quiet`. Only a commit and a range named by
   their ids are asked: the working tree may be another by the time accio reads it, and its answer would be of

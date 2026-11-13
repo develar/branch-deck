@@ -364,16 +364,23 @@ type Renames = anyhow::Result<Option<Vec<RenameAnswer>>>;
 /// How an index of a test answers `renames`
 type Answering = fn() -> Renames;
 
+/// How an index of a test answers `renames` of the pairs it is asked
+type AnsweringPairs = Box<dyn Fn(&[RenamePair]) -> Renames + Send + Sync>;
+
 /// An index of a test: it answers `renames` with `answer` and keeps what it was asked
 struct RenameIndex {
-  answer: Answering,
+  answer: AnsweringPairs,
   asked: std::sync::Mutex<Vec<(Vec<RenamePair>, String, String)>>,
 }
 
 impl RenameIndex {
   fn new(answer: Answering) -> Self {
+    Self::of_pairs(move |_| answer())
+  }
+
+  fn of_pairs(answer: impl Fn(&[RenamePair]) -> Renames + Send + Sync + 'static) -> Self {
     Self {
-      answer,
+      answer: Box::new(answer),
       asked: std::sync::Mutex::default(),
     }
   }
@@ -403,7 +410,7 @@ impl SymbolIndex for RenameIndex {
   fn renames(&self, _: &str, pairs: &[RenamePair], base: &str, head: &str) -> Renames {
     let mut asked = self.asked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     asked.push((pairs.to_vec(), base.to_string(), head.to_string()));
-    (self.answer)()
+    (self.answer)(pairs)
   }
 }
 
@@ -541,9 +548,10 @@ fn the_index_is_asked_after_the_diffs_of_a_subject_in_one_call_and_its_answer_is
 
 /// A subject that renamed no name that is not local asks the index nothing; an index that answers no renames, one
 /// without an index of the repository and one that fails leave the names unavailable, never a failure of the diffs
-/// and never "no use"; a canceled query answers nothing, and the names stay asked for whoever asks again. No answer
-/// but a whole one is kept, and of the whole ones only one that is final for each pair: an answer that the budget of
-/// the query or the state of the index cut short is asked for again
+/// and never "no use"; a canceled query answers nothing, and the names stay asked for whoever asks again. Of the
+/// whole answers only a final one is kept, as accio says (`final`), complete or not: an answer that the clock of the
+/// query cut short is asked for again, one that the code decides (a use tied by the name) is kept, and none of an
+/// accio that writes no `final` is, even a complete one
 #[test]
 fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no_diff() {
   let (repo, _, second) = corpus_of_one_change();
@@ -613,11 +621,14 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
   let answering = RenameIndex::new(complete_answer);
   assert_eq!((read(&answering), answering.asked().len()), (RenameProof::Confirmed, 1));
 
-  // an answer that the query cut short says what that query got to, not what the two trees are: it is the answer
-  // of its question and is not kept, so the subject asked again asks the index again, which may have got further
+  // an answer that the clock of the query cut says what that query got to, not what the two trees are: it is the
+  // answer of its question and is not kept, so the subject asked again asks the index again, which may have got
+  // further
   let cut_short: [(&str, Answering); 2] = [
     ("the budget ran out before the pair", || answer_with(BEFORE_THE_PAIR)),
-    ("the uses of both trees, not complete", || answer_with(r#"{"complete": false}"#)),
+    ("the uses of both trees, a scan the clock stopped", || {
+      answer_with(r#"{"complete": false, "cut": "time", "final": false}"#)
+    }),
   ];
   for (name, answer) in cut_short {
     let (diffs, index) = (unhurried(), RenameIndex::new(answer));
@@ -628,8 +639,13 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
     let proofs = [read_with(&diffs, &whole), read_with(&diffs, &index)];
     assert_eq!((proofs, whole.asked().len(), index.asked().len()), ([RenameProof::Confirmed; 2], 1, 2), "{name}");
   }
-  // what the index says of a pair without its uses is all it ever says of it: kept
-  let decided: [(&str, Answering, RenameProof); 2] = [
+  // an accio before `final` says nothing of what cut its answer: even a complete one with the uses of both trees,
+  // which proves the rename, is asked again
+  let (diffs, before_final) = (unhurried(), RenameIndex::new(|| answer_with(r#"{"final": null}"#)));
+  let proofs = [read_with(&diffs, &before_final), read_with(&diffs, &before_final)];
+  assert_eq!((proofs, before_final.asked().len()), ([RenameProof::Confirmed; 2], 2));
+  // a final answer is all the index ever says of the pair between the two trees, complete or not: kept
+  let decided: [(&str, Answering, RenameProof); 4] = [
     (
       "a pair that could not be asked",
       || answer_with(r#"{"unavailable": true, "same": false, "complete": false, "base": null, "head": null}"#),
@@ -640,6 +656,12 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
       || answer_with(r#"{"same": false, "complete": false, "base": null, "head": null}"#),
       RenameProof::OtherDeclaration,
     ),
+    (
+      "a use tied by the name alone",
+      || answer_with(r#"{"complete": false, "cut": null}"#),
+      RenameProof::Incomplete,
+    ),
+    ("a side cut by the work", || answer_with(r#"{"complete": false, "cut": "work"}"#), RenameProof::Incomplete),
   ];
   for (name, answer, proof) in decided {
     let (diffs, index) = (unhurried(), RenameIndex::new(answer));
@@ -648,10 +670,76 @@ fn an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no
   }
 }
 
+/// Of a call the clock cut, memory keeps what is final, a pair accio could not ask, which read nothing, and the next
+/// question of the subject asks the others again, without it: accio answers alike with or without such a pair
+/// (its decision 2026-11-13-rename-answer-says-final). Once they are final too, the subject asks no process
+#[test]
+fn a_question_asked_again_asks_only_the_pairs_whose_answer_was_not_final() {
+  let repo = TestRepo::new();
+  std::fs::create_dir_all(repo.path().join("src")).unwrap();
+  let files = [
+    ("src/Store.kt", STORE, "openStore"),
+    ("src/Report.kt", REPORT, "openStore"),
+    ("src/Cache.kt", CACHE, "openCache"),
+  ];
+  for (path, text, _) in files {
+    write(&repo, path, text.as_bytes());
+  }
+  commit_all(&repo, "Initial");
+  for (path, text, name) in files {
+    write(&repo, path, text.replace(name, &name.replace("open", "connect")).as_bytes());
+  }
+  let second = commit_all(&repo, "Rename openStore and openCache");
+  let calls = std::sync::atomic::AtomicUsize::new(0);
+  let index = RenameIndex::of_pairs(move |pairs| {
+    let first = calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0;
+    let store = if first { answer_with(BEFORE_THE_PAIR) } else { complete_answer() }?.unwrap().remove(0);
+    let not_asked: RenameAnswer = serde_json::from_str(r#"{"unavailable": true, "same": false, "complete": false, "cut": null, "final": true}"#)?;
+    Ok(Some(
+      pairs
+        .iter()
+        .map(|pair| if pair.old.starts_with("src/Store.kt") { store.clone() } else { not_asked.clone() })
+        .collect(),
+    ))
+  });
+  let diffs = unhurried();
+  let params = GetRenameProofsParams {
+    repository_path: repo_path(&repo).to_string(),
+    source: commit(&second),
+    policy: WhitespacePolicy::Default,
+  };
+  let proofs_of = || {
+    let answer = diffs.rename_proofs(repo.git_executor(), &ObjectCache::disabled(), Some(&index), &params).unwrap().unwrap();
+    let store = answer
+      .iter()
+      .find(|file| file.path == "src/Store.kt")
+      .and_then(|file| file.marks.subject.as_ref()?.declared.first().map(|check| check.proof));
+    let cache = answer
+      .iter()
+      .find(|file| file.path == "src/Cache.kt")
+      .and_then(|file| file.marks.subject.as_ref()?.declared.first().map(|check| check.proof));
+    (store, cache)
+  };
+  let asked_of = |number: usize| index.asked()[number].0.iter().map(|pair| pair.old.clone()).collect::<Vec<_>>();
+
+  assert_eq!(proofs_of(), (Some(RenameProof::Incomplete), Some(RenameProof::Unavailable)));
+  assert_eq!(asked_of(0), ["src/Cache.kt:3:5", "src/Store.kt:6:5"]);
+  // the pair the clock cut is asked again alone; the other is kept
+  assert_eq!(proofs_of(), (Some(RenameProof::Confirmed), Some(RenameProof::Unavailable)));
+  assert_eq!(asked_of(1), ["src/Store.kt:6:5"]);
+  // every answer final: none is asked
+  assert_eq!(proofs_of(), (Some(RenameProof::Confirmed), Some(RenameProof::Unavailable)));
+  assert_eq!(index.asked().len(), 2);
+}
+
+/// A cache whose function is renamed where it is declared and where the file calls it
+const CACHE: &str = "package demo\n\nfun openCache(path: String): Int = path.length\n\nfun cached(path: String): Int = openCache(path) + 1\n";
+
 /// What the accio of `RENAMED_STORE_ANSWER` answers of a pair once the budget of its call ran out before it (asked
-/// with `--budget 0`): the two declarations and that they are one, no uses of either tree, not complete
-const BEFORE_THE_PAIR: &str =
-  r#"{"complete": false, "base": null, "head": null, "note": "the budget of 30s ran out before this pair was asked: its uses and relations are not read"}"#;
+/// with `--budget 0`): the two declarations and that they are one, no uses of either tree, not complete, cut by the
+/// clock and not final
+const BEFORE_THE_PAIR: &str = r#"{"complete": false, "cut": "time", "final": false, "base": null, "head": null,
+  "note": "the budget of 0ns ran out before this pair was asked: its uses and relations are not read"}"#;
 
 /// The complete answer of the renamed store with the fields of `changed`, a JSON object, in place of its own; one
 /// that is `null` is left out

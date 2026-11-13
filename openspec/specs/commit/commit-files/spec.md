@@ -625,9 +625,11 @@ time of a view may have cut short; an answer of the index that its query cut sho
   [@test] crates/file-diffs/src/blocks_test.rs (`a_scan_has_the_blocks_of_no_deadline_and_a_diff_the_time_cut_short_reaches_no_store`)
 
 #### Scenario: An answer of the index that its query cut short
-- **WHEN** the index answers the renames of a subject without getting to the end of a declaration: its budget ran out before it, or its answer is not complete
-- **THEN** the answer is that of its question alone, and the next question of the same subject asks the index again
+- **WHEN** the clock of the query cut a declaration of a subject (`cut: time`, not `final`), or an accio before `final` answers it
+- **THEN** that answer is that of its question alone, and the next question of the same subject asks the index again of those declarations only
+- **AND** an answer that is not complete but final (a use tied by its name alone, a side cut by the work) is kept, and asked again it starts no process
   [@test] crates/file-diffs/src/service_test.rs (`an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no_diff`)
+  [@test] crates/file-diffs/src/service_test.rs (`a_question_asked_again_asks_only_the_pairs_whose_answer_was_not_final`)
 
 ### Requirement: File diffs: The diff of a commit costs one list and one cat-file
 

@@ -902,7 +902,8 @@ the two names, its own and those of every file that names the rename (`subject.u
 The declarations of the renamed names of a subject that are not local, in files of Kotlin or Java, MUST be asked of
 the index in one process (`accio renames --no-build`), after its diffs and never by their read, by the window that
 shows it. Only an accio that answers them as they are read is started; the working tree MUST NOT be asked. A
-final answer MUST be kept by its trees, and the query killed once the window asks another, closes or loads again.
+final answer MUST be kept by its trees and questions, another asked again, and the query killed once the window
+asks another, closes or loads again.
 
 #### Scenario: One process for a subject
 - **WHEN** the diffs of a commit are read where an index is, then the index is asked of the commit, of it again, of a range and of the working tree
@@ -913,11 +914,16 @@ final answer MUST be kept by its trees, and the query killed once the window ask
   [@test] crates/test-server/src/commit_files_test.rs (`the_diffs_of_a_subject_say_what_its_files_say_of_each_other_and_the_index_is_asked_after_them`)
 
 #### Scenario: An answer the query cut short
-- **WHEN** the index answers that the budget of its call ran out before the pair, as accio does (one declaration, not complete, the uses of neither tree), or lists the uses of both trees and is not complete; and the subject is asked again
+- **WHEN** the index answers that the clock of its call cut the pair (`cut: time`, not `final`), before the pair as accio does (one declaration, not complete, the uses of neither tree) or in its scan (the uses of both trees, not complete), or answers without `final`, as an accio before it; and the subject is asked again
 - **THEN** the names are `incomplete` both times and the index is asked both times: such an answer says what its query got to and is not kept
 - **AND** an index that answers to the end then confirms the rename, and that answer is kept
-- **AND** a pair that could not be asked and two places that are not one declaration are all the index says of them: kept, and asked again they start no process
+- **AND** a final answer is all the index says of the pair, complete or not: a pair that could not be asked, two places that are not one declaration, a use tied by the name alone, a side cut by the work; kept, and asked again it starts no process
   [@test] crates/file-diffs/src/service_test.rs (`an_index_is_asked_only_of_a_declaration_and_one_that_does_not_answer_fails_no_diff`)
+
+#### Scenario: Only the pairs whose answer was not final are asked again
+- **WHEN** a call the clock cut answers a declaration of a subject not final and a pair it could not ask final, and the subject is asked again, then once more
+- **THEN** the second question asks the first declaration alone and keeps the answer of the other; once both are final, the third starts no process
+  [@test] crates/file-diffs/src/service_test.rs (`a_question_asked_again_asks_only_the_pairs_whose_answer_was_not_final`)
 
 #### Scenario: No declaration, no question
 - **WHEN** a subject renames no name that is not local
@@ -988,6 +994,7 @@ proven MUST be named (`subject.confirmed`).
 #### Scenario: The accio of this machine
 - **WHEN** this machine has an accio that answers `renames`, and a repository renames a function with its two calls in another file
 - **THEN** the diffs of the commit, with an index of the repository built for the test, confirm the two calls and the declaration
+- **AND** the answer is final: the commit read again through the same diffs starts no accio
   [@test] crates/file-diffs/src/accio_test.rs (`the_accio_of_this_machine_proves_the_rename_of_a_real_repository`)
 
 ### Requirement: Subject: An answer that is no proof leaves the rename a label and names why
@@ -996,7 +1003,7 @@ Every other answer MUST leave the rename a label and name why: a use outside the
 means something else (`otherMeaning`), two places that are not one declaration, by the index or by the code that
 declares the name (`otherDeclaration`), an answer that does not know every use or names a line the diff has not
 (`incomplete`), no answer (`unavailable`), `asked` until then. No answer MUST fail the diffs or read as "no use";
-only a whole and final one is kept.
+only a final answer of a pair is kept.
 
 #### Scenario: Each reason
 - **WHEN** the answer has a use the change left behind, a use in a file outside the subject or on a line it left alone; a conflict of a capture, an overload, an override, a hidden or a namesake declaration, a use without its twin, a use of the new name on a line left alone; another signature; an answer that is not complete, a use tied by its name alone, more uses than listed, no uses of a tree, another language; a pair that could not be asked
@@ -2926,10 +2933,10 @@ lines), is in [Diff View](../../../../docs/design/diff-view.md#measured-on-real-
   changed in place, [Renames](#requirement-renames-a-use-left-behind-a-name-taken-and-two-names-swapped-are-no-rename)):
   its calls are read; the added or deleted use in another file stands in the way of nothing.
 - The working tree is never asked of the index: nothing pins the tree accio reads to the one the diffs show.
-- An answer of the index that is not complete is never kept, whatever cut it: accio does not say whether the budget
-  of the query ran out or the code itself ties a use by its name alone, which no later query changes. So a subject
-  whose rename is `incomplete` for good is asked again each time its diffs are read again; a flag of accio for an
-  answer its budget cut would let the others be kept.
+- What is kept of an answer of the index is what accio says is final (`final`, JetBrains/accio#742, its decision
+  2026-11-13-rename-answer-says-final), complete or not: a use tied by its name alone or a side cut by the work is
+  the same answer of the same trees, kept. Only a pair the clock of its call cut (`cut: time`, not `final`) is asked
+  again, and so is every answer of an accio before `final`, which says nothing of what cut it.
 - A line of a change whose two sides differ in whitespace alone, in no run (a line break that is no formatting in
   its language), is read anyway under the policy that counts every character, and is the line it was under a policy
   that draws its block pale.

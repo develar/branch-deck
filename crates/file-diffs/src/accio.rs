@@ -1170,7 +1170,7 @@ impl<'a> Lenient<'a> {
 /// each place whatever the given tests, the line of `parse --descriptor` of each `<full commit id>:<path>` (a path it
 /// lacks is `missing`), the answer of `surface` of each `<full commit id>:<module>` (a module it lacks unknown, not
 /// `complete`; none without any), the answer of `renames` of each pair by the place of its old declaration (a pair
-/// it lacks `unavailable`; none without any), or the `error` every query fails with; a repository without the file
+/// it lacks `unavailable` and final; none without any), or the `error` every query fails with; a repository without the file
 /// has no index
 pub struct FixtureIndex;
 
@@ -1273,8 +1273,10 @@ impl SymbolIndex for FixtureIndex {
       pairs
         .iter()
         .map(|pair| {
+          // a pair accio could not ask is all it says of the pair: final
           fixture.renames.remove(&pair.old).unwrap_or_else(|| RenameAnswer {
             unavailable: true,
+            is_final: true,
             ..RenameAnswer::default()
           })
         })
