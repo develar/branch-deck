@@ -1,6 +1,7 @@
-import type { ReviewSegment, Interdiff, RangeScope, ReviewCommit, ReviewPlan, ReviewRequest } from "@/lib/bindings"
+import type { ReviewSegment, Interdiff, RangeReadingView, RangeScope, ReviewCommit, ReviewPlan, ReviewRequest } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
+import { describeUnproven, formatCompactReading, formatReading } from "@/presenters/range-reading"
 import { formatPairState } from "@/presenters/review-plan"
 
 /**
@@ -16,6 +17,8 @@ export type RangeReviewItem =
       readonly detail?: string
       /** The ids of the commits it diffs when they are not all those of the column: "Since Your Review" of a pull request */
       readonly commits?: ReadonlySet<string>
+      /** What the layer of a stack leaves to read, once read */
+      readonly reading?: ScopeReading
     }
   | {
       readonly kind: "commit"
@@ -30,6 +33,16 @@ export type RangeReviewItem =
       /** What it is since the user's review of a local branch: "New", "Rewritten" */
       readonly since?: string
     }
+
+/**
+ * What a layer of a stack leaves to read as its scope in the column says it: a compact chip ("Nothing to read", "4 to
+ * read"), its hover the whole verdict and the files not proven; a layer with `nothing` to read is muted
+ */
+export interface ScopeReading {
+  readonly text: string
+  readonly hint: string
+  readonly nothing: boolean
+}
 
 /** The key of "All Changes": the whole range */
 export const ALL_CHANGES = "all"
@@ -56,6 +69,16 @@ export function pullRequestItems(commits: readonly ReviewCommit[], reviewedCommi
   return items
 }
 
+/** What the scope of a layer says it leaves to read */
+function scopeReading(view: RangeReadingView): ScopeReading {
+  const unproven = describeUnproven(view)
+  return {
+    text: formatCompactReading(view.summary),
+    hint: [formatReading(view.summary), unproven].filter(it => it !== null).join(". "),
+    nothing: view.summary.verdict.kind === "nothingToRead",
+  }
+}
+
 /** The key of the scope of a layer of a stack (Review Stack): its own changes */
 export function layerScopeKey(number: number): string {
   return `layer:${number}`
@@ -72,21 +95,24 @@ export interface StackColumnLayer {
 
 /**
  * The column of a stack of pull requests (Review Stack): "All Changes" of the whole stack (`total` commits), a scope per
- * layer in the order of the card, the bottom first ("#202 Drop workTreeRoot", its commits, "not rebased" for one not on
- * the head below), then the commits of the layers newest first, each layer under its heading; a commit two layers list
- * (a layer not rebased has the older commits of the one below) once
+ * layer in the order of the card, the bottom first ("#202 Drop workTreeRoot", what it leaves to read once `readings`
+ * has it, by its place, its commits, "not rebased" for one not on the head below), then the commits of the layers
+ * newest first, each layer under its heading; a commit two layers list (a layer not rebased has the older commits of
+ * the one below) once
  */
-export function stackItems(layers: readonly StackColumnLayer[], total: number): RangeReviewItem[] {
+export function stackItems(layers: readonly StackColumnLayer[], total: number, readings: readonly (RangeReadingView | null)[] | null = null): RangeReviewItem[] {
   const items: RangeReviewItem[] = [{ kind: "scope", key: ALL_CHANGES, label: "All Changes", detail: formatCommitCount(total) }]
-  for (const layer of layers) {
+  for (const [index, layer] of layers.entries()) {
     const count = layer.commits === null ? null : formatCommitCount(layer.commits.length)
     const detail = layer.restacked ? [count, "not rebased"].filter(it => it !== null).join(" · ") : count
+    const reading = readings?.[index] ?? null
     items.push({
       kind: "scope",
       key: layerScopeKey(layer.request.number),
       label: `#${layer.request.number} ${layer.request.title}`,
       ...(detail !== null && { detail }),
       ...(layer.commits !== null && { commits: new Set(layer.commits.map(commit => commit.id)) }),
+      ...(reading !== null && { reading: scopeReading(reading) }),
     })
   }
   const listed = new Set<string>()

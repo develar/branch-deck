@@ -139,6 +139,18 @@ proven" and "· checking renames" where they hold; the hover names the files not
 - **THEN** they read as above, and the hover "Not proven: icon.png (binary), build.sh (no grammar)"
   [@test] src/presenters/range-reading.test.ts (`says the verdict of a reading on one line, with what cannot be proven and what waits for the index`, `names the files that cannot be proven with why, for a hover`)
 
+### Requirement: Verdict: A narrow list and the sum of a stack
+
+A narrow list (the layers of a stack in the column of its window) MUST say a verdict compactly, "Nothing to read", "4
+to read", "Tests only · 1 to read", the whole verdict in its hover. The sum of a stack MUST count each thing of its own
+unit: "1 of 7 with nothing to read · 14 changes to read", "Nothing to read" when no layer has anything.
+
+#### Scenario: The compact words and the sum
+- **WHEN** the verdicts of a list and the sums of stacks are worded
+- **THEN** they read as above, "2 being read" while layers are read
+  [@test] src/presenters/range-reading.test.ts (`says a verdict compactly for a narrow list`, `sums the layers of a stack, each count of its own unit`)
+  [@test] crates/domain-policy/src/range_reading_test.rs (`a_stack_counts_its_layers_and_opens_on_the_first_one_to_read_once_those_below_are_known`)
+
 ### Requirement: Author's word: A label or a conventional type of a closed list
 
 The author's word (`domain_policy::author_claim::claim_of`) MUST be read only from a closed list: a label refactor,
@@ -166,8 +178,9 @@ index, and never a fix or a feature, which nothing in a diff proves.
 ### Requirement: Window: The header says what the pull request leaves to read
 
 The header of the review window of a pull request, and of a layer of a stack, MUST say what it leaves to read once its
-fetch answered and the repository reads review plans, read by `get_range_readings`; its labels MUST stand as chips, and
-a word the diff proves wrong as a warning chip after them, "Labelled refactoring · 1 change to read", its hover why.
+fetch answered and the repository reads review plans, read by `get_range_readings`; its labels MUST stand as chips,
+and the author's word the diff proves wrong is said once, as in a row of Your Turn: the label's own chip in the
+warning tone, or a compact chip of the title after them, its hover why.
 
 #### Scenario: Formatting alone
 - **WHEN** a pull request changes the spaces between tokens alone, labelled refactoring
@@ -176,7 +189,7 @@ a word the diff proves wrong as a warning chip after them, "Labelled refactoring
 
 #### Scenario: A refactoring that changes a body
 - **WHEN** a pull request labelled refactoring changes the body of a function
-- **THEN** its header says "1 change to read in 1 file", the chip "Labelled refactoring · 1 change to read" with its hover, and the header of its changes keeps the reading
+- **THEN** its header says "1 change to read in 1 file", the label chip "refactoring" in the warning tone with its hover, no other chip, and the header of its changes keeps the reading
   [@test] tests/e2e/review-requests/review-requests.spec.ts (`should flag a pull request labelled a refactoring whose diff changes the body of a function`)
   [@test] src/presenters/range-reading.test.ts (`words the author's word the diff proves wrong as the author's`)
 
@@ -208,13 +221,14 @@ stay out of the store.
   text-muted-foreground`, one line, "Nothing to read · formatting, renamed names", "Tests only · 3 changes to read in
   2 files", "12 changes to read in 5 files · 2 files not proven", "· checking renames" while the index is asked; its
   hover names the files not proven with why.
-- The labels of the pull request as `outline` chips, muted, after the other chips; the author's word the diff proves
-  wrong as a `warning` chip after them, "Labelled refactoring · 3 changes to read" ("refactor: in the title · …" for a
-  type), its hover "The author calls it refactoring, but 3 changes of code in 2 files are left to read: no formatting,
+- The labels of the pull request as `outline` chips, muted, after the other chips; a label the diff proves wrong first
+  of them as a `warning` chip, a word of the title as a `warning` chip after them, "refactor: in the title", each with
+  the hover "The author calls it refactoring, but 3 changes of code in 2 files are left to read: no formatting,
   rename, import or move proves them".
-- Review Stack: the overview of All Changes says "10 with nothing to read · 2 to read · 7 changes" under the meta of
+- Review Stack: the overview of All Changes says "10 of 12 with nothing to read · 7 changes to read" under the meta of
   the stack; each layer its reading after its commits, a layer with nothing to read muted with an `outline` `xs`
-  Approve after it.
+  Approve after it. The column has each layer's compact reading after its title ("Nothing to read", `success`; "4 to
+  read", `outline`).
 
 ## Testing / Local Run
 

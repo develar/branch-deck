@@ -1,6 +1,6 @@
 // @spec openspec/specs/branch/branch-review/spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { ReviewSegment, Interdiff, ReviewCommit } from "@/lib/bindings"
+import type { ReviewSegment, Interdiff, RangeReadingView, ReviewCommit } from "@/lib/bindings"
 import {
   ALL_CHANGES,
   SINCE_REVIEW,
@@ -201,6 +201,22 @@ describe("stackItems", () => {
     // a commit two layers have is of the one the column lists it under
     expect(layerOfItem(layers, "b2")).toBe(203)
     expect(layerOfItem(layers, ALL_CHANGES)).toBeNull()
+  })
+
+  it("says in the scope of each layer what it leaves to read once read, a compact chip with the whole verdict in its hover", () => {
+    const view = (verdict: RangeReadingView["summary"]["verdict"]): RangeReadingView => ({
+      reading: { roles: [], unproven: [], proofs: [] },
+      summary: { verdict, unproven: 0, pending: false },
+      conflict: null,
+    })
+    const readings = [view({ kind: "nothingToRead", proofs: ["imports", "moves"] }), view({ kind: "toRead", toRead: 4, files: 1 }), null]
+    const scopes = stackItems(layers, 5, readings).filter(item => item.kind === "scope")
+    expect(scopes.map(item => item.reading ?? null)).toEqual([
+      null,
+      { text: "Nothing to read", hint: "Nothing to read · imports, moves", nothing: true },
+      { text: "4 to read", hint: "4 changes to read in 1 file", nothing: false },
+      null,
+    ])
   })
 
   it("has a scope per layer, without counts, while the stack is fetched", () => {

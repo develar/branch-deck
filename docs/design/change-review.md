@@ -546,7 +546,9 @@ the review.
    index four queries each. The plan asks the index of its renames last, after its own queries: the window asked them
    already as its diffs ended, and the memory of the answers (`ANSWERS_CACHE_BYTES`) answers the plan without a query.
    A stack opens on its first layer to read; a layer with nothing to read folds in the overview of All Changes with its
-   proofs and its Approve, and ↑/↓ pass it.
+   proofs and its Approve, and ↑/↓ pass it; the column says what each layer leaves to read, so it shows why. A label the
+   diff proves wrong is said by its own chip in the warning tone, never by a second chip that repeats the count the
+   verdict already says.
 
 29. **What the waiting requests leave to read is read ahead** (2026-11-13). Decision 28 proved what a pull request
    leaves to read, but only once its window fetched it, and the reviewer of a morning of requests chooses before

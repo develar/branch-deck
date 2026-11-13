@@ -372,18 +372,21 @@ test.describe("Reviews view", () => {
     await expect(entryRow(page, "reviewed", 211).getByRole("img", { name: "You approved 11111111" })).toBeVisible()
     // the issue key of the title muted, the rest the words
     await expect(entryRow(page, "reviewed", 210).getByTestId("review-request-title")).toHaveText(/^IJAI-4125 a session diff tab/)
-    // the title is what the row is: the meta gives way first, the title only once the meta has no room left
+    // the title gives way first, but only down to its first words: the meta gives way then, the rest of the title after
     const widths = (width: number) =>
       page.setViewportSize({ width, height: 800 }).then(() =>
         entryRow(page, "reviewed", 210).evaluate(row => {
           const title = row.querySelector<HTMLElement>("[data-testid=review-request-title]")!
           const meta = row.querySelector<HTMLElement>("[data-testid=review-request-meta]")!
-          return { titleCut: title.scrollWidth > title.clientWidth, metaCut: meta.scrollWidth > meta.clientWidth, meta: meta.clientWidth }
+          // the first words of the title: the basis it gives way down to before the meta does
+          const words = Number.parseFloat(getComputedStyle(title).flexBasis)
+          return { titleCut: title.scrollWidth > title.clientWidth, metaCut: meta.scrollWidth > meta.clientWidth, meta: meta.clientWidth, words: title.clientWidth >= words }
         }),
       )
-    // narrow, the meta is gone before the title is cut; wider, the title whole and the meta cut
-    expect(await widths(900)).toMatchObject({ titleCut: true, metaCut: true, meta: 0 })
-    expect(await widths(1100)).toMatchObject({ titleCut: false, metaCut: true })
+    // wide, the title cut and the meta whole; at the narrowest the meta shows (sm), the meta cut too, the title at its
+    // first words still
+    expect(await widths(1100)).toMatchObject({ titleCut: true, metaCut: false, words: true })
+    expect(await widths(640)).toMatchObject({ titleCut: true, metaCut: true, words: true })
     // Show 1 More: every row GitHub returned
     await expect(reviewed.getByTestId("reviews-show-more")).toHaveText("Show 1 More")
     await reviewed.getByTestId("reviews-show-more").click()

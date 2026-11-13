@@ -1,6 +1,8 @@
 import { useRef, useState } from "react"
 import type { KeyboardEvent, ReactElement, ReactNode } from "react"
 import { cn } from "cn"
+import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CommitReview } from "@/components/commit/CommitReview"
 import type { CommitReviewProps } from "@/components/commit/CommitReview"
 import { CommitRow } from "@/components/commit/CommitRow"
@@ -283,10 +285,29 @@ function ColumnItem({
     </div>
   )
   if (item.kind === "scope") {
+    const { reading } = item
     return option(
       <>
-        <span className="flex-1 truncate font-medium">{item.label}</span>
-        {item.detail !== undefined && <span className="text-xs text-muted-foreground">{item.detail}</span>}
+        {/* a layer of a stack with nothing to read is muted: ↑/↓ of the overview pass it */}
+        <span className={cn("flex-1 truncate font-medium", reading?.nothing === true && "text-muted-foreground")}>{item.label}</span>
+        {reading !== undefined && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Badge
+                  variant={reading.nothing ? "success" : "outline"}
+                  className={cn("h-4 px-1.5", !reading.nothing && "text-muted-foreground")}
+                  data-testid="range-review-scope-reading"
+                  data-nothing={reading.nothing || undefined}
+                />
+              }
+            >
+              {reading.text}
+            </TooltipTrigger>
+            <TooltipContent className="max-w-80">{reading.hint}</TooltipContent>
+          </Tooltip>
+        )}
+        {item.detail !== undefined && <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>}
       </>,
     )
   }

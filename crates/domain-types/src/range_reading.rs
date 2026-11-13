@@ -227,11 +227,13 @@ pub struct RangeReadingView {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackReading {
+  /// The layers of the stack: what the others are counted of ("1 of 7 with nothing to read")
+  pub layers: u32,
   /// The layers with nothing to read
   pub nothing_to_read: u32,
   /// The layers with something to read
   pub to_read_layers: u32,
-  /// The changes those leave to read
+  /// The changes those leave to read, of every layer
   pub to_read: u32,
   /// The layers whose reading is not known yet
   pub unknown: u32,

@@ -58,12 +58,15 @@ pub fn reading_view(reading: RangeReading, title: Option<&str>, labels: &[String
   RangeReadingView { reading, summary, conflict }
 }
 
-/// The sum of the readings of the layers of a stack, the bottom first, `None` for a layer not read yet: how many have
-/// nothing to read, how many have something and how many changes they leave, and the first layer with something to
-/// read once every layer below it is known
+/// The sum of the readings of the layers of a stack, the bottom first, `None` for a layer not read yet: how many layers
+/// it has, how many have nothing to read, how many have something and how many changes they leave in all, and the first
+/// layer with something to read once every layer below it is known
 #[must_use]
 pub fn stack_summary(layers: &[Option<&ReadingSummary>]) -> StackReading {
-  let mut summary = StackReading::default();
+  let mut summary = StackReading {
+    layers: u32::try_from(layers.len()).unwrap_or(u32::MAX),
+    ..StackReading::default()
+  };
   let mut below_known = true;
   for (index, layer) in layers.iter().enumerate() {
     match layer {

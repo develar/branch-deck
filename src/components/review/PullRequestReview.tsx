@@ -232,6 +232,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
         ? stackItems(
             stack.layers.map(layer => ({ request: layer.request, commits: layer.range?.commits ?? null, restacked: layer.restacked })),
             fetched.commits.length,
+            stack.readings,
           )
         : pullRequestItems(fetched.commits, canShowSinceReview(request, host.involvement, fetched) ? request.reviewedCommit : null)
   const selectedKey = shownKey(items, selected)
@@ -724,7 +725,7 @@ function getReviewedCommit(request: ReviewRequest, fetch: ReviewFetch | undefine
 
 /**
  * The header of All Changes of a stack: "Stack of 3 pull requests", "#201–#203 · niyaz", the base of its bottom, and what
- * its layers leave to read ("10 with nothing to read · 2 to read · 7 changes")
+ * its layers leave to read ("1 of 7 with nothing to read · 14 changes to read")
  */
 function StackHeader({ layers, summary, compact }: { layers: readonly ReviewStackLayerView[]; summary: StackReading | null; compact: boolean }) {
   const requests = layers.map(layer => layer.request)

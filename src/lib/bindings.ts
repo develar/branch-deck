@@ -9204,11 +9204,13 @@ export type StackPullRequest = {
 
 /**  The readings of the layers of a stack, summed (`domain_policy::range_reading::stack_summary`) */
 export type StackReading = {
+	/**  The layers of the stack: what the others are counted of ("1 of 7 with nothing to read") */
+	layers: number,
 	/**  The layers with nothing to read */
 	nothingToRead: number,
 	/**  The layers with something to read */
 	toReadLayers: number,
-	/**  The changes those leave to read */
+	/**  The changes those leave to read, of every layer */
 	toRead: number,
 	/**  The layers whose reading is not known yet */
 	unknown: number,

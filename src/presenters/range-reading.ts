@@ -84,13 +84,28 @@ const CLAIM_WORDS = { refactor: "refactoring", tests: "tests", docs: "docs" } as
 const OUTSIDE_WORDS = { refactor: "of code", tests: "outside the tests", docs: "outside the docs" } as const
 
 /**
- * The chip of an author's word the diff proves wrong: "Labelled refactoring · 3 changes to read", "refactor: in the
- * title · 3 changes to read"
+ * The label the diff proves wrong: the label chip itself says it, in the warning tone with `describeClaimConflict` as
+ * its hover, so no other chip repeats it; null for a word of the title, or none
  */
-export function formatClaimConflict(conflict: ClaimConflict): string {
+export function claimedLabel(conflict: ClaimConflict | null): string | null {
+  const source = conflict?.claim.source
+  return source?.kind === "label" ? source.name : null
+}
+
+/**
+ * The labels as their chips show them: the one the diff proves wrong (`claimed`) first, so a cut list never hides it
+ */
+export function orderLabels(labels: readonly string[], claimed: string | null): readonly string[] {
+  return claimed === null || !labels.includes(claimed) ? labels : [claimed, ...labels.filter(label => label !== claimed)]
+}
+
+/**
+ * The chip of a word of the title the diff proves wrong, compact, its count in its hover: "refactor: in the title";
+ * null for a label, whose own chip says it (`claimedLabel`)
+ */
+export function formatClaimConflict(conflict: ClaimConflict): string | null {
   const { source } = conflict.claim
-  const said = source.kind === "label" ? `Labelled ${source.name}` : `${source.prefix}: in the title`
-  return `${said} · ${changes(conflict.toRead)} to read`
+  return source.kind === "label" ? null : `${source.prefix}: in the title`
 }
 
 /** For the hover of the chip: what the author says, and what the diff leaves */
@@ -100,15 +115,37 @@ export function describeClaimConflict(conflict: ClaimConflict): string {
   return `The author calls it ${CLAIM_WORDS[kind]}, but ${changes(conflict.toRead)} ${OUTSIDE_WORDS[kind]} in ${files(conflict.files)} ${one ? "is" : "are"} left to read: no formatting, rename, import or move proves ${one ? "it" : "them"}`
 }
 
-/** The sum of the layers of a stack: "10 with nothing to read · 2 to read · 7 changes", "1 being read" while one is */
+/**
+ * The sum of the layers of a stack, each count of its own unit: "1 of 7 with nothing to read · 14 changes to read",
+ * "Nothing to read" when no layer has anything, "2 being read" while some are; "3 of 7 to read" when the layers left
+ * have no change to count (files not proven)
+ */
 export function formatStackReading(stack: StackReading): string {
+  if (stack.unknown === 0 && stack.toReadLayers === 0) {
+    return "Nothing to read"
+  }
   const parts = [
-    stack.nothingToRead > 0 ? `${stack.nothingToRead} with nothing to read` : "",
-    stack.toReadLayers > 0 ? `${stack.toReadLayers} to read` : "",
-    stack.toRead > 0 ? changes(stack.toRead) : "",
+    stack.nothingToRead > 0 ? `${stack.nothingToRead} of ${stack.layers} with nothing to read` : "",
+    stack.toRead > 0 ? `${changes(stack.toRead)} to read` : stack.toReadLayers > 0 ? `${stack.toReadLayers} of ${stack.layers} to read` : "",
     stack.unknown > 0 ? `${stack.unknown} being read` : "",
   ]
   return parts.filter(part => part !== "").join(" · ")
+}
+
+/**
+ * The verdict of a reading as a chip of a narrow list (the layers of a stack in its review window), its full words in
+ * its hover (`formatReading`): "Nothing to read", "4 to read", "Tests only · 1 to read", "Docs only · 2 to read",
+ * "1 not proven" when the files left have no change to count; "· checking" while a rename waits for the index
+ */
+export function formatCompactReading(summary: ReadingSummary): string {
+  const { verdict } = summary
+  if (verdict.kind === "nothingToRead") {
+    return "Nothing to read"
+  }
+  const count = verdict.toRead > 0 ? `${verdict.toRead} to read` : summary.unproven > 0 ? `${summary.unproven} not proven` : ""
+  const parts = [verdict.kind === "testsOnly" ? "Tests only" : verdict.kind === "docsOnly" ? "Docs only" : "", count, summary.pending ? "checking" : ""]
+  const line = parts.filter(part => part !== "").join(" · ")
+  return line.charAt(0).toUpperCase() + line.slice(1)
 }
 
 /** What is said while a request or a stack is read ahead */

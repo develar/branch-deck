@@ -151,6 +151,7 @@ fn a_stack_counts_its_layers_and_opens_on_the_first_one_to_read_once_those_below
       "ten layers with nothing to read and two to read: the first of those",
       [vec![Some(&nothing); 4], vec![Some(&some)], vec![Some(&nothing); 6], vec![Some(&tests)]].concat(),
       StackReading {
+        layers: 12,
         nothing_to_read: 10,
         to_read_layers: 2,
         to_read: 5,
@@ -162,6 +163,7 @@ fn a_stack_counts_its_layers_and_opens_on_the_first_one_to_read_once_those_below
       "a layer below is not read yet: no first layer to open on",
       vec![Some(&nothing), None, Some(&some)],
       StackReading {
+        layers: 3,
         nothing_to_read: 1,
         to_read_layers: 1,
         to_read: 4,
@@ -173,6 +175,7 @@ fn a_stack_counts_its_layers_and_opens_on_the_first_one_to_read_once_those_below
       "every layer has nothing to read",
       vec![Some(&nothing), Some(&nothing)],
       StackReading {
+        layers: 2,
         nothing_to_read: 2,
         ..StackReading::default()
       },
@@ -246,6 +249,7 @@ fn the_waiting_requests_say_what_they_leave_to_read_and_a_stack_the_sum_of_its_l
         bottom: 1,
         state: StackReadingState::Read {
           summary: StackReading {
+            layers: 2,
             nothing_to_read: 1,
             to_read_layers: 1,
             to_read: 1,

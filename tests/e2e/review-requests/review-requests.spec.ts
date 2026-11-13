@@ -1773,9 +1773,11 @@ test.describe("What a range leaves to read", () => {
     await syncAndWaitForBranches()
     const { window, review, fetched } = await openRequestReview(page, 402)
     await fetched
-    await expect(review.getByTestId("review-dialog-label")).toHaveText(["refactoring"])
-    const claim = review.getByTestId("review-author-claim")
-    await expect(claim).toHaveText("Labelled refactoring · 1 change to read")
+    // the label itself says the diff proves it wrong, no second chip repeats it
+    const claim = review.getByTestId("review-dialog-label")
+    await expect(claim).toHaveText(["refactoring"])
+    await expect(claim).toHaveAttribute("data-claim", "true")
+    await expect(review.getByTestId("review-author-claim")).toHaveCount(0)
     await claim.focus()
     await expect(window.getByRole("tooltip")).toHaveText(
       "The author calls it refactoring, but 1 change of code in 1 file is left to read: no formatting, rename, import or move proves it",
@@ -1809,9 +1811,13 @@ test.describe("What a range leaves to read", () => {
     await review.getByTestId("review-dialog-body").focus()
     await reviewPage.keyboard.press("d")
     const column = review.getByTestId("range-review-commits").getByTestId("range-review-commit")
+    // the column says what each layer leaves to read, the layers with nothing to read muted in success
+    const scopeReadings = review.getByTestId("range-review-commits").getByTestId("range-review-scope-reading")
+    await expect(scopeReadings).toHaveText(["Nothing to read", "1 to read", "Nothing to read", "1 to read"])
+    await expect(review.locator("[data-testid=range-review-scope-reading][data-nothing]")).toHaveCount(2)
     await column.first().click()
     await reviewPage.keyboard.press("Escape")
-    await expect(review.getByTestId("review-stack-reading")).toHaveText("2 with nothing to read · 2 to read · 2 changes")
+    await expect(review.getByTestId("review-stack-reading")).toHaveText("2 of 4 with nothing to read · 2 changes to read")
     const rows = review.getByTestId("review-stack-layer-row")
     await expect(rows.getByTestId("review-stack-layer-reading")).toHaveText([
       "Nothing to read · formatting",
@@ -1866,13 +1872,41 @@ test.describe("Read ahead", () => {
   test("should flag in its row a request labelled a refactoring whose diff changes a body", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupHeld(setupRepo, syncAndWaitForBranches, [FORMAT_ALONE, CHECK_ALONE])
     await repo.holdRemoteAnswers({ release: ["readAhead"] })
-    const claim = getReviewRow(page, 402).getByTestId("review-request-claim")
-    await expect(claim).toHaveText("Labelled refactoring · 1 change to read")
+    // the label chip itself is in the warning tone, its hover why and how much is left; no second chip repeats the count
+    const claim = getReviewRow(page, 402).getByTestId("review-request-label")
+    await expect(claim).toHaveText("refactoring")
+    await expect(claim).toHaveAttribute("data-claim", "true")
+    await expect(getReviewRow(page, 402).getByTestId("review-request-claim")).toHaveCount(0)
     await claim.hover()
     await expect(openTooltip(page)).toHaveText("The author calls it refactoring, but 1 change of code in 1 file is left to read: no formatting, rename, import or move proves it")
     // the label of a refactoring of formatting alone holds
     await expect(getReviewRow(page, 401).getByTestId("review-request-reading")).toHaveText("Nothing to read · formatting")
-    await expect(getReviewRow(page, 401).getByTestId("review-request-claim")).toHaveCount(0)
+    await expect(getReviewRow(page, 401).getByTestId("review-request-label")).toHaveText("refactoring")
+    await expect(getReviewRow(page, 401).getByTestId("review-request-label")).not.toHaveAttribute("data-claim")
+  })
+
+  test("should give way in a narrow row with the title first, its labels, its reading and its age whole", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const long = reviewRequest("check", 402, 7, {
+      title: "Ledger: rename the sum helper, check the user and keep every other part of the ledger unchanged",
+      author: "github-actions",
+      labels: ["refactoring", "documentation"],
+    })
+    const repo = await setupHeld(setupRepo, syncAndWaitForBranches, [long])
+    await repo.holdRemoteAnswers({ release: ["readAhead"] })
+    await page.setViewportSize({ width: 1000, height: 720 })
+    const row = getReviewRow(page, 402)
+    await expect(row.getByTestId("review-request-reading")).toHaveText("1 change to read in 1 file")
+    const cut = (locator: Locator) => locator.evaluate(element => element.scrollWidth > element.clientWidth)
+    // the title gives way first, cut with an ellipsis
+    expect(await cut(row.getByTestId("review-request-title"))).toBe(true)
+    // the labels, the one the diff proves wrong among them, what it leaves to read and its age show whole
+    const labels = row.getByTestId("review-request-label")
+    await expect(labels).toHaveText(["refactoring", "documentation"])
+    for (const label of await labels.all()) {
+      expect(await cut(label.locator("span"))).toBe(false)
+    }
+    expect(await cut(row.getByTestId("review-request-reading").locator("span"))).toBe(false)
+    expect(await cut(row.getByTestId("review-request-age"))).toBe(false)
   })
 
   test("should sum a stack in its header and say what each layer under it leaves to read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -1880,7 +1914,7 @@ test.describe("Read ahead", () => {
     const stack = getYourTurnCard(page).getByTestId("review-stack-row")
     await expect(stack.getByTestId("review-stack-reading")).toHaveText("Checking…")
     await repo.holdRemoteAnswers({ release: ["readAhead"] })
-    await expect(stack.getByTestId("review-stack-reading")).toHaveText("2 with nothing to read · 2 to read · 2 changes")
+    await expect(stack.getByTestId("review-stack-reading")).toHaveText("2 of 4 with nothing to read · 2 changes to read")
     await stack.click()
     await expect(getYourTurnCard(page).getByTestId("review-request-row").getByTestId("review-request-reading")).toHaveText([
       "Nothing to read · formatting",

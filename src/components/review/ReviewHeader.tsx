@@ -20,7 +20,7 @@ import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import type { ReviewSource } from "@/lib/pull-request-review"
 import type { ReviewRequestActions } from "@/lib/review-request-actions"
-import { describeClaimConflict, describeUnproven, formatClaimConflict, formatReading } from "@/presenters/range-reading"
+import { claimedLabel, describeClaimConflict, describeUnproven, formatClaimConflict, formatReading, orderLabels } from "@/presenters/range-reading"
 import { formatAskedBy, formatReviewAge } from "@/presenters/reviews"
 import type { SubmittedReview } from "@/stores/review-requests"
 
@@ -197,7 +197,8 @@ function Avatar({ login }: { login: string | null }) {
 
 /**
  * "#101 · master ← alice/feature · 2 files +12 −3 · ● checks failing · approved by you · refactoring" as chips; the
- * author's word the diff proves wrong ("Labelled refactoring · 3 changes to read") after the labels
+ * author's word the diff proves wrong in the warning tone, its hover why and how much is left to read: the label itself,
+ * first of the labels, or a compact chip of the title after them ("refactor: in the title")
  */
 function RequestChips({
   request,
@@ -212,6 +213,8 @@ function RequestChips({
 }) {
   const checks = request.checksState
   const conflict = reading?.conflict ?? null
+  const claimed = claimedLabel(conflict)
+  const titleClaim = conflict === null ? null : formatClaimConflict(conflict)
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="review-dialog-meta">
       <Badge
@@ -249,14 +252,21 @@ function RequestChips({
           {submitted.event === "approve" ? "approved by you" : "changes requested by you"}
         </Badge>
       )}
-      {(request.labels ?? []).map(label => (
-        <Badge key={label} variant="outline" className="text-muted-foreground" data-testid="review-dialog-label">
-          {label}
-        </Badge>
-      ))}
-      {conflict !== null && (
+      {orderLabels(request.labels ?? [], claimed).map(label =>
+        conflict !== null && label === claimed ? (
+          <Tooltip key={label}>
+            <TooltipTrigger render={<Badge variant="warning" tabIndex={0} data-testid="review-dialog-label" data-claim />}>{label}</TooltipTrigger>
+            <TooltipContent className="max-w-80">{describeClaimConflict(conflict)}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <Badge key={label} variant="outline" className="text-muted-foreground" data-testid="review-dialog-label">
+            {label}
+          </Badge>
+        ),
+      )}
+      {conflict !== null && titleClaim !== null && (
         <Tooltip>
-          <TooltipTrigger render={<Badge variant="warning" tabIndex={0} data-testid="review-author-claim" />}>{formatClaimConflict(conflict)}</TooltipTrigger>
+          <TooltipTrigger render={<Badge variant="warning" tabIndex={0} data-testid="review-author-claim" />}>{titleClaim}</TooltipTrigger>
           <TooltipContent className="max-w-80">{describeClaimConflict(conflict)}</TooltipContent>
         </Tooltip>
       )}
