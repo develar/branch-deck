@@ -97,6 +97,19 @@ impl PatronusStanding {
     Self::Answers(failure)
   }
 
+  /// How Patronus stands for a subject the view doesn't know as it is (the view the session shows is of another table,
+  /// `view` how it stands): pending while the view of this table is derived, what the view says of the subject being of
+  /// other commits; once that derivation failed (`Stale` with its reason), the failure of the view; a failure Patronus
+  /// answered with stays
+  #[must_use]
+  pub fn of_unknown(&self, view: &FactState) -> Self {
+    match (self, view) {
+      (Self::Answers(None), FactState::Stale { reason: Some(reason) }) => Self::Answers(Some(StepFailure::ViewFailed { reason: reason.clone() })),
+      (Self::Answers(None), _) => Self::Pending,
+      (standing, _) => standing.clone(),
+    }
+  }
+
   /// `of`, with what the remotes tell before Patronus answers (`LandingRemote::patronus`): where Patronus doesn't know
   /// the repository its answer that it doesn't needs no request, so it is known at the first view (no start, no wait
   /// for it); once Patronus answered, its answer
@@ -357,12 +370,9 @@ pub fn next_step(facts: &StepFacts<'_>) -> NextStep {
   };
   step.landed = landed;
   step.lands = facts.lands;
-  // while Patronus is pending, the view that may say its robot landed the subject as it is is not in
-  step.earlier_robot = facts
-    .robot
-    .map(|robot| robot.robot)
-    .filter(|robot| matches!(facts.patronus, PatronusAnswer::Answers { .. }) && is_earlier(facts, robot))
-    .map(|robot| robot.id.clone());
+  // the verdict the facts give now, also while Patronus is pending: a view yet to come may still say by content that
+  // the robot landed the subject as it is
+  step.earlier_robot = facts.robot.map(|robot| robot.robot).filter(|robot| is_earlier(facts, robot)).map(|robot| robot.id.clone());
   step.unlisted = match facts.listing {
     Listing::Unlisted { why } => why.cloned(),
     Listing::Loading | Listing::Listed => None,

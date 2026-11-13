@@ -459,12 +459,12 @@ controls, not as two words of the title), one pressed at most; a press of the pr
 
 Of a stack that forks "Whole Stack" MUST be the review of its stack branch, its hover "Every branch of the whole air
 stack, its side branches too, on origin/master: 7 branches · 14 commits, what its Safe Push lands" (what is left of
-it, `StackLanding.rest`).
+it, `NextStepView.rest`).
 
 #### Scenario: The Whole Stack of a stack that forks
 - **GIVEN** a stack that forks
 - **WHEN** the user hovers or presses "Whole Stack"
-- **THEN** its hover says "Every branch of the whole air stack, its side branches too, on origin/master: 7 branches · 14 commits, what its Safe Push lands", of what is left of it (`StackLanding.rest`)
+- **THEN** its hover says "Every branch of the whole air stack, its side branches too, on origin/master: 7 branches · 14 commits, what its Safe Push lands", of what is left of it (`NextStepView.rest`)
 - **AND** a press opens the review of its stack branch
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit`)
 

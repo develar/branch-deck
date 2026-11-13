@@ -1101,6 +1101,39 @@ test.describe("Whole stack", () => {
     await expect(page.getByRole("menuitem", { name: "Dry Run Whole Stack" })).toHaveAttribute("aria-disabled", "true")
   })
 
+  test("should say what is left of the whole stack and who landed a branch of the table as it is while the view of the robots is of the table before", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const running = robot("oauth", "oauth-robot")
+    const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", running, "login")
+    await mergeRunningRobot(page, repo, running)
+    await expect(findBranchRow(page, "login").getByTestId("landed-with")).toHaveText("Landed with oauth")
+    // every view of a newer table fails from now on: the session shows the view of this one
+    await repo.holdRemoteAnswers({ fail: ["repositoryView"] })
+
+    // session, which nothing landed, gets a commit: the whole stack lands its two commits, not the one the view counted
+    await repo.commit("(auth/session) Keep the session", { "session-keep.txt": "keep\n" }, 1704150000)
+    await syncAndWaitForBranches()
+    const rest = "Lands 1 branch · 2 commits into master in one Safe Push: session; auth, login and oauth landed with oauth"
+    await openWholeStackSubmenu(page, "auth")
+    const item = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
+    await expect(item).not.toHaveAttribute("aria-disabled", "true")
+    await item.click()
+    await expect(safePushPopover(page).getByTestId("safe-push-lands")).toHaveText(`${rest}.`)
+    await page.keyboard.press("Escape")
+    await expectClosed(safePushPopover(page))
+
+    // login gets a commit that view never saw: nothing says it landed, its step says that the view failed
+    await repo.commit("(auth/login) Fix the form", { "login-fix.txt": "fix\n" }, 1704150600)
+    await syncAndWaitForBranches()
+    const login = findBranchRow(page, "login")
+    await expect(login.getByTestId("next-step")).toHaveText("Refresh Patronus")
+    await expect(login.getByTestId("landed-with")).toHaveCount(0)
+    await expect(findBranchRow(page, "auth").getByTestId("landed-with")).toHaveText("Landed with oauth")
+  })
+
   test("should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it", async ({
     page,
     setupRepo,

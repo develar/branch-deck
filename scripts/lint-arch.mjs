@@ -16,8 +16,13 @@
 // - `rule-module`: a rule module whose rule moved into Rust comes back (`RULE_MODULES`), or src/lib or src/hooks (their
 //   tests aside) exports a function or a constant named as a rule: `can…`, `needs…`, `allows…`, `…Blocker`,
 //   `…Decision`, `is…Blocked`, or an order of the facts of a row (`…Outranks…`, `…Precedes…`, `…Masks…`: which fact
-//   a surface shows is Rust's, `domain_policy::row_status`); a formatter (`format…`) words a reason Rust gave and
-//   decides nothing.
+//   a surface shows is Rust's, `domain_policy::row_status`), or, src/stores too, what landed a subject (`isLanded…`,
+//   `…LandingBranchCount`: Rust's `landedStates`, `NextStep.lands`); a formatter (`format…`) words a reason Rust gave and
+//   decides nothing;
+// - `view-landing-read`: a read of what the Patronus view says landed (`.landedBy`, the `rest` of a `StackLanding`) in
+//   src (its tests and test-support aside): the view may be of another table, stale while the view of this one is
+//   derived; the page reads what Rust decides of the table as it is (`landedStates`, `NextStepView.rest`,
+//   `NextStep.lands`).
 // The operations are the session's (docs/design/operations.md): Rust admits, joins and queues every one of them and lays
 // them over the actions of the view; the page only knows which of its surfaces started one (`src/stores/indicators.ts`):
 // - `operations-store`: the deleted registry of the page comes back (`src/stores/operations.ts`), or src/stores or
@@ -137,6 +142,14 @@ const RULE_EXPORT =
   /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)((?:can|needs|allows)[A-Z][\w$]*|(?!format)[\w$]*(?:Blocker|Decision)|is[\w$]*Blocked|[\w$]+(?:Outranks|Precedes|Masks)[A-Z][\w$]*)\b/
 /** The sources whose exports a rule name refuses: the modules and the hooks of the page, their tests aside */
 const RULED = /^src\/(?:lib|hooks)\/(?!.*\.test\.tsx?$)/
+// the export of what landed a subject, a rule of Rust's (`landedStates`, `NextStep.lands`), its name the group
+const LANDING_EXPORT = /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)(isLanded[\w$]*|(?!format)[\w$]*LandingBranchCount)\b/
+/** The sources whose exports a landing name refuses: the modules, the hooks and the stores of the page, their tests aside */
+const LANDING_RULED = /^src\/(?:lib|hooks|stores)\/(?!.*\.test\.tsx?$)/
+// a read of what the Patronus view says landed: its `landedBy`, the `rest` of a `StackLanding`
+const VIEW_LANDING_READ = /\.landedBy\b|\b(?:get|use)StackLanding\([^)]*\)\??\.rest\b|\.landing\??\.rest\b/
+/** The sources that may not read it: the page, its tests and test-support aside */
+const VIEW_READING = /^src\/(?!test-support\/)(?!.*\.test\.tsx?$)/
 
 /** The start of the main window and the store of the selected repository: they ask no command at start */
 export const STARTUP_MODULES = ["src/main.tsx", "src/router.ts", "src/stores/repository.ts"]
@@ -556,6 +569,12 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     }
     if (RULED.test(file) && RULE_EXPORT.test(line)) {
       problems.push({ ...at, rule: "rule-module" })
+    }
+    if (LANDING_RULED.test(file) && LANDING_EXPORT.test(line)) {
+      problems.push({ ...at, rule: "rule-module" })
+    }
+    if (VIEW_READING.test(file) && VIEW_LANDING_READ.test(line)) {
+      problems.push({ ...at, rule: "view-landing-read" })
     }
     if (ADMITTING.test(file) && ADMISSION_EXPORT.test(line)) {
       problems.push({ ...at, rule: "operations-store" })

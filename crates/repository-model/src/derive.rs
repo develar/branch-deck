@@ -64,7 +64,7 @@ use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, lande
 use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
-use domain_policy::next_step::{Listing, Needs, PatronusAnswer, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
+use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::{github_repository_known, layer_base_of};
 use domain_policy::push::{
@@ -1374,8 +1374,6 @@ fn with_land_facts<'s, T>(
   Some(decide(&facts, last))
 }
 
-/// The declared needs a start of the whole stack of `stack` breaks: those of every branch it lands, each once, by the
-/// branch that declared it (a need one of them inherits from another one of them is that one's own)
 /// What the Safe Push of the whole stack of `stack` lands of `table` as it is now (`whole_stack_rest`), by what `view`
 /// says merged Safe Pushes landed of each branch of it while it knows the branch as it is (`BranchTable::known_landed`):
 /// the view the session shows may be of another table, stale while the view of this one is derived
@@ -1387,16 +1385,15 @@ pub(crate) fn stack_rest(table: &BranchTable, view: &PatronusView, repo: &Reposi
   })
 }
 
-/// The answer of Patronus for a subject the view knows as it is (`known`); of one it doesn't (the view the session shows
-/// is of another table, stale while the view of this one is derived) Patronus is pending: what the view says of it is of
-/// other commits, so no step and no landing is decided on it
-const fn patronus_of(patronus: PatronusAnswer<'_>, known: bool) -> PatronusAnswer<'_> {
-  match patronus {
-    PatronusAnswer::Answers { .. } if !known => PatronusAnswer::Pending,
-    answer => answer,
-  }
+/// The view knows `name` as the table has it now, and every branch it is built on (`BranchTable::view_knows`): what the
+/// view says of the branch reads what it says of them (what landed below it, what holds them)
+fn view_knows_with_ancestors(table: &BranchTable, view: &PatronusView, repo: &Repository<'_>, name: &str) -> bool {
+  let knows = |branch: &str| table.view_knows(branch, view.branches.get(branch).and_then(|facts| facts.landed_by.as_ref()));
+  knows(name) && build_ancestors(repo, name).iter().all(|ancestor| knows(ancestor))
 }
 
+/// The declared needs a start of the whole stack of `stack` breaks: those of every branch it lands, each once, by the
+/// branch that declared it (a need one of them inherits from another one of them is that one's own)
 fn whole_stack_declared(declared: &BTreeMap<String, Vec<LandingRefusal>>, stack: &StackBranchUpdate) -> Vec<LandingRefusal> {
   let lands = |name: &str| name == stack.root || stack.members.iter().any(|member| member == name);
   stack
@@ -1536,6 +1533,9 @@ pub struct StepSources<'a> {
   /// The stack branches as the view of a session has them, by root, whose tips its rows show (`TableState::stack`);
   /// `None`: those of `table`
   pub view_stacks: Option<&'a BTreeMap<String, StackBranchUpdate>>,
+  /// How `view` stands (`PatronusPart::state`): of a subject it doesn't know as it is, a derivation of this table that
+  /// failed after it (`PatronusStanding::of_unknown`)
+  pub view_state: &'a FactState,
   /// The refusals of the order of landing the user declared (`domain_policy::declared_needs`), by branch: the row
   /// names them right after the sync, on every route and before Patronus answers
   pub declared: &'a BTreeMap<String, Vec<LandingRefusal>>,
@@ -1613,6 +1613,8 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     .collect();
   let repository = sources.repository();
   let patronus = sources.patronus.answer();
+  // of a subject the view doesn't know as it is: pending while the view of this table is derived, or its failure
+  let unknown = sources.patronus.of_unknown(sources.view_state);
   let listing = Listing::of_remote(&sources.pull_requests.head, sources.landing);
   let rows: HashMap<&str, &RowFacts> = sources.rows.iter().map(|(name, row)| (name.as_str(), row)).collect();
   // in the order of the rows, then of the stacks: collected into the map at once
@@ -1622,7 +1624,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let landing = facts.map(|facts| &facts.landing);
     let robot = sources.step_robot(facts.and_then(|facts| facts.robot_id.as_deref()), |_| true);
     let landed_by = facts.and_then(|facts| facts.landed_by.as_ref());
-    let known = sources.table.view_knows(name, landed_by);
+    let known = view_knows_with_ancestors(sources.table, sources.view, &repo, name);
     // all of the branch as the table has it now: every commit of it one the robot landed
     let own_robot_landed = landed_by
       .zip(robot)
@@ -1647,7 +1649,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
-      patronus: patronus_of(patronus, known),
+      patronus: if known { patronus } else { unknown.answer() },
       syncing: row.syncing,
       sync_failed: row.sync_failed,
       problem: row.problem.as_deref(),
@@ -1694,6 +1696,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       step: next_step(&step),
       node: landing_node(&node),
       status: row_status(&node),
+      rest: None,
     };
     steps.push((name.clone(), view));
   }
@@ -1714,16 +1717,13 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let root_row = rows.get(stack.root.as_str());
     let held = matches!(landing.and_then(|landing| landing.hold.as_ref()), Some(Reason::StackHeld { robot_id, .. }) if sources.robot(Some(robot_id)).is_some_and(holds_pushes));
     // before the view names what is left of it, every branch of its stack branch
-    let lands = if rest.members.is_empty() && rest.landed.is_empty() {
-      stack.members.len()
-    } else {
-      rest.members.len()
-    };
+    // none landed: every branch of it, as `whole_stack_rest` leaves them
+    let lands = rest.members.len();
     let declared = whole_stack_declared(sources.declared, stack);
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
-      patronus: patronus_of(patronus, known),
+      patronus: if known { patronus } else { unknown.answer() },
       syncing: stack.members.iter().any(|member| rows.get(member.as_str()).is_some_and(|row| row.syncing)),
       sync_failed: false,
       problem: None,
@@ -1773,6 +1773,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       step: next_step(&step),
       node: landing_node(&node),
       status: RowStatus::default(),
+      rest: Some(rest),
     };
     steps.push((key, view));
   }
@@ -1841,6 +1842,7 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
     readiness: &readiness,
     target: baseline_on_remote(&parts.header.baseline_branch),
     view_stacks: Some(&parts.stacks),
+    view_state: &part.state,
     declared: &declared_needs_of(&table.table, |need| is_unapplied(&parts.sections.unapplied, need), &part.view),
   };
   next_steps(&sources)

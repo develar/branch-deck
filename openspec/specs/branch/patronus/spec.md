@@ -909,7 +909,9 @@ it is, also before a remote status.
 - **WHEN** the preview or the landing overview shows it
 - **THEN** its chip says "Merged" with the warning dot, and the details say that the merge didn't land the newest commits, while the row offers a Safe Push
 - **AND** of a merge whose commit Patronus didn't name, the details say that it may not have landed the newest commits
+- **AND** while Patronus is pending for the branch, the chip has the dot of the verdict the facts there are give
   [@test] src/lib/patronus.test.ts (`marks a merged robot of an earlier state as Rust finds it, whatever the remote status loaded so far says`)
+  [@test] crates/domain-policy/src/next_step_test.rs (`a_merged_robot_lands_only_the_commits_it_took_also_before_a_remote_status`)
   [@test] src/lib/patronus.test.ts (`says that a merge of an earlier state didn't land the newest commits, and nothing of a merge of the branch as it is`)
   [@test] src/lib/robot-overview.test.ts (`marks the merged robot of a whole stack that Rust found of an earlier state of it, and no other`)
   [@test] tests/e2e/patronus/patronus.spec.ts (`should keep a merged robot of earlier commits in the preview with its dot and what it didn't land, and offer a new Safe Push`)
@@ -3385,7 +3387,7 @@ shows it too. The branch the robot ran on landed too: it MUST keep its robot chi
 #### Scenario: A robot first seen merged
 - **WHEN** the session first sees a robot merged
 - **THEN** the branches it landed are held all the same, and the rest lands without them
-  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
+  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it`)
 
 #### Scenario: The branch the robot ran on
 - **WHEN** the robot merged
@@ -3443,7 +3445,7 @@ new one below a tested one, MUST NOT be landed.
 - **THEN** it says "Landed with oauth · 1 commit after it" ("Landed · 1 commit after it" of the robot's own branch), its push and Safe Push offered for those commits
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`)
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`, `a_commit_not_synced_yet_is_after_the_landed_ones`)
-  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
+  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it`)
   [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
 
 #### Scenario: A commit changed since
@@ -4890,7 +4892,7 @@ it: they are work for the remote.
 - **GIVEN** a merged Safe Push landed the branch whole, or ran on it
 - **WHEN** the holds of the branch are decided, until the update archives it
 - **THEN** the branch is held, before any other hold: "Landed in master with oauth: nothing of it is left to push", "Merged by Patronus: nothing of it is left to push"
-  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
+  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it`)
   [@test] src/presenters/reasons.test.ts (`says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
 
 #### Scenario: Commits added after the landed ones

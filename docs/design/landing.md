@@ -368,7 +368,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
   come hours later. Until then the rows of the branches a merged robot landed say who landed them ("Landed with
   oauth", "Landed with the whole air stack"; the branch it ran on keeps "Merged"), and offer no Safe Push, no Dry Run,
   no restart of a robot, no new pull request and no push: their commits are in master, a second robot or a push would
-  land nothing (`getLandedBy`, the repository view's `landedBy`, row 1 of the next step, a `landed` push hold, also of the robot's own branch). It is a
+  land nothing (`getLandedBy` of Rust's `landedStates`, row 1 of the next step, a `landed` push hold, also of the robot's own branch). It is a
   state of the robots and the branches, not of the merge event, so a robot first seen merged (after a restart, a
   landing by `brd`) says it too. A pull request GitHub merged with the commits the branch has lands it as well, though
   no robot of the app merged it: what landed a subject is one rule for the rows and `brd safe-push`
@@ -402,29 +402,37 @@ The whole stack is an object of its own in the app, beside its branches, named "
   remote status yet (the first view of a session, `brd status`, which reads none), Patronus still pending or a failed
   sync prove nothing either way, so they leave a branch at another tip not landed, and so does a robot whose commit
   Patronus didn't name (`domain_policy::next_step::slot`; a failed robot keeps its slot until a remote status tells,
-  as a restart pushes the change first anyway). The step names that robot (`NextStep.earlierRobot`, none while
-  Patronus is pending), and the preview and the landing overview keep it with the dot and "the merge didn't land the
-  newest commits" ("Patronus named no commit of this merge, so it may not have…" of one without a commit): the page
-  words the verdict, it never decides it. The row, the hover of a node and the title bar of the review window show only
-  a running robot or one of the subject as it is, whose dot the remote status measures as Rust does.
+  as a restart pushes the change first anyway). The step names that robot (`NextStep.earlierRobot`: the verdict of
+  the facts there are, also while Patronus is pending), and the preview and the landing overview keep it with the dot
+  and "the merge didn't land the newest commits" ("Patronus named no commit of this merge, so it may not have…" of one
+  without a commit): the page words the verdict, it never decides it. The row, the hover of a node and the title bar of
+  the review window show only a running robot or one of the subject as it is, whose dot the remote status measures as
+  Rust does.
+  - *Rationale:* a fact of an earlier state taken for the state of the branch disabled the Safe Push of new commits:
+    "landed: nothing of it is left to land" of a branch whose two commits neither master nor the remote had.
 - **A view of another table.** While the view of a new table is derived, the session shows the one before it, which
   may not know the branches as they are: a commit added since, or the same changes under new ids (a reword, a squash
   or a move of an older commit rewrites every commit above it, landed branches included; an update rebuilds the
   copies). A view knows a branch while each of its commits is one the view says landed or names after it
   (`LandedByView::knows`); of a branch it doesn't know, what it says is of other commits, so Patronus is pending for the
-  branch and for a whole stack of it until the new view is in: row 0, no start, not landed, no hold of what landed,
-  nothing a start, the count of a Safe Push, Push with Children, Push Up to Here or the closes of a merge read of it.
-  What is left of a whole stack is read of the table as it is (`stack_rest`), and so is "landed whole" of a branch the
-  view knows: every commit it has one that landed (`is_whole_of`).
-  - *Rationale:* the window is short (a sync waits for the view at most a patch interval), but in it the stale answer
-    either offered a Safe Push of a branch that landed by content or said a branch with new work landed; pending is
-    the one answer that is never wrong.
-  - *Rationale:* a fact of an earlier state taken for the state of the branch disabled the Safe Push of new commits:
-    "landed: nothing of it is left to land" of a branch whose two commits neither master nor the remote had.
-- **What is left of the whole stack.** Its stack branch carries every commit of the stack, the landed ones too, and
+  branch, for every branch built on it (what the view says of them reads what it says of it) and for a whole stack of
+  it until the new view is in: row 0, no start, not landed, no hold of what landed, nothing a start, the count of a
+  Safe Push, Push with Children, Push Up to Here or the closes of a merge read of it. Once the derivation of the view of
+  this table failed, such a branch says that failure ("Refresh Patronus", `PatronusStanding::of_unknown`) instead of a
+  wait. What is left of a whole stack is read of the table as it is (`stack_rest`), and so is "landed whole" of a
+  branch the view knows: every commit it has one that landed (`is_whole_of`). The page never reads what the view says
+  landed: what landed a branch is Rust's `landedStates`, the count of a Safe Push its step's `lands`, what is left of a
+  whole stack the step's `rest` (`NextStepView.rest`), and `pnpm lint:arch` refuses a read of the view's `landedBy` or
+  `StackLanding.rest` (`view-landing-read`) and a landing rule of the page (`isLanded…`).
+  - *Rationale:* the window is the time the view of the new table takes to derive, seconds after a sync rebuilt the
+    copies (its content walk runs git), and at a warm start the whole time until Patronus answers about the robots,
+    as no view is derived while the robots are those of the cached frame (`begin_patronus`). In
+    it the stale answer either offered a Safe Push of a branch that landed by content or said a branch with new work
+    landed; pending is the one answer that is never wrong.
+- **What is left of the whole stack.**- **What is left of the whole stack.** Its stack branch carries every commit of the stack, the landed ones too, and
   Patronus finds those in the target. So after a piece landed its main line, the Safe Push of the whole stack lands the
   rest and says only the rest ("Lands 1 branch · 1 commit into master in one Safe Push: session; auth, login and oauth
-  landed with oauth", `StackLanding.rest`, `whole_stack_rest`); once every branch of it landed, nothing is left, and it says who landed them
+  landed with oauth", `NextStepView.rest`, `whole_stack_rest`); once every branch of it landed, nothing is left, and it says who landed them
   ("Landed in master with oauth and the whole auth stack").
 - **A pull request that no longer matches.** The pull request of the whole stack shows the stack as it was. A Safe
   Push of a piece that lands the root, or a stack that no longer forks, leaves it showing a stack that is no more. It

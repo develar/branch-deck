@@ -306,7 +306,7 @@ export interface LandingDescendant {
 }
 
 /**
- * A branch a merged Safe Push landed (`getLandedBy`, the repository view's `landedBy`): its own robot's branch, an ancestor the robot of a branch built on
+ * A branch a merged Safe Push landed (`getLandedBy`, Rust's `landedStates` of the table as it is): its own robot's branch, an ancestor the robot of a branch built on
  * it carried, or a branch of the stack the robot of the whole stack landed. Its commits are in the target until the
  * update archives the branch: its row says who landed it, and while nothing was added after them (`after`) it offers no
  * Safe Push, Dry Run or push.
@@ -324,11 +324,6 @@ export interface LandedBy {
    * of it; empty when all of it landed
    */
   readonly after: readonly string[]
-}
-
-/** All of the branch landed: nothing was added after the commits the robot took */
-export function isLandedWhole(landed: LandedBy | null | undefined): landed is LandedBy {
-  return landed != null && landed.after.length === 0
 }
 
 /** " · 1 commit after it": what is left of a branch a merged Safe Push landed; empty when nothing is */

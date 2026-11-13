@@ -5,6 +5,7 @@ import type {
   BranchLanding,
   Fact,
   FactState,
+  Landed,
   LandedPullRequest,
   PatronusAvailability,
   PatronusPart,
@@ -25,7 +26,7 @@ import { closeLanded } from "@/lib/landed-closes"
 import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
-import { formatMergedRobotTitle, formatPushMode, isHoldingRobot, isLandedWhole, isRobotActive } from "@/lib/patronus"
+import { formatMergedRobotTitle, formatPushMode, isHoldingRobot, isRobotActive } from "@/lib/patronus"
 import { withoutKeys } from "@/lib/record"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
@@ -36,7 +37,7 @@ import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
 import { describeLandedCloses } from "@/presenters/news"
 import { recordRobotNews } from "@/stores/activity"
-import { branchSyncStore, getStackAncestors, structureIn, whenSynced } from "@/stores/branch-sync"
+import { branchSyncStore, getLandedState, getStackAncestors, useLandedState, whenSynced } from "@/stores/branch-sync"
 import { getStackPullRequest, refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -223,7 +224,6 @@ function stackRobotIn(repository: RepositoryPatronus | undefined, root: string):
  */
 interface PatronusFacts {
   readonly spans: ReadonlyMap<string, LandingDescendant>
-  readonly landed: ReadonlyMap<string, LandedBy>
   readonly ancestors: ReadonlyMap<string, LandingAncestor>
   readonly holds: ReadonlyMap<string, PushHold>
   /** By root, the robot of the whole stack that runs on its stack branch */
@@ -232,7 +232,6 @@ interface PatronusFacts {
 
 const NO_FACTS: PatronusFacts = {
   spans: new Map(),
-  landed: new Map(),
   ancestors: new Map(),
   holds: new Map(),
   stackHolds: new Map(),
@@ -280,7 +279,6 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
   const robotOf = (id: string): PatronusRobot | undefined => robots[id]
   const by = (of: RobotOf, robot: PatronusRobot) => ({ branch: of.branch, robot, ...(of.wholeStack && { wholeStack: true }) })
   const spans = new Map<string, LandingDescendant>()
-  const landed = new Map<string, LandedBy>()
   const ancestors = new Map<string, LandingAncestor>()
   const holds = new Map<string, PushHold>()
   for (const [name, facts] of Object.entries(view.branches)) {
@@ -288,10 +286,6 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
     if (facts.span !== null && spanRobot !== undefined) {
       const commits = facts.span.carried?.commits.length
       spans.set(name, { ...by(facts.span.by, spanRobot), ...(commits !== undefined && { commits }) })
-    }
-    const landedRobot = facts.landedBy === null ? undefined : robotOf(facts.landedBy.by.robotId)
-    if (facts.landedBy !== null && landedRobot !== undefined && landedRobot.status === "success") {
-      landed.set(name, { ...by(facts.landedBy.by, landedRobot), ...(facts.landedBy.own && { own: true }), after: facts.landedBy.after })
     }
     const ancestorRobot = facts.landingAncestor === null ? undefined : robotOf(facts.landingAncestor.robotId)
     if (facts.landingAncestor !== null && ancestorRobot !== undefined && isRobotActive(ancestorRobot)) {
@@ -314,7 +308,6 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
   }
   const next: PatronusFacts = {
     spans: keptFacts(last.spans, spans),
-    landed: keptFacts(last.landed, landed),
     ancestors: keptFacts(last.ancestors, ancestors),
     holds: keptFacts(last.holds, holds),
     stackHolds: keptFacts(last.stackHolds, stackHolds),
@@ -390,27 +383,39 @@ export function getLandingSpan(branchName: string): LandingDescendant | null {
   return currentFacts().spans.get(branchName) ?? null
 }
 
+/** The robot that landed `landed` (what landed a branch, `Landed` of `landedStates`) as the rows name it, with `robot` */
+function landedByOf(landed: Landed | undefined, robot: PatronusRobot | undefined): LandedBy | null {
+  const of = landed?.by.kind === "robots" ? landed.by.by[0] : undefined
+  if (landed?.by.kind !== "robots" || of === undefined || robot === undefined || robot.status !== "success") {
+    return null
+  }
+  return { branch: of.branch, robot, ...(of.wholeStack && { wholeStack: true }), ...(landed.by.own && { own: true }), after: landed.after }
+}
+
+/** The robot of the merged Safe Push that landed `landed`, by id */
+function landingRobotId(landed: Landed | undefined): string | undefined {
+  return landed?.by.kind === "robots" ? landed.by.by[0]?.robotId : undefined
+}
+
 /**
- * The branch or the whole stack whose merged Safe Push landed this branch, its own included: until the update archives
- * the branch, its Status cell says "Landed with oauth" (with the commits after it: "· 1 commit after it"), and while all
- * of it landed it offers no Safe Push, Dry Run or push; null for a branch no merged robot landed
+ * The branch or the whole stack whose merged Safe Push landed this branch, its own included, as Rust decides it of the
+ * table as it is now (`landedStates`, never what a view of another table says): until the update archives the branch,
+ * its Status cell says "Landed with oauth" (with the commits after it: "· 1 commit after it"); null for a branch no
+ * merged robot landed (the baseline or a pull request did, or nothing)
  */
 export function useLandedBy(branchName: string): LandedBy | null {
-  return useRepositoryFacts().landed.get(branchName) ?? null
+  const landed = useLandedState(branchName)
+  const robotId = landingRobotId(landed)
+  const key = useRepositoryKey()
+  const robot = useStore(patronusStore, state => (robotId === undefined ? undefined : state.repositories[key]?.robots[robotId]))
+  return landedByOf(landed, robot)
 }
 
-/** Non-hook variant of `useLandedBy`, for menus built on open and the next step */
+/** Non-hook variant of `useLandedBy`, for menus built on open */
 export function getLandedBy(branchName: string): LandedBy | null {
-  return currentFacts().landed.get(branchName) ?? null
-}
-
-/**
- * The branches a Safe Push of the branch lands now: the branch and those it is built on, less the ones a merged Safe
- * Push landed whole already (`getLandedBy`): their commits are in the target ("Safe Push · 3"; 1 for a lone one). One
- * with commits after the landed ones lands them.
- */
-export function getLandingBranchCount(branchName: string): number {
-  return structureIn(branchSyncStore.getState(), branchName).ancestors.filter(ancestor => !isLandedWhole(getLandedBy(ancestor))).length + 1
+  const landed = getLandedState(branchName)
+  const robotId = landingRobotId(landed)
+  return landedByOf(landed, robotId === undefined ? undefined : currentRepository()?.robots[robotId])
 }
 
 const NO_BRANCH_LANDING: BranchLanding = { hold: null, start: null, dryRun: null, replaces: null, push: null }

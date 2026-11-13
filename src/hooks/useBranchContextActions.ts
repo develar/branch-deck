@@ -58,7 +58,7 @@ import { commitMoveStore, getSelectedBranches, requestReveal, selectBranches, se
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getOperationWords, indicatorsStore } from "@/stores/indicators"
 import { openInline } from "@/stores/inline-row-action"
-import { getBranchRobot, getLandingBranchCount, getPushHold, isPatronusAvailable, isPatronusPending, patronusStore } from "@/stores/patronus"
+import { getBranchRobot, getPushHold, isPatronusAvailable, isPatronusPending, patronusStore } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, isPullRequestsLoading, pullRequestsStore } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getSelectedRepositoryPath } from "@/stores/repository"
@@ -389,7 +389,7 @@ function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem
         branch,
         "dry-run",
         {
-          description: describeStart("dryRun", branch.name, getLandingBranchCount(branch.name), getReadinessTarget()),
+          description: describeStart("dryRun", branch.name, landingBranchCountOf(branch.name), getReadinessTarget()),
           onSelect: () => void requestSafePush(branch.name, { mode: "dryRun", via: "click" }),
         },
         nextStep.dryRunBlocker,
@@ -404,6 +404,11 @@ function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem
   return children.length === 0 ? null : { id: "patronus", label: "Patronus", icon: ShieldEllipsisIcon, onSelect: () => {}, children }
 }
 
+/** The branches a Safe Push of `name` lands now, as its next step counts them of the table as it is (`NextStep.lands`) */
+function landingBranchCountOf(name: string): number {
+  return getRowPart(name, "landing")?.step.lands ?? 1
+}
+
 /**
  * "Safe Push" (S; "Safe Push · 3" for a stacked branch): the start of the row (`requestSafePush`), as Rust offers it,
  * disabled with the reason of the next step of the branch (the slot, the menu, S on the row, the branch preview, the
@@ -411,7 +416,7 @@ function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem
  * repository lands by a push of the copy into the target
  */
 function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP): MenuItem | null {
-  const branchCount = getLandingBranchCount(branch.name)
+  const branchCount = landingBranchCountOf(branch.name)
   // a repository that lands by a push of the copy into the target: Rust offers its push in place of the robot's start
   const target = getReadinessTarget()
   const push = branchItem(

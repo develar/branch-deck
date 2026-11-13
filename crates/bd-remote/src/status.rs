@@ -922,6 +922,8 @@ fn next_steps_of_status(
     readiness: &readiness,
     target: baseline_on_remote(&grouping.baseline_branch),
     view_stacks: None,
+    // the view of its own table
+    view_state: &view_state,
     declared,
   };
   next_steps(&sources)

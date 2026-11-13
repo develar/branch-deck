@@ -1,5 +1,5 @@
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
-use domain_types::{GroupedBranchInfo, SyncEvent};
+use domain_types::{GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, BTreeSet};
 use sync_core::remote_status::RemoteStatusCollector;
@@ -22,7 +22,9 @@ fn stacked_repo_with_remote() -> (TestRepo, TestRepo) {
   (repo, remote)
 }
 
-/// The table of a sync of `repo`, with the remote statuses the collector kept, and whether the page still got every one
+/// The table of a sync of `repo`, with the remote statuses the collector kept, and whether the page still got every one:
+/// the same statuses, of each branch in the order the sync sent them; between branches in any order, as the statuses of
+/// the branches come from parallel tasks (`RemoteStatusCollector::take_statuses`)
 async fn synced(repo: &TestRepo) -> (BranchTable, bool) {
   let page = TestReporter::new();
   let reporter = RemoteStatusCollector::new(page.clone());
@@ -38,7 +40,12 @@ async fn synced(repo: &TestRepo) -> (BranchTable, bool) {
       _ => None,
     })
     .collect();
-  let all_forwarded = !statuses.is_empty() && forwarded == statuses;
+  let by_branch = |statuses: &[RemoteStatusUpdate]| {
+    let mut sorted = statuses.to_vec();
+    sorted.sort_by(|a, b| a.branch_name.cmp(&b.branch_name));
+    sorted
+  };
+  let all_forwarded = !statuses.is_empty() && by_branch(&forwarded) == by_branch(&statuses);
   (BranchTable::from_report("test", &report, &statuses, &reporter.take_landing()), all_forwarded)
 }
 

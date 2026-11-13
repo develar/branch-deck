@@ -990,7 +990,8 @@ impl<P> RemoteStatusCollector<P> {
     }
   }
 
-  /// The remote statuses sent so far, in the order the sync sent them
+  /// The remote statuses sent so far: of each branch in the order the sync sent them, between branches in no set order
+  /// (the statuses of the branches come from parallel tasks, and the page may get them in another order than this list)
   pub fn take_statuses(&self) -> Vec<RemoteStatusUpdate> {
     std::mem::take(&mut *self.statuses.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
   }

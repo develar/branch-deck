@@ -1210,6 +1210,8 @@ fn merged_commits(name: &str) -> &'static [&'static str] {
     "reworded" => &["reworded-1b"],
     "base" => &["base-2", "base-1"],
     "top" => &["top-1"],
+    "kept" => &["kept-1"],
+    "above" => &["above-1"],
     "air" => &["air-1"],
     _ => &["air-child-2", "air-child-1"],
   }
@@ -1324,6 +1326,11 @@ fn merged_robot_row(name: &str, robot_id: &str, by: Option<(RobotOf, &[&str])>) 
   }
 }
 
+/// The view's answer of `name` that its own robot `<name>-merged` landed all of it, its commits `landed`
+fn own_landed_whole(name: &str, landed: &'static [&'static str]) -> BranchPatronus {
+  merged_robot_row(name, &format!("{name}-merged"), Some((robot_of(name, &format!("{name}-merged")), landed)))
+}
+
 /// A merged robot of a branch landed only the commits it took (openspec/specs/branch/next-step/spec.md, "A merged robot
 /// lands only the commits it took"): before any remote status (the first view of a session, `brd status`), docs, whose
 /// robot took earlier commits under its name and landed none of what it has now, is new work, not landed, its step the
@@ -1336,14 +1343,13 @@ fn merged_robot_row(name: &str, robot_id: &str, by: Option<(RobotOf, &[&str])>) 
 fn a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote_status() {
   use domain_types::next_step::{RowFact, StepBlocker, StepFact};
 
-  let whole = |name: &str, landed: &'static [&'static str]| merged_robot_row(name, &format!("{name}-merged"), Some((robot_of(name, &format!("{name}-merged")), landed)));
   let view = PatronusView {
     branches: BTreeMap::from([
       ("docs".to_string(), merged_robot_row("docs", "docs-merged", None)),
       ("cache".to_string(), merged_robot_row("cache", "cache-merged", None)),
-      ("notes".to_string(), whole("notes", &["notes-1"])),
-      ("grown".to_string(), whole("grown", &["grown-1"])),
-      ("reworded".to_string(), whole("reworded", &["reworded-1"])),
+      ("notes".to_string(), own_landed_whole("notes", &["notes-1"])),
+      ("grown".to_string(), own_landed_whole("grown", &["grown-1"])),
+      ("reworded".to_string(), own_landed_whole("reworded", &["reworded-1"])),
     ]),
     ..PatronusView::default()
   };
@@ -1403,8 +1409,14 @@ fn a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote
         &unknown.step.landed,
         &unknown.step.earlier_robot
       ),
-      (StepRow::Zero, &StepKind::Pending { fact: StepFact::Patronus }, &Some(StepBlocker::Step), &None, &None),
-      "{name}: a view of another table: {unknown:?}"
+      (
+        StepRow::Zero,
+        &StepKind::Pending { fact: StepFact::Patronus },
+        &Some(StepBlocker::Step),
+        &None,
+        &Some(format!("{name}-merged"))
+      ),
+      "{name}: a view of another table, its robot of an earlier state as the facts there are say: {unknown:?}"
     );
     assert_ne!(unknown.node.kind, LandingNodeKind::InMaster, "{name}");
     assert_eq!(unknown.status.main, None, "{name}: no robot, no hold of what landed");
@@ -1413,14 +1425,17 @@ fn a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote
 
 /// The rules over the view read it against the table as it is now (openspec/specs/branch/next-step/spec.md, "A merged
 /// robot lands only the commits it took", "A view of an older table"): top is built on base, which the view of another
-/// table says the robot of top landed whole, and base has a commit since: the Safe Push of top lands both. The robot of
-/// the whole stack of air merged it as the view of another table says, and air-child has a commit since: what is left of
-/// the stack is read of the table as it is (air-child), and Patronus is pending for the whole stack
+/// table says a Safe Push of side landed whole, and base has a commit since: what the view says of top (what its Safe
+/// Push lands, what holds it) reads what it says of base, so Patronus is pending for top too, whose own commits it
+/// knows; above is built on kept, which the view knows as it is and says landed
+/// whole: the Safe Push of above lands only above. The robot of the whole stack of air merged it as the view of another
+/// table says, and air-child has a commit since: what is left of the stack is read of the table as it is (air-child),
+/// the view publishes it (`NextStepView::rest`), and Patronus is pending for the whole stack
 #[test]
-fn a_view_of_another_table_lands_no_ancestor_and_no_whole_stack_whose_commits_changed_since() {
+fn a_view_of_another_table_leaves_pending_the_branches_built_on_one_it_does_not_know_and_their_whole_stack() {
   use domain_types::next_step::StepFact;
 
-  let by_top = || Some((robot_of("top", "top-merged"), &["base-1"][..]));
+  let landed_by = |robot: &str, landed: &'static [&'static str]| Some((robot_of(robot, &format!("{robot}-merged")), landed));
   let by_whole = |landed: &'static [&'static str]| Some((whole_stack_robot_of("air", "whole"), landed));
   let stale_rest = WholeStackRest {
     landed: names(&["air", "air-child"]),
@@ -1430,8 +1445,10 @@ fn a_view_of_another_table_lands_no_ancestor_and_no_whole_stack_whose_commits_ch
   };
   let view = PatronusView {
     branches: BTreeMap::from([
-      ("base".to_string(), merged_robot_row("base", "top-merged", by_top())),
-      ("top".to_string(), merged_robot_row("top", "top-merged", None)),
+      ("base".to_string(), merged_robot_row("base", "side-merged", landed_by("side", &["base-1"]))),
+      ("top".to_string(), merged_robot_row("top", "no-robot", None)),
+      ("kept".to_string(), merged_robot_row("kept", "above-merged", landed_by("above", &["kept-1"]))),
+      ("above".to_string(), merged_robot_row("above", "above-merged", None)),
       ("air".to_string(), merged_robot_row("air", "whole", by_whole(&["air-1"]))),
       ("air-child".to_string(), merged_robot_row("air-child", "whole", by_whole(&["air-child-1"]))),
     ]),
@@ -1448,15 +1465,70 @@ fn a_view_of_another_table_lands_no_ancestor_and_no_whole_stack_whose_commits_ch
     )]),
     ..PatronusView::default()
   };
-  let branches = [("base", None), ("top", Some("base")), ("air", None), ("air-child", Some("air"))];
-  let steps = merged_robot_steps(&branches, &[("top", "copy-top-1"), ("whole", "stack-tip-1")], view);
-  assert_eq!(steps["top"].step.lands, 2, "base is left to land with it: {:?}", steps["top"].step);
+  let branches = [
+    ("base", None),
+    ("top", Some("base")),
+    ("kept", None),
+    ("above", Some("kept")),
+    ("air", None),
+    ("air-child", Some("air")),
+  ];
+  // the robot of side, another branch built on base, landed base by content
+  let robots = [("side", "rebuilt"), ("above", "copy-above-1"), ("whole", "stack-tip-1")];
+  let steps = merged_robot_steps(&branches, &robots, view);
+  let top = &steps["top"].step;
+  assert_eq!((&top.kind, &top.landed), (&StepKind::Pending { fact: StepFact::Patronus }, &None), "{top:?}");
+  assert_eq!(steps["above"].step.lands, 1, "kept landed whole: {:?}", steps["above"].step);
   let stack = &steps["stack:air"];
   assert_eq!(
     (&stack.step.kind, &stack.step.landed, stack.step.lands),
     (&StepKind::Pending { fact: StepFact::Patronus }, &None, 1),
     "{stack:?}"
   );
+  assert_eq!(
+    stack.rest,
+    Some(WholeStackRest {
+      members: names(&["air-child"]),
+      commit_count: 2,
+      landed: names(&["air"]),
+      by: vec![whole_stack_robot_of("air", "whole")],
+      by_own_robot: false,
+    }),
+    "what is left of the stack as it is"
+  );
+  assert_eq!(steps["air"].rest, None, "a branch has no rest");
+}
+
+/// A derivation of the view for this table failed after the view of another one (`Stale` with its reason): of a branch
+/// that view doesn't know as it is the step says the failure of the view, not a wait for Patronus; of one it knows, the
+/// step of its facts
+#[test]
+fn a_failed_view_of_this_table_shows_its_failure_of_the_branches_the_view_before_it_does_not_know() {
+  use crate::derive::{landed_states_of, next_steps_of};
+  use domain_types::next_step::{StepFact, StepFailure};
+  use std::time::Duration;
+
+  let view = PatronusView {
+    branches: BTreeMap::from([
+      ("grown".to_string(), own_landed_whole("grown", &["grown-1"])),
+      ("notes".to_string(), own_landed_whole("notes", &["notes-1"])),
+    ]),
+    ..PatronusView::default()
+  };
+  let (state, mut facts) = merged_robot_session(&[("grown", None), ("notes", None)], &[("grown", "rebuilt"), ("notes", "rebuilt")], view);
+  let failure = ApiError::new(domain_types::error::ErrorCode::Internal, "no view");
+  assert!(facts.patronus.begin(4, Duration::from_secs(4)));
+  facts.patronus.answer(at(4), Err(failure.clone()));
+  let table = facts.table.value().map(|table| BranchTable::clone(table)).unwrap();
+  let _ = facts.patronus.publish(&table);
+  let steps = next_steps_of(&state, &facts, &BTreeMap::new(), &landed_states_of(&state, &facts));
+  assert!(
+    matches!(&steps["grown"].step.kind, StepKind::Unavailable { failure: StepFailure::ViewFailed { reason }, .. } if *reason == failure),
+    "{:?}",
+    steps["grown"].step
+  );
+  assert_ne!(steps["notes"].step.kind, StepKind::Pending { fact: StepFact::Patronus }, "the view knows notes");
+  assert!(steps["notes"].step.landed.is_some(), "{:?}", steps["notes"].step);
 }
 
 /// What a start reads of the view the session shows (`LandingFacts` over the holds the view decided) is read against the

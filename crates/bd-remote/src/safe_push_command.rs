@@ -1539,6 +1539,8 @@ pub(crate) fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start
     readiness: &readiness,
     target: read.target,
     view_stacks: None,
+    // the view of its own table
+    view_state: &FactState::Fresh,
     declared: &declared_needs_of(table, |need| is_unapplied(&read.session.state().sections().unapplied, need), view),
   };
   let mut steps = next_steps(&sources);

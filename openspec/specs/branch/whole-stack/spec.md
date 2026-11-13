@@ -448,7 +448,7 @@ The view MUST place the whole stack on the structure of its root (`BranchStructu
 
 ### Requirement: The Safe Push of the whole stack: The landing names what its Safe Push lands
 
-The view MUST place what its Safe Push lands on its landing (`StackLanding.rest`, `whole_stack_rest`): the branches as
+The view MUST place what its Safe Push lands on its step (`NextStepView.rest`, `whole_stack_rest`): the branches as
 a sentence names them (the main line first) less those merged Safe Pushes landed whole.
 
 #### Scenario: The members, main line first
@@ -1374,10 +1374,10 @@ row stays the root's own meanwhile (`useStackBranchPushAlone`).
 
 ### Requirement: The Safe Push of the whole stack in the app: It lands only the rest after pieces landed
 
-After merged Safe Pushes landed branches of it (a piece that landed its main line, `getLandedBy`), it MUST land only
+After merged Safe Pushes landed branches of it (a piece that landed its main line, `landedStates`), it MUST land only
 the rest and say so: its label counts the rest ("Safe Push" for one branch left), its hover, menu item and popover
 "Lands 1 branch · 1 commit into master in one Safe Push: session; auth, login and oauth landed with oauth"
-(`StackLanding.rest`, `describeWholeStackLanding`); the stack branch still carries the landed commits, which Patronus
+(`NextStepView.rest`, `describeWholeStackLanding`); the stack branch still carries the landed commits, which Patronus
 finds in the target.
 
 #### Scenario: A piece landed its main line

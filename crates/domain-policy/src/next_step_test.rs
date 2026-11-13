@@ -435,8 +435,8 @@ fn row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts(
 /// what the branch has (rebuilt on a newer baseline), or all of the branch as it is by content (`own_robot_landed`) is
 /// landed, row 1; other commits since are new work under the same name, a past robot (`earlier_robot`, its chip's dot),
 /// whose next step is that of new work: also before a remote status said what the remote has (`brd status`), and of a
-/// merged robot whose commit Patronus didn't name; while Patronus is pending it waits for Patronus, after a failed sync
-/// it is row 1 of the failure, neither landed
+/// merged robot whose commit Patronus didn't name; while Patronus is pending it waits for Patronus, the robot of an
+/// earlier state as the facts there are say, after a failed sync it is row 1 of the failure, neither landed
 #[test]
 fn a_merged_robot_lands_only_the_commits_it_took_also_before_a_remote_status() {
   let merged = |tip: &str, remote: Option<(&str, bool)>, own_robot_landed: bool| {
@@ -488,9 +488,9 @@ fn a_merged_robot_lands_only_the_commits_it_took_also_before_a_remote_status() {
     let pending = merged("t2", remote, false).with(|it| it.view = FactState::Loading);
     let step = pending.step();
     assert_eq!(
-      (step.row, step.kind, step.landed),
-      (StepRow::Zero, StepKind::Pending { fact: StepFact::Patronus }, None),
-      "pending, {remote:?}"
+      (step.row, step.kind, step.landed, step.earlier_robot),
+      (StepRow::Zero, StepKind::Pending { fact: StepFact::Patronus }, None, Some("r1".to_string())),
+      "pending, {remote:?}: the verdict of the facts there are"
     );
     let failed = merged("t2", remote, false).with(|it| it.sync_failed = true);
     let failure = Some(StepBlocker::SyncFailed { problem: None });
@@ -1540,4 +1540,22 @@ fn row_5_links_the_stack_of_a_layer_github_lists_in_none() {
     });
   });
   assert!(matches!(stacked.step().kind, StepKind::MergePullRequest { number: 7, .. }), "{:?}", stacked.step().kind);
+}
+
+/// Of a subject the view doesn't know as it is (a view of another table), Patronus is pending while the view of this
+/// table is derived; once that derivation failed after the view (`Stale` with its reason) the failure of the view
+/// shows; a failure Patronus answered with stays, and so does a standing that is no answer
+#[test]
+fn a_subject_the_view_does_not_know_waits_for_the_view_or_shows_its_failure() {
+  let failure = failure("no view");
+  let answers = PatronusStanding::Answers(None);
+  assert_eq!(answers.of_unknown(&FactState::Stale { reason: None }), PatronusStanding::Pending);
+  assert_eq!(
+    answers.of_unknown(&FactState::Stale { reason: Some(failure.clone()) }),
+    PatronusStanding::Answers(Some(StepFailure::ViewFailed { reason: failure }))
+  );
+  assert_eq!(answers.of_unknown(&FactState::Fresh), PatronusStanding::Pending);
+  let logged_out = PatronusStanding::Answers(Some(StepFailure::NotLoggedIn));
+  assert_eq!(logged_out.of_unknown(&FactState::Fresh), logged_out);
+  assert_eq!(PatronusStanding::NotOnSpace.of_unknown(&FactState::Fresh), PatronusStanding::NotOnSpace);
 }

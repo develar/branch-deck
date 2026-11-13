@@ -3,7 +3,7 @@ import { announceApproval, busyOf, getBranchNextStep, getStepInputs, stepActions
 import { useOperationWords } from "@/hooks/useOperationWords"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
-import type { ActionId, ActionState, StackLanding } from "@/lib/bindings"
+import type { ActionId, ActionState, WholeStackRest as RestOfStack } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import type { MenuItem } from "@/lib/menu"
 import { formatLandingSubject } from "@/lib/patronus"
@@ -20,7 +20,6 @@ import type { StackBranch } from "@/stores/branch-sync"
 import { getStackBranch, getWholeStack, useStackBranch, useWholeStack } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getOperationWords } from "@/stores/indicators"
-import { getStackLanding, useStackLanding } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 
@@ -35,7 +34,7 @@ export interface StackNextStep {
   readonly step: BranchNextStep
 }
 
-/** What the Safe Push of the whole stack lands now, as Rust decides it (`StackLanding.rest`, `whole_stack_rest`) */
+/** What the Safe Push of the whole stack lands now, as Rust decides it of the table as it is (`NextStepView.rest`, `whole_stack_rest`) */
 export interface WholeStackRest {
   /** The branches left, as a sentence names them: the main line first, then the side branches */
   readonly members: readonly string[]
@@ -49,12 +48,12 @@ export interface WholeStackRest {
 
 /**
  * What is left of the whole stack after merged Safe Pushes of pieces of it or of the whole stack landed branches of it
- * (`rest` of its `StackLanding`): its stack branch still carries their commits (Patronus finds them in the target and
- * lands the rest), so the start names, counts and says only the rest. Before the view of the robots has it, every
- * branch of its stack branch (`stack`)
+ * (`rest` of the next step of the whole stack, of the table as it is): its stack branch still carries their commits
+ * (Patronus finds them in the target and lands the rest), so the start names, counts and says only the rest. Before the
+ * view has the step, every branch of its stack branch (`stack`)
  */
-function wholeStackRestIn(rest: StackLanding["rest"], stack: StackBranch | undefined): WholeStackRest {
-  if (rest.members.length === 0 && rest.landed.length === 0) {
+function wholeStackRestIn(rest: RestOfStack | null | undefined, stack: StackBranch | undefined): WholeStackRest {
+  if (rest == null || (rest.members.length === 0 && rest.landed.length === 0)) {
     return { members: stack?.members ?? [], commitCount: stack?.commitCount ?? 0, landed: null, byOwnRobot: false }
   }
   return {
@@ -67,7 +66,7 @@ function wholeStackRestIn(rest: StackLanding["rest"], stack: StackBranch | undef
 
 /** `wholeStackRestIn` of the whole stack of `root` now */
 export function wholeStackRestOf(root: string): WholeStackRest {
-  return wholeStackRestIn(getStackLanding(root).rest, getStackBranch(root))
+  return wholeStackRestIn(getRowPart(stackReadinessKey(root), "landing")?.rest, getStackBranch(root))
 }
 
 /**
@@ -98,7 +97,7 @@ const CREATE_STACK_PULL_REQUEST: readonly ActionId[] = ["create-stack-pull-reque
 
 /** What the words of the step of a whole stack read beside those of a branch (`StepInputs`): what its start lands, its pull request */
 interface StackInputs extends StepInputs {
-  readonly rest: StackLanding["rest"]
+  readonly rest: RestOfStack | null | undefined
   readonly stack: StackBranch | undefined
   /** The actions Rust offers of the whole stack: its Create Pull Request of the Stack… */
   readonly actions: readonly ActionState[] | undefined
@@ -152,7 +151,7 @@ export function getStackNextStep(root: string, options?: { readonly forStart: tr
   }
   const inputs: StackInputs = {
     ...getStepInputs(key, view.step),
-    rest: getStackLanding(root).rest,
+    rest: view.rest,
     stack: getStackBranch(root),
     actions: getRowPart(key, "actions"),
     stackWords: getOperationWords(),
@@ -174,7 +173,7 @@ export function useStackNextStep(root: string): StackNextStep | null {
   const actions = useRowPart(key, "actions")
   const inputs: StackInputs = {
     ...useStepInputs(key, view?.step),
-    rest: useStackLanding(forks ? root : "").rest,
+    rest: view?.rest,
     stack: useStackBranch(forks ? root : ""),
     actions,
     // the words of its Create Pull Request of the Stack… while it runs or waits

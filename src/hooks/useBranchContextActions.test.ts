@@ -13,7 +13,7 @@ import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { CREATE, forcePush, PUSH, placed, testBranch, testRemoteStatus, testTip } from "@/stores/test-branch"
 import { disabled, enabled, LANDING_BRANCH, setActions, withActions } from "@/test-support/actions"
-import { pendingStep, setNextSteps, testStep } from "@/test-support/next-step"
+import { pendingStep, setNextSteps, testStep, testView } from "@/test-support/next-step"
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 
@@ -129,6 +129,20 @@ describe("Safe Push of the branch menu", () => {
   })
 })
 
+describe("the count of the branch menu", () => {
+  it("names as many branches as the next step of the branch counts of the table as it is, never its own count of what landed", () => {
+    setBranches(synced("base", null, unpushed), synced("top", "base", unpushed))
+    setBranchActions("top", ...enabled("safe-push", "dry-run"))
+    setNextSteps({ top: testStep({ kind: "safePush" }, { lands: 2 }) })
+    expect(itemOf("top", "safe-push")?.label).toBe("Safe Push · 2")
+    expect(findMenuItem(groupsOf("top"), "dry-run")?.description).toContain("with the branch it is built on")
+    // base landed whole as Rust says it: top lands alone
+    setNextSteps({ top: testStep({ kind: "safePush" }, { lands: 1 }) })
+    expect(itemOf("top", "safe-push")?.label).toBe("Safe Push")
+    expect(findMenuItem(groupsOf("top"), "dry-run")?.description).not.toContain("with the branch it is built on")
+  })
+})
+
 describe("the items of the branch menu", () => {
   it("says why an item doesn't apply in its description, never in its name, and names every item by a stable id", () => {
     setBranches(synced("auth", null, unpushed, { allCommitsHaveIssueReferences: true }), synced("login", "auth", unpushed))
@@ -167,6 +181,41 @@ describe("Whole Stack › of the branch menu", () => {
       expect(reviewOf(name)).toMatchObject({ label: "Review Whole Stack" })
     }
     expect(menuOf("docs").some(item => item.id === "whole-stack")).toBe(false)
+  })
+})
+
+describe("the Safe Push of the whole stack in the branch menu", () => {
+  it("says what is left of the whole stack as Rust decides it of the table as it is, never what the view of the robots names", () => {
+    const branches = [synced("auth", null, unpushed), synced("login", "auth", unpushed), synced("session", "auth", unpushed)]
+    const branchOrder = branches.map(branch => branch.name)
+    const stack: StackBranch = {
+      root: "auth",
+      branchName: "user/stack/auth",
+      members: ["auth", "login", "session"],
+      commitCount: 3,
+      state: "Built",
+      tip: "stack-tip",
+      blockedBy: null,
+      conflict: null,
+      error: null,
+      remoteStatus: null,
+    }
+    const stackBranches = { auth: stack }
+    branchSyncStore.setState({
+      ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder, stackBranches }),
+      branchOrder,
+      stackBranches,
+      pushes: {},
+      actions: Object.fromEntries(branches.map(branch => [branch.name, enabled(...LANDING_BRANCH)])),
+    })
+    offerOnly("stack:auth", "safe-push-whole-stack", "dry-run-whole-stack")
+    const rest = { members: ["session"], commitCount: 1, landed: ["auth", "login"], by: [{ branch: "login", robotId: "r1", wholeStack: false }], byOwnRobot: false }
+    branchSyncStore.setState({ nextSteps: { "stack:auth": { ...testView(testStep({ kind: "safePush" }, { lands: 1 })), rest } } })
+    const item = menuOf("auth")
+      .find(item => item.id === "whole-stack")
+      ?.children?.find(item => item.id === "safe-push-whole-stack")
+    // the target is the readiness's, none in this test
+    expect(item?.description).toMatch(/^Lands 1 branch · 1 commit into .* in one Safe Push: session; auth and login landed with login$/)
   })
 })
 

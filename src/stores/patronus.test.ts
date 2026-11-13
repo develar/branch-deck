@@ -3,6 +3,7 @@ import { internalError } from "@/lib/api-error"
 import type {
   FactState,
   GetRobotCommitMapParams,
+  Landed,
   LandedPullRequest,
   News,
   PatronusAvailability,
@@ -25,7 +26,6 @@ import {
   getBranchRobot,
   getRobot,
   getLandedBy,
-  getLandingBranchCount,
   getLandingSpan,
   getPushHold,
   getStackLanding,
@@ -84,6 +84,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     synced: Promise.resolve(),
     /** The repository the main window shows */
     selected: "/repo",
+    /** What landed each subject, as Rust decides it (`RepositoryView.landedStates`) */
+    landedStates: {} as Record<string, Landed>,
   },
 }))
 
@@ -240,6 +242,8 @@ vi.mock("@/stores/branch-sync", () => ({
     subscribe: () => () => {},
   },
   getBranch: (name: string) => branches.current[name],
+  getLandedState: (subject: string) => branches.landedStates[subject],
+  useLandedState: (subject: string) => branches.landedStates[subject],
   getStackBranch: (root: string) => branches.stacks[root],
   whenSynced: () => branches.synced,
   // the structure Rust sent: the branches built on `name`, parents first, by the parent each was placed on, and those
@@ -542,6 +546,7 @@ beforeEach(() => {
   branches.tableRevision = 0
   branches.synced = Promise.resolve()
   branches.selected = "/repo"
+  branches.landedStates = {}
   fetches.lastFetchTime = undefined
   patronus.list = available(robot({ status: "failure" }))
   patronus.poll = available()
@@ -578,10 +583,9 @@ describe("holds", () => {
     expect(getBranchRobot("air")).toBeUndefined()
   })
 
-  it("holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them", async () => {
+  it("holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it", async () => {
     const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
     branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login"), sso: stacked("sso", "login") }
-    expect(getLandingBranchCount("sso")).toBe(3)
     // the robot of oauth merged elsewhere (`bd`, before a restart): the view says what it landed
     patronus.list = available(robot({ branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 }))
     await list()
@@ -592,9 +596,10 @@ describe("holds", () => {
     expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch]))).toEqual([["landed", "oauth"], ["landed", "oauth"], ["landed", "oauth"], null])
     expect(formatPushHoldReason("login", holds[1]!)).toBe("Landed in master with oauth: nothing of it is left to push")
     expect(formatPushHoldReason("oauth", holds[2]!)).toBe("Merged by Patronus: nothing of it is left to push")
-    expect(getLandedBy("auth")?.branch).toBe("oauth")
-    // sso, built on login too, lands only itself now
-    expect(getLandingBranchCount("sso")).toBe(1)
+    // who landed it, as Rust says it of the table as it is (`landedStates`), with its robot
+    expect(getLandedBy("auth")).toBeNull()
+    branches.landedStates = { auth: { by: { kind: "robots", by: [by], own: false, target: "master" }, after: [] } }
+    expect(getLandedBy("auth")).toMatchObject({ branch: "oauth", robot: { id: "r1" }, after: [] })
     // no toast: no robot was seen running
     expect(shownToasts).toEqual([])
   })
