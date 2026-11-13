@@ -289,3 +289,44 @@ pub fn branches_grouped(branches: Vec<crate::GroupedBranchInfo>) -> crate::SyncE
     review_experimental: false,
   }
 }
+
+/// The commit `id` of the test user, its subject "Subject of <id>"
+pub fn commit(id: &str) -> crate::commit::Commit {
+  crate::commit::Commit {
+    id: id.to_string(),
+    stripped_subject: format!("Subject of {id}"),
+    message: format!("Subject of {id}"),
+    has_body: false,
+    author_name: "Test User".to_string(),
+    author_email: "test@example.com".to_string(),
+    author_timestamp: 1_704_067_200,
+    committer_timestamp: 1_704_067_200,
+    author_timezone: String::new(),
+    committer_timezone: String::new(),
+    subject: format!("Subject of {id}"),
+    parent_id: None,
+    tree_id: String::new(),
+    note: None,
+    mapped_commit_id: None,
+    mapped_source: None,
+    mapped_resolution: None,
+    mapped_signed: false,
+    subject_parts: crate::commit::SubjectParts::default(),
+  }
+}
+
+/// The branch `name` grouped by its prefix with `commits` (ids, newest first), placed in no stack
+pub fn grouped_branch(name: &str, commits: &[&str]) -> crate::GroupedBranchInfo {
+  crate::GroupedBranchInfo {
+    name: name.to_string(),
+    commits: commits.iter().map(|id| commit(id)).collect(),
+    latest_commit_time: 1_704_067_200,
+    summary: format!("Summary of {name}"),
+    description_title: None,
+    all_commits_have_issue_references: false,
+    my_email: None,
+    origin: crate::BranchOrigin::Prefix,
+    issue_key: None,
+    stack: None,
+  }
+}

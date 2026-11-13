@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import { useNow } from "@/hooks/useNow"
+import type { NextStepView } from "@/lib/bindings"
 import type { RobotOverview } from "@/lib/robot-overview"
 import { collectRobotOverview } from "@/lib/robot-overview"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
@@ -11,6 +12,7 @@ const FINISHED_TICK_MS = 60_000
 
 const noBranches: Readonly<Record<string, Branch>> = {}
 const noStacks: Readonly<Record<string, StackBranch>> = {}
+const noSteps: Readonly<Record<string, NextStepView>> = {}
 
 /**
  * The robots of the selected repository's branches, of its whole stacks and the watched ones (`collectRobotOverview`),
@@ -23,6 +25,7 @@ export function useRobotOverview(): RobotOverview {
   // without robots (no Patronus) the overview is empty: no re-render on every change of a branch
   const branches = useBranchSync(state => (robots === undefined ? noBranches : state.branches))
   const stacks = useBranchSync(state => (robots === undefined ? noStacks : state.stackBranches))
+  const nextSteps = useBranchSync(state => (robots === undefined ? noSteps : state.nextSteps))
   const needsReview = useRobotsNeedingReview()
   const watched = useWatchedRobots()
   const failing = useFailingRobots()
@@ -30,6 +33,6 @@ export function useRobotOverview(): RobotOverview {
   const now = useNow(FINISHED_TICK_MS)
   return useMemo(() => {
     const order = rows.flatMap(row => (row.kind === "branch" ? [row.name] : []))
-    return collectRobotOverview(order, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, attention)
-  }, [rows, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, attention])
+    return collectRobotOverview(order, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, attention, nextSteps)
+  }, [rows, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, attention, nextSteps])
 }

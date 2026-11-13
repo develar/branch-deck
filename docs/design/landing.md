@@ -400,8 +400,13 @@ The whole stack is an object of its own in the app, beside its branches, named "
   one of new work: a merged robot is the branch's as it is only by the hashes (the branch at its commit, its remote
   branch there with what the branch has) or by what the view says it landed by content, never by its name alone. No
   remote status yet (the first view of a session, `brd status`, which reads none), Patronus still pending or a failed
-  sync prove nothing either way, so they leave a branch at another tip not landed (`domain_policy::next_step::slot`;
-  a failed robot keeps its slot until a remote status tells, as a restart pushes the change first anyway).
+  sync prove nothing either way, so they leave a branch at another tip not landed, and so does a robot whose commit
+  Patronus didn't name (`domain_policy::next_step::slot`; a failed robot keeps its slot until a remote status tells,
+  as a restart pushes the change first anyway). The step names that robot (`NextStep.earlierRobot`), and the preview,
+  the landing overview and the hover of the node keep it with the dot and "the merge didn't land the newest commits":
+  the page words the verdict, it never decides it. What a view says landed is read against the commits the branch has
+  now (`LandedByView::is_whole_of`): while the view of a new table is derived, the stale one names no commit added
+  since, which is work left, not landed.
   - *Rationale:* a fact of an earlier state taken for the state of the branch disabled the Safe Push of new commits:
     "landed: nothing of it is left to land" of a branch whose two commits neither master nor the remote had.
 - **What is left of the whole stack.** Its stack branch carries every commit of the stack, the landed ones too, and

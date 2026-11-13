@@ -11,6 +11,7 @@ use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
 use domain_types::landed::LandedBranch;
 use domain_types::landing::NeedState;
+use domain_types::repository_view::LandedByView;
 use domain_types::stack::{BlockReason, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -72,6 +73,14 @@ impl BranchTable {
 
   pub fn branch(&self, name: &str) -> Option<&GroupedBranchInfo> {
     self.branches.iter().find(|branch| branch.name == name)
+  }
+
+  /// `landed`, what a merged Safe Push landed of `name` as a view says it, is all of the branch as the table has it now
+  /// (`LandedByView::is_whole_of`: a view of an older table names no commit added since); of a branch the table lacks,
+  /// as the view says it
+  #[must_use]
+  pub fn landed_whole(&self, name: &str, landed: &LandedByView) -> bool {
+    self.branch(name).map_or(landed.after.is_empty(), |branch| landed.is_whole_of(&branch.commits))
   }
 
   /// The tip of the virtual branch of `name`, the build of its commits: `None` for a branch the sync did not build,

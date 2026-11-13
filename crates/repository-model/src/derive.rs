@@ -76,6 +76,7 @@ use domain_policy::review::candidates;
 use domain_policy::row_status::row_status;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::branch_names::baseline_on_remote;
+use domain_types::commit::Commit;
 use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
 use domain_types::landing_route::{LandingRemote, LandingRoute};
 use domain_types::next_step::{NextStepView, RowStatus, StackPullRequest};
@@ -443,7 +444,8 @@ fn up_to_of<'h>(repo: &Repository<'_>, parts: &TableParts, facts: &FactStore, pu
           .iter()
           .position(|it| it.hash.as_deref() == Some(copy.as_str()))
           .and_then(|at| branch.commits.get(at));
-        original.is_some_and(|commit| landed.after.contains(&commit.id))
+        // a commit it did not land: after it, or added since a view of an older table
+        original.is_some_and(|commit| !landed.landed.contains(&commit.id))
       })
     })
     .cloned()
@@ -612,7 +614,14 @@ impl<'a> LandingFacts<'a> {
             let robot = facts.and_then(|facts| facts.robot_id.as_deref()).and_then(|id| robots.get(id));
             branch_hold(name, facts.and_then(|facts| facts.landed_by.as_ref()), robot, spans.get(name))
           }
-          None => facts.and_then(|facts| facts.landing.hold.clone()),
+          // a hold of what landed stands while the branch is what landed (a view of an older table: a commit since)
+          None => facts.and_then(|facts| {
+            facts
+              .landing
+              .hold
+              .clone()
+              .filter(|hold| hold.kind != HoldKind::Landed || facts.landed_by.as_ref().is_some_and(|landed| table.landed_whole(name, landed)))
+          }),
         }?;
         Some((name, hold))
       })
@@ -733,7 +742,7 @@ impl<'a> LandingFacts<'a> {
 
   /// What landed `name` whole, with its robot
   fn landed_whole(&self, name: &str) -> Option<(&'a RobotOf, &'a PatronusRobot)> {
-    let landed = self.view.branches.get(name)?.landed_by.as_ref().filter(|landed| landed.after.is_empty())?;
+    let landed = self.view.branches.get(name)?.landed_by.as_ref().filter(|landed| self.table.landed_whole(name, landed))?;
     Some((&landed.by, self.robots.get(&landed.by.robot_id)?))
   }
 
@@ -743,12 +752,13 @@ impl<'a> LandingFacts<'a> {
   }
 
   /// What `domain_policy::landed` reads of these facts with the landing report `baseline`
-  const fn landed_facts<'s>(&'s self, baseline: &'s LandedSection) -> LandedFacts<'s> {
+  fn landed_facts<'s>(&'s self, baseline: &'s LandedSection) -> LandedFacts<'s> {
     LandedFacts {
       baseline,
       view: Some(self.view),
       robots: &self.robots,
       pushed: self.pushed,
+      branches: Some(&self.table.branches),
     }
   }
 
@@ -795,7 +805,13 @@ impl<'a> LandingFacts<'a> {
     let replaces = self.stack_replaces(stack).map(str::to_string);
     let members = whole_stack_members(&self.repo, &stack.root, &stack.members);
     let rest = whole_stack_rest(&stack.root, &members, stack.commit_count, |name| {
-      let landed = self.view.branches.get(name).and_then(|facts| facts.landed_by.as_ref());
+      // of a view of an older table, a branch with a commit since is not landed whole: all of it is left
+      let landed = self
+        .view
+        .branches
+        .get(name)
+        .and_then(|facts| facts.landed_by.as_ref())
+        .filter(|landed| !landed.after.is_empty() || self.table.landed_whole(name, landed));
       (landed, self.table.branch(name).map_or(0, |branch| u32::try_from(branch.commits.len()).unwrap_or(u32::MAX)))
     });
     StackLanding {
@@ -976,6 +992,7 @@ pub fn landed_states_of(state: &TableState, facts: &FactStore) -> BTreeMap<Strin
     view: matches!(part.state, FactState::Fresh | FactState::Stale { .. } | FactState::Cached).then_some(&part.view),
     robots: &robots,
     pushed: Some(&facts.baseline_pushes.landed),
+    branches: Some(&table.table.branches),
   };
   landed_states(&table.table, &table.remote, &landed, facts.pull_requests.view())
 }
@@ -1546,11 +1563,12 @@ impl StepSources<'_> {
 
 /// What holds the push of a branch now, with its robot: a hold of the view (`BranchLanding::hold`) whose robot holds
 /// pushes, or merged for a hold of what landed
-pub(crate) fn live_hold<'a>(facts: &'a BranchPatronus, robots: &'a RobotsView) -> Option<(&'a HoldView, &'a PatronusRobot)> {
+pub(crate) fn live_hold<'a>(facts: &'a BranchPatronus, robots: &'a RobotsView, commits: Option<&[Commit]>) -> Option<(&'a HoldView, &'a PatronusRobot)> {
   let hold = facts.landing.hold.as_ref()?;
   let robot = robots.robots.get(&hold.by.robot_id)?;
   let holds = match hold.kind {
-    HoldKind::Landed => robot.status == PatronusRobotStatus::Success,
+    // while the branch, `commits` as it is now, is what landed: a view of an older table names no commit since
+    HoldKind::Landed => robot.status == PatronusRobotStatus::Success && commits.is_none_or(|commits| facts.landed_by.as_ref().is_some_and(|landed| landed.is_whole_of(commits))),
     HoldKind::Own | HoldKind::Span => holds_pushes(robot),
   };
   holds.then_some((hold, robot))
@@ -1586,16 +1604,20 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let landing = facts.map(|facts| &facts.landing);
     let robot = sources.step_robot(facts.and_then(|facts| facts.robot_id.as_deref()), |_| true);
     let landed_by = facts.and_then(|facts| facts.landed_by.as_ref());
+    // all of the branch as the table has it now: a view of an older table names no commit added since
     let own_robot_landed = landed_by
       .zip(robot)
-      .is_some_and(|(landed, robot)| landed.own && landed.after.is_empty() && landed.by.robot_id == robot.robot.id);
-    let hold = facts.and_then(|facts| live_hold(facts, sources.robots));
+      .is_some_and(|(landed, robot)| landed.own && sources.table.landed_whole(name, landed) && landed.by.robot_id == robot.robot.id);
+    let commits = sources.table.branch(name).map(|branch| branch.commits.as_slice());
+    let hold = facts.and_then(|facts| live_hold(facts, sources.robots, commits));
     let subject = Subject::branch(name);
     let stack_pull_request = sources.stack_pull_request_of(name);
     let remote = sources.remote.branches.get(name.as_str()).and_then(RemoteFact::branch);
     let landed_whole = |ancestor: &&str| {
       let landed = sources.view.branches.get(*ancestor).and_then(|facts| facts.landed_by.as_ref());
-      landed.is_some_and(|landed| landed.after.is_empty() && sources.robot(Some(&landed.by.robot_id)).is_some_and(|robot| robot.status == PatronusRobotStatus::Success))
+      landed.is_some_and(|landed| {
+        sources.table.landed_whole(ancestor, landed) && sources.robot(Some(&landed.by.robot_id)).is_some_and(|robot| robot.status == PatronusRobotStatus::Success)
+      })
     };
     let ancestors = build_ancestors(&repo, name);
     // a canceling Safe Push lands nothing
@@ -1831,7 +1853,7 @@ pub fn attention_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, R
     };
     let carriers = BranchCarriers {
       parked: branch.structure.parked.is_some(),
-      held: live_hold(patronus, robots).is_some(),
+      held: live_hold(patronus, robots, Some(&branch.commits)).is_some(),
       in_baseline: landed.contains(name.as_str()),
       landing_part: active(patronus.landing_ancestor.as_ref()),
     };

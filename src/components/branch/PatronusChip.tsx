@@ -16,6 +16,7 @@ import { PendingSection } from "@/components/shared/PendingSection"
 import { getRobotItems, robotProblemsReason, useRobotParts } from "@/hooks/useBranchNextStep"
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
+import { useEarlierRobot } from "@/hooks/useRowRobot"
 import type { PatronusRobot, PatronusRobotProgress } from "@/lib/bindings"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { formatShortHash } from "@/lib/hash"
@@ -28,6 +29,7 @@ import { openPullRequestUrl } from "@/lib/pull-request"
 import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import type { RobotAction } from "@/presenters/actions"
 import { isRestart } from "@/presenters/actions"
 import { formatPendingFact } from "@/presenters/next-step"
@@ -48,11 +50,12 @@ export function PatronusChip({ branchName, compact = false }: { branchName: stri
   const remote = useBranchRemoteStatus(branchName)
   const needsReview = useRobotNeedsReview(robot?.id)
   const failing = useRobotFailing(robot?.id)
+  const earlier = useEarlierRobot(branchName, robot?.id)
   if (robot === undefined) {
     return null
   }
 
-  const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
+  const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing, earlier })
   const Icon = patronusChipIcons[chip.kind]
   return (
     <RobotStatusChip branchName={branchName} robot={robot} chip={chip} label={`${formatPushMode(robot.pushMode)}: ${chip.label}`}>
@@ -139,7 +142,8 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
   const stack = useStackBranch(stackRoot ?? "")
   const localTip = stackRoot === undefined ? branchTip : (stack?.tip ?? undefined)
   const remote = stackRoot === undefined ? branchRemote : (stack?.remoteStatus ?? null)
-  const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
+  const earlier = useEarlierRobot(stackRoot === undefined ? branchName : stackReadinessKey(stackRoot), robot.id)
+  const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing, earlier })
   const Icon = patronusChipIcons[chip.kind]
   const details = useRobotDetails(robot.id, loadDetails)
   // what its restart does, as Rust decides it of the branch and its remote (`restart_action`)

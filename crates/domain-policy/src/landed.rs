@@ -10,11 +10,13 @@
 use crate::facts::{RemoteBranch, Robots};
 use crate::pull_request::merges_into_target;
 use crate::reasons::{landed, stack_landed};
+use domain_types::GroupedBranchInfo;
+use domain_types::commit::Commit;
 use domain_types::landing::{BaselinePush, Landed, LandedBy, LandedPullRequest};
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
-use domain_types::repository_view::{PatronusView, RobotLandedBranch, RobotOf};
+use domain_types::repository_view::{LandedByView, PatronusView, RobotLandedBranch, RobotOf};
 use domain_types::session::{LandedSection, stack_readiness_key};
 use std::collections::BTreeMap;
 
@@ -30,6 +32,30 @@ pub struct LandedFacts<'a> {
   /// The copies the pushes of this session into the target landed, by subject key, until a fetch shows them in the
   /// baseline; `None` where nothing keeps them (`bd`)
   pub pushed: Option<&'a BTreeMap<String, BaselinePush>>,
+  /// The branches of the table as they are now, whose commits the answers of `view` are read against: a view derived for
+  /// an older table (stale while the view of the new one is derived) names no commit added since, which is work left
+  /// (`LandedByView::is_whole_of`); `None`: the answers of the view as they are
+  pub branches: Option<&'a [GroupedBranchInfo]>,
+}
+
+impl LandedFacts<'_> {
+  /// What a merged Safe Push landed of `name` as the view says it, with the commits of the branch as it is now
+  fn landed_by(&self, name: &str) -> Option<(&LandedByView, Option<&[Commit]>)> {
+    let landed = self.view?.branches.get(name)?.landed_by.as_ref()?;
+    let commits = self
+      .branches
+      .and_then(|branches| branches.iter().find(|branch| branch.name == name))
+      .map(|branch| branch.commits.as_slice());
+    Some((landed, commits))
+  }
+
+  /// What a merged Safe Push landed of `name` whole, as the view says it, of the branch as it is now
+  fn landed_whole(&self, name: &str) -> Option<&LandedByView> {
+    self
+      .landed_by(name)
+      .filter(|(landed, commits)| commits.map_or(landed.after.is_empty(), |commits| landed.is_whole_of(commits)))
+      .map(|(landed, _)| landed)
+  }
 }
 
 /// What a subject is
@@ -220,7 +246,7 @@ pub fn baseline_upstream(section: &LandedSection) -> &str {
 fn by_robots(facts: &LandedFacts<'_>, of: Of<'_>) -> Option<Landed> {
   match of {
     Of::Branch(name) => {
-      let landed = facts.view?.branches.get(name)?.landed_by.as_ref()?;
+      let (landed, commits) = facts.landed_by(name)?;
       let robot = facts.robots.get(&landed.by.robot_id)?;
       Some(Landed {
         by: LandedBy::Robots {
@@ -228,7 +254,7 @@ fn by_robots(facts: &LandedFacts<'_>, of: Of<'_>) -> Option<Landed> {
           own: landed.own,
           target: robot.target_branch.clone(),
         },
-        after: landed.after.clone(),
+        after: commits.map_or_else(|| landed.after.clone(), |commits| landed.left_of(commits)),
       })
     }
     Of::WholeStack { .. } => match robots_reason(facts, of)? {
@@ -243,18 +269,20 @@ fn by_robots(facts: &LandedFacts<'_>, of: Of<'_>) -> Option<Landed> {
 
 /// The reason of what merged Safe Pushes landed whole (`reasons::landed`, `reasons::stack_landed`)
 fn robots_reason(facts: &LandedFacts<'_>, of: Of<'_>) -> Option<Reason> {
-  let whole = |name: &str| -> Option<(&RobotOf, &PatronusRobot, bool)> {
-    let landed = facts.view?.branches.get(name)?.landed_by.as_ref().filter(|landed| landed.after.is_empty())?;
-    Some((&landed.by, facts.robots.get(&landed.by.robot_id)?, landed.own))
+  let whole = |name: &str| -> Option<(&LandedByView, &PatronusRobot)> {
+    let landed = facts.landed_whole(name)?;
+    Some((landed, facts.robots.get(&landed.by.robot_id)?))
   };
   match of {
     Of::Branch(name) => {
-      let landed_by = facts.view?.branches.get(name)?.landed_by.as_ref()?;
-      let (_, robot, _) = whole(name)?;
+      let (landed_by, robot) = whole(name)?;
       Some(landed(name, landed_by, robot))
     }
     Of::WholeStack { root, members } => {
-      let landed: Vec<(&RobotOf, &PatronusRobot)> = members.iter().map(|member| whole(member).map(|(by, robot, _)| (by, robot))).collect::<Option<_>>()?;
+      let landed: Vec<(&RobotOf, &PatronusRobot)> = members
+        .iter()
+        .map(|member| whole(member).map(|(landed, robot)| (&landed.by, robot)))
+        .collect::<Option<_>>()?;
       stack_landed(root, &landed)
     }
   }

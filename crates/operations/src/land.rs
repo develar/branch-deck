@@ -111,6 +111,7 @@ pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: 
     view: Some(session.view()),
     robots: &robots,
     pushed: None,
+    branches: Some(&host.table.branches),
   };
   let github_layers = github_layers_over(&route, host.table, &host.table.remote, &landed, facts.pull_requests.view());
   let declared = declared_needs_of(host.table, |need| is_unapplied(&session.state().sections().unapplied, need), session.view());

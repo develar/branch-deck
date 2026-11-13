@@ -1,4 +1,4 @@
-import type { PatronusRobot, RobotAttention } from "@/lib/bindings"
+import type { NextStep, PatronusRobot, RobotAttention } from "@/lib/bindings"
 import type { PatronusChipState } from "@/lib/patronus"
 import { getPatronusChipState, isFailingChip, isRobotActive } from "@/lib/patronus"
 import type { RobotTiming } from "@/lib/robot-eta"
@@ -64,7 +64,8 @@ export const NO_ROW_ROBOTS: RowRobots = { branches: {}, stacks: {} }
  * failed for missing approvals, `failing` the running ones that will fail, `needsUser` the subjects whose robot needs
  * the user as Rust decides it (`RepositoryView.attention`, `domain_policy::attention`): a failure it doesn't name (on a
  * branch changed since, one another robot holds, lands a part of or landed, one the baseline has, a stack branch not
- * built) is in the line of the last day.
+ * built) is in the line of the last day. `nextSteps` name the robot of each subject that is of an earlier state of it
+ * (`NextStep.earlierRobot`), whose chip has the dot.
  */
 export function collectRobotOverview(
   order: readonly string[],
@@ -77,18 +78,24 @@ export function collectRobotOverview(
   failing: Readonly<Record<string, true>> = {},
   stacks: Readonly<Record<string, StackBranch>> = {},
   needsUser: Readonly<Record<string, RobotAttention>> = {},
+  nextSteps: Readonly<Record<string, { readonly step: Pick<NextStep, "earlierRobot"> }>> = {},
 ): RobotOverview {
   if (robots === undefined) {
     return EMPTY_ROBOT_OVERVIEW
   }
-  const flagsOf = (id: string) => ({ needsReview: needsReview[id] === true, failing: failing[id] === true })
+  // the robot of `subject` that Rust found of an earlier state of it; elsewhere the remote status tells
+  const flagsOf = (id: string, subject?: string) => ({
+    needsReview: needsReview[id] === true,
+    failing: failing[id] === true,
+    ...(subject !== undefined && nextSteps[subject]?.step.earlierRobot === id && { earlier: true }),
+  })
   const entry = (branchName: string, robot: PatronusRobot): RobotOverviewEntry => {
     const branch = branches[branchName]
     return {
       branchName,
       hasRow: branch !== undefined,
       robot,
-      chip: getPatronusChipState(robot, branch?.commits[0]?.hash, branch?.remoteStatus ?? null, flagsOf(robot.id)),
+      chip: getPatronusChipState(robot, branch?.commits[0]?.hash, branch?.remoteStatus ?? null, flagsOf(robot.id, branchName)),
     }
   }
 
@@ -132,7 +139,7 @@ export function collectRobotOverview(
       hasRow: branches[stack.root] !== undefined,
       stackRoot: stack.root,
       robot,
-      chip: getPatronusChipState(robot, tip, stack.remoteStatus, flagsOf(robot.id)),
+      chip: getPatronusChipState(robot, tip, stack.remoteStatus, flagsOf(robot.id, stackReadinessKey(stack.root))),
     }
     if (isRobotActive(robot)) {
       running.push(stackEntry)

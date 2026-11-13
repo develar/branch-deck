@@ -63,6 +63,7 @@ fn ready_step() -> NextStep {
     without_review: None,
     lands: 1,
     unlisted: None,
+    earlier_robot: None,
   }
 }
 

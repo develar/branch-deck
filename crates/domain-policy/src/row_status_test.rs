@@ -6,7 +6,7 @@ use domain_types::fixtures::robot_of;
 use domain_types::landing::{Landed, LandedBy};
 use domain_types::next_step::{LandingNode, LandingNodeKind, NodeLabel, RowFact, RowStatus, StepKind};
 use domain_types::patronus::{PatronusPushMode, PatronusRobotStatus};
-use domain_types::session::{BranchStatus, Parked};
+use domain_types::session::{BranchStatus, FactState, Parked};
 use pretty_assertions::assert_eq;
 
 /// The robot of the row: how it runs or how it ended
@@ -409,5 +409,45 @@ fn a_robot_of_an_earlier_state_of_the_branch_gives_way_to_its_push_state_unless_
     };
     assert_eq!(row_status(&node), expected, "landed by content: {own_robot_landed}");
     assert_eq!(landing_node(&node).kind == LandingNodeKind::InMaster, merged, "landed by content: {own_robot_landed}");
+  }
+}
+
+/// A failed or canceled robot of an earlier state of the branch (its remote moved past the robot's commit) gives way
+/// also where no start is offered: after a failed sync the Status cell names the failure alone, never the robot beside
+/// it; while Patronus is pending and of a branch without commits it names no robot either
+#[test]
+fn a_finished_robot_of_an_earlier_state_gives_way_where_no_start_is_offered() {
+  let decide = |row: Row, change: &dyn Fn(&mut Fixture)| {
+    let fixture = row.fixture().with(|it| {
+      it.tip = Some("t2".to_string());
+      it.remote = Some((Some("t2".to_string()), true));
+      change(it);
+    });
+    let standing = fixture.standing();
+    row_status(&NodeFacts {
+      step: fixture.facts(&standing),
+      status: row.status,
+      blocked_by: None,
+      lands_with: None,
+      lands_failing: false,
+      push_pending: false,
+    })
+  };
+  for robot in [Robot::Failed, Robot::Canceled] {
+    let conflict = Row {
+      status: BranchStatus::MergeConflict,
+      robot,
+      ..Row::plain()
+    };
+    let failure = RowStatus {
+      main: Some(RowFact::SyncFailed {
+        status: BranchStatus::MergeConflict,
+      }),
+      also: Vec::new(),
+    };
+    assert_eq!(decide(conflict, &|_| {}), failure, "{robot:?}: sync failed");
+    let plain = Row { robot, ..Row::plain() };
+    assert_eq!(decide(plain, &|it| it.view = FactState::Loading), RowStatus::default(), "{robot:?}: pending");
+    assert_eq!(decide(plain, &|it| it.commit_count = 0), RowStatus::default(), "{robot:?}: no commits");
   }
 }

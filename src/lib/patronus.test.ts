@@ -91,6 +91,16 @@ describe("getPatronusChipState", () => {
     expect(getPatronusChipState(robot({ status: "running" }), "newer", null).outdated).toBe(false)
     expect(getPatronusChipState(robot({ status: "success" }), "newer", testRemoteStatus({ remoteTip: "newer" }))).toMatchObject({ commit: "current", outdated: false })
   })
+
+  it("marks a merged robot of an earlier state as Rust finds it, whatever the remote status loaded so far says", () => {
+    const merged = robot({ status: "success" })
+    // no remote status yet: Rust found that the merge took other commits than the branch has
+    expect(getPatronusChipState(merged, "newer", null, { earlier: true })).toMatchObject({ kind: "merged", commit: "changedLocally", outdated: true })
+    // the remote moved on since the robot's commit: the words of the change
+    expect(getPatronusChipState(merged, "newer", testRemoteStatus({ remoteTip: "newer" }), { earlier: true })).toMatchObject({ commit: "changedOnRemote", outdated: true })
+    // a merged robot of the branch as it is, a rebuild included
+    expect(getPatronusChipState(merged, "rebuilt", rebuiltOnRobot)).toMatchObject({ commit: "current", outdated: false })
+  })
 })
 
 describe("formatRobotCommitNotice", () => {
@@ -119,6 +129,13 @@ describe("formatRobotCommitNotice", () => {
     // a restart would test its old commit
     expect(notice(robot({ status: "failure", branchName: null, ...started }), unpushed, null)).toBe(changed)
     expect(notice(robot({ branchName: null, ...started }), unpushed, null)).toBe(changed)
+  })
+
+  it("says that a merge of an earlier state didn't land the newest commits, and nothing of a merge of the branch as it is", () => {
+    const merged = robot({ status: "success", ...started })
+    const earlier = getPatronusChipState(merged, localTip, null, { earlier: true })
+    expect(formatRobotCommitNotice(merged, earlier, localTip, null)).toBe("Merged 3264f30f; the branch has changed since (now 88de421d): the merge didn't land the newest commits.")
+    expect(formatRobotCommitNotice(merged, getPatronusChipState(merged, localTip, null), localTip, null)).toBeNull()
   })
 
   it("says quietly that a robot tests the same commits on an older baseline, nothing for the branch as it is", () => {

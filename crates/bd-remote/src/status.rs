@@ -902,6 +902,7 @@ fn next_steps_of_status(
     view: Some(facts.view()),
     robots: &robots_of,
     pushed: None,
+    branches: Some(&table.branches),
   };
   let landed = landed_states(table, &table.remote, &landed, &pull_requests);
   let readiness = |_: &str| None;

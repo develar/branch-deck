@@ -3,6 +3,7 @@
 //! the branches as they are now (`repository_model::patronus_view`). The session of a repository derives it and sends
 //! it to its windows as a part of its view (`domain_types::session::PatronusPart`); the page reads it by branch.
 
+use crate::commit::Commit;
 use crate::landing::{LandingRefusal, Subject};
 use crate::reason::Reason;
 use serde::{Deserialize, Serialize};
@@ -54,6 +55,23 @@ pub struct LandedByView {
   pub landed: Vec<String>,
   /// The commits added after them, original ids, newest first: the work left; empty when all of it landed
   pub after: Vec<String>,
+}
+
+impl LandedByView {
+  /// It landed all of the branch whose commits are now `commits`: nothing after it, and every commit of the branch one
+  /// it landed. A view derived for an older table (stale while the view of the new one is derived) names no commit
+  /// added since, which is work left
+  #[must_use]
+  pub fn is_whole_of(&self, commits: &[Commit]) -> bool {
+    self.after.is_empty() && commits.iter().all(|commit| self.landed.contains(&commit.id))
+  }
+
+  /// The commits of the branch whose commits are now `commits` that it did not land, newest first: `after` of a view of
+  /// the same table, and the commits added since a view of an older table
+  #[must_use]
+  pub fn left_of(&self, commits: &[Commit]) -> Vec<String> {
+    commits.iter().filter(|commit| !self.landed.contains(&commit.id)).map(|commit| commit.id.clone()).collect()
+  }
 }
 
 /// A running robot of a branch built on this one, or of its whole stack, whose commit has commits of it: it lands them

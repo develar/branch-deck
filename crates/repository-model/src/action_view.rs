@@ -100,7 +100,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       continue;
     };
     let row = row_of_view(branch);
-    let hold = part.view.branches.get(name).and_then(|facts| live_hold(facts, robots));
+    let hold = part.view.branches.get(name).and_then(|facts| live_hold(facts, robots, Some(&branch.commits)));
     let hold_reason = hold.map(|(hold, robot)| Reason::Held {
       branch: name.clone(),
       hold: hold.clone(),
@@ -110,7 +110,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
     let children = sources.pushes.get(name).and_then(|push| push.children.as_ref()).map(|push| Children {
       push,
       statuses_pending: sync_running && !push.offers && unparked_line(parts, name, branch).any(|it| parts.branches.get(it).is_none_or(|it| it.remote.status.is_none())),
-      landed: landed_with_children(&part.view, robots, name, &branch.structure.descendants),
+      landed: landed_with_children(&part.view, robots, &parts.branches, name, &branch.structure.descendants),
     });
     let facts = BranchFacts {
       row: Row {
@@ -315,13 +315,20 @@ fn unparked_line<'a>(parts: &'a crate::table::TableParts, name: &'a str, branch:
 /// Merged Safe Pushes landed `name` and every branch stacked on it whole: each robot once, in the order they merged;
 /// `own` when the robot of the whole stack of `name` landed them all. `None` for a branch without descendants, or while
 /// one of them is left
-fn landed_with_children(view: &PatronusView, robots: &RobotsView, name: &str, descendants: &[String]) -> Option<NothingBeyond> {
+fn landed_with_children(view: &PatronusView, robots: &RobotsView, branches: &BTreeMap<String, BranchView>, name: &str, descendants: &[String]) -> Option<NothingBeyond> {
   if descendants.is_empty() {
     return None;
   }
   let mut by: Vec<(&RobotOf, u32, &str)> = Vec::new();
   for branch in std::iter::once(name).chain(descendants.iter().map(String::as_str)) {
-    let landed = view.branches.get(branch)?.landed_by.as_ref().filter(|landed| landed.after.is_empty())?;
+    // all of it as the table has it now: a view of an older table names no commit added since
+    let commits = branches.get(branch).map(|it| it.commits.as_slice());
+    let landed = view
+      .branches
+      .get(branch)?
+      .landed_by
+      .as_ref()
+      .filter(|landed| commits.map_or(landed.after.is_empty(), |commits| landed.is_whole_of(commits)))?;
     let robot = robots.robots.get(&landed.by.robot_id).filter(|robot| robot.status == PatronusRobotStatus::Success)?;
     if !by.iter().any(|(of, _, _)| of.robot_id == landed.by.robot_id) {
       by.push((&landed.by, robot.finish_time.unwrap_or(0), &robot.target_branch));

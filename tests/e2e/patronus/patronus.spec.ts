@@ -209,6 +209,32 @@ test.describe("Patronus chip", () => {
     await expect(popover.getByTestId("patronus-outdated")).toHaveCount(0)
   })
 
+  test("should keep a merged robot of earlier commits in the preview with its dot and what it didn't land, and offer a new Safe Push", async ({
+    page,
+    repo,
+    syncAndWaitForBranches,
+  }) => {
+    // a Safe Push of feature-api merged other commits under its name; the branch now has commits that robot never took
+    const merged = robot("feature-api", "earlier-merged-robot", { status: "success", sourceRevision: EARLIER_COMMIT, finishTime: 1704142800 })
+    await repo.setPatronus(availableRobots(RUNNING, FAILED, MERGED, DRY_RUN, merged))
+    await repo.closeSessions()
+    await page.reload()
+    await syncAndWaitForBranches()
+    await waitForStepFacts(getSlot(page, "feature-api"))
+    // new work: a Safe Push, the Status cell the git status of the branch as it is
+    await expect(getSlot(page, "feature-api")).toHaveAttribute("data-step", "safePush")
+    await expect(getSlot(page, "feature-api").getByRole("button", { name: "Safe Push", exact: true })).toBeEnabled()
+    await expect(getChip(page, "feature-api")).toHaveCount(0)
+    // the robot stays in the preview: merged, with the dot and what the merge didn't land
+    const preview = await openBranchPreview(page, "feature-api")
+    const chip = preview.getByTestId("patronus-chip")
+    await expect(chip).toHaveAttribute("data-kind", "merged")
+    await expect(chip.getByTestId("patronus-outdated-dot")).toBeVisible()
+    await expect(preview.getByTestId("branch-preview-patronus").getByTestId("patronus-outdated")).toHaveText(
+      /^Merged 01234567; the branch has changed since \(now [0-9a-f]{8}\): the merge didn't land the newest commits\.$/,
+    )
+  })
+
   test("should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens", async ({ page, repo }) => {
     const row = findBranchRow(page, "JIRA-456")
     // a rest of the pointer on the row asks nothing: the facts are the session's, which sends them, and the review of

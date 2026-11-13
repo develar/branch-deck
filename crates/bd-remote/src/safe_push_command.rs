@@ -1519,6 +1519,7 @@ pub(crate) fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start
     view: Some(view),
     robots: &robots_of,
     pushed: None,
+    branches: Some(&table.branches),
   };
   let landed = landed_states(table, &table.remote, &landed, pull_requests);
   let readiness = |subject: &str| read.readiness.filter(|_| subject == key);

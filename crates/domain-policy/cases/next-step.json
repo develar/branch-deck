@@ -1302,6 +1302,36 @@
     }
   },
   {
+    "id": "whole-stack-merged-robot-of-an-earlier-stack-branch",
+    "group": "stack-and-whole-stack",
+    "title": "a Safe Push of the whole stack merged another commit than its stack branch is at, and nothing tells it landed the stack as it is: new work, Safe Push of the whole stack lands every branch",
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/next-step/spec.md#requirement-the-table-a-merged-robot-lands-only-the-commits-it-took",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "robot": {
+        "state": "success",
+        "on": "olderStack"
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "11",
+        "kind": "safePush"
+      },
+      "land": {
+        "confirmations": ["landsMoreThanRow", "nonDefaultProfile"],
+        "start": "api:lsc",
+        "pushes": ["auth"],
+        "lands": ["auth", "login", "session"]
+      }
+    }
+  },
+  {
     "id": "whole-stack-conflict",
     "group": "stack-and-whole-stack",
     "title": "session conflicts, and so does the stack branch: the stack lands in pieces",

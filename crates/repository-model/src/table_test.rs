@@ -1,52 +1,16 @@
 use crate::table::{RemoteSubject, RewriteLink, TableState};
-use domain_types::commit::{Commit, SubjectParts};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::fixtures::branches_grouped;
+use domain_types::fixtures::{branches_grouped, grouped_branch};
 use domain_types::operation::OperationId;
 use domain_types::session::{BranchStatus, CommitSync, LinkRole, RepositoryLink, SyncState, SyncStep};
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate, StackProblem, StackProblemView};
-use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
+use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::sync_fixtures::integrated_branch_info;
 
-pub(crate) fn commit(id: &str) -> Commit {
-  Commit {
-    id: id.to_string(),
-    stripped_subject: format!("Subject of {id}"),
-    message: format!("Subject of {id}"),
-    has_body: false,
-    author_name: "Test User".to_string(),
-    author_email: "test@example.com".to_string(),
-    author_timestamp: 1_704_067_200,
-    committer_timestamp: 1_704_067_200,
-    author_timezone: String::new(),
-    committer_timezone: String::new(),
-    subject: format!("Subject of {id}"),
-    parent_id: None,
-    tree_id: String::new(),
-    note: None,
-    mapped_commit_id: None,
-    mapped_source: None,
-    mapped_resolution: None,
-    mapped_signed: false,
-    subject_parts: SubjectParts::default(),
-  }
-}
-
 pub(crate) fn grouped(name: &str, commits: &[&str]) -> GroupedBranchInfo {
-  GroupedBranchInfo {
-    name: name.to_string(),
-    commits: commits.iter().map(|id| commit(id)).collect(),
-    latest_commit_time: 1_704_067_200,
-    summary: format!("Summary of {name}"),
-    description_title: None,
-    all_commits_have_issue_references: false,
-    my_email: None,
-    origin: BranchOrigin::Prefix,
-    issue_key: None,
-    stack: None,
-  }
+  grouped_branch(name, commits)
 }
 
 pub(crate) fn grouping(branches: Vec<GroupedBranchInfo>) -> SyncEvent {

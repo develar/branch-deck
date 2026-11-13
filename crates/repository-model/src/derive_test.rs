@@ -1170,6 +1170,7 @@ fn the_view_names_the_layers_of_the_stacks_of_github_of_a_straight_chain() {
     view: None,
     robots: &robots,
     pushed: None,
+    branches: None,
   };
   let mut listing = PullRequestsView {
     github_stacks: true,
@@ -1202,8 +1203,10 @@ fn the_structure_of_a_branch_names_the_needs_it_declared() {
 /// A merged robot of a branch landed only the commits it took (openspec/specs/branch/next-step/spec.md, "A merged robot
 /// lands only the commits it took"): before any remote status (the first view of a session, `brd status`), docs, whose
 /// robot took earlier commits under its name and landed none of what it has now, is new work, not landed, its step the
-/// one of new work; cache, whose robot took its tip, and notes, whose robot the view says landed all of it by content,
-/// are landed, "Merged by Patronus"
+/// one of new work and its robot of an earlier state (`earlier_robot`); cache, whose robot took its tip, and notes,
+/// whose robot the view says landed all of it by content, are landed, "Merged by Patronus". grown has a commit since the
+/// view the session still shows was derived (a view of an older table, stale while the new one is derived): what that
+/// view says landed it whole, and held its push, holds no more
 #[test]
 fn a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote_status() {
   use crate::derive::{landed_states_of, next_steps_of};
@@ -1211,11 +1214,27 @@ fn a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote
   use domain_types::repository_view::{LandedByView, LandingNeeds};
   use std::collections::HashMap;
 
-  let branch_names = ["docs", "cache", "notes"];
-  let branches: Vec<GroupedBranchInfo> = branch_names.iter().map(|name| on(name, None)).collect();
+  let branch_names = ["docs", "cache", "notes", "grown"];
+  let commits_of = |name: &str| -> &'static [&'static str] {
+    match name {
+      "docs" => &["docs-1"],
+      "cache" => &["cache-1"],
+      "notes" => &["notes-1"],
+      _ => &["grown-2", "grown-1"],
+    }
+  };
+  let branches: Vec<GroupedBranchInfo> = branch_names
+    .iter()
+    .map(|name| GroupedBranchInfo {
+      stack: Some(BranchStack::default()),
+      ..grouped(name, commits_of(name))
+    })
+    .collect();
   let mut events = vec![grouping(branches.clone(), &[], &[])];
   for name in branch_names {
-    events.push(synced(name, &format!("{name}-1"), CommitSyncStatus::Created));
+    for commit in commits_of(name) {
+      events.push(synced(name, commit, CommitSyncStatus::Created));
+    }
     events.push(branch_status(name, BranchSyncStatus::Created));
   }
   let mut state = TableState::with_prefix("user");
@@ -1227,7 +1246,7 @@ fn a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote
     branches,
     tips: branch_names
       .iter()
-      .map(|name| (format!("user/virtual/{name}"), format!("copy-{name}-1")))
+      .map(|name| (format!("user/virtual/{name}"), format!("copy-{}", commits_of(name)[0])))
       .collect::<HashMap<_, _>>(),
     ..BranchTable::default()
   };
@@ -1243,7 +1262,12 @@ fn a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote
       read: RobotsRead::List { full: true },
       result: PatronusRobotsResult {
         availability: PatronusAvailability::Available,
-        robots: vec![merged("docs", "earlier"), merged("cache", "copy-cache-1"), merged("notes", "rebuilt")],
+        robots: vec![
+          merged("docs", "earlier"),
+          merged("cache", "copy-cache-1"),
+          merged("notes", "rebuilt"),
+          merged("grown", "rebuilt"),
+        ],
         github_repository: Some("acme/monorepo".to_string()),
       },
     },
@@ -1253,40 +1277,52 @@ fn a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote
     landing_needs: LandingNeeds::Known { refusals: Vec::new() },
     ..BranchPatronus::default()
   };
+  // all of the branch by content, as the view of the table of then says it
+  let landed_whole = |name: &str| BranchPatronus {
+    landed_by: Some(LandedByView {
+      by: robot_of(name, &format!("{name}-merged")),
+      own: true,
+      landed: names(&[&format!("{name}-1")]),
+      after: Vec::new(),
+    }),
+    landing: BranchLanding {
+      hold: Some(HoldView {
+        kind: HoldKind::Landed,
+        by: robot_of(name, &format!("{name}-merged")),
+        carried: None,
+      }),
+      ..BranchLanding::default()
+    },
+    ..row(name)
+  };
   let view = PatronusView {
     branches: BTreeMap::from([
       ("docs".to_string(), row("docs")),
       ("cache".to_string(), row("cache")),
-      (
-        "notes".to_string(),
-        BranchPatronus {
-          landed_by: Some(LandedByView {
-            by: robot_of("notes", "notes-merged"),
-            own: true,
-            landed: names(&["notes-1"]),
-            after: Vec::new(),
-          }),
-          ..row("notes")
-        },
-      ),
+      ("notes".to_string(), landed_whole("notes")),
+      ("grown".to_string(), landed_whole("grown")),
     ]),
     ..PatronusView::default()
   };
   answer_patronus(&mut facts, 3, view, &table);
 
   let steps = next_steps_of(&state, &facts, &BTreeMap::new(), &landed_states_of(&state, &facts));
-  let docs = &steps["docs"];
-  assert_eq!(
-    (&docs.step.kind, &docs.step.safe_push, &docs.step.landed),
-    (&StepKind::Pending { fact: StepFact::PullRequests }, &Some(StepBlocker::Step), &None),
-    "new work under the name of a landed robot: {docs:?}"
-  );
-  assert_ne!(docs.node.kind, LandingNodeKind::InMaster);
-  assert_eq!(docs.status.main, None, "the Status cell shows the branch as it is");
+  for name in ["docs", "grown"] {
+    let new_work = &steps[name];
+    assert_eq!(
+      (&new_work.step.kind, &new_work.step.safe_push, &new_work.step.landed),
+      (&StepKind::Pending { fact: StepFact::PullRequests }, &Some(StepBlocker::Step), &None),
+      "new work under the name of a landed robot: {new_work:?}"
+    );
+    assert_eq!(new_work.step.earlier_robot, Some(format!("{name}-merged")), "{name}");
+    assert_ne!(new_work.node.kind, LandingNodeKind::InMaster, "{name}");
+    assert_eq!(new_work.status.main, None, "{name}: the Status cell shows the branch as it is");
+  }
   for name in ["cache", "notes"] {
     let landed = &steps[name];
     assert_eq!((landed.step.row, &landed.step.kind), (StepRow::One, &StepKind::Settled), "{name}");
     assert!(landed.step.landed.is_some(), "{name}");
+    assert_eq!(landed.step.earlier_robot, None, "{name}");
     assert_eq!(landed.node.kind, LandingNodeKind::InMaster, "{name}");
     assert_eq!(landed.status.main, Some(RowFact::Robot { running: false, failed: false }), "{name}");
   }

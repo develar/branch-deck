@@ -71,6 +71,12 @@ export interface RobotFlags {
   readonly needsReview?: boolean
   /** The running robot will fail: a required check failed, Patronus warns */
   readonly failing?: boolean
+  /**
+   * Rust found it the robot of an earlier state of its subject (`NextStep.earlierRobot`): it took other commits than the
+   * subject has now, a merged one too, which landed only what it took; undefined where no step names it, and the
+   * remote status tells (a robot of no row, a robot that is not the subject's)
+   */
+  readonly earlier?: boolean
 }
 
 /**
@@ -85,9 +91,12 @@ export function getPatronusChipState(robot: PatronusRobot, localTip: string | un
       : robot.status === "running" && flags.failing === true
         ? { kind: "running" as const, color: "error" as const, label: "Failing" }
         : describeStatus(robot)
-  // a merged robot is done: the sync archives the branch once the baseline has it
-  const commit = described.kind === "merged" ? "current" : getReviewCommitState(robot.sourceRevision, localTip, remote)
-  return { ...described, commit, outdated: isReviewCommitOutdated(commit) }
+  const measured = getReviewCommitState(robot.sourceRevision, localTip, remote)
+  // a merged robot of the subject as it is is done: the sync archives the branch once the baseline has it; one of an
+  // earlier state, as Rust decides it, has the dot and the notice whatever the remote status loaded so far says
+  const earlier = flags.earlier === true || (described.kind !== "merged" && isReviewCommitOutdated(measured))
+  const commit = earlier ? (isReviewCommitOutdated(measured) ? measured : "changedLocally") : described.kind === "merged" ? "current" : measured
+  return { ...described, commit, outdated: earlier }
 }
 
 /** The chip of a running robot that will fail ("Failing") */
@@ -200,7 +209,8 @@ export function formatRobotRestartLabel(robot: PatronusRobot): string {
 /**
  * What the details say about the commit the robot took, null when it took the branch as it is. A branch only rebuilt on
  * a newer baseline gets a quiet line; a changed one, the commits and the action the details offer for it (for a running
- * robot of the branch, the cancel first).
+ * robot of the branch, the cancel first); of a merged robot of an earlier state, that the merge didn't land the newest
+ * commits.
  */
 export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<PatronusChipState, "commit">, localTip: string | undefined, action: RobotRestartAction): string | null {
   if (chip.commit === "current" || robot.sourceRevision === null) {
@@ -214,6 +224,10 @@ export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<Patronu
   const now = localTip === undefined || localTip === "" ? "" : ` (now ${formatShortHash(localTip)})`
   // the robot of the whole stack tests the stack branch
   const what = robot.branchName === null && robot.stackRoot != null ? "stack" : "branch"
+  if (robot.status === "success" && robot.pushMode !== "dryRun") {
+    // a merge landed only the commits it took: the newest ones are the work left
+    return `Merged ${formatShortHash(robot.sourceRevision)}; the ${what} has changed since${now}: the merge didn't land the newest commits.`
+  }
   const changed = `Started on ${formatShortHash(robot.sourceRevision)}; the ${what} has changed since${now}: the result won't cover the newest commits.`
   if (action !== null) {
     return `${changed} ${formatRobotRestartLabel(robot)} to test the current ${what}.`

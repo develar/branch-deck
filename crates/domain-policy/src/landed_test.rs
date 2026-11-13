@@ -1,6 +1,6 @@
 use crate::facts::{RemoteBranch, Robots};
 use crate::landed::{LandedFacts, LandedSubject, Landing, Of, landed_reason, landed_state, merged_pull_request, pull_requests_to_close};
-use domain_types::fixtures::{pull_request, robot, robot_of, stack_robot, whole_stack_robot_of};
+use domain_types::fixtures::{grouped_branch, pull_request, robot, robot_of, stack_robot, whole_stack_robot_of};
 use domain_types::landed::LandedBranch;
 use domain_types::landing::{BaselinePush, Landed, LandedBy, LandedPullRequest};
 use domain_types::patronus::{PatronusPullRequestLink, PatronusRobot, PatronusRobotStatus};
@@ -115,6 +115,7 @@ fn what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull
     baseline,
     view: Some(&view),
     robots: &robots,
+    branches: None,
   };
   let in_baseline = Landed {
     by: LandedBy::Baseline {
@@ -144,6 +145,7 @@ fn what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull
     baseline: &no_landing,
     view: None,
     robots: &robots,
+    branches: None,
   };
   assert_eq!(
     landed_state(&without_robots, &branch("auth", Some(&merged_pull_request))),
@@ -164,6 +166,7 @@ fn with_no_other_landing(check: impl FnOnce(&LandedFacts<'_>)) {
     baseline: &no_landing,
     view: None,
     robots: &robots,
+    branches: None,
   });
 }
 
@@ -248,6 +251,7 @@ fn a_whole_stack_landed_when_every_branch_of_it_did() {
     baseline: &no_landing,
     view,
     robots: &robots,
+    branches: None,
   };
   let by = |facts: &LandedFacts<'_>, subject| landed_state(facts, &subject).map(|landed| landed.by);
   assert_eq!(
@@ -286,6 +290,7 @@ fn the_reason_a_start_gives_of_what_landed_all_of_the_subject() {
     baseline: &baseline,
     view: Some(&view),
     robots: &robots,
+    branches: None,
   };
   assert_eq!(
     landed_reason(&facts, &branch("auth", None)),
@@ -555,6 +560,7 @@ fn a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed() {
     baseline: &no_landing,
     view: None,
     robots: &robots,
+    branches: None,
   };
   let in_master = Some(Landed {
     by: LandedBy::Baseline {
@@ -577,4 +583,39 @@ fn a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed() {
     target: "master",
   };
   assert_eq!(landed_state(&facts, &stack), in_master);
+}
+
+/// The answers of the Patronus view are read against the branches as the table has them now: of a view derived for an
+/// older table (stale while the view of the new one is derived) a branch with a commit added since is not landed whole,
+/// that commit is the work left, and a start of it is not refused as landed; without the table, the view's answers as
+/// they are
+#[test]
+fn a_view_of_an_older_table_lands_no_commit_added_since() {
+  let auth = robot_of("auth", "r");
+  let view = view(&auth, &[("auth", true, &[])]);
+  let robots = [merged("r", "auth")];
+  let robots = Robots::new(&robots);
+  let no_landing = LandedSection::default();
+  let grown = [grouped_branch("auth", &["auth-2", "auth-1"])];
+  let facts = |branches| LandedFacts {
+    pushed: None,
+    baseline: &no_landing,
+    view: Some(&view),
+    robots: &robots,
+    branches,
+  };
+  let stale = facts(Some(&grown));
+  assert_eq!(landed_state(&stale, &branch("auth", None)).map(|landed| landed.after), Some(vec!["auth-2".to_owned()]));
+  assert_eq!(landed_reason(&stale, &branch("auth", None)), None, "the commit since is left to land");
+  let as_the_view_says = facts(None);
+  assert_eq!(landed_state(&as_the_view_says, &branch("auth", None)).map(|landed| landed.after), Some(Vec::new()));
+  assert!(landed_reason(&as_the_view_says, &branch("auth", None)).is_some());
+  // a whole stack of it: not landed while a branch of it has a commit since
+  let members = ["auth".to_owned()];
+  let whole_stack = LandedSubject {
+    of: Of::WholeStack { root: "auth", members: &members },
+    ..branch("auth", None)
+  };
+  assert_eq!(landed_state(&stale, &whole_stack), None, "the commit since is left to land");
+  assert!(landed_state(&as_the_view_says, &whole_stack).is_some());
 }

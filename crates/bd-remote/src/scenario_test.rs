@@ -317,7 +317,7 @@ enum GivenRobots {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct GivenRobot {
   state: RobotState,
-  /// `tip`, `older`, `stack`, `ancestor:<branch>`, `child:<branch>`
+  /// `tip`, `older`, `stack`, `olderStack`, `ancestor:<branch>`, `child:<branch>`
   on: String,
   /// `approvals`: it failed for the approvals, as its problems say (the session reads them; `bd` doesn't)
   reason: Option<String>,
@@ -724,6 +724,8 @@ fn add_robots(space: &Space, environment: &mut Environment, given: &Given) {
       // the remote branch, which the sync rebuilt since on a newer baseline (`remote: rebuiltOnNewerBaseline`)
       None if robot_of.on == "remote" => robot(&id, &state, &given.branch, &space.remote_tip(&virtual_branch(&given.branch))),
       None if robot_of.on == "older" => robot(&id, &state, &given.branch, "0000"),
+      // of the whole stack, on another commit than its stack branch is at
+      None if robot_of.on == "olderStack" => stack_robot(&id, &state, "0000"),
       None => {
         let root = given.root_of(&given.branch);
         stack_robot(&id, &state, &tip_of(&format!("{PREFIX}/stack/{root}")))

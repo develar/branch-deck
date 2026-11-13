@@ -29,6 +29,30 @@ function rows(branches: Readonly<Record<string, string>>, stacks: Readonly<Recor
 const branches = Object.fromEntries(order.map(name => [name, branchAtTip(name)]))
 
 describe("collectRobotOverview", () => {
+  it("marks the merged robot of a whole stack that Rust found of an earlier state of it, and no other", () => {
+    const stack: StackBranch = {
+      root: "auth",
+      branchName: "user/stack/auth",
+      members: ["auth", "login"],
+      commitCount: 2,
+      state: "Built",
+      tip: "stack-tip-2",
+      blockedBy: null,
+      conflict: null,
+      error: null,
+      remoteStatus: null,
+    }
+    const robots = robotsById(testRobot("whole", null, { stackRoot: "auth", sourceRevision: "stack-tip-1", status: "success", finishTime: NOW_SECONDS - 60 }))
+    const matched = rows({}, { auth: "whole" })
+    const finished = (earlierRobot: string | undefined) =>
+      collectRobotOverview(order, branches, robots, matched, {}, NOW, {}, {}, { auth: stack }, {}, { "stack:auth": { step: { earlierRobot } } }).finished.map(
+        it => it.chip.outdated,
+      )
+    expect(finished("whole")).toEqual([true])
+    expect(finished(undefined)).toEqual([false])
+    expect(finished("another")).toEqual([false])
+  })
+
   it("lists the robot of the whole stack as the whole stack after the branches, a click showing the root, its failure as the move the view names, any other as finished", () => {
     const stack = (root: string, tip: string, state: StackBranch["state"] = "Built"): StackBranch => ({
       root,

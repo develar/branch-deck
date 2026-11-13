@@ -304,8 +304,9 @@ pub(crate) fn slot(facts: &StepFacts<'_>) -> Slot {
     };
   }
   // a robot of an earlier state of the subject (the same name, other commits: new work) is a past fact, a merged one
-  // too: it landed only what it took, so the subject as it is has no robot, and a start lands it anew
-  if !facts.own_robot_landed && is_outdated(it, facts.tip, facts.remote) {
+  // too: it landed only what it took, so the subject as it is has no robot, and a start lands it anew; where no start
+  // is offered (Patronus pending, a failed sync, no commits) there is no robot to show either
+  if is_earlier(facts, it) {
     return if offered { Slot::Start } else { Slot::None };
   }
   Slot::Finished(match it.status {
@@ -318,22 +319,27 @@ pub(crate) fn slot(facts: &StepFacts<'_>) -> Slot {
   })
 }
 
+/// `robot`, the robot of the subject, is of an earlier state of it: it took other commits than the subject has now
+/// (`is_outdated`), and the view doesn't say by content that it landed all of the subject as it is (`own_robot_landed`)
+fn is_earlier(facts: &StepFacts<'_>, robot: &PatronusRobot) -> bool {
+  !facts.own_robot_landed && is_outdated(robot, facts.tip, facts.remote)
+}
+
 /// The robot took other commits than the subject has: changed locally since (the remote lacks work), or on the remote.
 /// While no remote status compared them, a subject at another tip than the robot's commit has the same commits rebuilt
 /// on a newer baseline, or new work: of a merged robot it is new work, as a merge landed only what it took (the view
-/// says by content when it landed all of the subject as it is, `own_robot_landed`, which the caller reads first); of any
-/// other robot the slot keeps it until a remote status tells
+/// says by content when it landed all of the subject as it is, `own_robot_landed`, which `is_earlier` reads first), and
+/// so is a merged robot whose commit Patronus didn't name, which proves nothing; of any other robot the slot keeps it
+/// until a remote status tells
 fn is_outdated(robot: &PatronusRobot, tip: Option<&str>, remote: Option<RemoteBranch<'_>>) -> bool {
+  let merged = robot.status == PatronusRobotStatus::Success && is_pushing(robot);
   let Some(source) = robot.source_revision.as_deref() else {
-    return false;
+    return merged;
   };
   if tip == Some(source) {
     return false;
   }
-  remote.map_or_else(
-    || robot.status == PatronusRobotStatus::Success && is_pushing(robot),
-    |remote| !remote.up_to_date || remote.tip != Some(source),
-  )
+  remote.map_or(merged, |remote| !remote.up_to_date || remote.tip != Some(source))
 }
 
 /// The next step of the subject of `facts`: the first row of the table that matches (module docs)
@@ -351,6 +357,7 @@ pub fn next_step(facts: &StepFacts<'_>) -> NextStep {
   };
   step.landed = landed;
   step.lands = facts.lands;
+  step.earlier_robot = facts.robot.map(|robot| robot.robot).filter(|robot| is_earlier(facts, robot)).map(|robot| robot.id.clone());
   step.unlisted = match facts.listing {
     Listing::Unlisted { why } => why.cloned(),
     Listing::Loading | Listing::Listed => None,
@@ -448,6 +455,7 @@ const fn step(row: StepRow, kind: StepKind, safe_push: Option<StepBlocker>, dry_
     without_review: None,
     lands: 1,
     unlisted: None,
+    earlier_robot: None,
   }
 }
 

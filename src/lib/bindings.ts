@@ -5268,6 +5268,13 @@ export type NextStep = {
 	 *  never "none", and the start says that Patronus checks them; `None` while GitHub lists them and off GitHub
 	 */
 	unlisted: PullRequestAvailability | null,
+	/**
+	 *  The robot of the subject, by id, while it is of an earlier state of it: it took other commits than the subject has
+	 *  now (a merged one included: it landed only what it took), so the step is that of the subject as it is; its chip
+	 *  keeps it in the preview and the overview with the warning dot and the notice of what changed. `None` without a
+	 *  robot, and for a robot of the subject as it is
+	 */
+	earlierRobot?: string | null,
 };
 
 /**  The next step and the node of a subject, the part of the view of a session (`RepositoryView.next_steps`) */
