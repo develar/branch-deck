@@ -678,7 +678,8 @@ fn a_mark_reviewed_on_a_base() {
 /// lines of the commits that are not the same on both sides, and one `diff-tree` for the interdiff of the rewritten
 /// ones; then for the API and the files one `diff-tree` from the reviewed change carried onto the base (the reviewed tip
 /// on the same base) to the tip, one `cat-file` of their blobs (text files: no summary to read) and one of the trees
-/// above them, for their modules
+/// above them, for their modules; and one `diff-tree` of that scope for what it leaves to read (`reading`), whose blobs
+/// the `cat-file` reads
 #[test]
 fn a_review_plan_since_the_review() {
   let repo = amended_since_the_review();
@@ -696,7 +697,7 @@ fn a_review_plan_since_the_review() {
 const SINCE_THE_REVIEW: &[(&str, u32)] = &[
   ("cat-file", 2),
   ("check-attr", 1),
-  ("diff-tree", 3),
+  ("diff-tree", 4),
   ("for-each-ref", 2),
   ("merge-base", 1),
   ("patch-id", 1),
@@ -817,10 +818,11 @@ fn commit_each<'a>(repo: &TestRepo, files: impl IntoIterator<Item = (&'a str, St
 }
 
 /// `brd review-plan` of a range of seven Kotlin commits, the same for four: one `rev-parse --verify` per rev, one
-/// `rev-list` of the commits, one `log` of their changes, one `cat-file` of their blobs, one `check-attr` of the files
-/// the attributes may mark generated (every plan has it, whatever the number of files), and the reads of the syntax
-/// summaries (`read_symbol_input`: the trees above the files and the blobs no cache has, one `rev-parse`); accio asks no
-/// git, and the dependency order of the files, each using the type of the next, comes from those summaries
+/// `rev-list` of the commits, one `log` of their changes, one `check-attr` of the files the attributes may mark
+/// generated (every plan has it, whatever the number of files), one `diff-tree` of the range and one `cat-file` of its
+/// blobs for what the pair leaves to read (`reading`), whose texts the summaries then find in memory, and the reads of
+/// the syntax summaries (`read_symbol_input`: the trees above the files, one `rev-parse`); accio asks no git, and the
+/// dependency order of the files, each using the type of the next, comes from those summaries
 #[test]
 fn a_review_plan_of_a_range() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -839,13 +841,17 @@ fn a_review_plan_of_a_range() {
   let output = review_plan(&context, &args).unwrap();
   assert_eq!(output.api.len(), 7);
   assert_eq!(output.order.first().map(String::as_str), Some("src/a/role.kt"));
-  assert_processes(&context, &[("cat-file", 3), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(
+    &context,
+    &[("cat-file", 2), ("check-attr", 1), ("diff-tree", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)],
+  );
 }
 
 /// A repository whose baseline has `manifest` (when any) and four source files of `extension` from `source` (by the
 /// name of the file), then a commit per file: a changed import, an indent, the code twice. A plan of it on a new
 /// context (a new `FileDiffs` memory), then on another one, each with the mechanical kind of each file; the contexts,
-/// which counted their processes
+/// which counted their processes. Each lists the range once more for its `reading` (one `diff-tree`: a range is never in
+/// the object cache), whose blobs the first reads in the `cat-file` the texts of the plan then find in memory
 fn modified_files_plans(extension: &str, manifest: Option<(&str, &str)>, source: impl Fn(&str) -> String, edits: [(&str, &str); 2]) -> [RepoContext; 2] {
   let names = ["login", "logout", "session", "token"];
   let files: Vec<(String, String)> = names.iter().map(|name| (format!("src/{name}.{extension}"), source(name))).collect();
@@ -891,8 +897,11 @@ fn a_review_plan_of_modified_files() {
     |name| format!("package a\n\nimport b.Old\n\nclass {name} {{\n  fun run(): Int {{\n    return 1\n  }}\n}}\n"),
     [("import b.Old", "import b.New"), ("    return 1", "      return 1")],
   );
-  assert_processes(&kotlin[0], &[("cat-file", 3), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
-  assert_processes(&kotlin[1], &[("cat-file", 2), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(
+    &kotlin[0],
+    &[("cat-file", 2), ("check-attr", 1), ("diff-tree", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)],
+  );
+  assert_processes(&kotlin[1], &[("cat-file", 2), ("check-attr", 1), ("diff-tree", 1), ("rev-list", 1), ("rev-parse", 3)]);
 
   let rust = modified_files_plans(
     "rs",
@@ -900,8 +909,11 @@ fn a_review_plan_of_modified_files() {
     |name| format!("use b::Old;\n\npub fn run_{name}() -> i32 {{\n    1\n}}\n"),
     [("use b::Old;", "use b::New;"), ("    1\n", "      1\n")],
   );
-  assert_processes(&rust[0], &[("cat-file", 3), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
-  assert_processes(&rust[1], &[("cat-file", 2), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(
+    &rust[0],
+    &[("cat-file", 3), ("check-attr", 1), ("diff-tree", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)],
+  );
+  assert_processes(&rust[1], &[("cat-file", 2), ("check-attr", 1), ("diff-tree", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
 /// `brd review-plan` of a range of three commits that change the dependencies of an `*.iml`, a plugin descriptor and a
@@ -947,7 +959,8 @@ fn a_review_plan_of_build_files() {
 /// Two plans of `origin/master..HEAD` of `repo`, each on a new context (a new `FileDiffs` memory): each tells
 /// `expected` by `lines`; the first reads the diffs itself, the second finds them in the object cache. Each runs two
 /// `cat-file`: of the trees above the files at the head, and of the blobs of the diffs (the first) or of the texts the
-/// memory of the diffs lacks (the second)
+/// memory of the diffs lacks (the second), and one `diff-tree` of the range for its `reading` (a range is never in the
+/// object cache)
 #[track_caller]
 fn plans_of_files_of_no_language(repo: &TestRepo, lines: impl Fn(&ReviewPlanOutput) -> Vec<String>, expected: &[&str]) {
   let args = range_to_head();
@@ -956,8 +969,11 @@ fn plans_of_files_of_no_language(repo: &TestRepo, lines: impl Fn(&ReviewPlanOutp
     assert_eq!(lines(&output), expected);
     context
   });
-  assert_processes(&plans[0], &[("cat-file", 2), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
-  assert_processes(&plans[1], &[("cat-file", 2), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(
+    &plans[0],
+    &[("cat-file", 2), ("check-attr", 1), ("diff-tree", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)],
+  );
+  assert_processes(&plans[1], &[("cat-file", 2), ("check-attr", 1), ("diff-tree", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
 /// `brd review-plan` of a range of five commits that change a message bundle, change another and then delete it, add a

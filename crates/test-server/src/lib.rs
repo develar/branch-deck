@@ -471,6 +471,8 @@ pub enum RepositoryTemplate {
   StackedBranches,
   #[serde(rename = "stacked_chain")]
   StackedChain,
+  #[serde(rename = "stacked_reading")]
+  StackedReading,
   #[serde(rename = "stack_island")]
   StackIsland,
   #[serde(rename = "readme_showcase")]
@@ -566,6 +568,7 @@ impl RepositoryTemplate {
       Self::CSharpColors => "csharp_colors",
       Self::StackedBranches => "stacked_branches",
       Self::StackedChain => "stacked_chain",
+      Self::StackedReading => "stacked_reading",
       Self::StackIsland => "stack_island",
       Self::ReadmeShowcase => "readme_showcase",
       Self::BranchTableLarge => "branch_table_large",

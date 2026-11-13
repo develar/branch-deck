@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 34` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 35` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -64,13 +64,16 @@
 //! the same code, folded only where their place has no meaning; before, and wherever it has one, such a declaration
 //! is a change of behaviour;
 //! version 34 the `change` of a concern, what it does to the declaration of its name (`adds`, `removes`, `form` with
-//! its `changes`, `body`), `replaces` of a replacement, `mixed` else
+//! its `changes`, `body`), `replaces` of a replacement, `mixed` else;
+//! version 35 the `reading` of the pair, what it leaves to read by the role of each file, the files no proof can be
+//! made of and the kinds of proof that passed a change
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::output::ShortIds;
 use domain_types::error::ErrorCode;
+use domain_types::range_reading::RangeReading;
 use file_diffs::accio::{AccioCli, SymbolIndex};
 use generated_files::generated_by::GeneratedBy;
 use git_ops::landed_pairing::PathLines;
@@ -93,7 +96,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 34;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 35;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -256,6 +259,13 @@ pub struct ReviewPlanOutput {
   /// that declares what another uses before it, a test right after its subject; the tree order inside a cycle and
   /// between files with no edge
   pub order: Vec<String>,
+  /// What the pair leaves to read, proven from the full marks of its diffs under the default whitespace policy, as
+  /// the review window counts each file (a review with its plan passes the blocks of the imports alone): by the role of
+  /// each file (`roles`: code, tests, prose, build, resources, each with its files, the files with a change to read,
+  /// the blocks of changed lines and those to read), the files no proof can be made of with why (`unproven`: binary,
+  /// too large, a submodule, unreadable, no grammar, a rename the index did not prove), and the kinds of proof that
+  /// passed a change (`proofs`: formatting, comments, renames, imports, moves, renamed files, line ends)
+  pub reading: RangeReading,
   /// Why a removed or changed declaration has no `usages`, a step no tests, the plan no `registrations` or their classes
   /// no place: accio is not installed, has no index of this repository, or failed; `null` when every query answered or
   /// none was asked
@@ -579,6 +589,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     steps,
     brief: plan.brief,
     order: plan.order,
+    reading: plan.reading,
     index_note: plan.index_note,
   })
 }

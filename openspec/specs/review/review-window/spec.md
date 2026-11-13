@@ -107,6 +107,17 @@ the first frame of the others keeps its size.
 - **WHEN** the window shows a branch or a list of commits
 - **THEN** the page does not load the chunk of the review of a pull request, and its first frame keeps its size
 
+### Requirement: One window: The header of a pull request says what it leaves to read
+
+The header of the review of a pull request, and of each layer of a stack, MUST say what the pull request leaves to
+read as Rust proved it from the marks of its diffs ([Range Reading](../range-reading/spec.md)), with the author's word
+the diff proves wrong; a repository that turns the review plan off shows none.
+
+#### Scenario: A pull request of formatting alone
+- **WHEN** the window reviews a pull request that changes the spaces between tokens alone
+- **THEN** its header says "Nothing to read · formatting"
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should say a pull request of formatting alone leaves nothing to read, its label of a refactoring then holding`)
+
 ### Requirement: One window: A list of commits shows its commits above the files
 
 A list of commits SHALL show its commits above the files (⌥↑/⌥↓) and the plan of each commit; it MUST have no action

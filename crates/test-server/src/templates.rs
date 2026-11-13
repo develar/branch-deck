@@ -53,6 +53,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("csharp_colors", |path| templates::csharp_colors().build(path)),
   ("stacked_branches", |path| templates::stacked_branches().build(path)),
   ("stacked_chain", |path| templates::stacked_chain().build(path)),
+  ("stacked_reading", |path| templates::stacked_reading().build(path)),
   ("stack_island", |path| templates::stack_island().build(path)),
   ("readme_showcase", |path| templates::readme_showcase().build(path)),
   ("branch_table_large", |path| templates::branch_table_large().build(path)),

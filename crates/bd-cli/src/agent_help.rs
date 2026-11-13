@@ -363,7 +363,8 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    `dependencies` the entries the commits add to, remove from or change in the build files, `registrations` what their
    plugin descriptors register (services, extensions, registry keys, listeners, actions, content modules), from accio;
    `order` lists the files to read, each declaration before its uses, and `units` the changes to read once in that
-   order (a form, a body, a new or removed declaration, one unit per mechanical kind and repeated edit).
+   order (a form, a body, a new or removed declaration, one unit per mechanical kind and repeated edit); `reading` what
+   the pair leaves to read, by the role of each file, proven from the marks of the diffs.
 5. Return your worktree once your commits landed: `brd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by

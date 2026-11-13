@@ -32,6 +32,8 @@
 //!   (`RunningOperation`) with the resources they hold and the admission of a new one (`Admission`)
 //! - `patronus`: the Patronus robots of the virtual branches, the parameters of their start, the review readiness
 //! - `pull_request`: the pull requests of the branches, their checks and reviews
+//! - `range_reading`: what a range leaves to read, proven from the marks of its diffs, its verdict and the author's
+//!   word checked against it
 //! - `remote_status`: what a push of a branch does over its remote status, by the counts of the status alone
 //!   (`RemoteStatusUpdate::push_action`, `needs_push`, `pushes_again`), which the sync sets and the push orders read
 //! - `repository_view`: what Rust derives of the branch table for the page and `bd`
@@ -82,6 +84,7 @@ pub mod next_step;
 pub mod operation;
 pub mod patronus;
 pub mod pull_request;
+pub mod range_reading;
 pub mod reason;
 pub mod remote_status;
 pub mod repository_view;

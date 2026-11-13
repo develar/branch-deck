@@ -127,6 +127,14 @@
     }
   },
   {
+    "name": "get_range_readings",
+    "class": "read",
+    "transport": {
+      "channel": "events",
+      "open": false
+    }
+  },
+  {
     "name": "mark_branch_reviewed",
     "class": "app",
     "transport": "json"

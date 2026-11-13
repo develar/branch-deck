@@ -116,6 +116,15 @@ export const commands = {
 	 */
 	getReviewPlan: (params: ReviewPlanParams, events: Channel<ReviewPlanEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_review_plan", { params, events })),
 	/**
+	 *  What the ranges a review window shows leave to read (openspec/specs/review/range-reading/spec.md): the pull request
+	 *  of its header, every layer of a stack, proven from the full marks of their diffs, each with its verdict and the
+	 *  author's word checked against it, and their sum, on `events`: `disabled` for a repository that turns the review
+	 *  plan off, else the readings as they stand, again as each range is read and the index answers its renames. One
+	 *  read for every range, a phase one process; a final reading is kept by its two commits. A newer read of the
+	 *  window, its close or reload supersedes it
+	 */
+	getRangeReadings: (params: GetRangeReadingsParams, events: Channel<RangeReadingsEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_range_readings", { params, events })),
+	/**
 	 *  Keeps the base and the tip a branch has now as its reviewed pair, which a later plan compares the branch with, and
 	 *  deletes the pairs of the branches that are gone, in one transaction with CAS (`mark_reviewed_core`, as `bd
 	 *  mark-reviewed`)
@@ -954,6 +963,12 @@ export type AuthStatus = {
 	youtrack: YouTrackAuthStatus,
 };
 
+/**  The author's word of a pull request, from a closed list (`domain_policy::author_claim::claim_of`) */
+export type AuthorClaim = {
+	kind: ClaimKind,
+	source: ClaimSource,
+};
+
 /**  What squashing the fixups of a range does, with the HEAD it was computed for */
 export type AutosquashPlan = {
 	head: string,
@@ -1450,6 +1465,26 @@ export type ChildrenPush = {
 	/**  It pushes more than the branch itself: a branch stacked on it, or the stack branch along */
 	offers?: boolean,
 };
+
+/**
+ *  The diff proves the author's word wrong: it leaves `to_read` changes in `files` files outside the role the word
+ *  names (`domain_policy::author_claim::check`)
+ */
+export type ClaimConflict = {
+	claim: AuthorClaim,
+	toRead: number,
+	files: number,
+};
+
+/**  What the author says a pull request is, by a label or the conventional type of its title */
+export type ClaimKind = "refactor" | "tests" | "docs";
+
+/**  Where the author said it */
+export type ClaimSource = 
+/**  A label of the pull request, by its name as GitHub has it */
+{ kind: "label"; name: string } | 
+/**  The conventional type its title starts with (`refactor(diff): …`) */
+{ kind: "title"; prefix: string };
 
 /**  Where accio found a class a registration names, in the index at the side of the registration */
 export type ClassFound = 
@@ -3475,6 +3510,18 @@ export type FileOwner = {
 	sourceFile: string,
 };
 
+/**
+ *  What a changed file is to its module, by its path (`review_plan::reading::reading_role`): the order is the order of
+ *  `RangeReading::roles`
+ */
+export type FileRole = "code" | "tests" | 
+/**  Markdown, `reStructuredText`, `AsciiDoc`, text: the docs */
+"prose" | 
+/**  A build file: a module file, a file of the build model, a manifest of dependencies */
+"build" | 
+/**  Any other file of no language */
+"resources";
+
 /**  How a file changed, from the status letter of `--raw` */
 export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | 
 /**  A file became a symlink or a submodule, or the other way round */
@@ -3726,6 +3773,13 @@ export type GetRangeParams = {
 	repositoryPath: string,
 	base: string,
 	head: string,
+};
+
+/**  The parameters of `get_range_readings` */
+export type GetRangeReadingsParams = {
+	repositoryPath: string,
+	/**  The ranges, the bottom of a stack first */
+	ranges: ReadingRange[],
 };
 
 /**  The parameters of `get_rename_proofs`: a subject whose diffs `get_file_diffs` gave under `policy` */
@@ -6587,6 +6641,62 @@ export type PushUpTo = {
 	blocker?: Reason | null,
 };
 
+/**
+ *  A kind of proof that passed a change of the range: what made the rest quiet. The order is the order of
+ *  `RangeReading::proofs`
+ */
+export type QuietProof = 
+/**  A quiet run of the kind `Formatting`: line breaks, indents, spaces between tokens */
+"formatting" | 
+/**  A quiet run of the kind `Comments` */
+"comments" | 
+/**  A quiet run of the kind `Renamed`, or a run the index confirmed */
+"renames" | 
+/**  A block of the imports alone, which a review with its plan passes */
+"imports" | 
+/**  Lines that moved inside their file without a change (`LineMove`): their old lines are passed */
+"moves" | 
+/**  A file that moved to another path with no changed line */
+"renamedFiles" | 
+/**  A file whose line ends alone changed */
+"lineEnds";
+
+/**
+ *  What a range leaves to read, proven from the full marks of the diffs of each of its files (the same `DiffReading` a
+ *  file of the review window counts), never guessed: `roles` sums the files by their role, `unproven` names the files
+ *  no proof can be made of, `proofs` the kinds of proof that passed a change. Computed under the default whitespace
+ *  policy, as the plan reads its pair
+ */
+export type RangeReading = {
+	/**  Of each role with a changed file, in the order of `FileRole` */
+	roles: RoleReading[],
+	/**  In the order of git */
+	unproven: UnprovenFile[],
+	/**  Each kind once, in the order of `QuietProof` */
+	proofs: QuietProof[],
+};
+
+/**  What the window shows of the reading of a range: the facts, the verdict and the author's word checked against them */
+export type RangeReadingView = {
+	reading: RangeReading,
+	summary: ReadingSummary,
+	/**
+	 *  The diff proves the author's word wrong; `None` when it holds, when the author said nothing of the closed list,
+	 *  and while a rename waits for the index
+	 */
+	conflict: ClaimConflict | null,
+};
+
+/**  What `get_range_readings` tells its page */
+export type RangeReadingsEvent = 
+/**  The repository turns the review plan off: no reading */
+{ kind: "disabled" } | 
+/**
+ *  The readings as they stand, by the place of each range, `None` for one not read yet; their sum, of the layers of a
+ *  stack
+ */
+{ kind: "readings"; readings: (RangeReadingView | null)[]; stack: StackReading };
+
 /**  What changed since the review, as the diff of `base..head` */
 export type RangeScope = {
 	base: string,
@@ -6597,6 +6707,36 @@ export type RangeScope = {
 	 */
 	carried: boolean,
 };
+
+/**  A range to read, with the words of the author of its pull request */
+export type ReadingRange = {
+	/**  Full commit ids, as a review fetch answers them */
+	base: string,
+	head: string,
+	/**  The title of its pull request; absent for a range of no pull request, whose author's word is none */
+	title?: string | null,
+	labels?: string[],
+};
+
+/**  The verdict of a reading with what qualifies it */
+export type ReadingSummary = {
+	verdict: ReadingVerdict,
+	/**  The files that cannot be proven but those that wait for the index */
+	unproven: number,
+	/**  A rename waits for the index: the verdict may pass more once it answers */
+	pending: boolean,
+};
+
+/**  What a range leaves to read, as `domain_policy::range_reading::reading_summary` decides it */
+export type ReadingVerdict = 
+/**  No change to read and no file that cannot be proven; `proofs` say why the changes need none */
+{ kind: "nothingToRead"; proofs: QuietProof[] } | 
+/**  What is left to read, and every file that cannot be proven, is of tests */
+{ kind: "testsOnly"; toRead: number; files: number } | 
+/**  What is left to read, and every file that cannot be proven, is prose */
+{ kind: "docsOnly"; toRead: number; files: number } | 
+/**  `to_read` changes in `files` files are left, of several roles or of code */
+{ kind: "toRead"; toRead: number; files: number };
 
 export type ReapplyBranchResult = {
 	/**  `{prefix}/unapplied/<name>`, deleted now (with a dry run: would be) */
@@ -7555,6 +7695,12 @@ export type ReviewPlan = {
 	 *  subject, the tree order inside a cycle and between files with no edge
 	 */
 	order: string[],
+	/**
+	 *  What the pair leaves to read (`reading`), from the full marks of the diffs the window shows of it: of `base..head`,
+	 *  of a commit against its parent, of the scope of Since Your Review; its renames wait for the index in the plan sent
+	 *  before the index answered (`Unproven::RenamesPending`)
+	 */
+	reading: RangeReading,
 	/**  Why a removed or changed declaration has no usages: no accio, no index of the repository, a failed query */
 	indexNote: string | null,
 };
@@ -8410,6 +8556,22 @@ export type RobotsView = {
 	problemsFailed: { [key in string]: string },
 };
 
+/**  What is left to read of the changed files of one role */
+export type RoleReading = {
+	role: FileRole,
+	/**  Its changed files */
+	files: number,
+	/**  Its files with a change to read */
+	filesToRead: number,
+	/**  Its blocks of changed lines (`DiffReading::changes`) */
+	changes: number,
+	/**
+	 *  Those with a start, past the blocks of the imports alone (`DiffReading::stops(true)`): what the badge of each
+	 *  file of a review with its plan counts, so the sum here is the sum of those badges
+	 */
+	toRead: number,
+};
+
 /**  The facts of GitHub a gate reads */
 export type RouteFact = 
 /**  What the token may do in the repository (the listing of the pull requests) */
@@ -9019,6 +9181,23 @@ export type StackProblemView = {
 export type StackPullRequest = {
 	number: number,
 	root: string,
+};
+
+/**  The readings of the layers of a stack, summed (`domain_policy::range_reading::stack_summary`) */
+export type StackReading = {
+	/**  The layers with nothing to read */
+	nothingToRead: number,
+	/**  The layers with something to read */
+	toReadLayers: number,
+	/**  The changes those leave to read */
+	toRead: number,
+	/**  The layers whose reading is not known yet */
+	unknown: number,
+	/**
+	 *  The first layer, the bottom first, with something to read: the one the window opens on; `None` while a layer
+	 *  below it is not known, and when every layer has nothing to read
+	 */
+	firstToRead: number | null,
 };
 
 /**  A use of a name that a commit of an ancestor adds, by a commit of the branch */
@@ -10156,6 +10335,36 @@ export type UnknownReadinessReason =
 export type UnlinkPullRequestParams = {
 	repositoryPath: string,
 	number: number,
+};
+
+/**  Why a file cannot be proven to need no reading: its count, if any, is all of its changes */
+export type Unproven = 
+/**  Binary on a side */
+"binary" | 
+/**  A side over the size the diffs read */
+"tooLarge" | 
+/**  A submodule: commits, no text */
+"submodule" | 
+/**  Git cannot read a side (a partial or shallow clone) */
+"missing" | 
+/**
+ *  A text of code or resources with a change to read and no grammar: no run of formatting, comments or renames can
+ *  be proven in it
+ */
+"noGrammar" | 
+/**
+ *  A rename that is not local waits for the index of the repository (`RenameProof::Asked`): its places count until
+ *  the answer, which may pass them
+ */
+"renamesPending" | 
+/**  The index could not prove a rename that is not local (`RenameProof::Unavailable`, `Incomplete`): its places count */
+"renamesUnanswered";
+
+/**  A changed file that cannot be proven, with why */
+export type UnprovenFile = {
+	path: string,
+	role: FileRole,
+	why: Unproven,
 };
 
 /**  A declaration of a step no test reaches */

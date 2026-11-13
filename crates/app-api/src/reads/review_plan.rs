@@ -29,12 +29,14 @@
 use crate::api_error::api_error;
 use crate::context::{AppContext, PrefixInputs};
 use crate::operation::{operation, run_blocking};
+use crate::reads::range_readings::ReadingKey;
 use crate::reads::review_prefetch::Prefetch;
 use crate::reads::symbols::SymbolIndexes;
 use crate::repository_state::RepositoryStateCache;
 use crate::session::windows::{PlanSlot, Windows};
 use crate::transport::{Call, Sink, WindowId};
 use domain_types::error::ApiError;
+use domain_types::range_reading::RangeReading;
 use file_diffs::accio::SearchCanceled;
 use file_diffs::service::FileDiffs;
 use moka::sync::Cache;
@@ -92,6 +94,8 @@ pub struct ReviewPlans {
   /// The stage of each reading in flight, there from its start until it ends, however it ends (`Staging`)
   stages: Arc<Mutex<HashMap<PlanKey, Arc<Stage>>>>,
   pub(crate) prefetch: Arc<Prefetch>,
+  /// What the ranges of the windows leave to read (`range_readings`), the final ones, by their repository and commits
+  pub(crate) readings: Cache<ReadingKey, Arc<RangeReading>>,
 }
 
 /// What a reading in flight shows the callers that joined it, beside its flight: the plan as it stands, and whether it
@@ -139,6 +143,8 @@ impl Drop for Staging<'_> {
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// A plan not read for this long is dropped: an index built since may know more usages
 const IDLE: Duration = Duration::from_secs(600);
+/// The readings of ranges memory keeps at most: some kilobytes each, the layers of the stacks a window showed
+const MAX_READINGS: u64 = 4096;
 /// How often a caller that waits for the reading of another asks whether its own caller went away
 const CANCEL_POLL: Duration = Duration::from_millis(20);
 
@@ -150,6 +156,7 @@ impl Default for ReviewPlans {
       flights: Arc::default(),
       stages: Arc::default(),
       prefetch: Arc::default(),
+      readings: Cache::builder().max_capacity(MAX_READINGS).time_to_idle(IDLE).build(),
     }
   }
 }
@@ -278,6 +285,21 @@ impl PlanReader {
       indexes,
       plans,
     }
+  }
+
+  /// git, as the plans run it
+  pub(crate) fn git(&self) -> &git_executor::git_command_executor::GitCommandExecutor {
+    &self.inputs.git
+  }
+
+  /// The memory of the diffs the plans read
+  pub(crate) const fn file_diffs(&self) -> &FileDiffs {
+    &self.file_diffs
+  }
+
+  /// The object cache of the repository of `repository_path`
+  pub(crate) fn object_cache(&self, repository_path: &str) -> object_cache::cache::ObjectCache {
+    self.repository_state.object_cache(&self.inputs.git, repository_path)
   }
 
   /// Whether the repository of `repository_path` reads review plans (`branchdeck.reviewExperimental`). Blocking

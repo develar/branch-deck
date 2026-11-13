@@ -1,4 +1,4 @@
-use crate::commit_files::{CommitFiles, DiffSubject, parse_commit_files, read_commit_files, read_commit_files_cached, read_diff_files, read_files_from_base};
+use crate::commit_files::{CommitFiles, DiffSubject, parse_commit_files, read_commit_files, read_commit_files_cached, read_diff_files, read_files_from_base, read_ranges_files};
 use object_cache::commit_files::{CommitFile, FileStatus};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -239,6 +239,27 @@ fn the_files_of_a_commit_subject_are_those_of_the_commit() {
   // a range of one commit is the commit
   let one = read_diff_files(repo.git_executor(), repo_path(&repo), &range(&root, &second)).unwrap();
   assert_eq!(one.files, read.files);
+}
+
+/// openspec/specs/review/range-reading/spec.md, "The layers of a stack are read in one process a phase"
+#[test]
+fn the_files_of_several_ranges_come_from_one_diff_tree() {
+  let (repo, root, head) = repo_with_a_range();
+  let second = repo.rev_parse("HEAD~1").unwrap();
+  let git = test_utils::process_budget::counting();
+  let files = read_ranges_files(
+    &git,
+    repo_path(&repo),
+    &[(root.as_str(), second.as_str()), (second.as_str(), head.as_str()), (head.as_str(), head.as_str())],
+  )
+  .unwrap();
+  test_utils::process_budget::assert_processes(&git, &[("diff-tree", 1)]);
+  // each range as `read_diff_files` lists it alone, keyed by its head; one without changes has no entry
+  assert_eq!(files.keys().collect::<std::collections::BTreeSet<_>>(), [&second, &head].into_iter().collect());
+  for (base, tip) in [(&root, &second), (&second, &head)] {
+    assert_eq!(files[tip], read_diff_files(repo.git_executor(), repo_path(&repo), &range(base, tip)).unwrap().files);
+  }
+  read_ranges_files(&git, repo_path(&repo), &[("HEAD", head.as_str())]).unwrap_err();
 }
 
 #[test]

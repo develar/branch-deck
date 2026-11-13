@@ -25,7 +25,7 @@ import { useSubjectPlan } from "@/hooks/useReviewPlan"
 import { useReviewPosition } from "@/hooks/useReviewPosition"
 import { SelectReviewFileContext, linkNavigator } from "@/hooks/useSelectReviewFile"
 import type { ReviewLink } from "@/hooks/useSelectReviewFile"
-import type { ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest } from "@/lib/bindings"
+import type { RangeReadingView, ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest, StackReading } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -40,12 +40,16 @@ import { planFacts } from "@/lib/review-plan-answer"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions } from "@/lib/review-request-actions"
 import { formatStackMeta, formatStackTitle } from "@/lib/review-requests"
+import { useRowPart } from "@/model/store"
+import { describeUnproven, formatReading, formatStackReading } from "@/presenters/range-reading"
 import { presentMap } from "@/presenters/review-map"
 import { withCommitTitles } from "@/presenters/review-steps"
 import { presentApprovalScope } from "@/presenters/reviews"
+import { useBranchSync } from "@/stores/branch-sync"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import type { ReviewFetch } from "@/stores/review-fetch"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
+import { getReviewBusy } from "@/stores/review-requests"
 
 /** What the review of a pull request shows and does, from the session of the review window (`PullRequestReviewWindow`) */
 export interface PullRequestReviewHost {
@@ -90,6 +94,8 @@ export interface PullRequestReviewHost {
   readonly fetch: ReviewFetch | undefined
   /** Fetches it again (Retry of a failed fetch) */
   readonly fetchAgain: () => void
+  /** What the pull request (of a stack the layer shown) leaves to read, once read; null until then and with the plan off */
+  readonly reading: RangeReadingView | null
   /** The item of the commit column the changes show: all changes, a scope, a commit; the window keeps it */
   readonly selected: string
   readonly onSelect: (key: string) => void
@@ -103,6 +109,12 @@ export interface ReviewStackView {
   readonly layers: readonly ReviewStackLayerView[]
   /** The layer of the item shown (its scope, a commit of it), whose decisions the title bar holds; null for All Changes */
   readonly layer: number | null
+  /** What each layer leaves to read, by its place; null until the stack is fetched and read, and with the plan off */
+  readonly readings: readonly (RangeReadingView | null)[] | null
+  /** Their sum; null with them */
+  readonly summary: StackReading | null
+  /** Approves the head of a layer with nothing to read from the list of the layers */
+  readonly approveLayer: (request: ReviewRequest, commitId: string) => Promise<boolean>
 }
 
 export interface ReviewStackLayerView {
@@ -408,6 +420,15 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     if (reviewing) {
       return
     }
+    // ↑/↓ of a stack walk the layers to read: one with nothing to read is passed
+    if (stack !== undefined && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      event.preventDefault()
+      const target = event.key === "ArrowDown" ? nextOf(host) : previousOf(host)
+      if (target !== null) {
+        showRequest(target)
+      }
+      return
+    }
     // a request that left the list (the user reviewed it) keeps its place: ↓ shows the one now there, ↑ the one before
     if (index === -1 && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
       event.preventDefault()
@@ -435,9 +456,9 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     <div className="flex min-w-0 flex-col">
       <div className={cn("flex min-w-0 flex-col px-6", reviewing ? "gap-2 pt-3 pb-2" : "gap-4 pt-4 pb-3")}>
         {stack !== undefined && stack.layer === null ? (
-          <StackHeader layers={stack.layers} compact={reviewing} />
+          <StackHeader layers={stack.layers} summary={stack.summary} compact={reviewing} />
         ) : (
-          <ReviewHeader request={request} involvement={host.involvement} submitted={host.submitted} compact={reviewing} onOpenOnGitHub={host.openOnGitHub}>
+          <ReviewHeader request={request} involvement={host.involvement} submitted={host.submitted} compact={reviewing} reading={host.reading} onOpenOnGitHub={host.openOnGitHub}>
             {range !== null && firstHead?.number === request.number && firstHead.head !== range.head && (
               <p className="text-xs text-warning" data-testid="review-new-commits">
                 {`#${request.number} got new commits while it was open: the review shows ${formatShortHash(range.head)} now`}
@@ -468,7 +489,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   const empty = request.body.trim() === ""
   const description =
     stack !== undefined && stack.layer === null ? (
-      <StackLayers layers={stack.layers} onShowLayer={number => setSelected(layerScopeKey(number))} />
+      <StackLayers layers={stack.layers} readings={stack.readings} onShowLayer={number => setSelected(layerScopeKey(number))} onApprove={stack.approveLayer} />
     ) : empty ? (
       <NoDescription />
     ) : (
@@ -663,15 +684,26 @@ function withOpenedFile(opened: ReadonlyMap<number, OpenedFiles>, number: number
   return new Map(opened).set(number, { head, paths })
 }
 
-/** The request ↑ shows; null at the top */
+/** Whether ↑/↓ pass the layer at `index` of a stack: Rust proved it leaves nothing to read */
+function passes(host: PullRequestReviewHost, index: number): boolean {
+  return host.stack?.readings?.[index]?.summary.verdict.kind === "nothingToRead"
+}
+
+/** The request ↑ shows; null at the top. Of a stack the layer to read before the one shown */
 function previousOf(host: PullRequestReviewHost): number | null {
-  const previous = (host.index === -1 ? host.openedIndex : host.index) - 1
+  let previous = (host.index === -1 ? host.openedIndex : host.index) - 1
+  while (previous >= 0 && passes(host, previous)) {
+    previous--
+  }
   return previous >= 0 && previous < host.requests.length ? previous : null
 }
 
-/** The request ↓ shows; null at the bottom */
+/** The request ↓ shows; null at the bottom. Of a stack the layer to read after the one shown */
 function nextOf(host: PullRequestReviewHost): number | null {
-  const next = host.index === -1 ? host.openedIndex : host.index + 1
+  let next = host.index === -1 ? host.openedIndex : host.index + 1
+  while (next < host.requests.length && passes(host, next)) {
+    next++
+  }
   return next < host.requests.length ? next : null
 }
 
@@ -690,8 +722,11 @@ function getReviewedCommit(request: ReviewRequest, fetch: ReviewFetch | undefine
   return { id: null, reason: `Wait until #${request.number} is fetched: a review is on the commit you saw` }
 }
 
-/** The header of All Changes of a stack: "Stack of 3 pull requests", "#201–#203 · niyaz", the base of its bottom */
-function StackHeader({ layers, compact }: { layers: readonly ReviewStackLayerView[]; compact: boolean }) {
+/**
+ * The header of All Changes of a stack: "Stack of 3 pull requests", "#201–#203 · niyaz", the base of its bottom, and what
+ * its layers leave to read ("10 with nothing to read · 2 to read · 7 changes")
+ */
+function StackHeader({ layers, summary, compact }: { layers: readonly ReviewStackLayerView[]; summary: StackReading | null; compact: boolean }) {
   const requests = layers.map(layer => layer.request)
   const bottom = requests[0]
   return (
@@ -702,36 +737,106 @@ function StackHeader({ layers, compact }: { layers: readonly ReviewStackLayerVie
           {`${formatStackMeta(requests)} · into ${bottom.baseRefName}`}
         </p>
       )}
+      {summary !== null && (
+        <p className="text-xs text-muted-foreground" data-testid="review-stack-reading">
+          {formatStackReading(summary)}
+        </p>
+      )}
     </div>
   )
 }
 
 /**
  * The overview of All Changes of a stack: its layers, the bottom first, each a link to its own changes and decisions
- * ("#202 Drop workTreeRoot · 1 commit")
+ * ("#202 Drop workTreeRoot · 1 commit") with what it leaves to read; a layer with nothing to read is folded, muted, with
+ * the proofs that pass it and its Approve
  */
-function StackLayers({ layers, onShowLayer }: { layers: readonly ReviewStackLayerView[]; onShowLayer: (number: number) => void }) {
+function StackLayers({
+  layers,
+  readings,
+  onShowLayer,
+  onApprove,
+}: {
+  layers: readonly ReviewStackLayerView[]
+  readings: readonly (RangeReadingView | null)[] | null
+  onShowLayer: (number: number) => void
+  onApprove: (request: ReviewRequest, commitId: string) => Promise<boolean>
+}) {
   return (
     <ol className="flex min-w-0 flex-col gap-1" aria-label="Pull requests of the stack" data-testid="review-stack-layers">
-      {layers.map(layer => (
-        <li key={layer.request.number} className="flex min-w-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto min-w-0 justify-start gap-2 py-1.5 text-left font-normal"
-            data-testid="review-stack-layer"
-            onClick={() => onShowLayer(layer.request.number)}
-          >
-            <span className="shrink-0 text-muted-foreground tabular-nums">{`#${layer.request.number}`}</span>
-            <span className="min-w-0 truncate">{layer.request.title}</span>
-            {layer.range !== null && <span className="shrink-0 text-xs text-muted-foreground">{formatCommitCount(layer.range.commits.length)}</span>}
-            {layer.restacked && <span className="shrink-0 text-xs text-warning">not rebased</span>}
-          </Button>
-        </li>
-      ))}
+      {layers.map((layer, index) => {
+        const reading = readings?.[index] ?? null
+        const folded = reading?.summary.verdict.kind === "nothingToRead"
+        return (
+          <li key={layer.request.number} className="flex min-w-0 items-center gap-2" data-testid="review-stack-layer-row" data-folded={folded || undefined}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn("h-auto min-w-0 flex-1 justify-start gap-2 py-1.5 text-left font-normal", folded && "text-muted-foreground")}
+              data-testid="review-stack-layer"
+              onClick={() => onShowLayer(layer.request.number)}
+            >
+              <span className="shrink-0 text-muted-foreground tabular-nums">{`#${layer.request.number}`}</span>
+              <span className="min-w-0 truncate">{layer.request.title}</span>
+              {layer.range !== null && <span className="shrink-0 text-xs text-muted-foreground">{formatCommitCount(layer.range.commits.length)}</span>}
+              {layer.restacked && <span className="shrink-0 text-xs text-warning">not rebased</span>}
+              {reading !== null && (
+                <span className="shrink-0 text-xs text-muted-foreground" title={describeUnproven(reading) ?? undefined} data-testid="review-stack-layer-reading">
+                  {formatReading(reading.summary)}
+                </span>
+              )}
+            </Button>
+            {folded && layer.range !== null && <LayerApprove layer={layer} range={layer.range} onApprove={onApprove} />}
+          </li>
+        )
+      })}
     </ol>
   )
 }
+
+/** Approve of a folded layer of a stack, on its fetched head, as Rust allows it of its pull request */
+function LayerApprove({ layer, range, onApprove }: { layer: ReviewStackLayerView; range: ReviewRange; onApprove: (request: ReviewRequest, commitId: string) => Promise<boolean> }) {
+  const { request } = layer
+  const actions = useRowPart(`pull:${request.number}`, "actions")
+  const words = useOperationWords(actions)
+  const busy = useBranchSync(state => getReviewBusy(state.operations)[request.number])
+  const reviewedCommit = getReviewedCommit(request, undefined, range)
+  const approve = getReviewRequestActions(
+    request,
+    {
+      reviewedCommit,
+      actions,
+      words,
+      busy,
+      onReview: NOTHING,
+      onApprove: () => {
+        if (reviewedCommit.id !== null) {
+          void onApprove(request, reviewedCommit.id)
+        }
+      },
+      onSafePush: NOTHING,
+      onRequestChanges: NOTHING,
+      onOpenPullRequest: NOTHING,
+    },
+    "window",
+  ).approve
+  return (
+    <Button
+      variant="outline"
+      size="xs"
+      className="shrink-0"
+      disabled={approve.disabled === true}
+      title={approve.description}
+      aria-label={`${approve.label} #${request.number}`}
+      data-testid="review-stack-layer-approve"
+      onClick={() => approve.onSelect(FROM_MENU)}
+    >
+      {approve.label}
+    </Button>
+  )
+}
+
+const NOTHING = () => {}
 
 /**
  * The user's last review is on a commit of the pull request (so an ancestor of the head), before the head: a request

@@ -103,6 +103,7 @@ export function reviewPlan(more: Partial<ReviewPlan> = {}): ReviewPlan {
     steps: { source: { kind: "commits" }, told: true, steps: [], coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
     brief: { issue: null, substitutions: [], contract: [] },
     order: [],
+    reading: { roles: [], unproven: [], proofs: [] },
     indexNote: null,
     ...more,
   }

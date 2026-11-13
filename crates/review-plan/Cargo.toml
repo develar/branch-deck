@@ -25,6 +25,8 @@ spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c149
 object-cache = { path = "../object-cache" }
 # the blocks of the diffs, and accio for the fan-in, the tests and the descriptors (`SymbolIndex`, `Lenient`)
 file-diffs = { path = "../file-diffs" }
+# the marks of the diffs what a range leaves to read is proven from (`reading`)
+text-diff = { path = "../text-diff" }
 # the answers of the index a diff decides by (`diff_marks::index`)
 diff-marks = { path = "../diff-marks" }
 # the generated files: by their name, the attributes of the head, the header a tool wrote (`files::generated_of`)

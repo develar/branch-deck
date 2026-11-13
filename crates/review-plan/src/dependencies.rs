@@ -146,6 +146,11 @@ enum Format {
   Npm,
 }
 
+/// A manifest whose dependency entries the plan reads: a module file, a plugin descriptor, `Cargo.toml`, `package.json`
+pub(crate) fn is_manifest(path: &str) -> bool {
+  format_of(path).is_some()
+}
+
 /// The format of the manifest at `path`, by its name; a plugin descriptor is known by its root only
 fn format_of(path: &str) -> Option<Format> {
   let name = path.rsplit('/').next().unwrap_or(path);

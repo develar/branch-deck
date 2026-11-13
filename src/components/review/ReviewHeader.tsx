@@ -14,12 +14,13 @@ import { CopyButton } from "@/components/shared/CopyButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { WindowTitle } from "@/components/shared/WindowTitleBar"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
-import type { ReviewInvolvement, ReviewRequest } from "@/lib/bindings"
+import type { RangeReadingView, ReviewInvolvement, ReviewRequest } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import type { ReviewSource } from "@/lib/pull-request-review"
 import type { ReviewRequestActions } from "@/lib/review-request-actions"
+import { describeClaimConflict, describeUnproven, formatClaimConflict, formatReading } from "@/presenters/range-reading"
 import { formatAskedBy, formatReviewAge } from "@/presenters/reviews"
 import type { SubmittedReview } from "@/stores/review-requests"
 
@@ -117,8 +118,10 @@ export interface ReviewHeaderProps {
   /** How the user takes part in a pull request of Reviews; null for a request by name */
   involvement: ReviewInvolvement | null
   submitted: SubmittedReview | undefined
-  /** The review of the changes shows: the title alone, the rest gives the diffs room */
+  /** The review of the changes shows: the title and what is left to read alone, the rest gives the diffs room */
   compact: boolean
+  /** What the pull request leaves to read, with its author's word the diff proves wrong; null until it is read */
+  reading?: RangeReadingView | null
   onOpenOnGitHub: () => void
   /** "#101 got new commits while it was open…", the notices under the chips */
   children?: ReactNode
@@ -126,14 +129,20 @@ export interface ReviewHeaderProps {
 
 /**
  * Who asks and for how long ("bob asks for your review · waiting 2 days"), the title, and the chips: the number, `base ←
- * head`, the size, the checks, the decision of GitHub, the review of the user
+ * head`, the size, the checks, the decision of GitHub, the review of the user, the labels with the author's word the
+ * diff proves wrong; then what the pull request leaves to read ("Nothing to read · formatting, renamed names")
  */
-export function ReviewHeader({ request, involvement, submitted, compact, onOpenOnGitHub, children }: ReviewHeaderProps) {
+export function ReviewHeader({ request, involvement, submitted, compact, reading = null, onOpenOnGitHub, children }: ReviewHeaderProps) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {!compact && (involvement === null ? <AskedBy request={request} /> : <TakesPart request={request} involvement={involvement} />)}
       <h2 className="min-w-0 text-base leading-6 font-medium text-pretty text-foreground select-text">{request.title}</h2>
-      {!compact && <RequestChips request={request} submitted={submitted} onOpenOnGitHub={onOpenOnGitHub} />}
+      {!compact && <RequestChips request={request} submitted={submitted} reading={reading} onOpenOnGitHub={onOpenOnGitHub} />}
+      {reading !== null && (
+        <p className="min-w-0 truncate text-xs text-muted-foreground" title={describeUnproven(reading) ?? undefined} data-testid="review-reading">
+          {formatReading(reading.summary)}
+        </p>
+      )}
       {children}
     </div>
   )
@@ -186,9 +195,23 @@ function Avatar({ login }: { login: string | null }) {
   )
 }
 
-/** "#101 · master ← alice/feature · 2 files +12 −3 · ● checks failing · approved by you" as chips */
-function RequestChips({ request, submitted, onOpenOnGitHub }: { request: ReviewRequest; submitted: SubmittedReview | undefined; onOpenOnGitHub: () => void }) {
+/**
+ * "#101 · master ← alice/feature · 2 files +12 −3 · ● checks failing · approved by you · refactoring" as chips; the
+ * author's word the diff proves wrong ("Labelled refactoring · 3 changes to read") after the labels
+ */
+function RequestChips({
+  request,
+  submitted,
+  reading,
+  onOpenOnGitHub,
+}: {
+  request: ReviewRequest
+  submitted: SubmittedReview | undefined
+  reading: RangeReadingView | null
+  onOpenOnGitHub: () => void
+}) {
   const checks = request.checksState
+  const conflict = reading?.conflict ?? null
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="review-dialog-meta">
       <Badge
@@ -225,6 +248,17 @@ function RequestChips({ request, submitted, onOpenOnGitHub }: { request: ReviewR
         <Badge variant={submitted.event === "approve" ? "success" : "warning"} data-testid="review-dialog-submitted">
           {submitted.event === "approve" ? "approved by you" : "changes requested by you"}
         </Badge>
+      )}
+      {(request.labels ?? []).map(label => (
+        <Badge key={label} variant="outline" className="text-muted-foreground" data-testid="review-dialog-label">
+          {label}
+        </Badge>
+      ))}
+      {conflict !== null && (
+        <Tooltip>
+          <TooltipTrigger render={<Badge variant="warning" tabIndex={0} data-testid="review-author-claim" />}>{formatClaimConflict(conflict)}</TooltipTrigger>
+          <TooltipContent className="max-w-80">{describeClaimConflict(conflict)}</TooltipContent>
+        </Tooltip>
       )}
     </div>
   )

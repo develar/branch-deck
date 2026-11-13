@@ -28,6 +28,8 @@
 //! - `story`: the body of each commit once, its code names resolved to the units and the files of the range, and the
 //!   new API and the new links between modules of each step
 //! - `texts`: the texts of the UI, the keys the commits add to, remove from or change in the message bundles
+//! - `reading`: what the pair leaves to read, from the full marks of its diffs (openspec/specs/review/range-reading/spec.md),
+//!   and of each layer of a stack
 //!
 //! The types of the plan: `ReviewPlanParams` names what is reviewed (`ReviewSubject`), `ReviewPlan` is the answer of
 //! `review_plan_core`, the one entry of `brd review-plan` and the app.
@@ -49,6 +51,7 @@ mod moved;
 pub mod order;
 pub mod pair;
 pub mod prose;
+pub mod reading;
 pub mod registrations;
 pub mod shown;
 pub mod steps;
@@ -71,6 +74,7 @@ use crate::mark_reviewed::{BranchOnBase, branch_on_base, resolve_branch};
 use crate::modules::{ModuleShape, Modules, ModulesInput, module_shapes};
 use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
+use crate::reading::PlanReading;
 use crate::registrations::{Registration, RegistrationsInput, changed_descriptors, registrations_of};
 use crate::steps::{ReviewSteps, StepsInput, review_steps};
 use crate::texts::{UiText, bundle_blobs, ui_texts};
@@ -78,7 +82,9 @@ use crate::units::{ReviewUnit, review_units};
 use crate::whitespace::TextTokens;
 use anyhow::Result;
 use domain_types::branch_names::{BranchKind, kept_branch_name, strip_branch_namespace};
+use domain_types::range_reading::RangeReading;
 use file_diffs::accio::SymbolIndex;
+use file_diffs::model::DiffSource;
 use file_diffs::service::FileDiffs;
 use generated_files::attributes::attribute_generated_paths;
 use generated_files::generated_by::GeneratedBy;
@@ -206,16 +212,21 @@ pub struct ReviewPlan {
   /// again), in dependency order (`order`): a file that declares what another uses before it, a test right after its
   /// subject, the tree order inside a cycle and between files with no edge
   pub order: Vec<String>,
+  /// What the pair leaves to read (`reading`), from the full marks of the diffs the window shows of it: of `base..head`,
+  /// of a commit against its parent, of the scope of Since Your Review; its renames wait for the index in the plan sent
+  /// before the index answered (`Unproven::RenamesPending`)
+  pub reading: RangeReading,
   /// Why a removed or changed declaration has no usages: no accio, no index of the repository, a failed query
   pub index_note: Option<String>,
 }
 
 impl ReviewPlan {
   /// Whether the plan a reading answered (`review_plan_of`) is what it would be whenever it is asked: every query of the
-  /// index answered (`index_note` null) and none cut short (`ModuleEntries::cut`). Only such a plan is kept in the
-  /// memory of the app; never asked of a plan sent while a query runs (`PlanWait`), which is no answer of a reading
+  /// index answered (`index_note` null), none cut short (`ModuleEntries::cut`) and no rename of its reading waits for
+  /// it (`RangeReading::pending`: its query was canceled). Only such a plan is kept in the memory of the app; never
+  /// asked of a plan sent while a query runs (`PlanWait`), which is no answer of a reading
   pub fn is_final(&self) -> bool {
-    self.index_note.is_none() && self.modules.iter().all(|module| module.entries.as_ref().is_none_or(|entries| !entries.cut))
+    self.index_note.is_none() && self.modules.iter().all(|module| module.entries.as_ref().is_none_or(|entries| !entries.cut)) && !self.reading.pending()
   }
 }
 
@@ -488,6 +499,9 @@ pub fn review_plan_of(
     .chain(bundle_blobs(&changed))
     .filter(|id| seen.insert(id.clone()))
     .collect();
+  // what the pair leaves to read, of the diffs the window shows of it, its renames asked of the index last: read first,
+  // the blobs its diffs read are in the memory of the diffs for the texts of the plan
+  let mut pair_reading = PlanReading::collect(git, sources, repository_path, reading_source(params, &base, &head, interdiff.as_ref()))?;
   let (mut texts, unread) = sources.file_diffs.texts_in_memory(&wanted);
   let input = if diffs.is_empty() {
     None
@@ -584,6 +598,7 @@ pub fn review_plan_of(
     steps,
     brief,
     order,
+    reading: pair_reading.reading(),
     index_note: None,
   };
   let asks = api.iter().any(|change| change.kind != ApiChangeKind::Added)
@@ -646,8 +661,29 @@ pub fn review_plan_of(
     // after `order_by_entries`: it moves the stops of a step, never a step, so `proves` are of the final order either way
     let tests_note = plan.steps.apply_tests(answer);
     plan.index_note = usages_note.or(tests_note).or(registrations_note);
+    // the renames last, when the window that shows the pair asked them already: memory keeps its final answer
+    pair_reading.answer(git, sources)?;
+    plan.reading = pair_reading.reading();
     Ok(plan)
   })
+}
+
+/// The diffs a plan reads what is left to read of: those the window shows of its subject. A commit against its first
+/// parent; Since Your Review its scope (the reviewed tip, carried, to the tip), else `base..head`
+fn reading_source(params: &ReviewPlanParams, base: &str, head: &str, interdiff: Option<&Interdiff>) -> DiffSource {
+  if matches!(params.subject, ReviewSubject::Commit { .. }) {
+    return DiffSource::Commit { id: head.to_string() };
+  }
+  match interdiff.and_then(|found| found.scope.as_ref()).filter(|_| params.since_reviewed) {
+    Some(scope) => DiffSource::Range {
+      base: scope.base.clone(),
+      head: scope.head.clone(),
+    },
+    None => DiffSource::Range {
+      base: base.to_string(),
+      head: head.to_string(),
+    },
+  }
 }
 
 /// `FileFacts::module` and `FileFacts::folder` of each file
@@ -722,6 +758,8 @@ mod order_test;
 mod plan_sources_test;
 #[cfg(test)]
 mod prose_test;
+#[cfg(test)]
+mod reading_test;
 #[cfg(test)]
 mod registrations_test;
 #[cfg(test)]

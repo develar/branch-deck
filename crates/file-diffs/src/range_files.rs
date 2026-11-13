@@ -1,13 +1,15 @@
 //! The file lists of ranges (`base..head`, the review of a pull request or of a branch), shared by every window and by
 //! the diffs of the range (`FileDiffs::stream`): one `diff-tree` of the two commits (`read_diff_files`) for each, kept
-//! in memory, which concurrent readers of one range run once. A range is never written to the object cache: a
-//! `commit_files` entry is keyed by one commit.
+//! in memory, which concurrent readers of one range run once; the ranges of the layers of a stack that memory misses
+//! list in one `diff-tree --stdin` (`read_many`). A range is never written to the object cache: a `commit_files` entry
+//! is keyed by one commit.
 
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_files::{CommitFiles, DiffSubject, read_diff_files};
+use git_ops::commit_files::{CommitFiles, DiffSubject, read_diff_files, read_ranges_files};
 use moka::policy::EvictionPolicy;
 use moka::sync::Cache;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// The bytes of the file lists the memory cache holds: a range of a thousand files is about a hundred KB
@@ -45,6 +47,42 @@ impl RangeFilesCache {
       .files
       .try_get_with((repository_path.to_string(), subject.id()), || read_diff_files(git, repository_path, subject).map(Arc::new))
       .map_err(|e| anyhow!("{e:#}"))
+  }
+
+  /// Lists in memory each of `ranges` (`(base, head)`, full commit ids) that memory misses, in one `diff-tree --stdin`
+  /// of them all (`read_ranges_files`), keyed by its head: a range whose head another range of the call has lists
+  /// alone (`read`). Call from a blocking context
+  pub fn read_many(&self, git: &GitCommandExecutor, repository_path: &str, ranges: &[(&str, &str)]) -> Result<()> {
+    let key = |(base, head): (&str, &str)| {
+      (
+        repository_path.to_string(),
+        DiffSubject::Range {
+          base: base.to_string(),
+          head: head.to_string(),
+        }
+        .id(),
+      )
+    };
+    let mut heads = HashSet::new();
+    let missed = ranges.iter().copied().filter(|range| !self.files.contains_key(&key(*range)));
+    let (batched, alone): (Vec<_>, Vec<_>) = missed.partition(|(_, head)| heads.insert(*head));
+    let mut listed = read_ranges_files(git, repository_path, &batched)?;
+    for range in batched {
+      let (_, id) = key(range);
+      let files = listed.remove(range.1).unwrap_or_default();
+      self.files.insert((repository_path.to_string(), id.clone()), Arc::new(CommitFiles::new(id, files)));
+    }
+    for (base, head) in alone {
+      self.read(
+        git,
+        repository_path,
+        &DiffSubject::Range {
+          base: base.to_string(),
+          head: head.to_string(),
+        },
+      )?;
+    }
+    Ok(())
   }
 
   /// The bytes the lists hold now

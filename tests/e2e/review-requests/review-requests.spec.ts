@@ -1648,6 +1648,22 @@ const LAYER_AUTH = reviewRequest("auth", 301, 6, { title: "Add the auth module",
 const LAYER_LOGIN = reviewRequest("login", 302, 5, { title: "Add the login form", author: "niyaz", baseRefName: LAYER_AUTH.headRefName, baseIsDefault: false })
 const LAYER_OAUTH = reviewRequest("oauth", 303, 4, { title: "Add the OAuth provider", author: "niyaz", baseRefName: LAYER_LOGIN.headRefName, baseIsDefault: false })
 
+/** Review Stack by the button of the header of the stack of Your Turn: its window, once its fetch answered */
+async function openStackReview(page: Page): Promise<{ reviewPage: Page; review: Locator }> {
+  const stack = getYourTurnCard(page).getByTestId("review-stack-row")
+  await stack.hover()
+  await stack.getByTestId("review-stack-review").click()
+  const opened = await openedReview<PullRequestStackReviewWindowData>(page, 1)
+  let fetched!: Promise<unknown>
+  const reviewPage = await openLinkedSubWindow(page, opened, {
+    beforeLoad: async window => {
+      fetched = reviewFetched(window)
+    },
+  })
+  await fetched
+  return { reviewPage, review: reviewPage.getByTestId("review-window") }
+}
+
 test.describe("Review Stack", () => {
   test("should open one window of a stack by the button, the menu and D of its header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_chain", { reviewRequests: availableReviewRequests([LAYER_AUTH, LAYER_LOGIN, LAYER_OAUTH]) })
@@ -1684,18 +1700,7 @@ test.describe("Review Stack", () => {
   test("should review all changes of a stack and each layer, and approve the layer shown on its head", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("stacked_chain", { reviewRequests: availableReviewRequests([LAYER_AUTH, LAYER_LOGIN, LAYER_OAUTH]) })
     await syncAndWaitForBranches()
-    const stack = getYourTurnCard(page).getByTestId("review-stack-row")
-    await stack.hover()
-    await stack.getByTestId("review-stack-review").click()
-    const opened = await openedReview<PullRequestStackReviewWindowData>(page, 1)
-    let fetched!: Promise<unknown>
-    const reviewPage = await openLinkedSubWindow(page, opened, {
-      beforeLoad: async window => {
-        fetched = reviewFetched(window)
-      },
-    })
-    const review = reviewPage.getByTestId("review-window")
-    await fetched
+    const { reviewPage, review } = await openStackReview(page)
 
     // All Changes: the stack, its layers to choose; no decision is of the whole stack
     await expect(review.getByTestId("review-navigation")).toContainText("Stack")
@@ -1739,5 +1744,87 @@ test.describe("Review Stack", () => {
     await reviewPage.keyboard.press("ArrowDown")
     await expect(review.getByRole("heading", { name: "Add the OAuth provider" })).toBeVisible()
     await expect(review.getByTestId("review-dialog-position")).toHaveText("3 of 3")
+  })
+})
+
+// the `stacked_reading` template: tidy on check on format, login on tidy, a commit each over auth.js: format and tidy
+// change the spaces between tokens alone, check and login the body of `auth`
+const READ_FORMAT = reviewRequest("format", 401, 8, { title: "Format auth", author: "niyaz" })
+const READ_CHECK = reviewRequest("check", 402, 7, { title: "Check the user", author: "niyaz", baseRefName: READ_FORMAT.headRefName, baseIsDefault: false })
+const READ_TIDY = reviewRequest("tidy", 403, 6, { title: "Tidy auth", author: "niyaz", baseRefName: READ_CHECK.headRefName, baseIsDefault: false })
+const READ_LOGIN = reviewRequest("login", 404, 5, { title: "Log the user in", author: "niyaz", baseRefName: READ_TIDY.headRefName, baseIsDefault: false })
+
+test.describe("What a range leaves to read", () => {
+  test("should say a pull request of formatting alone leaves nothing to read, its label of a refactoring then holding", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stacked_reading", { reviewRequests: availableReviewRequests([{ ...READ_FORMAT, labels: ["refactoring"] }]) })
+    turnOnReviewPlan(repo)
+    await syncAndWaitForBranches()
+    const { review, fetched } = await openRequestReview(page, 401)
+    await fetched
+    await expect(review.getByTestId("review-reading")).toHaveText("Nothing to read · formatting")
+    await expect(review.getByTestId("review-dialog-label")).toHaveText(["refactoring"])
+    await expect(review.getByTestId("review-author-claim")).toHaveCount(0)
+  })
+
+  test("should flag a pull request labelled a refactoring whose diff changes the body of a function", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stacked_reading", { reviewRequests: availableReviewRequests([{ ...READ_CHECK, labels: ["refactoring"] }]) })
+    turnOnReviewPlan(repo)
+    await syncAndWaitForBranches()
+    const { window, review, fetched } = await openRequestReview(page, 402)
+    await fetched
+    await expect(review.getByTestId("review-dialog-label")).toHaveText(["refactoring"])
+    const claim = review.getByTestId("review-author-claim")
+    await expect(claim).toHaveText("Labelled refactoring · 1 change to read")
+    await claim.focus()
+    await expect(window.getByRole("tooltip")).toHaveText(
+      "The author calls it refactoring, but 1 change of code in 1 file is left to read: no formatting, rename, import or move proves it",
+    )
+    // the changes keep what is left to read in their header
+    await window.keyboard.press("d")
+    await expect(review.getByTestId("review-reading")).toHaveText("1 change to read in 1 file")
+  })
+
+  test("should open a stack on its first layer to read, fold the layers with nothing to read and pass them by ↑/↓", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stacked_reading", { reviewRequests: availableReviewRequests([READ_FORMAT, READ_CHECK, READ_TIDY, READ_LOGIN]) })
+    turnOnReviewPlan(repo)
+    await syncAndWaitForBranches()
+    const { reviewPage, review } = await openStackReview(page)
+
+    // the bottom has nothing to read: the window opens on #402, the first layer to read
+    await expect(review.getByRole("heading", { name: "Check the user" })).toBeVisible()
+    await expect(review.getByTestId("review-dialog-position")).toHaveText("2 of 4")
+    await expect(review.getByTestId("review-reading")).toHaveText("1 change to read in 1 file")
+
+    // ↓ passes #403, which has nothing to read; ↑ comes back to #402 and passes #401 no further
+    await review.getByTestId("review-dialog-body").focus()
+    await reviewPage.keyboard.press("ArrowDown")
+    await expect(review.getByRole("heading", { name: "Log the user in" })).toBeVisible()
+    await expect(review.getByTestId("review-dialog-position")).toHaveText("4 of 4")
+    await review.getByTestId("review-previous").click()
+    await expect(review.getByRole("heading", { name: "Check the user" })).toBeVisible()
+    await expect(review.getByTestId("review-previous")).toBeDisabled()
+
+    // All Changes: the sum, the layers with nothing to read folded with their proofs and their Approve
+    await review.getByTestId("review-dialog-body").focus()
+    await reviewPage.keyboard.press("d")
+    const column = review.getByTestId("range-review-commits").getByTestId("range-review-commit")
+    await column.first().click()
+    await reviewPage.keyboard.press("Escape")
+    await expect(review.getByTestId("review-stack-reading")).toHaveText("2 with nothing to read · 2 to read · 2 changes")
+    const rows = review.getByTestId("review-stack-layer-row")
+    await expect(rows.getByTestId("review-stack-layer-reading")).toHaveText([
+      "Nothing to read · formatting",
+      "1 change to read in 1 file",
+      "Nothing to read · formatting",
+      "1 change to read in 1 file",
+    ])
+    await expect(review.locator("[data-testid=review-stack-layer-row][data-folded]")).toHaveCount(2)
+    await expect(rows.getByTestId("review-stack-layer-approve")).toHaveCount(2)
+
+    // Approve of a folded layer: its own head
+    await rows.nth(2).getByTestId("review-stack-layer-approve").click()
+    await expect(reviewPage.locator("[data-slot=toast-title]", { hasText: "Approved #403" })).toBeVisible()
+    expect(await gitHubRequests(repo, "POST", "pulls", 403, "reviews")).toEqual([{ event: "APPROVE", commit_id: await repo.revision("user-name/virtual/tidy") }])
+    expect(await gitHubRequests(repo, "POST", "pulls", 401, "reviews")).toEqual([])
   })
 })

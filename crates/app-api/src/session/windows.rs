@@ -9,7 +9,8 @@
 //! one never cancels the search of another. The read of a review plan (`get_review_plan`) is a request of its own kind,
 //! superseded by a newer plan of its window and by its close: a symbol search and a plan never cancel each other.
 //! The question of a window to the index about the names a subject renamed (`get_rename_proofs`) is one more kind:
-//! the window asks it of the subject it shows, so a newer one supersedes it, as does its close.
+//! the window asks it of the subject it shows, so a newer one supersedes it, as does its close; so is the read of what
+//! the ranges it shows leave to read (`get_range_readings`).
 
 use crate::transport::{Call, PageId, WindowId};
 use domain_types::operation::OperationId;
@@ -30,6 +31,8 @@ pub struct Windows {
   commit_plans: WindowRequests,
   /// The questions to the index about the names a subject renamed
   rename_proofs: WindowRequests,
+  /// The reads of what the ranges a window shows leave to read
+  range_readings: WindowRequests,
 }
 
 /// What a plan of a window is of: a scope (a branch, a range) or a commit, each one plan at a time
@@ -126,13 +129,19 @@ impl Windows {
     self.rename_proofs.begin(window)
   }
 
-  /// `window` closed: its symbol search, its read of a review plan and its question about the renames of a subject
-  /// are superseded and forgotten
+  /// Starts a read of what the ranges `window` shows leave to read, which supersedes the one before
+  pub fn begin_range_readings(&self, window: &WindowId) -> WindowRequest {
+    self.range_readings.begin(window)
+  }
+
+  /// `window` closed: its symbol search, its read of a review plan, its question about the renames of a subject and its
+  /// read of what its ranges leave to read are superseded and forgotten
   pub fn forget_reads(&self, window: &WindowId) {
     self.searches.forget(window);
     self.plans.forget(window);
     self.commit_plans.forget(window);
     self.rename_proofs.forget(window);
+    self.range_readings.forget(window);
   }
 
   /// Every window with a page or a fetch

@@ -1122,6 +1122,39 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704126600))
   }
 
+  /// What a stack leaves to read (openspec/specs/review/range-reading/spec.md): a chain of four branches over `auth.js`,
+  /// `tidy` on `check` on `format` and `login` on `tidy`, one commit each: `format` and `tidy` change the spaces between
+  /// tokens alone (nothing to read, formatting), `check` and `login` the body of a function (a change to read each)
+  pub fn stacked_reading() -> RepoTemplate {
+    RepoTemplate::new("stacked_reading")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[("README.md", "# Auth\n"), ("auth.js", "export function auth(user) {\n  return user.name+\"!\"\n}\n")],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(format) Format auth",
+        &[("auth.js", "export function auth(user) {\n  return user.name + \"!\"\n}\n")],
+        Some(1704119400),
+      )
+      .commit_with_timestamp(
+        "(format/check) Check the user",
+        &[("auth.js", "export function auth(user) {\n  return user.name + \"?\"\n}\n")],
+        Some(1704121200),
+      )
+      .commit_with_timestamp(
+        "(check/tidy) Tidy auth",
+        &[("auth.js", "export function auth( user ) {\n  return user.name + \"?\"\n}\n")],
+        Some(1704123000),
+      )
+      .commit_with_timestamp(
+        "(tidy/login) Log the user in",
+        &[("auth.js", "export function auth( user ) {\n  return user.login + \"?\"\n}\n")],
+        Some(1704124800),
+      )
+  }
+
   /// The start of the templates of the `auth` stack: the setup and `auth`
   fn stacked_auth(name: &str) -> RepoTemplate {
     RepoTemplate::new(name)

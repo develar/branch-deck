@@ -140,9 +140,33 @@ pub fn read_files_from_base(git: &GitCommandExecutor, repository_path: &str, bas
   if let Some(id) = std::iter::once(&base).chain(tips).find(|id| !is_object_id(id)) {
     bail!("Not a commit id: {id}");
   }
-  let mut args = vec!["diff-tree", "--stdin", "--raw", "--numstat", "-z"];
+  let pairs: Vec<(&str, &str)> = tips.iter().map(|tip| (base, *tip)).collect();
+  diff_tree_pairs(git, repository_path, &[], &[], &pairs)
+}
+
+/// The files of each of `ranges` (`(base, head)`, full commit ids, as `git diff <base> <head>`), as `read_diff_files`
+/// lists a range alone (its config and its rename limit), by head, in one `diff-tree --stdin --raw --numstat -z`
+/// process: a `<head> <base>` line compares the two. The layers of a stack, each its own range, list in it at once. Not
+/// cached: a pair is no commit. A range without changes has no entry
+#[instrument(skip(git, ranges), fields(ranges = ranges.len()))]
+pub fn read_ranges_files(git: &GitCommandExecutor, repository_path: &str, ranges: &[(&str, &str)]) -> Result<HashMap<String, Vec<CommitFile>>> {
+  if ranges.is_empty() {
+    return Ok(HashMap::new());
+  }
+  if let Some(id) = ranges.iter().flat_map(|(base, head)| [base, head]).find(|id| !is_object_id(id)) {
+    bail!("Not a commit id: {id}");
+  }
+  diff_tree_pairs(git, repository_path, &RANGE_CONFIG, &RANGE_DIFF_OPTIONS, ranges)
+}
+
+/// One `diff-tree --stdin --raw --numstat -z` of `pairs` (`(base, tip)`), a `<tip> <base>` line each, with `config`
+/// before the subcommand and `options` after the diff options, by tip
+fn diff_tree_pairs(git: &GitCommandExecutor, repository_path: &str, config: &[&str], options: &[&str], pairs: &[(&str, &str)]) -> Result<HashMap<String, Vec<CommitFile>>> {
+  let mut args: Vec<&str> = config.to_vec();
+  args.extend(["diff-tree", "--stdin", "--raw", "--numstat", "-z"]);
   args.extend(DIFF_OPTIONS);
-  let input = tips.iter().fold(String::new(), |mut input, tip| {
+  args.extend(options);
+  let input = pairs.iter().fold(String::new(), |mut input, (base, tip)| {
     input.push_str(tip);
     input.push(' ');
     input.push_str(base);

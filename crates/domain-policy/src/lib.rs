@@ -10,6 +10,8 @@
 //!   surface of the app
 //! - `attention`: the robot that needs the user, the failed robot of a branch or a whole stack as it is that nothing else
 //!   holds (`branch_attention`, `stack_attention`), which the landing overview, Attention and the Dock badge count
+//! - `author_claim`: what the author says a pull request is, by a label or the conventional type of its title, from a
+//!   closed list (`claim_of`), and the one case its diff proves the word wrong (`check`)
 //! - `declared_needs`: the order of landing the user declared (`brd need`): the branch a need refuses to start, and
 //!   the branch built on it, which lands in the same robot and inherits it (`declared_refusals`)
 //! - `facts`: the input of the rules, the branch table as they read it (`Repository`), borrowed from the view of a
@@ -58,6 +60,8 @@
 //! - `pull_request`: where an open pull request goes (`base_of`: the target, a virtual branch it leaves for the target,
 //!   another base that may be meant), the pull request a robot starts from (`start_pull_request`), and what a push does
 //!   to its approvals by the rules of its base (`dismisses_approvals`)
+//! - `range_reading`: the verdict of what a range leaves to read (`reading_summary`), the view of one range with the
+//!   author's word checked against it (`reading_view`), the sum of the layers of a stack (`stack_summary`)
 //! - `reasons`: the reasons the rules give (`domain_types::reason::Reason`), with the facts their words need
 //! - `readiness`: whether a subject waits for approvals (`awaits_approval`), and which of the shown subjects the
 //!   session asks the readiness of (`wanted`: those whose next step waits for it)
@@ -84,6 +88,7 @@
 pub mod actions;
 pub mod admission;
 pub mod attention;
+pub mod author_claim;
 pub mod declared_needs;
 pub mod facts;
 pub mod github_stack;
@@ -101,6 +106,7 @@ mod own_facts;
 pub mod parked;
 pub mod pull_request;
 pub mod push;
+pub mod range_reading;
 pub mod readiness;
 pub mod reasons;
 pub mod refresh;
@@ -118,6 +124,8 @@ mod action_catalog_test;
 mod actions_test;
 #[cfg(test)]
 mod attention_test;
+#[cfg(test)]
+mod author_claim_test;
 #[cfg(test)]
 mod branch_name_cases_test;
 #[cfg(test)]
@@ -150,6 +158,8 @@ mod parked_test;
 mod pull_request_test;
 #[cfg(test)]
 mod push_test;
+#[cfg(test)]
+mod range_reading_test;
 #[cfg(test)]
 mod readiness_test;
 #[cfg(test)]

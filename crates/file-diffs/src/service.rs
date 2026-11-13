@@ -334,12 +334,22 @@ struct Pending<'a> {
 /// The stream of a subject collected (`FileDiffs::collect`): the header of each file and its content, with why a
 /// view starts it collapsed
 #[derive(Default)]
-pub(crate) struct Collected {
+pub struct Collected {
   headers: Vec<DiffFileHeader>,
   contents: Vec<Option<(DiffContent, Option<Collapse>)>>,
 }
 
 impl Collected {
+  /// Each file of the subject, in the order of git, with its content as it is known (every file has one once the stream
+  /// ended), its marks those of the subject and of the index where `answer_proofs` put them
+  pub fn files(&self) -> impl Iterator<Item = (&DiffFileHeader, Option<&DiffContent>)> {
+    self
+      .headers
+      .iter()
+      .zip(&self.contents)
+      .map(|(header, content)| (header, content.as_ref().map(|(content, _)| content)))
+  }
+
   /// The files of the subject, in the order of git
   pub(crate) fn into_files(self) -> Vec<DiffFile> {
     self
@@ -521,16 +531,34 @@ impl FileDiffs {
     Ok(read.into_files())
   }
 
+  /// Readies the diffs of `ranges` (`(base, head)`, full commit ids: the layers of a stack) under `policy`, so that a
+  /// `collect` of each runs no git: their file lists in one `diff-tree --stdin` (`RangeFilesCache::read_many`), then
+  /// the blobs of every pair no cache has, of all of them, in one `cat-file --batch`, which memory keeps
+  /// (`BLOB_CACHE_BYTES`; a blob it dropped meanwhile is read again by the `collect` that needs it)
+  pub fn ready_ranges(&self, git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, ranges: &[(&str, &str)], policy: WhitespacePolicy) -> Result<()> {
+    self.range_files.read_many(git, repository_path, ranges)?;
+    let mut wanted: Vec<String> = Vec::new();
+    for (base, head) in ranges {
+      let source = DiffSource::Range {
+        base: (*base).to_string(),
+        head: (*head).to_string(),
+      };
+      let entries = list_entries(git, repository_path, cache, &self.range_files, &source)?;
+      let order: Vec<usize> = (0..entries.len()).collect();
+      let keys: Vec<MemoryKey> = entries.iter().map(|entry| memory_key(entry, policy)).collect();
+      let Cached { pending, .. } = self.cached(cache, &entries, &keys, &order);
+      for index in pending {
+        let entry = &entries[index];
+        wanted.extend([&entry.old_id, &entry.new_id].into_iter().flatten().filter(|id| !self.blobs.contains_key(*id)).cloned());
+      }
+    }
+    self.read_blobs(git, repository_path, wanted.iter().map(String::as_str))?;
+    Ok(())
+  }
+
   /// The stream of the subject of `params` collected: the header of each file and its content with the scopes and
   /// the marks that followed it; `seen` is told of each event as it comes
-  pub(crate) fn collect(
-    &self,
-    git: &GitCommandExecutor,
-    cache: &ObjectCache,
-    asks_index: bool,
-    params: &GetFileDiffsParams,
-    seen: &mut dyn FnMut(&FileDiffEvent),
-  ) -> Result<Collected> {
+  pub fn collect(&self, git: &GitCommandExecutor, cache: &ObjectCache, asks_index: bool, params: &GetFileDiffsParams, seen: &mut dyn FnMut(&FileDiffEvent)) -> Result<Collected> {
     let mut read = Collected::default();
     self.stream(git, cache, asks_index, params, |event| {
       seen(&event);
@@ -565,14 +593,7 @@ impl FileDiffs {
 
   /// Asks `index` of the names the subject of `params` renamed (`rename_proofs`) and puts the marks it answers into
   /// the files of `read`; without an index nothing is asked: the proofs say so already
-  pub(crate) fn answer_proofs(
-    &self,
-    git: &GitCommandExecutor,
-    cache: &ObjectCache,
-    index: Option<&dyn SymbolIndex>,
-    params: &GetFileDiffsParams,
-    read: &mut Collected,
-  ) -> Result<()> {
+  pub fn answer_proofs(&self, git: &GitCommandExecutor, cache: &ObjectCache, index: Option<&dyn SymbolIndex>, params: &GetFileDiffsParams, read: &mut Collected) -> Result<()> {
     if index.is_none() {
       return Ok(());
     }

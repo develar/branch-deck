@@ -117,6 +117,14 @@ macro_rules! for_each_command {
       /// (`ReviewPlans`). A newer plan of the window or its close supersedes it: `canceled`
       read window get_review_plan(params: review_plan::ReviewPlanParams) [channel events: review_plan::ReviewPlanEvent] -> () = $crate::reads::review_plan::get_review_plan;
 
+      /// What the ranges a review window shows leave to read (openspec/specs/review/range-reading/spec.md): the pull request
+      /// of its header, every layer of a stack, proven from the full marks of their diffs, each with its verdict and the
+      /// author's word checked against it, and their sum, on `events`: `disabled` for a repository that turns the review
+      /// plan off, else the readings as they stand, again as each range is read and the index answers its renames. One
+      /// read for every range, a phase one process; a final reading is kept by its two commits. A newer read of the
+      /// window, its close or reload supersedes it
+      read window get_range_readings(params: $crate::reads::range_readings::GetRangeReadingsParams) [channel events: $crate::reads::range_readings::RangeReadingsEvent] -> () = $crate::reads::range_readings::get_range_readings;
+
       /// Keeps the base and the tip a branch has now as its reviewed pair, which a later plan compares the branch with, and
       /// deletes the pairs of the branches that are gone, in one transaction with CAS (`mark_reviewed_core`, as `bd
       /// mark-reviewed`)

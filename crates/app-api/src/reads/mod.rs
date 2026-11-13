@@ -7,6 +7,7 @@
 //! - `symbols`: the symbol searches of a window in a review.
 //! - `review_plan`: the plan of a review in its window (experimental); `review_prefetch`: the plans of the branches the
 //!   windows asked, read ahead after a sync moved them, below the app.
+//! - `range_readings`: what the ranges a review window shows leave to read, the layers of a stack in one read.
 //! - `conflict_fix`: the search of the fix of the conflicts.
 
 pub mod blobs;
@@ -14,6 +15,7 @@ pub mod commits;
 pub mod conflict_fix;
 pub mod diffs;
 pub mod grammar;
+pub mod range_readings;
 pub mod repository;
 pub mod review_plan;
 pub mod review_prefetch;

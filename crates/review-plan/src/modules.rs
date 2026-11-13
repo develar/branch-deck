@@ -26,12 +26,13 @@
 //!   of the review (`new_dependencies`, by their place in `ReviewPlan::dependencies`).
 //! - **The order**: a module the commits add first, then the most changed lines of code and tests, then tree order.
 
-use crate::dependencies::{AddedManifest, DependencyChange, DependencyChangeKind, DependencyKind};
+use crate::dependencies::{AddedManifest, DependencyChange, DependencyChangeKind, DependencyKind, is_manifest};
 use crate::entries::ModuleEntries;
-use crate::files::{ChangedFile, MechanicalKind, test_subject};
+use crate::files::{ChangedFile, MechanicalKind, is_build_model, test_subject};
 use crate::links::FileLink;
 use crate::pair::PairBlocks;
 use code_symbols::language::language_of;
+use domain_types::range_reading::FileRole;
 use file_diffs::service::compare_tree_paths;
 use serde::Serialize;
 use std::cmp::Reverse;
@@ -402,6 +403,19 @@ fn role_of(path: &str, mechanical: Option<MechanicalKind>, dependencies: &[Depen
     Role::Code
   } else {
     Role::Resources
+  }
+}
+
+/// The role of a changed file by its path alone, as what a range leaves to read sums it (`reading`): `role_of` with a
+/// file of the build model or a manifest of dependencies a build file, whatever its entries did
+pub(crate) fn reading_role(path: &str) -> FileRole {
+  let build = is_build_model(path) || is_manifest(path);
+  match role_of(path, build.then_some(MechanicalKind::BuildModel), &[]) {
+    Role::Code => FileRole::Code,
+    Role::Tests => FileRole::Tests,
+    Role::Resources => FileRole::Resources,
+    Role::Build => FileRole::Build,
+    Role::Prose => FileRole::Prose,
   }
 }
 

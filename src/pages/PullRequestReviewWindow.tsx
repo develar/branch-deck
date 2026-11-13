@@ -4,8 +4,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useStore } from "zustand"
 import { PullRequestReview } from "@/components/review/PullRequestReview"
 import type { PullRequestReviewHost, ReviewStackLayerView } from "@/components/review/PullRequestReview"
+import { useRangeReadings } from "@/hooks/useRangeReadings"
 import { useWindowTitle } from "@/hooks/useWindowTitle"
-import type { PullRequestReviewEvent, RequestRow, ReviewRequest, ReviewsView } from "@/lib/bindings"
+import type { PullRequestReviewEvent, ReadingRange, RequestRow, ReviewRange, ReviewRequest, ReviewsView } from "@/lib/bindings"
 import { logError, notifyError } from "@/lib/errors"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import type { ReviewFeedback } from "@/lib/pull-request-review"
@@ -88,6 +89,9 @@ export function PullRequestReviewWindow({ data, back, onPlace }: { data: ShownPu
   useEffect(() => {
     startReviewFetch(repositoryPath, request)
   }, [repositoryPath, request])
+  // what the fetched pull request leaves to read, with its author's word checked against it
+  const fetchedRange = fetch?.status === "fetched" ? fetch.range : null
+  const readings = useRangeReadings(repositoryPath, fetchedRange === null ? null : [readingRange(fetchedRange, request)])
 
   // the session keeps the review refs and the actions of the request the window shows, and asks Patronus of it
   useEffect(() => showReviewWindowPullRequest(number), [number])
@@ -109,6 +113,7 @@ export function PullRequestReviewWindow({ data, back, onPlace }: { data: ShownPu
     openedAt,
     fetch,
     fetchAgain: () => startReviewFetch(repositoryPath, request),
+    reading: readings?.readings[0] ?? null,
     selected,
     onSelect: setSelected,
     showRequest: next => {
@@ -139,6 +144,8 @@ export function PullRequestStackReviewWindow({ data, back }: { data: ShownStack;
   const rows = useStore(reviewRequestsStore, state => state.repositories[repositoryPath]?.rows ?? NO_ROWS)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [selected, setSelected] = useState(ALL_CHANGES)
+  // the user chose an item of the column, a layer or All Changes: the window no longer opens on the first layer to read
+  const [chosen, setChosen] = useState(false)
   // the layers of the last answer: the window shows them while the next fetch runs
   const [answered, setAnswered] = useState<readonly ReviewStackLayerView[] | null>(null)
 
@@ -169,6 +176,20 @@ export function PullRequestStackReviewWindow({ data, back }: { data: ShownStack;
   const index = layers.findIndex(it => it.request.number === layer)
   const request = layers[index]?.request ?? layers.at(-1)?.request ?? data.layers.at(-1)!
   const writes = useRequestWrites(repositoryPath, request)
+  // what each layer leaves to read, in one read of all of them once the stack is fetched
+  const readingRanges = fetchedLayers === null ? null : layers.flatMap(it => (it.range === null ? [] : [readingRange(it.range, it.request)]))
+  const readings = useRangeReadings(repositoryPath, readingRanges !== null && readingRanges.length === layers.length ? readingRanges : null)
+  // the window opens on the first layer with something to read, as Rust tells it, unless the user chose an item first
+  const firstToRead = readings?.stack.firstToRead ?? null
+  const opensOn = firstToRead === null ? undefined : layers[firstToRead]
+  if (!chosen && opensOn !== undefined && selected === ALL_CHANGES) {
+    setChosen(true)
+    setSelected(layerScopeKey(opensOn.request.number))
+  }
+  const choose = (key: string) => {
+    setChosen(true)
+    setSelected(key)
+  }
 
   useEffect(() => {
     startReviewStackFetch(repositoryPath, key, top, bottom)
@@ -195,13 +216,20 @@ export function PullRequestStackReviewWindow({ data, back }: { data: ShownStack;
     openedAt: data.openedAt,
     fetch,
     fetchAgain: () => startReviewStackFetch(repositoryPath, key, top, bottom),
+    reading: index === -1 ? null : (readings?.readings[index] ?? null),
     selected,
-    onSelect: setSelected,
-    stack: { layers, layer },
+    onSelect: choose,
+    stack: {
+      layers,
+      layer,
+      readings: readings?.readings ?? null,
+      summary: readings?.stack ?? null,
+      approveLayer: (target, commitId) => submitReview(repositoryPath, target, "approve", commitId, null, WINDOW_REVIEW_FEEDBACK),
+    },
     showRequest: next => {
       const target = layers[next]
       if (target !== undefined) {
-        setSelected(layerScopeKey(target.request.number))
+        choose(layerScopeKey(target.request.number))
       }
     },
   }
@@ -210,6 +238,11 @@ export function PullRequestStackReviewWindow({ data, back }: { data: ShownStack;
 }
 
 const NO_ROWS: readonly RequestRow[] = []
+
+/** A fetched range to read, with the title and the labels of its pull request: the author's word */
+function readingRange(range: ReviewRange, request: ReviewRequest): ReadingRange {
+  return { base: range.base, head: range.head, title: request.title, labels: request.labels ?? [] }
+}
 
 /** Your Turn marks a request read once the user saw it: the main window keeps that mark */
 function markRead(repositoryPath: string, target: ReviewRequest): void {

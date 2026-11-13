@@ -506,6 +506,26 @@ the review.
    caller went away, and the rule that the first joiner reads again makes the window the leader at the priority of
    the app.
 
+28. **What is left to read is proven, the author's word is the author's** (2026-11-13). A reviewer with twelve
+   overnight pull requests of one author wanted to drop the refactorings first. The kind of a pull request could be
+   guessed from its title, its labels or an LLM, and a guess is wrong where it matters: a "refactor" that changes one
+   body. What a diff leaves to read can be proven, and was already, file by file: the marks pass formatting, renamed
+   names, imports and moves, and each file counts its stops (`DiffReading`). So a range sums those counts by the role
+   of each file (`RangeReading`, the same count as the badges of its files, never a second model of the diff), names
+   what no proof can be made of (binary, no grammar, a rename the index did not prove), and says the kinds of proof
+   that passed the rest. The verdict is a fact: nothing to read, tests only, docs only, or what is left; never
+   "feature" or "fix". Labels and the conventional type of a title are words of people: shown as such, read from a
+   closed list (refactor, tests, docs), and checked in the one case a diff proves: a refactoring that leaves code to
+   read. A fix or a feature is never checked; "; unchanged" at the end of a title says nothing. No setting, no LLM,
+   nothing written to GitHub.
+   The reading is under the default whitespace policy, as the plan reads its pair: a window on another policy may count
+   its badges otherwise. The layers of a stack are one read, one process a phase (a `diff-tree --stdin` of their
+   lists, one `cat-file`), then the index layer by layer; a plan per layer would read each layer's symbols and ask the
+   index four queries each. The plan asks the index of its renames last, after its own queries: the window asked them
+   already as its diffs ended, and the memory of the answers (`ANSWERS_CACHE_BYTES`) answers the plan without a query.
+   A stack opens on its first layer to read; a layer with nothing to read folds in the overview of All Changes with its
+   proofs and its Approve, and ↑/↓ pass it.
+
 ## Review Rounds
 
 A round of polish: a real review, what looked wrong, the class of the defect, the change that fixed the class.
