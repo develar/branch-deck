@@ -169,14 +169,21 @@ export function quietSides(scope: Locator | Page, side?: number, run?: "formatti
 }
 
 /**
- * Scrolls the diffs of `scope` down until `target` is painted: the painter draws only the rows around the view, so a
- * row far below it is not in the page until a scroll brings it near
+ * Scrolls the diffs of `scope` down until `target` is in view: the painter draws only the rows in view and one viewport
+ * around them, so a row far below it is not in the page until a scroll brings it near. While the target is not painted,
+ * the last row painted comes into view; once it is, the target itself, never a row past it: a scroll past a target
+ * painted meanwhile (a paint late under load) would leave it, and the rows a test reads next to it, at the edge of the
+ * rows painted, or out of them
  */
 export async function scrollDiffsTo(scope: Locator, target: Locator): Promise<void> {
   await expect(async () => {
-    // the last row painted is the lowest one: the rows below it follow as it comes into view
-    await diffRows(scope).last().scrollIntoViewIfNeeded()
-    await expect(target).toBeVisible({ timeout: 500 })
+    if ((await target.count()) === 0) {
+      // the last row painted is the lowest one: the rows below it follow as it comes into view
+      await diffRows(scope).last().scrollIntoViewIfNeeded()
+    } else {
+      await target.scrollIntoViewIfNeeded({ timeout: 500 })
+    }
+    await expect(target).toBeInViewport({ timeout: 500 })
   }).toPass()
 }
 

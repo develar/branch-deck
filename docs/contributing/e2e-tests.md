@@ -109,7 +109,9 @@ rules in one line each and links here.
   what a view keeps across a new layout, let the scroll event reach the views (`resizeReportsDelivered(page)`: two
   frames). The painter draws
   only the rows around the view: `scrollDiffsTo(scope, target)` scrolls a view in the scroller of its parent (the
-  preview of a commit) until a row far below is painted. A part is an
+  preview of a commit) until a row far below is in view, and never past it once it is painted: a scroll past a row
+  that a late paint brought leaves it and its neighbours at the edge of the rows painted, so a read of the row above
+  it finds none (`kindsAboveSites` of `renamed-names.spec.ts`, under load). A part is an
   element per token of the syntax: read a text over several by `joinedText`. Code that runs in the page takes the
   same selectors (`diffRowSelector`, `diffSideSelector`). The files of a review move down once its overview (the
   heading of a commit shown alone) came and was measured, after the files show: a test that reads the place of a row
