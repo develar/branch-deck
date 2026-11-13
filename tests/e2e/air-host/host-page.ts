@@ -5,6 +5,12 @@
  * `AppBridge` of MCP Apps with the extension `x-air-app`, and the app link is the WebSocket of the test server, where
  * `brd mcp` of the fixture repository answers (`mcp-host`). What a test checks is in `window.__airHost`.
  *
+ * It keeps the rules of the page connection of Air (docs/design/ide-embedding/protocol/, `air-apps-host`): each frame is
+ * one connection, which holds one view; each mirror is one channel `x-air-ide:/appView/<n>` that every view of it
+ * subscribes to, its state kept by the table rule, one `serverSeq` of the host for each change; a view waits for at most
+ * 24 calls and the views of the app for 36. What the rules refuse is `-32011` with its reason, which a test reads
+ * (`refusals`), so a page that breaks them fails its test.
+ *
  * Bundled by `fake-host.ts` and written into a page of the test server's origin, so the WebSocket is a loopback one.
  */
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge"
@@ -20,6 +26,8 @@ export interface AirHostConfig {
   /** The Git roots of the project (`roots/list`), the repository first; the repository alone when none */
   readonly roots?: readonly string[]
   readonly theme: HostContextTheme
+  /** The subscriptions of the views (`x-air-app/subscribe`) wait before `brd mcp` until the test releases them */
+  readonly holdSubscriptions?: boolean
 }
 
 export interface HostContextTheme {
@@ -32,6 +40,21 @@ export interface HostContextTheme {
 export interface HostCall {
   readonly method: string
   readonly params: Record<string, unknown>
+}
+
+/** A call of a frame that a rule of the page connection refused: `-32011` with its reason (`viewOpen`, `tooManyCalls`) */
+export interface Refusal {
+  readonly instance: string
+  readonly method: string
+  readonly reason: string
+}
+
+/** What the views did with the mirrors, in order: a subscribe answered, an unsubscribe, an end of the app */
+export interface MirrorEntry {
+  readonly instance: string
+  readonly kind: "subscribed" | "unsubscribed" | "ended"
+  readonly mirror: string
+  readonly channel: string
 }
 
 export interface HostView {
@@ -50,6 +73,8 @@ const HOST_TOOLS = new Set(["air_copy"])
 const config = (window as unknown as { __airHostConfig: AirHostConfig }).__airHostConfig
 const calls: HostCall[] = []
 const logs: unknown[] = []
+const refusals: Refusal[] = []
+const mirrorLog: MirrorEntry[] = []
 
 // === The app link: JSON-RPC 2.0 over the WebSocket of the test server ===
 
@@ -123,9 +148,96 @@ const app = new AppLink(new WebSocket(config.appUrl))
 
 /** An error of the app link answered to the frame as it came: its code, its words and its reason */
 class LinkError extends Error {
+  readonly code: number
+  readonly data: unknown
+
   constructor(readonly error: { code: number; message: string; data?: unknown }) {
     super(error.message)
+    this.code = error.code
+    this.data = error.data
   }
+}
+
+// === The rules of the page connection of Air: one view, the calls that wait ===
+
+/** `-32011` of Air: a call that a rule of the page connection refuses */
+const CONFLICT = -32011
+/** The calls one view waits for at once, and the views of one app process (`page/calls.rs` of air-apps) */
+const MAX_VIEW_CALLS = 24
+const MAX_APP_CALLS = 36
+/** How long a `viewOpen` waits for the end of the view its connection holds */
+const VIEW_END_MS = 1000
+
+/** Refuses the call `method` of `instance` with `-32011 {reason}`, as Air does */
+function refuse(instance: string, method: string, reason: string): never {
+  refusals.push({ instance, method, reason })
+  throw new LinkError({ code: CONFLICT, message: `${method} of ${instance}: ${reason}`, data: { reason } })
+}
+
+/** The calls of each view that wait for their answer: `tools/call` and `x-air-app/subscribe` */
+const waiting = new Map<string, number>()
+
+/** Runs the call `method` of `instance` while it waits, over the share of the view or of the app refused */
+async function admitted<T>(instance: string, method: string, run: () => Promise<T>): Promise<T> {
+  const mine = waiting.get(instance) ?? 0
+  const all = [...waiting.values()].reduce((sum, count) => sum + count, 0)
+  if (mine >= MAX_VIEW_CALLS || all >= MAX_APP_CALLS) {
+    refuse(instance, method, "tooManyCalls")
+  }
+  waiting.set(instance, mine + 1)
+  try {
+    return await run()
+  } finally {
+    waiting.set(instance, (waiting.get(instance) ?? 1) - 1)
+  }
+}
+
+/**
+ * The view of each connection (each frame, by its instance): a `viewOpen` that runs, or the mirror it holds with
+ * whether a `viewOpen` waits for its end
+ */
+type ViewMark = { readonly kind: "opening" } | { readonly kind: "held"; readonly mirror: string; next: boolean }
+const marks = new Map<string, ViewMark>()
+/** Wakes the `viewOpen` of a connection that waits for the end of its view */
+const viewEnds = new Map<string, () => void>()
+
+/** The view of `instance` ended: its `viewOpen` failed, it unsubscribed, its mirror ended, or its frame closed */
+function endView(instance: string): void {
+  marks.delete(instance)
+  viewEnds.get(instance)?.()
+}
+
+/**
+ * Marks that a `viewOpen` of `instance` runs: refused at once while another runs or waits, and after a wait of up to
+ * `VIEW_END_MS` for the end of the view it holds; a `viewOpen` of the mirror it holds answers that view (null: none)
+ */
+async function enterView(instance: string, mirror: string): Promise<Mirror | null> {
+  const mark = marks.get(instance)
+  if (mark === undefined) {
+    marks.set(instance, { kind: "opening" })
+    return null
+  }
+  if (mark.kind === "held" && mark.mirror === mirror && mirrors.has(mirror)) {
+    return mirrors.get(mirror)!
+  }
+  if (mark.kind === "opening" || mark.next) {
+    refuse(instance, "x-air-app/subscribe", "viewOpen")
+  }
+  mark.next = true
+  const ended = await new Promise<boolean>(resolve => {
+    const timer = setTimeout(() => resolve(false), VIEW_END_MS)
+    viewEnds.set(instance, () => {
+      clearTimeout(timer)
+      resolve(true)
+    })
+  })
+  viewEnds.delete(instance)
+  if (!ended || marks.has(instance)) {
+    mark.next = false
+    refuse(instance, "x-air-app/subscribe", "viewOpen")
+  }
+  marks.set(instance, { kind: "opening" })
+  return null
 }
 
 // === The views: a frame each, its instance numbered by its view ===
@@ -141,13 +253,88 @@ const views = new Map<string, OpenView>()
 const counts = new Map<string, number>()
 let theme = config.theme
 
-/** The mirrors by their key (`repositoryPath`), each with its serverSeq and the subscriptions of the frames */
+/**
+ * The mirrors by their key (`repositoryPath`): one channel each, which every view of the mirror subscribes to, its state
+ * by the table rule, and the bridges of the frames that hold it, by their instance
+ */
 interface Mirror {
-  serverSeq: number
-  readonly subscriptions: Map<string, { readonly instance: string; readonly bridge: AppBridge }>
+  readonly key: string
+  readonly channel: string
+  state: Record<string, unknown>
+  readonly subscribers: Map<string, AppBridge>
 }
 const mirrors = new Map<string, Mirror>()
-let nextSubscription = 1
+let nextChannel = 1
+/** The counter of the host: one for each change of any mirror, which each view of the mirror gets */
+let serverSeq = 0
+
+/** The state after `ops`, by the table rule of Air: `part` replaces a part, `set` puts an entry by its key, `remove` deletes it */
+function applyOps(state: Record<string, unknown>, ops: readonly Record<string, unknown>[]): Record<string, unknown> {
+  const next = { ...state }
+  for (const { op, part, key, value } of ops as { op: string; part: string; key?: string; value?: unknown }[]) {
+    if (op === "part") {
+      next[part] = value
+    } else if (op === "set") {
+      next[part] = { ...(next[part] as Record<string, unknown> | undefined), [key!]: value }
+    } else {
+      next[part] = Object.fromEntries(Object.entries((next[part] ?? {}) as Record<string, unknown>).filter(([it]) => it !== key))
+    }
+  }
+  return next
+}
+
+/** The subscriptions the test holds (`holdSubscriptions`) before they reach `brd mcp` */
+let heldSubscriptions: (() => void)[] | null = config.holdSubscriptions === true ? [] : null
+
+/** The answer of `brd mcp` to `x-air-app/subscribe` of `instance`, asked after the release of the test when it holds them */
+async function subscribedAtApp(instance: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (heldSubscriptions !== null) {
+    await new Promise<void>(resolve => heldSubscriptions!.push(resolve))
+  }
+  return forward("x-air-app/subscribe", { instance, params })
+}
+
+/**
+ * `x-air-app/subscribe` of a frame is `viewOpen` of its connection: the app subscribes the instance and names the
+ * mirror, whose channel the frame subscribes to with the snapshot of its state; the first view of a mirror takes the
+ * state the app answered, a later one the state of the mirror
+ */
+async function viewOpen(info: HostView, bridge: AppBridge, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const held = await enterView(info.instance, String(params.repositoryPath))
+  if (held !== null) {
+    return { subscription: held.channel, state: held.state, fromSeq: serverSeq }
+  }
+  let answer: Record<string, unknown>
+  try {
+    answer = await subscribedAtApp(info.instance, params)
+  } catch (error: unknown) {
+    endView(info.instance)
+    throw error
+  }
+  const key = String(answer.mirror)
+  let mirror = mirrors.get(key)
+  if (mirror === undefined) {
+    mirror = { key, channel: `x-air-ide:/appView/${nextChannel++}`, state: answer.state as Record<string, unknown>, subscribers: new Map() }
+    mirrors.set(key, mirror)
+  }
+  mirror.subscribers.set(info.instance, bridge)
+  marks.set(info.instance, { kind: "held", mirror: key, next: false })
+  mirrorLog.push({ instance: info.instance, kind: "subscribed", mirror: key, channel: mirror.channel })
+  return { subscription: mirror.channel, state: mirror.state, fromSeq: serverSeq }
+}
+
+/** `instance` leaves the mirror it holds: a mirror no view holds goes */
+function leaveMirror(instance: string): Mirror | null {
+  const mirror = [...mirrors.values()].find(it => it.subscribers.has(instance)) ?? null
+  if (mirror !== null) {
+    mirror.subscribers.delete(instance)
+    if (mirror.subscribers.size === 0) {
+      mirrors.delete(mirror.key)
+    }
+  }
+  endView(instance)
+  return mirror
+}
 
 /** The calls of the frames in flight on the app link, by the id of the app link */
 const appCalls = new Map<number, { readonly bridge: AppBridge; readonly frameId: string | number; readonly progressToken: string | number | undefined }>()
@@ -172,45 +359,41 @@ function bridgeOf(info: HostView): AppBridge {
     { openLinks: {}, serverTools: {}, logging: {}, experimental: { "x-air-app": X_AIR_APP } },
     { hostContext: hostContext(info) },
   )
-  bridge.oncalltool = async (params, extra) => {
-    if (HOST_TOOLS.has(params.name)) {
-      calls.push({ method: params.name, params: { ...params.arguments, instance: info.instance } })
-      return { content: [] }
-    }
-    const appId = app.peekId()
-    appCalls.set(appId, { bridge, frameId: extra.mcpReq.id, progressToken: params._meta?.progressToken as string | number | undefined })
-    extra.mcpReq.signal.addEventListener("abort", () => void app.notify("notifications/cancelled", { requestId: appId }))
-    try {
-      return (await forward("tools/call", {
-        name: params.name,
-        arguments: params.arguments ?? {},
-        _meta: { progressToken: appId, "x-air-app": { origin: "click", app: APP, view: info.view, instance: info.instance } },
-      })) as never
-    } finally {
-      appCalls.delete(appId)
-    }
-  }
+  bridge.oncalltool = (params, extra) =>
+    admitted(info.instance, "tools/call", async () => {
+      if (HOST_TOOLS.has(params.name)) {
+        calls.push({ method: params.name, params: { ...params.arguments, instance: info.instance } })
+        return { content: [] }
+      }
+      const appId = app.peekId()
+      appCalls.set(appId, { bridge, frameId: extra.mcpReq.id, progressToken: params._meta?.progressToken as string | number | undefined })
+      extra.mcpReq.signal.addEventListener("abort", () => void app.notify("notifications/cancelled", { requestId: appId }))
+      try {
+        return (await forward("tools/call", {
+          name: params.name,
+          arguments: params.arguments ?? {},
+          _meta: { progressToken: appId, "x-air-app": { origin: "click", app: APP, view: info.view, instance: info.instance } },
+        })) as never
+      } finally {
+        appCalls.delete(appId)
+      }
+    })
   bridge.onopenlink = async params => {
     calls.push({ method: "ui/open-link", params: { url: params.url, instance: info.instance } })
     return {}
   }
   bridge.onloggingmessage = params => void logs.push(params)
-  bridge.setRequestHandler("x-air-app/subscribe", { params: z.object({ params: z.record(z.string(), z.unknown()).optional() }) }, async request => {
-    const answer = await forward("x-air-app/subscribe", { instance: info.instance, params: request.params ?? {} })
-    const key = String(answer.mirror)
-    const mirror = mirrors.get(key) ?? { serverSeq: 0, subscriptions: new Map() }
-    mirrors.set(key, mirror)
-    const subscription = `x-air-ide:/appView/${nextSubscription++}`
-    mirror.subscriptions.set(subscription, { instance: info.instance, bridge })
-    return { subscription, state: answer.state as Record<string, unknown>, fromSeq: mirror.serverSeq }
-  })
+  bridge.setRequestHandler("x-air-app/subscribe", { params: z.object({ params: z.record(z.string(), z.unknown()).optional() }) }, request =>
+    admitted(info.instance, "x-air-app/subscribe", () => viewOpen(info, bridge, request.params ?? {})),
+  )
   bridge.setRequestHandler("x-air-app/unsubscribe", { params: z.object({ subscription: z.string() }) }, async request => {
-    for (const mirror of mirrors.values()) {
-      mirror.subscriptions.delete(request.subscription)
-    }
-    const held = [...mirrors.values()].some(mirror => [...mirror.subscriptions.values()].some(it => it.instance === info.instance))
-    if (!held) {
-      await forward("x-air-app/unsubscribe", { instance: info.instance })
+    const mirror = [...mirrors.values()].find(it => it.channel === request.subscription && it.subscribers.has(info.instance))
+    if (mirror !== undefined) {
+      // the app hears the unsubscribe before the subscribe of a `viewOpen` that the end of the view wakes
+      const unsubscribed = forward("x-air-app/unsubscribe", { instance: info.instance })
+      leaveMirror(info.instance)
+      mirrorLog.push({ instance: info.instance, kind: "unsubscribed", mirror: mirror.key, channel: mirror.channel })
+      await unsubscribed
     }
     return {}
   })
@@ -266,17 +449,24 @@ app.onNotification = (method, params) => {
       if (mirror === undefined) {
         return
       }
-      mirror.serverSeq++
-      for (const [subscription, { bridge }] of mirror.subscriptions) {
-        void bridge.notification({ method: "x-air-app/action", params: { subscription, serverSeq: mirror.serverSeq, action: { type: "x-air-app/viewChanged", ops: params.ops } } })
+      const ops = params.ops as Record<string, unknown>[]
+      mirror.state = applyOps(mirror.state, ops)
+      serverSeq++
+      for (const bridge of mirror.subscribers.values()) {
+        void bridge.notification({ method: "x-air-app/action", params: { subscription: mirror.channel, serverSeq, action: { type: "x-air-app/viewChanged", ops } } })
       }
       return
     }
     case "x-air-app/viewEnded": {
       const mirror = mirrors.get(String(params.mirror))
-      mirrors.delete(String(params.mirror))
-      for (const [subscription, { bridge }] of mirror?.subscriptions ?? []) {
-        void bridge.notification({ method: "x-air-app/subscriptionEnded", params: { subscription, reason: params.reason } })
+      if (mirror === undefined) {
+        return
+      }
+      mirrors.delete(mirror.key)
+      for (const [instance, bridge] of mirror.subscribers) {
+        endView(instance)
+        mirrorLog.push({ instance, kind: "ended", mirror: mirror.key, channel: mirror.channel })
+        void bridge.notification({ method: "x-air-app/subscriptionEnded", params: { subscription: mirror.channel, reason: params.reason } })
       }
       return
     }
@@ -340,11 +530,13 @@ app.onRequest = async (method, params) => {
   }
 }
 
-/** The IDE closes the place of a view: its frame goes, `brd mcp` forgets its window */
+/** The IDE closes the place of a view: its frame goes with its connection and its view, `brd mcp` forgets its window */
 async function closeView(instance: string): Promise<void> {
   const open = views.get(instance)
   views.delete(instance)
   open?.frame.remove()
+  leaveMirror(instance)
+  waiting.delete(instance)
   await app.notify("x-air-app/viewClosed", { instance })
 }
 
@@ -388,6 +580,18 @@ async function runNotificationAction(index: number): Promise<unknown> {
 const host = {
   calls: () => calls,
   logs: () => logs,
+  refusals: () => refusals,
+  mirrorLog: () => mirrorLog,
+  /** The subscriptions that wait for the release (`holdSubscriptions`) */
+  heldSubscriptions: () => heldSubscriptions?.length ?? 0,
+  /** Releases the subscriptions held, and holds no more */
+  releaseSubscriptions: () => {
+    const held = heldSubscriptions ?? []
+    heldSubscriptions = null
+    for (const release of held) {
+      release()
+    }
+  },
   views: (): HostView[] => [...views.values()].map(open => ({ ...open.info, title: open.title })),
   open: (view: string, params: Record<string, unknown> = {}) => openView(view, null, params, null),
   /** The IDE switches its theme: every frame gets `host-context-changed` */

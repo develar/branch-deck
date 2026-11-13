@@ -156,7 +156,14 @@ sequenceDiagram
   view names the subscription of its mirror (brd puts it in). The session dropping the subscription of a shown mirror
   is `x-air-app/viewEnded {reason: "sessionClosed"}`, the one reason of the contract: brd cannot tell a repository that
   is gone from a session that closed. Air ends the channel of the mirror for each view of it with that reason, and
-  an exit of brd ends each mirror with `serverExited` before it fails the calls in flight.
+  an exit of brd ends each mirror with `serverExited` before it fails the calls in flight. A subscription again to a
+  mirror brd holds (`bd_invoke` of `subscribe_view` from the page, or `x-air-app/subscribe` of another view) takes the
+  session of the prefix the git config names now (`session_key_now`), as a window of the desktop app that subscribes
+  again does: a mirror of another prefix moves to that session in one change that replaces every part
+  (`MirrorView::parts`, the `version` of another epoch last), before the answer; the subscription of the old session
+  ends, none of its patches reaches the mirror after the move, and the new one takes the demand a view set last. So a
+  prefix set in a terminal, in Settings or as the app's prefix reaches every view of the mirror, and the channel of the
+  mirror never ends for it.
 - **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native", checkForUpdates: false,
@@ -229,9 +236,17 @@ sequenceDiagram
     entries that differ from the state before. A resync replaces the state and sends a patch from no base, so the page
     asks `get_snapshot`, which the shim answers from the state of the mirror; the end of a mirror
     (`x-air-app/subscriptionEnded`, whatever its reason: `sessionClosed`, `serverExited` or one the page does not know)
-    does the same, and the snapshot then comes from `brd mcp`. A frame holds one view at a time in Air, so a
-    subscription again must follow the end of the one before it (the risks of the spec name where the main view does
-    not yet).
+    does the same, and the snapshot then comes from `brd mcp`. A change to a version of another epoch (the mirror moved
+    to the session of another prefix) is no patch of the view the page holds either: the page asks for the snapshot.
+  - **One view for each frame**: Air holds one view for each page connection, so for each frame. A `viewOpen` while
+    another runs gets `-32011 viewOpen` at once, and one while the connection holds a view waits up to 1 s for its end
+    and then gets the same. The page subscribes again before it leaves (`openSession` of another repository before the
+    first answer, `resubscribeSession` after `prefix_changed`, which holds the old subscription until the new one
+    answers), so the shim keeps the one view of the frame (`FrameView`) and the subscriptions of the page share it: one
+    of the repository the frame holds joins it and asks `brd mcp` with `bd_invoke` of `subscribe_view`, which moves the
+    mirror before it answers, and its answer is the state of the mirror, or nothing when the page holds it at that
+    version (`have`); one of another repository sends its `x-air-app/subscribe` once the view before it answered and
+    was unsubscribed or ended. The last subscription that leaves the view unsubscribes the frame.
   - `src/platform/air/theme.ts`: each variable of the host (`styles.variables`, `com.jetbrains.air/variables`) is set on
     the root as `--air-host-<name>`, and the semantic tokens (`--background`, `--card`, `--primary`, `--border`, …) read
     them while the page shows the theme of the IDE: the canvas the first background of the host (the background of the

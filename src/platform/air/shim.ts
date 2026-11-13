@@ -2,13 +2,14 @@
  * The page of Branch Deck as an app of the IDE (openspec/specs/repository/ide-embedding/spec.md, "Page"): the internals
  * of Tauri (`@/platform/tauri-page`) over the frame link of `x-air-app` (`FrameLink`). A command of app-api is the tool
  * `bd_invoke` of `brd mcp`, its `Channel` the call events of its call, `subscribe_view` the mirror of the repository,
- * `listen` and `emit` the events of `x-air-app`; the plugins of Tauri are what the IDE offers in their place: a link
+ * which the subscriptions of the page share, as Air holds one view for each frame (`FrameView`), `listen` and `emit` the
+ * events of `x-air-app`; the plugins of Tauri are what the IDE offers in their place: a link
  * opens by `ui/open-link`, the clipboard is the tool of the host `air_copy` (`HOST_TOOLS`), the log is
  * `notifications/message`; the badge and the progress of the Dock, an OS notification and the close of the window go to
  * `brd mcp` as their plugin calls (`bd_invoke`), which asks the IDE for them, and a window of the IDE has no size, zoom
  * or frame the page sets. No rule of the domain is here: every command goes to `brd mcp` as the page sends it.
  */
-import type { RepositoryView, Version, ViewPatch, ViewSubscription } from "@/lib/bindings"
+import type { Version, ViewPatch, ViewSubscription } from "@/lib/bindings"
 import { FrameLinkError } from "@/platform/air/frame-link"
 import type { FrameLink } from "@/platform/air/frame-link"
 import { applyOps, patchOf, versionOf, viewOf } from "@/platform/air/view-mirror"
@@ -62,14 +63,47 @@ interface FrameSubscription {
   readonly fromSeq: number
 }
 
-/** A mirror the page holds: the state of its subscription and the version of the view it gave the page */
-interface HeldMirror {
-  readonly id: number
-  readonly subscription: string
-  readonly repositoryPath: string
-  readonly patches: PageChannel<ViewPatch>
-  state: MirrorState
-  version: Version
+/**
+ * The one view of the frame (`x-air-app/subscribe` of a repository), which Air holds for each page connection: a
+ * `subscribe` while another runs gets `-32011 viewOpen` at once, and one while a view is held waits for its end and then
+ * gets the same. So every subscription of the page to the repository shares it (`subscribe_view` again, as
+ * `resubscribeSession` of `src/model/store.ts` does after `prefix_changed`), and the next repository subscribes only
+ * once the view before it answered and was unsubscribed or ended
+ */
+class FrameView {
+  /** The page subscriptions that hold the view, by their id; null until the page has its answer, so no patch reaches it */
+  readonly pages = new Map<number, PageChannel<ViewPatch> | null>()
+  /** The answer of its `subscribe`; rejects with its failure */
+  answered: Promise<void> = Promise.resolve()
+  /** Resolves once Air holds the view no more: its `subscribe` failed, its `unsubscribe` answered, or Air ended it */
+  readonly done: Promise<void>
+  subscription: string | null = null
+  state: MirrorState = {}
+  /** No subscription joins the view any more: its `unsubscribe` runs, or it ended */
+  closing = false
+  private finish: () => void = () => {}
+
+  constructor(
+    readonly repositoryPath: string,
+    public version: Version,
+  ) {
+    this.done = new Promise(resolve => {
+      this.finish = resolve
+    })
+  }
+
+  /** Air holds the view no more */
+  end(): void {
+    this.closing = true
+    this.finish()
+  }
+
+  /** Tells each page subscription that has its answer `patch` */
+  tell(patch: ViewPatch): void {
+    for (const patches of this.pages.values()) {
+      patches?.onmessage(patch)
+    }
+  }
 }
 
 /** The level of `notifications/message` of each level of the log plugin of Tauri (`LogLevel`: 1 trace … 5 error) */
@@ -104,8 +138,10 @@ export class AirPage {
   private readonly channels: ReadonlyMap<string, { channel: string; open: boolean }>
   /** The channel of each call in flight, by the id of its `tools/call` (`callId`) */
   private readonly calls = new Map<number, PageChannel>()
-  private readonly mirrors = new Map<string, HeldMirror>()
-  private nextMirrorId = 1
+  /** The view the frame holds or opens, at most one */
+  private view: FrameView | null = null
+  /** The id of the next subscription of the page (`ViewSubscription.id`) */
+  private nextSubscriptionId = 1
   /** The epoch of the versions the page numbers itself, for a mirror whose state has no `version` */
   private epoch = 1
 
@@ -159,8 +195,8 @@ export class AirPage {
         return this.unsubscribe(payload)
       case "get_snapshot": {
         const repositoryPath = (payload?.params as { repositoryPath?: string } | undefined)?.repositoryPath
-        const held = [...this.mirrors.values()].find(mirror => mirror.repositoryPath === repositoryPath)
-        if (held !== undefined) {
+        const held = this.view
+        if (held !== null && !held.closing && held.subscription !== null && held.repositoryPath === repositoryPath) {
           return viewOf(held.state, held.version)
         }
         return this.runCommand(cmd, payload)
@@ -192,54 +228,128 @@ export class AirPage {
     return content.value ?? null
   }
 
-  /** `subscribe_view`: the mirror of the repository, its state the view and each change of it a patch of the channel */
+  /**
+   * `subscribe_view`: the mirror of the repository, its state the view and each change of it a patch of the channel. The
+   * frame holds one view (`FrameView`): a subscription of the repository it holds joins it and asks `brd mcp` to
+   * subscribe again (`bd_invoke` of `subscribe_view`), which moves the mirror to the session of the prefix the git
+   * config names now before it answers; a subscription of another repository waits until the view before it ended
+   */
   private async subscribe(payload: Payload): Promise<ViewSubscription> {
-    const repositoryPath = String((payload?.params as { repositoryPath?: string } | undefined)?.repositoryPath)
+    const params = (payload?.params ?? {}) as { repositoryPath?: string; have?: Version }
+    const repositoryPath = String(params.repositoryPath)
     const patches = channelArgument(payload, "patches") as PageChannel<ViewPatch> | null
-    let answer: FrameSubscription
+    const id = this.nextSubscriptionId++
+    for (;;) {
+      const held = this.view
+      if (held === null) {
+        const view = this.open(repositoryPath)
+        view.pages.set(id, null)
+        return this.joined(view, id, patches, params, () => view.answered)
+      }
+      if (held.repositoryPath === repositoryPath && !held.closing) {
+        held.pages.set(id, null)
+        // the answer of the view first: brd subscribes the mirror it holds again
+        return this.joined(held, id, patches, params, async () => {
+          await held.answered
+          await this.runCommand("subscribe_view", { params })
+        })
+      }
+      await held.done
+    }
+  }
+
+  /** The view of `repositoryPath`: its `subscribe` sent */
+  private open(repositoryPath: string): FrameView {
+    const view = new FrameView(repositoryPath, { epoch: this.epoch, seq: 0 })
+    this.view = view
+    view.answered = this.link.request<FrameSubscription>("x-air-app/subscribe", { params: { repositoryPath } }).then(
+      answer => {
+        view.subscription = answer.subscription
+        view.state = answer.state
+        view.version = versionOf(answer.state, { epoch: this.epoch, seq: answer.fromSeq })
+      },
+      (error: unknown) => {
+        this.end(view)
+        throw linkFailure(error)
+      },
+    )
+    return view
+  }
+
+  /** Air holds `view` no more: the next subscription subscribes anew */
+  private end(view: FrameView): void {
+    view.end()
+    if (this.view === view) {
+      this.view = null
+    }
+  }
+
+  /**
+   * The answer of the page subscription `id` of `view` once `ready` resolved: the view of the mirror, or nothing when the
+   * page holds it at that version (`have`); from then its channel gets each change. A failure leaves the view, which
+   * ends with its last subscription, and a view Air ended meanwhile is subscribed anew
+   */
+  private async joined(view: FrameView, id: number, patches: PageChannel<ViewPatch> | null, params: { have?: Version }, ready: () => Promise<void>): Promise<ViewSubscription> {
     try {
-      answer = await this.link.request<FrameSubscription>("x-air-app/subscribe", { params: { repositoryPath } })
+      await ready()
     } catch (error: unknown) {
+      await this.leave(view, id)
       throw linkFailure(error)
     }
-    const version = versionOf(answer.state, { epoch: this.epoch, seq: answer.fromSeq })
-    const mirror: HeldMirror = {
-      id: this.nextMirrorId++,
-      subscription: answer.subscription,
-      repositoryPath,
-      patches: patches ?? { onmessage: () => {} },
-      state: answer.state,
-      version,
+    if (!view.pages.has(id)) {
+      return this.subscribe({ params, ...(patches !== null && { patches }) })
     }
-    this.mirrors.set(answer.subscription, mirror)
-    const view: RepositoryView = viewOf(mirror.state, version)
-    return { id: mirror.id, view, catchUp: null }
+    view.pages.set(id, patches ?? { onmessage: () => {} })
+    const have = params.have
+    const holds = have !== undefined && have.epoch === view.version.epoch && have.seq === view.version.seq
+    return { id, view: holds ? null : viewOf(view.state, view.version), catchUp: null }
   }
 
   private async unsubscribe(payload: Payload): Promise<null> {
     const id = (payload?.params as { id?: number } | undefined)?.id
-    const mirror = [...this.mirrors.values()].find(held => held.id === id)
-    if (mirror !== undefined) {
-      this.mirrors.delete(mirror.subscription)
-      await this.link.request("x-air-app/unsubscribe", { subscription: mirror.subscription }).catch(() => null)
+    if (this.view !== null && typeof id === "number") {
+      await this.leave(this.view, id)
     }
     return null
   }
 
-  /** One change of a mirror (`x-air-app/viewChanged`): the patch of the session from the view the page has */
+  /** The page subscription `id` leaves `view`: the last one ends it (`x-air-app/unsubscribe`) */
+  private async leave(view: FrameView, id: number): Promise<void> {
+    if (!view.pages.delete(id) || view.pages.size > 0 || view.closing) {
+      return
+    }
+    view.closing = true
+    await view.answered.catch(() => null)
+    if (view.subscription !== null) {
+      await this.link.request("x-air-app/unsubscribe", { subscription: view.subscription }).catch(() => null)
+    }
+    this.end(view)
+  }
+
+  /** The view of the subscription `subscription` of the frame, while Air holds it */
+  private held(subscription: string): FrameView | null {
+    const view = this.view
+    return view !== null && view.subscription === subscription ? view : null
+  }
+
+  /**
+   * One change of a mirror (`x-air-app/viewChanged`): the patch of the session from the view the page has. A change to a
+   * version of another epoch moves the mirror to another session (another prefix): no patch of the view the page holds,
+   * so the page asks for the snapshot, which is the state of the mirror
+   */
   private changed(subscription: string, serverSeq: number, action: { type?: string; ops?: ViewOp[] }): void {
-    const mirror = this.mirrors.get(subscription)
-    if (mirror === undefined || action.type !== "x-air-app/viewChanged" || action.ops === undefined) {
+    const view = this.held(subscription)
+    if (view === null || action.type !== "x-air-app/viewChanged" || action.ops === undefined) {
       // an echo of an intent the mirror refused: the page sends none (`bd_invoke` carries them)
       return
     }
-    const before = mirror.state
+    const before = view.state
     const after = applyOps(before, action.ops)
-    const base = mirror.version
+    const base = view.version
     const next = versionOf(after, { epoch: this.epoch, seq: serverSeq })
-    mirror.state = after
-    mirror.version = next
-    mirror.patches.onmessage(patchOf(before, after, action.ops, base, next))
+    view.state = after
+    view.version = next
+    view.tell(next.epoch === base.epoch ? patchOf(before, after, action.ops, base, next) : { base: { epoch: next.epoch, seq: -1 }, next, changes: {} })
   }
 
   /**
@@ -247,27 +357,31 @@ export class AirPage {
    * it does not hold (`refresh` of src/model/store.ts), and the snapshot of a held mirror is its state (`get_snapshot`)
    */
   private resynced(subscription: string, state: MirrorState, fromSeq: number): void {
-    const mirror = this.mirrors.get(subscription)
-    if (mirror === undefined) {
+    const view = this.held(subscription)
+    if (view === null) {
       return
     }
     if (state.version === undefined) {
       this.epoch++
     }
-    mirror.state = state
-    mirror.version = versionOf(state, { epoch: this.epoch, seq: fromSeq })
-    mirror.patches.onmessage({ base: { epoch: mirror.version.epoch, seq: -1 }, next: mirror.version, changes: {} })
+    view.state = state
+    view.version = versionOf(state, { epoch: this.epoch, seq: fromSeq })
+    view.tell({ base: { epoch: view.version.epoch, seq: -1 }, next: view.version, changes: {} })
   }
 
-  /** The end of a mirror: the page asks for the snapshot of the session, which `brd mcp` answers (null: it is gone) */
+  /**
+   * The end of a mirror: the page asks for the snapshot of the session, which `brd mcp` answers (null: it is gone); its
+   * subscriptions hold no view of the frame any more, and the next one subscribes anew
+   */
   private ended(subscription: string): void {
-    const mirror = this.mirrors.get(subscription)
-    if (mirror === undefined) {
+    const view = this.held(subscription)
+    if (view === null) {
       return
     }
-    this.mirrors.delete(subscription)
+    this.end(view)
     this.epoch++
-    mirror.patches.onmessage({ base: { epoch: this.epoch, seq: -1 }, next: { epoch: this.epoch, seq: 0 }, changes: {} })
+    view.tell({ base: { epoch: this.epoch, seq: -1 }, next: { epoch: this.epoch, seq: 0 }, changes: {} })
+    view.pages.clear()
   }
 
   private hostTool(name: string, args: Record<string, unknown>): Promise<null> {

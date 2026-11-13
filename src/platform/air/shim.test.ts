@@ -185,6 +185,95 @@ describe("The shim of the page in the IDE", () => {
     }
   })
 
+  it("A switch of the repository before the first answer: the next repository subscribes once the view of the one before answered and was unsubscribed, so the frame holds one view", async () => {
+    const host = new FakeHost()
+    const { tauri } = pageOn(host)
+    const subscribes = () => host.posted.filter(message => message.method === "x-air-app/subscribe")
+    const first = tauri("subscribe_view", { params: { repositoryPath: "/a" }, patches: { onmessage: () => {} } }) as Promise<ViewSubscription>
+    await settle()
+    const subscribeA = host.last()
+    // `openSession` of another repository: the session it left has no answer yet, so the page unsubscribes it later
+    const patches: ViewPatch[] = []
+    const second = tauri("subscribe_view", { params: { repositoryPath: "/b" }, patches: { onmessage: (patch: ViewPatch) => patches.push(patch) } }) as Promise<ViewSubscription>
+    await settle()
+    expect(subscribes()).toEqual([expect.objectContaining({ params: { params: { repositoryPath: "/a" } } })])
+
+    host.answer(subscribeA.id!, { subscription: "x-air-ide:/appView/1", state: emptyView({ epoch: 1, seq: 3 }), fromSeq: 0 })
+    const { id } = await first
+    void tauri("unsubscribe_view", { params: { id } })
+    await settle()
+    expect(host.last()).toMatchObject({ method: "x-air-app/unsubscribe", params: { subscription: "x-air-ide:/appView/1" } })
+    expect(subscribes()).toHaveLength(1)
+    host.answer(host.last().id!, {})
+    await settle()
+    expect(host.last()).toMatchObject({ method: "x-air-app/subscribe", params: { params: { repositoryPath: "/b" } } })
+    const state = emptyView({ epoch: 2, seq: 0 })
+    host.answer(host.last().id!, { subscription: "x-air-ide:/appView/2", state, fromSeq: 4 })
+    expect((await second).view).toEqual(state)
+
+    // a late change of the view it left reaches nothing, one of the view of /b its subscription
+    const change = (subscription: string, seq: number) => ({
+      subscription,
+      serverSeq: seq,
+      action: { type: "x-air-app/viewChanged", ops: [{ op: "part", part: "version", value: { epoch: 2, seq } }] },
+    })
+    host.tell("x-air-app/action", change("x-air-ide:/appView/1", 1))
+    host.tell("x-air-app/action", change("x-air-ide:/appView/2", 1))
+    expect(patches).toEqual([{ base: { epoch: 2, seq: 0 }, next: { epoch: 2, seq: 1 }, changes: {} }])
+  })
+
+  it("A subscription again of the repository the frame holds shares its view: brd subscribes again, moving the mirror to the session of another prefix before it answers, and the subscription it replaces leaves without an unsubscribe of the frame", async () => {
+    const host = new FakeHost()
+    const { tauri } = pageOn(host)
+    const subscription = "x-air-ide:/appView/1"
+    const replaced: ViewPatch[] = []
+    const first = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: (patch: ViewPatch) => replaced.push(patch) } }) as Promise<ViewSubscription>
+    await settle()
+    host.answer(host.last().id!, { subscription, state: emptyView({ epoch: 4, seq: 10 }), fromSeq: 0 })
+    const held = await first
+
+    // `resubscribeSession` after `prefix_changed`: the subscription it replaces holds until the new one answers
+    const patches: ViewPatch[] = []
+    const again = tauri("subscribe_view", {
+      params: { repositoryPath: "/r", have: { epoch: 4, seq: 10 } },
+      patches: { onmessage: (patch: ViewPatch) => patches.push(patch) },
+    }) as Promise<ViewSubscription>
+    await settle()
+    expect(host.last()).toMatchObject({
+      method: "tools/call",
+      params: { name: "bd_invoke", arguments: { command: "subscribe_view", args: { params: { repositoryPath: "/r", have: { epoch: 4, seq: 10 } } } } },
+    })
+    // brd moves the mirror to the session of the new prefix: every part, a version of another epoch
+    const moved: RepositoryView = { ...emptyView({ epoch: 9, seq: 0 }), order: ["b"] }
+    const parts = Object.entries(moved)
+      .filter(([part]) => part !== "version")
+      .map(([part, value]) => ({ op: "part", part, value }))
+    host.tell("x-air-app/action", { subscription, serverSeq: 1, action: { type: "x-air-app/viewChanged", ops: [...parts, { op: "part", part: "version", value: moved.version }] } })
+    // no patch of the view the page holds: a snapshot, which is the state of the mirror
+    expect(replaced).toEqual([{ base: { epoch: 9, seq: -1 }, next: { epoch: 9, seq: 0 }, changes: {} }])
+    host.answer(host.last().id!, { content: [], structuredContent: { value: null } })
+    expect((await again).view).toEqual(moved)
+    expect(await tauri("get_snapshot", { params: { repositoryPath: "/r" } })).toEqual(moved)
+
+    // the replaced subscription leaves: the frame keeps its view for the new one, which gets the next change
+    await tauri("unsubscribe_view", { params: { id: held.id } })
+    host.tell("x-air-app/action", { subscription, serverSeq: 2, action: { type: "x-air-app/viewChanged", ops: [{ op: "part", part: "version", value: { epoch: 9, seq: 1 } }] } })
+    expect(patches).toEqual([{ base: { epoch: 9, seq: 0 }, next: { epoch: 9, seq: 1 }, changes: {} }])
+    expect(replaced).toHaveLength(1)
+
+    // again under the same prefix: brd moves nothing, and the page holds the view at that version, so none comes
+    const same = tauri("subscribe_view", { params: { repositoryPath: "/r", have: { epoch: 9, seq: 1 } }, patches: { onmessage: () => {} } }) as Promise<ViewSubscription>
+    await settle()
+    host.answer(host.last().id!, { content: [], structuredContent: { value: null } })
+    expect(await same).toMatchObject({ view: null, catchUp: null })
+    // a session brd cannot open now fails the subscription with its error, and the view stays for those that hold it
+    const refused = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } })
+    await settle()
+    host.answer(host.last().id!, { content: [], isError: true, structuredContent: { error: { code: "no_branch_prefix", message: "no prefix" } } })
+    await expect(refused).rejects.toMatchObject({ name: "ApiError", code: "no_branch_prefix" })
+    expect(host.posted.filter(message => message.method === "x-air-app/subscribe" || message.method === "x-air-app/unsubscribe")).toHaveLength(1)
+  })
+
   it("listen hears the events of x-air-app, and emit goes to the views of the app through brd mcp", async () => {
     const host = new FakeHost()
     const { tauri } = pageOn(host)

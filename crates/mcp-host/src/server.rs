@@ -11,7 +11,10 @@
 //!   runs to its end, its answer left out.
 //! - **Mirrors** (`mirror.rs`): `x-air-app/subscribe` of a repository subscribes its session once for every view of it,
 //!   under a window of its own (`mirror:<path>`), so the close of one view ends no other's mirror; the last
-//!   `x-air-app/unsubscribe` ends it. The news a patch brings are told by the IDE's notifications (`notices.rs`).
+//!   `x-air-app/unsubscribe` ends it. A subscription again to a mirror brd holds, by another view or by `bd_invoke` of
+//!   `subscribe_view` (a frame holds one view, so the page asks it so), follows the prefix the git config names now: a
+//!   mirror of another prefix moves to the session of the new one in one change of every part. The news a patch brings
+//!   are told by the IDE's notifications (`notices.rs`).
 //! - **Places**: `x-air-app/viewShown` records the params of an instance, `x-air-app/viewHidden` that the IDE hides it,
 //!   `x-air-app/viewClosed` forgets its page and its window (`AppContext::forget_window`); the end of a WebSocket never reaches brd.
 //! - **Roots**: the repositories are the Git roots of the project (`roots/list`, asked at the start and on
@@ -36,8 +39,9 @@ use app_settings::ide_roots;
 use app_settings::windows::{MAIN_WINDOW, window_snapshot};
 use base64::Engine;
 use domain_types::error::ApiError;
-use domain_types::session::{SubscribeViewParams, ViewPatch};
+use domain_types::session::{Demand, RepositoryView, SubscribeViewParams, ViewPatch};
 use domain_types::settings::SettingsPatch;
+use repository_model::session::SubscriptionId;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -134,6 +138,15 @@ struct Mirror {
   subscription: u32,
   instances: HashSet<String>,
   slot: Arc<Mutex<Slot>>,
+  /// The demand a view set last, which the session of another prefix takes when the mirror moves to it
+  demand: Option<Demand>,
+}
+
+/// The subscription of a session that answered its view, before the view goes live in its slot
+struct Opened {
+  subscription: u32,
+  slot: Arc<Mutex<Slot>>,
+  view: RepositoryView,
 }
 
 /// The view of a mirror as its patches come
@@ -197,7 +210,7 @@ impl Server {
       ),
       "ping" => self.link.respond(&id, json!({})),
       "tools/list" => self.link.respond(&id, json!({ "tools": tools() })),
-      "tools/call" => self.call_tool(id, &params),
+      "tools/call" => self.call_tool(id, &params).await,
       "resources/read" => {
         let uri = params["uri"].as_str().unwrap_or_default();
         match resources::read(uri) {
@@ -308,7 +321,7 @@ impl Server {
     args
   }
 
-  fn call_tool(self: &Arc<Self>, id: Value, params: &Value) {
+  async fn call_tool(self: &Arc<Self>, id: Value, params: &Value) {
     let meta = &params["_meta"]["x-air-app"];
     let origin = meta["origin"].as_str();
     if !matches!(origin, Some("click" | "action")) {
@@ -317,6 +330,9 @@ impl Server {
     let instance = meta["instance"].as_str().map(str::to_owned);
     let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     match params["name"].as_str() {
+      // the page subscribes again to the repository whose mirror its frame holds: answered in the order of the messages,
+      // as a subscription is, after the change that moves the mirror
+      Some("bd_invoke") if arguments["command"] == "subscribe_view" => self.subscribe_again(id, &arguments).await,
       Some("bd_invoke") => self.invoke(id, &arguments, instance.as_deref()),
       Some("bd_bootstrap") => {
         let server = Arc::clone(self);
@@ -476,16 +492,17 @@ impl Server {
   }
 
   /// `set_demand` of a view names the subscription of its mirror, which the page does not know: the mirror of the
-  /// instance gives it
+  /// instance gives it, and keeps the demand for the session it moves to
   fn with_subscription(&self, command: &str, mut args: Value, instance: Option<&str>) -> Value {
     if command != "set_demand" {
       return args;
     }
+    let demand = serde_json::from_value::<Demand>(args["params"]["demand"].clone()).ok();
     let subscription = instance.and_then(|instance| {
-      locked(&self.mirrors)
-        .values()
-        .find(|mirror| mirror.instances.contains(instance))
-        .map(|mirror| mirror.subscription)
+      let mut mirrors = locked(&self.mirrors);
+      let mirror = mirrors.values_mut().find(|mirror| mirror.instances.contains(instance))?;
+      mirror.demand.clone_from(&demand);
+      Some(mirror.subscription)
     });
     if let Some(subscription) = subscription {
       args["params"]["subscription"] = json!(subscription);
@@ -543,7 +560,7 @@ impl Server {
 
   /// Subscribes `instance` to the mirror of the repository its params name: the session subscribes once for every view
   /// of the repository. Answered in the order of the messages, so a second view of a repository joins the mirror the
-  /// first opened
+  /// first opened, which takes the session of the prefix the git config names now first (`follow_prefix`)
   async fn subscribe(&self, id: Value, params: &Value) {
     let instance = params["instance"].as_str().unwrap_or_default().to_owned();
     let Some(path) = params["params"]["repositoryPath"].as_str().map(str::to_owned) else {
@@ -551,6 +568,9 @@ impl Server {
         .link
         .fail(&id, INVALID_PARAMS, "A view of Branch Deck subscribes to a repository: params.repositoryPath", "badParams");
     };
+    if let Err(error) = self.follow_prefix(&path).await {
+      return self.fail_subscription(&id, &error);
+    }
     {
       let mut mirrors = locked(&self.mirrors);
       if let Some(mirror) = mirrors.get_mut(&path) {
@@ -562,58 +582,130 @@ impl Server {
         }
       }
     }
-    let window = WindowId::new(format!("mirror:{path}"));
+    let opened = match self.open_session(&path).await {
+      Ok(opened) => opened,
+      Err(error) => return self.fail_subscription(&id, &error),
+    };
+    // the answer before any change of the mirror
+    go_live(&opened.slot, opened.view, |mirror| {
+      self.link.respond(&id, json!({ "mirror": path, "state": mirror.state() }));
+    });
+    locked(&self.mirrors).insert(
+      path.clone(),
+      Mirror {
+        window: mirror_window(&path),
+        subscription: opened.subscription,
+        instances: HashSet::from([instance]),
+        slot: opened.slot,
+        demand: None,
+      },
+    );
+  }
+
+  /// `bd_invoke` of `subscribe_view`: the page subscribes again to the repository whose mirror its frame holds (the
+  /// prefix that names its branches may have changed, `resubscribeSession` of `src/model/store.ts`), and its frame holds
+  /// one view, so the page shares the subscription it has and asks brd. Answered after the change that moves the mirror
+  /// to the session of the prefix the git config names now; the error of that session, such as `no_branch_prefix`, as
+  /// the answer of a command
+  async fn subscribe_again(&self, id: Value, arguments: &Value) {
+    let path = arguments["args"]["params"]["repositoryPath"].as_str().unwrap_or_default();
+    match self.follow_prefix(path).await {
+      Ok(()) => self.link.respond(&id, json!({ "content": [], "structuredContent": { "value": null } })),
+      Err(error) => self.link.respond(&id, tool_error(&error)),
+    }
+  }
+
+  /// The mirror of `path` takes the session of the prefix the git config names now (`AppContext::session_key_now`), as
+  /// a window of the desktop app that subscribes again does: a mirror of another prefix moves to the session of the new
+  /// one, one change that replaces every part with its view, a `version` of another epoch, after which no patch of the
+  /// old session reaches it; the session of the new prefix takes the demand of the mirror, the old one loses it. Nothing
+  /// for a mirror of that prefix, or no mirror that shows a view
+  ///
+  /// # Errors
+  /// No session of the repository now: the repository is not accessible, or it has no prefix
+  async fn follow_prefix(&self, path: &str) -> Result<(), ApiError> {
+    let held = {
+      let mirrors = locked(&self.mirrors);
+      mirrors.get(path).and_then(|mirror| match &*locked(&mirror.slot) {
+        Slot::Live(view) => Some(view.view().header.prefix.clone()),
+        _ => None,
+      })
+    };
+    let Some(prefix) = held else {
+      return Ok(());
+    };
+    if self.ctx.session_key_now(path).await?.prefix == prefix {
+      return Ok(());
+    }
+    let opened = self.open_session(path).await?;
+    let moved = locked(&self.mirrors).get_mut(path).map(|mirror| {
+      let left = std::mem::replace(&mut mirror.slot, Arc::clone(&opened.slot));
+      let old = std::mem::replace(&mut mirror.subscription, opened.subscription);
+      (left, old, mirror.demand.clone())
+    });
+    let Some((left, old, demand)) = moved else {
+      // the views left the mirror meanwhile
+      *locked(&opened.slot) = Slot::Ended;
+      self.drop_session_subscription(path, opened.subscription);
+      return Ok(());
+    };
+    // the old session's patches and its end reach no view any more
+    *locked(&left) = Slot::Ended;
+    let mirror = path.to_owned();
+    go_live(&opened.slot, opened.view, |view| {
+      self.link.notify("x-air-app/viewChanged", json!({ "mirror": mirror, "ops": view.parts() }));
+    });
+    self.drop_session_subscription(path, old);
+    if let Some(demand) = demand {
+      self.ctx.sessions.set_demand(SubscriptionId(opened.subscription), &demand);
+    }
+    Ok(())
+  }
+
+  /// Subscribes the session of `path` the git config names now under the window of its mirror; its patches wait in the
+  /// slot until its view goes live (`go_live`)
+  async fn open_session(&self, path: &str) -> Result<Opened, ApiError> {
     let slot = Arc::new(Mutex::new(Slot::Waiting(Vec::new())));
     let patches = Arc::new(MirrorPatches {
-      mirror: path.clone(),
+      mirror: path.to_owned(),
       slot: Arc::clone(&slot),
       link: Arc::clone(&self.link),
       notices: Arc::clone(&self.notices),
     });
-    let call = self.ctx.call(window.as_str());
+    let call = self.ctx.call(mirror_window(path).as_str());
     let args = app_api::commands::subscribe_view::Args {
       params: SubscribeViewParams {
-        repository_path: path.clone(),
+        repository_path: path.to_owned(),
         have: None,
       },
     };
     let subscribed = app_api::commands::subscribe_view::Command::call(&self.ctx, &call, args, patches).await;
-    let subscription = match subscribed {
-      Ok(subscription) => subscription,
-      Err(error) => {
-        *locked(&slot) = Slot::Ended;
-        return self.link.send(&json!({
-          "jsonrpc": "2.0",
-          "id": id,
-          "error": { "code": INTERNAL_ERROR, "message": error.message, "data": { "reason": "badResponse", "error": error } },
-        }));
-      }
-    };
+    let subscription = subscribed.inspect_err(|_| *locked(&slot) = Slot::Ended)?;
     let Some(view) = subscription.view else {
       *locked(&slot) = Slot::Ended;
-      return self.link.fail(&id, INTERNAL_ERROR, "The session gave no view", "badResponse");
+      return Err(ApiError::internal("The session gave no view"));
     };
-    {
-      // the answer before any change of the mirror: the patches that came meanwhile are in its state
-      let mut held = locked(&slot);
-      let mut mirror = MirrorView::new(view);
-      if let Slot::Waiting(patches) = std::mem::replace(&mut *held, Slot::Ended) {
-        for patch in patches {
-          mirror.catch_up(patch);
-        }
-      }
-      self.link.respond(&id, json!({ "mirror": path, "state": mirror.state() }));
-      *held = Slot::Live(Box::new(mirror));
-    }
-    locked(&self.mirrors).insert(
-      path,
-      Mirror {
-        window,
-        subscription: subscription.id,
-        instances: HashSet::from([instance]),
-        slot,
-      },
-    );
+    Ok(Opened {
+      subscription: subscription.id,
+      slot,
+      view,
+    })
+  }
+
+  /// The subscription `id` of the session of `path` leaves the window of its mirror and the session
+  fn drop_session_subscription(&self, path: &str, id: u32) {
+    let call = self.ctx.call(mirror_window(path).as_str());
+    self.ctx.windows.drop_subscription(&call, SubscriptionId(id));
+    self.ctx.sessions.unsubscribe(SubscriptionId(id));
+  }
+
+  /// The subscription `id` failed with `error`: its `ApiError` in the data of the error, for air-ide to pass on
+  fn fail_subscription(&self, id: &Value, error: &ApiError) {
+    self.link.send(&json!({
+      "jsonrpc": "2.0",
+      "id": id,
+      "error": { "code": INTERNAL_ERROR, "message": error.message, "data": { "reason": "badResponse", "error": error } },
+    }));
   }
 
   /// `instance` leaves its mirror; the last view of a mirror ends its subscription
@@ -646,6 +738,26 @@ impl Server {
       }
     }
   }
+}
+
+/// The window the subscription of the mirror of `path` is kept under
+fn mirror_window(path: &str) -> WindowId {
+  WindowId::new(format!("mirror:{path}"))
+}
+
+/// The view of a subscription that answered goes live in its slot: the patches that came meanwhile are in it, and
+/// `first` writes what comes before every change of it (the answer of the subscription, or the change that moves the
+/// mirror), while the slot is held, so the changes after it follow it
+fn go_live(slot: &Mutex<Slot>, view: RepositoryView, first: impl FnOnce(&MirrorView)) {
+  let mut held = locked(slot);
+  let mut mirror = MirrorView::new(view);
+  if let Slot::Waiting(patches) = std::mem::replace(&mut *held, Slot::Ended) {
+    for patch in patches {
+      mirror.catch_up(patch);
+    }
+  }
+  first(&mirror);
+  *held = Slot::Live(Box::new(mirror));
 }
 
 /// The commands whose answer holds changes of the settings, which the views see with the recent projects of the roots

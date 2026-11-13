@@ -1,6 +1,7 @@
 // @spec openspec/specs/repository/ide-embedding/spec.md
 import { test as base } from "@playwright/test"
-import { IDE_THEMES, openFakeIde } from "../air-host/fake-host"
+import type { Page } from "@playwright/test"
+import { closeFakeIde, IDE_THEMES, openFakeIde } from "../air-host/fake-host"
 import type { FakeIde } from "../air-host/fake-host"
 import type { HostContextTheme } from "../air-host/host-page"
 import { expect } from "../fixtures/base-test"
@@ -12,21 +13,36 @@ import { expectClosed } from "../helpers/wait-helpers"
 /*
  * The Air build in a fake IDE (`tests/e2e/air-host/`): the frame of each view loads `dist-air/`, the host page relays the
  * frame link of MCP Apps with `x-air-app` to `brd mcp` of the test server (`mcp-host`) over its WebSocket. No mock of
- * Tauri: the page runs on its shim (`src/platform/air/`)
+ * Tauri: the page runs on its shim (`src/platform/air/`). The fake IDE keeps the rules of the page connection of Air (one
+ * view for each frame, the calls that wait), and every test ends with none of its calls refused
  */
-const test = base.extend<{ ide: FakeIde; repo: TestRepositoryBuilder }>({
-  // eslint-disable-next-line no-empty-pattern
-  repo: async ({}, use) => {
-    // `feature` with auth.js, and the unassigned "Fix critical bug" with bugfix.txt
-    const repo = new TestRepositoryBuilder().useTemplate("single_unassigned")
-    await repo.init()
-    await use(repo)
-    await repo.cleanup()
-  },
+/**
+ * A repository of the test from `template`, which goes after the IDE closed, so no session that closes ends a mirror a
+ * view still shows; the test fails when a call of its views broke a rule of the page connection of Air
+ */
+async function repositoryOf(page: Page, template: string, use: (repo: TestRepositoryBuilder) => Promise<void>): Promise<void> {
+  const repo = new TestRepositoryBuilder().useTemplate(template)
+  await repo.init()
+  await use(repo)
+  const refusals = await closeFakeIde(page)
+  await repo.cleanup()
+  expect(refusals).toEqual([])
+}
+
+const test = base.extend<{ ide: FakeIde; repo: TestRepositoryBuilder; other: TestRepositoryBuilder }>({
+  // `feature` with auth.js, and the unassigned "Fix critical bug" with bugfix.txt
+  repo: ({ page }, use) => repositoryOf(page, "single_unassigned", use),
+  // a second Git root of the project: `test-branch` with one commit
+  other: ({ page }, use) => repositoryOf(page, "simple", use),
   ide: async ({ page, repo }, use) => {
     await use(await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path }))
   },
 })
+
+/** The name of a repository in the selector of the main view: the last segment of its path */
+function nameOf(path: string): string {
+  return path.split("/").at(-1)!
+}
 
 /** Syncs the main view by its button and waits for the end of the sync: the row of the branch `feature`, settled */
 async function syncedFeatureRow(ide: FakeIde) {
@@ -66,6 +82,10 @@ test.describe("Branch Deck in the IDE", () => {
 
     // the files of the branch came as the call events of `get_file_diffs`, and the call answered after the last
     await expect(review.getByTestId("review-file-header")).toHaveAttribute("data-path", "auth.js")
+    // both views of the repository subscribed to its one mirror, one channel of the page link
+    const subscribed = (await ide.mirrorLog()).filter(entry => entry.kind === "subscribed")
+    expect(subscribed.map(entry => entry.instance)).toEqual(["main:1", "review:1"])
+    expect(new Set(subscribed.map(entry => entry.channel)).size).toBe(1)
   })
 
   test("Escape in a review tab closes its place: brd asks the IDE to close the view of its instance", async ({ ide }) => {
@@ -117,26 +137,76 @@ test.describe("Branch Deck in the IDE", () => {
     await expect(palette.getByRole("option", { name: "Open Repository…" })).toHaveCount(0)
   })
 
-  test("the selector of the main view lists the Git roots of the project, and the root picked shows again at the next start of the project", async ({ page, repo }) => {
-    const other = new TestRepositoryBuilder().useTemplate("simple")
-    await other.init()
-    try {
-      const nameOf = (path: string) => path.split("/").at(-1)!
-      const roots = [repo.path, other.path]
-      let main = (await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path, roots })).frame("main:1")
-      const selector = () => main.getByRole("combobox")
-      await expect(selector()).toContainText(nameOf(repo.path))
-      await selector().click()
-      await expect(main.getByRole("option")).toHaveText([new RegExp(nameOf(repo.path)), new RegExp(nameOf(other.path))])
-      await main.getByRole("option", { name: nameOf(other.path) }).click()
-      await expect(selector()).toContainText(nameOf(other.path))
+  test("the selector of the main view lists the Git roots of the project, and the root picked shows again at the next start of the project", async ({ page, repo, other }) => {
+    const roots = [repo.path, other.path]
+    let main = (await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path, roots })).frame("main:1")
+    const selector = () => main.getByRole("combobox")
+    await expect(selector()).toContainText(nameOf(repo.path))
+    await selector().click()
+    await expect(main.getByRole("option")).toHaveText([new RegExp(nameOf(repo.path)), new RegExp(nameOf(other.path))])
+    await main.getByRole("option", { name: nameOf(other.path) }).click()
+    await expect(selector()).toContainText(nameOf(other.path))
 
-      // the next start of the project: brd remembered the root picked for these roots, whatever their order
-      main = (await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path, roots: [...roots].reverse() })).frame("main:1")
-      await expect(selector()).toContainText(nameOf(other.path))
-    } finally {
-      await other.cleanup()
-    }
+    // the next start of the project: brd remembered the root picked for these roots, whatever their order
+    main = (await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path, roots: [...roots].reverse() })).frame("main:1")
+    await expect(selector()).toContainText(nameOf(other.path))
+  })
+
+  test("a pick of another root before the first subscription of the main view answered subscribes to it once that subscription answered and ended: the frame holds one view", async ({
+    page,
+    repo,
+    other,
+  }) => {
+    const ide = await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path, roots: [repo.path, other.path], holdSubscriptions: true })
+    const main = ide.frame("main:1")
+    // the main view subscribes to the first root, which waits before brd
+    await expect.poll(() => ide.heldSubscriptions()).toBe(1)
+    await main.getByRole("combobox").click()
+    await main.getByRole("option", { name: nameOf(other.path) }).click()
+    await expect(main.getByRole("combobox")).toContainText(nameOf(other.path))
+    expect(await ide.heldSubscriptions()).toBe(1)
+
+    await ide.releaseSubscriptions()
+    // the view of the first root answered and ended before the picked one subscribed
+    await expect
+      .poll(async () => (await ide.mirrorLog()).map(entry => [entry.kind, entry.mirror]))
+      .toEqual([
+        ["subscribed", repo.path],
+        ["unsubscribed", repo.path],
+        ["subscribed", other.path],
+      ])
+    // the view of the picked root is live: its sync shows its branch
+    const sync = main.getByTestId("sync-button")
+    await expect(sync).toBeEnabled()
+    const before = Number(await sync.getAttribute("data-sync-count"))
+    await sync.click()
+    await expect(sync).not.toHaveAttribute("data-sync-count", String(before))
+    await expect(sync).not.toHaveAttribute("aria-busy", "true")
+    await expect(main.locator('[data-testid="branch-row"][data-branch-name="test-branch"]')).toBeVisible()
+  })
+
+  test("a prefix set in a terminal that a sync finds moves the main view to the session of the new prefix: the frame keeps its one view, which brd moves before it answers the subscription again", async ({
+    ide,
+    repo,
+  }) => {
+    await syncedFeatureRow(ide)
+    const main = ide.frame("main:1")
+    const sync = main.getByTestId("sync-button")
+    const epoch = async () => (await sync.getAttribute("data-view-version"))?.split(":")[0]
+    const synced = await epoch()
+    expect(synced).toBeDefined()
+
+    await repo.setBranchPrefixInTerminal("team")
+    // the run reads the prefix of the config: `prefix_changed`, and the main view subscribes again holding its view
+    await sync.click()
+    await expect.poll(epoch).not.toBe(synced)
+    // the session of the new prefix syncs as it opens, for a repository synced before
+    await expect(main.locator('[data-testid="branch-row"][data-branch-name="feature"]')).toBeVisible()
+    await expect(sync).not.toHaveAttribute("aria-busy", "true")
+    await expect(sync).toBeEnabled()
+    expect(await repo.revision("team/virtual/feature")).toMatch(/^[0-9a-f]{40}$/)
+    // one view all along: the main view subscribed once, and its mirror moved without an end
+    expect((await ide.mirrorLog()).map(entry => [entry.instance, entry.kind])).toEqual([["main:1", "subscribed"]])
   })
 
   test("a Safe Push that fails while the IDE shows another tab is a notification of the IDE, whose action shows the branch in the tool window", async ({ page, repo }) => {

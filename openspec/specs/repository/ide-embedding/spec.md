@@ -305,6 +305,21 @@ When the session of a repository closes, `brd mcp` MUST send `x-air-app/viewEnde
 - **WHEN** a review tab sets its demand
 - **THEN** the session of its repository reads what the demand asks
 
+### Requirement: View: A change of the prefix moves the mirror to the session of the new prefix
+
+A subscription again to a mirror brd holds, by `bd_invoke` of `subscribe_view` or by another view, MUST take the session
+of the prefix the git config names now. A mirror of another prefix moves to it in one change that replaces every part,
+its `version` of another epoch, before the answer, and no patch of the old session reaches it after.
+
+#### Scenario: A prefix set in a terminal
+- **WHEN** the prefix of the git config changes, and the main view subscribes again after its sync answered
+  `prefix_changed`
+- **THEN** one change of every part moves the mirror to the session of the new prefix before the answer, and the main
+  view shows its branches without an end of the mirror
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`a_change_of_the_prefix_moves_the_mirror_to_the_session_of_the_new_prefix`)
+  [@test] crates/mcp-host/src/mirror_test.rs (`every_part_replaces_the_state_with_the_view_and_its_version_last`)
+  [@test] tests/e2e/air/air-page.spec.ts (`a prefix set in a terminal that a sync finds moves the main view to the session of the new prefix: the frame keeps its one view, which brd moves before it answers the subscription again`)
+
 ### Requirement: Events: An event of the app is an event of x-air-app
 
 `AppEvents::emit` MUST send `x-air-app/event {event, payload}`, and `emit_to` sends it with the instance of its window.
@@ -565,6 +580,25 @@ its place. The page mock of the E2E tests installs the same internals of Tauri (
   the notification are `bd_invoke` of their plugin calls; the size does nothing
   [@test] src/platform/air/shim.test.ts (`The plugins: a link, the clipboard and the log go to the host, the badge, the progress, a notification and the close of the window are bd_invoke of their plugin calls, the size does nothing`)
 
+### Requirement: Page: The subscriptions of the page share the one view of its frame
+
+Air holds one view for each frame, so the shim MUST keep at most one `x-air-app/subscribe` of a frame. A subscription of
+the repository the frame holds joins its view and asks brd to subscribe again (`bd_invoke` of `subscribe_view`); one of
+another repository subscribes once the view before it answered and was unsubscribed or ended.
+
+#### Scenario: A switch of the repository before the first answer
+- **WHEN** the main view picks another root before its first subscription answered
+- **THEN** the picked root subscribes once that subscription answered and the page unsubscribed it, and Air refuses
+  nothing
+  [@test] src/platform/air/shim.test.ts (`A switch of the repository before the first answer: the next repository subscribes once the view of the one before answered and was unsubscribed, so the frame holds one view`)
+  [@test] tests/e2e/air/air-page.spec.ts (`a pick of another root before the first subscription of the main view answered subscribes to it once that subscription answered and ended: the frame holds one view`)
+
+#### Scenario: A subscription again
+- **WHEN** the main view subscribes again to its repository after `prefix_changed`, holding the subscription it replaces
+- **THEN** both share the view of the frame, the new one answers after brd moved the mirror, and the one it replaces
+  leaves without an unsubscribe of the frame
+  [@test] src/platform/air/shim.test.ts (`A subscription again of the repository the frame holds shares its view: brd subscribes again, moving the mirror to the session of another prefix before it answers, and the subscription it replaces leaves without an unsubscribe of the frame`)
+
 ### Requirement: Page: The theme of the IDE maps onto the tokens of the page
 
 The page MUST map the theme and the styles of `hostContext` onto its semantic tokens, and follow each
@@ -656,14 +690,9 @@ the install of the agent CLI refuses it.
 - The page entry of Air is measured on macOS only: a loopback document that cannot open its socket on Windows, on
   Linux or behind a proxy of the IDE would change the transport.
 - The desktop app and `brd mcp` both poll GitHub and Patronus in P1.
-- Air holds one view for each connection of a page: a `viewOpen` while another one runs gets `-32011 viewOpen` at
-  once, and one while the connection holds a view waits up to 1 s for its end and then gets the same. The main view
-  subscribes again before it leaves in two cases: a switch of the repository before the first subscription answered,
-  and the subscription again after `prefix_changed` (`resubscribeSession` of `src/model/store.ts`), which holds the old
-  one until the new one answers, while `brd mcp` answers a held mirror from its state. Both fail in the IDE. The E2E
-  suite of the Air build reaches neither: each subscription again there follows the end of the mirror.
 - Air lets one view wait for at most 24 calls and the views of one process for 36 (`-32011 tooManyCalls` over that).
-  The views of the E2E suite of the Air build wait for at most 9 at once.
+  The views of the E2E suite of the Air build wait for at most 9 at once, and its fake IDE refuses a call over either
+  share as Air does.
 
 ## References
 

@@ -375,6 +375,87 @@ async fn the_end_of_a_session_ends_its_mirror_with_the_reason_session_closed() {
   ide.end().await;
 }
 
+/// Sets `branchdeck.branchPrefix` of the repository as `git config` in a terminal does (`POST /repositories/{id}/branch-prefix`)
+async fn set_prefix_in_terminal(ide: &Ide, prefix: &str) {
+  let response = reqwest::Client::new()
+    .post(format!("http://{}/repositories/{}/branch-prefix", ide.addr, ide.id))
+    .json(&json!({ "prefix": prefix }))
+    .send()
+    .await
+    .unwrap();
+  assert!(response.status().is_success(), "{response:?}");
+}
+
+/// The change of `messages` that moves the mirror of `repo` to the session of `prefix`: every part replaced, the header of
+/// that prefix among them, the version last
+fn moved_to(messages: &[Value], repo: &str, prefix: &str) -> Value {
+  let moved = messages
+    .iter()
+    .find(|message| {
+      message["method"] == "x-air-app/viewChanged"
+        && message["params"]["mirror"] == repo
+        && message["params"]["ops"]
+          .as_array()
+          .is_some_and(|ops| ops.iter().any(|op| op["part"] == "header" && op["value"]["prefix"] == prefix))
+    })
+    .unwrap_or_else(|| panic!("no change moved the mirror to the prefix {prefix}: {messages:#?}"));
+  let ops = moved["params"]["ops"].as_array().unwrap();
+  assert!(ops.iter().all(|op| op["op"] == "part"), "the move replaces every part: {ops:#?}");
+  assert!(ops.iter().any(|op| op["part"] == "branches") && ops.iter().any(|op| op["part"] == "facts"), "{ops:#?}");
+  let last = ops.last().unwrap();
+  assert_eq!(last["part"], "version");
+  last["value"].clone()
+}
+
+/// A prefix set in a terminal moves the mirror of the repository to the session of that prefix: the page subscribes
+/// again with `bd_invoke` of `subscribe_view` (its frame holds one view), which brd answers after one change of every
+/// part, the header of the new prefix and a version of another epoch; a view that subscribes after the next change of
+/// the prefix moves the mirror the same way and gets its state, and a subscription again under the same prefix moves
+/// nothing
+#[tokio::test]
+async fn a_change_of_the_prefix_moves_the_mirror_to_the_session_of_the_new_prefix() {
+  let mut ide = Ide::start().await;
+  initialized(&mut ide).await;
+  let repo = ide.repo.clone();
+  ide.send(&json!({ "jsonrpc": "2.0", "id": 2, "method": "x-air-app/subscribe", "params": { "instance": "main:1", "params": { "repositoryPath": repo } } }));
+  let first = ide.expect(&json!({ "jsonrpc": "2.0", "id": 2, "result": { "mirror": repo, "state": "${any}" } })).await["result"]["state"].clone();
+  let epoch = first["version"]["epoch"].clone();
+  assert_ne!(first["header"]["prefix"], "team", "{first:#}");
+
+  set_prefix_in_terminal(&ide, "team").await;
+  ide.send(&invoke(
+    3,
+    "main:1",
+    "subscribe_view",
+    &json!({ "params": { "repositoryPath": repo, "have": first["version"] } }),
+  ));
+  let messages = ide.until(&json!({ "jsonrpc": "2.0", "id": 3, "result": "${any}" })).await;
+  assert_eq!(messages.last().unwrap()["result"]["structuredContent"], json!({ "value": null }), "{messages:#?}");
+  let version = moved_to(&messages, &repo, "team");
+  assert_ne!(version["epoch"], epoch, "the session of the new prefix is another epoch");
+
+  // under the same prefix brd answers, and each change of the mirror stays in the epoch of that session
+  ide.send(&invoke(4, "main:1", "subscribe_view", &json!({ "params": { "repositoryPath": repo } })));
+  let messages = ide.until(&json!({ "jsonrpc": "2.0", "id": 4, "result": "${any}" })).await;
+  let epochs: Vec<&Value> = messages
+    .iter()
+    .filter(|message| message["method"] == "x-air-app/viewChanged")
+    .filter_map(|message| message["params"]["ops"].as_array()?.last())
+    .map(|op| &op["value"]["epoch"])
+    .collect();
+  assert!(epochs.iter().all(|it| **it == version["epoch"]), "{messages:#?}");
+
+  set_prefix_in_terminal(&ide, "crew").await;
+  ide.send(&json!({ "jsonrpc": "2.0", "method": "x-air-app/viewShown", "params": { "instance": "review:2", "view": "review", "key": "branch:a", "params": {} } }));
+  ide.send(&json!({ "jsonrpc": "2.0", "id": 5, "method": "x-air-app/subscribe", "params": { "instance": "review:2", "params": { "repositoryPath": repo } } }));
+  let messages = ide.until(&json!({ "jsonrpc": "2.0", "id": 5, "result": { "mirror": repo, "state": "${any}" } })).await;
+  let version = moved_to(&messages, &repo, "crew");
+  let state = &messages.last().unwrap()["result"]["state"];
+  assert_eq!(state["header"]["prefix"], "crew");
+  assert_eq!(state["version"]["epoch"], version["epoch"]);
+  ide.end().await;
+}
+
 /// Two review tabs call the same tool and the same command for their window: each gets the answer of its own instance,
 /// the data of its own open and a change of the settings whose origin is its window
 #[tokio::test]

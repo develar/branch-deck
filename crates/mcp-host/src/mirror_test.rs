@@ -95,3 +95,22 @@ fn a_patch_applies_only_to_the_view_at_its_base() {
   mirror.catch_up(patch(&mirror, 0, held));
   assert_eq!(mirror.state()["order"], json!(["x"]));
 }
+
+/// The change that moves a mirror to the view of another session replaces every part of the state, whole, and sets the
+/// version of that view last: the table rule of Air makes the state that view
+#[test]
+fn every_part_replaces_the_state_with_the_view_and_its_version_last() {
+  let mirror = MirrorView::new(RepositoryView {
+    version: Version { epoch: 7, seq: 3 },
+    order: vec!["a".to_owned()],
+    ..RepositoryView::default()
+  });
+  let ops = mirror.parts();
+  assert!(ops.iter().all(|op| op["op"] == "part"), "{ops:#?}");
+  let last = ops.last().unwrap();
+  assert_eq!((last["part"].as_str(), &last["value"]), (Some("version"), &json!({ "epoch": 7, "seq": 3 })));
+  let state = mirror.state();
+  let replaced: serde_json::Map<String, serde_json::Value> = ops.iter().map(|op| (op["part"].as_str().unwrap().to_owned(), op["value"].clone())).collect();
+  assert_eq!(serde_json::Value::Object(replaced), state, "the ops name every part once, the state after them is the view");
+  assert_eq!(ops.len(), state.as_object().unwrap().len());
+}

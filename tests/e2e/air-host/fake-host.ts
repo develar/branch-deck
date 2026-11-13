@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import type { FrameLocator, Page } from "@playwright/test"
 import { buildSync } from "esbuild"
 import { TEST_SERVER_PORT, TEST_SERVER_URL } from "../helpers/test-server-url"
-import type { AirHostConfig, HostCall, HostContextTheme, HostView } from "./host-page"
+import type { AirHostConfig, HostCall, HostContextTheme, HostView, MirrorEntry, Refusal } from "./host-page"
 import darkTheme from "./theme-dark.json" with { type: "json" }
 import lightTheme from "./theme-light.json" with { type: "json" }
 
@@ -66,6 +66,14 @@ async function serveAppFiles(page: Page): Promise<void> {
   })
 }
 
+/** What the host page offers a test (`window.__airHost` of `host-page.ts`), each read inside the page */
+interface AirHost {
+  refusals(): Refusal[]
+  mirrorLog(): MirrorEntry[]
+  heldSubscriptions(): number
+  releaseSubscriptions(): void
+}
+
 /** The fake IDE of a test: the views it shows, what `brd mcp` asked of it, and the frame of a view */
 export class FakeIde {
   constructor(readonly page: Page) {}
@@ -82,6 +90,21 @@ export class FakeIde {
   /** The requests of `brd mcp` to the IDE and the host tools the pages called, in order */
   calls(): Promise<HostCall[]> {
     return this.page.evaluate(() => (window as unknown as { __airHost: { calls(): HostCall[] } }).__airHost.calls())
+  }
+
+  /** What the views did with the mirrors, in order: each subscription answered, each unsubscribe, each end of the app */
+  mirrorLog(): Promise<MirrorEntry[]> {
+    return this.page.evaluate(() => (window as unknown as { __airHost: AirHost }).__airHost.mirrorLog())
+  }
+
+  /** The subscriptions that wait before `brd mcp` (`holdSubscriptions` of `openFakeIde`) */
+  heldSubscriptions(): Promise<number> {
+    return this.page.evaluate(() => (window as unknown as { __airHost: AirHost }).__airHost.heldSubscriptions())
+  }
+
+  /** Lets the subscriptions held reach `brd mcp`, and holds no more */
+  releaseSubscriptions(): Promise<void> {
+    return this.page.evaluate(() => (window as unknown as { __airHost: AirHost }).__airHost.releaseSubscriptions())
   }
 
   setTheme(theme: HostContextTheme): Promise<void> {
@@ -123,7 +146,8 @@ export class FakeIde {
  * Opens the fake IDE on the fixture repository `repoId` at `repositoryPath` with the main view: the host page is a page
  * of the test server's origin, so its WebSocket to the app link is a loopback one, and each frame loads the Air build.
  * `roots` are the Git roots of the project, the repository alone by default; an open again is a next start of the
- * project, a new connection of `brd mcp` on the same settings
+ * project, a new connection of `brd mcp` on the same settings. With `holdSubscriptions`, the subscriptions of the views
+ * wait before `brd mcp` until `releaseSubscriptions`
  */
 export async function openFakeIde(
   page: Page,
@@ -133,12 +157,20 @@ export async function openFakeIde(
     roots,
     theme = IDE_THEMES.light,
     appUrl = appLinkUrl(repoId),
-  }: { repoId: string; repositoryPath: string; roots?: readonly string[]; theme?: HostContextTheme; appUrl?: string },
+    holdSubscriptions,
+  }: { repoId: string; repositoryPath: string; roots?: readonly string[]; theme?: HostContextTheme; appUrl?: string; holdSubscriptions?: boolean },
 ): Promise<FakeIde> {
   await serveAppFiles(page)
   // a document of the server's origin, its content the host page's
   await page.goto(`${TEST_SERVER_URL}/health`)
-  const config: AirHostConfig = { appUrl, appOrigin: APP_ORIGIN, repositoryPath, ...(roots !== undefined && { roots }), theme }
+  const config: AirHostConfig = {
+    appUrl,
+    appOrigin: APP_ORIGIN,
+    repositoryPath,
+    ...(roots !== undefined && { roots }),
+    theme,
+    ...(holdSubscriptions !== undefined && { holdSubscriptions }),
+  }
   await page.setContent(`<!doctype html><html><head><title>Fake IDE</title></head><body style="margin: 0"></body></html>`)
   await page.evaluate(value => {
     ;(window as unknown as { __airHostConfig: AirHostConfig }).__airHostConfig = value
@@ -150,4 +182,15 @@ export async function openFakeIde(
     await host.open("main")
   })
   return new FakeIde(page)
+}
+
+/**
+ * The IDE closes, as at the end of a test, before the repositories it shows go: the calls of its views that the rules of
+ * the page connection of Air refused (`-32011`, none for a page that keeps them), then the page closes with its app link,
+ * so `brd mcp` ends its connection and no session that closes after it ends a mirror a view still shows
+ */
+export async function closeFakeIde(page: Page): Promise<Refusal[]> {
+  const refusals = page.isClosed() ? [] : await page.evaluate(() => (window as unknown as { __airHost?: { refusals(): Refusal[] } }).__airHost?.refusals() ?? []).catch(() => [])
+  await page.close()
+  return refusals
 }

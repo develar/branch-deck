@@ -32,6 +32,21 @@ impl MirrorView {
     serde_json::to_value(&self.view).unwrap_or_else(|_| json!({}))
   }
 
+  /// Every part of the state, each replaced whole, the part `version` last: the change that moves a mirror to the view
+  /// of another session (a prefix of another epoch), whose patches start from that view
+  pub fn parts(&self) -> Vec<Value> {
+    let Value::Object(state) = self.state() else {
+      return Vec::new();
+    };
+    let mut ops: Vec<Value> = state
+      .into_iter()
+      .filter(|(part, _)| part != "version")
+      .map(|(part, value)| json!({ "op": "part", "part": part, "value": value }))
+      .collect();
+    ops.push(json!({ "op": "part", "part": "version", "value": self.view.version }));
+    ops
+  }
+
   /// Applies `patch` and gives the ops of its change, the version after it last; none when it changed no part
   ///
   /// # Errors
