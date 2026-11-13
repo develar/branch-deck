@@ -16,11 +16,11 @@ import { useLandedBy, useLandingSpan } from "@/stores/patronus"
  */
 export function LandingSpanLabel({ name, fallback }: { name: string; fallback: ReactNode }) {
   const landing = useLandingSpan(name)
-  const landedBy = useLandedBy(name)
+  const landedWith = useLandedBy(name)
   const landed = useBranchLanded(name)
   // its own robot's branch landed whole: the robot chip says "Merged"
-  if (landedBy !== null && formatLandedWith(landedBy) !== null) {
-    return landed === null ? <LandedWithChip landed={landedBy} /> : null
+  if (landedWith !== null && formatLandedWith(landedWith) !== null) {
+    return landed === null ? <LandedWithChip landed={landedWith} /> : null
   }
   if (landing === null) {
     return fallback

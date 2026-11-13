@@ -466,7 +466,8 @@ fn a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why() {
         1,
         NewsEvent::RobotMerged {
           robot_id: "merges".into(),
-          closes: Vec::new()
+          closes: Vec::new(),
+          landed: Vec::new(),
         }
       ),
       (
@@ -566,7 +567,11 @@ fn a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_land
   }];
   assert_eq!(
     facts.news().iter().map(|news| news.event.clone()).collect::<Vec<_>>(),
-    vec![NewsEvent::RobotMerged { robot_id: "r".into(), closes }]
+    vec![NewsEvent::RobotMerged {
+      robot_id: "r".into(),
+      closes,
+      landed: vec!["auth".to_owned(), "login".to_owned()],
+    }]
   );
 }
 

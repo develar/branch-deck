@@ -5,6 +5,7 @@ import type {
   BranchLanding,
   Fact,
   FactState,
+  HoldView,
   Landed,
   LandedPullRequest,
   PatronusAvailability,
@@ -17,7 +18,6 @@ import type {
   RobotRestart,
   RobotsChange,
   RobotsView,
-  StackLanding,
   TableChanges,
 } from "@/lib/bindings"
 import { getErrorDetails } from "@/lib/errors"
@@ -34,10 +34,10 @@ import type { RowRobots } from "@/lib/robot-overview"
 import { NO_ROW_ROBOTS } from "@/lib/robot-overview"
 import { formatOrphanedStackPullRequest } from "@/lib/whole-stack"
 import { watchRobotInDemand } from "@/model/demand"
-import { refreshSessionFacts } from "@/model/store"
+import { getRowPart, refreshSessionFacts, useRowPart } from "@/model/store"
 import { describeLandedCloses } from "@/presenters/news"
 import { recordRobotNews } from "@/stores/activity"
-import { branchSyncStore, getLandedState, getStackAncestors, useLandedState, whenSynced } from "@/stores/branch-sync"
+import { branchSyncStore, getStackAncestors, useBranchSync, useLandedState, whenSynced } from "@/stores/branch-sync"
 import { getStackPullRequest, refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -225,7 +225,6 @@ function stackRobotIn(repository: RepositoryPatronus | undefined, root: string):
 interface PatronusFacts {
   readonly spans: ReadonlyMap<string, LandingDescendant>
   readonly ancestors: ReadonlyMap<string, LandingAncestor>
-  readonly holds: ReadonlyMap<string, PushHold>
   /** By root, the robot of the whole stack that runs on its stack branch */
   readonly stackHolds: ReadonlyMap<string, PushHold>
 }
@@ -233,7 +232,6 @@ interface PatronusFacts {
 const NO_FACTS: PatronusFacts = {
   spans: new Map(),
   ancestors: new Map(),
-  holds: new Map(),
   stackHolds: new Map(),
 }
 
@@ -280,7 +278,6 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
   const by = (of: RobotOf, robot: PatronusRobot) => ({ branch: of.branch, robot, ...(of.wholeStack && { wholeStack: true }) })
   const spans = new Map<string, LandingDescendant>()
   const ancestors = new Map<string, LandingAncestor>()
-  const holds = new Map<string, PushHold>()
   for (const [name, facts] of Object.entries(view.branches)) {
     const spanRobot = facts.span === null ? undefined : robotOf(facts.span.by.robotId)
     if (facts.span !== null && spanRobot !== undefined) {
@@ -290,12 +287,6 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
     const ancestorRobot = facts.landingAncestor === null ? undefined : robotOf(facts.landingAncestor.robotId)
     if (facts.landingAncestor !== null && ancestorRobot !== undefined && isRobotActive(ancestorRobot)) {
       ancestors.set(name, by(facts.landingAncestor, ancestorRobot))
-    }
-    const hold = facts.landing.hold
-    const holdRobot = hold === null ? undefined : robotOf(hold.by.robotId)
-    if (hold !== null && holdRobot !== undefined && (hold.kind === "landed" ? holdRobot.status === "success" : isHoldingRobot(holdRobot))) {
-      const commits = hold.carried?.commits.length
-      holds.set(name, { kind: hold.kind, ...by(hold.by, holdRobot), ...(commits !== undefined && { commits }) })
     }
   }
   const stackHolds = new Map<string, PushHold>()
@@ -309,7 +300,6 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
   const next: PatronusFacts = {
     spans: keptFacts(last.spans, spans),
     ancestors: keptFacts(last.ancestors, ancestors),
-    holds: keptFacts(last.holds, holds),
     stackHolds: keptFacts(last.stackHolds, stackHolds),
   }
   // the same facts (another robot changed, a view equal by content): the same object, no hook renders again
@@ -411,58 +401,15 @@ export function useLandedBy(branchName: string): LandedBy | null {
   return landedByOf(landed, robot)
 }
 
-/** Non-hook variant of `useLandedBy`, for menus built on open */
-export function getLandedBy(branchName: string): LandedBy | null {
-  const landed = getLandedState(branchName)
-  const robotId = landingRobotId(landed)
-  return landedByOf(landed, robotId === undefined ? undefined : currentRepository()?.robots[robotId])
-}
-
-const NO_BRANCH_LANDING: BranchLanding = { hold: null, start: null, dryRun: null, replaces: null, push: null }
-const NO_STACK_LANDING: StackLanding = {
-  hold: null,
-  start: null,
-  dryRun: null,
-  replaces: null,
-  rest: { members: [], commitCount: 0, landed: [], by: [], byOwnRobot: false },
-}
-
-function branchLandingIn(repository: RepositoryPatronus | undefined, branchName: string): BranchLanding {
-  return repository?.view?.branches[branchName]?.landing ?? NO_BRANCH_LANDING
-}
-
-function stackLandingIn(repository: RepositoryPatronus | undefined, root: string): StackLanding {
-  return repository?.view?.stacks[root]?.landing ?? NO_STACK_LANDING
-}
+const NO_BRANCH_LANDING: BranchLanding = { start: null, dryRun: null, replaces: null, push: null }
 
 /**
- * What the rules decide of the branch over its Patronus facts (`BranchLanding`, `domain_policy::holds` and `land`): what
- * holds its push, why its Safe Push or Dry Run can't start, the robot a Safe Push start replaces, why the push an action
- * needs can't be made; nothing before the session derived a view
+ * What the rules decide of the branch over its Patronus facts (`BranchLanding`, `domain_policy::holds` and `land`): why
+ * the push an action needs can't be made; nothing before the session derived a view. What holds its push is the row's
+ * (`getPushHold`), of the branch as it is now
  */
-export function useBranchLanding(branchName: string): BranchLanding {
-  const key = useRepositoryKey()
-  return useStore(patronusStore, state => branchLandingIn(state.repositories[key], branchName))
-}
-
-/** Non-hook variant of `useBranchLanding`, for menus built on open, the next step and the push itself */
 export function getBranchLanding(branchName: string): BranchLanding {
-  return branchLandingIn(currentRepository(), branchName)
-}
-
-/**
- * What the rules decide of the whole stack of `root` (`StackLanding`): what holds the push of its stack branch (a
- * parked member, every branch landed, its own robot, a build the sync did not make), why its starts can't, the robot a
- * Safe Push start replaces
- */
-export function useStackLanding(root: string): StackLanding {
-  const key = useRepositoryKey()
-  return useStore(patronusStore, state => stackLandingIn(state.repositories[key], root))
-}
-
-/** Non-hook variant of `useStackLanding`, for menus built on open and the push itself */
-export function getStackLanding(root: string): StackLanding {
-  return stackLandingIn(currentRepository(), root)
+  return currentRepository()?.view?.branches[branchName]?.landing ?? NO_BRANCH_LANDING
 }
 
 /**
@@ -521,22 +468,47 @@ export async function whenRepositoryViewCurrent(): Promise<void> {
   })
 }
 
-/**
- * Why the branch offers no push (`PushHold`): a Safe Push runs on it or lands it with a branch built on it, or a merged
- * one landed it; null while it can be pushed
- */
-export function usePushHold(branchName: string): PushHold | null {
-  return useRepositoryFacts().holds.get(branchName) ?? null
+/** The hold `hold` of a branch (`NextStepView.hold`) as the rows name it, with `robot`, its robot */
+function pushHoldOf(hold: HoldView | null | undefined, robot: PatronusRobot | undefined): PushHold | null {
+  if (hold == null || robot === undefined) {
+    return null
+  }
+  const commits = hold.carried?.commits.length
+  return { kind: hold.kind, branch: hold.by.branch, robot, ...(hold.by.wholeStack && { wholeStack: true }), ...(commits !== undefined && { commits }) }
 }
 
-/** Every push hold of the selected repository, branch → its hold; the same map while no hold changes */
+/**
+ * Why the branch offers no push (`PushHold`): a Safe Push runs on it or lands it with a branch built on it, or a merged
+ * one landed all of it as it is, as Rust decides it of the branch as it is now (`NextStepView.hold`, never what the
+ * view of another table says); null while it can be pushed
+ */
+export function usePushHold(branchName: string): PushHold | null {
+  const hold = useRowPart(branchName, "landing")?.hold
+  const key = useRepositoryKey()
+  const robot = useStore(patronusStore, state => (hold == null ? undefined : state.repositories[key]?.robots[hold.by.robotId]))
+  return pushHoldOf(hold, robot)
+}
+
+/** Every push hold of the selected repository, branch → its hold (`usePushHold` of every row) */
 export function usePushHolds(): ReadonlyMap<string, PushHold> {
-  return useRepositoryFacts().holds
+  const steps = useBranchSync(state => state.nextSteps)
+  const robots = useRepositoryRobots()
+  return useMemo(() => {
+    const holds = new Map<string, PushHold>()
+    for (const [name, view] of Object.entries(steps)) {
+      const hold = pushHoldOf(view.hold, view.hold == null ? undefined : robots?.[view.hold.by.robotId])
+      if (hold !== null) {
+        holds.set(name, hold)
+      }
+    }
+    return holds
+  }, [steps, robots])
 }
 
 /** Non-hook variant of `usePushHold`, for menus built on open and the push itself */
 export function getPushHold(branchName: string): PushHold | null {
-  return currentFacts().holds.get(branchName) ?? null
+  const hold = getRowPart(branchName, "landing")?.hold
+  return pushHoldOf(hold, hold == null ? undefined : currentRepository()?.robots[hold.by.robotId])
 }
 
 /** The robots and the view of the selected repository; undefined before the first answer */
@@ -725,11 +697,12 @@ const announcedMerges = new Set<string>()
  * says it at once (unless Settings turned it off), and the toast waits for the focus.
  * A stacked branch landed its ancestors too, the whole stack every branch of it: the open pull requests its landing
  * closes come with the news (`closes`, `domain_policy::landed::pull_requests_to_close`), which the session tells once
- * the view of the robots it merged in stands, so the toast names what it landed (`landedByRobot` of that view) at once
+ * the view of the robots it merged in stands, so the toast names what it landed (`landedBranches`, of the branches the
+ * view knows as the table has them now, `NewsEvent::RobotMerged::landed`) at once
  * and what it closes (`describeLandedCloses`); the session of the robot's repository closes them
  * (`CloseLandedPullRequests`, the comment of each Rust's), whichever repository the main window shows meanwhile.
  */
-export function announceMerge(key: string, robot: PatronusRobot, closes: readonly LandedPullRequest[]): void {
+export function announceMerge(key: string, robot: PatronusRobot, closes: readonly LandedPullRequest[], landedBranches: readonly string[]): void {
   if (announcedMerges.has(robot.id)) {
     return
   }
@@ -739,7 +712,6 @@ export function announceMerge(key: string, robot: PatronusRobot, closes: readonl
     void refreshPullRequests("afterWrite")
   }
   const [repositoryPath] = key.split("\n") as [string, string]
-  const landed = patronusStore.getState().repositories[key]?.view?.landedByRobot[robot.id] ?? []
   if (closes.length > 0) {
     void closeLanded(repositoryPath, { by: "robot", robotId: robot.id }, "Cannot close the pull requests the Safe Push landed")
   }
@@ -750,7 +722,6 @@ export function announceMerge(key: string, robot: PatronusRobot, closes: readonl
   recordRobotNews(repositoryPath, title, description, robot)
   // the toast's button picks it up (Update Project fetches first): the notification says what merged, as the toast
   const notification = { title, body: description }
-  const landedBranches = landed.map(branch => branch.branch)
   announce("patronusMerges", notification, () => showMergeToast(repositoryPath, robot, title, description, landedBranches))
 }
 

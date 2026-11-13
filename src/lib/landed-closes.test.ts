@@ -31,7 +31,7 @@ describe("tellLandedNews", () => {
   it("asks the session to close what each landing without a robot landed, and toasts each close that failed", async () => {
     const news: News[] = [
       { id: 1, event: { kind: "landed", landing: "landing-1", closes: [{ branch: "auth", number: 5 }] } },
-      { id: 2, event: { kind: "robotMerged", robotId: "r1", closes: [{ branch: "login", number: 6 }] } },
+      { id: 2, event: { kind: "robotMerged", robotId: "r1", closes: [{ branch: "login", number: 6 }], landed: [] } },
     ]
     tellLandedNews("/repo", news)
     await vi.waitFor(() => expect(errors).toEqual(["Cannot close pull request #5"]))

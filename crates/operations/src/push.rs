@@ -42,7 +42,7 @@ use domain_types::session::{StackBranchAlong, stack_readiness_key};
 use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::service_sources::ServiceHost;
-use repository_model::derive::{Holds, LandSources, PushRules, alone_push_of, up_to_push_of, with_pull_request_sources, with_push_states};
+use repository_model::derive::{Holds, LandSources, PushRules, alone_push_of, stack_hold_now, up_to_push_of, with_pull_request_sources, with_push_states};
 use repository_model::facts::FactStore;
 use repository_model::push_guard::guard_facts;
 use repository_model::session::{SessionKey, Sessions};
@@ -448,7 +448,11 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
   if !matches!(verdict, Verdict::Goes | Verdict::AsksFirst) {
     return Some(push_plan_of(push, Witness::default(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), source_ref));
   }
-  let hold = holds.view.stacks.get(root).and_then(|facts| facts.landing.hold.clone());
+  // of the branches as they are now: a view of another table that says every branch of it landed holds nothing
+  let hold = stack_hold_now(holds.view, root, &stack.members, |member| {
+    sources.table.branch(member).map(|branch| branch.commits.as_slice())
+  })
+  .cloned();
   if let Some(reason) = hold.or_else(|| stack_not_built(stack)) {
     return Some(push_plan_of(push, Witness::default(), Vec::new(), Vec::new(), vec![reason], Vec::new(), source_ref));
   }

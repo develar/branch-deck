@@ -19,7 +19,8 @@
 //   a surface shows is Rust's, `domain_policy::row_status`), or, src/stores too, what landed a subject (`isLanded…`,
 //   `…LandingBranchCount`: Rust's `landedStates`, `NextStep.lands`); a formatter (`format…`) words a reason Rust gave and
 //   decides nothing;
-// - `view-landing-read`: a read of what the Patronus view says landed (`.landedBy`, the `rest` of a `StackLanding`) in
+// - `view-landing-read`: a read of what the Patronus view says landed (`landedBy`, `landedByRobot`, the `rest` of its
+//   `landing`; the types the page gets have none of them, nor the hold of a branch, so this is the second guard) in
 //   src (its tests and test-support aside): the view may be of another table, stale while the view of this one is
 //   derived; the page reads what Rust decides of the table as it is (`landedStates`, `NextStepView.rest`,
 //   `NextStep.lands`).
@@ -143,11 +144,12 @@ const RULE_EXPORT =
 /** The sources whose exports a rule name refuses: the modules and the hooks of the page, their tests aside */
 const RULED = /^src\/(?:lib|hooks)\/(?!.*\.test\.tsx?$)/
 // the export of what landed a subject, a rule of Rust's (`landedStates`, `NextStep.lands`), its name the group
-const LANDING_EXPORT = /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)(isLanded[\w$]*|(?!format)[\w$]*LandingBranchCount)\b/
+const LANDING_EXPORT =
+  /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)(isLanded[\w$]*|[\w$]*[Ll]anded(?:Whole|Wholly)[\w$]*|(?!format)[\w$]*(?:Landing|Landed)[\w$]*Count|count[\w$]*(?:Landing|Landed)[\w$]*)\b/
 /** The sources whose exports a landing name refuses: the modules, the hooks and the stores of the page, their tests aside */
 const LANDING_RULED = /^src\/(?:lib|hooks|stores)\/(?!.*\.test\.tsx?$)/
 // a read of what the Patronus view says landed: its `landedBy`, the `rest` of a `StackLanding`
-const VIEW_LANDING_READ = /\.landedBy\b|\b(?:get|use)StackLanding\([^)]*\)\??\.rest\b|\.landing\??\.rest\b/
+const VIEW_LANDING_READ = /\blandedBy(?:Robot)?\b|\b(?:get|use)StackLanding\([^)]*\)\??\.rest\b|\.landing\??\.rest\b/
 /** The sources that may not read it: the page, its tests and test-support aside */
 const VIEW_READING = /^src\/(?!test-support\/)(?!.*\.test\.tsx?$)/
 

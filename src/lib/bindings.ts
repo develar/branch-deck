@@ -1133,8 +1133,6 @@ commit: UpstreamCommit | null } | { kind: "notIntegrated"; totalCommitCount: num
 
 /**  What the rules decide of a branch over its Patronus facts (`domain_policy::holds`, `domain_policy::land`) */
 export type BranchLanding = {
-	/**  What refuses its push (`holds::branch_hold`) */
-	hold: HoldView | null,
 	/**  Why a Safe Push can't start (`land::start_refusal`) */
 	start: Reason | null,
 	/**  Why a Dry Run can't start: a robot on the last commit, else the hold of the push it makes */
@@ -1209,7 +1207,6 @@ export type BranchPatronus = {
 	 *  tip), by id: the robot of its row
 	 */
 	robotId: string | null,
-	landedBy: LandedByView | null,
 	span: SpanView | null,
 	/**
 	 *  The nearest ancestor whose robot runs, or that a running robot of a side branch lands: a Safe Push of the branch
@@ -4329,17 +4326,6 @@ export type LandedBy =
 /**  GitHub merged its pull request `number` into the target with the commits the subject has (D13) */
 { kind: "pullRequest"; number: number };
 
-/**  What a merged robot landed of a branch: the robot that left the fewest commits after it, of equals the first merge */
-export type LandedByView = {
-	by: RobotOf,
-	/**  The robot ran on this branch itself */
-	own: boolean,
-	/**  The commits of the branch it landed, original ids, newest first */
-	landed: string[],
-	/**  The commits added after them, original ids, newest first: the work left; empty when all of it landed */
-	after: string[],
-};
-
 /**  A local commit whose change is in the baseline */
 export type LandedCommit = {
 	/**  The local commit, as it was before the update */
@@ -5237,7 +5223,12 @@ export type NewsEvent =
  *  Patronus view of the robots it merged in stands, with the open pull requests of the branches it landed whole besides
  *  its own (`closes`, `domain_policy::landed::pull_requests_to_close`), which the app closes
  */
-{ kind: "robotMerged"; robotId: string; closes: LandedPullRequest[] } | 
+{ kind: "robotMerged"; robotId: string; closes: LandedPullRequest[]; 
+/**
+ *  The branches it landed, root first, of those the view knows as the table has them now (a view of another table
+ *  says nothing of a branch whose commits changed since): what its toast names
+ */
+landed: string[] } | 
 /**
  *  A landing without a robot landed branches whose open pull requests hold nothing more (`closes`,
  *  `domain_policy::landed::pull_requests_to_close`), which the app closes (`CloseLandedPullRequests` of
@@ -5347,6 +5338,12 @@ export type NextStepView = {
 	 *  it reads this, never what the view of another table says; `None` of a branch
 	 */
 	rest?: WholeStackRest | null,
+	/**
+	 *  Of a branch, what holds its push now (`derive::hold_now`): a running Safe Push that runs on it or lands it, or a
+	 *  merged one that landed all of it as it is now; what the page says of the hold reads this, never what the view of
+	 *  another table says. `None` while nothing holds it, and of a whole stack
+	 */
+	hold?: HoldView | null,
 };
 
 /**  Why the node is what it is, with the facts its words need */
@@ -5803,7 +5800,6 @@ export type PatronusChange = {
 	landingNeeds?: FactState | null,
 	branches?: { [key in string]: BranchPatronus },
 	stacks?: { [key in string]: StackPatronus },
-	landedByRobot?: { [key in string]: RobotLandedBranch[] } | null,
 	/**  The restarts of the robots, whole, when they differ */
 	restarts?: { [key in string]: RobotRestart } | null,
 	/**  The branches and the stacks the view no longer lists */
@@ -6052,8 +6048,6 @@ export type PatronusStartOptions = {
 export type PatronusView = {
 	branches: { [key in string]: BranchPatronus },
 	stacks: { [key in string]: StackPatronus },
-	/**  By merged robot id, every branch it landed, root first */
-	landedByRobot: { [key in string]: RobotLandedBranch[] },
 	/**  By robot id, the restart a robot of the user offers; a robot without one is not listed */
 	restarts: { [key in string]: RobotRestart },
 };
@@ -8481,13 +8475,6 @@ export type RobotFailureReport = {
 	headBranch: string | null,
 };
 
-/**  A branch a merged robot landed, whichever robot the branch's `landedBy` names (`closeLandedPullRequests`) */
-export type RobotLandedBranch = {
-	branch: string,
-	own: boolean,
-	after: string[],
-};
-
 /**  A robot of another branch, or of the whole stack of a root, and what it does to a branch */
 export type RobotOf = {
 	/**  The branch the robot ran on; the root for the robot of the whole stack */
@@ -9142,11 +9129,6 @@ export type StackLanding = {
 	dryRun: Reason | null,
 	/**  The running robot of the whole stack a Safe Push start replaces, by id: on an older commit of its stack branch */
 	replaces: string | null,
-	/**
-	 *  What its Safe Push lands now (`domain_policy::stack::whole_stack_rest`): every branch of it, less those merged Safe
-	 *  Pushes landed whole
-	 */
-	rest: WholeStackRest,
 };
 
 /**

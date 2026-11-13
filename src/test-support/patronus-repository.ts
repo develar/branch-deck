@@ -1,4 +1,4 @@
-import type { BranchLanding, BranchPatronus, PatronusRobot, PatronusView, RobotOf, StackLanding, StackPatronus } from "@/lib/bindings"
+import type { BranchLanding, BranchPatronus, HoldView, PatronusRobot, PatronusView, RobotOf, StackLanding, StackPatronus } from "@/lib/bindings"
 
 /** Running, then canceling, then finished */
 function activity(robot: PatronusRobot): number {
@@ -42,12 +42,11 @@ export function branchFacts(patch: Partial<Omit<BranchPatronus, "landing">> & { 
   const { landing, ...facts } = patch
   return {
     robotId: null,
-    landedBy: null,
     span: null,
     landingAncestor: null,
     landingNeeds: { state: "unknown" },
     ...facts,
-    landing: { hold: null, start: null, dryRun: null, replaces: null, push: null, ...landing },
+    landing: { start: null, dryRun: null, replaces: null, push: null, ...landing },
   }
 }
 
@@ -58,7 +57,7 @@ export function stackFacts(patch: Partial<Omit<StackPatronus, "landing">> & { re
     robotId: null,
     landingMember: null,
     ...facts,
-    landing: { hold: null, start: null, dryRun: null, replaces: null, rest: { members: [], commitCount: 0, landed: [], by: [], byOwnRobot: false }, ...landing },
+    landing: { hold: null, start: null, dryRun: null, replaces: null, ...landing },
   }
 }
 
@@ -67,7 +66,7 @@ export function stackHeld(root: string, robotId: string): Partial<StackLanding> 
   return { hold: { code: "stackHeld", root, robotId, mode: "rebaseAutosquash" } }
 }
 
-/** The facts of a branch a merged robot landed whole */
-export function landedWhole(by: RobotOf, own = false): BranchPatronus {
-  return branchFacts({ landedBy: { by, own, landed: [], after: [] }, landing: { hold: { kind: "landed", by, carried: null } } })
+/** The hold of the push of a branch a merged robot `by` landed whole, as Rust decides it of the branch as it is (`NextStepView.hold`) */
+export function landedHold(by: RobotOf): HoldView {
+  return { kind: "landed", by, carried: null }
 }

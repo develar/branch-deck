@@ -261,7 +261,7 @@ export function isHoldingRobot(robot: PatronusRobot): boolean {
  * Why a branch offers no push: a Safe Push runs on it (`own`, the robot of the branch) or on a branch built on it that
  * lands it (`span`, the repository view's `hold`). A push now won't land: the robot merges the commit it took, and a push
  * into its own branch makes it fail at the end ("branch was modified"). The restart, which pushes first, is the way through.
- * Or a merged Safe Push landed all of it (`landed`, `getLandedBy`): its own, one of a branch built on it, or of the
+ * Or a merged Safe Push landed all of it (`landed`, `useLandedBy`): its own, one of a branch built on it, or of the
  * whole stack. Its commits are in the target, a push sends nothing that lands, until the update archives the branch.
  */
 export interface PushHold {
@@ -306,7 +306,7 @@ export interface LandingDescendant {
 }
 
 /**
- * A branch a merged Safe Push landed (`getLandedBy`, Rust's `landedStates` of the table as it is): its own robot's branch, an ancestor the robot of a branch built on
+ * A branch a merged Safe Push landed (`useLandedBy`, Rust's `landedStates` of the table as it is): its own robot's branch, an ancestor the robot of a branch built on
  * it carried, or a branch of the stack the robot of the whole stack landed. Its commits are in the target until the
  * update archives the branch: its row says who landed it, and while nothing was added after them (`after`) it offers no
  * Safe Push, Dry Run or push.

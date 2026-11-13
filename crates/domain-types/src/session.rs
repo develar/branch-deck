@@ -719,6 +719,9 @@ pub enum NewsEvent {
     #[serde(rename = "robotId")]
     robot_id: String,
     closes: Vec<LandedPullRequest>,
+    /// The branches it landed, root first, of those the view knows as the table has them now (a view of another table
+    /// says nothing of a branch whose commits changed since): what its toast names
+    landed: Vec<String>,
   },
   /// A landing without a robot landed branches whose open pull requests hold nothing more (`closes`,
   /// `domain_policy::landed::pull_requests_to_close`), which the app closes (`CloseLandedPullRequests` of
@@ -1422,8 +1425,9 @@ pub struct PatronusChange {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stacks: BTreeMap<String, StackPatronus>,
+  /// Not the page's: what landed is Rust's answer of the table as it is (`landedStates`, the news of a merge)
   #[serde(skip_serializing_if = "Option::is_none")]
-  #[cfg_attr(feature = "specta", specta(optional))]
+  #[cfg_attr(feature = "specta", specta(skip))]
   pub landed_by_robot: Option<BTreeMap<String, Vec<RobotLandedBranch>>>,
   /// The restarts of the robots, whole, when they differ
   #[serde(skip_serializing_if = "Option::is_none")]

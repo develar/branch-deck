@@ -64,7 +64,7 @@ export function tellRobotNews(repositoryPath: string, news: readonly News[]): vo
       continue
     }
     if (event.kind === "robotMerged") {
-      announceMerge(key, robot, event.closes)
+      announceMerge(key, robot, event.closes, event.landed)
     } else if (!announcedFailures.has(robot.id)) {
       announcedFailures.add(robot.id)
       void announceFailed(key, robot, event.needsReview === true, repository?.watched[robot.id], id)

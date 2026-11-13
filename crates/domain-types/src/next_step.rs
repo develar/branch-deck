@@ -8,7 +8,7 @@ use crate::landing::{Landed, LandingRefusal};
 use crate::patronus::MissingReviewGroup;
 use crate::pull_request::{MergeMethod, PullRequestAvailability};
 use crate::reason::Reason;
-use crate::repository_view::{RobotOf, WholeStackRest};
+use crate::repository_view::{HoldView, RobotOf, WholeStackRest};
 use crate::session::{BranchStatus, Parked};
 use serde::Serialize;
 
@@ -522,4 +522,10 @@ pub struct NextStepView {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub rest: Option<WholeStackRest>,
+  /// Of a branch, what holds its push now (`derive::hold_now`): a running Safe Push that runs on it or lands it, or a
+  /// merged one that landed all of it as it is now; what the page says of the hold reads this, never what the view of
+  /// another table says. `None` while nothing holds it, and of a whole stack
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub hold: Option<HoldView>,
 }

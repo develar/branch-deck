@@ -254,7 +254,7 @@ ancestor (`dryRunBlocker`).
 
 ### Requirement: The table: Row 1 holds a branch a merged Safe Push landed whole
 
-Row 1 MUST also hold a branch that a merged Safe Push (not a Dry Run) landed whole (`getLandedBy`, the `landedStates` of
+Row 1 MUST also hold a branch that a merged Safe Push (not a Dry Run) landed whole (`useLandedBy`, the `landedStates` of
 the repository view, `StepFacts.landed` of `domain_policy::next_step`), under the same conditions under which the merge
 closes their pull requests ([Patronus](../patronus/spec.md#merged)), and a robot first seen merged (after a restart, a
 landing by `brd`).
@@ -269,7 +269,8 @@ landing by `brd`).
 #### Scenario: A robot first seen merged
 - **WHEN** the robot is first seen merged (after a restart, a landing by `brd`)
 - **THEN** the branches it landed are in row 1 too, and the rest lands without them
-  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it`)
+  [@test] crates/repository-model/src/derive_test.rs (`a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote_status`)
+  [@test] crates/repository-model/src/derive_test.rs (`a_view_of_another_table_leaves_pending_the_branches_built_on_one_it_does_not_know_and_their_whole_stack`)
 
 #### Scenario: A Dry Run lands nothing
 - **WHEN** a Dry Run merged
@@ -469,10 +470,10 @@ fact, the branch is not landed, and its step MUST be the one of new work, also b
 
 #### Scenario: A view of an older table
 - **WHEN** the Patronus view the session shows was derived for another table (stale while the view of this one is derived) and doesn't know a commit a branch has now: one added since, or the same changes under new ids (a reword, a squash or a move of an older commit rewrites the commits above it; an update)
-- **THEN** Patronus is pending for the branch and for every branch built on it: row 0, no start, not landed; what that view says landed it holds its push no more, lands nothing a start, the count of a Safe Push or Push with Children reads, offers Push Up to Here of every commit the remote lacks, and a merge closes no pull request of it
-- **AND** a whole stack with such a branch is pending too, and what is left of it, and whether its own robot landed it, is read of the table as it is
+- **THEN** Patronus is pending for the branch and for every branch built on it but one the view knows landed whole (row 1): row 0, no start, not landed; what that view says landed it holds no push of it (its push alone, Push Stack, Push with Children, the push an action needs and its start: every reader of a hold reads it of the branch as it is, `derive::hold_now`), lands nothing a start, the count of a Safe Push or Push with Children reads, offers Push Up to Here of every commit the remote lacks, and a merge closes no pull request of it nor names it in its toast
+- **AND** a whole stack with such a branch is pending too, and what is left of it, whether its own robot landed it and whether its stack branch is held as landed (`derive::stack_hold_now`) are read of the table as it is
 - **AND** once the derivation of the view of this table failed (`Stale` with its reason), the step of such a branch says the failure of the view ("Refresh Patronus"), not a wait
-- **AND** the page reads what landed a branch, the count of its Safe Push and what is left of a whole stack only of Rust's answer of this table (`landedStates`, `NextStep.lands`, `NextStepView.rest`): its rows, menus, popovers and preview say no "Landed with" of such a branch, and the Safe Push of the whole stack counts its commits as they are
+- **AND** the page reads what landed a branch, what holds its push, the count of its Safe Push, what is left of a whole stack and what a merge landed only of Rust's answer of this table (`landedStates`, `NextStepView.hold`, `NextStep.lands`, `NextStepView.rest`, the news of the merge): the types it gets have no `landedBy`, `landedByRobot`, `StackLanding.rest` or hold of a branch of the view, so its rows, menus, popovers, push buttons and preview say no "Landed with" of such a branch, push it, and the Safe Push of the whole stack counts its commits as they are
   [@test] crates/domain-policy/src/landed_test.rs (`a_view_of_another_table_says_nothing_of_a_branch_whose_commits_it_does_not_know`)
   [@test] crates/repository-model/src/derive_test.rs (`a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote_status`)
   [@test] crates/repository-model/src/derive_test.rs (`a_view_of_another_table_leaves_pending_the_branches_built_on_one_it_does_not_know_and_their_whole_stack`)
@@ -480,8 +481,10 @@ fact, the branch is not landed, and its step MUST be the one of new work, also b
   [@test] crates/domain-policy/src/next_step_test.rs (`a_subject_the_view_does_not_know_waits_for_the_view_or_shows_its_failure`)
   [@test] src/hooks/useBranchContextActions.test.ts (`names as many branches as the next step of the branch counts of the table as it is, never its own count of what landed`)
   [@test] src/hooks/useBranchContextActions.test.ts (`says what is left of the whole stack as Rust decides it of the table as it is, never what the view of the robots names`)
-  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it`)
-  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should say what is left of the whole stack and who landed a branch of the table as it is while the view of the robots is of the table before`)
+  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed as Rust says it of the branches as they are, also one first seen merged`)
+  [@test] crates/repository-model/src/derive_test.rs (`a_push_reads_no_hold_of_what_a_view_of_another_table_says_landed`)
+  [@test] crates/repository-model/src/derive_test.rs (`the_stack_branch_is_held_as_landed_only_while_every_branch_of_it_is_what_landed`)
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should say what is left of the whole stack and who landed a branch, and push it, of the table as it is while the view of the robots is of the table before`)
   [@test] crates/repository-model/src/derive_test.rs (`a_start_reads_no_landing_and_no_hold_of_a_branch_whose_commits_changed_since_the_view`)
   [@test] crates/repository-model/src/derive_test.rs (`push_up_to_here_reads_what_landed_only_of_a_view_that_knows_the_branch`)
   [@test] crates/repository-model/src/action_view_test.rs (`push_with_children_is_landed_once_merged_safe_pushes_landed_the_branch_and_every_branch_stacked_on_it`)

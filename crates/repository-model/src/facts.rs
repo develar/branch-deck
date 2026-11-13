@@ -662,7 +662,11 @@ impl FactStore {
   fn finished(&mut self, finished: Vec<Finished>) {
     for robot in finished {
       match robot {
-        Finished::Merged(robot_id) if self.table.value().is_none() => self.tell(NewsEvent::RobotMerged { robot_id, closes: Vec::new() }),
+        Finished::Merged(robot_id) if self.table.value().is_none() => self.tell(NewsEvent::RobotMerged {
+          robot_id,
+          closes: Vec::new(),
+          landed: Vec::new(),
+        }),
         Finished::Merged(robot_id) => {
           self.merges.insert(robot_id);
         }
@@ -686,7 +690,8 @@ impl FactStore {
       .into_iter()
       .map(|robot_id| {
         let closes = self.closes(state, &robot_id);
-        NewsEvent::RobotMerged { robot_id, closes }
+        let landed = self.known_landings(state, &robot_id).into_iter().map(|landed| landed.branch).collect();
+        NewsEvent::RobotMerged { robot_id, closes, landed }
       })
       .collect();
     for event in told {
@@ -749,19 +754,22 @@ impl FactStore {
       return Vec::new();
     };
     let (table, remote) = (&table.table, &table.remote);
-    let landed: Vec<RobotLandedBranch> = part
-      .view
-      .landed_by_robot
-      .get(robot_id)
-      .map_or(&[][..], Vec::as_slice)
-      .iter()
-      .filter(|landed| table.view_knows(&landed.branch, part.view.branches.get(&landed.branch).and_then(|facts| facts.landed_by.as_ref())))
-      .cloned()
-      .collect();
+    let landed = known_landings(&part.view, table, robot_id);
     let pull_requests = Some(self.pull_requests.view());
     pull_requests_to_close(&Landing::Robot { robot, landed: &landed }, |branch| {
       table.branch(branch).map(|found| landed_subject(table, remote, Of::Branch(&found.name), pull_requests))
     })
+  }
+
+  /// What the merged robot `robot_id` landed as the Patronus view of the session names it, of the branches the view knows
+  /// as the table of `state` has them now (`known_landings`); none without a view or a table
+  #[must_use]
+  pub fn known_landings(&self, state: &TableState, robot_id: &str) -> Vec<RobotLandedBranch> {
+    let part = self.patronus.part();
+    match (matches!(part.state, FactState::Fresh | FactState::Stale { .. }), self.table_facts(state)) {
+      (true, Some(table)) => known_landings(&part.view, &table.table, robot_id),
+      _ => Vec::new(),
+    }
   }
 
   /// The news of a fetch of a remote branch whose pull request moved: the commits of others it brought, once per tip
@@ -1428,6 +1436,20 @@ impl PatronusDerivation {
       failing: &self.failing,
     }
   }
+}
+
+/// What the merged robot `robot_id` landed as `view` names it (`PatronusView::landed_by_robot`), root first, of the
+/// branches the view knows as `table` has them now (`BranchTable::view_knows`): a view of another table, stale after a
+/// derivation for this one failed, says nothing of a branch whose commits changed since
+fn known_landings(view: &PatronusView, table: &BranchTable, robot_id: &str) -> Vec<RobotLandedBranch> {
+  view
+    .landed_by_robot
+    .get(robot_id)
+    .map_or(&[][..], Vec::as_slice)
+    .iter()
+    .filter(|landed| table.view_knows(&landed.branch, view.branches.get(&landed.branch).and_then(|facts| facts.landed_by.as_ref())))
+    .cloned()
+    .collect()
 }
 
 /// The remote branches of `table` as the session knows them: the remote status of each branch and stack branch in its

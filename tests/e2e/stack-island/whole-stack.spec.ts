@@ -32,7 +32,7 @@ import {
   withStackPullRequests,
 } from "../helpers/pull-request-helpers"
 import { expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, STACKED_BRANCHES, stackBranchOf } from "../helpers/push-helpers"
-import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
+import { landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { openReviewWindow } from "../helpers/review-window-helpers"
 import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
@@ -1101,7 +1101,7 @@ test.describe("Whole stack", () => {
     await expect(page.getByRole("menuitem", { name: "Dry Run Whole Stack" })).toHaveAttribute("aria-disabled", "true")
   })
 
-  test("should say what is left of the whole stack and who landed a branch of the table as it is while the view of the robots is of the table before", async ({
+  test("should say what is left of the whole stack and who landed a branch, and push it, of the table as it is while the view of the robots is of the table before", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -1132,6 +1132,9 @@ test.describe("Whole stack", () => {
     await expect(login.getByTestId("next-step")).toHaveText("Refresh Patronus")
     await expect(login.getByTestId("landed-with")).toHaveCount(0)
     await expect(findBranchRow(page, "auth").getByTestId("landed-with")).toHaveText("Landed with oauth")
+    // nothing holds its push as landed either: it pushes the commit that view never saw
+    await pushBranchFromRow(page, "login")
+    await expectPushedToRemote(repo, ["login"])
   })
 
   test("should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it", async ({

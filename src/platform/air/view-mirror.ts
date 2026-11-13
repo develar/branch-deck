@@ -146,7 +146,6 @@ function patronusChange(before: PatronusPart, after: PatronusPart): PatronusChan
     removedBranches: branches.removed,
     stacks: stacks.changed,
     removedStacks: stacks.removed,
-    landedByRobot: after.view.landedByRobot,
     restarts: after.view.restarts,
   }
 }

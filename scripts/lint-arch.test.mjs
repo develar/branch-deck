@@ -236,6 +236,10 @@ test("what landed a subject is Rust's: an export of src/lib, src/hooks or src/st
     "const rest = getStackLanding(root).rest",
     "const members = useStackLanding(root)?.rest.members",
     "const left = view.stacks[root]?.landing.rest",
+    "const { landedBy } = facts",
+    'const landed = facts?.["landedBy"]',
+    "export const landedWholly = landed => true",
+    "export function countLandingBranches(name) {}",
     // the words of what Rust decided, what Rust decided of the table as it is, a type
     "export function formatLandedWith(landed) {}",
     'const lands = getRowPart(name, "landing")?.step.lands',
@@ -243,9 +247,10 @@ test("what landed a subject is Rust's: an export of src/lib, src/hooks or src/st
     "export type LandedBy = string",
   ].join("\n")
   const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
-  const reads = ["3 view-landing-read", "4 view-landing-read", "5 view-landing-read", "6 view-landing-read"]
-  assert.deepEqual(rules("src/stores/example.ts"), ["1 rule-module", "2 rule-module", ...reads])
-  assert.deepEqual(rules("src/lib/example.ts"), ["1 rule-module", "2 rule-module", ...reads])
+  const reads = ["3 view-landing-read", "4 view-landing-read", "5 view-landing-read", "6 view-landing-read", "7 view-landing-read", "8 view-landing-read"]
+  const names = ["9 rule-module", "10 rule-module"]
+  assert.deepEqual(rules("src/stores/example.ts"), ["1 rule-module", "2 rule-module", ...reads, ...names])
+  assert.deepEqual(rules("src/lib/example.ts"), ["1 rule-module", "2 rule-module", ...reads, ...names])
   assert.deepEqual(rules("src/components/Example.tsx"), reads)
   assert.deepEqual(rules("src/stores/example.test.ts"), [])
   assert.deepEqual(rules("src/test-support/example.ts"), [])

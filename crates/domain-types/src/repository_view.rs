@@ -140,6 +140,9 @@ pub struct BranchPatronus {
   /// The robot of the branch (`domain_policy::robot_match`: started on it, or of a temporary ref at its local or remote
   /// tip), by id: the robot of its row
   pub robot_id: Option<String>,
+  /// Not the page's: the view may be of another table, stale while the view of this one is derived; the page reads what
+  /// Rust decides of the table as it is (`landedStates`, `NextStepView::hold`)
+  #[cfg_attr(feature = "specta", specta(skip))]
   pub landed_by: Option<LandedByView>,
   pub span: Option<SpanView>,
   /// The nearest ancestor whose robot runs, or that a running robot of a side branch lands: a Safe Push of the branch
@@ -157,7 +160,9 @@ pub struct BranchPatronus {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchLanding {
-  /// What refuses its push (`holds::branch_hold`)
+  /// What refuses its push (`holds::branch_hold`), as the view decided it. Not the page's: the view may be of another
+  /// table; the page reads the hold of the branch as it is now (`NextStepView::hold`)
+  #[cfg_attr(feature = "specta", specta(skip))]
   pub hold: Option<HoldView>,
   /// Why a Safe Push can't start (`land::start_refusal`)
   pub start: Option<Reason>,
@@ -197,7 +202,8 @@ pub struct StackLanding {
   /// The running robot of the whole stack a Safe Push start replaces, by id: on an older commit of its stack branch
   pub replaces: Option<String>,
   /// What its Safe Push lands now (`domain_policy::stack::whole_stack_rest`): every branch of it, less those merged Safe
-  /// Pushes landed whole
+  /// Pushes landed whole. Not the page's: it reads the rest of the table as it is (`NextStepView::rest`)
+  #[cfg_attr(feature = "specta", specta(skip))]
   pub rest: WholeStackRest,
 }
 
@@ -259,7 +265,9 @@ pub struct RobotLandedBranch {
 pub struct PatronusView {
   pub branches: BTreeMap<String, BranchPatronus>,
   pub stacks: BTreeMap<String, StackPatronus>,
-  /// By merged robot id, every branch it landed, root first
+  /// By merged robot id, every branch it landed, root first. Not the page's: the news of a merge names what it landed
+  /// of the table as it is (`NewsEvent::RobotMerged::landed`)
+  #[cfg_attr(feature = "specta", specta(skip))]
   pub landed_by_robot: BTreeMap<String, Vec<RobotLandedBranch>>,
   /// By robot id, the restart a robot of the user offers; a robot without one is not listed
   pub restarts: BTreeMap<String, RobotRestart>,

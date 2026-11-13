@@ -368,7 +368,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
   come hours later. Until then the rows of the branches a merged robot landed say who landed them ("Landed with
   oauth", "Landed with the whole air stack"; the branch it ran on keeps "Merged"), and offer no Safe Push, no Dry Run,
   no restart of a robot, no new pull request and no push: their commits are in master, a second robot or a push would
-  land nothing (`getLandedBy` of Rust's `landedStates`, row 1 of the next step, a `landed` push hold, also of the robot's own branch). It is a
+  land nothing (`useLandedBy` of Rust's `landedStates`, row 1 of the next step, a `landed` push hold, also of the robot's own branch). It is a
   state of the robots and the branches, not of the merge event, so a robot first seen merged (after a restart, a
   landing by `brd`) says it too. A pull request GitHub merged with the commits the branch has lands it as well, though
   no robot of the app merged it: what landed a subject is one rule for the rows and `brd safe-push`
@@ -415,21 +415,27 @@ The whole stack is an object of its own in the app, beside its branches, named "
   or a move of an older commit rewrites every commit above it, landed branches included; an update rebuilds the
   copies). A view knows a branch while each of its commits is one the view says landed or names after it
   (`LandedByView::knows`); of a branch it doesn't know, what it says is of other commits, so Patronus is pending for the
-  branch, for every branch built on it (what the view says of them reads what it says of it) and for a whole stack of
-  it until the new view is in: row 0, no start, not landed, no hold of what landed, nothing a start, the count of a
-  Safe Push, Push with Children, Push Up to Here or the closes of a merge read of it. Once the derivation of the view of
-  this table failed, such a branch says that failure ("Refresh Patronus", `PatronusStanding::of_unknown`) instead of a
-  wait. What is left of a whole stack is read of the table as it is (`stack_rest`), and so is "landed whole" of a
-  branch the view knows: every commit it has one that landed (`is_whole_of`). The page never reads what the view says
-  landed: what landed a branch is Rust's `landedStates`, the count of a Safe Push its step's `lands`, what is left of a
-  whole stack the step's `rest` (`NextStepView.rest`), and `pnpm lint:arch` refuses a read of the view's `landedBy` or
-  `StackLanding.rest` (`view-landing-read`) and a landing rule of the page (`isLanded…`).
+  branch, for every branch built on it but one the view knows landed whole (what the view says of them reads what it
+  says of it) and for a whole stack of it until the new view is in: row 0, no start, not landed, nothing a start, the
+  count of a Safe Push, Push with Children, Push Up to Here or the closes of a merge read of it. No push of it is held
+  as landed: every reader of a hold of the view reads it of the branch as it is (`derive::hold_now`: the hold while its
+  robot holds pushes, a hold of what landed while every commit of the branch landed; of a stack branch
+  `derive::stack_hold_now`), the push of its row, Push Stack, Push with Children, the push an action needs and the
+  push of a start alike. Once the derivation of the view of this table failed, such a branch says that failure
+  ("Refresh Patronus", `PatronusStanding::of_unknown`) instead of a wait. What is left of a whole stack is read of the
+  table as it is (`stack_rest`), and so is "landed whole" of a branch the view knows: every commit it has one that
+  landed (`is_whole_of`). The page never reads what the view says landed or holds: what landed a branch is Rust's
+  `landedStates`, what holds its push the step view's `hold`, the count of a Safe Push its step's `lands`, what is left
+  of a whole stack the step's `rest` (`NextStepView.rest`), what a merge landed the news of the merge
+  (`NewsEvent::RobotMerged::landed`); the types the page gets have no `landedBy`, `landedByRobot`, `StackLanding.rest`
+  or hold of a branch of the view (`specta(skip)`), so a read of them is a type error, and `pnpm lint:arch` refuses
+  one besides (`view-landing-read`) and a landing rule of the page (`isLanded…`, `…LandingCount`).
   - *Rationale:* the window is the time the view of the new table takes to derive, seconds after a sync rebuilt the
     copies (its content walk runs git), and at a warm start the whole time until Patronus answers about the robots,
     as no view is derived while the robots are those of the cached frame (`begin_patronus`). In
     it the stale answer either offered a Safe Push of a branch that landed by content or said a branch with new work
     landed; pending is the one answer that is never wrong.
-- **What is left of the whole stack.**- **What is left of the whole stack.** Its stack branch carries every commit of the stack, the landed ones too, and
+- **What is left of the whole stack.** Its stack branch carries every commit of the stack, the landed ones too, and
   Patronus finds those in the target. So after a piece landed its main line, the Safe Push of the whole stack lands the
   rest and says only the rest ("Lands 1 branch · 1 commit into master in one Safe Push: session; auth, login and oauth
   landed with oauth", `NextStepView.rest`, `whole_stack_rest`); once every branch of it landed, nothing is left, and it says who landed them

@@ -246,7 +246,7 @@ function focusBranchRow(name: string | null): boolean {
 function BranchPreviewMeta({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
   const robot = useBranchRobot(branch.name)
-  const landedBy = useLandedBy(branch.name)
+  const landedWith = useLandedBy(branch.name)
   const landedIn = useLandedIn(branch.name)
   const parked = useParkedState(branch.name)
   // the robot has its own chip here: the first fact of the cell that is not the robot, else the push state
@@ -278,8 +278,8 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
     items.push(<PatronusChip branchName={branch.name} />)
   }
   // its own robot's branch landed whole: the Patronus chip says "Merged"
-  if (landedBy !== null && formatLandedWith(landedBy) !== null) {
-    items.push(<LandedWithChip landed={landedBy} />)
+  if (landedWith !== null && formatLandedWith(landedWith) !== null) {
+    items.push(<LandedWithChip landed={landedWith} />)
   }
 
   return (

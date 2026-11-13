@@ -3,14 +3,13 @@ import { internalError } from "@/lib/api-error"
 import type {
   FactState,
   GetRobotCommitMapParams,
-  Landed,
+  HoldView,
   LandedPullRequest,
   News,
   PatronusAvailability,
   PatronusPart,
   PatronusRobot,
   PatronusView,
-  Reason,
   RobotsView,
 } from "@/lib/bindings"
 import { resetEventToasts } from "@/lib/event-toast"
@@ -19,16 +18,15 @@ import { formatFailedRobotToast, resetFailingAnnouncements, tellRobotNews, watch
 import { showRobotToast } from "@/lib/robot-toast"
 import { showRobotEventToast } from "@/lib/robot-toast"
 import { currentDemand, resetDemand } from "@/model/demand"
-import { formatPushHoldReason, formatStackHold } from "@/presenters/reasons"
+import { formatPushHoldReason } from "@/presenters/reasons"
 import {
   applyRobotsFacts,
   applySessionFacts,
   getBranchRobot,
   getRobot,
-  getLandedBy,
   getLandingSpan,
   getPushHold,
-  getStackLanding,
+  getStackPushHold,
   isPatronusPending,
   isRobotProblemsPending,
   patronusStore,
@@ -41,7 +39,7 @@ import { applyRobotDetailsFacts, resetRobotDetails } from "@/stores/robot-detail
 import { PUSH, testRemoteStatus } from "@/stores/test-branch"
 import { enabled } from "@/test-support/actions"
 import { emptyView } from "@/test-support/fake-sessions"
-import { branchFacts, landedWhole, robotOf, stackFacts, stackHeld, withRowRobots } from "@/test-support/patronus-repository"
+import { branchFacts, landedHold, robotOf, stackFacts, stackHeld, withRowRobots } from "@/test-support/patronus-repository"
 import { describeToast, openToasts, resetToasts, toastModule, toasts as shownToasts } from "@/test-support/toast-mock"
 
 const { patronus, branches } = vi.hoisted(() => ({
@@ -63,7 +61,7 @@ const { patronus, branches } = vi.hoisted(() => ({
     failureKind: "checks" as string,
     detailCalls: [] as string[],
     /** What the session derives of the robots and the table after each answer of Patronus */
-    view: { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} } as PatronusView,
+    view: { branches: {}, stacks: {}, restarts: {} } as PatronusView,
     /** How the landing needs of the view stand */
     landingNeeds: { kind: "fresh" } as FactState,
     /** The session derives nothing while it is set: the view stays as it was, `stale` once there is one */
@@ -72,6 +70,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     viewFailure: null as string | null,
     /** By robot id, the pull requests the news of its merge says its landing closes (`domain_policy::landed`) */
     closes: {} as Record<string, LandedPullRequest[]>,
+    /** By robot id, the branches the news of its merge says it landed, of those the view knows as they are */
+    landed: {} as Record<string, string[]>,
     commitMapCalls: [] as GetRobotCommitMapParams[],
   },
   branches: {
@@ -84,8 +84,6 @@ const { patronus, branches } = vi.hoisted(() => ({
     synced: Promise.resolve(),
     /** The repository the main window shows */
     selected: "/repo",
-    /** What landed each subject, as Rust decides it (`RepositoryView.landedStates`) */
-    landedStates: {} as Record<string, Landed>,
   },
 }))
 
@@ -196,9 +194,11 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 }))
 
 // the session lists the robots a refresh asks for and the page gets its patch
-const { rowParts } = vi.hoisted(() => ({
+const { rowParts, rows } = vi.hoisted(() => ({
   /** The parts of the view of a row by subject key (`getRowPart`), as the test sets what Rust answers */
   rowParts: { of: (_key: string, _part: string): unknown => undefined },
+  /** What holds the push of each branch, as Rust decides it of the branch as it is (`NextStepView.hold`) */
+  rows: { holds: {} as Record<string, HoldView> },
 }))
 
 vi.mock("@/model/store", () => ({
@@ -242,8 +242,7 @@ vi.mock("@/stores/branch-sync", () => ({
     subscribe: () => () => {},
   },
   getBranch: (name: string) => branches.current[name],
-  getLandedState: (subject: string) => branches.landedStates[subject],
-  useLandedState: (subject: string) => branches.landedStates[subject],
+  useLandedState: () => undefined,
   getStackBranch: (root: string) => branches.stacks[root],
   whenSynced: () => branches.synced,
   // the structure Rust sent: the branches built on `name`, parents first, by the parent each was placed on, and those
@@ -345,7 +344,7 @@ function answerRobots(answer: RobotsAnswer, full: boolean, poll = false): void {
   })
   const news: News[] = finished.flatMap((robot): News[] => {
     if (robot.status === "success" && robot.pushMode !== "dryRun") {
-      return [{ id: ++lastNews, event: { kind: "robotMerged", robotId: robot.id, closes: patronus.closes[robot.id] ?? [] } }]
+      return [{ id: ++lastNews, event: { kind: "robotMerged", robotId: robot.id, closes: patronus.closes[robot.id] ?? [], landed: patronus.landed[robot.id] ?? [] } }]
     }
     return robot.status === "failure" ? [{ id: ++lastNews, event: { kind: "robotFailed", robotId: robot.id, needsReview: needsReview[robot.id] ?? null } }] : []
   })
@@ -454,14 +453,10 @@ function setBranches(...names: string[]): void {
   branches.current = Object.fromEntries(names.map(name => [name, { name, commits: [{ hash: "tip" }], remoteStatus: null }]))
 }
 
-/** The view of the merged robot r1 of oauth that landed the stack auth ← login ← oauth, `authAfter` left of auth */
-function landedOauthStack(authAfter: string[] = []): PatronusView {
-  const landed = [
-    { branch: "auth", own: false, after: authAfter },
-    { branch: "login", own: false, after: [] },
-    { branch: "oauth", own: true, after: [] },
-  ]
-  return { branches: {}, stacks: {}, landedByRobot: { r1: landed }, restarts: {} }
+/** The merged robot r1 of oauth landed the stack auth ← login ← oauth, as the news of its merge says it; the view */
+function landedOauthStack(): PatronusView {
+  patronus.landed = { r1: ["auth", "login", "oauth"] }
+  return { branches: {}, stacks: {}, restarts: {} }
 }
 
 /** The stack auth ← login ← oauth, auth with the open pull request #5 at its tip, and the running robot of oauth listed */
@@ -477,7 +472,7 @@ async function listOauthStack(): Promise<PatronusRobot> {
 
 /** The view the session derives from now on, derived now, and the store once it took it */
 async function answerView(view: Partial<PatronusView>): Promise<void> {
-  patronus.view = { branches: {}, stacks: {}, landedByRobot: {}, restarts: {}, ...view }
+  patronus.view = { branches: {}, stacks: {}, restarts: {}, ...view }
   derive()
   await whenRepositoryViewCurrent()
 }
@@ -490,6 +485,10 @@ const START = 1_000_000_000
  * approvals) or whose required check fails; it opens in Patronus
  */
 rowParts.of = (key, part) => {
+  if (part === "landing") {
+    const hold = rows.holds[key]
+    return hold === undefined ? undefined : { hold }
+  }
   const robot = part === "actions" && key.startsWith("robot:") ? getRobot(key.slice("robot:".length)) : undefined
   if (robot === undefined) {
     return undefined
@@ -522,11 +521,13 @@ beforeEach(() => {
   resetRobotDetails()
   resetDemand()
   resetFailingAnnouncements()
-  patronus.view = { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} }
+  patronus.view = { branches: {}, stacks: {}, restarts: {} }
   patronus.landingNeeds = { kind: "fresh" }
   patronus.viewHeld = false
   patronus.viewFailure = null
   patronus.closes = {}
+  patronus.landed = {}
+  rows.holds = {}
   patronus.commitMapCalls = []
   robotCoverageStore.setState({ maps: {} })
   notices.pullRequestRefreshes = []
@@ -546,7 +547,6 @@ beforeEach(() => {
   branches.tableRevision = 0
   branches.synced = Promise.resolve()
   branches.selected = "/repo"
-  branches.landedStates = {}
   fetches.lastFetchTime = undefined
   patronus.list = available(robot({ status: "failure" }))
   patronus.poll = available()
@@ -564,11 +564,12 @@ describe("holds", () => {
     patronus.list = available(robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip" }))
     await list()
     const span = { by: robotOf("air", "r1", true), carried: { commits: ["c1"], amended: [] } }
-    const held = branchFacts({ span, landing: { hold: { kind: "span", ...span } } })
     await answerView({
-      branches: { air: held, bazel: held, side: held },
+      branches: { air: branchFacts({ span }), bazel: branchFacts({ span }), side: branchFacts({ span }) },
       stacks: { air: stackFacts({ landing: stackHeld("air", "r1") }) },
     })
+    // Rust's answer of each row: its hold of the branch as it is
+    Object.assign(rows.holds, { air: { kind: "span", ...span }, bazel: { kind: "span", ...span }, side: { kind: "span", ...span } })
     const holds = ["air", "bazel", "side", "other"].map(name => getPushHold(name))
     expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch, hold.wholeStack]))).toEqual([
       ["span", "air", true],
@@ -578,56 +579,29 @@ describe("holds", () => {
     ])
     expect(formatPushHoldReason("bazel", holds[1]!)).toBe("A Safe Push of the whole air stack is running: it lands 1 commit of bazel with it")
     // and its stack branch: a push into it would fail the robot at the end
-    expect(formatStackHold(getStackLanding("air").hold)).toBe("A Safe Push of the whole air stack is running: wait until it merges, or restart it on the current stack")
+    expect(getStackPushHold("air")).toMatchObject({ kind: "own", branch: "air", wholeStack: true, robot: { id: "r1" } })
     // the robot of the whole stack is no branch's, not even the root's
     expect(getBranchRobot("air")).toBeUndefined()
   })
 
-  it("holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it", async () => {
+  it("holds the branches a merged Safe Push landed as Rust says it of the branches as they are, also one first seen merged", async () => {
     const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
     branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login"), sso: stacked("sso", "login") }
     // the robot of oauth merged elsewhere (`bd`, before a restart): the view says what it landed
     patronus.list = available(robot({ branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 }))
     await list()
     const by = robotOf("oauth", "r1")
-    await answerView({ branches: { auth: landedWhole(by), login: landedWhole(by), oauth: landedWhole(by, true) } })
+    await answerView({ branches: { auth: branchFacts({}), login: branchFacts({}), oauth: branchFacts({ robotId: "r1" }) } })
+    // what the view of the robots holds of itself, the page never reads: what holds a row is Rust's answer of it
+    expect(getPushHold("auth")).toBeNull()
+    Object.assign(rows.holds, { auth: landedHold(by), login: landedHold(by), oauth: landedHold(by) })
     const holds = ["auth", "login", "oauth", "sso"].map(name => getPushHold(name))
     // oauth too: all of it landed with its own robot
     expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch]))).toEqual([["landed", "oauth"], ["landed", "oauth"], ["landed", "oauth"], null])
     expect(formatPushHoldReason("login", holds[1]!)).toBe("Landed in master with oauth: nothing of it is left to push")
     expect(formatPushHoldReason("oauth", holds[2]!)).toBe("Merged by Patronus: nothing of it is left to push")
-    // who landed it, as Rust says it of the table as it is (`landedStates`), with its robot
-    expect(getLandedBy("auth")).toBeNull()
-    branches.landedStates = { auth: { by: { kind: "robots", by: [by], own: false, target: "master" }, after: [] } }
-    expect(getLandedBy("auth")).toMatchObject({ branch: "oauth", robot: { id: "r1" }, after: [] })
     // no toast: no robot was seen running
     expect(shownToasts).toEqual([])
-  })
-
-  it("holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them", async () => {
-    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
-    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), session: stacked("session", "auth") }
-    branches.stacks = { auth: { root: "auth", members: ["auth", "login", "session"], tip: "stack-tip", remoteStatus: null } }
-    const login = robot({ id: "login-robot", branchName: "login", sourceRevision: "login-tip", status: "success", finishTime: 200 })
-    patronus.list = available(login)
-    await list()
-    const byLogin = robotOf("login", "login-robot")
-    await answerView({ branches: { auth: landedWhole(byLogin), login: landedWhole(byLogin, true) } })
-    // the Safe Push of login landed auth and login: session is left, so is the stack branch, which carries it
-    expect(getPushHold("auth")).toMatchObject({ kind: "landed", branch: "login" })
-    expect(formatStackHold(getStackLanding("auth").hold)).toBeNull()
-
-    // session landed with its own: nothing of the stack is left
-    patronus.list = available(login, robot({ id: "session-robot", branchName: "session", sourceRevision: "session-tip", status: "success", finishTime: 300 }))
-    await list()
-    const bySession = robotOf("session", "session-robot")
-    // Rust holds the stack branch: every branch of it landed whole
-    const stackLanded: Reason = { code: "stackLanded", root: "auth", by: [byLogin, bySession], own: false, target: "master" }
-    await answerView({
-      branches: { auth: landedWhole(byLogin), login: landedWhole(byLogin, true), session: landedWhole(bySession, true) },
-      stacks: { auth: stackFacts({ landing: { hold: stackLanded } }) },
-    })
-    expect(formatStackHold(getStackLanding("auth").hold)).toBe("Landed in master with login and session: nothing of it is left to push")
   })
 
   it("takes the robot of each row from the view of the session, which matched it, never from its own matching", async () => {
@@ -650,12 +624,12 @@ describe("holds", () => {
     }
     patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-tip" }))
     await list()
-    const held = () => branchFacts({ landing: { hold: { kind: "own", by: robotOf("auth", "r1"), carried: null } } })
-    await answerView({ branches: { auth: held() } })
-    const hold = getPushHold("auth")
-    expect(hold).toMatchObject({ kind: "own", branch: "auth" })
-    await answerView({ branches: { auth: held(), login: branchFacts({ landingNeeds: { state: "known", refusals: [] } }) } })
-    expect(getPushHold("auth")).toBe(hold)
+    const span = () => branchFacts({ span: { by: robotOf("login", "r1"), carried: null } })
+    await answerView({ branches: { auth: span() } })
+    const landing = getLandingSpan("auth")
+    expect(landing).toMatchObject({ branch: "login" })
+    await answerView({ branches: { auth: span(), login: branchFacts({ landingNeeds: { state: "known", refusals: [] } }) } })
+    expect(getLandingSpan("auth")).toBe(landing)
   })
 
   it("waits for the view of the robots as they are while the session derives it, then takes it", async () => {
@@ -847,12 +821,8 @@ describe("merges", () => {
     const whole = robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip", pullRequest: { number: 12, url: "u12" } })
     patronus.list = available(whole)
     await list()
-    patronus.view = {
-      branches: {},
-      stacks: {},
-      landedByRobot: { r1: ["air", "bazel", "side"].map(branch => ({ branch, own: false, after: [] })) },
-      restarts: {},
-    }
+    patronus.view = { branches: {}, stacks: {}, restarts: {} }
+    patronus.landed = { r1: ["air", "bazel", "side"] }
     patronus.closes = {
       r1: [
         { branch: "air", number: 5 },
@@ -1048,18 +1018,16 @@ describe("push holds", () => {
     patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip" }))
     await list()
     const span = { by: robotOf("login", "login-run"), carried: null }
-    await answerView({
-      branches: {
-        auth: branchFacts({ span, landing: { hold: { kind: "span", ...span } } }),
-        login: branchFacts({ landing: { hold: { kind: "own", by: robotOf("login", "login-run"), carried: null } } }),
-      },
-    })
+    await answerView({ branches: { auth: branchFacts({ span }), login: branchFacts({ robotId: "login-run" }) } })
+    // Rust's answer of each row: its hold of the branch as it is, with its robot of the list
+    Object.assign(rows.holds, { auth: { kind: "span", ...span }, login: { kind: "own", by: robotOf("login", "login-run"), carried: null } })
     expect(getPushHold("login")).toMatchObject({ kind: "own", branch: "login", robot: { id: "login-run" } })
     expect(getPushHold("auth")).toMatchObject({ kind: "span", branch: "login", robot: { id: "login-run" } })
     expect(getPushHold("oauth")).toBeNull()
-    // canceled meanwhile: the view of the running robot holds nothing until the next one comes
+    // canceled meanwhile: Rust holds nothing of it
     patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip", status: "canceling" }))
     await list()
+    rows.holds = {}
     expect(getPushHold("login")).toBeNull()
     expect(getPushHold("auth")).toBeNull()
   })
@@ -1071,7 +1039,8 @@ describe("push holds", () => {
     patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-old" }))
     await list()
     const span = { by: robotOf("login", "login-run"), carried: { commits: ["auth-original"], amended: [] } }
-    await answerView({ branches: { auth: branchFacts({ span, landing: { hold: { kind: "span", ...span } } }) } })
+    await answerView({ branches: { auth: branchFacts({ span }) } })
+    rows.holds.auth = { kind: "span", ...span }
     expect(getPushHold("env")).toBeNull()
     expect(formatPushHoldReason("auth", getPushHold("auth")!)).toBe("A Safe Push of login is running: it lands 1 commit of auth with it")
     // the span starts below the root it left out

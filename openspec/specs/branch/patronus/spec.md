@@ -3365,7 +3365,7 @@ merged MUST close nothing.
 ### Requirement: Merged: The branches a merged robot landed say so until the update
 
 Until the update archives them, the branches a merged robot landed that way (the same view, a robot first seen merged
-too: `getLandedBy`) MUST say so in their rows, "Landed with oauth", "Landed with the whole air stack"
+too: `useLandedBy`) MUST say so in their rows, "Landed with oauth", "Landed with the whole air stack"
 (`LandedWithChip`, `info`, beside the status "landed" and the hollow `info` node of a branch in master); the preview
 shows it too. The branch the robot ran on landed too: it MUST keep its robot chip, "Merged".
 
@@ -3387,7 +3387,9 @@ shows it too. The branch the robot ran on landed too: it MUST keep its robot chi
 #### Scenario: A robot first seen merged
 - **WHEN** the session first sees a robot merged
 - **THEN** the branches it landed are held all the same, and the rest lands without them
-  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it`)
+  [@test] crates/repository-model/src/derive_test.rs (`a_merged_robot_of_earlier_commits_lands_nothing_of_the_branch_before_a_remote_status`)
+  [@test] crates/repository-model/src/derive_test.rs (`a_view_of_another_table_leaves_pending_the_branches_built_on_one_it_does_not_know_and_their_whole_stack`)
+  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed as Rust says it of the branches as they are, also one first seen merged`)
 
 #### Scenario: The branch the robot ran on
 - **WHEN** the robot merged
@@ -3445,7 +3447,7 @@ new one below a tested one, MUST NOT be landed.
 - **THEN** it says "Landed with oauth · 1 commit after it" ("Landed · 1 commit after it" of the robot's own branch), its push and Safe Push offered for those commits
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`)
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`, `a_commit_not_synced_yet_is_after_the_landed_ones`)
-  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it`)
+  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed as Rust says it of the branches as they are, also one first seen merged`)
   [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
 
 #### Scenario: A commit changed since
@@ -4892,7 +4894,7 @@ it: they are work for the remote.
 - **GIVEN** a merged Safe Push landed the branch whole, or ran on it
 - **WHEN** the holds of the branch are decided, until the update archives it
 - **THEN** the branch is held, before any other hold: "Landed in master with oauth: nothing of it is left to push", "Merged by Patronus: nothing of it is left to push"
-  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and names who landed them as Rust says it`)
+  [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed as Rust says it of the branches as they are, also one first seen merged`)
   [@test] src/presenters/reasons.test.ts (`says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
 
 #### Scenario: Commits added after the landed ones
@@ -4953,14 +4955,14 @@ that landed every branch of the stack whole; then its own running robot; then a 
 - **THEN** the stack branch is held, and the reason says who landed them, each robot once, in the order they merged: "Landed in master with deploy and side-test: nothing of it is left to push"
 - **AND** "Merged by Patronus: …" when its own robot alone landed them
   [@test] crates/domain-policy/src/holds_test.rs (`every_member_landed_by_the_robot_of_the_whole_stack_is_its_own_landing`)
-  [@test] src/stores/patronus.test.ts (`holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them`)
+  [@test] crates/repository-model/src/derive_test.rs (`the_stack_branch_is_held_as_landed_only_while_every_branch_of_it_is_what_landed`)
   [@test] src/presenters/reasons.test.ts (`says that nothing is left to push of a stack branch merged Safe Pushes landed, and nothing for no hold`)
 
 #### Scenario: The landed stack branch is not pushed with what is left
 - **GIVEN** every branch of the stack landed, and commits are left above it
 - **WHEN** the user pushes the stack
 - **THEN** the push of the whole stack branch is held, and what is left pushes without the landed ones
-  [@test] src/stores/patronus.test.ts (`holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them`)
+  [@test] crates/repository-model/src/derive_test.rs (`the_stack_branch_is_held_as_landed_only_while_every_branch_of_it_is_what_landed`)
   [@test] tests/e2e/stack-island/stack-island.spec.ts (`should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
 
 #### Scenario: Its own running robot

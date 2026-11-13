@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { layoutStack } from "@/lib/stack-lanes"
 import { focusStackPath, hoverStackPath, pinStackPath, setStackPathRows, stackPathStore } from "@/stores/stack-view"
 
-// the push of a hovered button reads the branches and their push orders; the path doesn't
+// the push of a hovered button reads the branches, their push orders and what holds them (none: no step view holds one);
+// the path doesn't
 const table = vi.hoisted(() => {
-  let state: { branches: Record<string, unknown>; pushes: Record<string, unknown> } = { branches: {}, pushes: {} }
+  let state: { branches: Record<string, unknown>; pushes: Record<string, unknown>; nextSteps?: Record<string, unknown> } = { branches: {}, pushes: {}, nextSteps: {} }
   const listeners = new Set<(next: typeof state, previous: typeof state) => void>()
   return {
-    getState: () => state,
+    getState: () => ({ nextSteps: {}, ...state }),
     setState: (next: typeof state) => {
       const previous = state
       state = next

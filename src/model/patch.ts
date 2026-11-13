@@ -173,7 +173,6 @@ function patchedPatronus(part: PatronusPart, change: PatronusChange): PatronusPa
     view: {
       branches: keyed(view.branches, change.branches, change.removedBranches),
       stacks: keyed(view.stacks, change.stacks, change.removedStacks),
-      landedByRobot: change.landedByRobot ?? view.landedByRobot,
       restarts: change.restarts ?? view.restarts,
     },
   }

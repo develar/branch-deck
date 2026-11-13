@@ -66,6 +66,7 @@ fn a_failed_robot_is_a_notification_whose_action_reveals_its_branch() {
     event: NewsEvent::RobotMerged {
       robot_id: "r1".to_owned(),
       closes: Vec::new(),
+      landed: Vec::new(),
     },
   };
   assert_eq!(notice_of(&view, REPO, &merged), None);
