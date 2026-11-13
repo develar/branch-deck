@@ -23,6 +23,7 @@ pub mod marks;
 pub mod marks_renames;
 pub mod marks_runs;
 pub mod marks_subject;
+pub mod model;
 pub mod reorder;
 
 #[cfg(test)]

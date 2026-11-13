@@ -30,7 +30,8 @@
 
 use crate::index::Columns;
 use crate::marks::PairMarks;
-use line_diff::model::{DiffBlock, DiffMarks, LineRun, Rename};
+use crate::model::{DiffMarks, Rename};
+use line_diff::model::{DiffBlock, LineRun};
 use line_diff::moves::rewritten_lines;
 use line_diff::moves_across::{LeftRow, left_rows};
 use serde::{Deserialize, Serialize};

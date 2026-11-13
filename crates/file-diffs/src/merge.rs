@@ -19,8 +19,7 @@ use git_ops::cat_file_batch::object_ids_and_types;
 use git_ops::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use git_ops::revs::is_object_id;
 use line_diff::cancellation::Deadline;
-use line_diff::model::{BudgetedDiff, DiffBudget, Scope, TextDiff, diff_texts_in};
-use line_diff::policy::WhitespacePolicy;
+use line_diff::model::{BudgetedDiff, DiffBudget, diff_texts_in};
 use line_diff::text_lines::TextLines;
 use object_cache::cache::ObjectCache;
 use object_cache::file_merge::FileMergeKey;
@@ -30,6 +29,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
 use text_diff::merge_model::{BudgetedMerge, TextMerge, merge_texts_in};
+use text_diff::model::WhitespacePolicy;
+use text_diff::model::{Scope, TextDiff};
 use tracing::{debug, instrument};
 
 /// The version of the merges in the `file_merge` store: bump it when `TextMerge`, `TextDiff` (a merge of one side
@@ -391,7 +392,8 @@ impl MergeWork<'_> {
       } else {
         (MergeSide::Right, left_id, texts[1])
       };
-      let BudgetedDiff { mut diff, out_of_time } = diff_texts_in(texts[0], remaining, self.policy, &budget);
+      let BudgetedDiff { diff, out_of_time } = diff_texts_in(texts[0], remaining, self.policy.into(), &budget);
+      let mut diff = TextDiff::from(diff);
       if let Some(language) = language {
         if let Some(id) = base_id {
           diff.old_scopes = side_facts(self.summaries, language, &path.path, id, texts[0], &TextLines::of(texts[0]), &mut made).0;
@@ -407,7 +409,7 @@ impl MergeWork<'_> {
       return ((!cut_short).then(|| (key.clone(), StoredMerge::OneSided { deleted, diff })), made);
     }
 
-    let BudgetedMerge { mut merge, out_of_time } = merge_texts_in(texts[1], texts[0], texts[2], self.policy, &budget);
+    let BudgetedMerge { mut merge, out_of_time } = merge_texts_in(texts[1], texts[0], texts[2], self.policy.into(), &budget);
     // a merge the time cut short, of the words of a block or of its lines, stays in memory only
     let cut_short = out_of_time;
     if let Some(language) = language {

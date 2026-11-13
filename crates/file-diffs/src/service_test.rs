@@ -12,9 +12,6 @@ use code_tokens::Grammar;
 use code_tokens::tokens_version;
 use diff_marks::index::{RenameAnswer, RenamePair};
 use diff_marks::leftovers::Leftovers;
-use line_diff::model::{BlockKind, DiffMarks, FileMove, LineEnds, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
-use line_diff::policy::WhitespacePolicy;
-use line_diff::text::LineEndKind;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_files::FileStatus;
 use pretty_assertions::assert_eq;
@@ -23,6 +20,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use text_diff::model::LineEndKind;
+use text_diff::model::WhitespacePolicy;
+use text_diff::model::{BlockKind, DiffMarks, FileMove, LineEnds, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
 
 /// `count` numbered lines
 fn lines(count: usize) -> String {

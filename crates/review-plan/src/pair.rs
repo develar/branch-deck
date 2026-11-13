@@ -61,7 +61,7 @@ pub(crate) fn block_of(hunk: &Hunk) -> LineBlock {
 }
 
 /// `blocks` (the blocks of one diff, in order) with the lines the engine counts of each, given its counts of the whole
-/// diff (`additions`, `deletions`: `line_diff::model::TextDiff`, which leaves the empty line after a final line end
+/// diff (`additions`, `deletions`: `line_diff::model::LineDiff`, which leaves the empty line after a final line end
 /// out). That line is the last of its text, so only the last block of lines on that side can hold it: the lines the
 /// blocks are over by come off it. The one count of the lines of a block (`LineBlock::added`)
 fn counted(mut blocks: Vec<LineBlock>, additions: u32, deletions: u32) -> Vec<LineBlock> {

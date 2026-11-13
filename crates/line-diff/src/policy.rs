@@ -25,31 +25,21 @@ pub enum InnerFragmentsPolicy {
   Chars,
 }
 
-/// `WhitespacePolicy` as an item, as `diff_model!` declares the model: here, and again by a consumer that describes it
-/// for its own bindings under `wire`
-#[macro_export]
-macro_rules! whitespace_policy {
-  ($(#[$wire:meta])*) => {
-    /// The whitespace option of a diff view (`IgnorePolicy`)
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-    $(#[$wire])*
-    #[serde(rename_all = "camelCase")]
-    pub enum WhitespacePolicy {
-      /// Every char counts
-      #[default]
-      Default,
-      /// The whitespace at the start and the end of a line does not count
-      Trim,
-      /// No whitespace counts
-      Ignore,
-      /// No whitespace counts, and a block that changed only in whitespace or empty lines at its start or end is cut off
-      /// (`IGNORE_WHITESPACES_CHUNKS`)
-      IgnoreBlankLines,
-    }
-  };
+/// The whitespace option of a diff view (`IgnorePolicy`)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WhitespacePolicy {
+  /// Every char counts
+  #[default]
+  Default,
+  /// The whitespace at the start and the end of a line does not count
+  Trim,
+  /// No whitespace counts
+  Ignore,
+  /// No whitespace counts, and a block that changed only in whitespace or empty lines at its start or end is cut off
+  /// (`IGNORE_WHITESPACES_CHUNKS`)
+  IgnoreBlankLines,
 }
-
-whitespace_policy!();
 
 impl WhitespacePolicy {
   pub const fn comparison_policy(self) -> ComparisonPolicy {

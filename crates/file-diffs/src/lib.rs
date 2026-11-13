@@ -1,9 +1,10 @@
 //! The diffs of the files that the views of the app show: each changed file of a commit, a range or the working tree
-//! as a typed `DiffFile`, compared by `text-diff`, and the texts of its blobs by id. No patch text: the views build
-//! the context, the hunks and the expansion from the blocks and the texts.
+//! as a typed `DiffFile`, compared by `line-diff` and marked by `diff-marks`, and the texts of its blobs by id. No
+//! patch text: the views build the context, the hunks and the expansion from the blocks and the texts.
 //!
-//! A crate of its own above `git-ops`: it joins the git reads with the comparison of `text-diff` and the declarations
-//! of `code-symbols`, which the git plumbing of `git-ops` does not depend on.
+//! A crate of its own above `git-ops`: it joins the git reads with the comparison of `line-diff`, the marks of
+//! `diff-marks` and the declarations of `code-symbols`, which the git plumbing of `git-ops` does not depend on, and
+//! answers them in the wire model of `text-diff`, which describes the diffs and merges them.
 
 pub mod accio;
 pub mod bindings;

@@ -2,8 +2,8 @@ use crate::fixture_test::unhurried;
 use crate::model::{DiffSource, GetFileDiffsParams};
 use crate::range_files::RangeFilesCache;
 use git_ops::commit_files::{DiffSubject, read_diff_files};
-use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
+use text_diff::model::WhitespacePolicy;
 
 /// A repository whose range `base..head` changes a.txt and adds b.txt
 fn range_repo() -> (test_utils::git_test_utils::TestRepo, String, String) {

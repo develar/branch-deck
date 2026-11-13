@@ -8,11 +8,11 @@ use crate::model::{DiffContent, DiffSource};
 use crate::service::{FileDiffs, diff_options, disk_key, model_version};
 use code_tokens::Grammar;
 use git_executor::git_command_executor::GitCommandExecutor;
-use line_diff::model::{BlockKind, RenameProof, RunKind, TextDiff};
-use line_diff::policy::WhitespacePolicy::Default as Exact;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
+use text_diff::model::WhitespacePolicy::Default as Exact;
+use text_diff::model::{BlockKind, RenameProof, RunKind, TextDiff};
 
 /// The repository of the `commit_marks` template, its path and its commit
 fn template() -> (tempfile::TempDir, String, DiffSource) {

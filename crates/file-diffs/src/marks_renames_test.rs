@@ -2,6 +2,7 @@
 //! which are read, in each grammar family; what is none; the limit of the work.
 
 use crate::bindings::CodeSymbolBindings;
+use crate::marks_test::MarkedDiff;
 use crate::marks_test::{ANY_TEXT, check_marks, read_pair, show_rename};
 use code_symbols::navigate::resolution_work;
 use code_tokens::tokens;
@@ -9,7 +10,8 @@ use code_tokens::{Grammar, grammar_of};
 use diff_marks::marks::{MAX_FILE_TOKEN_WORK, MAX_RENAME_WORK, has_proof, is_quiet, marks_of, pair_grammar};
 use diff_marks::marks_renames::{Candidates, may_hold_rename, renames_within, with_the_first};
 use diff_marks::marks_runs::{BlockLines, runs_of_block};
-use line_diff::model::{DiffBudget, LineRun, Rename, RunKind, TextDiff, diff_texts};
+use diff_marks::model::Rename;
+use line_diff::model::{DiffBudget, LineRun, RunKind, diff_texts};
 use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
 use std::fmt::Write as _;
@@ -19,7 +21,7 @@ use std::sync::Arc;
 /// quiet here where its proof holds, also one of a kind that is not switched on for a view), and the names it leaves
 /// to the other files. The marks hold what holds of every diff (`check_marks`: the navigation is
 /// asked again of each rename)
-fn read(path: &str, old: &str, new: &str) -> (TextDiff, Vec<Rename>) {
+fn read(path: &str, old: &str, new: &str) -> (MarkedDiff, Vec<Rename>) {
   let (diff, undeclared, _) = read_pair(path, old, new, WhitespacePolicy::Default);
   if let Some(grammar) = grammar_of(path)
     && let (Some(old_tokens), Some(new_tokens)) = (tokens(grammar, old), tokens(grammar, new))
@@ -30,7 +32,7 @@ fn read(path: &str, old: &str, new: &str) -> (TextDiff, Vec<Rename>) {
 }
 
 /// The marks of a diff as `marks_test::show` words them, then the names the pair leaves to the other files
-fn show(diff: &TextDiff, undeclared: &[Rename]) -> String {
+fn show(diff: &MarkedDiff, undeclared: &[Rename]) -> String {
   let mut shown = crate::marks_test::show(diff);
   for rename in undeclared {
     write!(shown, " undeclared [{}]", show_rename(rename)).unwrap();
@@ -98,7 +100,7 @@ fn replace_last(text: &str, from: &str, to: &str) -> String {
 }
 
 /// The diff of a function of `LOCALS` whose local was renamed, with what it shows and its one rename
-fn read_renamed(path: &str, old: &str, new: &str) -> (TextDiff, String, Rename) {
+fn read_renamed(path: &str, old: &str, new: &str) -> (MarkedDiff, String, Rename) {
   let (diff, undeclared) = read(path, old, new);
   let context = format!("{path}: {}", show(&diff, &undeclared));
   assert!(undeclared.is_empty(), "{context}");
@@ -1403,8 +1405,8 @@ fn functions_with_a_local(grammar: Grammar, functions: usize, calls: usize, name
 }
 
 /// The diff of two texts of `grammar` with its marks as they are proven, read once
-fn marks_read_once(grammar: Grammar, old: &str, new: &str) -> TextDiff {
-  let mut diff = diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE);
+fn marks_read_once(grammar: Grammar, old: &str, new: &str) -> MarkedDiff {
+  let mut diff = MarkedDiff::from(diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE));
   let read = |new_side: bool| tokens(grammar, if new_side { new } else { old }).map(Arc::new);
   diff.marks = marks_of(&diff, old, new, Some(grammar), WhitespacePolicy::Default, false, read, &CodeSymbolBindings).as_proven(&diff.blocks);
   diff

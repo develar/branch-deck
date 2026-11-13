@@ -5,11 +5,11 @@ use crate::accio::{DeclarationAt, HitKind, References, SymbolHit, SymbolIndex, T
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{BlobRequest, DeclarationSite, DiffFile, DiffRevisions, DiffSide, DiffSource, FindDeclarationParams, ReviewFileSides};
 use crate::service::FileDiffs;
-use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use text_diff::model::WhitespacePolicy;
 
 const USES: &str = "package app\n\nclass Uses(val items: Store) {\n  fun run(times: Int) {\n    items.add(Box.LIMIT)\n    val left = times\n    helper(left)\n  }\n}\n";
 const STORE: &str = "package app\n\nclass Store {\n  fun add(value: Int) {}\n}\n\nclass Box {\n  companion object { const val LIMIT = 10 }\n}\n\nfun helper(value: Int) = value\n";

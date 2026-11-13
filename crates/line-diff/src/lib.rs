@@ -6,10 +6,9 @@
 //! The entry point of a diff view is `provider::compare_lines_inner`; the model of a view is `model::diff_texts`, and
 //! the lines a change moved are `moves` (within a file) and `moves_across` (between the files of a change).
 //!
-//! Pure functions of the texts: no git, no cache, no IO. The model is serde's; a consumer that describes it for the
-//! bindings of its app declares its types again by the macros that declare them here (`diff_model!`,
-//! `whitespace_policy!`, `line_end_kind!`), so both are one text (Branch Deck's `text-diff`). The merge of three
-//! texts for a view is that consumer's (`text_diff::merge_model`), over `manager::merge_content_lines`.
+//! Pure functions of the texts: no git, no cache, no IO. The model (`model::LineDiff` and the types of its blocks,
+//! runs and moves) is of values; a consumer that sends them to another program or keeps them on disk describes them
+//! by types of its own and maps one to the other. The merge of three texts is over `manager::merge_content_lines`.
 
 pub mod apply;
 pub mod by_char;

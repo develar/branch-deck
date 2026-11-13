@@ -52,26 +52,16 @@ pub enum LineEnd {
   Cr,
 }
 
-/// `LineEndKind` as an item, as `diff_model!` declares the model: here, and again by a consumer that describes it for
-/// its own bindings under `wire`
-#[macro_export]
-macro_rules! line_end_kind {
-  ($(#[$wire:meta])*) => {
-    /// The line ends of a whole file
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-    $(#[$wire])*
-    #[serde(rename_all = "camelCase")]
-    pub enum LineEndKind {
-      Lf,
-      Crlf,
-      Cr,
-      /// More than one kind
-      Mixed,
-    }
-  };
+/// The line ends of a whole file
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LineEndKind {
+  Lf,
+  Crlf,
+  Cr,
+  /// More than one kind
+  Mixed,
 }
-
-line_end_kind!();
 
 /// A file as the comparison sees it: its lines as IntelliJ splits them, and the line ends they had.
 ///

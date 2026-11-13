@@ -767,6 +767,7 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
+ "text-diff",
  "trial-check",
  "update-core",
 ]
@@ -7857,6 +7858,7 @@ dependencies = [
 name = "text-diff"
 version = "0.1.0"
 dependencies = [
+ "diff-marks",
  "line-diff",
  "pretty_assertions",
  "proptest",
@@ -8446,6 +8448,7 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
+ "text-diff",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

@@ -3,8 +3,7 @@
 
 use crate::cancellation::Deadline;
 use crate::model::{
-  BlockKind, DiffBlock, DiffBudget, DiffMarks, EmptyLastLine, FileMove, FinalNewline, LineEnds, LineMove, LineRun, MAX_INNER_LINES, RangeKind, Rename, RenameCheck, RenameProof,
-  RunKind, SubjectMarks, TextDiff, UsedRename, diff_texts, starts_of,
+  BlockKind, DiffBlock, DiffBudget, EmptyLastLine, FinalNewline, LineDiff, LineEnds, LineMove, LineRun, MAX_INNER_LINES, RangeKind, RunKind, diff_texts, starts_of,
 };
 use crate::policy::WhitespacePolicy;
 use crate::test_support::{between, block, proptest_config, run, text_of_lines};
@@ -17,16 +16,21 @@ use std::time::Duration;
 
 const MODIFIED: u32 = RangeKind::Modified as u32;
 
-fn diff(old: &str, new: &str) -> TextDiff {
+fn diff(old: &str, new: &str) -> LineDiff {
   diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE)
 }
 
-fn diff_with(old: &str, new: &str, policy: WhitespacePolicy) -> TextDiff {
+fn diff_with(old: &str, new: &str, policy: WhitespacePolicy) -> LineDiff {
   diff_texts(old, new, policy, &DiffBudget::NONE)
 }
 
+/// Where the reading of each block of a diff without marks starts
+fn starts(diff: &LineDiff) -> Vec<u32> {
+  starts_of(&diff.blocks, &[], &[])
+}
+
 /// `(old lines, new lines, kind)` of each block
-fn shape(diff: &TextDiff) -> Vec<(std::ops::Range<u32>, std::ops::Range<u32>, BlockKind)> {
+fn shape(diff: &LineDiff) -> Vec<(std::ops::Range<u32>, std::ops::Range<u32>, BlockKind)> {
   diff
     .blocks
     .iter()
@@ -358,11 +362,11 @@ fn the_empty_last_line_pairs_only_with_the_empty_last_line() {
 fn equal_texts_have_no_blocks() {
   assert_eq!(
     diff("a\nb\n", "a\nb\n"),
-    TextDiff {
+    LineDiff {
       old_line_count: 3,
       new_line_count: 3,
       empty_last_line: EmptyLastLine { old: true, new: true },
-      ..TextDiff::default()
+      ..LineDiff::default()
     }
   );
 }
@@ -403,146 +407,17 @@ fn out_of_time_the_lines_are_compared_then_the_whole_texts() {
 }
 
 #[test]
-fn the_model_is_camel_case_json() {
-  let json = serde_json::to_value(diff("a\n", "b\n")).expect("serializable");
-  assert_eq!(json["blocks"][0]["kind"], "changed");
-  assert_eq!(json["oldLineCount"], 2);
-  assert_eq!(json["lineLevelOnly"], false);
-}
-
-/// The marks are a field of their own with every field written, an empty list too, and nothing of them is named
-/// `kind` beside the tag of the content a view reads the diff under
-#[test]
-fn the_marks_are_camel_case_json_with_every_field() {
-  let mut result = diff("a\nb\n", "a\nc\n");
-  let json = serde_json::to_value(&result).expect("serializable");
-  // what the other files of a subject say is no part of the diff of a pair: written, as nothing
-  assert_eq!(
-    json["marks"],
-    serde_json::json!({ "runs": [], "moves": [], "renames": [], "starts": [0, 1, 1], "subject": null })
-  );
-  assert!(json.get("kind").is_none());
-
-  result.marks = DiffMarks {
-    runs: vec![LineRun {
-      old_start: 1,
-      old_end: 2,
-      new_start: 1,
-      new_end: 3,
-      kind: RunKind::Formatting,
-      quiet: true,
-    }],
-    moves: vec![LineMove {
-      old_start: 4,
-      new_start: 9,
-      len: 2,
-      indent: -2,
-      blanks_before: 1,
-      blanks_after: 0,
-      edited: vec![0],
-      old_ranges: vec![vec![0, 1, MODIFIED], vec![]],
-      new_ranges: vec![vec![0, 2, MODIFIED], vec![]],
-    }],
-    renames: vec![Rename {
-      old: "total".to_string(),
-      new: "sum".to_string(),
-      sites: 1,
-      local: true,
-      declared: vec![0],
-      old_sites: vec![3, 4, 9],
-      new_sites: vec![3, 4, 7],
-    }],
-    starts: vec![],
-    subject: Some(Box::new(SubjectMarks {
-      moved_out: vec![FileMove {
-        start: 53,
-        len: 4,
-        file: 1,
-        line: 17,
-      }],
-      moved_in: vec![],
-      declared: vec![RenameCheck {
-        rename: 0,
-        proof: RenameProof::UsesOutside,
-        sites: 3,
-        files: 2,
-      }],
-      used: vec![UsedRename {
-        rename: Rename {
-          old: "openStore".to_string(),
-          new: "connectStore".to_string(),
-          sites: 1,
-          old_sites: vec![4, 14, 23],
-          new_sites: vec![4, 14, 26],
-          ..Rename::default()
-        },
-        file: 2,
-        line: 18,
-        proof: RenameProof::Asked,
-      }],
-      confirmed: vec![0],
-    })),
-  };
-  let json = serde_json::to_value(&result).expect("serializable");
-  assert_eq!(
-    json["marks"],
-    serde_json::json!({
-      "runs": [{ "oldStart": 1, "oldEnd": 2, "newStart": 1, "newEnd": 3, "kind": "formatting", "quiet": true }],
-      "moves": [{
-        "oldStart": 4, "newStart": 9, "len": 2, "indent": -2, "blanksBefore": 1, "blanksAfter": 0, "edited": [0],
-        "oldRanges": [[0, 1, 2], []], "newRanges": [[0, 2, 2], []],
-      }],
-      "renames": [{ "old": "total", "new": "sum", "sites": 1, "local": true, "declared": [0], "oldSites": [3, 4, 9], "newSites": [3, 4, 7] }],
-      "starts": [],
-      "subject": {
-        "movedOut": [{ "start": 53, "len": 4, "file": 1, "line": 17 }],
-        "movedIn": [],
-        "declared": [{ "rename": 0, "proof": "usesOutside", "sites": 3, "files": 2 }],
-        "used": [{
-          "rename": {
-            "old": "openStore", "new": "connectStore", "sites": 1, "local": false, "declared": [],
-            "oldSites": [4, 14, 23], "newSites": [4, 14, 26],
-          },
-          "file": 2, "line": 18, "proof": "asked",
-        }],
-        "confirmed": [0],
-      },
-    })
-  );
-  for (proof, word) in [
-    (RenameProof::Confirmed, "confirmed"),
-    (RenameProof::OtherMeaning, "otherMeaning"),
-    (RenameProof::OtherDeclaration, "otherDeclaration"),
-    (RenameProof::Incomplete, "incomplete"),
-    (RenameProof::Unavailable, "unavailable"),
-  ] {
-    assert_eq!(serde_json::to_value(proof).expect("serializable"), word);
-  }
-  // a diff written before the subject had marks reads as one without them
-  let mut older = json.clone();
-  older["marks"].as_object_mut().expect("an object").remove("subject");
-  assert_eq!(serde_json::from_value::<TextDiff>(older).expect("deserializable").marks.subject, None);
-  assert_eq!(serde_json::to_value(RunKind::Comments).expect("serializable"), "comments");
-  assert_eq!(serde_json::to_value(RunKind::Renamed).expect("serializable"), "renamed");
-  let back: TextDiff = serde_json::from_value(json).expect("deserializable");
-  assert_eq!(back, result);
-}
-
-/// The comparison alone marks nothing and starts the reading at every block a reader stops at today: the first new
-/// line of a block, the first old line of a deleted one, a pale block too, never a block the policy cut off
-#[test]
 fn a_diff_without_runs_starts_the_reading_at_each_block_that_counts() {
   // line 1 changed, line 3 deleted, a line added at the end
   let result = diff("a\nb\nc\nd\ne\n", "a\nB\nc\ne\nf\n");
   assert_eq!(shape(&result).len(), 3);
-  assert_eq!(result.marks.starts, [0, 1, 1, 1, 0, 3, 2, 1, 4]);
-  assert_eq!((result.marks.runs.len(), result.marks.moves.len(), result.marks.renames.len()), (0, 0, 0));
+  assert_eq!(starts(&result), [0, 1, 1, 1, 0, 3, 2, 1, 4]);
 
   let (old, new) = ("a\nb\nc\nd\n", "a\n\nb\nc\nX\n");
   // the blank line is pale under `Ignore` and cut off under `IgnoreBlankLines`
-  assert_eq!(diff_with(old, new, WhitespacePolicy::Ignore).marks.starts, [0, 1, 1, 1, 1, 4]);
-  assert_eq!(diff_with(old, new, WhitespacePolicy::IgnoreBlankLines).marks.starts, [1, 1, 4]);
-  assert_eq!(diff("a\n", "a\n").marks.starts, Vec::<u32>::new());
+  assert_eq!(starts(&diff_with(old, new, WhitespacePolicy::Ignore)), [0, 1, 1, 1, 1, 4]);
+  assert_eq!(starts(&diff_with(old, new, WhitespacePolicy::IgnoreBlankLines)), [1, 1, 4]);
+  assert_eq!(starts(&diff("a\n", "a\n")), Vec::<u32>::new());
 }
 
 /// The quiet runs of a block cut it into parts: the reading starts at the first part with a line, at its new line
@@ -649,7 +524,7 @@ fn split_lines(text: &str) -> Vec<String> {
 
 /// The blocks partition both texts in order, the lines between them are as many on both sides, the ranges lie inside
 /// their lines, and the counts are the lines of the blocks that are not ignored
-fn check(old: &str, new: &str, policy: WhitespacePolicy, result: &TextDiff) {
+fn check(old: &str, new: &str, policy: WhitespacePolicy, result: &LineDiff) {
   let (old_lines, new_lines) = (split_lines(old), split_lines(new));
   assert_eq!((result.old_line_count as usize, result.new_line_count as usize), (old_lines.len(), new_lines.len()));
   let (mut old_position, mut new_position) = (0, 0);
@@ -860,7 +735,7 @@ proptest! {
   fn a_diff_starts_the_reading_at_each_block_that_counts(old in text(), new in text()) {
     for policy in [WhitespacePolicy::Default, WhitespacePolicy::Ignore, WhitespacePolicy::IgnoreBlankLines] {
       let result = diff_with(&old, &new, policy);
-      check_starts(&result.blocks, &[], &[], &result.marks.starts);
+      check_starts(&result.blocks, &[], &[], &starts(&result));
     }
   }
 

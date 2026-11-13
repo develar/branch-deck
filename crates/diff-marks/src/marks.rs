@@ -1,7 +1,7 @@
 //! The marks of a diff (openspec/specs/commit/quiet-changes/spec.md; docs/design/diff-view.md, "Marks"): the runs of
 //! lines that changed in their formatting, their comments or a renamed name alone, the names the change renamed, the
 //! lines that moved within the file, and the line the reading of each block starts at
-//! (`line_diff::model::DiffMarks`). They change no block of the diff.
+//! (`model::DiffMarks`). They change no block of the diff.
 //!
 //! - **Proof, not a guess.** A run is quiet only when the tokens of its lines are the same on both sides
 //!   (`code_tokens`, openspec/specs/commit/equal-by-tokens/spec.md): the same tokens parse to the same tree, so
@@ -49,8 +49,9 @@ use crate::bindings::Bindings;
 use crate::leftovers::PendingBlock;
 use crate::marks_renames::{Candidates, may_hold_rename, renames_of};
 use crate::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
+use crate::model::{DiffMarks, Rename};
 use code_tokens::{Grammar, Tokens, grammar_of, indentation_matters, is_blank};
-use line_diff::model::{BlockKind, DiffBlock, DiffMarks, LineMove, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, Rename, RunKind, TextDiff, starts_of};
+use line_diff::model::{BlockKind, DiffBlock, LineDiff, LineMove, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, RunKind, starts_of};
 use line_diff::moves::find_moves;
 use line_diff::policy::WhitespacePolicy;
 use std::cell::OnceCell;
@@ -187,7 +188,7 @@ impl PairMarks {
   reason = "the two texts, their diff and how they are read: the tokens and the bindings are the reader's, which keeps what it likes behind them"
 )]
 pub fn marks_of(
-  diff: &TextDiff,
+  diff: &LineDiff,
   old: &str,
   new: &str,
   grammar: Option<Grammar>,
@@ -281,7 +282,7 @@ pub struct PairRuns {
 /// (`Renames::pending`); that reading changes no run of the pair. Every reading spends the one work of the file
 /// (`MAX_FILE_TOKEN_WORK`). A run comes out of them quiet when its lines are proven; whether its kind is quiet,
 /// `marks_of` asks
-pub fn runs_of(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, ask_first: bool, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>, bindings: &dyn Bindings) -> PairRuns {
+pub fn runs_of(diff: &LineDiff, old: &SideText<'_>, new: &SideText<'_>, ask_first: bool, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>, bindings: &dyn Bindings) -> PairRuns {
   let FirstReading {
     mut runs,
     candidates,
@@ -330,7 +331,7 @@ pub struct FirstReading {
 }
 
 /// The first reading of the blocks of `diff` (`runs_of`, which says what `ask_first` and `tokens` are)
-pub fn read_blocks(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, ask_first: bool, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>) -> FirstReading {
+pub fn read_blocks(diff: &LineDiff, old: &SideText<'_>, new: &SideText<'_>, ask_first: bool, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>) -> FirstReading {
   let mut runs: Vec<Vec<LineRun>> = vec![Vec::new(); diff.blocks.len()];
   let mut candidates = Candidates::default();
   let mut read: Option<Option<[Arc<Tokens>; 2]>> = None;

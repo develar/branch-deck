@@ -2,12 +2,12 @@
 //! blocks partition the three texts.
 
 use crate::merge_model::{MergeBlockKind, MergeResolution, Sides, TextMerge, merge_texts};
+use crate::model::LineEndKind;
 use crate::test_support::{proptest_config, text_of_lines};
 use line_diff::cancellation::Deadline;
 use line_diff::comparison_util::is_equal_texts;
 use line_diff::model::DiffBudget;
 use line_diff::policy::{ComparisonPolicy, WhitespacePolicy};
-use line_diff::text::LineEndKind;
 use pretty_assertions::assert_eq;
 use proptest::prelude::Strategy;
 use proptest::proptest;

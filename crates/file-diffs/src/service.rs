@@ -72,8 +72,7 @@ use git_ops::commit_files::{DiffSubject, MAX_BLOB_BYTES, read_commit_files_cache
 use git_ops::object_texts::{into_text, is_binary};
 use git_ops::revs::is_object_id;
 use line_diff::cancellation::Deadline;
-use line_diff::model::{BlockKind, BudgetedDiff, DiffBudget, DiffMarks, LineRun, Scope, TextDiff, diff_texts_in};
-use line_diff::policy::WhitespacePolicy;
+use line_diff::model::{BudgetedDiff, DiffBudget, diff_texts_in};
 use line_diff::text_lines::TextLines;
 use moka::sync::Cache;
 use object_cache::cache::ObjectCache;
@@ -86,6 +85,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_utils::span::in_current_span;
+use text_diff::model::WhitespacePolicy;
+use text_diff::model::{BlockKind, DiffMarks, LineRun, Scope, TextDiff};
 use tracing::{debug, instrument, warn};
 
 /// The version of the diffs in the `file_diff` store and of what they left in the `file_leftovers` store: bump it
@@ -365,18 +366,39 @@ fn revisions_of(source: &DiffSource) -> Option<(String, String)> {
   }
 }
 
-/// What the pass over the files of a subject reads of each of `entries`: for a file whose content is a text, its
-/// diff and what its pair left (`texts`, by the index of the file)
-fn subject_facts<'a>(entries: &'a [Entry], texts: &'a [Option<KnownText>]) -> Vec<Option<PairFacts<'a>>> {
+/// The values of the diffs among `texts` that the pass over the files of a subject reads, by the index of the file:
+/// for a file whose content is a text, the blocks of its diff and its marks as the marks read them
+type SubjectValues = Vec<Option<(Vec<line_diff::model::DiffBlock>, diff_marks::model::DiffMarks)>>;
+
+fn subject_values(texts: &[Option<KnownText>]) -> SubjectValues {
+  texts
+    .iter()
+    .map(|text| match text.as_ref().map(|(content, _)| content.as_ref()) {
+      Some(DiffContent::Text(diff)) => Some((diff.line_blocks(), diff.marks.clone().into())),
+      _ => None,
+    })
+    .collect()
+}
+
+/// The marks of the files of a subject in the wire model, by the index of the file
+fn wire_marks(marks: Vec<Option<diff_marks::model::DiffMarks>>) -> Vec<Option<DiffMarks>> {
+  marks.into_iter().map(|marks| marks.map(Into::into)).collect()
+}
+
+/// What the pass over the files of a subject reads of each of `entries`: for a file whose content is a text, the
+/// values of its diff (`values`, by the index of the file) and what its pair left (`texts`)
+fn subject_facts<'a>(entries: &'a [Entry], texts: &'a [Option<KnownText>], values: &'a SubjectValues) -> Vec<Option<PairFacts<'a>>> {
   entries
     .iter()
     .zip(texts)
-    .map(|(entry, text)| match text.as_ref().map(|(content, left)| (content.as_ref(), left.as_ref())) {
-      Some((DiffContent::Text(diff), left)) => Some(facts_of(
+    .zip(values)
+    .map(|((entry, text), values)| match (text, values) {
+      (Some((_, left)), Some((blocks, marks))) => Some(facts_of(
         entry.old_path.as_deref(),
         &entry.path,
         [entry.old_id.as_deref(), entry.new_id.as_deref()],
-        diff,
+        blocks,
+        marks,
         left,
       )),
       _ => None,
@@ -604,14 +626,15 @@ impl FileDiffs {
       self.compare(git, cache, &files, &mut texts, &mut emit)?;
     }
 
-    let facts = subject_facts(&entries, &texts);
+    let values = subject_values(&texts);
+    let facts = subject_facts(&entries, &texts, &values);
     let subject = Subject::of(&facts);
     if subject.work.skipped_files > 0 || subject.work.cut {
       debug!(work = ?subject.work, "the moves between the files of the subject were not all looked for");
     }
     // the index can be asked of a subject of two trees that never change, by the declarations it renamed
     let asked = asks_index && revisions_of(&params.source).is_some() && !subject.questions().is_empty();
-    let marks = subject.marks(if asked { IndexAnswer::Asked } else { IndexAnswer::Unavailable });
+    let marks = wire_marks(subject.marks(if asked { IndexAnswer::Asked } else { IndexAnswer::Unavailable }));
     if pending.is_empty() {
       // every pair was in the caches: the content of a file comes with what the subject says of it
       for &index in &order {
@@ -664,7 +687,8 @@ impl FileDiffs {
       };
       self.compare(git, cache, &files, &mut texts, &mut |_| {})?;
     }
-    let facts = subject_facts(&entries, &texts);
+    let values = subject_values(&texts);
+    let facts = subject_facts(&entries, &texts, &values);
     let subject = Subject::of(&facts);
     let questions = subject.questions();
     if questions.is_empty() {
@@ -709,7 +733,7 @@ impl FileDiffs {
         .filter_map(|((entry, marks), _)| {
           Some(FileMarks {
             path: entry.path.clone(),
-            marks: marks?,
+            marks: marks?.into(),
           })
         })
         .collect(),
@@ -1095,22 +1119,25 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
       inner: Some(Deadline::after(limits.file)),
       lines: Deadline::after(limits.lines),
     };
-    let BudgetedDiff { mut diff, out_of_time } = diff_texts_in(old_text, new_text, context.policy, &budget);
+    let BudgetedDiff { diff: values, out_of_time } = diff_texts_in(old_text, new_text, context.policy.into(), &budget);
     // the marks before the content: they change the rows of the file
     let paths = [entry.old_path.as_deref().unwrap_or(&entry.path), &entry.path];
-    let left = if context.service.marks_off {
+    let (marks, left) = if context.service.marks_off {
       // the comparison alone, each block a stop, as it gave them
-      Leftovers::default()
+      (None, Leftovers::default())
     } else {
       let pair = context
         .service
-        .marks(&diff, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
+        .marks(&values, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
       // what the pair leaves to the other files of its subjects is read here, where its texts are; what it leaves to
       // the measurement of its proofs (`PairMarks::proven`) is read again by that measurement (`marks_measure`)
-      let (marks, left) = Leftovers::of(&diff.blocks, pair, old_text, new_text, pair_indented(paths[0], paths[1]));
-      diff.marks = marks;
-      left
+      let (marks, left) = Leftovers::of(&values.blocks, pair, old_text, new_text, pair_indented(paths[0], paths[1]));
+      (Some(marks), left)
     };
+    let mut diff = TextDiff::from(values);
+    if let Some(marks) = marks {
+      diff.marks = marks.into();
+    }
     let left = Arc::new(left);
     // memory keeps the diff with what it left, and the stream gets both for the pass over its subject
     let keep = |diff: &TextDiff| {

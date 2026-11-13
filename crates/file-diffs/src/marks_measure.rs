@@ -22,14 +22,15 @@ use crate::service::FileDiffs;
 use anyhow::Result;
 use code_tokens::Grammar;
 use diff_marks::marks::{pair_grammar, pair_indented};
+use diff_marks::model::DiffMarks;
 use git_executor::git_command_executor::GitCommandExecutor;
 use line_diff::model::{LineMove, LineRun, starts_of};
 use line_diff::moves::{MoveThresholds, find_moves_under};
-use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use std::cell::Cell;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use text_diff::model::WhitespacePolicy;
 
 /// A subject as a measurement reads it
 #[derive(Debug)]
@@ -171,9 +172,11 @@ impl FileDiffs {
       other_moves: Vec::new(),
     };
     let DiffContent::Text(diff) = &file.content else { return measured };
+    // the values of the diff of the view, as the marks read them
+    let (values, shown): (_, DiffMarks) = (diff.line_diff(), diff.marks.clone().into());
     let parsed = Cell::new(false);
     let pair = self.marks_told(
-      diff,
+      &values,
       policy,
       paths,
       [file.old_id.as_deref(), file.new_id.as_deref()],
@@ -181,7 +184,6 @@ impl FileDiffs {
       &|_| parsed.set(true),
     );
     measured.parsed = parsed.get();
-    let shown = &diff.marks;
     let place = |run: &LineRun| (run.old_start, run.old_end, run.new_start, run.new_end, run.kind);
     let find = |run: &LineRun| shown.runs.iter().position(|other| place(other) == place(run));
     // a run of the view that the index confirmed: a label of the pair, or one the subject added, that is quiet with
@@ -224,13 +226,21 @@ impl FileDiffs {
       }
     }
     let passed: Vec<LineRun> = shown.runs.iter().zip(&proven).map(|(run, proven)| LineRun { quiet: *proven, ..run.clone() }).collect();
-    measured.proven_starts = starts_of(&diff.blocks, &passed, &shown.moves);
+    measured.proven_starts = starts_of(&values.blocks, &passed, &shown.moves);
     measured.proven = proven;
     measured.proven_renames = pair.proven_renames;
     if let Some(thresholds) = thresholds {
       // from the blocks and the runs the moves of the view were read from, as `marks_of` reads them
       let indented = pair_indented(paths[0], paths[1]);
-      measured.other_moves = find_moves_under(measured.text(false), measured.text(true), &diff.blocks, &pair.marks.runs, policy, indented, thresholds);
+      measured.other_moves = find_moves_under(
+        measured.text(false),
+        measured.text(true),
+        &values.blocks,
+        &pair.marks.runs,
+        policy.into(),
+        indented,
+        thresholds,
+      );
     }
     measured
   }

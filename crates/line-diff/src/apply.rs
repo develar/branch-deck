@@ -22,6 +22,16 @@ pub struct LineBlock {
 }
 
 impl LineBlock {
+  /// The block of the lines `[old_start, old_end, new_start, new_end]`, as a `DiffBlock` names them
+  pub const fn of_lines([old_start, old_end, new_start, new_end]: [u32; 4]) -> Self {
+    Self {
+      old_start: old_start as usize,
+      old_end: old_end as usize,
+      new_start: new_start as usize,
+      new_end: new_end as usize,
+    }
+  }
+
   /// The same block from the new text to the old one
   #[must_use]
   pub const fn reversed(self) -> Self {
@@ -44,13 +54,7 @@ impl LineBlock {
 
 impl From<&DiffBlock> for LineBlock {
   fn from(block: &DiffBlock) -> Self {
-    let index = |line: u32| line as usize;
-    Self {
-      old_start: index(block.old_start),
-      old_end: index(block.old_end),
-      new_start: index(block.new_start),
-      new_end: index(block.new_end),
-    }
+    Self::of_lines([block.old_start, block.old_end, block.new_start, block.new_end])
   }
 }
 

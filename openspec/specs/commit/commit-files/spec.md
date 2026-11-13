@@ -42,6 +42,7 @@ targets:
   - crates/file-diffs/src/blocks.rs
   - crates/file-diffs/src/worktree.rs
   - crates/file-diffs/src/model.rs
+  - crates/text-diff/src/model.rs
   - crates/line-diff/src/model.rs
   - crates/line-diff/src/provider.rs
   - crates/line-diff/src/last_line.rs

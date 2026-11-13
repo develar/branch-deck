@@ -1,7 +1,7 @@
 //! The moves between the files of a subject (`moves_across.rs`): what a pair leaves to the other files, what is a
 //! move between two files and what is none, which of two is taken, and the limits of the search by its work.
 
-use crate::model::{DiffBudget, LineRun, RunKind, TextDiff, diff_texts};
+use crate::model::{DiffBudget, LineDiff, LineRun, RunKind, diff_texts};
 use crate::moves::find_moves;
 use crate::moves_across::{AcrossLimits, AcrossWork, FileRows, LeftRow, MAX_ACROSS_LINES, MAX_ACROSS_WORK, MoveAcross, find_moves_across, find_moves_across_within, left_rows};
 use crate::policy::WhitespacePolicy;
@@ -23,7 +23,7 @@ const TOTAL: [&str; 4] = [
 ];
 const KEPT: [&str; 3] = ["class Ledger {", "  fun clear() = entries.clear()", "}"];
 
-fn diff(old: &str, new: &str) -> TextDiff {
+fn diff(old: &str, new: &str) -> LineDiff {
   diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE)
 }
 

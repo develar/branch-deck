@@ -1,7 +1,7 @@
 //! The moves of a diff (`moves.rs`): what is a move, what is none, which of two is taken, what an edited line and a
 //! shifted indent are, and the limits of the search by its work.
 
-use crate::model::{BlockKind, DiffBlock, DiffBudget, LineMove, LineRun, RangeKind, TextDiff, diff_texts, starts_of};
+use crate::model::{BlockKind, DiffBlock, DiffBudget, LineDiff, LineMove, LineRun, RangeKind, diff_texts, starts_of};
 use crate::moves::{
   LIMITS, Limits, MAX_COMPARED_PAIRS, MAX_EDITED_LINES, MAX_KEY_CANDIDATES, MAX_MOVE_LINES, MAX_MOVE_WORK, MAX_UNREAD_PAIRS, MIN_MOVE_CHARS, MoveThresholds, MoveWork, find_moves,
   find_moves_counted, find_moves_under, find_moves_within, rewritten_lines,
@@ -33,7 +33,7 @@ fn refs(lines: &[String]) -> Vec<&str> {
   lines.iter().map(String::as_str).collect()
 }
 
-fn diff(old: &str, new: &str) -> TextDiff {
+fn diff(old: &str, new: &str) -> LineDiff {
   diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE)
 }
 
@@ -73,7 +73,7 @@ fn counted_lines(lines: &[String]) -> u32 {
 /// under the policy that counts every character no whitespace at the ends of a line changed without a range, but by
 /// the indent of the move; the ends exact or blank, at most a third of the lines that are not blank edited in
 /// their text or their nesting, and the exact lines that stand once among the lines a move may take long enough
-fn check(old: &str, new: &str, blocks: &TextDiff, runs: &[LineRun], moves: &[LineMove], policy: WhitespacePolicy, indentation_matters: bool) {
+fn check(old: &str, new: &str, blocks: &LineDiff, runs: &[LineRun], moves: &[LineMove], policy: WhitespacePolicy, indentation_matters: bool) {
   let (old_lines, new_lines) = (lines_of(old), lines_of(new));
   let ends_count = policy == WhitespacePolicy::Default;
   let block_of = |new_side: bool, lines: std::ops::Range<u32>| {
@@ -275,9 +275,9 @@ fn moves_under(old: &str, new: &str, policy: WhitespacePolicy, indentation_matte
 
 /// `check` of the moves `found` of `blocks` of two texts, every character counted, where the indentation has no meaning
 fn check_of(old: &str, new: &str, blocks: &[DiffBlock], found: &[LineMove]) {
-  let diff = TextDiff {
+  let diff = LineDiff {
     blocks: blocks.to_vec(),
-    ..TextDiff::default()
+    ..LineDiff::default()
   };
   check(old, new, &diff, &[], found, WhitespacePolicy::Default, false);
 }
@@ -765,9 +765,9 @@ fn the_blank_lines_that_moved_with_a_move_are_counted_beside_it() {
       text(&[&parts(&["head", "middle"], added, &["tail"])]),
     );
     let lines = |parts: &[&[&str]]| to_u32(parts.iter().map(|part| part.len()).sum());
-    let blocks = TextDiff {
+    let blocks = LineDiff {
       blocks: vec![block(1..1 + lines(deleted), 1..1), block(2 + lines(deleted)..2 + lines(deleted), 2..2 + lines(added))],
-      ..TextDiff::default()
+      ..LineDiff::default()
     };
     let found = find_moves(&old, &new, &blocks.blocks, &[], policy, false);
     check(&old, &new, &blocks, &[], &found, policy, false);
@@ -996,9 +996,9 @@ fn the_lines_of_a_run_and_of_a_block_that_is_no_change_are_in_no_move() {
   // a function deleted in one block; the other block changes a line and adds the function after it
   let old = text(&[&["head"], &ALPHA, &["middle"], &["let wrapped = call(first, second);"], &["tail"]]);
   let new = text(&[&["head"], &["middle"], &["let wrapped = call(first,"], &["  second);"], &ALPHA, &["tail"]]);
-  let blocks = TextDiff {
+  let blocks = LineDiff {
     blocks: vec![block(1..6, 1..1), block(7..8, 2..9)],
-    ..TextDiff::default()
+    ..LineDiff::default()
   };
   assert_eq!(show(&moves_of(&old, &new, &blocks.blocks, false)), "1..6 -> 4..9");
   // a run says what became of its lines at their place, quiet or not: a move takes the lines beside it
@@ -1181,9 +1181,9 @@ fn a_chain_of_many_short_moves_is_read_once_for_all_of_them() {
   let found_within = |old: &[String], new: &[String], indentation_matters: bool, limits: &Limits| {
     let (old, new, blocks) = moved_sides(old, new, 10);
     let (found, work) = find_moves_within(&old, &new, &blocks, &[], WhitespacePolicy::Default, indentation_matters, limits);
-    let diff = TextDiff {
+    let diff = LineDiff {
       blocks: blocks.to_vec(),
-      ..TextDiff::default()
+      ..LineDiff::default()
     };
     check(&old, &new, &diff, &[], &found, WhitespacePolicy::Default, indentation_matters);
     (found, work)
@@ -1491,7 +1491,7 @@ proptest! {
   /// where it has none; lines that did not change at all are one move
   #[test]
   fn the_moves_of_moved_lines_are_moves((old, new, blocks) in moved_lines()) {
-    let diff = TextDiff { blocks: blocks.to_vec(), ..TextDiff::default() };
+    let diff = LineDiff { blocks: blocks.to_vec(), ..LineDiff::default() };
     for indentation_matters in [false, true] {
       for policy in [WhitespacePolicy::Default, WhitespacePolicy::Trim] {
         let found = find_moves(&old, &new, &blocks, &[], policy, indentation_matters);
@@ -1525,7 +1525,7 @@ proptest! {
   /// compared by word
   #[test]
   fn the_moves_of_a_chain_are_the_same_read_once_or_again_for_each((old, new, blocks) in chain_of_pairs()) {
-    let diff = TextDiff { blocks: blocks.to_vec(), ..TextDiff::default() };
+    let diff = LineDiff { blocks: blocks.to_vec(), ..LineDiff::default() };
     for indentation_matters in [false, true] {
       let within = |short_row: usize| find_moves_within(&old, &new, &blocks, &[], WhitespacePolicy::Default, indentation_matters, &Limits { short_row, ..LIMITS });
       let (again, again_work) = within(usize::MAX);

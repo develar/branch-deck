@@ -12,12 +12,12 @@ use code_symbols::extract::summarize;
 use code_symbols::language::language_of;
 use git_executor::git_command_executor::GitCommandExecutor;
 use line_diff::apply::{BlockId, LineBlock, split_lines};
-use line_diff::model::{BlockKind, DiffBlock, Scope, TextDiff};
 use line_diff::text_lines::TextLines;
 use object_cache::cache::ObjectCache;
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
+use text_diff::model::{BlockKind, DiffBlock, Scope, TextDiff};
 
 /// The lines of context on each side of a block
 const CONTEXT_LINES: usize = 3;

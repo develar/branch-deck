@@ -18,13 +18,16 @@ names its Kotlin or Java source in its first comment. It is a pure function of t
 app (no `specta`), so another reader of code can take it as it is: the model of a view (`model`), the lines a change
 moved (`moves`, `moves_across`) and the blocks applied to bytes (`apply`) are in it too.
 
-`crates/text-diff` is the wire model of the app over it, Branch Deck's own: the types of `line-diff` declared again
-with `specta::Type` for `src/lib/bindings.ts` (`text_diff::model`), and the merge of three texts for the conflict
-view with its result on bytes (`merge_model`, `compose`). The types of `line-diff`'s model are written once, as items
-of a macro (`line_diff::diff_model!`, `whitespace_policy!`, `line_end_kind!`): `line-diff` declares them with serde,
-`text-diff` declares the same items once more with `specta::Type`, so the two cannot differ in a field, a name or the
-documentation the bindings carry. A value is always `line-diff`'s; a type of the app that holds one names its
-description (`#[specta(type = text_diff::model::TextDiff)]`, `crates/file-diffs/src/model.rs`).
+`crates/text-diff` is the wire model of the app over it, Branch Deck's own: the types that `src/lib/bindings.ts`
+describes (`specta::Type`) and the `file_diff` store keeps (`text_diff::model`: `TextDiff` with its scopes and its
+blocks of the imports alone, the marks, `WhitespacePolicy`, `LineEndKind`), and the merge of three texts for the
+conflict view with its result on bytes (`merge_model`, `compose`). The values are those of `line-diff`
+(`line_diff::model::LineDiff`, its blocks, runs and moves) and of `diff-marks` (`diff_marks::model::DiffMarks`):
+each type of the wire model maps to its value and back (`From`, field by field, so a field the value gains fails
+the build until the wire model describes it), so a change of `line-diff` or `diff-marks`, a word of its
+documentation too, changes no field, no name and no word of the bindings. The file-diffs service compares and marks
+on the values and answers the wire model; it maps a cached diff back to the values for the pass over the files of a
+subject.
 
 The port keeps the structure of the source: one module for each source file, with the same algorithm steps. A later
 change of the source can then be compared with the port.
@@ -33,9 +36,9 @@ The entry point is `provider::compare_lines_inner(old, new, policy, highlight, &
 blocks of lines (`LineFragment`) with their line ranges, their UTF-16 offsets and the changes inside them. An empty
 list of inner changes marks a block that changed only in what the policy ignores; a view draws it pale.
 
-The app takes the model of `model::diff_texts(old, new, policy, &budget)`: a `TextDiff` with typed blocks, sent as
-JSON. The views take the texts by blob id and build the context, the hunks and the expansion from the blocks. No
-patch text carries a diff that the app shows.
+The app takes the model of `model::diff_texts(old, new, policy, &budget)`: a `LineDiff` with typed blocks, sent as
+JSON in the wire model (`text_diff::model::TextDiff`). The views take the texts by blob id and build the context,
+the hunks and the expansion from the blocks. No patch text carries a diff that the app shows.
 
 ## Design
 
@@ -92,7 +95,7 @@ flowchart TD
 | `merge_conflict_type.rs` | `diff/util/MergeConflictType.kt`, `MergeConflictResolutionStrategy.kt` |
 | `merge_range_util.rs` | `diff/util/MergeRangeUtil.kt` |
 | `merge_resolve_util.rs` | `diff/comparison/MergeResolveUtil.kt` |
-| `model.rs` | Branch Deck's own: `TextDiff`, the model of the views, `diff_texts`, and the marks of a diff (`DiffMarks`, `starts_of`, `SubjectMarks`) |
+| `model.rs` | Branch Deck's own: `LineDiff`, the model of the views, `diff_texts`, the runs and the moves of the marks (`LineRun`, `LineMove`) and where the reading of each block starts (`starts_of`) |
 | `inline.rs` | Branch Deck's own: the inline pairs and the dropped ranges of a block, the rule of a similar pair |
 | `moves.rs` | Branch Deck's own: the lines a change moved within a file (`find_moves`) |
 | `moves_across.rs` | Branch Deck's own: what a pair leaves to the other files of its subject (`left_rows`) and the lines a change moved between two files (`find_moves_across`) |
@@ -101,9 +104,9 @@ flowchart TD
 
 ### Model
 
-`model::diff_texts` compares two texts by word and builds a `TextDiff` straight from the blocks of the comparison
-(`provider::compare_for_view`). The types derive serde (camelCase); `text_diff::model` declares them again with
-`specta::Type` for the bindings of the app (Solution Overview).
+`model::diff_texts` compares two texts by word and builds a `LineDiff` straight from the blocks of the comparison
+(`provider::compare_for_view`). The app sends and keeps it as `text_diff::model::TextDiff`, its own types with
+`specta::Type` for the bindings, mapped to these field by field (Solution Overview).
 
 - **Lines.** `\n`, `\r\n` and a lone `\r` each end a line, as IntelliJ splits a document (`SourceText`). A text
   has one line more than it has line ends: `"a\n"` is `a` and an empty line. A view that splits the text at

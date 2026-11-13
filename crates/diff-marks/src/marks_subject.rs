@@ -54,9 +54,10 @@ use crate::index::{Access, RenameAnswer, RenamePair, RenameUse, RenameUses, Rena
 use crate::leftovers::{Leftovers, PendingRun};
 use crate::marks::is_quiet;
 use crate::marks_renames::with_the_first;
+use crate::model::{DiffMarks, FileMove, Rename, RenameCheck, RenameProof, SubjectMarks, UsedRename};
 use code_tokens::{Grammar, grammar_of};
 use line_diff::model::to_u32;
-use line_diff::model::{BlockKind, DiffBlock, DiffMarks, FileMove, LineMove, LineRun, Rename, RenameCheck, RenameProof, RunKind, SubjectMarks, TextDiff, UsedRename, starts_of};
+use line_diff::model::{BlockKind, DiffBlock, LineMove, LineRun, RunKind, starts_of};
 use line_diff::moves_across::{AcrossWork, FileRows, LeftRow, find_moves_across};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -71,13 +72,14 @@ fn is_of_proven_language(path: &str) -> bool {
   matches!(grammar_of(path), Some(Grammar::Kotlin | Grammar::KotlinScript | Grammar::Java))
 }
 
-/// A file of a subject whose content is a text: its diff, with the marks of its pair, and what the pair left
+/// A file of a subject whose content is a text: the blocks of its diff, the marks of its pair, and what the pair left
 #[derive(Debug, Clone, Copy)]
 pub struct PairFacts<'a> {
   /// The path of each side, as the trees of the subject hold it; `None` for a side the file does not exist on
   pub old_path: Option<&'a str>,
   pub new_path: Option<&'a str>,
-  pub diff: &'a TextDiff,
+  pub blocks: &'a [DiffBlock],
+  pub marks: &'a DiffMarks,
   pub left: &'a Leftovers,
 }
 
@@ -186,13 +188,13 @@ impl<'a> Subject<'a> {
     // the files that declare a renamed name that is not local, by its two names
     let mut declaring: HashMap<(&str, &str), Vec<(u32, u32)>> = HashMap::new();
     for (file, facts) in pairs.iter().enumerate() {
-      let renames = facts.iter().flat_map(|facts| (0u32..).zip(&facts.diff.marks.renames));
+      let renames = facts.iter().flat_map(|facts| (0u32..).zip(&facts.marks.renames));
       for (number, rename) in renames.filter(|(_, rename)| !rename.local) {
         declaring.entry(names_of(rename)).or_default().push((to_u32(file), number));
       }
     }
     let declaration_line = |file: u32, number: u32| -> Option<u32> {
-      let rename = pairs.get(file as usize)?.as_ref()?.diff.marks.renames.get(number as usize)?;
+      let rename = pairs.get(file as usize)?.as_ref()?.marks.renames.get(number as usize)?;
       rename.new_sites.get(*rename.declared.first()? as usize * 3).copied()
     };
 
@@ -269,15 +271,13 @@ impl<'a> Subject<'a> {
     for facts in self.files.iter().flatten().map(|file| &file.facts) {
       let proven = facts.old_path.is_some_and(is_of_proven_language) && facts.new_path.is_some_and(is_of_proven_language);
       if !proven {
-        self.unread.extend(facts.diff.marks.renames.iter().filter(|rename| !rename.local).map(names_of));
+        self.unread.extend(facts.marks.renames.iter().filter(|rename| !rename.local).map(names_of));
       }
       // and a name that one of its declarations declares by other code is asked of none of them
       let redeclared = facts.left.declarations.iter().filter(|declarations| declarations.redeclared);
-      self.redeclared.extend(
-        redeclared
-          .filter_map(|declarations| facts.diff.marks.renames.get(declarations.rename as usize))
-          .map(names_of),
-      );
+      self
+        .redeclared
+        .extend(redeclared.filter_map(|declarations| facts.marks.renames.get(declarations.rename as usize)).map(names_of));
     }
     for (index, file) in self.files.iter().enumerate() {
       let Some(file) = file else { continue };
@@ -291,7 +291,7 @@ impl<'a> Subject<'a> {
         }
       }
       let declared = (0u32..)
-        .zip(&facts.diff.marks.renames)
+        .zip(&facts.marks.renames)
         .filter(|(_, rename)| !rename.local)
         .map(|(number, rename)| (Name::Declared(number), rename));
       let used = file
@@ -315,7 +315,6 @@ impl<'a> Subject<'a> {
       };
       for declarations in &facts.left.declarations {
         let Some(rename) = facts
-          .diff
           .marks
           .renames
           .get(declarations.rename as usize)
@@ -397,7 +396,7 @@ impl<'a> Subject<'a> {
       .zip(&self.files)
       .map(|(index, file)| {
         let file = file.as_ref()?;
-        let (pair, left) = (&file.facts.diff.marks, file.facts.left);
+        let (pair, left) = (&file.facts.marks, file.facts.left);
         let declared: Vec<RenameCheck> = (0u32..)
           .zip(&pair.renames)
           .filter(|(_, rename)| !rename.local)
@@ -437,7 +436,7 @@ impl<'a> Subject<'a> {
             ..run.clone()
           })
           .collect();
-        let blocks = &file.facts.diff.blocks;
+        let blocks = &file.facts.blocks;
         let marks = DiffMarks {
           starts: starts_of(blocks, &runs, &pair.moves),
           runs,
@@ -460,7 +459,7 @@ impl<'a> Subject<'a> {
   fn rename(&self, file: u32, name: Name) -> Option<&'a Rename> {
     let facts = &self.files.get(file as usize)?.as_ref()?.facts;
     match name {
-      Name::Declared(number) => facts.diff.marks.renames.get(number as usize),
+      Name::Declared(number) => facts.marks.renames.get(number as usize),
       Name::Used(number) => facts.left.undeclared.get(number as usize),
     }
   }
@@ -477,7 +476,7 @@ impl<'a> Subject<'a> {
   /// place to him (`is_moved`)
   fn is_read(&self, file: u32, new_side: bool, line: u32) -> bool {
     let Some(Some(subject)) = self.files.get(file as usize) else { return false };
-    let blocks = &subject.facts.diff.blocks;
+    let blocks = &subject.facts.blocks;
     let lines = |block: &DiffBlock| if new_side { block.new_start..block.new_end } else { block.old_start..block.old_end };
     let changed = blocks
       .get(blocks.partition_point(|block| lines(block).end <= line))
@@ -492,7 +491,7 @@ impl<'a> Subject<'a> {
   fn is_moved(&self, file: u32, new_side: bool, line: u32) -> bool {
     let Some(Some(subject)) = self.files.get(file as usize) else { return false };
     let between = if new_side { &subject.moved_in } else { &subject.moved_out };
-    let (pair, left) = (&subject.facts.diff.marks, subject.facts.left);
+    let (pair, left) = (&subject.facts.marks, subject.facts.left);
     let within = |moved: &LineMove| if new_side { moved.new_lines() } else { moved.old_lines() }.contains(&line);
     between.iter().any(|moved| (moved.start..moved.start + moved.len).contains(&line))
       || (pair.moves.iter().any(within) && left.rewritten[usize::from(new_side)].binary_search(&line).is_err())
@@ -516,7 +515,7 @@ impl<'a> Subject<'a> {
   /// The line of the other side that the line `line` of a side of the file `file` is, when the change left it
   /// alone: a line of no block
   fn same_line(&self, file: u32, new_side: bool, line: u32) -> Option<u32> {
-    let blocks = &self.files.get(file as usize)?.as_ref()?.facts.diff.blocks;
+    let blocks = &self.files.get(file as usize)?.as_ref()?.facts.blocks;
     // the lines of a block on the side asked, and on the other one
     let sides = |block: &DiffBlock| {
       let (old, new) = (block.old_start..block.old_end, block.new_start..block.new_end);
@@ -715,13 +714,13 @@ fn uses_of(rename: &Rename) -> impl Iterator<Item = u32> + '_ {
 /// no run of a kind that may be quiet without the index comes from here, and none of them takes a line of a quiet
 /// run of the pair, so the quiet runs and the stops of the file stay those of its pair
 fn merged_runs<'a>(facts: &PairFacts<'a>, used: &[Used]) -> Cow<'a, [LineRun]> {
-  let pair = &facts.diff.marks.runs;
+  let pair = &facts.marks.runs;
   let holds = |run: &&PendingRun| run.run.kind == RunKind::Renamed && !run.names.is_empty() && run.names.iter().all(|name| used.iter().any(|used| used.name == *name));
   let mut pending = facts.left.pending.iter().filter(|block| block.runs.iter().any(|run| holds(&run))).peekable();
   if used.is_empty() || pending.peek().is_none() {
     return Cow::Borrowed(pair);
   }
-  let blocks = &facts.diff.blocks;
+  let blocks = &facts.blocks;
   let mut runs = Vec::with_capacity(pair.len());
   let mut from = 0;
   for block in pending {
@@ -768,7 +767,7 @@ fn rows_of<'s>(file: &'s FileSubject<'_>) -> [Cow<'s, [LeftRow]>; 2] {
 /// local and whose every place is proven: one of `sites` for such a name, one of a rename the scopes of the file
 /// prove for a local one
 fn confirmed_runs(index: u32, file: &FileSubject<'_>, sites: &HashSet<Site>) -> Vec<u32> {
-  let (marks, left) = (&file.facts.diff.marks, file.facts.left);
+  let (marks, left) = (&file.facts.marks, file.facts.left);
   // the old line of each place of a rename, whether it is proven, and whether the index was asked of it
   let mut places: Vec<(u32, bool, bool)> = Vec::new();
   let mut read = |rename: &Rename, proven: &dyn Fn(u32) -> bool, asked: bool| {
@@ -817,12 +816,14 @@ pub fn as_confirmed(marks: &DiffMarks, blocks: &[DiffBlock]) -> DiffMarks {
   marks
 }
 
-/// The facts of a text file of a subject at `path`, `old_path` before a rename, with the blob ids of its sides
-pub fn facts_of<'a>(old_path: Option<&'a str>, path: &'a str, ids: [Option<&str>; 2], diff: &'a TextDiff, left: &'a Leftovers) -> PairFacts<'a> {
+/// The facts of a text file of a subject at `path`, `old_path` before a rename, with the blob ids of its sides, the
+/// blocks of its diff and the marks of its pair
+pub fn facts_of<'a>(old_path: Option<&'a str>, path: &'a str, ids: [Option<&str>; 2], blocks: &'a [DiffBlock], marks: &'a DiffMarks, left: &'a Leftovers) -> PairFacts<'a> {
   PairFacts {
     old_path: ids[0].map(|_| old_path.unwrap_or(path)),
     new_path: ids[1].map(|_| path),
-    diff,
+    blocks,
+    marks,
     left,
   }
 }

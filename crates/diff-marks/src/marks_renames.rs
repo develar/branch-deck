@@ -73,10 +73,11 @@ use crate::bindings::{Access, Bindings, NameAt, NameQuestion, NameUse, Position,
 use crate::leftovers::{PendingBlock, PendingRun};
 use crate::marks::MAX_RENAME_WORK;
 use crate::marks_runs::{Asked, BlockLines, runs_of_block};
+use crate::model::Rename;
 use code_tokens::Grammar;
 use code_tokens::{Token, TokenClass, Tokens};
 use line_diff::model::to_u32;
-use line_diff::model::{BlockKind, DiffBlock, LineRun, Rename, RunKind};
+use line_diff::model::{BlockKind, DiffBlock, LineRun, RunKind};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 

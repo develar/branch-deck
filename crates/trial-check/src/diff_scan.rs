@@ -8,9 +8,9 @@ use file_diffs::blocks::{BlobPair, PairDiff};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::split_numstat;
-use line_diff::model::DiffBlock;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::{FileChange, Hunk};
+use text_diff::model::DiffBlock;
 use tracing::instrument;
 
 /// The marker the `--format` puts before each commit id

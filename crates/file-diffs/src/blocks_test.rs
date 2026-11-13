@@ -3,12 +3,12 @@
 use crate::blocks::{BlobPair, PairDiff};
 use crate::fixture_test::{commit_all, hurried, process_counts, repo_path, unhurried, unhurried_for_scans, write};
 use crate::model::{DiffContent, DiffFile, DiffSource};
-use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::fmt::Write as _;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use text_diff::model::WhitespacePolicy;
 
 /// A commit that changes a Kotlin file, adds a text file and changes a binary one
 fn repo() -> (TestRepo, String) {
@@ -167,7 +167,7 @@ fn short_and_long() -> (TestRepo, String) {
 }
 
 /// The blocks of each pair of `diffs`, of text pairs only
-fn texts_of(diffs: Vec<PairDiff>) -> Vec<Vec<line_diff::model::DiffBlock>> {
+fn texts_of(diffs: Vec<PairDiff>) -> Vec<Vec<text_diff::model::DiffBlock>> {
   diffs
     .into_iter()
     .map(|diff| match diff {
@@ -191,7 +191,7 @@ fn a_scan_has_the_blocks_of_no_deadline_and_a_diff_the_time_cut_short_reaches_no
     .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &source, WhitespacePolicy::Default)
     .unwrap();
   let pairs = pairs_of(&exact);
-  let expected: Vec<Vec<line_diff::model::DiffBlock>> = exact
+  let expected: Vec<Vec<text_diff::model::DiffBlock>> = exact
     .iter()
     .map(|file| match &file.content {
       DiffContent::Text(diff) => diff.blocks.clone(),

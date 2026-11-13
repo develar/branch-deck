@@ -27,6 +27,7 @@ use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use code_tokens::Grammar;
 use diff_marks::marks::is_quiet;
+use diff_marks::model::{DiffMarks, FileMove, Rename, RenameProof};
 use domain_types::error::ErrorCode;
 use file_diffs::accio::{AccioCli, SymbolIndex};
 use file_diffs::marks_measure::{MeasuredFile, MeasuredSubject, MeasuredText};
@@ -34,15 +35,15 @@ use file_diffs::model::{DiffContent, DiffSource};
 use file_diffs::service::{FileDiffs, MODEL_VERSION};
 use git_ops::landed_pairing::walk_commits;
 use git_ops::revs::resolve_commit;
-use line_diff::model::{BlockKind, FileMove, LineMove, LineRun, Rename, RenameProof, RunKind, TextDiff};
+use line_diff::model::{BlockKind, DiffBlock, LineMove, LineRun, RunKind};
 use line_diff::moves::{MAX_EDITED_LINES, MIN_MOVE_CHARS, MoveThresholds, line_starts, line_text};
 use line_diff::moves_across::{MIN_ACROSS_CHARS, MIN_ACROSS_LINES};
-use line_diff::policy::WhitespacePolicy;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::ops::Range;
 use std::time::Duration;
+use text_diff::model::{TextDiff, WhitespacePolicy};
 
 /// The lines of a side of a sampled mark that are printed: a longer side is cut, and says by how many lines
 const MAX_SAMPLE_LINES: usize = 60;
@@ -354,6 +355,7 @@ pub fn mark_stats_with(context: &RepoContext, args: &MarkStatsArgs, index: Optio
     let mut read: BTreeSet<&'static str> = BTreeSet::new();
     for file in &measured.files {
       let DiffContent::Text(diff) = &file.file.content else { continue };
+      let diff = &Values::of(diff);
       let language = language_of(file.text.as_ref());
       read.insert(language);
       count_file(languages.entry(language).or_default(), diff, file.text.as_ref(), other_thresholds.is_some());
@@ -446,6 +448,21 @@ const fn run_name(kind: RunKind) -> &'static str {
     RunKind::Formatting => "formatting",
     RunKind::Comments => "comments",
     RunKind::Renamed => "renamed",
+  }
+}
+
+/// The blocks and the marks of the diff of a file as the marks read them: what a measurement counts and samples
+struct Values {
+  blocks: Vec<DiffBlock>,
+  marks: DiffMarks,
+}
+
+impl Values {
+  fn of(diff: &TextDiff) -> Self {
+    Self {
+      blocks: diff.line_blocks(),
+      marks: diff.marks.clone().into(),
+    }
   }
 }
 
@@ -548,7 +565,7 @@ impl MarkCounts {
 
 /// Counts the marks of the diff of a text file; `text` is what the measurement read beside it, `None` for a diff
 /// without marks; `other_moves` says that each file was searched under other thresholds too
-fn count_file(counts: &mut MarkCounts, diff: &TextDiff, text: Option<&MeasuredText>, other_moves: bool) {
+fn count_file(counts: &mut MarkCounts, diff: &Values, text: Option<&MeasuredText>, other_moves: bool) {
   let blocks = || diff.blocks.iter().filter(|block| block.kind != BlockKind::Ignored);
   if blocks().next().is_none() {
     return;
@@ -718,7 +735,7 @@ fn move_key(line: &str) -> &str {
 }
 
 impl<'t> FreeLines<'t> {
-  fn of(diff: &TextDiff, old: &SideLines<'t>, new: &SideLines<'t>) -> Self {
+  fn of(diff: &Values, old: &SideLines<'t>, new: &SideLines<'t>) -> Self {
     let mut free = Self {
       old: HashMap::new(),
       new: HashMap::new(),
@@ -901,7 +918,7 @@ impl SampleOf<'_> {
 }
 
 /// Offers the marks of the text file `file` of the subject `measured` to the sample
-fn sample_file(sampler: &mut Sampler, subject: &str, measured: &MeasuredSubject, file: &MeasuredFile, diff: &TextDiff, text: &MeasuredText) {
+fn sample_file(sampler: &mut Sampler, subject: &str, measured: &MeasuredSubject, file: &MeasuredFile, diff: &Values, text: &MeasuredText) {
   let (old, new) = (SideLines::new(text.text(false)), SideLines::new(text.text(true)));
   let of = SampleOf {
     subject,
@@ -1002,7 +1019,7 @@ fn sample_file(sampler: &mut Sampler, subject: &str, measured: &MeasuredSubject,
 }
 
 /// The names another file of the subject declares and this one uses
-fn used_renames(diff: &TextDiff) -> impl Iterator<Item = &Rename> {
+fn used_renames(diff: &Values) -> impl Iterator<Item = &Rename> {
   diff.marks.subject.iter().flat_map(|subject| subject.used.iter().map(|used| &used.rename))
 }
 

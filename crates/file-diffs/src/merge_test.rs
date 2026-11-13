@@ -3,14 +3,14 @@
 
 use crate::fixture_test::{commit_all, hurried, process_counts, repo_path, unhurried, write};
 use crate::model::{FileMerge, FileMergeEvent, GetFileMergesParams, GitConflictKind, MergeContent, MergeSide, MergeSource};
-use line_diff::policy::WhitespacePolicy;
-use line_diff::text::LineEndKind;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::fmt::Write as _;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use text_diff::merge_model::{MergeBlockKind, MergeResolution, Sides, TextMerge};
+use text_diff::model::LineEndKind;
+use text_diff::model::WhitespacePolicy;
 
 /// A base, a target that changes every file one way and a commit from the base that changes them another way: the
 /// cherry-pick of the commit onto the target conflicts in each file

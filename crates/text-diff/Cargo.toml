@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 # the merge is built on the comparison ported from IntelliJ Platform, see NOTICE
 license = "Apache-2.0"
-description = "The wire model of the diffs of the app: the types of line-diff for its bindings, and the merge of three texts"
+description = "The wire model of the diffs of the app, mapped to the values of line-diff and diff-marks, and the merge of three texts"
 
 [dependencies]
-# the comparison, its model and the lines of a text
+# the marks of a diff, whose values the model maps to (`marks`)
+diff-marks = { path = "../diff-marks", optional = true }
+# the comparison, its values and the lines of a text
 line-diff = { path = "../line-diff" }
 serde.workspace = true
 specta = { workspace = true, optional = true }
@@ -19,6 +21,9 @@ serde_json.workspace = true
 
 [features]
 default = []
+# the model of the marks maps to the values of diff-marks: for the service that makes the marks, not for a reader that
+# only merges (git-ops)
+marks = ["dep:diff-marks"]
 # the TypeScript types of the model (`model.rs`, `merge_model.rs`) for the app's bindings
 specta = ["dep:specta"]
 

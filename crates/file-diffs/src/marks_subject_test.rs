@@ -3,12 +3,14 @@
 //! the service reads a pair: its diff, its marks and what it left, from its two texts.
 
 use crate::bindings::CodeSymbolBindings;
+use crate::marks_test::MarkedDiff;
 use code_tokens::tokens;
 use diff_marks::index::{Access, RenameAnswer, RenameConflict, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Resolved};
 use diff_marks::leftovers::{Leftovers, PendingBlock, PendingRun};
 use diff_marks::marks::{is_quiet, marks_of, pair_grammar, pair_indented, without_moved_lines};
 use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject, as_confirmed};
-use line_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, LineMove, LineRun, RenameProof, RunKind, SubjectMarks, TextDiff, diff_texts};
+use diff_marks::model::{DiffMarks, FileMove, RenameProof, SubjectMarks};
+use line_diff::model::{BlockKind, DiffBudget, LineMove, LineRun, RunKind, diff_texts};
 use line_diff::policy::WhitespacePolicy;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
@@ -38,9 +40,9 @@ fn added(path: &'static str, new: &str) -> File {
 }
 
 /// The diff of a file under `policy` with the marks of its pair, and what the pair left
-fn read(file: &File, policy: WhitespacePolicy) -> (TextDiff, Leftovers) {
+fn read(file: &File, policy: WhitespacePolicy) -> (MarkedDiff, Leftovers) {
   let (old, new) = (file.old.as_deref().unwrap_or_default(), file.new.as_deref().unwrap_or_default());
-  let mut diff = diff_texts(old, new, policy, &DiffBudget::NONE);
+  let mut diff = MarkedDiff::from(diff_texts(old, new, policy, &DiffBudget::NONE));
   let grammar = pair_grammar(file.path, file.path);
   let indented = pair_indented(file.path, file.path);
   let pair = marks_of(
@@ -61,7 +63,7 @@ fn read(file: &File, policy: WhitespacePolicy) -> (TextDiff, Leftovers) {
 /// The files of a case, read
 struct Case {
   files: Vec<File>,
-  pairs: Vec<(TextDiff, Leftovers)>,
+  pairs: Vec<(MarkedDiff, Leftovers)>,
 }
 
 impl Case {
@@ -84,7 +86,8 @@ impl Case {
         Some(PairFacts {
           old_path: file.old.as_ref().map(|_| file.path),
           new_path: file.new.as_ref().map(|_| file.path),
-          diff,
+          blocks: &diff.blocks,
+          marks: &diff.marks,
           left,
         })
       })

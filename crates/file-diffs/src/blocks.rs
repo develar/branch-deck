@@ -21,13 +21,14 @@ use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::for_each_object;
 use git_ops::commit_files::MAX_BLOB_BYTES;
-use line_diff::model::{DiffBudget, TextDiff, diff_texts};
-use line_diff::policy::WhitespacePolicy;
+use line_diff::model::{DiffBudget, diff_texts};
 use object_cache::cache::ObjectCache;
 use object_cache::file_diff::DiffKey;
 use std::collections::HashMap;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, PoisonError};
+use text_diff::model::TextDiff;
+use text_diff::model::WhitespacePolicy;
 
 /// A changed file whose blocks a scan needs: its paths (the languages of the cache key) and its blob ids, `None` for a
 /// side the file does not exist on
@@ -176,5 +177,5 @@ fn compare(old: Option<&BlobText>, new: Option<&BlobText>) -> PairDiff {
   let (Some(old), Some(new)) = (text(old), text(new)) else {
     return PairDiff::NoText;
   };
-  PairDiff::Text(diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE))
+  PairDiff::Text(diff_texts(old, new, WhitespacePolicy::Default.into(), &DiffBudget::NONE).into())
 }

@@ -169,7 +169,7 @@ fn outside_review(outside: &[u8], more: &[(&str, &[u8])]) -> (TestRepo, crate::s
       repo_path(&repo),
       &object_cache::cache::ObjectCache::disabled(),
       &crate::model::DiffSource::Commit { id: commit.clone() },
-      line_diff::policy::WhitespacePolicy::Default,
+      text_diff::model::WhitespacePolicy::Default,
     )
     .unwrap();
   let mut params = single_file_params(&repo, &files, &commit);

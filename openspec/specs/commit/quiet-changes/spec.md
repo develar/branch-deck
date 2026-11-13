@@ -4,6 +4,8 @@ description: Requirements for the marks of a diff that say what a reviewer may p
 style: plain-1
 targets:
   - crates/line-diff/src/model.rs
+  - crates/diff-marks/src/model.rs
+  - crates/text-diff/src/model.rs
   - crates/line-diff/src/moves.rs
   - crates/line-diff/src/moves_across.rs
   - crates/line-diff/src/inline.rs
@@ -167,7 +169,7 @@ draws.
 - **AND** a run is `oldStart`, `oldEnd`, `newStart`, `newEnd`, its `kind` (`formatting`, `comments`, `renamed`) and `quiet`
 - **AND** a rename is `old`, `new`, `sites`, `local`, `declared`, `oldSites` and `newSites`
 - **AND** nothing beside the tag of the content is named `kind` at the top of the diff
-  [@test] crates/line-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
+  [@test] crates/text-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
 
 #### Scenario: With the content
 - **WHEN** the diffs of a commit stream, a call of one file wrapped over two lines
@@ -828,7 +830,7 @@ there. It MUST be a label: no run, no start taken away, no line for a view to hi
 #### Scenario: The shape of the marks of a subject
 - **WHEN** a diff with the marks of its subject is written as JSON, and one without
 - **THEN** `marks.subject` has `movedOut`, `movedIn`, `declared`, `used` and `confirmed`, every list written, and is `null` in the diff of a pair alone; a diff written without the field reads as one without the marks
-  [@test] crates/line-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
+  [@test] crates/text-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
 
 ### Requirement: Subject: The moves between files are bound by work
 
@@ -893,7 +895,7 @@ the two names, its own and those of every file that names the rename (`subject.u
 #### Scenario: The fields
 - **WHEN** the marks of a file with what its subject says of a name it declares are written as JSON
 - **THEN** the check of the name has `sites` and `files` beside its `proof`
-  [@test] crates/line-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
+  [@test] crates/text-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
 
 ### Requirement: Subject: The index is asked once of every declaration a subject renamed
 

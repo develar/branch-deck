@@ -23,10 +23,11 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use diff_marks::leftovers::Leftovers;
 use diff_marks::marks::{MAX_BLOCK_TOKENS, MAX_RENAME_WORK, MAX_TOKEN_EDITS, marks_of};
 use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject};
+use diff_marks::model::DiffMarks;
 use file_diffs::bindings::CodeSymbolBindings;
 use file_diffs::model::{DiffSource, FileDiffEvent, GetFileDiffsParams};
 use file_diffs::service::{DiffLimits, FileDiffs};
-use line_diff::model::{BlockKind, DiffBlock, DiffBudget, TextDiff, diff_texts};
+use line_diff::model::{BlockKind, DiffBlock, DiffBudget, LineDiff, diff_texts};
 use line_diff::moves::{MAX_KEY_CANDIDATES, MAX_MOVE_LINES, MAX_MOVE_WORK, find_moves, find_moves_counted};
 use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
@@ -91,7 +92,7 @@ fn every_fifth(edit: Edit) -> impl Fn(usize) -> Edit {
   move |index| if index % 5 == 0 { edit } else { Edit::None }
 }
 
-fn diff_of(old: &str, new: &str) -> TextDiff {
+fn diff_of(old: &str, new: &str) -> LineDiff {
   diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE)
 }
 
@@ -505,7 +506,7 @@ fn stream_of(diffs: &FileDiffs, repo: &TestRepo, commit: &str) -> (Duration, Dur
   let params = GetFileDiffsParams {
     repository_path: repo.path().to_str().expect("a UTF-8 path").to_string(),
     source: DiffSource::Commit { id: commit.to_string() },
-    policy: WhitespacePolicy::Default,
+    policy: text_diff::model::WhitespacePolicy::Default,
     priority_paths: Vec::new(),
   };
   let start = Instant::now();
@@ -569,26 +570,26 @@ fn bench_subject_pass(c: &mut Criterion) {
   let mut group = c.benchmark_group("the pass over the 200 files of a subject");
   for (name, sides) in subjects() {
     let [before, after] = subject_files(&sides);
-    let read: Vec<(TextDiff, Leftovers)> = before
+    let read: Vec<(LineDiff, DiffMarks, Leftovers)> = before
       .iter()
       .zip(&after)
       .map(|((_, old), (_, new))| {
-        let mut diff = diff_of(old, new);
+        let diff = diff_of(old, new);
         let tokens_of = |new_side: bool| tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new);
         let pair = marks_of(&diff, old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, tokens_of, &CodeSymbolBindings);
         let (marks, left) = Leftovers::of(&diff.blocks, pair, old, new, false);
-        diff.marks = marks;
-        (diff, left)
+        (diff, marks, left)
       })
       .collect();
     let facts: Vec<Option<PairFacts<'_>>> = before
       .iter()
       .zip(&read)
-      .map(|((path, _), (diff, left))| {
+      .map(|((path, _), (diff, marks, left))| {
         Some(PairFacts {
           old_path: Some(path),
           new_path: Some(path),
-          diff,
+          blocks: &diff.blocks,
+          marks,
           left,
         })
       })
@@ -601,7 +602,7 @@ fn bench_subject_pass(c: &mut Criterion) {
       .filter_map(|marks| marks.subject.as_ref())
       .map(|subject| subject.moved_in.len())
       .sum();
-    let left: usize = read.iter().flat_map(|(_, left)| left.lines.iter().flatten()).map(|row| row.keys.len()).sum();
+    let left: usize = read.iter().flat_map(|(_, _, left)| left.lines.iter().flatten()).map(|row| row.keys.len()).sum();
     println!(
       "{name}: {left} lines left by the pairs, {moved} moves between files, {} files the subject says something of, work {:?}",
       marks.iter().flatten().count(),
@@ -618,7 +619,7 @@ fn bench_subject_moves(c: &mut Criterion) {
   let mut group = c.benchmark_group("moves, the 200 files of a subject");
   for (name, sides) in subjects() {
     let [before, after] = subject_files(&sides);
-    let diffs: Vec<TextDiff> = before.iter().zip(&after).map(|((_, old), (_, new))| diff_of(old, new)).collect();
+    let diffs: Vec<LineDiff> = before.iter().zip(&after).map(|((_, old), (_, new))| diff_of(old, new)).collect();
     let moves_of = |index: usize| find_moves(&before[index].1, &after[index].1, &diffs[index].blocks, &[], WhitespacePolicy::Default, false);
     let found: Vec<usize> = (0..diffs.len()).map(|index| moves_of(index).len()).collect();
     let work = (0..diffs.len()).fold((0, 0), |(search, compared), index| {

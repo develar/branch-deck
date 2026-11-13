@@ -1,5 +1,5 @@
 //! `file_diff`: (model version, whitespace policy, how each side is read, old blob id, new blob id) -> the diff of
-//! two blobs as the views show it (`line_diff::model::TextDiff` with its scopes and its marks, opaque here). Blobs never change, so one entry serves every commit,
+//! two blobs as the views show it (`text_diff::model::TextDiff` with its scopes and its marks, opaque here). Blobs never change, so one entry serves every commit,
 //! range and window that shows the pair. In the patch environment (`Environment::Patches`), beside the other bulky
 //! values. The version of the model is part of each key; the first write of a process with another version clears the
 //! store, as for `blob_summary`.

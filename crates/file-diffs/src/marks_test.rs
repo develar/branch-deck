@@ -12,9 +12,10 @@ use diff_marks::marks::{
   MAX_BLOCK_TOKENS, MAX_FILE_TOKEN_WORK, MAX_TOKEN_EDITS, SideText, has_proof, is_quiet, marks_of, may_hold_comment, pair_grammar, pair_indented, read_blocks, runs_of,
 };
 use diff_marks::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
+use diff_marks::model::{DiffMarks, FileMove, Rename, SubjectMarks};
 use git_executor::git_command_executor::GitCommandExecutor;
 use line_diff::cancellation::Deadline;
-use line_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, MAX_INNER_LINES, Rename, RunKind, SubjectMarks, TextDiff, diff_texts, starts_of};
+use line_diff::model::{BlockKind, DiffBudget, LineDiff, MAX_INNER_LINES, RunKind, diff_texts, starts_of};
 use line_diff::policy::WhitespacePolicy;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
@@ -25,6 +26,43 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use WhitespacePolicy::{Default as Exact, Ignore, IgnoreBlankLines};
+
+/// A diff of the comparison with the marks of its pair: what the tests of the marks read, of the values of line-diff
+/// and diff-marks. It reads as its diff (`Deref`)
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct MarkedDiff {
+  pub(crate) diff: LineDiff,
+  pub(crate) marks: DiffMarks,
+}
+
+impl From<LineDiff> for MarkedDiff {
+  /// The diff of the comparison alone, every block a stop
+  fn from(diff: LineDiff) -> Self {
+    let marks = DiffMarks {
+      starts: starts_of(&diff.blocks, &[], &[]),
+      ..DiffMarks::default()
+    };
+    Self { diff, marks }
+  }
+}
+
+impl From<&text_diff::model::TextDiff> for MarkedDiff {
+  /// The values of a diff of the service
+  fn from(diff: &text_diff::model::TextDiff) -> Self {
+    Self {
+      diff: diff.line_diff(),
+      marks: diff.marks.clone().into(),
+    }
+  }
+}
+
+impl std::ops::Deref for MarkedDiff {
+  type Target = LineDiff;
+
+  fn deref(&self) -> &LineDiff {
+    &self.diff
+  }
+}
 
 /// What a reading of a block asks of its lines where every line has text and no name is renamed
 pub(crate) const ANY_TEXT: Asked<'static> = Asked {
@@ -38,8 +76,8 @@ pub(crate) const ANY_TEXT: Asked<'static> = Asked {
 /// view gets (`marks_of`) must be these with the runs of a kind that is not switched on as labels, and the starts
 /// that follow. The runs and the renames are also read without the question before the tokens: it must change no
 /// answer
-pub(crate) fn read_pair(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (TextDiff, Vec<Rename>, [u32; 2]) {
-  let mut diff = diff_texts(old, new, policy, &DiffBudget::NONE);
+pub(crate) fn read_pair(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (MarkedDiff, Vec<Rename>, [u32; 2]) {
+  let mut diff = MarkedDiff::from(diff_texts(old, new, policy, &DiffBudget::NONE));
   let grammar = pair_grammar(path, path);
   let asked = [Cell::new(0), Cell::new(0)];
   // each side is parsed once, however often it is asked
@@ -91,12 +129,12 @@ pub(crate) fn read_pair(path: &str, old: &str, new: &str, policy: WhitespacePoli
   (diff, undeclared, asked.map(|side| side.get()))
 }
 
-fn read_counted(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (TextDiff, [u32; 2]) {
+fn read_counted(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (MarkedDiff, [u32; 2]) {
   let (diff, _, asked) = read_pair(path, old, new, policy);
   (diff, asked)
 }
 
-fn read(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> TextDiff {
+fn read(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> MarkedDiff {
   read_counted(path, old, new, policy).0
 }
 
@@ -120,7 +158,7 @@ pub(crate) fn show_rename(rename: &Rename) -> String {
 
 /// The blocks, the runs, the moves, the renames and the starts of a diff as one line: `old/new` lines of each block
 /// and each run, `old->new` lines of each move
-pub(crate) fn show(diff: &TextDiff) -> String {
+pub(crate) fn show(diff: &MarkedDiff) -> String {
   let blocks: Vec<String> = diff
     .blocks
     .iter()
@@ -912,7 +950,7 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
 fn a_diff_the_time_cut_short_has_the_marks_of_its_blocks() {
   let (old, new) = ("fun f() {\n  a(1,\n    2)\n  b()\n}\n", "fun f() {\n  a(1, 2)\n  b()\n}\n");
   let read = |budget: &DiffBudget| {
-    let mut diff = diff_texts(old, new, Exact, budget);
+    let mut diff = MarkedDiff::from(diff_texts(old, new, Exact, budget));
     diff.marks = marks_of(
       &diff,
       old,
@@ -1264,7 +1302,7 @@ struct RenameFacts {
 /// The facts of each rename of `diff`, a diff of the texts `texts` of a file at `path`. A rename holds when each
 /// side says: every place is the same binding, its names are the places and no other, the places that declare it
 /// are those the rename names, and for a name bound inside a body the other name changes no binding
-fn rename_facts(path: &str, diff: &TextDiff, texts: [&str; 2]) -> Vec<RenameFacts> {
+fn rename_facts(path: &str, diff: &MarkedDiff, texts: [&str; 2]) -> Vec<RenameFacts> {
   let grammar = grammar_of(path).unwrap();
   diff
     .marks
@@ -1360,7 +1398,7 @@ fn renames_read_as_one(marks: &DiffMarks, old: &Tokens, new: &Tokens) -> [Tokens
 /// another move, and the block of its new lines has a start; a block has a start exactly when a line of it is to
 /// read, a new line in no quiet run or an old line in no quiet run that no move took; and when no block of a diff
 /// that ignores nothing (`exact`) has a start, the two texts are the same program but for the names of its renames
-pub(crate) fn check_marks(path: &str, diff: &TextDiff, texts: [&str; 2], old: &Tokens, new: &Tokens, exact: bool) {
+pub(crate) fn check_marks(path: &str, diff: &MarkedDiff, texts: [&str; 2], old: &Tokens, new: &Tokens, exact: bool) {
   let marks = &diff.marks;
   let facts = rename_facts(path, diff, texts);
   let [old_as_one, new_as_one] = renames_read_as_one(marks, old, new);
@@ -1618,11 +1656,13 @@ fn the_marks_template_has_each_case_in_a_block_of_its_own() {
   let git = GitCommandExecutor::new();
   let path = directory.path().to_str().unwrap();
   let head = git.execute_command(&["rev-parse", "HEAD"], path).unwrap();
-  let files = unhurried().read(&git, path, &ObjectCache::disabled(), &DiffSource::Commit { id: head }, Exact).unwrap();
+  let files = unhurried()
+    .read(&git, path, &ObjectCache::disabled(), &DiffSource::Commit { id: head }, Exact.into())
+    .unwrap();
   let shown: Vec<(&str, String)> = files
     .iter()
     .map(|file| match &file.content {
-      DiffContent::Text(diff) => (file.path.as_str(), show(diff)),
+      DiffContent::Text(diff) => (file.path.as_str(), show(&diff.into())),
       other => panic!("{}: {other:?}", file.path),
     })
     .collect();

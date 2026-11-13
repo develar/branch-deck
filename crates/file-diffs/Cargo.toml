@@ -19,7 +19,7 @@ object-cache = { path = "../object-cache" }
 sync-utils = { path = "../sync-utils" }
 line-diff = { path = "../line-diff" }
 # the merge of three texts (`merge_model`, `compose`) and the wire model of the diffs for the bindings
-text-diff = { path = "../text-diff" }
+text-diff = { path = "../text-diff", features = ["marks"] }
 
 anyhow.workspace = true
 moka.workspace = true

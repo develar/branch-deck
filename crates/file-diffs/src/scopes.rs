@@ -3,8 +3,8 @@
 #[cfg(test)]
 use code_symbols::language::Language;
 use code_symbols::summary::{DeclKind, Declaration, FileSummary};
-use line_diff::model::Scope;
 use line_diff::text_lines::TextLines;
+use text_diff::model::Scope;
 
 /// Between the names of a scope and the scopes around it
 const SEPARATOR: &str = " › ";
