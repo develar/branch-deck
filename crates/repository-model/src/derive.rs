@@ -340,8 +340,9 @@ impl<'a> Holds<'a> {
 /// The hold of the push of a branch now, with its robot: the hold of the view (`BranchLanding::hold`, `facts`) while
 /// its robot (`robot_of`) still holds pushes; a hold of what landed while the robot merged and the branch, `commits` as
 /// it is now, is what landed (`LandedByView::is_whole_of`: a view derived for another table says nothing of a branch
-/// whose commits changed since). The one rule of every reader of the holds of a view: the next step, the actions and
-/// every push
+/// whose commits changed since). It reads the view, which the session makes of the robots, the table and the remote
+/// branches as they are (`patronus_view::view_of`), against the branch as its row has it now and the robots of the
+/// caller: no rule of its own. The one reader of the holds of a view: the next step, the actions and every push
 pub(crate) fn hold_now<'a>(
   facts: &'a BranchPatronus,
   robot_of: impl Fn(&str) -> Option<&'a PatronusRobot>,
@@ -371,7 +372,9 @@ pub(crate) fn landed_whole_now<'a>(landed: &LandedByView, robot_of: impl Fn(&str
 /// members parked in `repo`, every member landed whole by merged Safe Pushes (`landed_whole_now`, each of `commits_of`
 /// as it is), its own robot (the robot the view names of the whole stack, `robot_of` as it is now) while it holds
 /// pushes, a stack branch the last sync did not build. The view gives only what it alone knows: what landed each member,
-/// the robot of the whole stack. The one rule of every reader: the pushes, the steps, the starts
+/// the robot of the whole stack. It is the function the view decides the hold of a stack branch by
+/// (`LandingFacts::stack_hold`), over the facts of its caller as they are: the one rule of every reader, the pushes,
+/// the steps, the starts
 #[must_use]
 pub fn stack_hold_now<'a, 'c>(
   view: &'a PatronusView,

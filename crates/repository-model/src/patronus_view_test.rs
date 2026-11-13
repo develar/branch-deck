@@ -531,3 +531,82 @@ fn a_robot_offers_its_restart_with_why_it_cannot_start_now() {
   let restart = view.restarts.get("r").cloned();
   assert_eq!(restart.map(|restart| (restart.action, restart.refusal)), Some((RestartAction::Restart, None)));
 }
+
+/// What the content told of a merged robot is read by its id and the commits it covered (`ContentMemo`): of the branches
+/// as they are, its answer of them; of a state not asked yet (auth has a commit since), its latest answer, of the
+/// branches as they were, which the readers judge against the branches as they are (`LandedByView::knows`: the view
+/// doesn't know auth as it is, so its step waits for the derivation of it); without an answer, nothing by content
+#[test]
+fn the_view_reads_what_the_content_told_of_a_robot_by_its_id_and_the_commits_it_covered() {
+  use crate::patronus_view::{merged_plans, view_of as view_of_memo};
+  use domain_types::robot_landing::BranchLanding;
+
+  // the robot took a commit no copy of auth is: only the content tells what it landed
+  let robots = [merged("r", "auth", "taken", 20)];
+  let as_it_was = table(&[("auth", None, &[("a1", "va1")])]);
+  let grown = table(&[("auth", None, &[("a2", "va2"), ("a1", "va1")])]);
+  let remote = RemoteFacts::default();
+  let key_of = |table: &BranchTable| {
+    let plans = merged_plans(table, &table.repository(), &remote, &robots);
+    assert!(plans[0].hashes.is_none(), "the hashes told");
+    plans[0].question.key.clone()
+  };
+  let memo = ContentMemo::default();
+  let landed = |table: &BranchTable, memo: &ContentMemo| {
+    let of = PatronusOf {
+      table,
+      remote: &remote,
+      robots: &robots,
+      needs_review: &BTreeMap::new(),
+      failing: &[],
+    };
+    let view = view_of_memo(&of, &match_robots(table, &remote, &robots), memo);
+    view.branches.get("auth").and_then(|facts| facts.landed_by.clone())
+  };
+  assert_eq!(landed(&as_it_was, &memo), None, "no answer: nothing by content");
+  memo.keep_landings([(
+    "r".to_string(),
+    key_of(&as_it_was),
+    vec![BranchLanding {
+      branch: "auth".to_string(),
+      landed: vec!["a1".to_string()],
+      after: Vec::new(),
+    }],
+  )]);
+  assert_ne!(key_of(&as_it_was), key_of(&grown));
+  let of_it = landed(&as_it_was, &memo).unwrap();
+  assert_eq!(of_it.landed, ["a1"]);
+  assert!(as_it_was.view_knows("auth", Some(&of_it)));
+  let of_grown = landed(&grown, &memo).unwrap();
+  assert_eq!(of_grown.landed, ["a1"], "its latest answer");
+  assert!(!grown.view_knows("auth", Some(&of_grown)), "of the branch as it was");
+
+  // a robot that took auth as it was: the hashes told it, and a derivation keeps that as its latest answer, which a view
+  // of auth reworded since (no copy is the commit it took) reads
+  let at_tip = [merged("h", "auth", "va1", 20)];
+  let needs_review = BTreeMap::new();
+  let of = |table| PatronusOf {
+    table,
+    remote: &remote,
+    robots: &at_tip,
+    needs_review: &needs_review,
+    failing: &[],
+  };
+  let memo = ContentMemo::default();
+  super::learn_content(
+    &GitCommandExecutor::new(),
+    "/nonexistent",
+    &of(&as_it_was),
+    &match_robots(&as_it_was, &remote, &at_tip),
+    &memo,
+  );
+  let reworded = table(&[("auth", None, &[("a3", "va3")])]);
+  let view = view_of_memo(&of(&reworded), &match_robots(&reworded, &remote, &at_tip), &memo);
+  let told = view.branches.get("auth").and_then(|facts| facts.landed_by.clone());
+  assert_eq!(
+    told.as_ref().map(|landed| landed.landed.clone()),
+    Some(vec!["a1".to_string()]),
+    "what the hashes told of auth as it was"
+  );
+  assert!(!reworded.view_knows("auth", told.as_ref()));
+}

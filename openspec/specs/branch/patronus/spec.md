@@ -3457,9 +3457,10 @@ new one below a tested one, MUST NOT be landed.
 
 ### Requirement: Merged: The content is asked once per state of the branches
 
-The landing by content MUST be asked once per state of the branches (`ContentMemo`, keyed by the robot's commit and
-the commits of the branches, locked only to look up and to keep answers, never while git runs), on the table the last
-sync left.
+The landing by content MUST be asked once per state of the branches (`ContentMemo`, keyed by the robot and the
+commits it covers, locked only to look up and to keep answers, never while git runs), on the table the last sync left.
+The memo MUST keep the latest answer of each merged robot (what the hashes told included), which a view of a state
+not asked yet reads, judged against the branches as they are, and the frame of the session MUST keep the memo.
 
 #### Scenario: The memo while git runs
 - **WHEN** git tells the content of a landing
@@ -3470,6 +3471,23 @@ sync left.
 - **WHEN** the landing of a merged robot is asked after a change below its commit
 - **THEN** it runs within its process budget
   [@test] crates/sync-core/src/process_budget_test.rs (`the_landing_of_a_merged_robot_after_a_change_below_its_commit`)
+
+#### Scenario: A state not asked yet
+- **GIVEN** a merged robot landed a branch, by the hashes or by content, and the branch changed since
+- **WHEN** the view of the branches as they are is made before a derivation of them answers
+- **THEN** it says what the robot landed of the branch as it was, which the view does not know as the branch is (pending), and nothing of a robot without an answer
+  [@test] crates/repository-model/src/patronus_view_test.rs (`the_view_reads_what_the_content_told_of_a_robot_by_its_id_and_the_commits_it_covered`)
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should say what is left of the whole stack and who landed a branch, and push it, of the table as it is while the view of the robots is of the table before`)
+
+#### Scenario: The memo over a start
+- **WHEN** a session starts from its frame
+- **THEN** the memo answers what it answered before, and the first view of the robots as they are reads it
+  [@test] crates/repository-model/src/warm_start_test.rs (`a_frame_keeps_what_only_rust_reads_of_the_patronus_view_beside_its_wire`)
+
+#### Scenario: The cost of a view made again
+- **WHEN** the view of the robots as they are is made again over 141 rows and 46 robots
+- **THEN** it takes at most its budget (about 2 ms in a debug build), and a publish of the same inputs and answers reads the view it kept
+  [@test] crates/repository-model/src/derive_budget_test.rs (`the_view_of_the_robots_as_they_are_is_made_again_within_its_budget`)
 
 ### Requirement: Merged: Of several robots the one that left the least work counts
 
@@ -4924,8 +4942,9 @@ MUST hold every push of its stack.
 
 The hold MUST be a rule of Rust, one for the app and `brd` (`domain_policy::holds::branch_hold`, the view's
 `landing.hold`): a landing that left nothing, else the branch's own running Safe Push, else the first running Safe Push
-that lands it. Every reader MUST read the hold the view decided of the branch and the robots as they are
-(`derive::hold_now`). The page MUST only word it (`src/presenters/reasons.ts`).
+that lands it, over the view of the robots, the table and the remote branches as they are (`patronus_view::view_of`),
+which every reader reads against the branch as its row has it (`derive::hold_now`). The page MUST only word it
+(`src/presenters/reasons.ts`).
 
 #### Scenario: The order of the holds
 - **WHEN** a branch is landed whole, its own Safe Push runs and another running Safe Push lands it
@@ -4944,6 +4963,26 @@ that lands it. Every reader MUST read the hold the view decided of the branch an
 - **AND** a landing holds the branch only while its robot merged and every commit of the branch is one it landed
   [@test] crates/repository-model/src/derive_test.rs (`a_start_reads_the_holds_of_the_view_as_every_reader_does`)
   [@test] crates/repository-model/src/derive_test.rs (`a_push_reads_no_hold_of_what_a_view_of_another_table_says_landed`)
+
+#### Scenario: A robot started since the view
+- **GIVEN** a Safe Push of a branch, or of its whole stack, started after the view the session shows was derived (`brd safe-push`, `brd land`), and its derivation runs or failed
+- **WHEN** the robots are listed
+- **THEN** the view of the robots as they are holds the push of its branch, and the robot of the whole stack its stack branch, at once
+  [@test] crates/repository-model/src/derive_test.rs (`a_robot_started_since_the_view_holds_its_branch_and_the_stack_branch_before_a_derivation_answers`)
+  [@test] crates/repository-model/src/session_test.rs (`a_robot_started_while_the_derivation_of_the_view_runs_holds_its_branch_at_once`)
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should hold the header's push and the push of a branch once their Safe Pushes started, while the view of the robots is of the robots before`)
+
+#### Scenario: A robot that ended since the view
+- **GIVEN** the robot that held a branch or refused its start ran when the view was derived, and ended since
+- **WHEN** the robots are listed, before a derivation of them answers
+- **THEN** it holds nothing, the step refuses no start by it, and a failed one offers its restart
+  [@test] crates/repository-model/src/derive_test.rs (`a_robot_that_ended_since_the_view_refuses_no_start_and_offers_its_restart`)
+
+#### Scenario: A table changed since the view
+- **GIVEN** a sync added branches since the view was derived
+- **WHEN** the table commits, before a derivation of it answers
+- **THEN** what the robots land, the nearest ancestor that lands a branch and the branch of a whole stack that lands a part of it are of the table as it is
+  [@test] crates/repository-model/src/derive_test.rs (`the_view_reads_the_branches_of_the_table_as_it_is_before_a_derivation_of_it_answers`)
 
 ### Requirement: Pushing into a branch whose Safe Push runs: The stack branch of a whole stack is held as a branch is
 
@@ -4990,7 +5029,7 @@ did not build. Every reader MUST decide it of the table and the robots as they a
 - **THEN** it is held
 
 #### Scenario: A view of another table
-- **GIVEN** the view the session shows was derived for another table or other robots: it says every branch of the stack landed and a branch has a commit since, it holds nothing and a branch was parked since, or it says the robot of the whole stack runs and the robot ended since
+- **GIVEN** the view the session shows was derived for another table or other robots: it says every branch of the stack landed and a branch has a commit since, it holds nothing and a branch was parked since, it says a branch is parked and the branch was unparked since, it says the sync did not build the stack branch and the sync built it since, or it says the robot of the whole stack runs and the robot ended since
 - **WHEN** the stack branch is pushed with the children of the root, alone, or first by the creation of the pull request of the whole stack, or its step or its start reads the hold
 - **THEN** it is held as the table and the robots are now: it goes while nothing holds it now, and stays local while a branch of it is parked now
 - **AND** the view gives only what it alone knows: what landed each branch, the robot of the whole stack

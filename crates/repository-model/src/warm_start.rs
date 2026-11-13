@@ -6,7 +6,8 @@
 //!   commit what its view leaves out but a rewrite finds it again by, `CommitIdentity`, and what that sync built of the
 //!   rows beside them, `CachedBuild`, which the next steps, the pushes and the actions read) and the facts of the remote
 //!   services as the view had them (`CachedFacts`: the robots, the Patronus view with what only Rust reads of it,
-//!   `KeptPatronus`, the landing needs with the inputs they are of, the pull requests, the rules, the merge profiles,
+//!   `KeptPatronus`, what the content of the robots' commits told, `MemoAnswers`, the landing needs with the inputs they
+//!   are of, the pull requests, the rules, the merge profiles,
 //!   the readiness, the review requests, the sign-ins).
 //!   The parts the rules
 //!   decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need the user) are not
@@ -24,6 +25,7 @@
 
 use crate::branch_table::{BranchTable, RemoteFacts};
 use crate::facts::{FactStore, Needs};
+use crate::patronus_view::MemoAnswers;
 use crate::session::SessionKey;
 use crate::table::{TableParts, TableState};
 use domain_types::GroupedBranchInfo;
@@ -44,7 +46,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
-pub const FRAME_SCHEMA: u32 = 15;
+pub const FRAME_SCHEMA: u32 = 16;
 
 /// The frame of a session (the module's header)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,6 +211,9 @@ pub struct CachedFacts {
   /// The Patronus view as its wire has it, without what only Rust reads of it, which `patronus_kept` keeps
   pub patronus: PatronusPart,
   pub patronus_kept: KeptPatronus,
+  /// What the content of the robots' commits told the derivations (`ContentMemo`): the view of the robots as they are
+  /// after the start reads it, as a derivation would, until a derivation of this process answers
+  pub content: MemoAnswers,
   /// The landing needs of the last computation that answered them, with what they are of
   pub landing_needs: Option<CachedNeeds>,
   pub pull_requests: PullRequestsView,

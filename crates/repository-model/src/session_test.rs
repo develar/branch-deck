@@ -2109,6 +2109,29 @@ async fn the_end_of_a_sync_goes_with_the_view_of_its_robots_in_one_patch() {
   assert_eq!(snapshot(&sessions, &key).await.patronus.state, FactState::Fresh);
 }
 
+/// The view of the session is of the robots as they are while their derivation runs: a Safe Push of two started since
+/// the view of the robot of one was derived, and before that derivation answers (the host holds it), two is held, its
+/// step says so, and the view says it is derived anew (`Stale`)
+#[tokio::test(start_paused = true)]
+async fn a_robot_started_while_the_derivation_of_the_view_runs_holds_its_branch_at_once() {
+  use domain_types::repository_view::HoldKind;
+
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, key, _window) = three_with_robots(&host).await;
+  assert_eq!(snapshot(&sessions, &key).await.next_steps["two"].hold, None);
+  let (mut started, release) = host.hold_views();
+  let mut robots = robots_of_one();
+  robots.push(robot("r2", Some("two"), PatronusRobotStatus::Running, 20));
+  list_robots(&sessions, &key, robots).await;
+  started.recv().await.unwrap();
+  let view = snapshot(&sessions, &key).await;
+  assert_eq!(view.patronus.state, FactState::Stale { reason: None });
+  let hold = view.next_steps["two"].hold.as_ref().map(|hold| (hold.kind, hold.by.robot_id.as_str()));
+  assert_eq!(hold, Some((HoldKind::Own, "r2")));
+  release.send(()).unwrap();
+  patronus_when(&sessions, &key, |part| part.state == FactState::Fresh).await;
+}
+
 /// The end of a sync waits for the view of its robots one interval at most: a view that takes longer comes in a patch
 /// of its own after the end, which goes with the view `Stale` and resolves the waiters of the run
 #[tokio::test(start_paused = true)]

@@ -71,9 +71,9 @@ pub(crate) fn synced_facts(table: &BranchTable) -> FactStore {
 pub(crate) fn answer_patronus(facts: &mut FactStore, seq: u32, view: PatronusView, table: &BranchTable) {
   assert!(facts.patronus.begin(u64::from(seq), Duration::from_secs(u64::from(seq))));
   facts.patronus.answer(at(seq), Ok(view));
-  if let Some((inputs, _)) = facts.patronus.publish(table) {
+  if let Some((inputs, _)) = facts.patronus.publish(table, None, &crate::patronus_view::ContentMemo::default()) {
     let _ = facts.patronus.needs_answer(inputs, Ok(BTreeMap::new()));
-    let _ = facts.patronus.publish(table);
+    let _ = facts.patronus.publish(table, None, &crate::patronus_view::ContentMemo::default());
   }
 }
 
@@ -392,4 +392,80 @@ fn a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_
     *patch <= PATCH_BUDGET,
     "the first patch of the view took {patch:.2} units, over the budget of {PATCH_BUDGET}"
   );
+}
+
+/// The budget of the view of the robots as they are (`patronus_view::view_of`) over `session` with 46 robots, made again
+/// whenever the robots, the table or the remote branches change before their derivation answers, in units of the
+/// reference work: the developer Mac measured 0.87–0.92 units of a rebuild (about 2 ms in a debug build; 9.5 before the
+/// view built the rules' input of the table once instead of once per branch), 0.22–0.23 of a publish over the view it
+/// kept; twice the work is 1.8. Linux and Windows were not measured: the budget of macOS, whose ratios are the highest of
+/// the derive's (`BUDGETS`)
+const REBUILD_BUDGET: f64 = 1.5;
+
+/// The view of the robots as they are over the 141 rows of `session` and 46 robots (10 running on branches, 3 on the
+/// whole stacks, 33 merged on the tips of others) is made within its budget, and a publish of the same inputs and
+/// answers reads the view it kept, making nothing again
+#[test]
+fn the_view_of_the_robots_as_they_are_is_made_again_within_its_budget() {
+  use crate::facts::listed_robots;
+  use crate::patronus_view::{ContentMemo, match_robots, view_of};
+  use domain_types::fixtures::stack_robot;
+
+  let (state, mut facts) = session();
+  let table = facts.table.value().map(Arc::clone).unwrap();
+  let mut robots = listed_robots(facts.robots.view());
+  robots.extend(table.branches.iter().skip(1).step_by(4).take(33).enumerate().map(|(index, branch)| PatronusRobot {
+    source_revision: Some(format!("copy-{}", branch.commits[0].id)),
+    finish_time: Some(20 + u32::try_from(index).unwrap_or(0)),
+    ..robot(&format!("m{index}"), Some(&branch.name), PatronusRobotStatus::Success, 10)
+  }));
+  robots.extend(table.stack_branches.iter().map(|stack| {
+    stack_robot(
+      &format!("whole-{}", stack.root),
+      &stack.root,
+      PatronusRobotStatus::Running,
+      stack.tip.as_deref().unwrap_or_default(),
+    )
+  }));
+  assert_eq!(robots.len(), 46);
+  facts.apply(
+    at(10),
+    FactResult::Robots {
+      read: RobotsRead::List { full: true },
+      result: PatronusRobotsResult {
+        availability: PatronusAvailability::Available,
+        robots,
+        github_repository: Some("acme/monorepo".to_owned()),
+      },
+    },
+  );
+  let now = facts.patronus_now(&state).unwrap();
+  let memo = ContentMemo::default();
+  let of = now.of();
+  let view = view_of(&of, &match_robots(of.table, of.remote, of.robots), &memo);
+  let landed = view.branches.values().filter(|facts| facts.landed_by.is_some()).count();
+  assert!(landed >= 33, "the merged robots landed their branches and what they are built on: {landed}");
+  let _ = facts.publish_patronus(&state);
+  let measured = units(
+    &mut || {
+      let _ = view_of(&of, &match_robots(of.table, of.remote, of.robots), &memo);
+    },
+    &mut || {
+      let _ = facts.publish_patronus(&state);
+    },
+  );
+  let (
+    Units {
+      flush: rebuild, patch: publish, ..
+    },
+    [unit, rebuild_work, publish_work],
+  ) = (&measured, measured.work);
+  eprintln!(
+    "CPU work of the thread, the median of {RUNS} rounds: a rebuild of the view of 141 rows and 46 robots {rebuild:.2} units (budget {REBUILD_BUDGET}), a publish of the kept view {publish:.2} units; a round in {WORK}: the reference work {unit}, the rebuild {rebuild_work}, the publish {publish_work}"
+  );
+  assert!(
+    *rebuild <= REBUILD_BUDGET,
+    "a rebuild of the view took {rebuild:.2} units, over the budget of {REBUILD_BUDGET}"
+  );
+  assert!(*publish < *rebuild, "a publish of the same inputs reads the kept view: {publish:.2} units");
 }

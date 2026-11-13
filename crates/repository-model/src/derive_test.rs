@@ -1537,7 +1537,7 @@ fn a_failed_view_of_this_table_shows_its_failure_of_the_branches_the_view_before
   assert!(facts.patronus.begin(4, Duration::from_secs(4)));
   facts.patronus.answer(at(4), Err(failure.clone()));
   let table = facts.table.value().map(|table| BranchTable::clone(table)).unwrap();
-  let _ = facts.patronus.publish(&table);
+  let _ = facts.patronus.publish(&table, None, &crate::patronus_view::ContentMemo::default());
   let steps = next_steps_of(&state, &facts, &BTreeMap::new(), &landed_states_of(&state, &facts));
   assert!(
     matches!(&steps["grown"].step.kind, StepKind::Unavailable { failure: StepFailure::ViewFailed { reason }, .. } if *reason == failure),
@@ -1813,14 +1813,23 @@ fn air_commits(name: &str, grown: bool) -> Vec<String> {
 /// the remote behind its build, the branches of `parked` parked, the robots `robots` listed and `view` the Patronus view
 /// it shows, as a view derived for another table (before a commit, a park, the end of a robot) says it
 fn air_stack_session(view: PatronusView, robots: Vec<PatronusRobot>, parked: &[(&str, &str)], grown: bool) -> (TableState, FactStore) {
-  let branches: Vec<GroupedBranchInfo> = AIR_STACK
+  let branches: Vec<(&str, Option<&str>, Vec<String>)> = AIR_STACK.iter().map(|(name, parent)| (*name, *parent, air_commits(name, grown))).collect();
+  stack_session(&branches, view, robots, parked)
+}
+
+/// A session of `branches` (newest first, each on the parent it names with its commits, newest first; `air` the root of
+/// the whole stack of every one of them), every branch on its remote as it is at its tip `<name>-tip`, its stack branch
+/// on the remote behind its build at `stack-tip`, the branches of `parked` parked, the robots `robots` listed and `view`
+/// the view a derivation answered, of another table or other robots
+fn stack_session(branches: &[(&str, Option<&str>, Vec<String>)], view: PatronusView, robots: Vec<PatronusRobot>, parked: &[(&str, &str)]) -> (TableState, FactStore) {
+  let grouped: Vec<GroupedBranchInfo> = branches
     .iter()
-    .map(|(name, parent)| on_with(name, *parent, &air_commits(name, grown).iter().map(String::as_str).collect::<Vec<_>>()))
+    .map(|(name, parent, commits)| on_with(name, *parent, &commits.iter().map(String::as_str).collect::<Vec<_>>()))
     .collect();
   let stack = StackBranchUpdate {
     root: "air".to_string(),
     branch_name: "user/stack/air".to_string(),
-    members: names(&["air", "air-child", "air-side"]),
+    members: branches.iter().rev().map(|(name, _, _)| (*name).to_string()).collect(),
     commit_count: 3,
     my_email: None,
     state: StackBranchState::Built,
@@ -1834,10 +1843,10 @@ fn air_stack_session(view: PatronusView, robots: Vec<PatronusRobot>, parked: &[(
       ..domain_types::fixtures::remote_status("stack:air")
     }),
   };
-  let mut events = vec![grouping(branches.clone(), parked, &["air"])];
-  for (name, _) in AIR_STACK {
-    for commit in air_commits(name, grown) {
-      events.push(synced(name, &commit, CommitSyncStatus::Created));
+  let mut events = vec![grouping(grouped.clone(), parked, &["air"])];
+  for (name, _, commits) in branches {
+    for commit in commits {
+      events.push(synced(name, commit, CommitSyncStatus::Created));
     }
     events.push(branch_status(name, BranchSyncStatus::Created));
     events.push(SyncEvent::RemoteStatusUpdate(remote_status(name, &[])));
@@ -1848,15 +1857,22 @@ fn air_stack_session(view: PatronusView, robots: Vec<PatronusRobot>, parked: &[(
   let table = BranchTable {
     prefix: "user".to_string(),
     baseline: "origin/master".to_string(),
-    tips: AIR_STACK.iter().map(|(name, _)| (format!("user/virtual/{name}"), format!("{name}-tip"))).collect(),
-    branches,
+    tips: branches.iter().map(|(name, _, _)| (format!("user/virtual/{name}"), format!("{name}-tip"))).collect(),
+    branches: grouped,
     stack_branches: vec![stack],
     parked: parked.iter().map(|(name, note)| ((*name).to_string(), (*note).to_string())).collect(),
     ..BranchTable::default()
   };
   let mut facts = synced_facts(&table);
+  list_robots(&mut facts, 2, robots);
+  answer_patronus(&mut facts, 3, view, &table);
+  (state, facts)
+}
+
+/// Patronus listed `robots` at `seq`, every robot of the user
+fn list_robots(facts: &mut FactStore, seq: u32, robots: Vec<PatronusRobot>) {
   facts.apply(
-    at(2),
+    at(seq),
     FactResult::Robots {
       read: RobotsRead::List { full: true },
       result: PatronusRobotsResult {
@@ -1866,8 +1882,6 @@ fn air_stack_session(view: PatronusView, robots: Vec<PatronusRobot>, parked: &[(
       },
     },
   );
-  answer_patronus(&mut facts, 3, view, &table);
-  (state, facts)
 }
 
 /// A view of the stack of air: what the robot `whole` of the whole stack landed of each of `landed` (its first commit),
@@ -1949,6 +1963,109 @@ fn the_stack_branch_is_held_of_the_table_as_it_is_never_as_a_view_of_another_one
   assert_eq!(air_stack_branch_along(&state, &facts), (held(&running), held(&running)), "its robot runs");
   let (state, facts) = session(PatronusRobotStatus::Failure);
   assert_eq!(air_stack_branch_along(&state, &facts), (along.clone(), along), "its robot ended since the view");
+}
+
+/// A running robot of `branch` on its tip
+fn running_on(id: &str, branch: &str) -> PatronusRobot {
+  PatronusRobot {
+    source_revision: Some(format!("{branch}-tip")),
+    ..robot(id, Some(branch), PatronusRobotStatus::Running, 30)
+  }
+}
+
+/// The view the session shows of `state` and `facts` as it publishes it (`FactStore::publish_patronus`): of the robots,
+/// the table and the remote branches as they are, the view a derivation answered while it is of them
+fn published(state: &TableState, facts: &mut FactStore) -> PatronusView {
+  let _ = facts.publish_patronus(state);
+  facts.patronus.part().view.clone()
+}
+
+/// A robot started after the view the session shows (the robots as they are list it, the view a derivation answered of
+/// the robots before doesn't know it) holds what it holds before a derivation of it answers: the view of the robots as
+/// they are holds the push of its branch, and the robot of the whole stack its stack branch
+#[test]
+fn a_robot_started_since_the_view_holds_its_branch_and_the_stack_branch_before_a_derivation_answers() {
+  use crate::derive::alone_push_of;
+  use domain_policy::push::Verdict;
+
+  let (state, mut facts) = air_stack_session(PatronusView::default(), Vec::new(), &[], false);
+  let verdict = |facts: &FactStore| with_session_holds(facts, |holds| alone_push_of(&state, facts, holds, "air-side", None).map(|push| push.verdict));
+  let _ = published(&state, &mut facts);
+  assert_eq!(verdict(&facts), Some(Verdict::UpToDate), "nothing runs");
+  assert_eq!(air_stack_branch_along(&state, &facts).1, Some(StackBranchAlong::Along));
+
+  list_robots(&mut facts, 5, vec![running_on("side", "air-side"), whole_robot(PatronusRobotStatus::Running)]);
+  let view = published(&state, &mut facts);
+  assert_eq!(view.branches["air-side"].robot_id.as_deref(), Some("side"));
+  assert_eq!(verdict(&facts), Some(Verdict::Held), "its own Safe Push runs");
+  let held = Some(StackBranchAlong::Held {
+    reason: stack_held("air", "whole"),
+  });
+  assert_eq!(air_stack_branch_along(&state, &facts), (held.clone(), held), "the robot of the whole stack runs");
+}
+
+/// A robot that ended since the view the session shows refuses no start and offers its restart: the robot of air-child
+/// that landed air ran when the view was derived; it failed since, and before a derivation of the robots as they are
+/// answers, the step of air offers its Safe Push, and the robot its restart
+#[test]
+fn a_robot_that_ended_since_the_view_refuses_no_start_and_offers_its_restart() {
+  use domain_types::next_step::StepBlocker;
+
+  let running = running_on("child", "air-child");
+  let (state, mut facts) = air_stack_session(PatronusView::default(), vec![running.clone()], &[], false);
+  let of_running = published(&state, &mut facts);
+  let refusal = of_running.branches["air"].landing.start.clone();
+  assert!(matches!(refusal, Some(Reason::Descendant { .. })), "{refusal:?}");
+  let refused = |facts: &FactStore| {
+    let step = merged_robot_steps_of(&state, facts).remove("air").map(|view| view.step);
+    matches!(
+      step.and_then(|step| step.safe_push),
+      Some(StepBlocker::Rule {
+        reason: Reason::Descendant { .. }
+      })
+    )
+  };
+  assert!(refused(&facts), "the robot of air-child runs");
+  let table = facts.table.value().map(|table| BranchTable::clone(table)).unwrap();
+  // the view a derivation answered while the robot ran
+  answer_patronus(&mut facts, 4, of_running, &table);
+  list_robots(
+    &mut facts,
+    5,
+    vec![PatronusRobot {
+      status: PatronusRobotStatus::Failure,
+      finish_time: Some(40),
+      ..running
+    }],
+  );
+  let view = published(&state, &mut facts);
+  assert_eq!(view.branches["air"].landing.start, None);
+  assert!(view.restarts.contains_key("child"), "{:?}", view.restarts);
+  assert!(!refused(&facts), "the robot of air-child ended");
+}
+
+/// The view the session shows reads the table as it is: a sync added air-top on air-side, whose Safe Push runs, and
+/// air-top-child on it since the view of the table before was derived; before a derivation of this table answers, the
+/// robot of air-top lands air-side and the branches below it, air-top-child is built on a branch that lands, and the
+/// whole stack has a branch that lands a part of it
+#[test]
+fn the_view_reads_the_branches_of_the_table_as_it_is_before_a_derivation_of_it_answers() {
+  let robots = vec![running_on("top", "air-top")];
+  let (before, mut facts) = air_stack_session(PatronusView::default(), robots.clone(), &[], false);
+  let of_before = published(&before, &mut facts);
+  assert!(of_before.branches.get("air-side").and_then(|facts| facts.span.as_ref()).is_none(), "no air-top yet");
+  let mut branches: Vec<(&str, Option<&str>, Vec<String>)> = vec![
+    ("air-top-child", Some("air-top"), names(&["air-top-child-1"])),
+    ("air-top", Some("air-side"), names(&["air-top-1"])),
+  ];
+  branches.extend(AIR_STACK.iter().map(|(name, parent)| (*name, *parent, air_commits(name, false))));
+  let (state, mut facts) = stack_session(&branches, of_before, robots, &[]);
+  let view = published(&state, &mut facts);
+  let top = robot_of("air-top", "top");
+  assert_eq!(view.branches["air-side"].span.as_ref().map(|span| &span.by), Some(&top));
+  assert_eq!(view.branches["air"].span.as_ref().map(|span| &span.by), Some(&top));
+  assert_eq!(view.branches["air-top-child"].landing_ancestor.as_ref(), Some(&top));
+  assert_eq!(view.stacks["air"].landing_member.as_ref(), Some(&top));
 }
 
 /// The next step of a whole stack names what holds the push of its stack branch now (`NextStepView::hold`, read by the

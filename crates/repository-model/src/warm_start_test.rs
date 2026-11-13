@@ -97,17 +97,27 @@ fn a_frame_reads_back_from_the_object_cache_as_it_was_written() {
 
 /// A frame keeps what only Rust reads of the Patronus view (`KeptPatronus`) beside its part, which goes as the wire
 /// sends it to the page, its patches and the mirror of the IDE, without it: what landed a branch, the holds the view
-/// decided, what is left of a whole stack, what a merged robot landed. The seed puts them back: the view of the frame
-/// is the one the run that wrote it had
+/// decided, what is left of a whole stack, what a merged robot landed; and what the content of the robots' commits told
+/// (`MemoAnswers`), which the view of the robots as they are reads after the start. The seed puts them back: the view of
+/// the frame is the one the run that wrote it had, and its memo answers what it answered
 #[test]
 fn a_frame_keeps_what_only_rust_reads_of_the_patronus_view_beside_its_wire() {
   use crate::branch_table::BranchTable;
   use crate::derive::derive_budget_test::answer_patronus;
+  use crate::patronus_view::{ContentMemo, MemoAnswers};
   use domain_types::fixtures::view_of_every_field;
+  use std::sync::Arc;
 
   let view = view_of_every_field();
   let mut facts = answered_facts();
   answer_patronus(&mut facts, 4, view.clone(), &BranchTable::default());
+  let content: MemoAnswers = serde_json::from_value(serde_json::json!({
+    "landings": { "r1 at taken": [{ "branch": "auth", "landed": ["a1"], "after": [] }] },
+    "spans": {},
+    "latest_landing": { "r1": "r1 at taken" },
+  }))
+  .unwrap();
+  facts.memo = Arc::new(ContentMemo::seeded(content.clone()));
   let dir = tempfile::tempdir().unwrap();
   let cache = test_utils::process_budget::cache_in(dir.path());
   write_frame(&cache, &frame_of(&key(), &synced_state(), &facts));
@@ -118,6 +128,7 @@ fn a_frame_keeps_what_only_rust_reads_of_the_patronus_view_beside_its_wire() {
   }
   let (_, seeded) = read.seed();
   assert_eq!(seeded.patronus.part().view, view);
+  assert_eq!(seeded.memo.frame(), content);
 }
 
 /// A frame seeds only the session of its key and schema: another prefix of the worktree, or a frame of another schema,

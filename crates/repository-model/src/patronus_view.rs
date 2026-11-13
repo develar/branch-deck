@@ -13,20 +13,28 @@
 //! - The hashes tell when the robot took its subject as it is (its tip, or its up-to-date remote branch) or a commit of
 //!   it the branch built new ones on (its copy is a commit of the branch): no git. Otherwise the content does
 //!   (`robot_landing`), once per state of the branches (`ContentMemo`).
+//! - One function makes every view (`view_of`): over the table, the remote branches and the robots, by the hashes and the
+//!   answers of the content the memo keeps, no git. A derivation asks git first what the memo lacks (`learn_content`),
+//!   then makes the view of the same inputs (`patronus_view`); the session makes it again whenever the robots, the table
+//!   or the remote branches change before the derivation of them answers, or after it failed
+//!   (`facts::PatronusFact::publish`), so every reader reads the robots as they are.
 
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use crate::derive::decide_landing;
 use crate::facts::PatronusOf;
 use domain_policy::facts::RemoteBranch;
+use domain_policy::facts::Repository;
 use domain_policy::holds::{holds_pushes, is_active, is_pushing};
 use domain_policy::land::took_as_is;
 use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::robot_match::{RobotIndex, RobotMatches, Tips, match_table};
+use domain_policy::stack::build_ancestors;
 use domain_types::landing::{LandingRefusal, Subject};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::{BranchPatronus, Carried, HoldKind, LandedByView, LandingNeeds, PatronusView, RobotLandedBranch, RobotOf, SpanView, StackPatronus};
 use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
 use git_executor::git_command_executor::GitCommandExecutor;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard};
 use sync_core::robot_landing::{robot_landings_of_grouped, robot_spans_of_grouped};
@@ -35,21 +43,48 @@ use tracing::{debug, instrument};
 /// How many answers a memo keeps of each kind before it starts again
 const MEMO_LIMIT: usize = 512;
 
-/// The answers by content of earlier views, by the state they depend on (`content_key`: the robot's commit, the tip of
-/// its subject and the commits of the branches with their copies): a view of the same state runs no git. Shared by the
-/// views of a session and the checks of its pushes, locked only to look up and to keep answers, never across git
+/// What the content of the robots' commits told the derivations (`learn_content`), by the robot and the state it covers
+/// (`content_key`: the robot, its commit, the tip of its subject and the commits of the branches with their copies): a
+/// derivation of the same state runs no git, and every view reads its answers (`view_of`); of each merged robot also its
+/// latest answer, which a view of a state not asked yet reads. Shared by the views of a session and the checks of its
+/// pushes, kept in the frame of the session (`warm_start`), locked only to look up and to keep answers, never across git
 #[derive(Debug, Default)]
 pub struct ContentMemo {
   answers: Mutex<MemoAnswers>,
 }
 
-#[derive(Debug, Default)]
-struct MemoAnswers {
+/// The answers of a memo, as a frame keeps them
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoAnswers {
+  /// What a merged robot landed, by `content_key`
   landings: HashMap<String, Vec<BranchLanding>>,
+  /// What the commit of a running robot has of the branches it may land, by `content_key`
   spans: HashMap<String, Option<Vec<BranchSpan>>>,
+  /// By merged robot id, the key of its latest answer in `landings`
+  latest_landing: HashMap<String, String>,
+  /// Raised by every answer kept: a view of the same inputs and version is the same view
+  #[serde(skip)]
+  version: u64,
+}
+
+impl MemoAnswers {
+  /// What the merged robot `robot_id` landed of the branches as `key` names them, else of the branches as they were for
+  /// its latest answer
+  fn landing(&self, key: &str, robot_id: &str) -> Option<&Vec<BranchLanding>> {
+    self
+      .landings
+      .get(key)
+      .or_else(|| self.latest_landing.get(robot_id).and_then(|latest| self.landings.get(latest)))
+  }
 }
 
 impl ContentMemo {
+  /// A memo of the answers a frame kept
+  #[must_use]
+  pub const fn seeded(answers: MemoAnswers) -> Self {
+    Self { answers: Mutex::new(answers) }
+  }
+
   /// The answers; poisoned ones (a panic while they were locked) start again
   fn answers(&self) -> MutexGuard<'_, MemoAnswers> {
     self.answers.lock().unwrap_or_else(|poisoned| {
@@ -58,6 +93,47 @@ impl ContentMemo {
       *answers = MemoAnswers::default();
       answers
     })
+  }
+
+  /// The answers as a frame keeps them
+  #[must_use]
+  pub fn frame(&self) -> MemoAnswers {
+    self.answers().clone()
+  }
+
+  /// The version of the answers: raised by every answer kept
+  #[must_use]
+  pub fn version(&self) -> u64 {
+    self.answers().version
+  }
+
+  /// Keeps what merged robots landed, by robot id and key, each the robot's latest answer; past `MEMO_LIMIT` only the
+  /// latest answer of each robot stays
+  fn keep_landings(&self, answered: impl IntoIterator<Item = (String, String, Vec<BranchLanding>)>) {
+    let mut kept = self.answers();
+    if kept.landings.len() > MEMO_LIMIT {
+      let latest: HashSet<String> = kept.latest_landing.values().cloned().collect();
+      kept.landings.retain(|key, _| latest.contains(key));
+      if kept.landings.len() > MEMO_LIMIT {
+        kept.landings.clear();
+        kept.latest_landing.clear();
+      }
+    }
+    for (robot_id, key, branches) in answered {
+      kept.landings.insert(key.clone(), branches);
+      kept.latest_landing.insert(robot_id, key);
+    }
+    kept.version += 1;
+  }
+
+  /// Keeps what the commits of running robots have, by key; past `MEMO_LIMIT` it starts again
+  fn keep_spans(&self, answered: impl IntoIterator<Item = (String, Option<Vec<BranchSpan>>)>) {
+    let mut kept = self.answers();
+    if kept.spans.len() > MEMO_LIMIT {
+      kept.spans.clear();
+    }
+    kept.spans.extend(answered);
+    kept.version += 1;
   }
 }
 
@@ -162,63 +238,50 @@ fn commit_ids(table: &BranchTable, name: &str) -> Vec<String> {
     .map_or_else(Vec::new, |branch| branch.commits.iter().map(|commit| commit.id.clone()).collect())
 }
 
-/// What the hashes told, or the key of the answer of the content (`content_key`) that tells it
+/// What tells what a robot did: the hashes, else the content (its question)
 enum Told<T> {
   Hashes(T),
-  Content(String),
+  Content(Question),
 }
 
-/// A robot with its subject, the candidates it may land and what tells what it does
-struct Planned<'r, T> {
+/// A question by content about a robot (`content_request`), with the key of its answer (`content_key`): the robot, its
+/// commit and the commits of the branches it covers as they are
+struct Question {
+  key: String,
+  request: RobotLandingRequest,
+}
+
+impl Question {
+  fn of(table: &BranchTable, robot: &PatronusRobot, subject: &Subject, source: &str, branches: Vec<String>) -> Self {
+    let request = content_request(table, robot, subject, source, branches);
+    Self {
+      key: content_key(table, &request),
+      request,
+    }
+  }
+}
+
+/// The questions of `told` whose answers `known` lacks, each once
+fn unasked<'q, T: 'q>(told: impl IntoIterator<Item = &'q Told<T>>, known: impl Fn(&str) -> bool) -> Vec<&'q Question> {
+  let mut asked: Vec<&Question> = Vec::new();
+  for told in told {
+    if let Told::Content(question) = told
+      && !known(&question.key)
+      && !asked.iter().any(|it| it.key == question.key)
+    {
+      asked.push(question);
+    }
+  }
+  asked
+}
+
+/// A merged robot of a view: its subject, the question of what it landed of the branches as they are, and what the
+/// hashes tell of it (`None`: only the content does)
+struct MergedPlan<'r> {
   robot: &'r PatronusRobot,
   subject: Subject,
-  candidates: Vec<String>,
-  told: Told<T>,
-}
-
-/// The plan of a robot the hashes don't answer: its question by content (about `branches`), asked once per key unless
-/// the memo has the answer (`known`)
-#[expect(clippy::too_many_arguments, reason = "the robot, its subject and question, and where the questions gather")]
-fn ask_content<'r, T>(
-  table: &BranchTable,
-  robot: &'r PatronusRobot,
-  subject: Subject,
-  source: &str,
-  branches: Vec<String>,
-  candidates: Vec<String>,
-  known: impl Fn(&str) -> bool,
-  asked: &mut Vec<(String, RobotLandingRequest)>,
-) -> Planned<'r, T> {
-  let request = content_request(table, robot, &subject, source, branches);
-  let key = content_key(table, &request);
-  if !known(&key) && !asked.iter().any(|(question, _)| *question == key) {
-    asked.push((key.clone(), request));
-  }
-  Planned {
-    robot,
-    subject,
-    candidates,
-    told: Told::Content(key),
-  }
-}
-
-/// The answers `kept` has of the questions by content of `planned`, taken while the memo is locked
-fn known_answers<T, V: Clone>(planned: &[Planned<'_, T>], kept: &HashMap<String, V>) -> HashMap<String, V> {
-  planned
-    .iter()
-    .filter_map(|planned| match &planned.told {
-      Told::Content(key) => kept.get(key).map(|answer| (key.clone(), answer.clone())),
-      Told::Hashes(_) => None,
-    })
-    .collect()
-}
-
-/// Keeps `answered` in `kept`, which starts again past `MEMO_LIMIT`
-fn keep_answers<V: Clone>(kept: &mut HashMap<String, V>, answered: &[(String, V)]) {
-  if kept.len() > MEMO_LIMIT {
-    kept.clear();
-  }
-  kept.extend(answered.iter().cloned());
+  question: Question,
+  hashes: Option<Vec<BranchLanding>>,
 }
 
 /// What one merged robot landed, before the merge of all robots
@@ -229,103 +292,58 @@ struct RobotLanded<'r> {
   branches: Vec<BranchLanding>,
 }
 
-/// What the merged robots landed, in the order they merged: by the hashes, else by content (one call for every robot
-/// the memo lacks)
-fn merged_landings<'r>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  table: &BranchTable,
-  remote: &RemoteFacts,
-  robots: &'r [PatronusRobot],
-  memo: &ContentMemo,
-) -> Vec<RobotLanded<'r>> {
+/// The merged robots of `robots` that landed a subject of `table`, in the order they merged, each with its question by
+/// content and what the hashes tell it landed
+fn merged_plans<'r>(table: &BranchTable, repo: &Repository<'_>, remote: &RemoteFacts, robots: &'r [PatronusRobot]) -> Vec<MergedPlan<'r>> {
   let mut merged: Vec<&PatronusRobot> = robots
     .iter()
     .filter(|robot| robot.status == PatronusRobotStatus::Success && is_pushing(robot) && robot.source_revision.is_some())
     .collect();
   merged.sort_by_key(|robot| robot.finish_time.unwrap_or(0));
-
-  // by robot: the subject, and what the hashes told or the key of the content; the memo is locked for the lookups only
-  let mut asked: Vec<(String, RobotLandingRequest)> = Vec::new();
-  let mut planned: Vec<Planned<'_, Vec<BranchLanding>>> = Vec::new();
-  let kept = memo.answers();
-  for robot in merged {
-    let source = robot.source_revision.as_deref().unwrap_or_default();
-    let subject = match (&robot.branch_name, &robot.stack_root) {
-      (Some(name), _) if table.branch(name).is_some() => Subject::Branch { name: name.clone() },
-      (None, Some(root)) if table.stack(root).is_some() => Subject::WholeStack { root: root.clone() },
-      _ => continue,
-    };
-    let candidates: Vec<String> = match &subject {
-      Subject::Branch { name } => table.ancestors_of(name).into_iter().chain(std::iter::once(name.clone())).collect(),
-      Subject::WholeStack { root } => table.stack(root).map_or_else(Vec::new, |stack| stack.members.clone()),
-    };
-    if let Some(above) = hashes_tell(table, remote, &subject, source) {
-      let own = match &subject {
-        Subject::Branch { name } => Some(name.as_str()),
-        Subject::WholeStack { .. } => None,
-      };
-      let branches = candidates
-        .iter()
-        .filter(|name| table.branch(name).is_some())
-        .map(|name| {
-          let after = if Some(name.as_str()) == own { above.clone() } else { Vec::new() };
-          BranchLanding {
-            branch: name.clone(),
-            landed: commit_ids(table, name).into_iter().filter(|id| !after.contains(id)).collect(),
-            after,
-          }
-        })
-        .collect();
-      planned.push(Planned {
-        robot,
-        subject,
-        candidates: Vec::new(),
-        told: Told::Hashes(branches),
-      });
-    } else {
-      planned.push(ask_content(
-        table,
-        robot,
-        subject,
-        source,
-        candidates,
-        Vec::new(),
-        |key| kept.landings.contains_key(key),
-        &mut asked,
-      ));
-    }
-  }
-  let mut known = known_answers(&planned, &kept.landings);
-  drop(kept);
-  if !asked.is_empty() {
-    let requests: Vec<RobotLandingRequest> = asked.iter().map(|(_, request)| request.clone()).collect();
-    match robot_landings_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches) {
-      Ok(answers) => {
-        let answered: Vec<(String, Vec<BranchLanding>)> = asked
-          .into_iter()
-          .map(|(key, request)| {
-            let branches = answers
-              .iter()
-              .find(|landing| landing.robot_id == request.robot_id)
-              .map_or_else(Vec::new, |landing| landing.branches.clone());
-            (key, branches)
-          })
-          .collect();
-        keep_answers(&mut memo.answers().landings, &answered);
-        known.extend(answered);
-      }
-      // nothing landed by content for this view; the next view asks again
-      Err(error) => debug!(error = %format!("{error:#}"), "no robot landings: nothing landed by content"),
-    }
-  }
-  planned
+  merged
     .into_iter()
-    .map(|Planned { robot, subject, told, .. }| {
-      let branches = match told {
-        Told::Hashes(branches) => branches,
-        Told::Content(key) => known.remove(&key).unwrap_or_default(),
+    .filter_map(|robot| {
+      let source = robot.source_revision.as_deref().unwrap_or_default();
+      let subject = match (&robot.branch_name, &robot.stack_root) {
+        (Some(name), _) if table.branch(name).is_some() => Subject::Branch { name: name.clone() },
+        (None, Some(root)) if table.stack(root).is_some() => Subject::WholeStack { root: root.clone() },
+        _ => return None,
       };
+      let candidates: Vec<String> = match &subject {
+        Subject::Branch { name } => ancestors(repo, name).into_iter().chain(std::iter::once(name.clone())).collect(),
+        Subject::WholeStack { root } => table.stack(root).map_or_else(Vec::new, |stack| stack.members.clone()),
+      };
+      let hashes = hashes_tell(table, remote, &subject, source).map(|above| {
+        let own = match &subject {
+          Subject::Branch { name } => Some(name.as_str()),
+          Subject::WholeStack { .. } => None,
+        };
+        candidates
+          .iter()
+          .filter(|name| table.branch(name).is_some())
+          .map(|name| {
+            let after = if Some(name.as_str()) == own { above.clone() } else { Vec::new() };
+            BranchLanding {
+              branch: name.clone(),
+              landed: commit_ids(table, name).into_iter().filter(|id| !after.contains(id)).collect(),
+              after,
+            }
+          })
+          .collect()
+      });
+      let question = Question::of(table, robot, &subject, source, candidates);
+      Some(MergedPlan { robot, subject, question, hashes })
+    })
+    .collect()
+}
+
+/// What the merged robots of `plans` landed, by the hashes, else by the answer `kept` has (`MemoAnswers::landing`: of
+/// these branches as they are, else the robot's latest), none without one
+fn landed_of<'r>(plans: Vec<MergedPlan<'r>>, kept: &MemoAnswers) -> Vec<RobotLanded<'r>> {
+  plans
+    .into_iter()
+    .map(|MergedPlan { robot, subject, question, hashes }| {
+      let branches = hashes.unwrap_or_else(|| kept.landing(&question.key, &robot.id).cloned().unwrap_or_default());
       RobotLanded {
         robot,
         by: subject.robot_of(&robot.id),
@@ -339,6 +357,15 @@ fn merged_landings<'r>(
     .collect()
 }
 
+/// A running robot that pushes, with the branches it may land and what tells which of them its commit has
+/// (`Hashes(None)`: just started, its commit not known yet)
+struct SpanPlan<'r> {
+  robot: &'r PatronusRobot,
+  subject: Subject,
+  candidates: Vec<String>,
+  told: Told<Option<HashMap<String, Carried>>>,
+}
+
 /// What a running robot lands of its candidates: the branches, in their order, and the commits of each its commit has;
 /// `carried` is None when only the stack as it is now tells
 struct RobotSpanFacts<'r> {
@@ -348,35 +375,26 @@ struct RobotSpanFacts<'r> {
   carried: Option<HashMap<String, Carried>>,
 }
 
-/// What the running robots that push land: the robot of each branch with ancestors and of each whole stack, by the
-/// hashes, else by content (one call for every robot the memo lacks); in the order of the table, the stacks after
-fn running_spans<'r>(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  table: &BranchTable,
-  remote: &RemoteFacts,
-  robot_of: impl Fn(&str) -> Option<&'r PatronusRobot>,
-  stack_robot_of: impl Fn(&str) -> Option<&'r PatronusRobot>,
-  memo: &ContentMemo,
-) -> Vec<RobotSpanFacts<'r>> {
+/// The running robots that push and land a branch of `table`: the robot of each branch with ancestors and of each whole
+/// stack, in the order of the table, the stacks after, each with what the hashes tell, else its question by content
+fn span_plans<'r>(table: &BranchTable, repo: &Repository<'_>, remote: &RemoteFacts, lookups: &Lookups<'r>) -> Vec<SpanPlan<'r>> {
   let lands = |robot: &&PatronusRobot| is_active(robot) && is_pushing(robot);
   let mut subjects: Vec<(&PatronusRobot, Subject, Vec<String>)> = Vec::new();
   for branch in &table.branches {
-    let ancestors = table.ancestors_of(&branch.name);
-    if let Some(robot) = robot_of(&branch.name).filter(lands)
+    let ancestors = ancestors(repo, &branch.name);
+    if let Some(robot) = lookups.robot_of(&branch.name).filter(lands)
       && !ancestors.is_empty()
     {
       subjects.push((robot, Subject::Branch { name: branch.name.clone() }, ancestors));
     }
   }
   for stack in &table.stack_branches {
-    if let Some(robot) = stack_robot_of(&stack.root).filter(lands)
+    if let Some(robot) = lookups.stack_robot_of(&stack.root).filter(lands)
       && !stack.members.is_empty()
     {
       subjects.push((robot, Subject::WholeStack { root: stack.root.clone() }, stack.members.clone()));
     }
   }
-
   let all_commits = |names: &[String]| -> HashMap<String, Carried> {
     names
       .iter()
@@ -391,66 +409,35 @@ fn running_spans<'r>(
       })
       .collect()
   };
-  // the memo is locked for the lookups only
-  let mut asked: Vec<(String, RobotLandingRequest)> = Vec::new();
-  let mut planned: Vec<Planned<'_, Option<HashMap<String, Carried>>>> = Vec::new();
-  let kept = memo.answers();
-  for (robot, subject, candidates) in subjects {
-    let Some(source) = robot.source_revision.as_deref() else {
-      // just started: its commit is not known yet
-      planned.push(Planned {
-        robot,
-        subject,
-        candidates,
-        told: Told::Hashes(None),
-      });
-      continue;
-    };
-    if hashes_tell(table, remote, &subject, source).is_some() {
-      let carried = all_commits(&candidates);
-      planned.push(Planned {
-        robot,
-        subject,
-        candidates,
-        told: Told::Hashes(Some(carried)),
-      });
-      continue;
-    }
-    let branches = match &subject {
-      Subject::Branch { name } => candidates.iter().cloned().chain(std::iter::once(name.clone())).collect(),
-      Subject::WholeStack { .. } => candidates.clone(),
-    };
-    planned.push(ask_content(
-      table,
-      robot,
-      subject,
-      source,
-      branches,
-      candidates,
-      |key| kept.spans.contains_key(key),
-      &mut asked,
-    ));
-  }
-  let mut known = known_answers(&planned, &kept.spans);
-  drop(kept);
-  if !asked.is_empty() {
-    let requests: Vec<RobotLandingRequest> = asked.iter().map(|(_, request)| request.clone()).collect();
-    match robot_spans_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches) {
-      Ok(answers) => {
-        let answered: Vec<(String, Option<Vec<BranchSpan>>)> = asked.into_iter().zip(answers).map(|((key, _), answer)| (key, answer.branches)).collect();
-        keep_answers(&mut memo.answers().spans, &answered);
-        known.extend(answered);
-      }
-      // the stack as it is now holds, asked again by the next view
-      Err(error) => debug!(error = %format!("{error:#}"), "no robot spans: the stack as it is now tells"),
-    }
-  }
-  planned
+  subjects
     .into_iter()
-    .map(|Planned { robot, subject, candidates, told }| {
+    .map(|(robot, subject, candidates)| {
+      let told = match robot.source_revision.as_deref() {
+        // just started: its commit is not known yet
+        None => Told::Hashes(None),
+        Some(source) if hashes_tell(table, remote, &subject, source).is_some() => Told::Hashes(Some(all_commits(&candidates))),
+        Some(source) => {
+          let branches = match &subject {
+            Subject::Branch { name } => candidates.iter().cloned().chain(std::iter::once(name.clone())).collect(),
+            Subject::WholeStack { .. } => candidates.clone(),
+          };
+          Told::Content(Question::of(table, robot, &subject, source, branches))
+        }
+      };
+      SpanPlan { robot, subject, candidates, told }
+    })
+    .collect()
+}
+
+/// What the running robots of `plans` land, by the hashes, else by the answer `kept` has of the branches as they are;
+/// without one, what the stack as it is now says (`carried` None, every candidate)
+fn spans_of<'r>(plans: Vec<SpanPlan<'r>>, kept: &MemoAnswers) -> Vec<RobotSpanFacts<'r>> {
+  plans
+    .into_iter()
+    .map(|SpanPlan { robot, subject, candidates, told }| {
       let carried = match told {
         Told::Hashes(carried) => carried,
-        Told::Content(key) => known.remove(&key).flatten().map(|branches| {
+        Told::Content(question) => kept.spans.get(&question.key).cloned().flatten().map(|branches| {
           branches
             .into_iter()
             .map(|span| {
@@ -490,14 +477,111 @@ fn spans_by_branch(spans: &[RobotSpanFacts<'_>], counts: impl Fn(&PatronusRobot)
   by_branch
 }
 
+/// The robots of a view by id, with the robot of each branch and whole stack (`match_robots`)
+struct Lookups<'r> {
+  by_id: HashMap<&'r str, &'r PatronusRobot>,
+  matched: &'r RobotMatches,
+}
+
+impl<'r> Lookups<'r> {
+  fn new(robots: &'r [PatronusRobot], matched: &'r RobotMatches) -> Self {
+    Self {
+      by_id: robots.iter().map(|robot| (robot.id.as_str(), robot)).collect(),
+      matched,
+    }
+  }
+
+  /// The robot of the branch `name`
+  fn robot_of(&self, name: &str) -> Option<&'r PatronusRobot> {
+    self.matched.branches.get(name).and_then(|id| self.by_id.get(id.as_str()).copied())
+  }
+
+  /// The robot of the whole stack of `root`
+  fn stack_robot_of(&self, root: &str) -> Option<&'r PatronusRobot> {
+    self.matched.stacks.get(root).and_then(|id| self.by_id.get(id.as_str()).copied())
+  }
+}
+
+/// The branches `name` is built on in `repo` (the rules' input of a table, built once per view), root first
+fn ancestors(repo: &Repository<'_>, name: &str) -> Vec<String> {
+  build_ancestors(repo, name).into_iter().map(str::to_string).collect()
+}
+
+/// What the content of the commits of the robots of `of` tells that `memo` lacks (module docs): one call for the merged
+/// robots and one for the running ones, their answers kept in `memo`; what the hashes tell a merged robot landed is kept
+/// as its latest answer too, which a view of a state the hashes no longer answer reads. A git error is no answer: the
+/// next derivation asks again, and the view reads what `memo` had (`view_of`)
+fn learn_content(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, matched: &RobotMatches, memo: &ContentMemo) {
+  let PatronusOf { table, remote, robots, .. } = *of;
+  let (lookups, repo) = (Lookups::new(robots, matched), table.repository());
+  let merged = merged_plans(table, &repo, remote, robots);
+  let spans = span_plans(table, &repo, remote, &lookups);
+  // the memo is locked for the lookups only, never across git
+  let (told_by_hashes, landing_asks, span_asks) = {
+    let kept = memo.answers();
+    let told_by_hashes: Vec<(String, String, Vec<BranchLanding>)> = merged
+      .iter()
+      .filter(|plan| kept.latest_landing.get(&plan.robot.id) != Some(&plan.question.key))
+      .filter_map(|plan| Some((plan.robot.id.clone(), plan.question.key.clone(), plan.hashes.clone()?)))
+      .collect();
+    let mut landing_asks: Vec<&Question> = Vec::new();
+    for plan in merged.iter().filter(|plan| plan.hashes.is_none() && !kept.landings.contains_key(&plan.question.key)) {
+      if !landing_asks.iter().any(|it| it.key == plan.question.key) {
+        landing_asks.push(&plan.question);
+      }
+    }
+    (
+      told_by_hashes,
+      landing_asks,
+      unasked(spans.iter().map(|plan| &plan.told), |key| kept.spans.contains_key(key)),
+    )
+  };
+  if !told_by_hashes.is_empty() {
+    memo.keep_landings(told_by_hashes);
+  }
+  if !landing_asks.is_empty() {
+    let requests: Vec<RobotLandingRequest> = landing_asks.iter().map(|question| question.request.clone()).collect();
+    match robot_landings_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches) {
+      Ok(answers) => memo.keep_landings(landing_asks.iter().map(|question| {
+        let branches = answers
+          .iter()
+          .find(|landing| landing.robot_id == question.request.robot_id)
+          .map_or_else(Vec::new, |landing| landing.branches.clone());
+        (question.request.robot_id.clone(), question.key.clone(), branches)
+      })),
+      Err(error) => debug!(error = %format!("{error:#}"), "no robot landings: the view reads what the memo had"),
+    }
+  }
+  if !span_asks.is_empty() {
+    let requests: Vec<RobotLandingRequest> = span_asks.iter().map(|question| question.request.clone()).collect();
+    match robot_spans_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches) {
+      Ok(answers) => memo.keep_spans(span_asks.iter().zip(answers).map(|(question, answer)| (question.key.clone(), answer.branches))),
+      // the stack as it is now holds, asked again by the next derivation
+      Err(error) => debug!(error = %format!("{error:#}"), "no robot spans: the stack as it is now tells"),
+    }
+  }
+}
+
 /// What the robots land and landed of the branches of the table of `of` (module docs), with the robot of each branch and
 /// whole stack (`matched`, `match_robots`), and what the rules decide over these facts (`derive::decide_landing`: the
-/// holds, the starts, the restarts). The robots are the user's (only those that land or landed change what is held),
-/// the remote branches what the deriver knows of them. The content of robots the hashes don't answer comes from `memo`, else from git (`robot_landing`); a
-/// git error is an answer of nothing by content: a merged robot landed nothing, a running one lands what the stack as
-/// it is now says.
+/// holds, the starts, the restarts): the content of the robots' commits the hashes don't answer and `memo` lacks asked
+/// of git and kept in `memo` (`learn_content`), then the view of them (`view_of`). The robots are the user's (only those
+/// that land or landed change what is held), the remote branches what the deriver knows of them
 #[instrument(skip_all, fields(robots = of.robots.len(), branches = of.table.branches.len()))]
 pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, matched: &RobotMatches, memo: &ContentMemo) -> PatronusView {
+  learn_content(git_executor, repository_path, of, matched, memo);
+  view_of(of, matched, memo)
+}
+
+/// The view of `of` (module docs), with the robot of each branch and whole stack (`matched`), by the hashes and what
+/// the content of the robots' commits told as `memo` keeps it, no git: the one function of every view, of the
+/// derivation after it asked git what `memo` lacked (`patronus_view`), and of the session over the robots, the table and
+/// the remote branches as they are while a derivation of them runs or failed (`facts::PatronusFact::publish`). A merged
+/// robot `memo` has no answer of for the branches as they are landed what it landed of them as they were (its latest
+/// answer, which `LandedByView::knows` and `is_whole_of` read against the branches as they are), nothing without one; a
+/// running one lands what the stack as it is now says (`carried` None)
+#[must_use]
+pub fn view_of(of: &PatronusOf<'_>, matched: &RobotMatches, memo: &ContentMemo) -> PatronusView {
   let PatronusOf {
     table,
     remote,
@@ -505,13 +589,18 @@ pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, o
     needs_review,
     failing,
   } = *of;
-  let by_id: HashMap<&str, &PatronusRobot> = robots.iter().map(|robot| (robot.id.as_str(), robot)).collect();
-  let robot_of = |name: &str| matched.branches.get(name).and_then(|id| by_id.get(id.as_str()).copied());
-  let stack_robot_of = |root: &str| matched.stacks.get(root).and_then(|id| by_id.get(id.as_str()).copied());
+  let (lookups, repo) = (Lookups::new(robots, matched), table.repository());
+  let robot_of = |name: &str| lookups.robot_of(name);
   let lands = |robot: &PatronusRobot| is_active(robot) && is_pushing(robot);
+  let (landings, spans) = {
+    let kept = memo.answers();
+    (
+      landed_of(merged_plans(table, &repo, remote, robots), &kept),
+      spans_of(span_plans(table, &repo, remote, &lookups), &kept),
+    )
+  };
 
   // landed: of several robots the one that left the fewest commits after it, of equals the first merge
-  let landings = merged_landings(git_executor, repository_path, table, remote, robots, memo);
   let mut landed_by: HashMap<String, LandedByView> = HashMap::new();
   let mut landed_by_robot: BTreeMap<String, Vec<RobotLandedBranch>> = BTreeMap::new();
   for landing in &landings {
@@ -538,7 +627,6 @@ pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, o
   }
 
   // lands: what the commit of each running robot has; the spans of active robots, the holds of running ones
-  let spans = running_spans(git_executor, repository_path, table, remote, robot_of, stack_robot_of, memo);
   let span_of = spans_by_branch(&spans, lands);
   let hold_span_of = spans_by_branch(&spans, holds_pushes);
 
@@ -550,8 +638,7 @@ pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, o
     let name = branch.name.as_str();
     // the nearest ancestor whose robot lands, or that a robot of a side branch lands; never this branch's own robot,
     // which a start replaces
-    let landing_ancestor = table
-      .ancestors_of(name)
+    let landing_ancestor = ancestors(&repo, name)
       .iter()
       .rev()
       .find_map(|ancestor| match robot_of(ancestor).filter(|robot| lands(robot)) {

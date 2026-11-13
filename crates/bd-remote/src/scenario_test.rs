@@ -1215,11 +1215,10 @@ impl AppSession<'_> {
       ..self.observation()
     };
     self.facts.patronus.answer(observation, answer);
-    let table = derivation.table;
-    let mut compute = self.facts.patronus.publish(&table);
+    let mut compute = self.facts.publish_patronus(&self.state);
     while let Some((inputs, landed)) = compute {
       let needs = landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed).map_err(|error| ApiError::internal(error.to_string()));
-      compute = self.facts.patronus.needs_answer(inputs, needs).or_else(|| self.facts.patronus.publish(&table));
+      compute = self.facts.patronus.needs_answer(inputs, needs).or_else(|| self.facts.publish_patronus(&self.state));
     }
   }
 

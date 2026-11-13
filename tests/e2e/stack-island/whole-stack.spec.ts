@@ -118,6 +118,25 @@ async function pullRequestComments(repo: TestRepositoryBuilder): Promise<[number
     .map(([, path, body]) => [Number(path.split("/").at(-2)), (body as { body: string }).body])
 }
 
+/**
+ * stack_island with Patronus and no robot, the stack branch of air on the remote without the 2 newest commits of the
+ * sync, the header's push taking it along with the 7 branches: from then on every derivation of the view of the robots
+ * fails, so the session shows the view of these robots and this table
+ */
+async function islandOfFailingViews(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<void>,
+): Promise<{ repo: TestRepositoryBuilder; push: Locator }> {
+  const repo = await setupRepo("stack_island", { patronus: availableRobots() })
+  await syncAndWaitForBranches()
+  await pushedBefore(page, repo, [stackBranchOf("air")], { lacking: 2 })
+  const push = islandPush(page, "air")
+  await expect(push).toHaveAccessibleName("Push with Children (8 branches)")
+  await repo.holdRemoteAnswers({ fail: ["repositoryView"] })
+  return { repo, push }
+}
+
 /** The push of the header of the island of `root` (Push with Children, and the push of its stack branch alone) */
 /** The node of the header of the island of `root`: of the whole stack, its kind in `data-kind` */
 function islandNode(page: Page, root: string): Locator {
@@ -1137,6 +1156,33 @@ test.describe("Whole stack", () => {
     await expectPushedToRemote(repo, ["login"])
   })
 
+  test("should hold the header's push and the push of a branch once their Safe Pushes started, while the view of the robots is of the robots before", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the session shows the view of no robot
+    const { repo, push } = await islandOfFailingViews(page, setupRepo, syncAndWaitForBranches)
+    await repo.setPatronus(availableRobots(wholeStackRobot("air", "whole"), robot("deploy", "deploy-robot")))
+    // nothing ran, so the focus lists no robots: the overview lists them again
+    const { listCalls } = await repo.getPatronusLog()
+    const overview = await openLandingOverview(page)
+    await overview.getByTestId("patronus-refresh").click()
+    await expect.poll(async () => (await repo.getPatronusLog()).listCalls).toBe(listCalls + 1)
+    await page.mouse.move(0, 0)
+    await expectClosed(overview)
+    // the robots as they are hold deploy and the branches its Safe Push lands, and the robot of the whole stack the rest
+    await expect(push).toHaveAttribute("aria-disabled", "true")
+    await push.hover()
+    await expect(page.getByTestId("stack-island-push-description")).toContainText("A Safe Push of deploy is running: it lands 2 commits of air with it")
+    await page.mouse.move(0, 0)
+    await findBranchRow(page, "deploy").getByRole("button", { name: "More actions for deploy" }).click()
+    const pushDeploy = page.getByRole("menu", { name: "More actions for deploy" }).getByRole("menuitem", { name: "Push Branch P" })
+    await expect(pushDeploy).toBeDisabled()
+    await page.keyboard.press("Escape")
+    expect(await remotePushes(repo)).toEqual([])
+  })
+
   test("should take the whole stack branch along in the header's push once its own robot ended, while the view of the robots says it runs", async ({
     page,
     setupRepo,
@@ -1165,14 +1211,8 @@ test.describe("Whole stack", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupRepo("stack_island", { patronus: availableRobots() })
-    await syncAndWaitForBranches()
-    await pushedBefore(page, repo, [stackBranchOf("air")], { lacking: 2 })
-    const push = islandPush(page, "air")
-    // nothing parked yet: the stack branch goes along with the 7 branches
-    await expect(push).toHaveAccessibleName("Push with Children (8 branches)")
-    // every view of a newer table fails from now on: the session shows the one of the table before the park
-    await repo.holdRemoteAnswers({ fail: ["repositoryView"] })
+    // the session shows the view of the table before the park
+    const { repo, push } = await islandOfFailingViews(page, setupRepo, syncAndWaitForBranches)
     await findBranchRow(page, "side-test").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Park Branch…" }).click()
     await expect(page.getByTestId("inline-park-input").getByRole("textbox")).toBeFocused()

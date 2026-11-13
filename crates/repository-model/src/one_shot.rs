@@ -97,17 +97,17 @@ impl OneShot {
       ..self.observation()
     };
     self.facts.patronus.answer(observation, Ok(view));
-    self.needs_wanted = self.facts.patronus.publish(&derivation.table);
+    self.needs_wanted = self.facts.publish_patronus(&self.state);
   }
 
   /// The landing needs of the view, which `compute` answers of the commits it names landed (the landing gate of the
   /// caller's subject, the trial session of every branch); nothing while no view wants them
   pub fn landing_needs(&mut self, compute: impl FnOnce(&HashSet<String>) -> Result<Needs, ApiError>) {
-    let (Some((inputs, landed)), Some(table)) = (self.needs_wanted.take(), self.facts.table.value().map(Arc::clone)) else {
+    let Some((inputs, landed)) = self.needs_wanted.take() else {
       return;
     };
     let _ = self.facts.patronus.needs_answer(inputs, compute(&landed));
-    self.needs_wanted = self.facts.patronus.publish(&table);
+    self.needs_wanted = self.facts.publish_patronus(&self.state);
   }
 
   /// The asks of the readiness of the subjects `keys` (a branch, `stack:<root>`) over the table, the pull requests and

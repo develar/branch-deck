@@ -66,7 +66,7 @@ use crate::branch_table::{BranchTable, RemoteFacts, remote_fact};
 use crate::derive::landed_subject;
 use crate::landed_closes::{LandedCloses, push_closes};
 use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
-use crate::patronus_view::{ContentMemo, landed_commits, match_robots, patronus_view, with_landing_needs};
+use crate::patronus_view::{ContentMemo, landed_commits, match_robots, patronus_view, view_of, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_readings::ReviewReadingsFact;
@@ -490,6 +490,7 @@ impl FactStore {
       robots,
       mut patronus,
       patronus_kept,
+      content,
       landing_needs,
       pull_requests,
       rules,
@@ -508,6 +509,7 @@ impl FactStore {
       readiness: ReadinessFact::cached(readiness),
       review_requests: ReviewRequestsFact::cached(review_requests),
       auth: FactRecord::cached(auth, 0).unwrap_or_else(FactRecord::loading),
+      memo: Arc::new(ContentMemo::seeded(content)),
       ..Self::new()
     }
   }
@@ -535,6 +537,7 @@ impl FactStore {
       robots: self.robots.view().clone(),
       patronus: self.patronus.part().clone(),
       patronus_kept: KeptPatronus::of(&self.patronus.part().view),
+      content: self.memo.frame(),
       landing_needs: self.patronus.needs.frame(),
       pull_requests: self.pull_requests.view().clone(),
       rules: self.rules.iter().map(|(base, rules)| (base.clone(), rules.fact().clone())).collect(),
@@ -807,8 +810,15 @@ impl FactStore {
   /// table of the last sync, the robots, the remote branches `state` knows (`PatronusFact::begin`). None before a table
   /// and an answer of Patronus, while a derivation runs (its answer asks again), or for the inputs of the last one
   pub fn begin_patronus(&mut self, state: &TableState, at: Duration) -> Option<PatronusDerivation> {
+    let derivation = self.patronus_now(state)?;
+    self.patronus.begin(derivation.inputs, at).then_some(derivation)
+  }
+
+  /// What a view of the robots is of now: the table of the last sync, its remote branches as `state` has them, the
+  /// listed robots with what the session learned of them; `None` before a table, and while the robots are none or those
+  /// of the frame of an earlier run (the view they derived is the frame's)
+  pub(crate) fn patronus_now(&self, state: &TableState) -> Option<PatronusDerivation> {
     let table = self.table.value().map(Arc::clone)?;
-    // the robots of the frame of an earlier run derive nothing: the view they derived is the frame's
     let head = &self.robots.view().head;
     if head.value.is_none() || head.state == FactState::Cached {
       return None;
@@ -818,7 +828,7 @@ impl FactStore {
     let failing = self.robots.view().failing.clone();
     let remote = session_remote(&table, state);
     let inputs = patronus_inputs(self.table.fact().seq, &remote, &robots, &needs_review, &failing);
-    self.patronus.begin(inputs, at).then_some(PatronusDerivation {
+    Some(PatronusDerivation {
       table,
       remote,
       robots,
@@ -826,6 +836,15 @@ impl FactStore {
       failing,
       inputs,
     })
+  }
+
+  /// The part of the view of the robots as they are now (`PatronusFact::publish`): the derived view, else the view of
+  /// what the robots, the table and the remote branches are now while they are not what it was derived of; the
+  /// computation of the landing needs to start now, with its inputs and the landed commits
+  pub fn publish_patronus(&mut self, state: &TableState) -> Option<(u64, HashSet<String>)> {
+    let table = self.table.value().map(Arc::clone)?;
+    let now = self.patronus_now(state);
+    self.patronus.publish(&table, now.as_ref(), &self.memo)
   }
 
   /// The table of the last successful sync with the memo and the remote branches as `state` has them; `None` before one
@@ -1198,6 +1217,9 @@ pub struct PatronusFact {
   /// The last derivation failed: an answer of Patronus derives again, even of the same inputs
   failed: bool,
   needs: LandingNeedsFact,
+  /// The last view of inputs the derived view is not of (`publish`), with those inputs and the version of the memo it
+  /// read: the same inputs and answers make the same view
+  refreshed: Option<(u64, u64, Arc<PatronusView>)>,
   part: PatronusPart,
 }
 
@@ -1209,6 +1231,7 @@ impl Default for PatronusFact {
       derived_for: None,
       failed: false,
       needs: LandingNeedsFact::default(),
+      refreshed: None,
       part: PatronusPart::default(),
     }
   }
@@ -1290,15 +1313,34 @@ impl PatronusFact {
     }
   }
 
-  /// The part from the derived view and the landing needs of `table` with what it names landed; the computation of the
-  /// needs to start now, with its inputs and the landed commits, when they are unknown and none of them runs
-  pub fn publish(&mut self, table: &BranchTable) -> Option<(u64, HashSet<String>)> {
+  /// The part from the view and the landing needs of `table` with what it names landed; the computation of the needs to
+  /// start now, with its inputs and the landed commits, when they are unknown and none of them runs. The view is the
+  /// derived one while `now`, what a view is of now (`FactStore::patronus_now`; `None`: what it was derived of), is what
+  /// it was derived of; else the view of `now` (`patronus_view::view_of`, the function of every view, by the hashes and
+  /// the answers of the content `memo` keeps, no git), until the derivation of `now` answers: every reader reads the
+  /// robots, the table and the remote branches as they are, while the state says the view is `Stale`. Nothing before a
+  /// derived view
+  pub fn publish(&mut self, table: &BranchTable, now: Option<&PatronusDerivation>, memo: &ContentMemo) -> Option<(u64, HashSet<String>)> {
     let state = self.derived.fact().state.clone();
     let Some(derived) = self.derived.value() else {
       self.part = PatronusPart { state, ..PatronusPart::default() };
       return None;
     };
-    let mut view = PatronusView::clone(derived);
+    let mut view = match now.filter(|now| now.inputs != self.derived.inputs) {
+      Some(now) => {
+        let version = memo.version();
+        match &self.refreshed {
+          Some((inputs, read, view)) if *inputs == now.inputs && *read == version => PatronusView::clone(view),
+          _ => {
+            let of = now.of();
+            let view = view_of(&of, &match_robots(of.table, of.remote, of.robots), memo);
+            self.refreshed = Some((now.inputs, version, Arc::new(view.clone())));
+            view
+          }
+        }
+      }
+      None => PatronusView::clone(derived),
+    };
     let landed = landed_commits(&view);
     let inputs = landing_inputs(table, &landed);
     let (landing_needs, start) = match self.needs.of(inputs, table) {

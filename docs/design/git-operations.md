@@ -5087,7 +5087,8 @@ remote facts and what the baseline has whole), from which the seed rebuilds the 
 (`BranchTable`, `Cached` in `FactStore::table`), so the next steps, the pushes and the actions of the rows show; and
 the facts of the remote services as the view has them (the robots, the Patronus view with what only Rust reads of it,
 which its wire leaves out, beside it, `KeptPatronus`: what landed each branch, the holds the view decided, what is left
-of each whole stack, what each merged robot landed; the landing needs of the last
+of each whole stack, what each merged robot landed; what the content of the robots' commits told, `MemoAnswers`, which
+the view of the robots as they are reads after the start; the landing needs of the last
 computation with the inputs they are of, `CachedNeeds`, so a first sync that leaves the tips of the frame computes
 them not again and no row waits for them anew, the pull requests, the rules, the merge profiles of the table's
 baseline, the readiness, the review requests, the sign-ins). The parts the rules decide (the pushes, the starts, what
@@ -5376,11 +5377,21 @@ process when the hashes tell:
   of the branch now (`BranchTable::copy_of`), and every commit below it has one;
 
 else the robot landing and the robot span ask the content, one call each for every robot the memo lacks
-(`ContentMemo`, by the robot's commit, the tip of its subject and the commits of the candidate branches with their
-copies): a view of the same state asks no git again. The memo is shared by the views of a session and the checks of
-its pushes, and locked only to look up and to keep answers, never across the git of a view, so a push does not wait for
-the content walk of a view. A git error is an answer of nothing by content: a merged robot
-landed nothing, a running one lands what the stack as it is now says. `patronus_view_content_test.rs` pins the
+(`ContentMemo`, by the robot, its commit, the tip of its subject and the commits of the candidate branches with their
+copies): a view of the same state asks no git again. The memo also keeps the latest answer of each merged robot, what
+the hashes told included. The memo is shared by the views of a session and the checks of its pushes, kept in the frame
+of the session (`MemoAnswers`), and locked only to look up and to keep answers, never across the git of a view, so a
+push does not wait for the content walk of a view.
+
+One function makes the view of these facts (`view_of`), no git: the derivation asks git what the memo lacks
+(`learn_content`) and then calls it (`patronus_view`, the app's and `brd`'s, a one-shot session and the robots a push
+checks alike). The session calls it again whenever the robots, the table or the remote branches change and are not
+what the derived view is of (`facts::PatronusFact::publish`, through `FactStore::publish_patronus` of every change the
+actor derives on), the view kept while the inputs and the answers stay: the part is the view of the robots as they are,
+`Stale` until the derivation of them answers. A merged robot the memo has no answer of for the branches as they are
+landed what its latest answer says, of the branches as they were, which the readers judge against the branches as
+they are (`LandedByView::knows`, `is_whole_of`); nothing without one. A running one the memo has no answer of lands
+what the stack as it is now says. A git error is no answer: the view reads what the memo had. `patronus_view_content_test.rs` pins the
 processes: none for a robot at its tip or under new commits, one `cat-file --batch-check` and two `rev-list` after a
 restack, none for the same state again, and the memo free while git runs (`the_memo_is_free_while_git_tells_the_content`).
 

@@ -1038,7 +1038,14 @@ impl Actor {
   /// Derives the Patronus view again (`facts::derive_patronus`, in the blocking pool) when what it is of changed: the
   /// table of the last sync, the robots, the remote branches the session knows. Nothing before a table and an answer of
   /// Patronus, nothing while a derivation runs (its answer asks again), nothing for the inputs of the last one
+  /// A derivation of the view of the robots as they are now, unless one of the same inputs answered or runs; the part
+  /// is the view of them meanwhile (`publish_patronus`)
   fn derive_patronus(&mut self) {
+    self.start_patronus_derivation();
+    self.publish_patronus();
+  }
+
+  fn start_patronus_derivation(&mut self) {
     let Some(derivation) = self.facts.begin_patronus(&self.state, self.life.now()) else {
       return;
     };
@@ -1059,12 +1066,10 @@ impl Actor {
     );
   }
 
-  /// The part of the view from the derived view and the landing needs; starts their computation when they are unknown
+  /// The part of the view of the robots as they are now (`FactStore::publish_patronus`) with the landing needs; starts
+  /// their computation when they are unknown
   fn publish_patronus(&mut self) {
-    let Some(table) = self.facts.table.value().map(Arc::clone) else {
-      return;
-    };
-    if let Some((inputs, landed)) = self.facts.patronus.publish(&table) {
+    if let Some((inputs, landed)) = self.facts.publish_patronus(&self.state) {
       self.compute_landing_needs(inputs, landed);
     }
   }

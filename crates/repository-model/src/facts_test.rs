@@ -559,7 +559,7 @@ fn a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_land
     ..PatronusView::default()
   };
   facts.patronus.answer(at(5, 5, 5), Ok(view));
-  let _ = facts.patronus.publish(&chain());
+  let _ = facts.patronus.publish(&chain(), None, &crate::patronus_view::ContentMemo::default());
   facts.tell_merges(&state);
   let closes = vec![LandedPullRequest {
     branch: "auth".to_owned(),
@@ -619,7 +619,7 @@ fn a_merge_closes_no_pull_request_of_a_branch_the_view_does_not_know() {
     };
     assert!(facts.patronus.begin(4, Duration::from_secs(4)));
     facts.patronus.answer(at(4, 4, 4), Ok(view));
-    let _ = facts.patronus.publish(&table);
+    let _ = facts.patronus.publish(&table, None, &crate::patronus_view::ContentMemo::default());
     facts.closes(&state, "r")
   };
   let as_it_was = table(&[("login", Some("auth"), &[("l1", "vl1")]), ("auth", None, &[("a1", "va1")])]);
@@ -709,10 +709,16 @@ fn the_landing_needs_are_computed_one_at_a_time_the_newest_wanted_next() {
   assert!(fact.begin(1, Duration::ZERO));
   assert_eq!(fact.part().state, FactState::Loading);
   fact.answer(at(1, 1, 1), Ok(PatronusView::default()));
-  let (first, landed) = fact.publish(&table).expect("the needs of the view are computed");
+  let (first, landed) = fact
+    .publish(&table, None, &crate::patronus_view::ContentMemo::default())
+    .expect("the needs of the view are computed");
   assert_eq!((fact.part().state.clone(), fact.part().landing_needs.clone()), (FactState::Fresh, FactState::Loading));
   assert!(landed.is_empty());
-  assert_eq!(fact.publish(&table), None, "one computation of the same inputs");
+  assert_eq!(
+    fact.publish(&table, None, &crate::patronus_view::ContentMemo::default()),
+    None,
+    "one computation of the same inputs"
+  );
 
   // the robots changed: a view of other landed commits wants other needs while the first runs
   assert!(fact.begin(2, Duration::from_secs(2)));
@@ -734,15 +740,19 @@ fn the_landing_needs_are_computed_one_at_a_time_the_newest_wanted_next() {
     ..PatronusView::default()
   };
   fact.answer(at(2, 2, 2), Ok(merged));
-  assert_eq!(fact.publish(&table), None, "wanted next");
+  assert_eq!(fact.publish(&table, None, &crate::patronus_view::ContentMemo::default()), None, "wanted next");
   let (second, landed) = fact.needs_answer(first, Ok(Needs::new())).expect("the wanted needs next");
   assert_eq!(landed, HashSet::from(["a1".to_string()]));
   assert_ne!(first, second);
-  assert_eq!(fact.publish(&table), None);
+  assert_eq!(fact.publish(&table, None, &crate::patronus_view::ContentMemo::default()), None);
   assert_eq!(fact.part().landing_needs, FactState::Loading, "the needs of the first view are not of this one");
 
   assert_eq!(fact.needs_answer(second, Err(failure())), None);
-  assert_eq!(fact.publish(&table), None, "a failure is no reason to compute again");
+  assert_eq!(
+    fact.publish(&table, None, &crate::patronus_view::ContentMemo::default()),
+    None,
+    "a failure is no reason to compute again"
+  );
   assert_eq!(fact.part().landing_needs, FactState::Unavailable { reason: failure() });
   assert_eq!(fact.part().view.branches["auth"].landing_needs, LandingNeeds::Unknown);
 }
