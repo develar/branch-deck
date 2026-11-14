@@ -5235,9 +5235,12 @@ that they wait for, and the error says what to fix.
 **The first sync**: a worktree synced before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the
 app's writer keeps by the path, `app_settings::projects::synced_before`, or the mark of the session's prefix: every
 sync that succeeds, `brd sync` too, names its prefix in the git directory of the worktree, `branch-deck/synced.d/` of
-`sync_core::synced_mark`, a file per prefix (its name the hex of the prefix, written by a rename, so two syncs under two
-prefixes at once both land; the one file of lines of a build before is read too and moved by the next mark), read
-without git, so a `brd sync --prefix X` marks the session of `X`
+`sync_core::synced_mark`, a file per prefix (its name the SHA-256 of the prefix in hex, as long for every prefix, the
+prefix its content, which the read checks; written by a rename, so two syncs under two prefixes at once both land; the
+one file of lines of a build before and the files named by the hex of the prefix of the build after it are read too
+and moved by the next mark), read without git in the git directory the `.git` of the worktree names (`git_dir_of`: a
+linked worktree's admin directory, `.git/modules/<name>` of a submodule, a separate git directory), so a `brd sync
+--prefix X` marks the session of `X`
 only) syncs when its session opens (`Open`, with or without a
 window), so the first sync of the start runs while the window loads, and so does a session a window watches anew (a
 switch back within `IDLE_LIMIT`; also one a sync of this session committed), which then runs only when what a sync

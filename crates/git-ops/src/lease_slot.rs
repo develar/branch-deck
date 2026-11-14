@@ -29,14 +29,31 @@ pub struct LinkedWorktree {
   pub git_dir: PathBuf,
 }
 
+/// The git directory of the worktree whose top level is `dir`, as `git rev-parse --git-dir` names it, without a git
+/// process: `dir/.git` itself when it is a directory (a main worktree), else what the file `dir/.git` names
+/// (`gitdir: <dir>`, relative to `dir`), canonical: the admin directory of a linked worktree, `.git/modules/<name>` of
+/// a submodule, the directory of `git init --separate-git-dir`. `None` without either
+pub fn git_dir_of(dir: &Path) -> Option<PathBuf> {
+  let dot_git = dir.join(".git");
+  if dot_git.is_dir() {
+    return Some(dot_git);
+  }
+  named_git_dir(dir)
+}
+
+/// The git directory the file `dir/.git` names (`gitdir: <dir>`), canonical
+fn named_git_dir(dir: &Path) -> Option<PathBuf> {
+  let text = std::fs::read_to_string(dir.join(".git")).ok()?;
+  let named = text.lines().next()?.strip_prefix("gitdir:")?.trim();
+  std::fs::canonicalize(dir.join(named)).ok()
+}
+
 /// The linked worktree whose top level is `dir`, without a git process: `dir/.git` is a file `gitdir: <admin dir>`, the
 /// admin dir names the common dir in `commondir` and points back at `dir/.git` in `gitdir`. `None` for anything else: a
 /// missing directory, the main worktree, a submodule, a broken link
 pub fn linked_worktree(dir: &Path) -> Option<LinkedWorktree> {
   let dot_git = dir.join(".git");
-  let text = std::fs::read_to_string(&dot_git).ok()?;
-  let admin = text.lines().next()?.strip_prefix("gitdir:")?.trim();
-  let admin = std::fs::canonicalize(dir.join(admin)).ok()?;
+  let admin = named_git_dir(dir)?;
   let common = std::fs::read_to_string(admin.join("commondir")).ok()?;
   let git_common_dir = std::fs::canonicalize(admin.join(common.trim())).ok()?;
   if admin.parent()? != git_common_dir.join("worktrees") {

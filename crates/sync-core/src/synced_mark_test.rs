@@ -100,3 +100,97 @@ fn the_mark_of_a_build_before_is_read_and_moved_by_the_next_mark() {
   assert!(synced_before(path, "old") && synced_before(path, "new"));
   assert!(!synced_before(path, "1794600000000"));
 }
+
+/// Runs git with `args` in `dir`, as a test fixture does
+fn git_in(dir: &std::path::Path, args: &[&str]) -> String {
+  let output = test_utils::git_test_utils::git_command().args(args).current_dir(dir).output().unwrap();
+  assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+  String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+/// The mark as the sync writes it in the worktree `dir`: where git names `SYNCED_FILE` (`RepoFacts::synced_mark`)
+fn mark_of(dir: &std::path::Path) -> std::path::PathBuf {
+  git_in(dir, &["rev-parse", "--path-format=absolute", "--git-path", SYNCED_FILE]).into()
+}
+
+/// A checkout of a separate git directory and a submodule have a `.git` file that names their git directory, where the
+/// sync writes its mark: the read finds it there, as for a linked worktree
+#[test]
+fn the_mark_of_a_submodule_and_of_a_separate_git_directory_is_read_where_their_git_file_names_it() {
+  let place = tempfile::tempdir().unwrap();
+  let separate = place.path().join("checkout");
+  git_in(place.path(), &["init", "--quiet", "--separate-git-dir", "checkout.git", "checkout"]);
+  assert!(separate.join(".git").is_file());
+  git_in(
+    &separate,
+    &[
+      "-c",
+      "user.name=Test User",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "Initial",
+    ],
+  );
+  let path = separate.to_str().unwrap();
+  assert!(!synced_before(path, "test"));
+  mark_synced(&mark_of(&separate), "test");
+  assert!(synced_before(path, "test"), "a separate git directory");
+
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  git_in(repo.path(), &["-c", "protocol.file.allow=always", "submodule", "--quiet", "add", path, "sub"]);
+  let submodule = repo.path().join("sub");
+  assert!(submodule.join(".git").is_file());
+  let sub = submodule.to_str().unwrap();
+  assert!(!synced_before(sub, "test"));
+  mark_synced(&mark_of(&submodule), "test");
+  assert!(synced_before(sub, "test"), "a submodule");
+  assert!(!synced_before(repo.path().to_str().unwrap(), "test"), "the superproject has a mark of its own");
+}
+
+/// A prefix of 200 bytes is marked: the file of a prefix is named by its hash, as long for every prefix, and holds the
+/// prefix, which the read checks, so a file of the same name that names another prefix marks nothing
+#[test]
+fn a_prefix_of_200_bytes_is_marked_in_a_file_named_by_its_hash_that_holds_it() {
+  let repo = TestRepo::new();
+  let mark = repo.path().join(".git").join(SYNCED_FILE);
+  let path = repo.path().to_str().unwrap();
+  let long = format!("team/{}", "a".repeat(195));
+  assert_eq!(long.len(), 200);
+  mark_synced(&mark, &long);
+  assert!(synced_before(path, &long));
+  let files: Vec<(String, String)> = std::fs::read_dir(repo.path().join(".git").join(SYNCED_DIR))
+    .unwrap()
+    .map(|entry| {
+      let entry = entry.unwrap();
+      (entry.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(entry.path()).unwrap())
+    })
+    .collect();
+  assert_eq!(files.len(), 1);
+  assert_eq!((files[0].0.len(), files[0].1.as_str()), (64, long.as_str()));
+
+  // the file of the prefix holds another one: no mark of it
+  std::fs::write(repo.path().join(".git").join(SYNCED_DIR).join(&files[0].0), "other").unwrap();
+  assert!(!synced_before(path, &long));
+}
+
+/// A mark of the build before, a file per prefix named by the hex of its bytes, is read, and the next mark moves it into
+/// the file of this build
+#[test]
+fn the_mark_named_by_the_hex_of_its_prefix_is_read_and_moved_by_the_next_mark() {
+  let repo = TestRepo::new();
+  let dir = repo.path().join(".git").join(SYNCED_DIR);
+  std::fs::create_dir_all(&dir).unwrap();
+  let hex = dir.join("7465616d2f6f6c64");
+  std::fs::write(&hex, "team/old").unwrap();
+  let path = repo.path().to_str().unwrap();
+  assert!(synced_before(path, "team/old"));
+
+  mark_synced(&repo.path().join(".git").join(SYNCED_FILE), "team/old");
+  assert!(!hex.exists(), "the file of the build before goes");
+  assert!(synced_before(path, "team/old"));
+}
