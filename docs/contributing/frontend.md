@@ -178,7 +178,8 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   `observeSize` (src/lib/observe-size.ts, `pnpm lint:arch` `resize-observer`): until the next task after a report, an
   element a change of its subtree touches leaves its observer and is observed anew in the next task, its size read a frame
   later; an element let
-  go so in every frame of a second is a cycle, logged as an error. The page logs a single loop as a warning (a library's
+  go so in every frame of a second is a cycle, logged as an error (a commit lets an element go once, however many of
+  our observers observe it: a diff view has three). The page logs a single loop as a warning (a library's
   observer may make one under load) and a repeated one as an error (`src/lib/page-errors.ts`). The WebKit check
   `tests/e2e/resize-loops/` attributes each loop in the test only: one of an observer of ours fails it, one of a
   library's is a warning of its report. `react-resizable-panels` 4.18 makes no flushSync in its observers.

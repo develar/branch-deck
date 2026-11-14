@@ -21,7 +21,10 @@ const CYCLE_RELEASES = 30
 /** When each element was let go within the last second */
 const releases = new WeakMap<Element, number[]>()
 
-/** `element` was let go: a cycle once it is let go in every frame of a second, logged once per cycle */
+/**
+ * `element` was let go in a commit: a cycle once it is let go in every frame of a second, logged once per cycle. Its
+ * observers let it go together, counted once (a diff view has three)
+ */
 function countRelease(element: Element): void {
   const now = performance.now()
   const times = (releases.get(element) ?? []).filter(time => time > now - 1000)
@@ -45,8 +48,12 @@ const mutations =
           return
         }
         const touched = records.map(record => record.target)
+        const released = new Set<Element>()
         for (const observer of observers) {
-          observer.release(touched)
+          observer.release(touched, released)
+        }
+        for (const element of released) {
+          countRelease(element)
         }
       })
 
@@ -117,8 +124,11 @@ export class SizeObserver {
     observers.delete(this)
   }
 
-  /** The elements of this observer at or above `touched` leave it at once and are observed anew in the next task */
-  release(touched: readonly Node[]): void {
+  /**
+   * The elements of this observer at or above `touched` leave it at once and are observed anew in the next task; each
+   * joins `released`
+   */
+  release(touched: readonly Node[], released: Set<Element>): void {
     const resize = this.resize
     if (resize === null) {
       return
@@ -132,7 +142,7 @@ export class SizeObserver {
           if (!this.released.has(element)) {
             resize.unobserve(element)
             this.released.add(element)
-            countRelease(element)
+            released.add(element)
             any = true
           }
           break

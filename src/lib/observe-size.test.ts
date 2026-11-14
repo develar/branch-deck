@@ -96,6 +96,33 @@ describe("observeSize", () => {
     expect(resize.observed.has(prologue.element)).toBe(true)
   })
 
+  it("counts an element its observers let go in one commit once, and logs a cycle only when it is let go in every frame of a second", async () => {
+    // a diff view has three observers: a commit of it after a report lets it go from each, which is one frame
+    const logError = vi.fn()
+    vi.doMock("@/lib/errors", () => ({ logError }))
+    const { observeSize } = await import("@/lib/observe-size")
+    const view = element()
+    Reflect.set(view.element, "getAttribute", (name: string) => (name === "data-testid" ? "diff-view" : null))
+    const resizes = [0, 1, 2].map(() => {
+      observeSize(() => {}).observe(view.element)
+      return FakeResizeObserver.current!
+    })
+    const frame = async () => {
+      resizes[0]!.report(view.element)
+      FakeMutationObserver.current!.commit(view.text)
+      expect(resizes.map(resize => resize.observed.has(view.element))).toEqual([false, false, false])
+      await nextTask()
+    }
+    for (let count = 0; count < 29; count++) {
+      await frame()
+    }
+    expect(logError).not.toHaveBeenCalled()
+    await frame()
+    expect(logError).toHaveBeenCalledTimes(1)
+    expect(logError.mock.calls[0]![0]).toBe("A size observer of the page cycles")
+    expect(String(logError.mock.calls[0]![1])).toBe("Error: diff-view resized in every frame of a second")
+  })
+
   it("leaves an element it no longer observes alone", async () => {
     const { observeSize } = await import("@/lib/observe-size")
     const observer = observeSize(() => {})
