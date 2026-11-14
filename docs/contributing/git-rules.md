@@ -216,8 +216,9 @@ directory (`operations::registry_watch`, `notify`, no git): the operations of ot
 and decide no admission there; `brd` touches
 `$GIT_COMMON_DIR/branch-deck/stamp` after every command that succeeded and is no read, in one place
 (`bd-cli::execute`), which syncs the watching sessions (`SyncReason::Stamp`) that sync of themselves. A sync that
-succeeded, of the app or of `brd`, names its branch prefix in the mark of its worktree (`branch-deck/synced` in the git
-directory of the worktree, one prefix per line): only `sync_core::synced_mark::mark_synced` writes it, at the end of a
+succeeded, of the app or of `brd`, names its branch prefix in the mark of its worktree (`branch-deck/synced.d/` in the
+git directory of the worktree, a file per prefix, so no write reads another; the file of lines of a build before,
+`branch-deck/synced`, is read and moved by the next mark): only `sync_core::synced_mark::mark_synced` writes it, at the end of a
 successful `sync_branches`, through a temporary file and a rename, no git; only the hosts of the app's sessions read it
 (`SessionHost::synced_before` of the session's prefix, without git); only a lease slot takes it out, as it goes back
 (`finish_return` of a return, a takeover and a reclaim, first, so one that fails after it leaves none) and as a get

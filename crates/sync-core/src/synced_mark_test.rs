@@ -1,5 +1,5 @@
 use crate::sync::{SyncOptions, sync_branches};
-use crate::synced_mark::synced_before;
+use crate::synced_mark::{SYNCED_DIR, SYNCED_FILE, mark_synced, synced_before};
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::sync_fixtures::TestReporter;
@@ -54,6 +54,49 @@ async fn the_mark_names_the_prefix_each_sync_built_under() {
   sync_under(&path, "test").await.unwrap();
   sync_under(&path, "other").await.unwrap();
   assert!(synced_before(&path, "test") && synced_before(&path, "other"));
-  let mark = repo.path().join(".git").join(crate::synced_mark::SYNCED_FILE);
-  assert_eq!(std::fs::read_to_string(mark).unwrap(), "other\ntest\n", "each prefix once");
+  let mut marked: Vec<String> = std::fs::read_dir(repo.path().join(".git").join(SYNCED_DIR))
+    .unwrap()
+    .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+    .collect();
+  marked.sort();
+  assert_eq!(marked, ["other", "test"], "each prefix once");
+}
+
+/// Two syncs under two prefixes at once both land: each prefix is a file of its own, and no write of the mark reads
+/// another (one file read, changed and written again lost the line of the other)
+#[test]
+fn two_marks_under_two_prefixes_at_once_both_land() {
+  let repo = TestRepo::new();
+  let mark = repo.path().join(".git").join(SYNCED_FILE);
+  let prefixes: Vec<String> = (0..16).map(|n| format!("team/prefix-{n}")).collect();
+  let start = std::sync::Barrier::new(prefixes.len());
+  std::thread::scope(|scope| {
+    for prefix in &prefixes {
+      let (mark, start) = (&mark, &start);
+      scope.spawn(move || {
+        start.wait();
+        mark_synced(mark, prefix);
+      });
+    }
+  });
+  let path = repo.path().to_str().unwrap();
+  assert!(prefixes.iter().all(|prefix| synced_before(path, prefix)), "every prefix landed");
+}
+
+/// A mark a build before wrote, one file of lines, a time among them (the build before it): the read takes its prefixes
+/// and never the time, and the next mark moves the prefixes into files of their own and removes the file
+#[test]
+fn the_mark_of_a_build_before_is_read_and_moved_by_the_next_mark() {
+  let repo = TestRepo::new();
+  let mark = repo.path().join(".git").join(SYNCED_FILE);
+  std::fs::create_dir_all(mark.parent().unwrap()).unwrap();
+  std::fs::write(&mark, "1794600000000\nold\n").unwrap();
+  let path = repo.path().to_str().unwrap();
+  assert!(synced_before(path, "old"));
+  assert!(!synced_before(path, "1794600000000"), "a time names no prefix");
+
+  mark_synced(&mark, "new");
+  assert!(!mark.exists(), "the file of the build before goes");
+  assert!(synced_before(path, "old") && synced_before(path, "new"));
+  assert!(!synced_before(path, "1794600000000"));
 }

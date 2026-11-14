@@ -171,9 +171,17 @@ const OPEN_SYNC = /\bsyncBranches\(\s*(["'`])open\1/
 const STARTING = /^src\/(?!.*\.test\.tsx?$)/
 /** The window that reads the prefix of its own: Settings */
 const SETTINGS = /^src\/components\/settings\//
-// a read of when the app last synced a repository: its name but as the key of an object it writes (`lastSyncTime:
-// syncedAt`), or a destructuring that renames it
-const LAST_SYNC_READ = /\blastSyncTime\b(?!\s*:)|\{[^}=]*\blastSyncTime\s*:[^}]*\}\s*=/
+// a read of when the app last synced a repository: its name anywhere but as the key of an object it writes, the
+// name alone after the start of the object, a comma or the start of the line and before a colon (`lastSyncTime:
+// syncedAt`; the branch of a ternary, `a ? state.lastSyncTime : 0`, is a read), or a destructuring that renames it
+const LAST_SYNC = /\blastSyncTime\b/g
+const LAST_SYNC_RENAMED = /\{[^}=]*\blastSyncTime\s*:[^}]*\}\s*=/
+function lastSyncRead(line) {
+  if (LAST_SYNC_RENAMED.test(line)) {
+    return true
+  }
+  return [...line.matchAll(LAST_SYNC)].some(found => !(/(?:^|[{,])\s*$/.test(line.slice(0, found.index)) && /^\s*:/.test(line.slice(found.index + found[0].length))))
+}
 /** The sources that may not read it: the page, its tests, test-support and what shows "Last synced" aside */
 const SYNC_DECIDING =
   /^src\/(?!test-support\/)(?!components\/repository\/(?:ConfigurationHeader|RepositorySelector)\.tsx$)(?!stores\/settings\/repositoryState\.ts$)(?!.*\.test\.tsx?$)/
@@ -595,7 +603,7 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     if (STARTING.test(file) && startupRead(file, line)) {
       problems.push({ ...at, rule: "startup-read" })
     }
-    if (SYNC_DECIDING.test(file) && LAST_SYNC_READ.test(line)) {
+    if (SYNC_DECIDING.test(file) && lastSyncRead(line)) {
       problems.push({ ...at, rule: "last-sync-read" })
     }
     if (PRESENTING.test(file) && STATE_READ.test(line)) {

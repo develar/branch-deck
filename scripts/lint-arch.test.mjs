@@ -317,13 +317,16 @@ test("a read of the time of the last sync is refused outside what shows Last syn
     "const { lastSyncTime } = state",
     "const { lastSyncTime: at } = state",
     'const at = state["lastSyncTime"]',
+    "const at = known ? state.lastSyncTime : 0",
+    "const at = known ? lastSyncTime : 0",
     // the write of the time, a comment, what the session decides
     "updateRepositoryState(path, state => ({ ...state, lastSyncTime: syncedAt }))",
+    "  lastSyncTime: syncedAt,",
     "// the lastSyncTime of the app",
     "const neverSynced = !useBranchSync(state => state.syncedBefore)",
   ].join("\n")
   const rules = file => findProblems(file, source, { registry: new Map() }).map(problem => `${problem.line} ${problem.rule}`)
-  const reads = [1, 2, 3, 4, 5].map(line => `${line} last-sync-read`)
+  const reads = [1, 2, 3, 4, 5, 6, 7].map(line => `${line} last-sync-read`)
   assert.deepEqual(rules("src/components/branch/BranchCreator.tsx"), reads)
   assert.deepEqual(rules("src/hooks/useRepositoryConfigChanges.ts"), reads)
   assert.deepEqual(rules("src/model/store.ts"), reads)

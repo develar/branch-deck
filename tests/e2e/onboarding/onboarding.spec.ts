@@ -232,8 +232,14 @@ test.describe("Onboarding", () => {
   })
 
   test("syncs a repository synced before when the window opens it", async ({ page, setupRepo }) => {
-    // a new window of a project synced an hour ago, Auto-sync on Focus off
-    await setupRepo("behind_upstream", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
+    // a new window of a project the app synced an hour ago, Auto-sync on Focus off; the open sync of its session is held
+    const repo = await setupRepo("behind_upstream", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO, remoteAnswers: { hold: ["sync"] }, waitForSync: false })
+
+    // the session syncs as it opens, which the view says (`synced`): Sync spins, the table loads, no card asks for a sync
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    await expect(page.getByTestId("branch-table-loading")).toBeVisible()
+    await expect(page.getByTestId("ready-to-sync-card")).toHaveCount(0)
+    await repo.holdRemoteAnswers({ release: ["sync"] })
 
     // no click: the branches and Update show by themselves
     await expect(findBranchRow(page, "feature-auth")).toBeVisible()
