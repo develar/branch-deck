@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRows, getMoreButton, verifyBranchState } from "../helpers/branch-helpers"
-import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
+import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { dropAt, dropOn, startDrag } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
 import { recordRewrites, expectClosed, openTooltip } from "../helpers/wait-helpers"
@@ -185,8 +185,12 @@ test.describe("Parked branches", () => {
     await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT - 1)
   })
 
-  test("should take the park back in its repository with the Undo of its toast clicked after a switch of the repository", async ({ page, syncAndWaitForBranches }) => {
-    await addRecentProject(page)
+  test("should take the park back in its repository with the Undo of its toast clicked after a switch of the repository", async ({
+    page,
+    syncAndWaitForBranches,
+    otherRepository,
+  }) => {
+    await addRecentProject(page, otherRepository)
     await syncAndWaitForBranches()
     await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
     const parks = await recordRewrites(page, "park")
@@ -196,7 +200,7 @@ test.describe("Parked branches", () => {
     const repositoryPath = parks[0]!.repositoryPath
 
     // another repository opens; the Undo of the toast is still the park of the first one: its token, in its repository
-    await switchRepository(page, OTHER_REPOSITORY)
+    await switchRepository(page, otherRepository)
     await toast(page, "Parked docs").getByRole("button", { name: "Undo" }).click()
     // never the repository the window shows now
     await expect.poll(() => undos.map(undo => undo.repositoryPath)).toEqual([repositoryPath])

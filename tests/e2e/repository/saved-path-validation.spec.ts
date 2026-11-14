@@ -3,11 +3,12 @@
  * These tests simulate scenarios where a previously saved repository path becomes invalid
  * (e.g., directory deleted, moved, or inaccessible) and verify proper error handling.
  */
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 
 test.describe("Repository Validation", () => {
   test("should display error for non-existent repository path", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot subscribe to the branches of the repository: Repository not accessible: NO_REPO_/)
     // Use NO_REPO template which creates a path that doesn't exist on disk: the subscription of the window to its
     // session fails, and the page shows its error
     await setupRepo("NO_REPO", {
@@ -58,6 +59,7 @@ test.describe("Repository Validation", () => {
   })
 
   test("should clear error when valid repository is selected", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot subscribe to the branches of the repository: Repository not accessible: NO_REPO_/)
     // First, setup an invalid repository to create error state
     await setupRepo("NO_REPO", {
       prepopulateStore: true,

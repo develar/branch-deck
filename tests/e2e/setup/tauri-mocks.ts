@@ -15,9 +15,11 @@ export const PAGE_COMMANDS = commands as PageCommand[]
  */
 export const tauriMockScript = (pageCommands: PageCommand[]) => {
   // the page leaves: a test moves it to the page of another window (`openSubWindowPage`), which the app never does
-  // (each window is a webview of its own); WebKit fails the requests the page still has then ("Load failed")
+  // (each window is a webview of its own); WebKit fails the requests the page still has then ("Load failed", "Fetch API
+  // cannot load … due to access control checks"), which the test counts no error of the app (base-test.ts)
   window.addEventListener("beforeunload", () => {
     ;(window as any).__e2eLeaving = true
+    console.info("[e2e-leaving]")
   })
   // Debug logging function - only logs when debug flag is set via window property
   function debug(...args: any[]) {

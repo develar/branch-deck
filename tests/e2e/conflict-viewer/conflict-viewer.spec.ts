@@ -1,7 +1,7 @@
 // @spec openspec/specs/commit/commit-row/spec.md
 import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import type { ConflictingFilesWindowData, MissingCommitsWindowData } from "../../../src/types/sub-window"
-import { test as simpleTest, testWithConflicts, expect, expectErrorLog } from "../fixtures/test-fixtures"
+import { test as simpleTest, testWithConflicts, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, collapseBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { diffRows, diffSides } from "../helpers/diff-helpers"
@@ -152,7 +152,6 @@ test.describe("Conflict Viewer Feature", () => {
     })
 
     test("should say why the merges of a conflict did not load", async ({ page }) => {
-      expectErrorLog(page, /^Cannot read the merges of the conflicting files: Commit 1234 not found$/)
       await routeCommandError(page, "get_file_merges", { code: "internal", message: "Commit 1234 not found" })
       const bugFixBranch = findBranchRow(page, "bug-fix")
       await collapseBranch(page, bugFixBranch)

@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { availableRobots, mergeRunningRobot, robot } from "../helpers/patronus-helpers"
-import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
+import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { emitTauriEvent, nextAnswer, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
@@ -24,12 +24,12 @@ async function mergeFeatureAuth(
   page: Page,
   setupRepo: (template: string, options?: { patronus?: ReturnType<typeof availableRobots> }) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
-  { otherProject = false }: { otherProject?: boolean } = {},
+  { otherRepository }: { otherRepository?: string } = {},
 ): Promise<{ repo: TestRepositoryBuilder; toast: Locator }> {
   const repo = await setupRepo("landed_upstream", { patronus: availableRobots(RUNNING) })
-  if (otherProject) {
+  if (otherRepository !== undefined) {
     // a second recent project to switch to: the toast of the merge then fetches the baseline of its own repository
-    await addRecentProject(page)
+    await addRecentProject(page, otherRepository)
   }
   await syncAndWaitForBranches()
   // the robot runs: the focus polls only the running robots the session listed (the fetched baseline has feature-auth
@@ -84,10 +84,11 @@ test.describe("The toast of a landing", () => {
     page,
     setupRepo,
     syncAndWaitForBranches,
+    otherRepository,
   }) => {
-    const { repo, toast } = await mergeFeatureAuth(page, setupRepo, syncAndWaitForBranches, { otherProject: true })
+    const { repo, toast } = await mergeFeatureAuth(page, setupRepo, syncAndWaitForBranches, { otherRepository })
     // another repository is shown: the toast fetches the baseline of its own, while an agent's `brd update` fetches it
-    await switchRepository(page, OTHER_REPOSITORY)
+    await switchRepository(page, otherRepository)
     await repo.holdFetchLock(true)
     const executions = await recordCommand(page, "execute")
     await toast.getByRole("button", { name: "Fetch" }).click()

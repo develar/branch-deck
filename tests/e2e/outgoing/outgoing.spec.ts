@@ -15,7 +15,7 @@ import {
   remotePushes,
   virtualBranch,
 } from "../helpers/push-helpers"
-import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
+import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
@@ -314,15 +314,15 @@ test.describe("Push button", () => {
     await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
   })
 
-  test("should push a branch in its repository when another repository opens while its push sends", async ({ page, issueLinksRepo, syncAndWaitForBranches }) => {
-    await addRecentProject(page)
+  test("should push a branch in its repository when another repository opens while its push sends", async ({ page, issueLinksRepo, syncAndWaitForBranches, otherRepository }) => {
+    await addRecentProject(page, otherRepository)
     await syncAndWaitForBranches()
     const held = await holdRemotePushes(issueLinksRepo)
     const row = findBranchRow(page, "JIRA-456")
     await getPushButton(row).click()
     await held.arrived()
     // the window opens another repository while the push sends: the push goes on in its own
-    await switchRepository(page, OTHER_REPOSITORY)
+    await switchRepository(page, otherRepository)
     await runAndWaitForAnswer(page, "execute", () => held.release())
     expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
     await expect(pushedToast(page, "JIRA-456")).toBeVisible()

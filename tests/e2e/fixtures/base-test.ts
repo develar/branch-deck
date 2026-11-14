@@ -146,34 +146,73 @@ const LOG_ERROR_MARK = "[e2e-log-error] "
  */
 const LEAVING_LOG_ERROR_MARK = "[e2e-log-error-leaving] "
 
-/** The errors a test makes the app log (`expectErrorLog`), by the browser context of its pages */
-const declaredErrors = new WeakMap<BrowserContext, RegExp[]>()
+/** An error a test declares (`expectErrorLog`), and whether it must come (`allowErrorLog`: it may) */
+interface DeclaredError {
+  line: RegExp
+  required: boolean
+}
+
+/** The errors a test makes the app log (`expectErrorLog`, `allowErrorLog`), by the browser context of its pages */
+const declaredErrors = new WeakMap<BrowserContext, DeclaredError[]>()
+
+function declare(page: Page, error: DeclaredError): void {
+  const context = page.context()
+  declaredErrors.set(context, [...(declaredErrors.get(context) ?? []), error])
+}
 
 /**
  * Declares an error the test makes the app log, a line `<title>: <error>` of the error level (`logError`, `notifyError`,
- * an uncaught error of a page, `src/lib/page-errors.ts`) matched by `line`. A test fails on an error of its pages that
- * no declaration of its own matches, and on a declaration that matched no error: an uncaught error, a ResizeObserver
- * loop or a failed command of the app never passes unnoticed in a green test, and a declaration stays true
+ * an uncaught error of a page, `src/lib/page-errors.ts`), or a `console.error` of a page that logs nothing, matched by
+ * `line`. A test fails on an error of its pages that no declaration of its own matches, and on a declaration that
+ * matched no error: an uncaught error, a ResizeObserver loop, a failed command of the app or an error the page tells
+ * only its console (which the log of the app never has) never passes unnoticed in a green test, and a declaration
+ * stays true
  */
 export function expectErrorLog(page: Page, line: RegExp): void {
-  const context = page.context()
-  declaredErrors.set(context, [...(declaredErrors.get(context) ?? []), line])
+  declare(page, { line, required: true })
+}
+
+/**
+ * Declares an error the test may make the app log (`expectErrorLog`), that no test fails on whether it comes or not:
+ * only with `because`, why it may, as for a refusal of a fake that is a means of the test rather than its subject (a
+ * start Patronus refuses, so no robot holds the next one)
+ */
+export function allowErrorLog(page: Page, line: RegExp, because: string): void {
+  if (because.trim() === "") {
+    throw new Error("allowErrorLog says why the error may come")
+  }
+  declare(page, { line, required: false })
 }
 
 /**
  * The errors of the pages of a test that its declarations (`expectErrorLog`) don't account for: the lines of the error
- * level the app logged and the uncaught errors that no line names, logged or of a page that left (one that threw before
- * `page-errors.ts` loaded), each matched by none, and the declarations that matched none
+ * level the app logged, the uncaught errors that no line names, logged or of a page that left (one that threw before
+ * `page-errors.ts` loaded), and the `console.error` lines that are no line logged with them (`logError` writes its title
+ * to the console too) nor an uncaught error, each matched by none, and the declarations that matched none
  */
-function undeclaredErrors(logged: readonly string[], leaving: readonly string[], uncaught: readonly Error[], declared: readonly RegExp[]): string[] {
+function undeclaredErrors(
+  logged: readonly string[],
+  leaving: readonly string[],
+  uncaught: readonly Error[],
+  consoleErrors: readonly string[],
+  declared: readonly DeclaredError[],
+): string[] {
   // a logged line is `<title>: <error>`, its stack on the lines after it, which the failure shows and no declaration reads
   const lineOf = (logged: string) => logged.split("\n", 1)[0]!
   // WebKit names a rejection "Unhandled Promise Rejection: TypeError: …", the line of `page-errors.ts` its message alone
   const named = (error: Error) => [...logged, ...leaving].some(line => line.includes(error.message.replace(/^Unhandled Promise Rejection: /, "").replace(/^\w*Error: /, "")))
-  const lines = [...logged, ...uncaught.filter(error => !named(error)).map(error => `Uncaught: ${error.stack ?? error.message}`)]
+  const titles = [...logged, ...leaving].map(line => lineOf(line).split(": ", 1)[0]!)
+  const told = (text: string) => titles.some(title => text === title || text.startsWith(`${title} `)) || uncaught.some(error => text.includes(error.message))
+  const lines = [
+    ...logged,
+    ...uncaught.filter(error => !named(error)).map(error => `Uncaught: ${error.stack ?? error.message}`),
+    ...consoleErrors.filter(text => !told(text)).map(text => `console.error: ${text}`),
+  ]
   return [
-    ...lines.filter(line => !declared.some(pattern => pattern.test(lineOf(line)))).map(line => `an error no expectErrorLog declares: ${line}`),
-    ...declared.filter(pattern => !lines.some(line => pattern.test(lineOf(line)))).map(pattern => `an error expectErrorLog declares that never came: ${String(pattern)}`),
+    ...lines.filter(line => !declared.some(({ line: pattern }) => pattern.test(lineOf(line)))).map(line => `an error no expectErrorLog declares: ${line}`),
+    ...declared
+      .filter(({ line: pattern, required }) => required && !lines.some(line => pattern.test(lineOf(line))))
+      .map(({ line: pattern }) => `an error expectErrorLog declares that never came: ${String(pattern)}`),
   ]
 }
 
@@ -190,8 +229,20 @@ export const test = base.extend({
     const logged: string[] = []
     const leaving: string[] = []
     const uncaught: Error[] = []
+    const consoleErrors: string[] = []
+    // the pages that leave for the page of another window, until their next document: what fails of their requests then
+    // is no error of the app
+    const leavingPages = new Set<Page>()
+    const followNavigations = (opened: Page) => opened.on("framenavigated", frame => frame === opened.mainFrame() && leavingPages.delete(opened))
+    followNavigations(page)
+    context.on("page", followNavigations)
     context.on("console", message => {
-      if (message.type() === "info" && message.text().startsWith(LOG_ERROR_MARK)) {
+      if (message.type() === "info" && message.text() === "[e2e-leaving]") {
+        const from = message.page()
+        if (from !== null) {
+          leavingPages.add(from)
+        }
+      } else if (message.type() === "info" && message.text().startsWith(LOG_ERROR_MARK)) {
         logged.push(message.text().slice(LOG_ERROR_MARK.length))
       } else if (message.type() === "info" && message.text().startsWith(LEAVING_LOG_ERROR_MARK)) {
         leaving.push(message.text().slice(LEAVING_LOG_ERROR_MARK.length))
@@ -200,9 +251,16 @@ export const test = base.extend({
       } else if (message.type() === "error") {
         pageErrors.push(message.text())
       }
+      const from = message.page()
+      if (message.type() === "error" && (from === null || !leavingPages.has(from))) {
+        consoleErrors.push(message.text())
+      }
     })
     context.on("weberror", error => {
-      uncaught.push(error.error())
+      const from = error.page()
+      if (from === null || !leavingPages.has(from)) {
+        uncaught.push(error.error())
+      }
       pageErrors.push(`Uncaught: ${error.error().stack ?? error.error().message}`)
     })
 
@@ -257,7 +315,7 @@ export const test = base.extend({
       await testInfo.attach("page errors", { body: pageErrors.join("\n"), contentType: "text/plain" })
     }
     // a failed test fails on its own error; its log is attached above
-    const undeclared = undeclaredErrors(logged, leaving, uncaught, declaredErrors.get(context) ?? [])
+    const undeclared = undeclaredErrors(logged, leaving, uncaught, consoleErrors, declaredErrors.get(context) ?? [])
     if (testInfo.status === testInfo.expectedStatus && undeclared.length > 0) {
       throw new Error(`The pages of the test logged otherwise than it declares (expectErrorLog):\n${undeclared.join("\n")}`)
     }

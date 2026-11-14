@@ -1,6 +1,6 @@
 // @spec openspec/specs/branch/stacked-branches/spec.md
 import type { Locator, Page } from "@playwright/test"
-import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
+import { test, expect, allowErrorLog } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import {
   branchTree,
@@ -1147,8 +1147,7 @@ test.describe("Stacked branches", () => {
       await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
       if (refuseStarts) {
         await repo.refusePatronusStarts("Patronus is restarting")
-        // a test that refuses the starts starts: the refusal is told and logged
-        expectErrorLog(page, /^Cannot start the (Safe Push|Dry Run) of .*: Patronus is restarting$/)
+        allowErrorLog(page, /^Cannot start the (Safe Push|Dry Run) of .*: Patronus is restarting$/, "the refusal keeps a robot from holding the next start")
       }
       return { repo }
     }

@@ -328,10 +328,9 @@ testWithIssueLinks.describe("Activity side panel", () => {
 })
 
 test.describe("Activity of the selected repository", () => {
-  test("should follow the repository the main window shows", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should follow the repository the main window shows", async ({ page, setupRepo, syncAndWaitForBranches, otherRepository: otherPath }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
-    // a second recent project, which git cannot read: a log of its own, empty
-    const otherPath = "/nonexistent/branch-deck-e2e-other"
+    // a second recent project: a log of its own, empty
     await page.addInitScript(path => {
       ;(window as unknown as { __TAURI_STORE__: { recentProjects: { path: string }[] } }).__TAURI_STORE__.recentProjects.push({ path })
     }, otherPath)
@@ -343,7 +342,7 @@ test.describe("Activity of the selected repository", () => {
     const titles = (await windowCalls(window)).filter(call => call === "set_title").length
 
     await page.getByRole("combobox").click()
-    await page.getByRole("option", { name: "branch-deck-e2e-other" }).click()
+    await page.getByRole("option", { name: otherPath.split("/").at(-1)! }).click()
     await expect(window.getByTestId("activity-empty")).toHaveText("Nothing yet: what Branch Deck does in the repository shows here")
     // the title names the repository shown now
     await expect.poll(async () => (await windowCalls(window)).filter(call => call === "set_title").length).toBeGreaterThan(titles)

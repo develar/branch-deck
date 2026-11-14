@@ -328,6 +328,7 @@ test.describe("Onboarding", () => {
   })
 
   test("forgets the branches of the previous repository on a switch", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot subscribe to the branches of the repository: Repository not accessible: \/nonexistent\/branch-deck-e2e-other$/)
     const repo = await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
     // the injected store runs first, this script adds to it
     await addRecentProject(page, "/nonexistent/branch-deck-e2e-other")
@@ -443,6 +444,7 @@ test.describe("Onboarding", () => {
   })
 
   test("says that a repository without commits has nothing to sync yet", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot sync the branches: The repository has no commits yet/)
     await setupRepo("empty_git", { prepopulateStore: true })
     await page.getByTestId("ready-to-sync-button").click()
 
@@ -456,7 +458,12 @@ test.describe("Deferred sync", () => {
     await syncAndWaitForBranches()
     const rows = await page.getByTestId("branch-row").count()
     // the backend refuses the sync while git is in the middle of a rebase (`SyncDeferred`)
-    await routeCommandError(page, "sync", { code: "operation_in_progress", message: "Not synced: a rebase is in progress" })
+    await routeCommandError(
+      page,
+      "sync",
+      { code: "operation_in_progress", message: "Not synced: a rebase is in progress" },
+      { unlogged: "a deferred sync is a precondition, told in an info toast" },
+    )
     await page.getByTestId("sync-button").click()
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Not synced: a rebase is in progress" })
     await expect(toast).toContainText("The branches sync once git finished it")
@@ -490,6 +497,7 @@ test.describe("A sync without a table", () => {
   })
 
   test("does not sync again on a focus after a failed sync while nothing changed, and syncs again on Sync", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot sync the branches: The repository has no commits yet/)
     await setupRepo("empty_git", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
     const alert = page.getByTestId("error-alert")
     await expect(alert).toContainText("The repository has no commits yet")
@@ -526,6 +534,7 @@ test.describe("Git setup", () => {
   })
 
   test("warns that git does not know the user's name and email when a sync fails on it, and syncs on Sync Again", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot sync the branches: Git user identity is not configured/)
     const repo = await setupRepo("simple", { prepopulateStore: true })
     // an identity git cannot form, whatever the global config says: the notes of the sync fail with `no_identity`
     await repo.setUserNameInTerminal("")

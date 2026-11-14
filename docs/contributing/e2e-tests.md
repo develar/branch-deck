@@ -121,11 +121,16 @@ rules in one line each and links here.
   directly only to set up a state the user path cannot reach in a test. An error path fails the command with
   `routeCommandError`, not by breaking the repository.
 - **Errors are declared**: a test fails on a line the app logs at the error level (`logError`, `notifyError`, an
-  uncaught error or a ResizeObserver loop of a page) unless it declares it, `expectErrorLog(page, /^Cannot …: …$/)`
-  (`<title>: <error>`), and on a declaration that matched nothing. A helper that makes the failure declares it with
-  it (`refuseIslandStarts`); there is no list of errors allowed everywhere. A test that ends while the operation it
+  uncaught error or a ResizeObserver loop of a page) and on a `console.error` of a page that logs nothing with it,
+  unless it declares it, `expectErrorLog(page, /^Cannot …: …$/)` (`<title>: <error>`), and on a declaration that
+  matched nothing. The page tells an error the log of the app (`logError`), never its console alone, which the user's
+  `BranchDeck.log` lacks. A helper that makes the failure declares it with its call: `routeCommandError` the line that
+  ends in its message (`unlogged` says why the page logs none, a precondition that is no failure); a refusal that is
+  only the means of a test may come, `allowErrorLog(page, /…/, because)`, a reason required (`refuseIslandStarts`: no
+  robot holds the next start). There is no list of errors allowed everywhere. A test that ends while the operation it
   started still runs misses its error, or logs one after it: wait for the effect, the toast of the refusal
-  (`tools-settings.spec.ts`, "Sign In Again"). `console.error` alone fails nothing ([Logging](../design/e2e-testing.md)).
+  (`tools-settings.spec.ts`, "Sign In Again"). The repository a test switches to is a real one (`otherRepository`); a
+  path git cannot read only where the test checks that state, its line declared ([Logging](../design/e2e-testing.md)).
   A ResizeObserver loop is found by `E2E_RO_TRACE=1` (`tests/e2e/setup/resize-trace.ts`: the deliveries, the end of
   each callback, the texts that changed in observed elements, what was left pending), under load with
   `E2E_CPU_THROTTLE=6` (Chromium) or many WebKit workers (`--repeat-each 30 --workers 8`).

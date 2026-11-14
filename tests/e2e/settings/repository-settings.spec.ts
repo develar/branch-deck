@@ -162,7 +162,6 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
   })
 
   test("should tell a failed write in a toast", async ({ page, setupRepo }) => {
-    expectErrorLog(page, /^Cannot change the symbol dependencies of .*: could not lock config file \.git\/config: File exists$/)
     const repo = await setupRepo("simple")
     const window = await openRepositorySettings(page)
     await routeCommandError(window, "set_repository_config", { code: "internal", message: "could not lock config file .git/config: File exists" })
@@ -290,6 +289,7 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
   })
 
   test("should write nothing when the repository is switched while a field holds typing", async ({ page, setupRepo, testStore }) => {
+    expectErrorLog(page, /^Cannot subscribe to the branches of the repository: Repository not accessible: \/nonexistent\/branch-deck-e2e-other$/)
     const repo = await setupRepo("simple", { prepopulateStore: true })
     // a second recent project, which git cannot read
     const otherPath = "/nonexistent/branch-deck-e2e-other"

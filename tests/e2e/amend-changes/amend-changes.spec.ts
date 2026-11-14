@@ -5,7 +5,7 @@ import { captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, isBranchProcessing } from "../helpers/branch-helpers"
 import { inlineIssueReference, submitInlineForm } from "../helpers/inline-form-helpers"
 import { editCommitMessage } from "../helpers/preview-helpers"
-import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
+import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { nextAnswer, waitForBranchSyncComplete, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -165,12 +165,12 @@ test.describe("Amend Changes Feature", () => {
 
   test.describe("in the queue", () => {
     // a second recent project: the window switches to it while the rewrite of the first one waits in the queue
-    test.beforeEach(async ({ page, syncAndWaitForBranches }) => {
-      await addRecentProject(page)
+    test.beforeEach(async ({ page, syncAndWaitForBranches, otherRepository }) => {
+      await addRecentProject(page, otherRepository)
       await syncAndWaitForBranches()
     })
 
-    test("should amend in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile", async ({ page }) => {
+    test("should amend in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile", async ({ page, otherRepository }) => {
       // the issue reference rewrites only the commit of feature-api, after the one the amend goes into; it waits for
       // the repository lock another process holds, in the session
       const references = await recordRewrites(page, "addIssueReference")
@@ -186,7 +186,7 @@ test.describe("Amend Changes Feature", () => {
       await expect(page.getByRole("dialog", { name: "Amend changes to feature-auth" })).toContainText("Queued behind Adding GH-1 to feature-api…")
       expect(amends.map(call => [call.repositoryPath, call.rewrite.branchName])).toEqual([[repositoryPath, "feature-auth"]])
 
-      await switchRepository(page, OTHER_REPOSITORY)
+      await switchRepository(page, otherRepository)
       // both run once the lock is free, one after the other with its sync: their answers, then their toasts
       const answered = nextAnswer(page, "execute", 2)
       await repo.holdRepositoryLock(false)
@@ -199,6 +199,7 @@ test.describe("Amend Changes Feature", () => {
 
     test("should add the issue reference in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile", async ({
       page,
+      otherRepository,
     }) => {
       // the amend of feature-api rewrites only its commit, after the one of feature-auth; it waits for the repository
       // lock another process holds, in the session
@@ -215,7 +216,7 @@ test.describe("Amend Changes Feature", () => {
       await expect(page.getByText("Queued behind Amending changes to feature-api…")).toBeVisible()
       expect(references.map(call => [call.repositoryPath, call.rewrite.branchName, call.rewrite.issueReference])).toEqual([[repositoryPath, "feature-auth", "GH-2"]])
 
-      await switchRepository(page, OTHER_REPOSITORY)
+      await switchRepository(page, otherRepository)
       // both run once the lock is free, one after the other with its sync: their answers, then their toasts
       const answered = nextAnswer(page, "execute", 2)
       await repo.holdRepositoryLock(false)

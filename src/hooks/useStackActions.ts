@@ -3,6 +3,7 @@ import type { LandingFix, RewriteIntent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
+import { logError } from "@/lib/errors"
 import { countMoved } from "@/lib/move-summary"
 import type { RewriteRunSpec } from "@/lib/rewrite-run"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
@@ -168,7 +169,15 @@ export async function offerUnstackAfterMove(toastId: string, branches: readonly 
   const repositoryPath = getSelectedProject()?.path ?? ""
   for (const branchName of branches) {
     const result = await invokeCommand(() => commands.getStackIndependence({ repositoryPath, branchName }))
-    if (result.status === "ok" && result.data.kind === "builds") {
+    if (result.status === "error") {
+      // no offer of the unstack, and the log says why, but of a question the branch left behind (`invalid_plan`: no
+      // stacked branch any more)
+      if (result.error.code !== "invalid_plan") {
+        logError(`Cannot check whether ${branchName} applies alone`, result.error)
+      }
+      continue
+    }
+    if (result.data.kind === "builds") {
       const parent = result.data.parent
       toast.update(toastId, {
         data: {

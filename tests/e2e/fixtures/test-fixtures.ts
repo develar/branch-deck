@@ -3,7 +3,7 @@ import { setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { setupTestRepository, cleanupTestRepository } from "../helpers/common-setup"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { syncBranches, waitForBranchesLoaded } from "../helpers/sync-helpers"
-import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { TestRepositoryBuilder } from "../helpers/test-repository"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { test as base } from "./base-test"
 
@@ -65,6 +65,7 @@ export const test = base.extend<{
   setupRepo: (templateName: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>
   syncAndWaitForBranches: () => Promise<void>
   testStore: TestStore
+  otherRepository: string
 }>({
   // Auto-setup clipboard permissions
   page: async ({ page, context }, use) => {
@@ -140,9 +141,19 @@ export const test = base.extend<{
     const store = new TestStore(page)
     await use(store)
   },
+
+  // a second repository of the server (the `simple` template), its path: what a switch shows instead of the repository
+  // of the test (`addRecentProject` of repository-switch-helpers.ts); deleted after the test
+  // eslint-disable-next-line no-empty-pattern
+  otherRepository: async ({}, use) => {
+    const other = new TestRepositoryBuilder().useTemplate("simple").withPrepopulateStore(false)
+    await other.init()
+    await use(other.path)
+    await other.cleanup()
+  },
 })
 
-export { expect, expectErrorLog } from "./base-test"
+export { allowErrorLog, expect, expectErrorLog } from "./base-test"
 
 /**
  * Test fixture for the `issue_links` repository, synced before every test (the fixture is automatic); a test that

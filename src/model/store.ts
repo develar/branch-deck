@@ -55,7 +55,7 @@ import type {
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
-import { isApiError } from "@/lib/errors"
+import { isApiError, logError } from "@/lib/errors"
 import { sameFields, withoutKeys } from "@/lib/record"
 import { toRemoteStatus } from "@/lib/remote-status"
 import type { SyncDeferral } from "@/lib/sync-deferred"
@@ -395,7 +395,7 @@ function fail(failed: Session, error: unknown): void {
   if (failed === session) {
     // a repository without a prefix is the welcome card's state, not a failure
     if (failed.failure.code !== "no_branch_prefix") {
-      console.error("Cannot subscribe to the branches of the repository", error)
+      logError("Cannot subscribe to the branches of the repository", error)
     }
     if (failed.view !== null) {
       failed.view = null
@@ -454,7 +454,7 @@ function refresh(target: Session): void {
       return
     }
     if (result.status === "error") {
-      console.error("Cannot read the branches of the repository", result.error)
+      logError("Cannot read the branches of the repository", result.error)
       return
     }
     if (result.data === null) {
@@ -1109,7 +1109,7 @@ async function whenServedViewAt(repositoryPath: string, version: Version, busy: 
 async function subscriptionHolds(repositoryPath: string, viewEpoch: number): Promise<boolean> {
   const result = await commands.getSnapshot({ repositoryPath })
   if (result.status === "error") {
-    console.error("Cannot read the branches of the repository", result.error)
+    logError("Cannot read the branches of the repository", result.error)
     return true
   }
   return result.data !== null && result.data.version.epoch === viewEpoch
@@ -1195,7 +1195,7 @@ export async function setSessionWindowFocus(focused: boolean): Promise<SyncAnswe
     // a lost focus asks for no sync: its failure is no failure of Sync
     const result = await commands.setWindowFocus({ repositoryPath: target.repositoryPath, focused })
     if (result.status === "error") {
-      console.error("Cannot tell the session that the window lost the focus", result.error)
+      logError("Cannot tell the session that the window lost the focus", result.error)
     }
     return null
   }
@@ -1280,7 +1280,7 @@ function failRequest(target: Session, message: string, error: unknown): void {
   const shown = message || "Failed to sync branches"
   // a focus that finds what the failed run read answers its error again, without a run: logged once
   if (requestError !== shown) {
-    console.error("Sync error:", error)
+    logError("Cannot sync the branches", error)
   }
   requestError = shown
   branchSyncStore.setState({ syncError: syncErrorOf(target.view) })
@@ -1342,7 +1342,7 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
     return
   }
   if (result.status === "error") {
-    console.error("Failed to load the autosquash plan:", result.error)
+    logError("Cannot read the plan of the fixups", result.error)
     branchSyncStore.setState({ autosquashPlan: null })
     return
   }

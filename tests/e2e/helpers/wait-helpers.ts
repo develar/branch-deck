@@ -1,6 +1,6 @@
 import type { Page, Locator } from "@playwright/test"
 import type { ApiError, StepFact } from "../../../src/lib/bindings"
-import { expect } from "../fixtures/base-test"
+import { expect, expectErrorLog } from "../fixtures/base-test"
 
 /**
  * Wait for processing state to complete (animate-pulse class removed)
@@ -261,16 +261,22 @@ export async function holdRewrites(page: Page, kind?: string): Promise<{ calls: 
  * Fails `command` with an `ApiError`, as the mock server answers a failed command and Tauri rejects it: the code the
  * page branches on (`internal` for a failure without one), the message for the user, the data of the code (`details`,
  * null by default) and its retry class (`no` by default; `locked` is `same`, a `*_moved` code `after_reread`). `times`
- * fails only that many calls; the test server answers the next (a retry that passes)
+ * fails only that many calls; the test server answers the next (a retry that passes). The page logs the failure, which
+ * this declares (`expectErrorLog`, a line that ends in the message); `unlogged` says why the page logs none, as for a
+ * precondition that is no failure (a sync that waits for a rebase to end)
  */
 export async function routeCommandError(
   page: Page,
   command: string,
   error: Pick<ApiError, "code" | "message"> & Partial<Pick<ApiError, "details" | "retry">>,
-  options?: { readonly times?: number },
+  options?: { readonly times?: number; readonly unlogged?: string },
 ): Promise<void> {
+  if (options?.unlogged === undefined) {
+    // the first line of the message: the line of the log is `<title>: <error>`, the rest of a message on lines after it
+    expectErrorLog(page, new RegExp(`: ${error.message.split("\n", 1)[0]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`))
+  }
   const answer: ApiError = { details: null, retry: "no", operation_id: null, ...error }
-  await page.route(`**/invoke/${command}`, route => route.fulfill({ json: { status: "error", error: answer } }), options)
+  await page.route(`**/invoke/${command}`, route => route.fulfill({ json: { status: "error", error: answer } }), { times: options?.times })
 }
 
 /** The commands of `page` whose answer has not come yet (`__ipcStats` of the page mock): 0 once a streamed one ended */

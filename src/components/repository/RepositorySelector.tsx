@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FieldGroup } from "@/components/layout/FieldGroup"
+import { logError } from "@/lib/errors"
 import { pathForms, resolveHomeDir, tildePath } from "@/lib/home-path"
 import { formatRelativeTime } from "@/lib/time"
 import { hasFolderDialog } from "@/lib/title-bar"
@@ -64,7 +65,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
 
   const onValueChange = (newValue: string | null) => {
     if (!newValue) {
-      console.error("Selected project is null")
+      logError("Cannot select a repository", new Error("the selector chose no repository"))
       return
     }
     // the path is validated explicitly on browse; an invalid saved path is reported on prefix load or sync

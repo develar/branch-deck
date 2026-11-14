@@ -1,6 +1,6 @@
 // @spec openspec/specs/repository/update-project/spec.md
 import type { Locator, Page } from "@playwright/test"
-import { expect, test, expectErrorLog } from "../fixtures/test-fixtures"
+import { expect, test } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
@@ -311,7 +311,6 @@ test.describe("Update Project", () => {
   })
 
   test("should name the holder of the repository lock and retry the update without a fetch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    expectErrorLog(page, /^Cannot update the project: `brd push auth` \(pid 4242\) is changing this repository/)
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     // `brd push auth` held the repository for the whole wait of the update
@@ -343,7 +342,6 @@ test.describe("Update Project", () => {
   })
 
   test("should offer no retry when the branch moved under the update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    expectErrorLog(page, /^Cannot update the project: master moved during the update: nothing was changed$/)
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     await routeCommandError(page, "execute", { code: "head_moved", message: "master moved during the update: nothing was changed", retry: "after_reread" })

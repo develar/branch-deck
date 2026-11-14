@@ -41,7 +41,7 @@ import {
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
-import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
+import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
@@ -696,9 +696,9 @@ test.describe("Patronus actions", () => {
     expect(await remoteTipOfJira(repo)).toBe(earlier)
   })
 
-  test("should start the Safe Push in its repository when another repository opens during its checks", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should start the Safe Push in its repository when another repository opens during its checks", async ({ page, setupRepo, syncAndWaitForBranches, otherRepository }) => {
     const repo = await setupRepo("issue_links", { patronus: availableRobots() })
-    await addRecentProject(page)
+    await addRecentProject(page, otherRepository)
     await syncAndWaitForBranches()
     // the remote branch has the commits of JIRA-456: the start pushes nothing
     await pushedBefore(page, repo, ["JIRA-456"])
@@ -710,7 +710,7 @@ test.describe("Patronus actions", () => {
     await safePushFromMenu(page, "JIRA-456")
     await repo.arrival("start")
     await expect(slotSafePush(page, "JIRA-456")).toHaveText("Starting…")
-    await switchRepository(page, OTHER_REPOSITORY)
+    await switchRepository(page, otherRepository)
     await repo.holdRemoteAnswers({ release: ["start"] })
     await started
 
@@ -1234,12 +1234,12 @@ test.describe("Patronus actions", () => {
       await expectHeldUntilListed(page, repo)
     })
 
-    test("should keep holding a start Patronus accepted through a switch to another repository and back", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should keep holding a start Patronus accepted through a switch to another repository and back", async ({ page, setupRepo, syncAndWaitForBranches, otherRepository }) => {
       const repo = await setupRepo("issue_links", {
         patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
         pullRequests: availablePullRequests(pullRequest("JIRA-456", 7)),
       })
-      await addRecentProject(page)
+      await addRecentProject(page, otherRepository)
       await syncAndWaitForBranches()
       // nothing to push: the start is the comment alone
       await pushedBefore(page, repo, ["JIRA-456"])
@@ -1247,7 +1247,7 @@ test.describe("Patronus actions", () => {
       await startAcceptedWithoutRobot(page, repo)
 
       // the user opens another repository and comes back: the start of #7 still holds its slot
-      await switchRepository(page, OTHER_REPOSITORY)
+      await switchRepository(page, otherRepository)
       await expect(findBranchRow(page, "JIRA-456")).toHaveCount(0)
       await switchRepository(page, repo.path)
       await expect(slotSafePush(page, "JIRA-456")).toHaveText("Starting…")

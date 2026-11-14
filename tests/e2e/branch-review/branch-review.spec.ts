@@ -11,7 +11,7 @@ import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, ROBOTS_NOW, availableRobots, cod
 import { getCommitPreview } from "../helpers/preview-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { remotePushes, virtualBranch } from "../helpers/push-helpers"
-import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
+import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openReviewWindow, openedReview } from "../helpers/review-window-helpers"
@@ -74,18 +74,18 @@ async function setupAuthWithoutPullRequest(
 
 /**
  * stacked_ownership with the robots and the pull request of login, no approval needed: the Safe Push of each part is
- * offered; with `otherRepository` the main window lists another repository to switch to
+ * offered; with `otherRepository`, the path of another repository, the main window lists it to switch to
  */
 async function setupLoginWithPullRequest(
   page: Page,
   setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
-  { otherRepository = false }: { otherRepository?: boolean } = {},
+  { otherRepository }: { otherRepository?: string } = {},
 ) {
   const repo = await setupRepo("stacked_ownership", { patronus: availableRobots(), pullRequests: availablePullRequests(LOGIN_PULL_REQUEST), patronusProfiles: PROFILES })
   await repo.setReviewAnswers({ answers: { auth: NO_REVIEW_NEEDED, login: NO_REVIEW_NEEDED } })
-  if (otherRepository) {
-    await addRecentProject(page)
+  if (otherRepository !== undefined) {
+    await addRecentProject(page, otherRepository)
   }
   await syncAndWaitForBranches()
   // the robots, the pull requests and the approvals load after the sync: the steps wait for them
@@ -779,9 +779,10 @@ test.describe("Branch review window", () => {
     page,
     setupRepo,
     syncAndWaitForBranches,
+    otherRepository,
   }) => {
     expectErrorLog(page, /^Cannot push branch login: elsewhere is no longer among the repositories of the main window$/)
-    const repo = await setupLoginWithPullRequest(page, setupRepo, syncAndWaitForBranches, { otherRepository: true })
+    const repo = await setupLoginWithPullRequest(page, setupRepo, syncAndWaitForBranches, { otherRepository })
     const opened = await openReviewWindow(page, "login")
     const { repositoryPath } = opened.data
     const window = await openLinkedSubWindow(page, opened)
@@ -790,7 +791,7 @@ test.describe("Branch review window", () => {
     await expect(push).toBeEnabled()
 
     // the main window shows another repository: an action it runs at a row says that it switches back first
-    await switchRepository(page, OTHER_REPOSITORY)
+    await switchRepository(page, otherRepository)
     await push.hover()
     await expect(openTooltip(window).filter({ hasText: /^Switches the main window to / })).toBeVisible()
     await window.mouse.move(0, 0)

@@ -3,6 +3,7 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { StackIndependence } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { logError } from "@/lib/errors"
 import { useBranchTip } from "@/stores/branch-sync"
 import { getSelectedProject } from "@/stores/repository"
 
@@ -45,9 +46,19 @@ export function useStackIndependence(branchName: string, enabled: boolean): Stac
         setAnswer({ key, state })
       }
     }
+    // a failure the popover says is logged too: the log of the app has every check that could not answer, but a question
+    // the branch left behind (`invalid_plan`: it is no stacked branch any more, as an unstack just ran) is no failure
     commands.getStackIndependence({ repositoryPath: getSelectedProject()?.path ?? "", branchName }).then(
-      result => answerWith(result.status === "ok" ? { status: "loaded", independence: result.data } : { status: "error", message: result.error.message }),
-      (error: unknown) => answerWith({ status: "error", message: error instanceof Error ? error.message : String(error) }),
+      result => {
+        if (result.status === "error" && result.error.code !== "invalid_plan") {
+          logError(`Cannot check whether ${branchName} applies alone`, result.error)
+        }
+        answerWith(result.status === "ok" ? { status: "loaded", independence: result.data } : { status: "error", message: result.error.message })
+      },
+      (error: unknown) => {
+        logError(`Cannot check whether ${branchName} applies alone`, error)
+        answerWith({ status: "error", message: error instanceof Error ? error.message : String(error) })
+      },
     )
     return () => {
       current = false

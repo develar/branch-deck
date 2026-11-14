@@ -19,6 +19,7 @@
 import { useEffect } from "react"
 import type { Demand } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { logError } from "@/lib/errors"
 import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 
 /** The least time between two sends of the demand */
@@ -186,7 +187,7 @@ function send(): void {
   }
   lastSent = key
   lastSentAt = Date.now()
-  commands.setDemand({ subscription: target, demand }).catch((error: unknown) => console.error("Cannot tell the session what the window shows", error))
+  commands.setDemand({ subscription: target, demand }).catch((error: unknown) => logError("Cannot tell the session what the window shows", error))
 }
 
 /** Forgets everything the window held (a test between its cases) */

@@ -19,7 +19,7 @@ import {
 } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, gitHubWrites, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
 import { expectPushedToRemote, pushedBefore, pushedToast, pushedBranches } from "../helpers/push-helpers"
-import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
+import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openReviewWindow } from "../helpers/review-window-helpers"
@@ -53,7 +53,7 @@ async function setup(
   answer: PatronusReviewRequirement,
   pullRequests: PullRequest[],
   robots = availableRobots(),
-  { unpushed = false, otherRepository = false, ...options }: { unpushed?: boolean; otherRepository?: boolean } & Record<string, unknown> = {},
+  { unpushed = false, otherRepository, ...options }: { unpushed?: boolean; otherRepository?: string } & Record<string, unknown> = {},
 ): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo("issue_links", {
     patronus: { ...robots, githubRepository: "acme/monorepo" },
@@ -63,8 +63,8 @@ async function setup(
   })
   await repo.setReviewAnswers({ answers: { [BRANCH]: answer } })
   // a second recent project before the first sync: its reload costs no second sync
-  if (otherRepository) {
-    await addRecentProject(page)
+  if (otherRepository !== undefined) {
+    await addRecentProject(page, otherRepository)
   }
   await syncAndWaitForBranches()
   await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
@@ -398,9 +398,10 @@ test.describe("Next step", () => {
     page,
     setupRepo,
     syncAndWaitForBranches,
+    otherRepository,
   }) => {
     // the push goes to the test server: its real push to the remote of the template
-    const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true, otherRepository: true })
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true, otherRepository })
     // the review window of the branch, beside the main window: its Create Pull Request… opens its dialog there
     const window = await openLinkedSubWindow(page, await openReviewWindow(page, BRANCH))
     await window.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" }).click()
@@ -412,7 +413,7 @@ test.describe("Next step", () => {
     await repo.arrival("push")
 
     // the main window opens another repository while the push runs: the window creates it in its own repository
-    await switchRepository(page, OTHER_REPOSITORY)
+    await switchRepository(page, otherRepository)
     await runAndWaitForAnswer(window, "execute", () => repo.holdRemoteAnswers({ release: ["push"] }))
     await expect(window.locator("[data-slot=toast]", { hasText: "Created pull request #1079" })).toBeVisible()
     await expectClosed(dialog)
