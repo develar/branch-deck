@@ -126,6 +126,9 @@ rules in one line each and links here.
   it (`refuseIslandStarts`); there is no list of errors allowed everywhere. A test that ends while the operation it
   started still runs misses its error, or logs one after it: wait for the effect, the toast of the refusal
   (`tools-settings.spec.ts`, "Sign In Again"). `console.error` alone fails nothing ([Logging](../design/e2e-testing.md)).
+  A ResizeObserver loop is found by `E2E_RO_TRACE=1` (`tests/e2e/setup/resize-trace.ts`: the deliveries, the end of
+  each callback, the texts that changed in observed elements, what was left pending), under load with
+  `E2E_CPU_THROTTLE=6` (Chromium) or many WebKit workers (`--repeat-each 30 --workers 8`).
 - **Remote answers come from the fakes**: Patronus, GitHub and YouTrack are fakes of each test repository behind the
   app's real services; a test sets their fixture (`setPatronus`, `setPullRequests`, `setYouTrack`, …) and asserts what
   the fake got (`getPatronusLog`, `getGitHubLog`, `getYouTrack`). The page before an answer holds it at the fake

@@ -1,5 +1,6 @@
 import type { BrowserContext, Locator, Page } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
+import { resizeTrace } from "../setup/resize-trace"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
 
 /**
@@ -215,6 +216,18 @@ export const test = base.extend({
 
     // Inject Tauri mocks before each navigation
     await page.addInitScript(tauriMockInitScript())
+    // the trace of the ResizeObservers of the pages, and a CPU as slow as a loaded machine's (Chromium only): what found the
+    // loops of the toasts, of a review and of the branch columns (tests/e2e/setup/resize-trace.ts)
+    if (process.env.E2E_RO_TRACE) {
+      await context.addInitScript(resizeTrace)
+      if (process.env.E2E_CPU_THROTTLE) {
+        const rate = Number(process.env.E2E_CPU_THROTTLE)
+        context.on("page", async opened => {
+          await (await context.newCDPSession(opened)).send("Emulation.setCPUThrottlingRate", { rate })
+        })
+        await (await context.newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate })
+      }
+    }
 
     // a popup, a form, a card or a toast is in place from its first frame, in every window: its zoom and slide in are
     // off. Playwright found the first frames of a zoom stable on a quick machine, the pointer went where the item was in

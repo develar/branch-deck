@@ -1,5 +1,5 @@
 // @spec openspec/specs/repository/title-bar/spec.md
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithConflicts, expectErrorLog } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_ROW, headerLineProblems, MIN_WINDOW } from "../helpers/header-helpers"
@@ -10,6 +10,7 @@ import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-he
 import { getEmittedEvents, getOpenedSubWindows, getWindowMenus, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
+import { closeToast } from "../helpers/toast-helpers"
 import { waitForConflictViewer, expectClosed } from "../helpers/wait-helpers"
 
 /**
@@ -494,6 +495,17 @@ test.describe("Main menu", () => {
   })
 })
 
+/** A toast of the page with `text` */
+function toastWith(page: Page, text: string): Locator {
+  return page.locator("[data-slot=toast]").filter({ hasText: text })
+}
+
+/** Check for Updates… of Help of ☰, as Alt+H opens it */
+async function checkForUpdatesFromMenu(page: Page): Promise<void> {
+  await page.keyboard.press("Alt+KeyH")
+  await page.getByRole("menuitem", { name: "Check for Updates…" }).click()
+}
+
 test.describe("Check for Updates", () => {
   test("should say the app is up to date, offer the downloaded update, and say why its install failed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     expectErrorLog(page, /^Cannot install the update: The E2E test server has no updater/)
@@ -502,11 +514,8 @@ test.describe("Check for Updates", () => {
     const silentCheck = page.waitForResponse(response => response.url().endsWith("/invoke/check_for_updates"))
     const repo = await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    const toast = (text: string) => page.locator("[data-slot=toast]").filter({ hasText: text })
-    const checkForUpdates = async () => {
-      await page.keyboard.press("Alt+KeyH")
-      await page.getByRole("menuitem", { name: "Check for Updates…" }).click()
-    }
+    const toast = (text: string) => toastWith(page, text)
+    const checkForUpdates = () => checkForUpdatesFromMenu(page)
 
     // the silent check a few seconds after the start finds the app up to date and says nothing
     await page.clock.fastForward(3_000)
@@ -522,6 +531,31 @@ test.describe("Check for Updates", () => {
     await available.getByRole("button", { name: "Install and Restart" }).click()
     await expectClosed(available)
     await expect(toast("Cannot install the update")).toContainText("The E2E test server has no updater")
+  })
+})
+
+test.describe("Toasts", () => {
+  // the toasts of two checks stack and close: their heights animate while the content of each keeps its own, which Base
+  // UI observes (a content as tall as its toast followed the animation, a ResizeObserver loop the page logged)
+  test("should stack the toasts of two checks for updates, the newest in front at the height of its content, and close them", async ({ page, setupRepo }) => {
+    await useTitleBar(page, { ...TITLE_BARS.gnome, checkForUpdates: true })
+    const repo = await setupRepo("behind_upstream")
+    const toast = (text: string) => toastWith(page, text)
+    const checkForUpdates = () => checkForUpdatesFromMenu(page)
+    const fitsItsContent = (front: Locator) =>
+      front.evaluate(element => Math.abs(element.clientHeight - element.querySelector("[data-slot=toast-content]")!.getBoundingClientRect().height))
+
+    await checkForUpdates()
+    const upToDate = toast("BranchDeck is up to date")
+    await expect(upToDate).toBeVisible()
+    await repo.setAvailableUpdate("1.2.3")
+    await checkForUpdates()
+    const available = toast("Update available")
+    await expect(available).toContainText("Version 1.2.3 is ready to install.")
+    await expect.poll(() => fitsItsContent(available)).toBeLessThan(1)
+    await closeToast(available)
+    await expect.poll(() => fitsItsContent(upToDate)).toBeLessThan(1)
+    await closeToast(upToDate)
   })
 })
 
