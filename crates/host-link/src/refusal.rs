@@ -98,6 +98,7 @@ pub enum Code {
   PackFailed,
   PackMissing,
   SlotTimeout,
+  HeavyTimeout,
   LeaseFailed,
   OldGit,
   CheckoutFailed,
@@ -120,7 +121,7 @@ pub enum Code {
 
 impl Code {
   /// Every code, in the order of the table of the spec
-  pub const ALL: [Self; 39] = [
+  pub const ALL: [Self; 40] = [
     Self::Usage,
     Self::Interrupted,
     Self::Config,
@@ -142,6 +143,7 @@ impl Code {
     Self::PackFailed,
     Self::PackMissing,
     Self::SlotTimeout,
+    Self::HeavyTimeout,
     Self::LeaseFailed,
     Self::OldGit,
     Self::CheckoutFailed,
@@ -238,6 +240,11 @@ impl Code {
         "The pack of the commit did not come within 30 min, or sent no chunk for 2 min.",
       ),
       Self::SlotTimeout => ("slot_timeout", ExitRule::Always(Exit::NotRun), "The run got no host slot within an hour."),
+      Self::HeavyTimeout => (
+        "heavy_timeout",
+        ExitRule::Always(Exit::NotRun),
+        "The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it.",
+      ),
       Self::LeaseFailed => ("lease_failed", ExitRule::Always(Exit::NotRun), "The lend failed. The message has the error of the pool."),
       Self::OldGit => (
         "old_git",

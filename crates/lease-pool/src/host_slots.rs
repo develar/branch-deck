@@ -730,7 +730,7 @@ impl HostUser {
       } else {
         // the watch starts before the next look, so no change between the two is lost
         debug!(%command, "a host-object call waits for the upgrade of git");
-        wake = Some(TableWake::start(table.dir()));
+        wake = Some(TableWake::start(table.dir(), &WAKE_FILES));
       }
     }
   }
@@ -778,8 +778,8 @@ impl Drop for HostUser {
 }
 
 /// How often a lend that waits (`lend_waiting`) asks the table without a file event: the end of a process, which frees
-/// a slot of an abandoned lend or a ticket ahead, makes none
-const WAIT_RECHECK: Duration = Duration::from_secs(5);
+/// a slot of an abandoned lend or a ticket ahead, makes none. The wait for the heavy turn (`host_turn`) looks as often
+pub(crate) const WAIT_RECHECK: Duration = Duration::from_secs(5);
 /// How often a lend that waits tells its caller where it stands
 pub const WAIT_PROGRESS: Duration = Duration::from_mins(1);
 /// The files of `branch-deck/` whose change can lend a slot: the table and the pool, whose `ready` leases a lend takes
@@ -802,7 +802,7 @@ pub fn lend_waiting(
   progress: &dyn Fn(&Queued, Duration),
 ) -> Result<LendAnswer> {
   let started = Instant::now();
-  let wake = TableWake::start(params.table().dir());
+  let wake = TableWake::start(params.table().dir(), &WAKE_FILES);
   let mut said = started;
   // the slots whose give-back by this wait failed: `reclaim` takes them up
   let mut failed = HashSet::new();
@@ -840,33 +840,37 @@ pub fn lend_waiting(
   }
 }
 
-/// The file events of the table and the pool, for a lend that waits; `None` inside when the system refused a watch
-struct TableWake {
+/// The file events of the table and the pool, for a lend that waits, or of the heavy turn (`host_turn`) for a run that
+/// waits for it; `None` inside when the system refused a watch
+pub(crate) struct TableWake {
   events: std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
   _watcher: Option<notify::RecommendedWatcher>,
+  /// The names of the files of `dir` whose change wakes a wait
+  files: &'static [&'static str],
 }
 
 impl TableWake {
-  fn start(dir: &Path) -> Self {
+  /// The watch of `dir`, which a change of one of `files` there wakes
+  pub(crate) fn start(dir: &Path, files: &'static [&'static str]) -> Self {
     use notify::Watcher as _;
     let (sender, events) = std::sync::mpsc::channel();
     let watcher = std::fs::create_dir_all(dir)
       .map_err(notify::Error::io)
       .and_then(|()| notify::recommended_watcher(sender))
       .and_then(|mut watcher| watcher.watch(dir, notify::RecursiveMode::NonRecursive).map(|()| watcher))
-      .inspect_err(|error| warn!(dir = %dir.display(), %error, "cannot watch the host slots: a lend that waits looks every 5 s"))
+      .inspect_err(|error| warn!(dir = %dir.display(), %error, "cannot watch the host slots: a wait looks every 5 s"))
       .ok();
-    Self { events, _watcher: watcher }
+    Self { events, _watcher: watcher, files }
   }
 
-  /// Until a change of the table or the pool, or `timeout`; the events that came meanwhile are one wake
-  fn wait(&self, timeout: Duration) {
+  /// Until a change of one of the files, or `timeout`; the events that came meanwhile are one wake
+  pub(crate) fn wait(&self, timeout: Duration) {
     let wakes = |event: &notify::Result<notify::Event>| {
       event.as_ref().map_or(true, |event| {
         event
           .paths
           .iter()
-          .any(|path| path.file_name().is_some_and(|name| WAKE_FILES.iter().any(|file| name == *file)))
+          .any(|path| path.file_name().is_some_and(|name| self.files.iter().any(|file| name == *file)))
       })
     };
     let deadline = Instant::now() + timeout;

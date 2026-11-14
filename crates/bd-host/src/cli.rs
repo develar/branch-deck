@@ -149,6 +149,7 @@ enum Command {
 }
 
 #[derive(Debug, Args)]
+#[expect(clippy::struct_excessive_bools, reason = "each bool is one flag of the command line, as each one of `RunOptions` is")]
 struct RunArgs {
   /// The alias of the host file, which `brd-host setup` writes
   alias: String,
@@ -164,6 +165,9 @@ struct RunArgs {
   /// Leave the outputs of `[host]` alone
   #[arg(long)]
   no_outputs: bool,
+  /// A heavy run, whatever `heavy` of `[host]` says: it waits until no other heavy run of the host goes
+  #[arg(long)]
+  heavy: bool,
   /// The niceness of the prepare steps and the command on the host, 0 to 19
   #[arg(long, default_value_t = DEFAULT_NICE, value_parser = clap::value_parser!(u8).range(0..=19))]
   nice: u8,
@@ -381,6 +385,7 @@ const fn run_options(args: &RunArgs) -> RunOptions {
     outputs: !args.no_outputs,
     apply: args.apply,
     repo_by_name: args.repo.is_none(),
+    heavy: args.heavy,
   }
 }
 
@@ -479,19 +484,25 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
       Ok(0)
     }
     Command::Runs { alias, json } => {
-      let runs = client(&output, &say)?.runs(&alias)?;
+      let host = client(&output, &say)?.runs(&alias)?;
       if json {
         out.json(&RunsOutput {
           schema: REPORT_SCHEMA,
           alias: &alias,
-          runs: &runs,
+          runs: &host.runs,
+          heavy: host.heavy.as_ref(),
         });
-      } else if runs.is_empty() {
+        return Ok(0);
+      }
+      if host.runs.is_empty() {
         out.line(&format!("no runs on {alias}"));
-      } else {
-        for run in &runs {
-          out.line(&run_line(run));
-        }
+      }
+      for run in &host.runs {
+        out.line(&run_line(run));
+      }
+      match &host.heavy {
+        Some(heavy) => host_agent::turn::lines(heavy, host_agent::turn::now_ms())?.iter().for_each(|line| out.line(line)),
+        None => out.line(&format!("the agent on {alias} predates heavy runs: `brd-host upgrade {alias}` sends this build")),
       }
       Ok(0)
     }
@@ -547,6 +558,10 @@ struct RunsOutput<'a> {
   schema: u32,
   alias: &'a str,
   runs: &'a [RunInfo],
+  /// The heavy turn of the host as `heavy.json` holds it, without the runs whose process is gone; none from an agent
+  /// without the feature `heavy`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  heavy: Option<&'a serde_json::Value>,
 }
 
 /// `brd-host hello`

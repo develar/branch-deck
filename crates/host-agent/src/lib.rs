@@ -11,6 +11,7 @@
 //! - `supervise`: one run from the lend of its slot to `exit.json` and the give-back
 //! - `run`: the run directory and its files
 //! - `repo`, `slots`, `run_git`, `keeper`: the repositories, the host slots and the git of the host, in process
+//! - `turn`: the heavy turn of the host, which the heavy runs of every repository there take one at a time
 //! - `table`: the lend table for `brd-host slots`: its lines, `--local`, `--shrink` and `--sizes`
 //! - `setup`: `setup --agent` and the `LaunchAgent`
 //! - `upgrade`: the install of a new binary and its watchdog
@@ -48,5 +49,6 @@ mod sys;
 pub mod table;
 mod tally;
 mod tuning;
+pub mod turn;
 pub mod upgrade;
 mod watch;

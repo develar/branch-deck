@@ -1,4 +1,4 @@
-//! The requests of a run: Start, Follow, Cancel, Fetch, Forget and Runs. The run itself belongs to its supervisor; these
+//! The requests of a run: Start, Follow, Cancel, Fetch, Forget and Runs, which carries the heavy turn of the host too. The run itself belongs to its supervisor; these
 //! requests only start it, write its cancel request and read its directory. No request signals a pid.
 //!
 //! A follow reads the run files on its own thread, and a second thread sends its heartbeats. The two share the channel
@@ -204,10 +204,14 @@ impl Agent {
     })
   }
 
-  /// The kept runs
+  /// The kept runs, and the heavy turn of the host without the gone runs. A heavy turn that cannot be read is left out,
+  /// and the log says why
   pub(crate) fn list_runs(&self) -> Reply {
     Reply::Runs {
       runs: self.runs().list().iter().filter_map(|run| run.info().ok()).collect(),
+      heavy: crate::turn::live(&self.home)
+        .inspect_err(|refusal| log(&format!("cannot answer the heavy turn: {refusal}")))
+        .ok(),
     }
   }
 }

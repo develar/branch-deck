@@ -10,9 +10,11 @@
 //!    commit of the working tree instead, and asks the host after it. With `RunOptions::repo_by_name` the first `Have`
 //!    goes to the repository of the same name as the local one beside the repository of the host file, and to the one
 //!    of the host file when the host lacks it.
-//! 2. Writes the run record (`record`) and starts the run (`Start`). The run lives on the agent, not on the connection.
-//!    Ctrl+C before this step stops the local work, and nothing runs on the host. A start whose reply does not come is
-//!    cancelled, so the host does not wait for its pack.
+//! 2. Reads `[host]` of the commit: the outputs to take back, and whether the run is heavy (`--heavy`, else the first
+//!    pattern of `heavy` that matches the command). Writes the run record (`record`) and starts the run (`Start`), a
+//!    heavy one with `RunSpec::heavy` and its line, and a line that names the upgrade when the agent lacks the feature
+//!    `heavy`. The run lives on the agent, not on the connection. Ctrl+C before this step stops the local work, and
+//!    nothing runs on the host. A start whose reply does not come is cancelled, so the host does not wait for its pack.
 //! 3. Follows the output (`Follow`) on a thread of its own from the start on, so the steps of the host show while the
 //!    pack builds. The bytes of each piece of output, with its line end when it has one, go to the output sink as they
 //!    come (`Client::with_output`). A connection that is quiet for 120 s is lost: the client connects again from the
@@ -101,6 +103,17 @@ pub struct RunOptions {
   /// When `RunRequest::repo` names none: try the repository of the same name as the local one beside the repository
   /// of the host file first, such as `~/projects/branch-deck` beside `~/projects/idea-1`
   pub repo_by_name: bool,
+  /// A heavy run whatever `heavy` of `[host]` says: it waits for the other heavy runs of the host
+  pub heavy: bool,
+}
+
+/// The runs that an agent keeps, and the heavy turn of its host
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostRuns {
+  pub runs: Vec<RunInfo>,
+  /// The heavy turn of the host as `heavy.json` holds it (`lease_pool::host_turn::HeavyTurn`); `None` from an agent
+  /// without the feature `heavy`
+  pub heavy: Option<serde_json::Value>,
 }
 
 /// What the client knows of a run when it ends, for the report of the run (`crate::report::RunReport`)
@@ -252,11 +265,13 @@ impl Client<'_> {
     facts.repository = Some(repo.clone());
     let commit = snapshot.commit.clone();
     let files = RunFiles::new(&checkout.runs_dir()).map_err(|refusal| before(refusal, &facts))?;
-    let outputs = if options.outputs {
-      checkout.host_config(&commit).map_err(|refusal| before(refusal, &facts))?.outputs
+    let config = checkout.host_config(&commit).map_err(|refusal| before(refusal, &facts))?;
+    let heavy = if options.heavy {
+      Some("--heavy".to_owned())
     } else {
-      Vec::new()
+      config.heavy_entry(request.command).map(|pattern| format!("`{pattern}` of [host]"))
     };
+    let outputs = if options.outputs { config.outputs } else { Vec::new() };
     let record = RunRecord {
       commit: commit.clone(),
       fetch: request.fetch.to_vec(),
@@ -280,12 +295,16 @@ impl Client<'_> {
       nice: options.nice,
       outputs: options.outputs,
       changes: options.apply,
+      heavy: heavy.is_some(),
     };
     files.write(&run, &record).map_err(|refusal| before(refusal, &facts))?;
     facts.run = Some(run.clone());
     // A start whose reply did not come is cancelled, and the checkout of the run waits for a pack that never comes
     self.start(&mut host, spec).map_err(|refusal| before(refusal, &facts))?;
     (self.say)(&run_line(&run, alias, &snapshot, &repo, &host.file().repo));
+    if let Some(why) = &heavy {
+      (self.say)(&format!("brd-host: a heavy run by {why}: on {alias} it waits until no other heavy run goes"));
+    }
 
     let sync = BaseSync {
       checkout: &checkout,
@@ -494,6 +513,12 @@ impl Client<'_> {
     if let Some(hint) = another_build_hint(host.alias(), &agent, self.build.sha256.as_deref()) {
       (self.say)(&hint);
     }
+    if spec.heavy && !agent.features.iter().any(|known| known == feature::HEAVY) {
+      (self.say)(&format!(
+        "brd-host: the agent on {alias} predates heavy runs, so this one runs beside the others: `brd-host upgrade {alias}` sends this build",
+        alias = host.alias()
+      ));
+    }
     channel.send(&Request::Start(spec)).map_err(|error| host.link_refusal(&error))?;
     match host.recv(&mut channel, self.timing.read) {
       Ok(Reply::Started { .. }) => Ok(()),
@@ -600,10 +625,10 @@ impl Client<'_> {
     cancel_on(&mut host, run, self.timing.read)
   }
 
-  /// The runs that the agent keeps
-  pub fn runs(&self, alias: &str) -> Result<Vec<RunInfo>, Refusal> {
+  /// The runs that the agent keeps, and the heavy turn of its host
+  pub fn runs(&self, alias: &str) -> Result<HostRuns, Refusal> {
     self.ask(&mut self.host(alias)?, &Request::Runs, |reply| match reply {
-      Reply::Runs { runs } => Taken::Answer(runs),
+      Reply::Runs { runs, heavy } => Taken::Answer(HostRuns { runs, heavy }),
       reply => Taken::Other(reply),
     })
   }

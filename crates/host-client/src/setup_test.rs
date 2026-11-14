@@ -8,7 +8,7 @@ use pretty_assertions::assert_eq;
 const BINARY: &[u8] = b"a brd-host binary";
 
 fn runs_reply(_: &Request, channel: &mut Channel) {
-  let _ = channel.send(&Reply::Runs { runs: Vec::new() });
+  let _ = channel.send(&Reply::Runs { runs: Vec::new(), heavy: None });
 }
 
 /// A host whose ssh answers each call of `setup`: the probe with `host_sum`, then the setup line of the agent

@@ -1,7 +1,7 @@
 # Host Runs
 
 **Status:** Draft
-**Updated:** 2026-11-05
+**Updated:** 2026-11-14
 **Tags:** [host, remote-run, lease, brd-host, yonder]
 
 ## Problem
@@ -79,6 +79,33 @@ slots per repository (`branchdeck.hostSlots`, 4 by default) as plain `ready` lea
 
 The lend table, the give-back, the clean and the shrink are in "Host slots" of
 [Git Operations](git-operations.md#host-slots) and of [brd lease](../../openspec/specs/cli/lease/spec.md).
+
+### Heavy runs
+
+A full `cargo nextest run --workspace`, a full `pnpm e2e` or a long `bt` uses every core of the host. Two of them at
+once run 3 to 4 times slower, and the tests of both fail on their timeouts: in one case the E2E suite ran 3.6 times
+slower beside a `cargo nextest run --workspace` of another agent, and 4 tests failed at 30 s. So the heavy runs of a
+host run one at a time, whatever their repository, and the other runs go as before.
+
+- **What is heavy** is the repository's to say: `heavy` of `[host]` lists the patterns of its heavy commands
+  (`cargo nextest run*--workspace*`, `pnpm e2e*`), `*` any characters, matched against the words of the command after
+  a leading `env` and its assignments. `brd-host run --heavy` marks a command that no pattern names. No flag marks a
+  run light: an agent that forgets a flag, and `bt --host`, which passes none, still wait, and a single E2E spec waits
+  too, since it is the run that a heavy neighbour fails.
+- **The client decides**, from `[host]` of the commit it ships, which it reads for the outputs anyway, and sends
+  `RunSpec::heavy`. The agent reads `[host]` only after the lend and the pack, so a decision there would move the pack
+  before the lend, and a run would wait for a pack without a slot while a Homebrew upgrade of git holds its
+  host-object calls.
+- **The heavy turn** (`lease_pool::host_turn`) is the queue of the host slots with one place for the whole host:
+  `~/.cache/brd-host/heavy.json`, the holder and the tickets of the waiting runs, each with the pid of its supervisor.
+  A heavy run takes the turn before its lend, in the phase `heavy`, so it holds no slot while it waits and the runs
+  that are not heavy keep every slot. Its wait is the wait for a slot: looks of 2 s, so a cancel ends it, a watch of
+  the table and a look every 5 s, and a line at once and once a minute with the holder, the runs ahead and the time
+  left. It gives the turn back after its give-back, so the processes that it left are gone first. A killed
+  supervisor holds nothing: the next run takes the turn of a gone holder at its next look. A wait past 2 h ends with
+  `heavy_timeout`.
+- **`brd-host runs`** names the holder and each waiting run with their times, the first thing an agent reads before
+  it starts a heavy run.
 
 ### The process model
 
@@ -175,6 +202,15 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
    with `schema`, and the agent of an older build refuses a binary of another schema in `brd-host upgrade`, so each host
    would need `brd-host setup` again. The optional fields keep both older ends as they were.
 
+7. **Decision**: The heavy runs of a host take one turn, and the repository names them in `heavy` of `[host]`; a flag
+   only adds a run (2026-11-14).
+   **Rationale**: Overlapping heavy runs made agents fix flakes that did not exist. A flag of each run alone would be
+   forgotten, and `bt --host` passes none. A pattern list is an explicit value of the repository, not a detection from
+   its state, and the default of a command it does not name is the behaviour before.
+8. **Decision**: An unknown key of `[host]` names the keys of the build and the updates of both ends (2026-11-14).
+   **Rationale**: Both ends refuse an unknown key, so a typo never drops a step. A new key then fails each run of an
+   older end; its message says so, and a repository adds the key only after both ends know it.
+
 ## Alternatives Considered
 
 - **Borrow only** (revision 3): brd gets `brd lease borrow`, and yonder stays as it is.
@@ -184,6 +220,10 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
   - Why not: the app binary grows, and the upgrade of a host must then replace the whole `brd`.
 
 ## Risks
+
+- A run that is not heavy still runs beside a heavy one: a `cargo nextest run -p <crate>` compiles beside a full suite.
+- The command of a killed supervisor lives on until the keeper or a waiting lend gives its slot back, up to a minute,
+  beside the next heavy run.
 
 - A slot serves several checkouts. Ignored outputs of another branch stay, and a tool that trusts timestamps can build
   stale output. The same risk exists today within one checkout.

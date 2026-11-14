@@ -5,11 +5,11 @@ use crate::refusal::Code;
 use pretty_assertions::assert_eq;
 
 #[test]
-fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_and_the_trim() {
+fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_the_trim_and_the_heavy_turn() {
   if cfg!(target_os = "macos") {
-    assert_eq!(features(), [feature::UPGRADE, feature::DISK, feature::TRIM]);
+    assert_eq!(features(), [feature::UPGRADE, feature::DISK, feature::TRIM, feature::HEAVY]);
   } else {
-    assert_eq!(features(), [feature::DISK, feature::TRIM]);
+    assert_eq!(features(), [feature::DISK, feature::TRIM, feature::HEAVY]);
   }
   assert_eq!((DEFAULT_PORT, SCHEMA_VERSION), (7742, 1));
 }
@@ -272,9 +272,9 @@ fn the_version_line_names_the_build_and_a_check_adds_the_launch_agent() {
   let line = VersionLine::of_this_build("0.37.0", Some("ab".repeat(32)));
   let json = serde_json::to_string(&line).expect("json");
   let features = if cfg!(target_os = "macos") {
-    r#"["upgrade","disk","trim"]"#
+    r#"["upgrade","disk","trim","heavy"]"#
   } else {
-    r#"["disk","trim"]"#
+    r#"["disk","trim","heavy"]"#
   };
   assert_eq!(json, format!(r#"{{"version":"0.37.0","schema":1,"features":{features},"sha256":"{}"}}"#, "ab".repeat(32)));
   let checked: VersionLine = serde_json::from_str(r#"{"version":"0.37.0","schema":1,"features":["upgrade"],"sha256":null,"plist":"same"}"#).expect("a check line");
@@ -291,5 +291,31 @@ fn the_slots_of_the_agent_carry_the_lend_table_as_the_pool_writes_it() {
   };
   let json = serde_json::to_string(&reply).expect("json");
   assert_eq!(json, r#"{"reply":"slots","repositories":[{"repo":"~/projects/idea-1","table":{"queue":[],"slots":[]}}]}"#);
+  assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), reply);
+}
+
+/// `RunSpec::heavy` and the heavy turn of `Reply::Runs` are optional fields: a run that is not heavy and an agent without
+/// the feature `heavy` write neither, and an end that does not know them reads the message as before
+#[test]
+fn a_heavy_run_and_the_heavy_turn_are_optional_fields_within_the_schema() {
+  let spec = RunSpec {
+    run: "1-2".to_owned(),
+    heavy: true,
+    ..RunSpec::default()
+  };
+  let json = serde_json::to_string(&Request::Start(spec.clone())).expect("json");
+  assert!(json.ends_with(r#","heavy":true}"#), "{json}");
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), Request::Start(spec));
+  let light = serde_json::to_string(&Request::Start(RunSpec::default())).expect("json");
+  assert!(!light.contains("heavy"), "{light}");
+
+  let older = serde_json::from_str::<Reply>(r#"{"reply":"runs","runs":[]}"#).expect("the runs of an older agent");
+  assert_eq!(older, Reply::Runs { runs: Vec::new(), heavy: None });
+  let reply = Reply::Runs {
+    runs: Vec::new(),
+    heavy: Some(serde_json::json!({"queue": []})),
+  };
+  let json = serde_json::to_string(&reply).expect("json");
+  assert_eq!(json, r#"{"reply":"runs","runs":[],"heavy":{"queue":[]}}"#);
   assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), reply);
 }

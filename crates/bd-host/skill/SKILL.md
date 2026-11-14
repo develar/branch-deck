@@ -28,7 +28,7 @@ Never install, configure or restart the agent by hand. Tell the user what a refu
 ## Run a command
 
 ```sh
-brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--nice <0-19>] [--repo <path>]
+brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--heavy] [--nice <0-19>] [--repo <path>]
                [--affinity <key>] [--report-fd <n>] -- <command> <args>
 ```
 
@@ -41,6 +41,7 @@ brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--nice
   applies them to the working tree, not to the index. A patch that does not apply refuses with `apply_failed` and keeps
   the patch in `<git dir>/branch-deck/host/runs/<run>.patch`.
 - `--nice` is 10 by default, so the runs of `bt --host` go first. bt passes `--nice 0 --no-outputs`.
+- `--heavy` makes a heavy run of a command that `heavy` of `[host]` does not name (see "Heavy runs").
 - The run goes to the repository of the same name as this one on the host, beside the main repository of the host
   file. `--repo` names another one.
 - `--report-fd <n>` writes one JSON report of the run to the descriptor `n` on every way out. stdout then holds only
@@ -56,6 +57,18 @@ brd-host run studio --fetch out/test-results -- zsh -c 'make test > out/test-res
 ```
 
 A Mac host stays awake while a client talks to it and while a run goes on.
+
+### Heavy runs
+
+The host runs its heavy runs one at a time, whatever their repository: two full test suites at once both slow down
+until their tests fail on timeouts, which are no flakes. A run is heavy when a pattern of `heavy` of `[host]` of the
+commit matches its command, or with `--heavy`; `bt --host` needs no flag. A heavy run says
+`brd-host: a heavy run by …`, then waits for the heavy turn before it takes a slot, with a line at once and once a
+minute: `brd-host: run <run> waits 3 min for the heavy turn of the host, 117 min left: run <run> of <repo> holds it
+4 min (<command>), 1 run ahead: …`. That is a wait, not a hang: never cancel and rerun it locally for it, and never
+treat a test that failed on a timeout beside another heavy run as a flake to fix. `brd-host runs <host>` names the
+holder and each waiting run with their times. After 2 h the run refuses with `heavy_timeout` (exit 75). A run that is
+not heavy runs at once.
 
 `bt --host <host> <the usual bt args>` runs a test of the IntelliJ monorepo the same way. It runs the committed HEAD
 only and refuses a dirty tree. The new run directories of `out/bt-runs` come back.
@@ -75,6 +88,7 @@ line. `brd-host upgrade <host>` replaces it after the user agrees.
 | Step | Where | A long step means |
 |---|---|---|
 | `pack`, `upload` | here | The pack of the missing commits is large: the host is far behind this history. |
+| `heavy` | host | Other heavy runs of the host went first. |
 | `git` | host | Branch Deck upgraded the git of the host with Homebrew, and the run waited for it. |
 | `slot` | host | Every slot was lent, and the run waited in the queue. |
 | `pack_wait` | host | The slot was ready before the pack came. |
@@ -84,7 +98,8 @@ line. `brd-host upgrade <host>` replaces it after the user agrees.
 | `stage`, `fetch` | host, here | The outputs and the fetched files are large. |
 | `total` | here | The whole call. |
 
-`brd-host runs <host>` lists the runs that the host keeps, each with its steps of 0.1 s or more. `brd-host disk [<host>]` says what the lease pools of a host hold on disk (every host without one). `brd-host slots <host>`
+`brd-host runs <host>` lists the runs that the host keeps, each with its steps of 0.1 s or more, then the heavy turn:
+who holds it and who waits. `brd-host disk [<host>]` says what the lease pools of a host hold on disk (every host without one). `brd-host slots <host>`
 shows the lend table of the host: each slot, its state, its run and the queue.
 
 ## The disk of a host
@@ -101,7 +116,7 @@ the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 | Exit | Meaning | What to do |
 |---|---|---|
 | The code of the command | The command ran to its end. | Read the output as for a local run. |
-| 75 | The host did not run the command: a refusal before the start, such as `unreachable`, `behind` or `slot_timeout`. | Run the command locally. |
+| 75 | The host did not run the command: a refusal before the start, such as `unreachable`, `behind`, `slot_timeout` or `heavy_timeout`. | Run the command locally. |
 | 130 | Ctrl+C before the command, or a second Ctrl+C. | Before the command, nothing ran. After a second Ctrl+C, the run goes on: `brd-host follow <host> <run>` shows its end. |
 | 255 with `unknown_run` | The run started and is gone on the host. Whether its command ran is unknown. | Never rerun it locally on your own. Tell the user. |
 | 255, any other | The link broke after the start, the fetch or the changes failed, or a request other than a run failed. | Read the message. A lost run goes on: `brd-host follow`. |
@@ -145,13 +160,16 @@ Only the user moves the host, such as with `bt --host <host> --prepare` in the I
 
 A repository asks the host for more with the table `[host]` of `.branchdeck.toml` in its root. A commit without that
 table has no prepare steps, no environment of its own and no outputs. The host reads the file from the commit of the
-run. An unknown key or a value of the
-wrong shape ends the run with `bad_config` before the command. A step that fails ends it with `prepare_failed`.
+run. An unknown key or a value of the wrong shape ends the run with `bad_config` before the command; the message of
+an unknown key says when it can be a key of a later Branch Deck, and then the user updates brd-host on both ends. A
+step that fails ends it with `prepare_failed`.
 
 ```toml
 [host]
 # Paths that the command makes and that come back to this checkout. The host removes each one before the command.
 outputs = ["tests/results", "playwright-report"]
+# The commands of the heavy runs, which the host runs one at a time: `*` matches any characters.
+heavy = ["cargo nextest run*--workspace*", "pnpm e2e*"]
 
 [host.env]
 RUST_BACKTRACE = "1"                   # a text, as it is
@@ -181,6 +199,7 @@ A refusal says `brd-host: <code>: <message>` on stderr. Give the message to the 
 | `no_host` | This machine has no host file for the alias: the host was never set up from here. |
 | `schema` | The agent speaks another protocol. Ask the user for `brd-host upgrade <host>`. |
 | `lease_failed`, `slot_timeout` | The host lent no slot. Exit 75: run locally, or try again later. |
+| `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. Exit 75: `brd-host runs <host>`, then try again later. |
 | `local_changes` | `--head` or `bt --host` with uncommitted or untracked changes. Commit first. |
 | `git_failed` | A local git call failed: the snapshot, the candidates or the pack. Exit 75: run locally. |
 | `old_git` | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. Exit 75. Give the message to the user. |

@@ -368,8 +368,10 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   let listed: Value = serde_json::from_slice(&runs.stdout).expect("JSON");
   let id = listed["runs"][0]["run"].as_str().expect("the run that goes on").to_owned();
   assert_eq!(listed["runs"][0]["exit"], Value::Null, "{listed}");
+  assert_eq!(listed["heavy"], json!({ "queue": [] }), "a run that is not heavy takes no turn: {listed}");
   let text_runs = world.bd_host(&["runs", ALIAS]);
   assert!(text(&text_runs.stdout).starts_with(&format!("{id}  running  checkout-")), "{}", text(&text_runs.stdout));
+  assert!(text(&text_runs.stdout).ends_with("\nheavy turn: free\n"), "{}", text(&text_runs.stdout));
 
   let fetch = world.bd_host(&["fetch", ALIAS, &id, "--fetch", "out"]);
   assert_eq!(fetch.status.code(), Some(255), "a fetch of a run that goes on");
@@ -395,7 +397,7 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   assert!(text(&follow.stderr).contains("brd-host: unknown_run: "), "{}", text(&follow.stderr));
   let forget = world.bd_host(&["forget", ALIAS, &id]);
   assert_eq!(forget.status.code(), Some(255));
-  assert!(text(&world.bd_host(&["runs", ALIAS]).stdout).starts_with("no runs on local"));
+  assert_eq!(text(&world.bd_host(&["runs", ALIAS]).stdout), "no runs on local\nheavy turn: free\n");
 
   let hello = world.bd_host(&["hello", ALIAS, "--json"]);
   assert_eq!(hello.status.code(), Some(0), "{}", text(&hello.stderr));
@@ -406,6 +408,76 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   assert_eq!(refused.status.code(), Some(255));
   let refused: Value = serde_json::from_slice(&refused.stdout).expect("JSON");
   assert_eq!(refused["refusal"]["code"].as_str(), Some("no_host"), "{refused}");
+}
+
+#[test]
+fn runs_shows_who_holds_the_heavy_turn_and_who_waits_for_how_long() {
+  let world = World::new();
+  let _agent = world.serve();
+  let script = "trap 'exit 130' INT; echo started; sleep 60";
+  let mut holder = world
+    .command()
+    .args(["run", ALIAS, "--head", "--heavy", "--", "/bin/sh", "-c", script])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .expect("a heavy run");
+  let mut first = String::new();
+  BufReader::new(holder.stdout.take().expect("the stdout")).read_line(&mut first).expect("the first line");
+  assert_eq!(first, "started\n", "serve: {}", world.serve_log());
+  let waiting = world
+    .command()
+    .args(["run", ALIAS, "--head", "--heavy", "--", "true"])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .expect("a second heavy run");
+  let heavy = || -> Value {
+    let runs = world.bd_host(&["runs", ALIAS, "--json"]);
+    serde_json::from_slice::<Value>(&runs.stdout).expect("JSON")["heavy"].clone()
+  };
+  wait_until("the second heavy run waits for the turn", || {
+    heavy()["queue"].as_array().is_some_and(|queue| queue.len() == 1)
+  });
+  let turn = heavy();
+  let (held_by, waits) = (
+    turn["holder"]["run"].as_str().expect("the holder"),
+    turn["queue"][0]["run"].as_str().expect("the waiting run"),
+  );
+  let repo = world.repo.path().file_name().expect("a name").to_string_lossy().into_owned();
+  let listed = text(&world.bd_host(&["runs", ALIAS]).stdout);
+  let lines: Vec<&str> = listed
+    .lines()
+    .filter(|line| line.contains(" heavy turn: ") || line.starts_with("heavy turn: ") || line.starts_with("  run "))
+    .collect();
+  assert_eq!(lines.len(), 2, "{listed}");
+  assert!(
+    lines[0].starts_with(&format!("heavy turn: run {held_by} of {repo} holds it ")) && lines[0].ends_with(&format!(" s: /bin/sh -c {script}")),
+    "{listed}"
+  );
+  assert!(
+    lines[1].starts_with(&format!("  run {waits} of {repo} waits ")) && lines[1].ends_with(" s: true"),
+    "{listed}"
+  );
+
+  let cancel = world.bd_host(&["cancel", ALIAS, held_by]);
+  assert_eq!(cancel.status.code(), Some(0), "{}", text(&cancel.stderr));
+  assert_eq!(holder.wait().expect("the holder ended").code(), Some(130));
+  let waited = waiting.wait_with_output().expect("the second heavy run ended");
+  let stderr = text(&waited.stderr);
+  assert_eq!(waited.status.code(), Some(0), "{stderr}");
+  assert!(
+    stderr.contains("brd-host: a heavy run by --heavy: on local it waits until no other heavy run goes\n"),
+    "{stderr}"
+  );
+  assert!(
+    stderr.contains(&format!(
+      "brd-host: run {waits} waits 0 s for the heavy turn of the host, 120 min left: run {held_by} of {repo} holds it "
+    )),
+    "{stderr}"
+  );
+  assert!(stderr.contains("brd-host: phases: heavy "), "{stderr}");
+  wait_until("the turn is free", || heavy() == json!({ "queue": [] }));
 }
 
 #[test]
@@ -525,11 +597,11 @@ fn schema_and_version_answer_one_json_object() {
 }
 
 /// The features an agent of this build answers: the upgrade only on macOS, where launchd starts the new binary, and the
-/// disk report and the trim everywhere
+/// disk report, the trim and the heavy turn everywhere
 fn features_of_this_platform() -> Value {
   if cfg!(target_os = "macos") {
-    json!(["upgrade", "disk", "trim"])
+    json!(["upgrade", "disk", "trim", "heavy"])
   } else {
-    json!(["disk", "trim"])
+    json!(["disk", "trim", "heavy"])
   }
 }

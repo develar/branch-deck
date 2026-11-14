@@ -1,11 +1,14 @@
 //! The steps of the host slots that the agent of `brd-host` takes (openspec/specs/cli/lease/spec.md, "Host slots";
-//! openspec/specs/cli/host/spec.md, "serve"): the queue line of a lend that waits, and the
-//! reclaim of a tick of the keeper, which takes up the slots and then deletes the refs that no live run uses
+//! openspec/specs/cli/host/spec.md, "serve"): the queue line of a lend that waits, the line of a run that waits for the
+//! heavy turn of the host (`host_turn`), and the reclaim of a tick of the keeper, which takes up the slots and then
+//! deletes the refs that no live run uses
 
 use crate::host_refs::reclaim_refs;
 use crate::host_slots::{HostSlotsParams, Queued, Reclaimed, live_runs, reclaim};
+use crate::host_turn::{TurnEntry, TurnQueue};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::path::Path;
 use std::time::Duration;
 
 /// The queue line of the run `run` that waited `waited` for a host slot: "run 1792-81 waits 60 s: 2 runs ahead, 4 slots,
@@ -27,6 +30,44 @@ pub fn queue_line(run: &str, queued: &Queued, waited: Duration) -> String {
     queued.slots,
     if lent.is_empty() { "none".to_string() } else { lent.join(", ") }
   )
+}
+
+/// The line of the heavy run `run` that waited `waited` for the heavy turn of the host, with `left` until it gives up, at
+/// `now_ms`: "run 1792-81 waits 180 s for the heavy turn of the host, 117 min left: run 1788-12 of branch-deck holds it
+/// 4 min (cargo nextest run --workspace), 1 run ahead: 1790-03 of idea-1 (./community/tools/bt.cmd --lane fast)"
+pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration, now_ms: u64) -> String {
+  let holder = queue.holder.as_ref().map_or_else(
+    || "the turn is free".to_owned(),
+    |holder| format!("run {} holds it {} ({})", run_of_repo(holder), span_since(holder.since_ms, now_ms), holder.command),
+  );
+  let ahead: Vec<String> = queue.ahead.iter().map(|entry| format!("{} ({})", run_of_repo(entry), entry.command)).collect();
+  let ahead = match ahead.len() {
+    0 => "no run ahead".to_owned(),
+    1 => format!("1 run ahead: {}", ahead[0]),
+    count => format!("{count} runs ahead: {}", ahead.join(", ")),
+  };
+  format!("run {run} waits {} for the heavy turn of the host, {} left: {holder}, {ahead}", span(waited), span(left))
+}
+
+/// `1788-12 of branch-deck`: the run and the name of its repository
+pub fn run_of_repo(entry: &TurnEntry) -> String {
+  let repo = Path::new(&entry.repo)
+    .file_name()
+    .map_or_else(|| entry.repo.clone(), |name| name.to_string_lossy().into_owned());
+  format!("{} of {repo}", entry.ticket.run)
+}
+
+/// The time since `since_ms` at `now_ms`, as `span` says it
+pub fn span_since(since_ms: u64, now_ms: u64) -> String {
+  span(Duration::from_millis(now_ms.saturating_sub(since_ms)))
+}
+
+/// A wait for a line: `45 s` up to two minutes, then `4 min`
+fn span(duration: Duration) -> String {
+  match duration.as_secs() {
+    seconds @ 0..120 => format!("{seconds} s"),
+    seconds => format!("{} min", seconds / 60),
+  }
 }
 
 /// What one reclaim of a repository took up

@@ -21,6 +21,17 @@ pub(crate) fn heartbeat() -> Duration {
   from_env("BD_HOST_TEST_HEARTBEAT_MS", Duration::from_secs(HEARTBEAT_SECONDS))
 }
 
+/// How often a run that waits for a host slot or for the heavy turn says its line: `BD_HOST_TEST_WAIT_PROGRESS_MS`, else
+/// once a minute (`lease_pool::host_slots::WAIT_PROGRESS`)
+pub(crate) fn wait_progress() -> Duration {
+  from_env("BD_HOST_TEST_WAIT_PROGRESS_MS", lease_pool::host_slots::WAIT_PROGRESS)
+}
+
+/// How long a heavy run waits for the heavy turn of the host: `BD_HOST_TEST_HEAVY_WAIT_MS`, else 2 h
+pub(crate) fn heavy_wait() -> Duration {
+  from_env("BD_HOST_TEST_HEAVY_WAIT_MS", Duration::from_hours(2))
+}
+
 /// How long a run waits for the pack of its commit: `BD_HOST_TEST_PACK_WAIT_MS`, else [`PACK_WAIT_SECONDS`]
 pub(crate) fn pack_wait() -> Duration {
   from_env("BD_HOST_TEST_PACK_WAIT_MS", Duration::from_secs(PACK_WAIT_SECONDS))

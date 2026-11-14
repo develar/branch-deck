@@ -1,0 +1,188 @@
+//! The heavy turn of the host (openspec/specs/cli/host/spec.md, "serve: Heavy runs take the heavy turn of the host one at a
+//! time"): the heavy runs of the host run one at a time before their lends, a run that is not heavy goes beside them,
+//! a cancel and a killed holder free the queue, and a wait past its time ends with `heavy_timeout`
+
+use super::{ALL_PHASES, World, events, eventually, gate_and_marks, process_alive, wait_for};
+use host_link::proto::{Reply, Request, RunSpec};
+use pretty_assertions::assert_eq;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+/// The heavy turn of the host as `Request::Runs` answers it: the holder and the runs of the queue
+fn heavy_turn(agent: &super::Agent<'_>) -> (Option<String>, Vec<String>) {
+  let Reply::Runs { heavy: Some(heavy), .. } = agent.reply(&Request::Runs) else {
+    panic!("no heavy turn");
+  };
+  (
+    heavy["holder"]["run"].as_str().map(str::to_owned),
+    heavy["queue"]
+      .as_array()
+      .map_or_else(Vec::new, |queue| queue.iter().filter_map(|entry| entry["run"].as_str().map(str::to_owned)).collect()),
+  )
+}
+
+/// A heavy run of `world` whose command marks its start in `marks` and waits for `gate`
+fn heavy(world: &World, run: &str, marks: &Path, gate: &Path) -> RunSpec {
+  RunSpec {
+    heavy: true,
+    ..world.spec(run, &format!(": > '{}'; {}", marks.join(run).display(), wait_for(gate)))
+  }
+}
+
+/// The runs whose command started, by their marks
+fn started(marks: &Path) -> Vec<String> {
+  let mut runs: Vec<String> = fs::read_dir(marks).map_or_else(|_| Vec::new(), |entries| entries.filter_map(|entry| entry.ok()?.file_name().into_string().ok()).collect());
+  runs.sort();
+  runs
+}
+
+#[test]
+fn heavy_runs_of_the_host_run_one_at_a_time_and_a_run_that_is_not_heavy_goes_beside_them() {
+  let world = World::new(3, &[]);
+  let agent = world.serve();
+  let (gate, marks) = gate_and_marks(&world);
+  agent.start(heavy(&world, "7-1", &marks, &gate));
+  eventually("the first heavy run holds the turn", || started(&marks) == ["7-1"]);
+  agent.start(heavy(&world, "7-2", &marks, &gate));
+  eventually("the second heavy run says its wait at once", || {
+    events(&world, "7-2").contains("for the heavy turn of the host")
+  });
+  agent.start(RunSpec {
+    heavy: false,
+    ..heavy(&world, "7-3", &marks, &world.home.path().join("never"))
+  });
+  eventually("the run that is not heavy goes beside the heavy one", || started(&marks) == ["7-1", "7-3"]);
+  assert_eq!(heavy_turn(&agent), (Some("7-1".to_owned()), vec!["7-2".to_owned()]));
+  assert!(
+    events(&world, "7-2").contains("brd-host: run 7-2 waits 0 s for the heavy turn of the host, 120 min left: run 7-1 of "),
+    "{}",
+    agent.dump("7-2")
+  );
+  assert_eq!(started(&marks), ["7-1", "7-3"], "the second heavy run waits for the first");
+
+  fs::write(&gate, "").expect("the gate opens");
+  let first = agent.follow("7-1");
+  assert_eq!(first.end, Reply::Exit { code: 0 }, "{}", agent.dump("7-1"));
+  eventually("the first heavy run gives the turn back after its give-back", || {
+    let log = fs::read_to_string(world.run_dir("7-1").join("supervisor.log")).unwrap_or_default();
+    log
+      .find("gave back the slot")
+      .is_some_and(|gave_back| log.find("gave the heavy turn of the host back").is_some_and(|turn| gave_back < turn))
+  });
+  let second = agent.follow("7-2");
+  assert_eq!(second.end, Reply::Exit { code: 0 }, "{}", agent.dump("7-2"));
+  let heavy_phases: Vec<&str> = std::iter::once("heavy").chain(ALL_PHASES).collect();
+  assert_eq!(first.phase_names(), heavy_phases);
+  assert_eq!(second.phase_names(), heavy_phases);
+  if second.phase_ms("heavy") >= 1000 {
+    assert!(
+      second.lines.iter().any(|(_, line)| line.starts_with("brd-host: took the heavy turn of the host after ")),
+      "{second:?}"
+    );
+  }
+  fs::write(world.home.path().join("never"), "").expect("the gate of the run that is not heavy opens");
+  let beside = agent.follow("7-3");
+  assert_eq!(beside.end, Reply::Exit { code: 0 }, "{}", agent.dump("7-3"));
+  assert_eq!(beside.phase_names(), ALL_PHASES, "a run that is not heavy takes no turn");
+  eventually("the second heavy run gives the turn back", || heavy_turn(&agent) == (None, vec![]));
+}
+
+#[test]
+fn a_cancel_in_the_heavy_queue_ends_the_run_before_its_lend_and_its_ticket_leaves() {
+  let world = World::new(2, &[]);
+  let agent = world.serve();
+  let (gate, marks) = gate_and_marks(&world);
+  agent.start(heavy(&world, "8-1", &marks, &gate));
+  eventually("the first heavy run holds the turn", || started(&marks) == ["8-1"]);
+  agent.start(heavy(&world, "8-2", &marks, &gate));
+  eventually("the second heavy run waits for the turn", || heavy_turn(&agent).1 == ["8-2"]);
+  assert!(matches!(agent.reply(&Request::Cancel { run: "8-2".to_owned() }), Reply::Done { .. }));
+  let cancelled = agent.follow("8-2");
+  assert_eq!(cancelled.end, Reply::Exit { code: 130 }, "{}", agent.dump("8-2"));
+  assert_eq!(cancelled.phase_names(), ["heavy"], "no lend after the cancel");
+  assert!(cancelled.phase_ms("heavy") < 30_000, "{cancelled:?}");
+  eventually("the cancel left the heavy queue", || heavy_turn(&agent) == (Some("8-1".to_owned()), vec![]));
+  assert_eq!(started(&marks), ["8-1"], "the cancelled run never ran");
+  fs::write(&gate, "").expect("the gate opens");
+  assert_eq!(agent.follow("8-1").end, Reply::Exit { code: 0 });
+}
+
+#[test]
+fn a_killed_heavy_run_frees_the_turn_for_the_next_one() {
+  let world = World::new(2, &[]);
+  let agent = world.serve();
+  let (gate, marks) = gate_and_marks(&world);
+  agent.start(heavy(&world, "9-1", &marks, &gate));
+  eventually("the first heavy run holds the turn", || started(&marks) == ["9-1"]);
+  agent.start(heavy(&world, "9-2", &marks, &world.home.path().join("second")));
+  eventually("the second heavy run waits for the turn", || heavy_turn(&agent).1 == ["9-2"]);
+  let pid = agent.supervisor_pid("9-1");
+  assert!(Command::new("kill").args(["-9", &pid]).status().expect("kill").success());
+  eventually("the end of the supervisor", || !process_alive(&pid));
+  // the end of a process makes no file event: the waiting run sees it at its next look, within 5 s
+  eventually("the second heavy run takes the turn of the killed one", || started(&marks) == ["9-1", "9-2"]);
+  assert_eq!(heavy_turn(&agent), (Some("9-2".to_owned()), vec![]));
+  fs::write(world.home.path().join("second"), "").expect("the gate of the second run opens");
+  assert_eq!(agent.follow("9-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("9-2"));
+  fs::write(&gate, "").expect("the gate of the orphaned command opens");
+}
+
+#[test]
+fn a_heavy_run_that_waits_past_its_time_ends_with_heavy_timeout() {
+  let world = World::new(2, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_HEAVY_WAIT_MS", "1500")]);
+  let (gate, marks) = gate_and_marks(&world);
+  agent.start(heavy(&world, "10-1", &marks, &gate));
+  eventually("the first heavy run holds the turn", || started(&marks) == ["10-1"]);
+  agent.start(heavy(&world, "10-2", &marks, &gate));
+  let timed_out = agent.follow("10-2");
+  assert!(
+    matches!(&timed_out.end, Reply::Refused { code, message } if code == "heavy_timeout" && message.starts_with("no heavy turn for 1 s; giving up: run 10-2 waits ") && message.contains(" for the heavy turn of the host, 0 s left: run 10-1 of ")),
+    "{timed_out:?}"
+  );
+  assert_eq!(timed_out.phase_names(), ["heavy"]);
+  eventually("the run that gave up left the heavy queue", || heavy_turn(&agent) == (Some("10-1".to_owned()), vec![]));
+  assert_eq!(started(&marks), ["10-1"]);
+  fs::write(&gate, "").expect("the gate opens");
+  assert_eq!(agent.follow("10-1").end, Reply::Exit { code: 0 });
+}
+
+#[test]
+fn the_line_of_a_heavy_wait_comes_again_with_the_time_waited_and_the_time_left() {
+  let world = World::new(2, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_WAIT_PROGRESS_MS", "300"), ("BD_HOST_TEST_HEAVY_WAIT_MS", "600000")]);
+  let (gate, marks) = gate_and_marks(&world);
+  agent.start(heavy(&world, "11-1", &marks, &gate));
+  eventually("the first heavy run holds the turn", || started(&marks) == ["11-1"]);
+  agent.start(heavy(&world, "11-2", &marks, &gate));
+  // the line at once, then one after 300 ms, after 2 s or more of waiting
+  let lines = || -> Vec<String> {
+    events(&world, "11-2")
+      .lines()
+      .filter(|line| line.contains("for the heavy turn of the host"))
+      .map(str::to_owned)
+      .collect()
+  };
+  eventually("a line of the wait after two seconds", || {
+    lines().iter().any(|line| line.contains("waits 2 s ") || line.contains("waits 3 s "))
+  });
+  let later = lines()
+    .into_iter()
+    .find(|line| line.contains("waits 2 s ") || line.contains("waits 3 s "))
+    .expect("a later line");
+  let waited: u64 = later
+    .split("waits ")
+    .nth(1)
+    .and_then(|rest| rest.split(' ').next())
+    .and_then(|n| n.parse().ok())
+    .expect("the time waited");
+  assert!(
+    later.contains(&format!("waits {waited} s for the heavy turn of the host, {} min left: run 11-1 of ", (600 - waited) / 60)),
+    "{later}"
+  );
+  assert!(lines()[0].contains("waits 0 s for the heavy turn of the host, 10 min left: "), "{:?}", lines());
+  fs::write(&gate, "").expect("the gate opens");
+  assert_eq!(agent.follow("11-1").end, Reply::Exit { code: 0 });
+  assert_eq!(agent.follow("11-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("11-2"));
+}

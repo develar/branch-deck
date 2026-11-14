@@ -34,7 +34,7 @@ fn a_start_whose_pack_never_comes_ends_with_pack_missing() {
   );
   assert!(!ran.exists(), "the command never ran");
   match agent.reply(&Request::Runs) {
-    Reply::Runs { runs } => {
+    Reply::Runs { runs, .. } => {
       assert_eq!(runs.len(), 1, "{runs:?}");
       assert_eq!(runs[0].exit, Some(255), "a refused run exits with 255");
       assert_eq!(runs[0].phases, followed.phases);

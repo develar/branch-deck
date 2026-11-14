@@ -69,14 +69,16 @@ pub mod feature {
   pub const DISK: &str = "disk";
   /// `Request::Trim`: the trim of the pools of the host, which has no `brd`
   pub const TRIM: &str = "trim";
+  /// `RunSpec::heavy`: the heavy runs of the host run one at a time, and `Reply::Runs` names the heavy turn
+  pub const HEAVY: &str = "heavy";
 }
 
-/// The features of an agent of this build on this platform: `disk` and `trim` everywhere, `upgrade` on macOS
+/// The features of an agent of this build on this platform: `disk`, `trim` and `heavy` everywhere, `upgrade` on macOS
 pub fn features() -> Vec<&'static str> {
   if cfg!(target_os = "macos") {
-    vec![feature::UPGRADE, feature::DISK, feature::TRIM]
+    vec![feature::UPGRADE, feature::DISK, feature::TRIM, feature::HEAVY]
   } else {
-    vec![feature::DISK, feature::TRIM]
+    vec![feature::DISK, feature::TRIM, feature::HEAVY]
   }
 }
 
@@ -203,6 +205,11 @@ pub struct RunSpec {
   /// `Request::Fetch`
   #[serde(default, skip_serializing_if = "is_false")]
   pub changes: bool,
+  /// A heavy run: `heavy` of `[host]` of the commit names its command, or `brd-host run --heavy`. Before its lend the
+  /// run takes the heavy turn of the host, so the heavy runs of the host run one at a time (feature `feature::HEAVY`;
+  /// an older agent ignores it)
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub heavy: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,6 +271,11 @@ pub enum Reply {
   },
   Runs {
     runs: Vec<RunInfo>,
+    /// The heavy turn of the host without the runs whose process is gone, as `heavy.json` holds it
+    /// (`lease_pool::host_turn::HeavyTurn`): JSON here for the reason of `RepositorySlots::table`. An agent without the
+    /// feature `feature::HEAVY` sends none
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    heavy: Option<serde_json::Value>,
   },
   /// The lend table of each repository that the agent served
   Slots {
@@ -403,7 +415,7 @@ pub struct RepositorySlots {
   pub table: serde_json::Value,
 }
 
-/// One step of a run and its duration: `git`, `slot`, `pack_wait`, `checkout`, `prepare`, `command`, `stage`. A client
+/// One step of a run and its duration: `heavy`, `git`, `slot`, `pack_wait`, `checkout`, `prepare`, `command`, `stage`. A client
 /// adds its own steps, such as `pack`, `upload` and `fetch`, when it reports a run
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Phase {

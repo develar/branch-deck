@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 use std::net::TcpListener;
 
 fn runs_reply(_: &Request, channel: &mut Channel) {
-  let _ = channel.send(&Reply::Runs { runs: Vec::new() });
+  let _ = channel.send(&Reply::Runs { runs: Vec::new(), heavy: None });
 }
 
 /// An address where nothing listens: a port that was free a moment ago

@@ -1,5 +1,6 @@
 //! A JSON state file in `$GIT_COMMON_DIR/branch-deck/` with a lock of its own: the lease pool (`leases.json`,
-//! `leases.lock`) and the lend table of the host slots (`host-slots.json`, `host-slots.lock`). A read takes no lock (the
+//! `leases.lock`) and the lend table of the host slots (`host-slots.json`, `host-slots.lock`); and one of a host in a
+//! directory of the agent of `brd-host`, the heavy turn (`heavy.json`, `heavy.lock`). A read takes no lock (the
 //! file is replaced by a rename, so a read sees one whole state); a change runs under the lock and writes only a state
 //! it changed
 
@@ -34,7 +35,17 @@ impl StateFile {
     }
   }
 
-  /// `branch-deck/` of the common dir
+  /// The file `file` with the lock `lock` in `dir` itself
+  pub(crate) fn in_dir(dir: &Path, file: &'static str, lock: &'static str, what: &'static str) -> Self {
+    Self {
+      dir: dir.to_path_buf(),
+      file,
+      lock,
+      what,
+    }
+  }
+
+  /// The directory of the file: `branch-deck/` of the common dir, or the one of `in_dir`
   pub(crate) fn dir(&self) -> &Path {
     &self.dir
   }

@@ -14,8 +14,10 @@
 //! - `host_git`: the floor of the version of the git of a host that serves remote runs
 //! - `host_refs`: the refs that keep the commits of the runs of a host and the bases of its clients (`ingest`), and
 //!   when a pack last moved each, which the give-back of a run and `reclaim` read to delete them
-//! - `host_runs`: the steps of the agent of `brd-host`: the queue line of a waiting lend and the reclaim of the slots
-//!   and the refs of a tick of the keeper
+//! - `host_runs`: the steps of the agent of `brd-host`: the queue line of a waiting lend, the line of a run that waits
+//!   for the heavy turn, and the reclaim of the slots and the refs of a tick of the keeper
+//! - `host_turn`: the heavy turn of a host: the heavy runs of every repository there run one at a time, the others wait
+//!   for it in a first-come queue
 //! - `state_file`: a JSON state file of `branch-deck/` with a lock of its own, of the pool, of the lend table and of the
 //!   bytes of the slots (`pool-disk`)
 //! - `landed_work`: whether the work of a lease landed in its home branch, by the proofs of `brd update` and the
@@ -49,6 +51,7 @@ pub mod host_git;
 pub mod host_refs;
 pub mod host_runs;
 pub mod host_slots;
+pub mod host_turn;
 pub mod landed_work;
 pub mod lease;
 pub mod lease_clean;

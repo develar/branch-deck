@@ -156,6 +156,29 @@ A prepare step runs only when its `inputs` changed since its last success in tha
 missing. `[host]` installs no tool: the host has its own. Every key is in the spec, "The environment of a run and
 `[host]`".
 
+### Heavy runs
+
+Two runs that use every core at once, such as two full test suites, both run several times slower, and their tests
+fail on timeouts. So the host runs its heavy runs one at a time, whatever their repository, and the other runs as
+before. `heavy` of `[host]` names the heavy commands of a repository, `*` matching any characters:
+
+```toml
+[host]
+heavy = ["cargo nextest run*--workspace*", "pnpm e2e*"]
+```
+
+`brd-host run --heavy` makes a heavy run of a command that no pattern names. A heavy run waits before it takes a slot,
+and says so at once and once a minute:
+
+```text
+brd-host: a heavy run by `pnpm e2e*` of [host]: on studio it waits until no other heavy run goes
+brd-host: run 01M63T… waits 0 s for the heavy turn of the host, 120 min left: run 01M63R… of idea-1 holds it 4 min (./community/tools/bt.cmd --lane fast), no run ahead
+```
+
+`brd-host runs studio` shows who holds the heavy turn and who waits, each with its time. Both ends of a run refuse a
+key of `[host]` that their build does not know, so add `heavy` only once this Mac and the host run a Branch Deck that
+knows it: `brd install` here, `brd-host upgrade studio` there.
+
 ## Run a command
 
 ```sh
@@ -182,13 +205,13 @@ brd-host: running in …/branch-deck (slot 2): load 3.1 on 20 cores, nice 10, 65
 brd-host: phases: pack 0.1s, slot 0.0s, checkout 0.3s, command 3m58s, fetch 0.2s, total 4m00s
 ```
 
-The `phases` line says where the time went: a long `pack` means the host is far behind, a long `slot` that every slot
-was busy, a long `prepare` that a prepare step ran.
+The `phases` line says where the time went: a long `pack` means the host is far behind, a long `heavy` that other
+heavy runs went first, a long `slot` that every slot was busy, a long `prepare` that a prepare step ran.
 
 | Exit | Meaning | What to do |
 |---|---|---|
 | the code of the command | The command ran to its end. | Read the output as for a local run. |
-| 75 | The host did not run the command: asleep, behind, all slots busy for an hour. | Run it here. |
+| 75 | The host did not run the command: asleep, behind, all slots busy for an hour, other heavy runs for 2 hours. | Run it here. |
 | 130 | Ctrl+C before the command started, or a second Ctrl+C. | Before the start nothing ran. After a second Ctrl+C the run goes on: `brd-host follow` shows its end. |
 | 255 | The link broke after the start, or a fetch failed. | The run goes on: `brd-host follow studio <run>`. |
 
@@ -223,7 +246,7 @@ borrows one for its own time only, so there is nothing to keep or give back:
 ```
 
 - `brd-host slots studio` shows each slot, its state, its run and the queue.
-- `brd-host runs studio` lists the runs that the host keeps, with the time of each step.
+- `brd-host runs studio` lists the runs that the host keeps, with the time of each step, and the heavy turn.
 - `brd-host slots --local -C <repo> --shrink <n>` on the host gives the slots past `n` back and keeps `n` as the limit.
 
 ## The disk of the host
@@ -272,6 +295,8 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 | `schema` | The agent speaks another protocol. | `brd-host upgrade studio`, or setup again. |
 | `old_git` | The git of the host is too old and Homebrew cannot upgrade it. | Install or repair Homebrew on the host. |
 | `slot_timeout` | Every slot stayed busy for an hour. | `brd-host slots studio`, then try again. |
+| `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | `brd-host runs studio`, then try again. |
+| `bad_config` | `[host]` of the commit does not parse, or has a key of a later Branch Deck. | Fix the key, or update brd-host on both ends. |
 | `local_changes` | `--head` with uncommitted changes. | Commit, or drop `--head`. |
 
 ## The files

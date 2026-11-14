@@ -10,6 +10,7 @@ clean = ["target/debug"]
 
 [host]
 outputs = ["tests/results", "playwright-report", "target/nextest/ci/junit.xml"]
+heavy = ["cargo nextest run*--workspace*", "pnpm e2e*"]
 
 [host.env]
 PATH = { prepend = ["~/.cargo/bin"] }
@@ -30,6 +31,7 @@ run = ["./gradlew", "--version"]
 fn example() -> RepoConfig {
   RepoConfig {
     outputs: vec!["tests/results".to_owned(), "playwright-report".to_owned(), "target/nextest/ci/junit.xml".to_owned()],
+    heavy: vec!["cargo nextest run*--workspace*".to_owned(), "pnpm e2e*".to_owned()],
     env: vec![
       ("CI".to_owned(), EnvValue::Unset),
       ("E2E_PORT".to_owned(), EnvValue::Port(3100)),
@@ -69,14 +71,81 @@ fn the_host_table_of_branchdeck_toml_parses_and_an_unknown_key_refuses() {
   assert_eq!(parse_branchdeck("[lease]\nunknown = 1\n[host]\n").expect("another table"), Some(RepoConfig::default()));
 
   for (text, said) in [
-    ("[host]\nprepar = []\n", ".branchdeck.toml [host]: unknown field `prepar`"),
-    ("[[host.prepare]]\nrun = [\"true\"]\ninput = [\"a\"]\n", ".branchdeck.toml [host]: unknown field `input`"),
+    ("[host]\nprepar = []\n", ".branchdeck.toml [host]: unknown key `prepar`"),
+    (
+      "[[host.prepare]]\nrun = [\"true\"]\ninput = [\"a\"]\n",
+      ".branchdeck.toml [host]: unknown key `prepare.input`",
+    ),
     ("host = 1\n", ".branchdeck.toml: `host` is a integer, not a table"),
     ("not toml", ".branchdeck.toml: "),
   ] {
     let message = parse_branchdeck(text).expect_err(text).to_string();
     assert!(message.starts_with(said), "{text}: {message}");
   }
+}
+
+/// A key that this build does not know refuses with a message that names it, says it can be a key of a later Branch
+/// Deck, and names the updates of both ends, so the next key of `[host]` is no dark refusal of an older brd-host
+#[test]
+fn an_unknown_key_names_itself_the_keys_of_this_build_and_the_update_of_brd_host() {
+  let message = parse_branchdeck("[host]\nheavy = [\"x\"]\nlater = true\n").expect_err("a later key").to_string();
+  assert_eq!(
+    message,
+    ".branchdeck.toml [host]: unknown key `later`: a typo, or a key of a later Branch Deck than this brd-host, which knows `outputs`, `heavy`, `env`, `prepare`; `brd install` updates brd-host on this Mac, and `brd-host upgrade <alias>` the agent of a host"
+  );
+  let step = parse_branchdeck("[[host.prepare]]\nrun = [\"true\"]\nlater = 1\n")
+    .expect_err("a later key of a step")
+    .to_string();
+  assert!(
+    step.contains("unknown key `prepare.later`") && step.contains("which knows `name`, `run`, `inputs`, `creates`"),
+    "{step}"
+  );
+  let env = parse_branchdeck("[host.env]\nA = { later = 1 }\n").expect_err("a later key of a variable").to_string();
+  assert!(env.contains("unknown key `env.A.later`") && env.contains("`brd-host upgrade <alias>`"), "{env}");
+}
+
+/// A pattern of `heavy` matches the words of the command joined by one space, whole, `*` any characters, after a
+/// leading `env` and its assignments; the first pattern that matches names the run
+#[test]
+fn a_heavy_pattern_matches_the_whole_command_line_after_env_and_its_assignments() {
+  let config = RepoConfig {
+    heavy: ["cargo nextest run*--workspace*", "pnpm e2e*", "pnpm test", "*bt.cmd --lane *", "pnpm *"]
+      .map(str::to_owned)
+      .to_vec(),
+    ..RepoConfig::default()
+  };
+  let entry = |line: &str| config.heavy_entry(&line.split(' ').map(str::to_owned).collect::<Vec<_>>()).map(str::to_owned);
+  for (line, expected) in [
+    ("cargo nextest run --workspace", Some("cargo nextest run*--workspace*")),
+    ("cargo nextest run --no-fail-fast --workspace -R latest", Some("cargo nextest run*--workspace*")),
+    ("cargo nextest run -p host-link", None),
+    ("cargo nextest run", None),
+    ("pnpm e2e", Some("pnpm e2e*")),
+    ("pnpm e2e-up", Some("pnpm e2e*")),
+    ("env DEBUG_E2E=1 E2E_PORT=3031 pnpm e2e tests/e2e/x.spec.ts", Some("pnpm e2e*")),
+    ("E2E_PORT=3031 pnpm e2e", Some("pnpm e2e*")),
+    ("env -i pnpm e2e", None),
+    ("pnpm test", Some("pnpm test")),
+    ("pnpm test:unit", Some("pnpm *")),
+    ("./community/tools/bt.cmd --lane fast", Some("*bt.cmd --lane *")),
+    ("./community/tools/bt.cmd AgentTest", None),
+    ("npm test", None),
+  ] {
+    assert_eq!(entry(line), expected.map(str::to_owned), "{line}");
+  }
+  assert_eq!(RepoConfig::default().heavy_entry(&["pnpm".to_owned(), "e2e".to_owned()]), None, "no pattern, no heavy run");
+}
+
+/// A pattern matches its literal start and end, and the two never share a character of the text
+#[test]
+fn a_pattern_matches_its_literal_ends_and_never_lets_them_overlap() {
+  use super::glob_matches;
+  assert!(glob_matches("*--workspace", "cargo nextest run --workspace"));
+  assert!(!glob_matches("*--workspace", "cargo nextest run --workspace -R latest"), "the end is literal");
+  assert!(glob_matches("ab*ba", "abba"));
+  assert!(!glob_matches("ab*ba", "aba"), "the start and the end overlap");
+  assert!(glob_matches("a*b*c", "a-b-c") && !glob_matches("a*b*c", "a-c-b"));
+  assert!(glob_matches("*", "") && glob_matches("pnpm e2e", "pnpm e2e") && !glob_matches("pnpm e2e", "pnpm e2e x"));
 }
 
 /// The configuration of a commit whose `.branchdeck.toml` is `branchdeck`, and the names of the files that the reader
@@ -106,8 +175,8 @@ fn a_commit_gets_the_host_table_of_its_branchdeck_toml_else_the_default() {
 #[test]
 fn a_typo_or_a_bad_value_is_an_error_that_names_the_file() {
   for (text, said) in [
-    ("[[host.prepar]]\nrun = [\"true\"]\n", "unknown field `prepar`"),
-    ("[[host.prepare]]\nrun = [\"true\"]\ninput = [\"a\"]\n", "unknown field `input`"),
+    ("[[host.prepar]]\nrun = [\"true\"]\n", "unknown key `prepar`"),
+    ("[[host.prepare]]\nrun = [\"true\"]\ninput = [\"a\"]\n", "unknown key `prepare.input`"),
     ("[[host.prepare]]\nrun = []\n", "no command"),
     ("[host]\noutputs = [\"../up\"]\n", "not a path inside the slot"),
     ("[host]\noutputs = [\"/abs\"]\n", "not a path inside the slot"),
@@ -115,7 +184,9 @@ fn a_typo_or_a_bad_value_is_an_error_that_names_the_file() {
     ("[host.env]\nA = 1\n", "env.A is a integer"),
     ("[host.env]\nA = { port = 1, unset = true }\n", "env.A takes one of"),
     ("[host.env]\nA = { unset = false }\n", "env.A takes one of"),
-    ("[host.env]\nA = { prepand = [\"x\"] }\n", "unknown field `prepand`"),
+    ("[host.env]\nA = { prepand = [\"x\"] }\n", "unknown key `env.A.prepand`"),
+    ("[host]\nheavy = [\"pnpm e2e*\", \" \"]\n", "`heavy` has an empty pattern"),
+    ("[host]\nheavy = \"pnpm e2e*\"\n", "invalid type"),
     ("[host.env]\nA = { port = 70000 }\n", "env.A"),
     ("[host]\noutputs = \"out\"\n", "invalid type"),
   ] {

@@ -27,6 +27,9 @@ mod upgrade;
 #[path = "serve/follow.rs"]
 mod follow;
 
+#[path = "serve/heavy.rs"]
+mod heavy;
+
 use host_agent::serve::spawn_on_loopback;
 use host_link::allow::AllowList;
 use host_link::channel::{Channel, ClientTls};
@@ -434,7 +437,7 @@ fn serve_answers_a_run_on_the_loopback_with_a_real_pool() {
   // the give-back follows `exit.json` in the supervisor
   eventually("the slot is idle again", || agent.slots()["slots"][0]["state"]["kind"] == "idle");
   match agent.reply(&Request::Runs) {
-    Reply::Runs { runs } => {
+    Reply::Runs { runs, .. } => {
       assert_eq!(runs.len(), 1);
       assert_eq!((runs[0].run.as_str(), runs[0].affinity.as_str(), runs[0].exit), ("1-1", AFFINITY, Some(3)));
     }
@@ -516,13 +519,18 @@ fn the_changes_of_a_command_come_back_as_a_patch_without_the_prepare_steps() {
   assert!(!patch.contains("made.txt"), "the file of a prepare step is no change of the command: {patch}");
 }
 
+/// The gate file that the commands of a test wait for (`wait_for`), and the directory where each marks its start
+fn gate_and_marks(world: &World) -> (PathBuf, PathBuf) {
+  let marks = world.home.path().join("marks");
+  fs::create_dir_all(&marks).expect("the marks");
+  (world.home.path().join("gate"), marks)
+}
+
 #[test]
 fn two_runs_of_one_affinity_run_in_parallel_and_a_third_waits_for_a_slot() {
   let world = World::new(2, &[]);
   let agent = world.serve();
-  let gate = world.home.path().join("gate");
-  let marks = world.home.path().join("marks");
-  fs::create_dir_all(&marks).expect("the marks");
+  let (gate, marks) = gate_and_marks(&world);
   for run in ["4-1", "4-2", "4-3"] {
     let mark = marks.join(run);
     agent.start(world.spec(run, &format!(": > '{}'; {}", mark.display(), wait_for(&gate))));

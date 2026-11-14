@@ -1,7 +1,7 @@
 # Runs on the Mac Studio (`brd-host run studio`)
 
 **Status:** Active  
-**Updated:** 2026-11-05  
+**Updated:** 2026-11-14  
 **Tags:** [tests, e2e, nextest, studio, brd-host]
 
 ## Summary
@@ -22,6 +22,7 @@ brd-host run studio -- env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts
 brd-host run studio -- pnpm lint:backend                      # cargo fmt --check and clippy: a check, edits nothing
 brd-host run studio --apply -- pnpm fix:backend               # the edits of cargo fmt and clippy --fix come back here
 brd-host run studio --apply -- pnpm e2e-up                    # the rewritten snapshots come back here
+brd-host run studio --heavy -- sh -c 'cargo build --release'   # a heavy command that `heavy` of [host] does not name
 ```
 
 yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host took them over and yonderd was retired.
@@ -36,6 +37,11 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   `playwright-report`, the nextest junit), `E2E_PORT` per slot, and `pnpm install` when the lockfile or package.json
   changed. A step and the command run in the login environment of the user there, with 65536 open files and `nice` 10
   (`--nice <n>`).
+- **Heavy runs take turns**: a run that `heavy` of `[host]` names, or one with `--heavy`, waits until no other heavy
+  run of the Studio goes, whatever its repository, so two full suites never slow each other into timeouts. Its wait
+  says `brd-host: run … waits … for the heavy turn of the host, … left: run … holds it …` at once and once a minute:
+  a wait, not a hang. `brd-host runs studio` names the holder and the waiting runs; a wait past 2 h exits 75
+  (`heavy_timeout`). A run that is not heavy goes at once.
 - **The disk of the Studio**: the Studio has no app and no `brd`; never put either there. Its agent frees space by
   itself below `branchdeck.leaseMinFree` there; `brd-host disk studio` shows the pools, `brd-host trim studio --plan`
   what a trim would delete, and `brd-host trim studio` deletes it, after the user agrees.
@@ -44,7 +50,7 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   `brd-host schema` lists every refusal code with its exit code.
 - **Output**: stdout is only the stdout of the command, byte for byte, when the agent of the Studio is not older than
   the local brd-host. stderr has the lines of brd-host, and the run ends with `brd-host: phases: … command …, total …`:
-  read that line before you guess where the time went.
+  read that line before you guess where the time went (`heavy` is the wait for the other heavy runs).
 
 ## Measured
 

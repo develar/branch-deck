@@ -5,23 +5,62 @@
 //!
 //! - A supervisor lends a slot for its run ([`lend`], with its own pid: the lend lasts as long as the supervisor). A
 //!   wait while the slots are lent to other runs goes in short lends of the pool, so a cancel ends it, and the queue
-//!   line goes to the log of the run once a minute (`lease_pool::host_runs::queue_line`).
+//!   line goes to the log of the run once a minute (`lease_pool::host_runs::queue_line`). The wait of a heavy run for
+//!   the heavy turn of the host (`turn`) is the same wait ([`wait_in_looks`]).
 //! - On every way out the supervisor gives the slot back ([`give_back`]), which also takes a run that got none out of
 //!   the queue, deletes the ref of its pack, and starts the deferred git maintenance under `branchdeck.leaseMaintenance`.
 //! - [`checkout`] moves the slot of a run to its commit by the diff of the two commits.
 //! - The keeper of `serve` reclaims and fills the slots of each repository (`keeper`)
 
 use crate::repo::{Repository, pool_refusal};
+use crate::tuning;
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_runs::queue_line;
-use lease_pool::host_slots::{
-  CheckedOut, HostProcess, Lend, LendAnswer, LendRequest, Queued, WAIT_PROGRESS, checkout as checkout_slot, give_back_run, lend as lend_slot, lend_waiting,
-};
+use lease_pool::host_slots::{CheckedOut, HostProcess, Lend, LendAnswer, LendRequest, Queued, checkout as checkout_slot, give_back_run, lend as lend_slot, lend_waiting};
 use std::time::{Duration, Instant};
 use sync_utils::process_scan::process_started;
 
-/// The longest lend of the pool within a wait: a cancel ends the wait after it
+/// The longest look of a wait (a lend of the pool, a take of the heavy turn): a cancel ends the wait after it
 const STOP_CHECK: Duration = Duration::from_secs(2);
+
+/// What one look of a wait answered: what the run waits for, or its place in the queue
+pub(crate) enum Look<T, Q> {
+  Got(T),
+  Queued(Q),
+}
+
+/// Waits up to `wait` in looks of at most 2 s each (`look` waits up to the time it gets), so `stop` ends the wait within
+/// 2 s. Each minute of the wait (`tuning::wait_progress`) says `line` of the place in the queue and the time waited
+/// through `say`. Answers what the run waits for, the place in the queue once the time is up, or `None` when `stop`
+/// ended the wait. The wait for a host slot and the wait for the heavy turn of the host are this one wait
+pub(crate) fn wait_in_looks<T, Q>(
+  wait: Duration,
+  stop: &dyn Fn() -> bool,
+  look: &mut dyn FnMut(Duration) -> Result<Look<T, Q>, Refusal>,
+  line: &dyn Fn(&Q, Duration) -> String,
+  say: &mut dyn FnMut(&str),
+) -> Result<Option<Look<T, Q>>, Refusal> {
+  let started = Instant::now();
+  let mut said = started;
+  let every = tuning::wait_progress();
+  loop {
+    if stop() {
+      return Ok(None);
+    }
+    let queued = match look(wait.saturating_sub(started.elapsed()).min(STOP_CHECK))? {
+      Look::Got(got) => return Ok(Some(Look::Got(got))),
+      Look::Queued(queued) => queued,
+    };
+    let waited = started.elapsed();
+    if waited >= wait {
+      return Ok(Some(Look::Queued(queued)));
+    }
+    if said.elapsed() >= every {
+      say(&line(&queued, waited));
+      said = Instant::now();
+    }
+  }
+}
 
 /// Lends a slot of the pool of `repo` to `run`, which this process runs, with the affinity `affinity`. With `wait`, the
 /// call waits up to that long while the run is queued, and answers the place in the queue when the wait ends; without
@@ -48,26 +87,15 @@ pub(crate) fn lend(
   let Some(wait) = wait else {
     return lend_slot(&params, &request).map(Some).map_err(refused);
   };
-  let started = Instant::now();
-  let mut said = started;
-  loop {
-    if stop() {
-      return Ok(None);
-    }
-    let chunk = wait.saturating_sub(started.elapsed()).min(STOP_CHECK);
-    let queued = match lend_waiting(&repo.git, &params, &request, chunk, &|_: &Queued, _: Duration| {}).map_err(refused)? {
-      LendAnswer::Lent(lent) => return Ok(Some(LendAnswer::Lent(lent))),
-      LendAnswer::Queued(queued) => queued,
-    };
-    let waited = started.elapsed();
-    if waited >= wait {
-      return Ok(Some(LendAnswer::Queued(queued)));
-    }
-    if said.elapsed() >= WAIT_PROGRESS {
-      say(&queue_line(run, &queued, waited));
-      said = Instant::now();
-    }
-  }
+  let mut look = |chunk: Duration| match lend_waiting(&repo.git, &params, &request, chunk, &|_: &Queued, _: Duration| {}).map_err(refused)? {
+    LendAnswer::Lent(lent) => Ok(Look::Got(lent)),
+    LendAnswer::Queued(queued) => Ok(Look::Queued(queued)),
+  };
+  let waited = wait_in_looks(wait, stop, &mut look, &|queued: &Queued, waited| queue_line(run, queued, waited), say)?;
+  Ok(waited.map(|look| match look {
+    Look::Got(lent) => LendAnswer::Lent(lent),
+    Look::Queued(queued) => LendAnswer::Queued(queued),
+  }))
 }
 
 /// What a give-back did, for the log of the supervisor

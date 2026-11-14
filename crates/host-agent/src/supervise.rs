@@ -6,6 +6,10 @@
 //!
 //! The steps:
 //!
+//! 0. A heavy run (`RunSpec::heavy`) takes the heavy turn of the host first (`turn::take`, with the pid of this
+//!    process), in the phase `heavy`: at once when no other heavy run of the host holds it or waits before it, else
+//!    after a wait of up to 2 h whose line goes to the log at once and once a minute. A wait that ends in the queue ends
+//!    the run with `heavy_timeout`. A run that is not heavy takes no turn.
 //! 1. Lend a host slot of the repository (`slots::lend`, with the pid of this process): the slot that the affinity used
 //!    last, else the one used longest ago, else a place in the queue. While Homebrew upgrades the git of the host, the
 //!    run waits in the phase `git`. While every slot is lent, the run waits up to an hour, and the queue line goes to
@@ -27,14 +31,16 @@
 //! 6. Stage: the patch of the changes of the command, the outputs, and the new entries of each `fetch` directory, into
 //!    the run directory: nothing reads the slot after the run.
 //!
-//! Each step is a phase: `git` (only after a wait), `slot`, `pack_wait`, `checkout`, `prepare`, `command` and `stage`.
+//! Each step is a phase: `heavy` (only of a heavy run), `git` (only after a wait), `slot`, `pack_wait`, `checkout`,
+//! `prepare`, `command` and `stage`.
 //! At the end of each step, whatever its outcome, the supervisor rewrites `phases.json` with the steps that have ended.
 //!
 //! On every way out it keeps the fingerprints of the slot, and writes `exit.json` last. Then it drops the flock of the
 //! run and gives the slot back (`slots::give_back`): the processes that the run left in the slot stop, its changes go,
-//! the ref of its pack goes, and a run that got no slot leaves the queue. No signal cuts the give-back, and its lines go
-//! to `supervisor.log`. The `cancel` file of the run, or SIGINT, SIGTERM or SIGHUP, interrupts the run. Before the
-//! command starts, the run ends with the exit code 130 after the current step; a checkout and a scan of the slot run to
+//! the ref of its pack goes, and a run that got no slot leaves the queue. A heavy run then leaves the heavy turn: it
+//! gives the turn back, or its ticket leaves the queue; a killed supervisor holds no turn, since the next heavy run
+//! takes the turn of a gone holder. No signal cuts the give-back, and its lines go to `supervisor.log`. The `cancel`
+//! file of the run, or SIGINT, SIGTERM or SIGHUP, interrupts the run. Before the command starts, the run ends with the exit code 130 after the current step; a checkout and a scan of the slot run to
 //! their end, since the pool runs their git in process. After the command started, the command group gets SIGINT, and
 //! SIGKILL after the grace time. The progress lines go to `events.log` as stderr events with the prefix `brd-host: `,
 //! each on a line of its own (`EventLog::write`). A prepare step writes both of its streams as stderr events, so the
@@ -47,12 +53,13 @@ use crate::login_env::LoginEnv;
 use crate::prepare::Prepared;
 use crate::repo::Repository;
 use crate::run::{EventLog, ExitRecord, MAX_EVENT_BYTES, RunDir, char_cut, epoch_ms};
-use crate::{awake, login_env, prepare, run_env, run_git, slots, sys, tuning};
+use crate::{awake, login_env, prepare, run_env, run_git, slots, sys, tuning, turn};
 use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::proto::{Phase, RunSpec, Stream};
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_git::with_first;
 use lease_pool::host_slots::{Lend, LendAnswer, SlotCheckout};
+use lease_pool::host_turn::TurnAnswer;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, File, Permissions};
@@ -129,6 +136,21 @@ pub fn supervise(home: &Home, run_dir: &Path, lock: Option<RawFd>) {
   drop(lock);
   if let Some(spec) = spec {
     give_back(home, repo, &spec);
+    if spec.heavy {
+      leave_turn(home, &spec.run);
+    }
+  }
+}
+
+/// The heavy run `run` leaves the heavy turn of the host after its give-back: it gives the turn back, or its ticket
+/// leaves the queue. A signal does not cut it
+fn leave_turn(home: &Home, run: &str) {
+  match turn::leave(home, run) {
+    Ok(true) => supervisor("gave the heavy turn of the host back"),
+    Ok(false) => {}
+    Err(refusal) => supervisor(&format!(
+      "cannot leave the heavy turn of the host: {refusal}; the next heavy run takes it once this process is gone"
+    )),
   }
 }
 
@@ -260,6 +282,9 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
   private_dir(&stage).map_err(|error| Refusal::new(Code::AgentError, format!("cannot make {}: {error}", stage.display())))?;
   let mut phases = Phases { run, ended: Vec::new() };
 
+  if spec.heavy && !take_turn(context, &mut phases, stop)? {
+    return Ok(INTERRUPTED);
+  }
   let Some(lent) = take_slot(context, &mut phases, stop)? else {
     return Ok(INTERRUPTED);
   };
@@ -313,6 +338,36 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
     context.say(&error);
   }
   Ok(code)
+}
+
+/// Takes the heavy turn of the host for a heavy run, in the phase `heavy`: at once when no other heavy run holds it or
+/// waits before it, else after a wait of up to `tuning::heavy_wait` (2 h) whose line goes to the log at once and once
+/// a minute, with the time left. A wait that ends in the queue refuses with `heavy_timeout`. Answers `false` when a
+/// cancel ended the wait; the end of the run takes it out of the queue then
+fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> bool) -> Result<bool, Refusal> {
+  let spec = context.spec;
+  let wait = tuning::heavy_wait();
+  let started = Instant::now();
+  let repo = context.repo.path.display().to_string();
+  let taken = phases.time("heavy", || {
+    turn::take(context.home, &spec.run, &repo, &spec.command, wait, stop, &mut |line| context.say(line))
+  });
+  let waited = started.elapsed();
+  match taken {
+    Err(_) | Ok(None) if stop() => Ok(false),
+    Ok(None) => Ok(false),
+    Ok(Some(TurnAnswer::Taken)) => {
+      if waited >= Duration::from_secs(1) {
+        context.say(&format!("took the heavy turn of the host after {} s", waited.as_secs()));
+      }
+      Ok(true)
+    }
+    Ok(Some(TurnAnswer::Queued(queue))) => Err(Refusal::new(
+      Code::HeavyTimeout,
+      format!("no heavy turn for {} s; giving up: {}", wait.as_secs(), turn::timeout_line(&spec.run, &queue, waited)),
+    )),
+    Err(refusal) => Err(refusal),
+  }
 }
 
 /// Lends a host slot for the run, in the phases `git` and `slot`. A first lend answers at once. A lend that queues

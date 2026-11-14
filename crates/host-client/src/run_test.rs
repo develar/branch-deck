@@ -40,9 +40,19 @@ fn agent(
   has: impl Fn(&[String]) -> Vec<String> + Send + Sync + 'static,
   script: impl Fn(&Request, &mut Channel) -> bool + Send + Sync + 'static,
 ) -> (Setup, Packed) {
+  agent_with(repo, Hello::default(), has, script)
+}
+
+/// `agent` whose hello is `hello`
+fn agent_with(
+  repo: TestRepo,
+  hello: Hello,
+  has: impl Fn(&[String]) -> Vec<String> + Send + Sync + 'static,
+  script: impl Fn(&Request, &mut Channel) -> bool + Send + Sync + 'static,
+) -> (Setup, Packed) {
   let packed = Packed::default();
   let has: Arc<Has> = Arc::new(has);
-  let setup = Setup::on(repo, Hello::default(), {
+  let setup = Setup::on(repo, hello, {
     let packed = Arc::clone(&packed);
     move |request, channel| {
       if !script(request, channel) {
@@ -718,7 +728,12 @@ const PATCH: &str = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1
 
 /// An agent of a run on `repo` whose host has every commit, whose command exits 0, and whose fetch sends `files`
 fn fetching_agent(repo: TestRepo, files: Vec<(String, FileKind, Vec<u8>)>) -> Setup {
-  agent(repo, <[String]>::to_vec, move |request, channel| match request {
+  fetching_agent_with(repo, Hello::default(), files)
+}
+
+/// `fetching_agent` whose hello is `hello`
+fn fetching_agent_with(repo: TestRepo, hello: Hello, files: Vec<(String, FileKind, Vec<u8>)>) -> Setup {
+  agent_with(repo, hello, <[String]>::to_vec, move |request, channel| match request {
     Request::Follow { .. } => {
       exit(channel, 0);
       true
@@ -742,6 +757,7 @@ const APPLY: RunOptions = RunOptions {
   outputs: false,
   apply: true,
   repo_by_name: false,
+  heavy: false,
 };
 
 /// The patch of the changes of a command applies to the files of the working tree, not to the index, and stays in the
@@ -1033,19 +1049,80 @@ fn a_start_without_its_reply_is_cancelled() {
   assert_eq!(kinds(&setup), ["have", "start", "cancel"]);
 }
 
-/// A commit whose `[host]` does not parse starts no run that asks for its outputs
+/// A commit whose `[host]` does not parse starts no run, one that asks for its outputs or not (bt): the client reads
+/// `[host]` of every run for its heavy patterns
 #[test]
-fn a_config_that_does_not_parse_starts_no_run_with_outputs() {
-  let repo = TestRepo::new();
-  repo.create_commit("Add the config", ".branchdeck.toml", "[host]\noutputs = \"results\"\n");
-  let setup = fetching_agent(repo, Vec::new());
-  let outputs = RunOptions {
-    outputs: true,
+fn a_config_that_does_not_parse_starts_no_run() {
+  for options in [
+    RunOptions {
+      outputs: true,
+      ..RunOptions::default()
+    },
+    RunOptions::default(),
+  ] {
+    let repo = TestRepo::new();
+    repo.create_commit("Add the config", ".branchdeck.toml", "[host]\noutputs = \"results\"\n");
+    let setup = fetching_agent(repo, Vec::new());
+    let failure = run_in(&setup, &|_| {}, &calm, &[], options).unwrap_err();
+    assert_eq!((failure.refusal.code, failure.exit), (Code::BadConfig, Exit::NotRun), "{options:?}");
+    assert!(!kinds(&setup).contains(&"start"), "{:?}", kinds(&setup));
+  }
+}
+
+/// A run is heavy by `--heavy`, else by the first pattern of `heavy` of `[host]` of the shipped commit that matches its
+/// command: the start carries `heavy`, and a line says why. A command that no pattern matches is no heavy run. An agent
+/// without the feature `heavy` gets the run with a line that names the upgrade
+#[test]
+fn a_run_is_heavy_by_a_pattern_of_its_commit_or_by_heavy_and_says_why() {
+  let heavy_agent = Hello {
+    features: vec!["upgrade".to_owned(), "heavy".to_owned()],
+    ..Hello::default()
+  };
+  let heavy = RunOptions {
+    heavy: true,
     ..RunOptions::default()
   };
-  let failure = run_in(&setup, &|_| {}, &calm, &[], outputs).unwrap_err();
-  assert_eq!((failure.refusal.code, failure.exit), (Code::BadConfig, Exit::NotRun));
-  assert!(!kinds(&setup).contains(&"start"), "{:?}", kinds(&setup));
+  // the command of the tests is `./community/tools/bt.cmd FooTest --json`
+  let run = |config: Option<&str>, hello: &Hello, options: RunOptions| {
+    let repo = TestRepo::new();
+    match config {
+      Some(config) => repo.create_commit("Add the config", ".branchdeck.toml", config),
+      None => repo.create_commit("Add a", "a.txt", "a\n"),
+    };
+    let setup = fetching_agent_with(repo, hello.clone(), Vec::new());
+    let said = Said::default();
+    let say = |line: &str| said.push(line);
+    run_in(&setup, &say, &calm, &[], options).unwrap();
+    let lines: Vec<String> = said.lines().into_iter().filter(|line| line.contains("heavy")).collect();
+    (start_spec(&setup).heavy, lines)
+  };
+  let patterns = "[host]\nheavy = [\"pnpm e2e*\", \"./community/tools/bt.cmd*\", \"*\"]\n";
+  assert_eq!(
+    run(Some(patterns), &heavy_agent, RunOptions::default()),
+    (
+      true,
+      vec![format!(
+        "brd-host: a heavy run by `./community/tools/bt.cmd*` of [host]: on {ALIAS} it waits until no other heavy run goes"
+      )]
+    ),
+    "the first pattern that matches names the run"
+  );
+  assert_eq!(run(Some("[host]\nheavy = [\"pnpm e2e*\"]\n"), &heavy_agent, RunOptions::default()), (false, vec![]));
+  assert_eq!(run(None, &heavy_agent, RunOptions::default()), (false, vec![]), "no [host], no heavy run");
+  assert_eq!(
+    run(None, &heavy_agent, heavy),
+    (true, vec![format!("brd-host: a heavy run by --heavy: on {ALIAS} it waits until no other heavy run goes")])
+  );
+  assert_eq!(
+    run(None, &Hello::default(), heavy),
+    (
+      true,
+      vec![
+        format!("brd-host: the agent on {ALIAS} predates heavy runs, so this one runs beside the others: `brd-host upgrade {ALIAS}` sends this build"),
+        format!("brd-host: a heavy run by --heavy: on {ALIAS} it waits until no other heavy run goes"),
+      ]
+    )
+  );
 }
 
 /// The outputs of `[host]` of the shipped commit go into the record, so the fetch takes their files
@@ -1079,7 +1156,7 @@ fn runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent() {
   };
   let setup = Setup::with_hello(hello, |request, channel| {
     let _ = match request {
-      Request::Runs => channel.send(&Reply::Runs { runs: Vec::new() }),
+      Request::Runs => channel.send(&Reply::Runs { runs: Vec::new(), heavy: None }),
       Request::Disk { fresh: true } => channel.send(&Reply::Heartbeat { elapsed_ms: 100 }).and_then(|()| {
         channel.send(&Reply::Disk {
           report: serde_json::json!({"bytes": 7}),
@@ -1101,7 +1178,7 @@ fn runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent() {
   });
   let processes = FakeProcesses::default();
   let client = setup.client(&processes, &|_| {}, &calm);
-  assert_eq!(client.runs(ALIAS).unwrap().len(), 0);
+  assert_eq!(client.runs(ALIAS).unwrap().runs.len(), 0);
   assert_eq!(client.slots(ALIAS).unwrap()[0].repo, "~/projects/idea-1");
   assert_eq!(client.cancel(ALIAS, "r1").unwrap_err().code, Code::BadRequest);
   assert_eq!(client.disk(ALIAS, true).unwrap(), serde_json::json!({"bytes": 7}));
@@ -1147,7 +1224,7 @@ fn heartbeats_keep_a_waiting_request_alive() {
         thread::sleep(Duration::from_millis(100));
         let _ = channel.send(&Reply::Heartbeat { elapsed_ms: 100 });
       }
-      let _ = channel.send(&Reply::Runs { runs: Vec::new() });
+      let _ = channel.send(&Reply::Runs { runs: Vec::new(), heavy: None });
     }
   });
   let processes = FakeProcesses::default();
@@ -1155,7 +1232,7 @@ fn heartbeats_keep_a_waiting_request_alive() {
     read: Duration::from_millis(300),
     ..crate::testkit::UNHURRIED
   };
-  assert_eq!(setup.client(&processes, &|_| {}, &calm).with_timing(timing).runs(ALIAS).unwrap().len(), 0);
+  assert_eq!(setup.client(&processes, &|_| {}, &calm).with_timing(timing).runs(ALIAS).unwrap().runs.len(), 0);
 }
 
 /// Two commits whose `origin/master` is a commit beside HEAD on the first one, so a base sync sends a pack
