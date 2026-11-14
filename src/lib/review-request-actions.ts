@@ -67,14 +67,19 @@ export interface ReviewRequestActionContext {
 /** The actions by name: the header of the review places them, a menu lists them in groups (`reviewRequestMenu`) */
 export interface ReviewRequestActions {
   readonly review: MenuItem
-  readonly approve: MenuItem
+  /**
+   * Absent where Rust offers no approval of one pull request: All Changes of a stack, whose actions are those of the stack
+   * (`review-stack:<top>`, Approve N Pull Requests alone)
+   */
+  readonly approve: MenuItem | null
   /** The user approved the commit the review shows: Approve is done, Safe Push… is the next step */
   readonly approved: boolean
   /** What the approval counts for, in the description of Approve and the confirmation of Approve and Safe Push; never a blocker */
   readonly approvalScope: string | null
   /** Absent where Patronus doesn't merge */
   readonly safePush: MenuItem | null
-  readonly requestChanges: MenuItem
+  /** Absent as Approve is */
+  readonly requestChanges: MenuItem | null
   readonly openPullRequest: MenuItem
   readonly copyLink: MenuItem
   readonly copyBranchName: MenuItem
@@ -120,15 +125,20 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
   // the reason it waits first, then what it counts for: information only
   const approveDescription = [approveRefused, approvalScope].filter(it => it !== null).join(". ")
 
-  const approve: MenuItem = {
-    id: "approve",
-    label: !inReview ? "Approve…" : approved ? "Approved" : "Approve",
-    icon: CheckIcon,
-    kbds: keys("a"),
-    disabled: approveRefused !== null || approved,
-    description: approved ? `You approved ${formatShortHash(approvedCommit)}` : approveDescription === "" ? undefined : approveDescription,
-    onSelect: context.onApprove,
-  }
+  // the decisions of one pull request are offered where Rust offers them: not on All Changes of a stack; while the
+  // session has no actions of the pull request (another repository) they are
+  const offers = (id: ActionId) => actions === undefined || findAction(actions, id) !== undefined
+  const approve: MenuItem | null = !offers("approve")
+    ? null
+    : {
+        id: "approve",
+        label: !inReview ? "Approve…" : approved ? "Approved" : "Approve",
+        icon: CheckIcon,
+        kbds: keys("a"),
+        disabled: approveRefused !== null || approved,
+        description: approved ? `You approved ${formatShortHash(approvedCommit)}` : approveDescription === "" ? undefined : approveDescription,
+        onSelect: context.onApprove,
+      }
 
   let safePush: MenuItem | null = null
   if (findAction(actions, "safe-push-pull-request") !== undefined) {
@@ -154,15 +164,17 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
     approved,
     approvalScope,
     safePush,
-    requestChanges: {
-      id: "request-changes",
-      label: "Request Changes…",
-      icon: MessageSquareDiffIcon,
-      kbds: keys("r"),
-      disabled: requestChangesRefused !== null,
-      description: requestChangesRefused ?? undefined,
-      onSelect: context.onRequestChanges,
-    },
+    requestChanges: !offers("request-changes")
+      ? null
+      : {
+          id: "request-changes",
+          label: "Request Changes…",
+          icon: MessageSquareDiffIcon,
+          kbds: keys("r"),
+          disabled: requestChangesRefused !== null,
+          description: requestChangesRefused ?? undefined,
+          onSelect: context.onRequestChanges,
+        },
     openPullRequest: { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: context.onOpenPullRequest },
     // a menu item copies without a toast
     copyLink: { id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(request.url) },
@@ -174,7 +186,7 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
 
 /** The actions of a row in the groups of its menu: review it, write to it, open it, copy */
 export function reviewRequestMenu(actions: ReviewRequestActions): MenuItemGroups {
-  const writes = [actions.approve, ...(actions.safePush === null ? [] : [actions.safePush]), actions.requestChanges]
+  const writes = [actions.approve, actions.safePush, actions.requestChanges].filter(it => it !== null)
   const open = [actions.openPullRequest, ...(actions.showBranch === null ? [] : [actions.showBranch])]
   const groups: MenuItem[][] = [[actions.review], writes, open, [actions.copyLink, actions.copyBranchName]]
   if (actions.removeFromReviews !== null) {
@@ -190,6 +202,8 @@ export interface StackApprovalContext {
    * `review-stack:<top>`, `domain_policy::stack_approval`); undefined until the session has the fetch of the stack
    */
   readonly approval: ReviewStackApproval | undefined
+  /** Whether it can run, the action of the stack itself as Rust decides it (`review-stack:<top>` of `RepositoryView.actions`) */
+  readonly action: ActionState | undefined
   /** The layers the window shows: the count before Rust says which it approves */
   readonly layerCount: number
   /** Why the window has no heads to approve on yet (the stack is fetched, its fetch failed, a head could not be fetched); null once it has */
@@ -211,18 +225,18 @@ export interface StackApprovalContext {
 export function getStackApprovalItem(context: StackApprovalContext): MenuItem {
   const { approval } = context
   const approves = approval?.approves.length ?? 0
-  const reason = approval?.action.availability.kind === "disabled" ? approval.action.availability.reason : null
+  const reason = context.action?.availability.kind === "disabled" ? context.action.availability.reason : null
   const refused =
     context.waiting ??
     (context.busy
       ? "Wait for GitHub to answer"
-      : approval === undefined
+      : approval === undefined || context.action === undefined
         ? "Wait until the stack is fetched: an approval is on the commits you saw"
         : reason === null
           ? null
           : formatActionBlocker("approve-stack", reason, { ...context.words, subject: "the stack" }))
   const skipped = approval?.approved.map(number => `#${number}`) ?? []
-  const skips = skipped.length === 0 ? null : `${joinNames(skipped)} ${skipped.length === 1 ? "is" : "are"} approved on the commit the window shows: skipped`
+  const skips = skipped.length === 0 ? null : `Skips ${joinNames(skipped)}: you already approved ${skipped.length === 1 ? "its commit" : "their commits"}`
   // the reason it waits, else what it skips and what Patronus counts the approvals for: information only
   const said = [skips, context.landing].filter(it => it !== null).join(". ")
   return {

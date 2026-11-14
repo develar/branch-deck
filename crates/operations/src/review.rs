@@ -116,7 +116,7 @@ pub fn approve_stack_plan(intent: &Intent, known: &[LayerFacts<'_>]) -> Result<P
   if layers.is_empty() {
     return Err(ApiError::new(ErrorCode::InvalidArguments, "A stack to approve has layers"));
   }
-  let effects = stack_approval(known, false)
+  let effects = stack_approval(known)
     .approves
     .into_iter()
     .map(|layer| PlannedEffect::SubmitReview {
@@ -208,8 +208,12 @@ pub async fn execute_approve_stack(registry: &Registry, key: &SessionKey, intent
       let status = match &effect {
         PlannedEffect::SubmitReview { number, verdict, commit } => match checks.get(number) {
           Some(LayerCheck::Approve) => review.submit(*number, *verdict, commit, None).await,
-          Some(LayerCheck::Moved { head }) => refused(format!("The head of #{number} moved from {} to {} since you reviewed it", short_id(commit), short_id(head))),
-          Some(LayerCheck::BelowMoved { below }) => refused(format!("#{number} is built on #{below}, whose head moved since you reviewed it")),
+          Some(LayerCheck::Moved { head }) => refused(format!(
+            "The head of #{number} moved from {} to {} since the window fetched it: fetch the stack again to read the new commits",
+            short_id(commit),
+            short_id(head)
+          )),
+          Some(LayerCheck::BelowMoved { below }) => refused(format!("#{number} is built on #{below}, whose head moved since the window fetched it")),
           None => EffectStatus::Skipped { reason: None },
         },
         _ => EffectStatus::Skipped { reason: None },

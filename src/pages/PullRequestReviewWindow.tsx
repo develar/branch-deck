@@ -17,7 +17,7 @@ import type { ReviewPlace, ShownReviewWindow } from "@/lib/review-reuse"
 import { reviewWindowTitle } from "@/lib/review-reuse"
 import { askReviewRun, PULL_REQUEST_READ, PULL_REQUEST_SAFE_PUSH } from "@/lib/review-runs"
 import { showReviewWindowPullRequest } from "@/model/demand"
-import { useRowPart } from "@/model/store"
+import { refreshSessionFacts, useRowPart } from "@/model/store"
 import { useBranchSync } from "@/stores/branch-sync"
 import { reviewFetchKey, reviewStackFetchKey, startReviewFetch, startReviewStackFetch, stopReviewFetch, useReviewFetch } from "@/stores/review-fetch"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
@@ -178,6 +178,7 @@ export function PullRequestStackReviewWindow({ data, back }: { data: ShownStack;
   const writes = useRequestWrites(repositoryPath, request)
   // Approve N Pull Requests of the stack, as Rust decides it on the heads of the fetch, and whether a write of a layer runs
   const approval = useRowPart(`review-stack:${top}`, "reviewStack")
+  const stackActions = useRowPart(`review-stack:${top}`, "actions")
   const approvalLanding = useBranchSync(state => state.approvalLanding)
   const operations = useBranchSync(state => state.operations)
   const reviewBusy = getReviewBusy(operations)
@@ -233,10 +234,13 @@ export function PullRequestStackReviewWindow({ data, back }: { data: ShownStack;
       summary: readings?.stack ?? null,
       approveLayer: (target, commitId) => submitReview(repositoryPath, target, "approve", commitId, null, WINDOW_REVIEW_FEEDBACK),
       approval,
+      actions: stackActions,
       landings: layers.map(it => approvalLanding[`pull:${it.request.number}`]),
       approving,
       layerBusy,
-      approveStack: shown => approveStack(repositoryPath, top, shown, WINDOW_REVIEW_FEEDBACK),
+      // Fetch Again of a refusal: the session lists the requests again, and a layer whose head moved is another key, which
+      // the window fetches
+      approveStack: shown => approveStack(repositoryPath, top, shown, WINDOW_REVIEW_FEEDBACK, () => void refreshSessionFacts(repositoryPath, "reviewRequests", "manual")),
     },
     showRequest: next => {
       const target = layers[next]

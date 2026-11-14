@@ -1,5 +1,5 @@
-use crate::stack_approval::{LayerCheck, LayerFacts, head_checks, stack_approval};
-use domain_types::actions::{ActionBlocker, Availability};
+use crate::stack_approval::{LayerCheck, LayerFacts, head_checks, stack_approval, stack_review_actions};
+use domain_types::actions::{ActionBlocker, ActionId, Availability};
 use domain_types::operation::ReviewedLayer;
 use pretty_assertions::assert_eq;
 
@@ -21,37 +21,50 @@ fn reviewed(number: u32, commit: &str) -> ReviewedLayer {
 
 /// openspec/specs/repository/review-requests/spec.md, "Review window: Approve N Pull Requests approves every layer the
 /// window shows": every layer on the head the window shows, a layer approved on that head skipped (an approval of an
-/// older head is approved again), an own one left out; nothing left to approve is "approved", a stack of the user's
-/// own is theirs, and a cached frame waits
+/// older head is approved again), an own one left out
 #[test]
 fn a_stack_approval_approves_each_layer_on_its_shown_head_and_skips_those_approved_on_it() {
-  let approval = stack_approval(&[layer(301, "a", Some("a")), layer(302, "b", Some("old")), layer(303, "c", None)], false);
+  let approval = stack_approval(&[layer(301, "a", Some("a")), layer(302, "b", Some("old")), layer(303, "c", None)]);
   assert_eq!(approval.approves, [reviewed(302, "b"), reviewed(303, "c")]);
   assert_eq!(approval.approved, [301]);
-  assert_eq!(approval.action.availability, Availability::Enabled);
 
   let own = LayerFacts {
     own: true,
     ..layer(304, "c", None)
   };
-  let done = stack_approval(&[layer(301, "a", Some("a")), own], false);
+  let done = stack_approval(&[layer(301, "a", Some("a")), own]);
   assert_eq!((done.approves, done.approved), (Vec::new(), vec![301]));
+}
+
+/// openspec/specs/repository/review-requests/spec.md, "Review window: All Changes of a stack offers Approve N Pull
+/// Requests alone": the stack's own actions are Approve N Pull Requests alone, never the Approve, Request Changes or
+/// Safe Push of one pull request; nothing left to approve is "approved", a stack of the user's own is theirs, a cached
+/// frame waits
+#[test]
+fn the_actions_of_a_stack_are_approve_n_pull_requests_alone_disabled_once_nothing_is_left_to_approve() {
+  let state = |layers: &[LayerFacts<'_>], cached: bool| {
+    let actions = stack_review_actions(&stack_approval(layers), cached);
+    assert_eq!(actions.iter().map(|action| action.id).collect::<Vec<_>>(), [ActionId::ApproveStack]);
+    actions[0].availability.clone()
+  };
+  let own = LayerFacts {
+    own: true,
+    ..layer(304, "c", None)
+  };
+  assert_eq!(state(&[layer(301, "a", Some("a")), layer(303, "c", None)], false), Availability::Enabled);
   assert_eq!(
-    done.action.availability,
+    state(&[layer(301, "a", Some("a")), own], false),
     Availability::Disabled {
       reason: ActionBlocker::StackApproved
     }
   );
   assert_eq!(
-    stack_approval(&[own], false).action.availability,
+    state(&[own], false),
     Availability::Disabled {
       reason: ActionBlocker::OwnPullRequest
     }
   );
-  assert_eq!(
-    stack_approval(&[layer(303, "c", None)], true).action.availability,
-    Availability::Disabled { reason: ActionBlocker::Cached }
-  );
+  assert_eq!(state(&[layer(303, "c", None)], true), Availability::Disabled { reason: ActionBlocker::Cached });
 }
 
 /// openspec/specs/repository/review-requests/spec.md, "Review window: A layer whose head moved is refused, and the

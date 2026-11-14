@@ -26,9 +26,10 @@ export interface ReviewTabsProps {
   onTabChange: (tab: ReviewTab) => void
   /**
    * The files of the range once fetched; null while the pull request is fetched or its fetch failed: Changes waits for
-   * it, the rail says how far the fetch is (its only progress) or the alert why it failed
+   * it, the rail says how far the fetch is (its only progress) or the alert why it failed; undefined once fetched while
+   * nothing counts its files yet (a layer of a stack while they are read)
    */
-  fileCount: number | null
+  fileCount: number | null | undefined
 }
 
 /** Overview and Changes (D): which view of the pull request shows, the way into the review of its diffs */
@@ -41,7 +42,7 @@ export function ReviewTabs({ tab, onTabChange, fileCount }: ReviewTabsProps) {
         </TabsTrigger>
         <TabsTrigger value="changes" className="px-2" disabled={fileCount === null} data-testid="review-dialog-review">
           Changes
-          {fileCount !== null && <span className="text-muted-foreground tabular-nums">{fileCount}</span>}
+          {fileCount != null && <span className="text-muted-foreground tabular-nums">{fileCount}</span>}
           <Kbd>D</Kbd>
         </TabsTrigger>
       </TabsList>
@@ -62,8 +63,6 @@ export interface ReviewDecisionsProps {
   approveStackRef?: RefObject<HTMLButtonElement | null>
   /** It runs: its spinner */
   approveStackPending?: boolean
-  /** It is the primary: All Changes of the stack, where Approve of one layer is not offered */
-  approveStackPrimary?: boolean
   safePushRef: RefObject<HTMLButtonElement | null>
   isRequestingChanges: boolean
   onRequestingChangesChange: (open: boolean) => void
@@ -75,37 +74,41 @@ export interface ReviewDecisionsProps {
 
 /**
  * The decisions on the pull request, the primary last: Request Changes… (R), Approve and Safe Push… (M) where Patronus
- * merges, of a stack Approve N Pull Requests (⇧A), and Approve (A), the primary; on All Changes of a stack, where
- * Approve of one layer is not offered, Approve N Pull Requests is. Once the user approved the commit, "Approved" says so
+ * merges, of a stack Approve N Pull Requests (⇧A), and Approve (A), the primary; on All Changes of a stack Rust offers
+ * only Approve N Pull Requests, which is the primary there. Once the user approved the commit, "Approved" says so
  * and Safe Push…, the next step, is the primary. They end the title bar of the window: in a narrow one the keys hide and Request Changes… is its
  * icon. Disabled (a write runs, the commit of another request loads), a decision keeps the focus: its form gives it
  * back as it closes, else the focus fell to the page and the keys of the review stopped.
  */
 export function ReviewDecisions(props: ReviewDecisionsProps) {
   const { request, actions, busy, commitId, requestChangesRef, approveRef, safePushRef } = props
-  const { approveStack = null, approveStackRef, approveStackPending = false, approveStackPrimary = false } = props
+  const { approveStack = null, approveStackRef, approveStackPending = false } = props
+  const { approve, requestChanges } = actions
   const safePushNext = actions.approved && actions.safePush !== null && actions.safePush.disabled !== true
-  const stackPrimary = approveStack !== null && approveStackPrimary
   return (
     <div className="ml-2 flex items-center gap-2" data-testid="review-decisions">
-      <MenuItemButton
-        item={actions.requestChanges}
-        ref={requestChangesRef}
-        variant="outline"
-        size="sm"
-        narrow="label"
-        pending={busy === "requestChanges"}
-        focusableWhenDisabled
-        data-testid="review-request-changes"
-      />
-      <RequestChangesPopover
-        request={request}
-        commitId={commitId}
-        anchor={requestChangesRef}
-        open={props.isRequestingChanges && commitId !== null}
-        onOpenChange={props.onRequestingChangesChange}
-        onSend={props.onRequestChanges}
-      />
+      {requestChanges !== null && (
+        <>
+          <MenuItemButton
+            item={requestChanges}
+            ref={requestChangesRef}
+            variant="outline"
+            size="sm"
+            narrow="label"
+            pending={busy === "requestChanges"}
+            focusableWhenDisabled
+            data-testid="review-request-changes"
+          />
+          <RequestChangesPopover
+            request={request}
+            commitId={commitId}
+            anchor={requestChangesRef}
+            open={props.isRequestingChanges && commitId !== null}
+            onOpenChange={props.onRequestingChangesChange}
+            onSend={props.onRequestChanges}
+          />
+        </>
+      )}
       {actions.safePush !== null && (
         <>
           <MenuItemButton
@@ -135,7 +138,7 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
         <MenuItemButton
           item={approveStack}
           ref={approveStackRef}
-          variant={stackPrimary ? "default" : "outline"}
+          variant={approve === null ? "default" : "outline"}
           size="sm"
           narrow="key"
           pending={approveStackPending}
@@ -143,19 +146,10 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
           data-testid="review-approve-stack"
         />
       )}
-      {actions.approved ? (
-        <ApprovedBadge description={actions.approve.description} />
+      {approve === null ? null : actions.approved ? (
+        <ApprovedBadge description={approve.description} />
       ) : (
-        <MenuItemButton
-          item={actions.approve}
-          ref={approveRef}
-          variant={stackPrimary ? "outline" : "default"}
-          size="sm"
-          narrow="key"
-          pending={busy === "approve"}
-          focusableWhenDisabled
-          data-testid="review-approve"
-        />
+        <MenuItemButton item={approve} ref={approveRef} variant="default" size="sm" narrow="key" pending={busy === "approve"} focusableWhenDisabled data-testid="review-approve" />
       )}
     </div>
   )

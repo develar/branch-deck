@@ -25,7 +25,17 @@ import { useSubjectPlan } from "@/hooks/useReviewPlan"
 import { useReviewPosition } from "@/hooks/useReviewPosition"
 import { SelectReviewFileContext, linkNavigator } from "@/hooks/useSelectReviewFile"
 import type { ReviewLink } from "@/hooks/useSelectReviewFile"
-import type { ApprovalLanding, RangeReadingView, ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest, ReviewStackApproval, StackReading } from "@/lib/bindings"
+import type {
+  ActionState,
+  ApprovalLanding,
+  RangeReadingView,
+  ReviewerGroupView,
+  ReviewInvolvement,
+  ReviewRange,
+  ReviewRequest,
+  ReviewStackApproval,
+  StackReading,
+} from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -33,7 +43,7 @@ import { formatShortHash } from "@/lib/hash"
 import { FROM_MENU } from "@/lib/menu"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewSource } from "@/lib/pull-request-review"
-import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, layerScopeKey, pullRequestItems, shownKey, stackItems } from "@/lib/range-review"
+import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, layerScopeKey, pullRequestItems, rangeFileCount, shownKey, stackItems } from "@/lib/range-review"
 import { ownerPaths, reviewFilterChips, reviewOwnerMarks } from "@/lib/review-owners"
 import type { ReviewOwners } from "@/lib/review-owners"
 import { planFacts } from "@/lib/review-plan-answer"
@@ -41,6 +51,7 @@ import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@
 import { getReviewRequestActions, getStackApprovalItem } from "@/lib/review-request-actions"
 import { formatStackMeta, formatStackTitle } from "@/lib/review-requests"
 import { useRowPart } from "@/model/store"
+import { findAction } from "@/presenters/actions"
 import { describeUnproven, formatReading, formatStackReading } from "@/presenters/range-reading"
 import { presentMap } from "@/presenters/review-map"
 import { withCommitTitles } from "@/presenters/review-steps"
@@ -125,6 +136,11 @@ export interface ReviewStackView {
    * until the session has the fetch of the stack
    */
   readonly approval: ReviewStackApproval | undefined
+  /**
+   * The actions of the stack itself, those of All Changes (`review-stack:<top>` of `RepositoryView.actions`): Approve N
+   * Pull Requests alone; undefined until the session has the fetch of the stack
+   */
+  readonly actions: readonly ActionState[] | undefined
   /** What an approval of each layer counts for where Patronus merges (`RepositoryView.approvalLanding`), by its place */
   readonly landings: readonly (ApprovalLanding | undefined)[]
   /** Approve N Pull Requests of the stack runs or waits */
@@ -285,6 +301,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   const rangeSubject: DiffSubject | null = range === null ? null : { kind: "range", base: range.base, head: range.head }
   const rangeId = rangeSubject === null ? "" : diffSubjectId(rangeSubject)
   const files = useFilesOfCommit(rangeId)
+  const shownFileCount = rangeFileCount(files?.files.length, request.changedFiles, stack !== undefined && stack.layer !== null)
   // by the id: the subject object is new on every render
   useEffect(() => {
     if (rangeId !== "") {
@@ -364,13 +381,17 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     }
   }
 
+  // the decisions are those Rust offers of what is shown: of the layer, of All Changes of a stack those of the stack
+  // itself (Approve N Pull Requests alone, none until its fetch is in the session)
+  const allChanges = stack !== undefined && stack.layer === null
+  const decisionActions = allChanges ? (stack.actions ?? NO_ACTIONS) : host.actions
   // the operations of the session only while an action of the pull request runs, waits or is busy behind one
-  const words = useOperationWords(host.actions)
+  const words = useOperationWords(decisionActions)
   const actions = getReviewRequestActions(
     request,
     {
       reviewedCommit,
-      actions: host.actions,
+      actions: decisionActions,
       words,
       busy: host.busy,
       approvalScope,
@@ -393,6 +414,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
       ? null
       : getStackApprovalItem({
           approval: stack.approval,
+          action: findAction(stack.actions, "approve-stack"),
           layerCount: stack.layers.length,
           waiting: shownLayers?.kind === "waiting" ? shownLayers.reason : null,
           busy: stack.approving || stack.layerBusy,
@@ -456,8 +478,8 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     }
     // the physical keys, in any keyboard layout; the actions of the pull request work in both views
     const keyed = {
-      KeyA: actions.approved ? undefined : actions.approve,
-      KeyR: actions.requestChanges,
+      KeyA: actions.approved ? undefined : (actions.approve ?? undefined),
+      KeyR: actions.requestChanges ?? undefined,
       KeyM: actions.safePush ?? undefined,
       KeyO: actions.openPullRequest,
     } as const
@@ -526,11 +548,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           </ReviewHeader>
         )}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <ReviewTabs
-            tab={reviewing ? "changes" : "overview"}
-            onTabChange={next => showTab(next)}
-            fileCount={range === null ? null : (files?.files.length ?? request.changedFiles)}
-          />
+          <ReviewTabs tab={reviewing ? "changes" : "overview"} onTabChange={next => showTab(next)} fileCount={range === null ? null : shownFileCount} />
           {/* the view of the diffs, at the end of the tabs, in the header of the block it switches */}
           {reviewing && (
             <div className="ml-auto flex items-center gap-2" data-testid="review-view">
@@ -623,6 +641,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           <ReviewRail
             request={request}
             files={files}
+            fileCount={shownFileCount}
             shape={map === null || map.rows.length === 0 ? null : map}
             commits={range?.commits ?? null}
             titles={railTitles}
@@ -708,7 +727,6 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
             approveStack={approveStackItem}
             approveStackRef={approveStackRef}
             approveStackPending={stack?.approving === true}
-            approveStackPrimary={stack !== undefined && stack.layer === null}
             safePushRef={safePushRef}
             isRequestingChanges={isRequestingChanges}
             onRequestingChangesChange={setRequestingChanges}
@@ -728,6 +746,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
 }
 
 const NOTHING_OPENED: ReadonlySet<string> = new Set()
+const NO_ACTIONS: readonly ActionState[] = []
 const NO_TITLES: ReadonlyMap<string, string> = new Map()
 const NO_OPENED_FILES: ReadonlyMap<number, OpenedFiles> = new Map()
 
@@ -901,6 +920,10 @@ function LayerApprove({ layer, range, onApprove }: { layer: ReviewStackLayerView
     },
     "window",
   ).approve
+  // a layer Rust offers no approval of has none here
+  if (approve === null) {
+    return null
+  }
   return (
     <Button
       variant="outline"

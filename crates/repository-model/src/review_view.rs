@@ -17,7 +17,7 @@ use domain_policy::approval_landing::approval_landing;
 use domain_policy::landing_node::is_users_move;
 use domain_policy::reviewer_groups::reviewer_groups;
 use domain_policy::reviews::{ReviewsFacts, is_returned, sections};
-use domain_policy::stack_approval::{LayerFacts, stack_approval};
+use domain_policy::stack_approval::{LayerFacts, stack_approval, stack_review_actions};
 use domain_types::actions::ActionState;
 use domain_types::next_step::NextStepView;
 use domain_types::patronus::PatronusAvailability;
@@ -119,17 +119,18 @@ fn pulls_to_review<'a>(facts: &'a FactStore, reviews: &'a ReviewsView) -> Vec<(&
   requests.chain(sections).chain(windows).filter(|(request, _)| seen.insert(request.number)).collect()
 }
 
-/// The key of Approve N Pull Requests of the stack of `top` in `RepositoryView::review_stacks`
+/// The key of the stack of `top` a review window shows in `RepositoryView::review_stacks` and `RepositoryView::actions`
 #[must_use]
 pub fn review_stack_key(top: u32) -> String {
   format!("review-stack:{top}")
 }
 
 /// Approve N Pull Requests of every stack a review window shows by `review-stack:<top>`
-/// (`domain_policy::stack_approval::stack_approval`): over the heads its last fetch brought and the user's approvals of
-/// each layer; it waits on a frame nobody checked yet, as Approve does
+/// (`domain_policy::stack_approval::stack_approval`), over the heads its last fetch brought and the user's approvals of
+/// each layer, and the actions of each stack itself by the same key (`stack_review_actions`), which wait on a frame
+/// nobody checked yet, as Approve does
 #[must_use]
-pub fn review_stacks_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, ReviewStackApproval> {
+pub fn review_stacks_of(state: &TableState, facts: &FactStore) -> (BTreeMap<String, ReviewStackApproval>, BTreeMap<String, Vec<ActionState>>) {
   let fact = &facts.review_requests;
   let cached = reads_cached_frame(state, facts, FrameReads::Reviews);
   fact
@@ -144,9 +145,11 @@ pub fn review_stacks_of(state: &TableState, facts: &FactStore) -> BTreeMap<Strin
           own: layer.own,
         })
         .collect();
-      (review_stack_key(top), stack_approval(&layers, cached))
+      let approval = stack_approval(&layers);
+      let actions = stack_review_actions(&approval, cached);
+      ((review_stack_key(top), approval), (review_stack_key(top), actions))
     })
-    .collect()
+    .unzip()
 }
 
 /// The reviewer groups of every pull request whose readiness the session has (`request:<number>`, while a review window

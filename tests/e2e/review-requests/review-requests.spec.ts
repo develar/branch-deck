@@ -1723,7 +1723,10 @@ test.describe("Review Stack", () => {
     await expect(review.getByTestId("review-stack-meta")).toHaveText("#301–#303 · niyaz · into master")
     await expect(review.getByTestId("review-stack-layer")).toHaveText(["#301Add the auth module1 commit", "#302Add the login form1 commit", "#303Add the OAuth provider1 commit"])
     await expect(review.getByTestId("review-commits").getByTestId("review-commit")).toHaveCount(3)
-    await expect(review.getByTestId("review-approve")).toBeDisabled()
+    // All Changes offers the stack's own decision alone: Approve N Pull Requests, no Approve or Request Changes of one layer
+    await expect(review.getByTestId("review-approve-stack")).toBeVisible()
+    await expect(review.getByTestId("review-approve")).toHaveCount(0)
+    await expect(review.getByTestId("review-request-changes")).toHaveCount(0)
 
     // the changes: All Changes of the stack, a scope per layer, the commits under their layers
     await reviewPage.keyboard.press("d")
@@ -1779,7 +1782,8 @@ test.describe("Review Stack", () => {
     const approveStack = review.getByTestId("review-approve-stack")
     await expect(approveStack).toHaveText(/^Approve 3 Pull Requests/)
     await expect(approveStack).toBeEnabled()
-    await expect(review.getByTestId("review-approve")).toBeDisabled()
+    await expect(approveStack).toHaveAttribute("data-variant", "default")
+    await expect(review.getByTestId("review-approve")).toHaveCount(0)
 
     // the user approves #302 alone first: the stack then approves the other two
     await review.getByTestId("review-stack-layer").nth(1).click()
@@ -1789,7 +1793,9 @@ test.describe("Review Stack", () => {
     await expect(reviewPage.locator("[data-slot=toast-title]", { hasText: "Approved #302" })).toBeVisible()
     await expect(approveStack).toHaveText(/^Approve 2 Pull Requests/)
     await approveStack.hover()
-    await expect(openTooltip(reviewPage)).toHaveText("#302 is approved on the commit the window shows: skipped")
+    await expect(openTooltip(reviewPage)).toHaveText("Skips #302: you already approved its commit")
+    // on a layer Approve of the layer is the primary, Approve N Pull Requests beside it
+    await expect(approveStack).toHaveAttribute("data-variant", "outline")
 
     await runAndWaitForAnswer(reviewPage, "execute", () => approveStack.click())
     await expect(reviewPage.locator("[data-slot=toast-title]", { hasText: "Approved #301 and #303" })).toBeVisible()
@@ -1810,7 +1816,10 @@ test.describe("Review Stack", () => {
   })
 
   test("should refuse a layer whose head moved and every layer above it by number, from the menus and by ⇧A", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    expectErrorLog(page, /^Cannot approve #302 and #303: The head of #302 moved from [0-9a-f]{8} to ffffffff since you reviewed it$/)
+    expectErrorLog(
+      page,
+      /^Cannot approve #302 and #303: The head of #302 moved from [0-9a-f]{8} to ffffffff since the window fetched it: fetch the stack again to read the new commits$/,
+    )
     const { repo, heads } = await setupStack(setupRepo, syncAndWaitForBranches)
 
     // Approve 3 Pull Requests… of the menu of the header of the stack: the window, its button focused once fetched
@@ -1828,10 +1837,16 @@ test.describe("Review Stack", () => {
     await review.getByTestId("review-dialog-more").click()
     await runAndWaitForAnswer(reviewPage, "execute", () => reviewPage.getByRole("menuitem", { name: /^Approve 3 Pull Requests/ }).click())
     await expect(reviewPage.locator("[data-slot=toast-title]", { hasText: "Approved #301" })).toBeVisible()
-    await expect(reviewToast(reviewPage, "Cannot approve #302 and #303")).toContainText(/The head of #302 moved from [0-9a-f]{8} to ffffffff since you reviewed it/)
+    const refusal = reviewToast(reviewPage, "Cannot approve #302 and #303")
+    await expect(refusal).toContainText(/The head of #302 moved from [0-9a-f]{8} to ffffffff since the window fetched it: fetch the stack again to read the new commits/)
     expect(await gitHubRequests(repo, "POST", "pulls", 301, "reviews")).toEqual([{ event: "APPROVE", commit_id: heads[301] }])
     expect(await gitHubRequests(repo, "POST", "pulls", 302, "reviews")).toEqual([])
     expect(await gitHubRequests(repo, "POST", "pulls", 303, "reviews")).toEqual([])
+
+    // Fetch Again of the toast lists the requests again, whose new heads the window fetches
+    const listed = (await repo.getReviewRequestsFixture()).calls
+    await refusal.getByRole("button", { name: "Fetch Again" }).click()
+    await expect.poll(async () => (await repo.getReviewRequestsFixture()).calls).toBeGreaterThan(listed)
 
     // GitHub shows the head the window shows again: ⇧A approves the two left, #301 skipped
     await repo.answerGitHub("GET", repoPath("pulls", 302), 200, { number: 302, head: { ref: LAYER_LOGIN.headRefName, sha: heads[302] } })

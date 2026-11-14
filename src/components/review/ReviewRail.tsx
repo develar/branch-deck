@@ -17,6 +17,8 @@ export interface ReviewRailProps {
   request: ReviewRequest
   /** The files of the range with their sums; undefined while they are read */
   files: CommitFiles | undefined
+  /** How many files the range has (`rangeFileCount`); undefined while they are read and nothing else counts them */
+  fileCount: number | undefined
   /**
    * The map of the plan of all changes, once read and of a shape: its rows in place of the files, each showing its first
    * file through the navigator of the overview (`SelectReviewFileContext`); null while the plan is off or being read,
@@ -39,7 +41,7 @@ export interface ReviewRailProps {
  * file of the row), else its files (a click reviews the changes at the file), then its commits, newest first as in the
  * commit column of the changes (a click reviews the changes at the commit); while it is fetched, how far the fetch is
  */
-export function ReviewRail({ request, files, shape, commits, progress, onOpenFile, onOpenCommit, titles }: ReviewRailProps) {
+export function ReviewRail({ request, files, fileCount, shape, commits, progress, onOpenFile, onOpenCommit, titles }: ReviewRailProps) {
   if (commits === null) {
     return (
       <aside className="flex flex-col gap-2" aria-label="Commits" data-testid="review-commits">
@@ -61,7 +63,7 @@ export function ReviewRail({ request, files, shape, commits, progress, onOpenFil
         </section>
       ) : (
         <section className="flex flex-col gap-1" aria-label="Files" data-testid="review-files">
-          <SectionLabel title="Files" count={files?.files.length ?? request.changedFiles} className="px-2">
+          <SectionLabel title="Files" count={fileCount} className="px-2">
             {files !== undefined && <LineCounts additions={files.additions} deletions={files.deletions} colored={false} />}
           </SectionLabel>
           {files === undefined ? <LoadingLine className="px-2">Loading files…</LoadingLine> : <FileRows files={files.files} onOpen={onOpenFile} />}

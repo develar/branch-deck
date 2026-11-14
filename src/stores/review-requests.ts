@@ -15,7 +15,7 @@ import type {
   RunningOperation,
   StackReadingState,
 } from "@/lib/bindings"
-import { notifyError } from "@/lib/errors"
+import { getErrorCode, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { announce } from "@/lib/os-notification"
 import { describeRobot, openRobotUrl } from "@/lib/patronus"
@@ -440,10 +440,11 @@ export interface ShownLayer {
  * Approve N Pull Requests of the stack of `top` (`ApproveStack`): every layer of `layers` (the bottom first, as the window
  * shows them) on the head it shows, but those the user approved on it already. GitHub's head of every layer is read
  * first: the layer whose head moved and every layer above it are refused by their numbers, in one error toast, the
- * layers below it approved, in one toast "Approved #301 and #302" of the stack, which opens its top. Resolves to whether
- * every layer it was asked to approve is approved.
+ * layers below it approved, in one toast "Approved #301 and #302" of the stack, which opens its top; the toast of the
+ * refusal offers Fetch Again (`fetchAgain`), which reads the new commits. Resolves to whether every layer it was asked to
+ * approve is approved.
  */
-export async function approveStack(repositoryPath: string, top: number, layers: readonly ShownLayer[], feedback: ReviewFeedback): Promise<boolean> {
+export async function approveStack(repositoryPath: string, top: number, layers: readonly ShownLayer[], feedback: ReviewFeedback, fetchAgain: () => void): Promise<boolean> {
   const intent: Intent = { kind: "approveStack", top, layers: layers.map(({ request, commit }) => ({ number: request.number, commit })) }
   const run = await runIntent(repositoryPath, intent)
   if (run.kind !== "ran") {
@@ -470,7 +471,13 @@ export async function approveStack(repositoryPath: string, top: number, layers: 
     tellStackApproved(repositoryPath, top, approved, feedback)
   }
   if (refused.length > 0) {
-    feedback.error(`Cannot approve ${joinNames(refused.map(({ number }) => `#${number}`))}`, refused[0]!.error)
+    const title = `Cannot approve ${joinNames(refused.map(({ number }) => `#${number}`))}`
+    // a head that moved since the fetch: the new commits are a fetch away
+    if (refused.some(({ error }) => getErrorCode(error) === "plan_changed")) {
+      notifyError(title, refused[0]!.error, { children: "Fetch Again", onClick: fetchAgain })
+    } else {
+      feedback.error(title, refused[0]!.error)
+    }
   }
   return refused.length === 0
 }

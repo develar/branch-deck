@@ -1,7 +1,8 @@
 //! Approve N Pull Requests of a stack a review window shows (openspec/specs/repository/review-requests/spec.md, "Review
 //! window: Approve N Pull Requests approves every layer the window shows"): one action approves each layer on the head
 //! the window showed it at (`stack_approval`), but a layer the user approved on that head already, which is skipped, and
-//! an own one, which GitHub takes no review of.
+//! an own one, which GitHub takes no review of. It is the one action of the stack itself (`stack_review_actions`), what
+//! All Changes offers: Approve, Request Changes and Safe Push are decisions of one pull request, of the layer shown.
 //!
 //! Before the write GitHub's head of every layer is read again (`head_checks`): a stack lands bottom up, each layer with
 //! what it is built on (docs/design/landing.md), so the layers below the lowest layer whose head moved are approved as
@@ -26,10 +27,9 @@ pub struct LayerFacts<'a> {
 }
 
 /// Approve N Pull Requests of the stack of `layers`, the bottom first: the layers it approves on the head the window
-/// shows, those the user approved on it already, and whether it can run. It waits while the actions read a frame nobody
-/// checked yet (`cached`), as Approve does
+/// shows, and those the user approved on it already
 #[must_use]
-pub fn stack_approval(layers: &[LayerFacts<'_>], cached: bool) -> ReviewStackApproval {
+pub fn stack_approval(layers: &[LayerFacts<'_>]) -> ReviewStackApproval {
   let approved_already = |layer: &LayerFacts<'_>| layer.approved == Some(layer.head);
   let approves: Vec<ReviewedLayer> = layers
     .iter()
@@ -40,23 +40,28 @@ pub fn stack_approval(layers: &[LayerFacts<'_>], cached: bool) -> ReviewStackApp
     })
     .collect();
   let approved: Vec<u32> = layers.iter().filter(|layer| !layer.own && approved_already(layer)).map(|layer| layer.number).collect();
+  ReviewStackApproval { approves, approved }
+}
+
+/// The actions of a stack itself in its review window, what All Changes offers: Approve N Pull Requests alone, disabled
+/// once nothing is left to approve. Approve, Request Changes and Safe Push are not among them: each is of one pull
+/// request, offered on the layer shown (`actions::review_actions`). It waits while the actions read a frame nobody
+/// checked yet (`cached`), as Approve does
+#[must_use]
+pub fn stack_review_actions(approval: &ReviewStackApproval, cached: bool) -> Vec<ActionState> {
   let blocker = if cached {
     Some(ActionBlocker::Cached)
-  } else if !approves.is_empty() {
+  } else if !approval.approves.is_empty() {
     None
-  } else if approved.is_empty() {
+  } else if approval.approved.is_empty() {
     Some(ActionBlocker::OwnPullRequest)
   } else {
     Some(ActionBlocker::StackApproved)
   };
-  ReviewStackApproval {
-    approves,
-    approved,
-    action: ActionState {
-      id: ActionId::ApproveStack,
-      availability: Availability::of(blocker),
-    },
-  }
+  vec![ActionState {
+    id: ActionId::ApproveStack,
+    availability: Availability::of(blocker),
+  }]
 }
 
 /// What GitHub's head of a layer says of its approval, read just before the write

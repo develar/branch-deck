@@ -251,7 +251,7 @@ fn the_view_decides_approve_n_pull_requests_of_a_stack_on_the_heads_its_fetch_br
     review_windows: vec![7, 8, 9],
     ..Demand::default()
   });
-  assert_eq!(review_stacks_of(&state, &facts), BTreeMap::new(), "no fetch of the stack yet");
+  assert_eq!(review_stacks_of(&state, &facts), (BTreeMap::new(), BTreeMap::new()), "no fetch of the stack yet");
 
   let layers = vec![(7, "head-7".to_owned()), (8, "head-8".to_owned()), (9, "old-9".to_owned())];
   facts.review_requests.stack_fetched(9, layers);
@@ -259,26 +259,33 @@ fn the_view_decides_approve_n_pull_requests_of_a_stack_on_the_heads_its_fetch_br
     number,
     commit: commit.to_owned(),
   };
-  let approval = &review_stacks_of(&state, &facts)[&review_stack_key(9)];
+  let (approvals, actions) = review_stacks_of(&state, &facts);
+  let approval = &approvals[&review_stack_key(9)];
   assert_eq!(
     (approval.approves.clone(), approval.approved.clone()),
     (vec![layer(8, "head-8"), layer(9, "old-9")], vec![7])
   );
-  assert_eq!((approval.action.id, &approval.action.availability), (ActionId::ApproveStack, &Availability::Enabled));
+  // the stack's own actions, All Changes': Approve N Pull Requests alone
+  let action = &actions[&review_stack_key(9)];
+  assert_eq!(
+    action.iter().map(|action| (action.id, &action.availability)).collect::<Vec<_>>(),
+    [(ActionId::ApproveStack, &Availability::Enabled)]
+  );
 
   facts.review_requests.submitted(8, PullRequestReviewEvent::Approve, "head-8".to_owned());
   facts.review_requests.submitted(9, PullRequestReviewEvent::Approve, "old-9".to_owned());
-  let done = &review_stacks_of(&state, &facts)[&review_stack_key(9)];
+  let (approvals, actions) = review_stacks_of(&state, &facts);
+  let done = &approvals[&review_stack_key(9)];
   assert_eq!((done.approves.clone(), done.approved.clone()), (Vec::new(), vec![7, 8, 9]));
   assert_eq!(
-    done.action.availability,
+    actions[&review_stack_key(9)][0].availability,
     Availability::Disabled {
       reason: ActionBlocker::StackApproved
     }
   );
 
   facts.review_requests.demand(&Demand::default());
-  assert_eq!(review_stacks_of(&state, &facts), BTreeMap::new(), "the window closed");
+  assert_eq!(review_stacks_of(&state, &facts), (BTreeMap::new(), BTreeMap::new()), "the window closed");
 }
 
 const NOT_REQUIRED: PatronusReviewRequirement = PatronusReviewRequirement {

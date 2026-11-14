@@ -298,3 +298,13 @@ export function rangePosition(items: readonly RangeReviewItem[], selected: strin
   const scope = items.find(item => item.key === selected)
   return { scope: scope?.kind === "scope" ? scope.label : "All Changes" }
 }
+
+/**
+ * How many files the review of the range shown says it has: the files once read; before, GitHub's count of a pull
+ * request alone, whose range is the one GitHub shows; none of a layer of a stack while they are read, whose range the
+ * window cut from the fetch of the stack (a layer not rebased onto the one below has other files than GitHub counts), so
+ * a count never stands over an empty list it then contradicts
+ */
+export function rangeFileCount(read: number | undefined, changedFiles: number, layer: boolean): number | undefined {
+  return read ?? (layer ? undefined : changedFiles)
+}

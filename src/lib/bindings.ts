@@ -7545,7 +7545,8 @@ export type RepositoryView = {
 	/**
 	 *  Approve N Pull Requests of each stack a review window shows by `review-stack:<top>`, as
 	 *  `domain_policy::stack_approval` decides it over the heads the fetch of the window brought and the user's approvals:
-	 *  the layers it approves, those approved already, and whether it can run. A stack no window fetched is not listed
+	 *  the layers it approves and those approved already; whether it can run is the action of `review-stack:<top>` in
+	 *  `actions`, the one action of the stack. A stack no window fetched is not listed
 	 */
 	reviewStacks?: { [key in string]: ReviewStackApproval },
 	/**  The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them */
@@ -8118,8 +8119,6 @@ export type ReviewStackApproval = {
 	approves: ReviewedLayer[],
 	/**  The layers the user approved on the head the window shows: skipped, never approved again */
 	approved: number[],
-	/**  Whether it can run now (`ActionId::ApproveStack`) */
-	action: ActionState,
 };
 
 /**

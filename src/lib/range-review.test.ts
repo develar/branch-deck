@@ -3,7 +3,6 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ReviewSegment, Interdiff, RangeReadingView, ReviewCommit } from "@/lib/bindings"
 import {
   ALL_CHANGES,
-  SINCE_REVIEW,
   formatRangeWithoutChanges,
   isSingleCommit,
   keepCommit,
@@ -11,11 +10,13 @@ import {
   layerScopeKey,
   localSinceReview,
   pullRequestItems,
-  reviewedCommitOf,
+  rangeFileCount,
   rangePosition,
+  reviewedCommitOf,
   segmentItems,
   shownInterdiff,
   shownKey,
+  SINCE_REVIEW,
   stackItems,
   storyCommits,
 } from "@/lib/range-review"
@@ -229,5 +230,13 @@ describe("formatRangeWithoutChanges", () => {
   it("says that the commits of a scope that changes no file cancel each other out", () => {
     expect(formatRangeWithoutChanges(2)).toBe("The 2 commits cancel each other out: together they change no file")
     expect(formatRangeWithoutChanges(1)).toBe("Its commit changes no file")
+  })
+})
+
+describe("rangeFileCount", () => {
+  it("counts the files once read, GitHub's count of a pull request alone before, and none of a layer of a stack while they are read", () => {
+    expect(rangeFileCount(1, 2, true)).toBe(1)
+    expect(rangeFileCount(undefined, 2, false)).toBe(2)
+    expect(rangeFileCount(undefined, 2, true)).toBeUndefined()
   })
 })

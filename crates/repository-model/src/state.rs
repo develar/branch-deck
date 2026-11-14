@@ -225,8 +225,10 @@ impl Derived {
     let review_groups = review_groups_of(facts);
     // what an approval of each of them counts for where Patronus merges
     let approval_landing = approval_landing_of(state, facts, &reviews);
-    // Approve N Pull Requests of the stacks the review windows show, on the heads their fetches brought
-    let review_stacks = review_stacks_of(state, facts);
+    // Approve N Pull Requests of the stacks the review windows show, on the heads their fetches brought, and the action
+    // of each stack itself
+    let (review_stacks, stack_actions) = review_stacks_of(state, facts);
+    actions.extend(stack_actions);
     Self {
       syncing,
       pushes,

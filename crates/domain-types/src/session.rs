@@ -459,7 +459,8 @@ pub struct RepositoryView {
   pub approval_landing: BTreeMap<String, ApprovalLanding>,
   /// Approve N Pull Requests of each stack a review window shows by `review-stack:<top>`, as
   /// `domain_policy::stack_approval` decides it over the heads the fetch of the window brought and the user's approvals:
-  /// the layers it approves, those approved already, and whether it can run. A stack no window fetched is not listed
+  /// the layers it approves and those approved already; whether it can run is the action of `review-stack:<top>` in
+  /// `actions`, the one action of the stack. A stack no window fetched is not listed
   #[serde(default)]
   pub review_stacks: BTreeMap<String, ReviewStackApproval>,
   /// The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them
@@ -544,8 +545,6 @@ pub struct ReviewStackApproval {
   pub approves: Vec<ReviewedLayer>,
   /// The layers the user approved on the head the window shows: skipped, never approved again
   pub approved: Vec<u32>,
-  /// Whether it can run now (`ActionId::ApproveStack`)
-  pub action: ActionState,
 }
 
 /// The robot of a subject that needs the user (`RepositoryView::attention`)
