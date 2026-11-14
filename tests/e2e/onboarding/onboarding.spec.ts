@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test"
 import { CLOSE_SAVE_LIMIT_MS } from "../../../src/lib/settings-close"
 // @spec openspec/specs/repository/onboarding/spec.md
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow, pushFromRowMenu } from "../helpers/branch-helpers"
 import { expectPushedToast } from "../helpers/push-helpers"
@@ -110,6 +110,7 @@ test.describe("Onboarding", () => {
   })
 
   test("closes Settings after a while when the save of the prefix typed gets no answer, as after a failed save", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot save the settings before the window closes: no answer in 3000 ms$/)
     const settings = await typePrefixInSettings(page, setupRepo)
     // the writer takes the change but its answer never comes
     const write = await holdNextAnswer(settings, "set_setting")
