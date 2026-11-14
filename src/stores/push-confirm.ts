@@ -1,6 +1,7 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { PushBranchOptions } from "@/lib/push-run"
+import { onRowsForgotten } from "@/stores/view-rows"
 
 /** The push button that shows a confirm: the one of the branch row, or the one in the footer of the branch preview */
 export type PushConfirmTarget = "row" | "preview"
@@ -28,6 +29,10 @@ interface PushConfirmState {
 }
 
 export const pushConfirmStore = createStore<PushConfirmState>(() => ({ request: null }))
+
+// the rows are of another session of the repository: no Force Push of a branch of the rows before, whose `accept` pushes
+// what that session held, shows on a row of the same name
+onRowsForgotten(() => pushConfirmStore.setState({ request: null }))
 
 /**
  * Opens the confirm of a push in the push button of `target`, whose Force Push runs `accept` when the push is of a stack;

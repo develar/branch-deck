@@ -127,6 +127,11 @@ impl<W> SyncScheduler<W> {
     }
   }
 
+  /// Whether a check of the inputs is in flight
+  pub(crate) const fn is_checking(&self) -> bool {
+    matches!(self.phase, Phase::Checking { .. })
+  }
+
   /// Whether nothing is in flight and nothing waits
   #[cfg(test)]
   pub(crate) const fn is_idle(&self) -> bool {
@@ -267,6 +272,16 @@ impl<W> SyncScheduler<W> {
     } else {
       self.start(None, false)
     }
+  }
+
+  /// Every request the scheduler holds, served or waiting, which no check and no run of this session will answer: the
+  /// session opens anew for another lease of its slot (`Actor::finish_run`); the scheduler is idle after it
+  pub(crate) fn abandon(&mut self) -> Vec<W> {
+    self.phase = Phase::Idle;
+    let mut waiters = std::mem::take(&mut self.serving);
+    waiters.append(&mut self.follow_up);
+    waiters.append(&mut self.recheck);
+    waiters
   }
 
   /// `inputs` with the refs the session's pushes moved while they were read and since

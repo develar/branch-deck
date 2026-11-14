@@ -892,6 +892,7 @@ impl TableHeader {
     TableWitness {
       head: self.head.clone(),
       store_tips: self.store_tips.clone(),
+      epoch: None,
     }
   }
 }

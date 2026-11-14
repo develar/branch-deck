@@ -583,6 +583,12 @@ impl Sessions {
     self.ask(key, Message::Snapshot).await
   }
 
+  /// The version of the view of an open session at its last patch, its epoch the session's (a session opened anew has
+  /// another); `None` for a session that is not open
+  pub async fn view_version(&self, key: &SessionKey) -> Option<Version> {
+    self.ask(key, Message::ViewVersion).await
+  }
+
   /// The group `message` would put its commit into (`history_rewrite::commit_grouper::group_of` of its subject as git
   /// reads it) with the issue groups and the stack parents the table of the open session of `key`
   /// was grouped with: the preview of a typed message or branch name; `None` for a commit it leaves unassigned and for a

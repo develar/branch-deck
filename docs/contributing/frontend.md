@@ -73,6 +73,11 @@ imports and naming, the patched dependencies, and the React and WebKit behaviour
   acts on the repository of its press. `pnpm lint:arch` enforces it (`rule-module`, `intent-call`, `presenter-state`,
   `late-project-read`), `the_writes_of_the_engine_are_its_intents_and_their_cancel` (`crates/app-api/src/registry_test.rs`)
   keeps every write of a repository an intent of `execute`.
+- **Rows of another session**: a store that holds something of a row by the branch's name (a confirm, a popover, a form,
+  a dialog, a choice of the user) forgets it under the view of another session of the repository (`onRowsForgotten` of
+  `src/stores/view-rows.ts`, a slot of a lease pool leased again), as a row of the same name there is another branch;
+  `pnpm lint:arch` (`row-store`) refuses a store that names `branchName` without it, a store that only projects the view
+  being an `ALLOWLIST` entry that says so.
 - **State**: zustand vanilla stores (`createStore`) read with `useStore` selectors; select narrow slices: the compiler
   memoizes renders, not selectors, which run on every store change. A persisted setting is a `createPersistentStore`
   (`src/stores/settings/persistent-store.ts`): it starts from the snapshot the backend injects and changes only through

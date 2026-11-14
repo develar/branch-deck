@@ -89,10 +89,19 @@
 // flushSync in the delivery of a ResizeObserver"), which lets an element a change resized in the rendering update of its
 // report go, so no observer of ours makes a ResizeObserver loop:
 // - `resize-observer`: a `new ResizeObserver` in src (its tests aside) outside `observe-size.ts`.
+// The rows the main window shows are of one session of its repository: under the view of another (a slot of a lease
+// pool leased again, `installAnother` of src/model/store.ts) a row of the same name is another branch, so what a store
+// held of a row goes (`forgetRows`, src/stores/view-rows.ts):
+// - `row-store`: a module of src (its tests and test-support aside) that creates a store (`createStore`) and names a
+//   branch (`branchName`) without forgetting the rows (`onRowsForgotten`): a confirm, a popover, a form or a dialog of a
+//   branch of the rows before would show on the row of the same name and act on what the session before held. A store
+//   that only projects the view (its answers come anew with the view of another session) or is keyed by what a commit
+//   is (a tip, a robot) is an entry of ALLOWLIST that says so.
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
-// file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`) and of a write a test polls
-// (`e2e-remote-poll`, with the exact `count` of its findings in the file; `EXCEPTED_RULES`): every other rule holds
-// without exceptions; an entry that matches nothing fails, so the list never outlives its code.
+// file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`), of a write a test polls
+// (`e2e-remote-poll`, with the exact `count` of its findings in the file) and of a store of the view (`row-store`;
+// `EXCEPTED_RULES`): every other rule holds without exceptions; an entry that matches nothing fails, so the list never
+// outlives its code.
 import { globSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
@@ -115,6 +124,23 @@ export const ALLOWLIST = [
   { file: "src/hooks/useCommitDrag.ts", rule: "poll-timer", reason: "the drag image goes once the browser took it: no request" },
   { file: "src/hooks/useAutoUpdate.ts", rule: "poll-timer", reason: "one check for updates shortly after the start of the app, never again by a timer" },
   { file: "src/hooks/useMovePreview.ts", rule: "poll-timer", reason: "the dry run of a move waits for the selection to rest: a debounce" },
+  { file: "src/stores/branch-sync.ts", rule: "row-store", reason: "the table of the view: installAnother resets it (resetTable) and projects the view of the other session" },
+  { file: "src/stores/archived-branches.ts", rule: "row-store", reason: "the archived branches of the view: installAnother resets them with the table (resetArchivedBranches)" },
+  { file: "src/stores/patronus.ts", rule: "row-store", reason: "the Patronus view of the session by repository, which the snapshot of the other session replaces" },
+  { file: "src/stores/pull-requests.ts", rule: "row-store", reason: "the pull requests the session lists, which the snapshot of the other session replaces" },
+  { file: "src/stores/review-readiness.ts", rule: "row-store", reason: "the readiness the session answers by subject, which the snapshot of the other session replaces" },
+  { file: "src/stores/repository.ts", rule: "row-store", reason: "the selected repository and its paths: names a branch only to build its full name, holds no row" },
+  {
+    file: "src/stores/conflict-fix.ts",
+    rule: "row-store",
+    reason: "the fix of the conflicts of the commits of the table it was asked for: a fix of other commits is stale by its key",
+  },
+  {
+    file: "src/stores/robot-coverage.ts",
+    rule: "row-store",
+    reason: "the commit map of a running robot by the robot and the tip it took: what a commit is, the same under any lease",
+  },
+  { file: "src/hooks/useStackIndependence.ts", rule: "row-store", reason: "a count of resets; the answers are keyed by the branch and its tip, what a commit is" },
   {
     file: "tests/e2e/next-step/next-step.spec.ts",
     rule: "e2e-remote-poll",
@@ -136,7 +162,7 @@ const SOURCES = ["src/**/*.{ts,tsx}", "tests/e2e/**/*.ts"]
  * The rules an entry of ALLOWLIST may except: a timer of the UI, which `poll-timer` cannot tell from a poll, and a write a
  * running operation makes while it waits for the test, which `e2e-remote-poll` cannot tell from one after its answer
  */
-const EXCEPTED_RULES = new Set(["poll-timer", "e2e-remote-poll"])
+const EXCEPTED_RULES = new Set(["poll-timer", "e2e-remote-poll", "row-store"])
 /** The rules whose entry of ALLOWLIST names the exact count of its findings in the file */
 const COUNTED_RULES = new Set(["e2e-remote-poll"])
 
@@ -466,6 +492,12 @@ const NEW_RESIZE_OBSERVER = /\bnew\s+(?:(?:window|globalThis)\.)?ResizeObserver\
 const CUTTING = /^src\/(?!.*\.test\.tsx?$)/
 /** The one component that sets the direction of a path */
 export const START_TRUNCATED_MODULE = "src/components/shared/StartTruncatedText.tsx"
+/** The modules whose stores `row-store` reads: the page, its tests and test-support aside */
+const ROW_HOLDING = /^src\/(?!test-support\/)(?!.*\.test\.tsx?$)/
+// a store created (`createStore` of zustand), a branch named, and the forget of the rows
+const STORE_CREATED = /(?<![\w$.])createStore\s*(?:<[^(]*>)?\s*\(/
+const BRANCH_NAMED = /(?<![\w$])branchName(?![\w$])/
+const ROWS_FORGOTTEN = /(?<![\w$.])onRowsForgotten\s*\(/
 /** A direction of rtl: `dir="rtl"`, `dir={wide ? "rtl" : undefined}`, `direction: "rtl"`, `[direction:rtl]` */
 const RTL = /\bdir\s*=\s*(?:["'`]rtl["'`]|\{[^}\n]*["'`]rtl["'`])|\bdirection\s*:\s*["'`]?rtl\b|\[direction:rtl\]/
 
@@ -636,6 +668,13 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
       problems.push({ ...at, rule: "resize-observer" })
     }
   })
+  if (ROW_HOLDING.test(file) && BRANCH_NAMED.test(text) && !ROWS_FORGOTTEN.test(text)) {
+    const created = STORE_CREATED.exec(text)
+    if (created !== null) {
+      const line = text.slice(0, created.index).split("\n").length
+      problems.push({ file, line, rule: "row-store", text: sourceLines[line - 1].trim() })
+    }
+  }
   if (PRESENTING.test(file)) {
     for (const found of text.matchAll(STORE_IMPORT)) {
       const line = text.slice(0, found.index).split("\n").length
@@ -726,7 +765,7 @@ export function lintArchitecture(root, allowlist = ALLOWLIST, callers = APP_COMM
   allowlist.forEach((entry, index) => {
     if (!EXCEPTED_RULES.has(entry.rule)) {
       problems.push(
-        `ALLOWLIST: ${entry.file} (${entry.rule}): the rule takes no exception, only a timer of the UI (poll-timer) and a write of a waiting operation (e2e-remote-poll) do`,
+        `ALLOWLIST: ${entry.file} (${entry.rule}): the rule takes no exception, only a timer of the UI (poll-timer), a write of a waiting operation (e2e-remote-poll) and a store of the view (row-store) do`,
       )
     } else if (typeof entry.reason !== "string" || entry.reason.trim() === "") {
       problems.push(`ALLOWLIST: ${entry.file} (${entry.rule}) gives no reason`)
@@ -744,7 +783,7 @@ if (import.meta.main) {
   if (problems.length > 0) {
     console.error(problems.join("\n"))
     console.error(
-      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own, decides no rule of the domain, admits no operation, reads nothing before its subscription, calls the engine only through its intents and a command of the app from one module, presents what the caller selected, reads the selected project before it waits and draws the focus only with the bd-focus token (scripts/lint-arch.mjs)`,
+      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own, decides no rule of the domain, admits no operation, reads nothing before its subscription, calls the engine only through its intents and a command of the app from one module, presents what the caller selected, reads the selected project before it waits, draws the focus only with the bd-focus token and forgets the rows of a view of another session (scripts/lint-arch.mjs)`,
     )
     process.exit(1)
   }

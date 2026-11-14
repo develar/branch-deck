@@ -188,12 +188,13 @@ const NO_WITNESS: TableWitness = { head: "", storeTips: { issueGroups: null, sta
 
 /**
  * The table the window shows of `repositoryPath`, as a rewrite names its commits and branches on it (`TableWitness`):
- * HEAD and the tips of the stores of the last grouping of its view; that of no grouping while the window holds no view
- * of it (the engine then names them on HEAD as it is)
+ * HEAD and the tips of the stores of the last grouping of its view, and the epoch of the view, so the engine refuses a
+ * rewrite asked on the rows of a session that opened anew since (a slot leased again); that of no grouping while the
+ * window holds no view of it (the engine then names them on HEAD as it is)
  */
 export function getSessionWitness(repositoryPath: string): TableWitness {
   const view = session?.repositoryPath === repositoryPath ? session.view : null
-  return view === null ? NO_WITNESS : { head: view.header.head, storeTips: view.header.storeTips }
+  return view === null ? NO_WITNESS : { head: view.header.head, storeTips: view.header.storeTips, epoch: view.version.epoch }
 }
 
 /** The version of the view the store holds, as `data-view-version` shows it: `epoch:seq`; null without a view */

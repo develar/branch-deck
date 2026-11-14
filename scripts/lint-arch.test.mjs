@@ -207,8 +207,21 @@ test("an allowlist entry needs its reason and a finding to hold, and only a time
   // the words of an error, a rule of the domain: no exception
   assert.deepEqual(problems([{ file: "src/b.ts", rule: "message-control", reason: "the words of a third-party library" }]), [
     timer,
-    "ALLOWLIST: src/b.ts (message-control): the rule takes no exception, only a timer of the UI (poll-timer) and a write of a waiting operation (e2e-remote-poll) do",
+    "ALLOWLIST: src/b.ts (message-control): the rule takes no exception, only a timer of the UI (poll-timer), a write of a waiting operation (e2e-remote-poll) and a store of the view (row-store) do",
   ])
+})
+
+test("a store that names a branch forgets the rows of a view of another session, of its test or test-support not", () => {
+  const holding = ['import { createStore } from "zustand/vanilla"', "export const confirmStore = createStore<{ branchName: string | null }>(() => ({ branchName: null }))"]
+  const rules = (file, lines) => findProblems(file, lines.join("\n")).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("src/stores/confirm.ts", holding), ["2 row-store"])
+  assert.deepEqual(rules("src/hooks/useConfirm.ts", holding), ["2 row-store"])
+  assert.deepEqual(rules("src/stores/confirm.ts", [...holding, "onRowsForgotten(() => confirmStore.setState({ branchName: null }))"]), [])
+  // a store of no branch, a branch named without a store, a test, test-support: nothing
+  assert.deepEqual(rules("src/stores/zoom.ts", ["const zoomStore = createStore(() => ({ zoom: 1 }))"]), [])
+  assert.deepEqual(rules("src/lib/confirm.ts", ["export function nameOf(branchName: string) {}"]), [])
+  assert.deepEqual(rules("src/stores/confirm.test.ts", holding), [])
+  assert.deepEqual(rules("src/test-support/confirm.ts", holding), [])
 })
 
 test("a rule of the domain in the page is refused: a deleted rule module, an export of src/lib or src/hooks named as a rule", () => {

@@ -8,6 +8,7 @@ import type { OtherProcessRun } from "@/presenters/operations"
 import { presentOtherProcess } from "@/presenters/operations"
 import { branchSyncStore, useBranchSyncField } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath, useSelectedProjectPath } from "@/stores/repository"
+import { onRowsForgotten } from "@/stores/view-rows"
 
 /** The two starts of a robot the app offers: a Safe Push and a Dry Run */
 export type SafePushMode = Extract<PatronusPushMode, "rebaseAutosquash" | "dryRun">
@@ -68,6 +69,10 @@ export interface SafePushState {
 }
 
 export const safePushStore = createStore<SafePushState>(() => ({ ask: null, asking: {}, progress: {} }))
+
+// the rows are of another session of the repository: no popover of a start of a branch of the rows before shows on a row
+// of the same name, and no click waits for the plan of one there; the progress of a running operation stays its own
+onRowsForgotten(() => safePushStore.setState({ ask: null, asking: {} }))
 
 /** The ask of the popover at the slot of `branchName` in `placement`; null when none is open there */
 export function useSafePushAsk(branchName: string, placement: SafePushPlacement): SafePushAsk | null {

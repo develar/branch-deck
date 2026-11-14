@@ -18,6 +18,7 @@ import {
 } from "@/stores/branch-sync"
 import { closeInline, inlineRowActionStore } from "@/stores/inline-row-action"
 import { getRecentProjects, setCollapsedStacks, useRecentProjects } from "@/stores/settings/repositorySettings"
+import { onRowsForgotten } from "@/stores/view-rows"
 
 const NONE: readonly string[] = []
 
@@ -138,6 +139,10 @@ export function forgetCollapsedStack(root: string): void {
 
 /** The side stacks the user collapsed (true) or expanded (false) in this session, by root; the others follow `isQuiet` */
 const sideStackStore = createStore<{ readonly overrides: ReadonlyMap<string, boolean> }>(() => ({ overrides: new Map() }))
+
+// the rows are of another session of the repository: the user's choice of a side stack of the rows before collapses or
+// expands no stack of a root of the same name
+onRowsForgotten(() => sideStackStore.setState({ overrides: new Map() }))
 
 /**
  * A side stack whose branches have nothing wrong and nothing for the remote: collapsed until the user expands it. Each

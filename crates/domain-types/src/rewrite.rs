@@ -253,6 +253,12 @@ pub struct TableWitness {
   /// The commit HEAD pointed at
   pub head: String,
   pub store_tips: StoreTips,
+  /// The epoch of the view of the session the table was seen in (`Version::epoch`), which a window names: a rewrite asked
+  /// on the rows of a session that opened anew since (a slot of a lease pool leased again) is refused, as a branch of the
+  /// same name there is another branch. None from `brd`, which sees no view
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub epoch: Option<u32>,
 }
 
 /// How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `brd undo` takes,

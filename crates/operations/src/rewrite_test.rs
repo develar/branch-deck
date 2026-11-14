@@ -155,6 +155,27 @@ async fn a_rewrite_is_run_by_its_core_and_ends_once_it_asked_its_sync_with_its_u
   assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "HEAD is back");
 }
 
+/// A rewrite names the epoch of the view its table was seen in: one asked on the rows of a session that opened anew since
+/// (a slot of a lease pool leased again, whose branch of the same name is another branch) is refused before anything is
+/// written, `plan_changed`; one of the epoch of the session runs. A rewrite of `brd`, which sees no view, names none
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rewrite_asked_on_the_rows_of_a_session_before_it_opened_anew_is_refused() {
+  let fixture = fixture(true).await;
+  let head = fixture.repo.rev_parse("HEAD").unwrap();
+  let epoch = fixture.registry.sessions().view_version(&fixture.key).await.unwrap().epoch;
+  let mut witness = fixture.witness().await;
+  witness.epoch = Some(epoch + 1);
+  let refused = fixture.rewrite(&unstack(&witness)).await.unwrap_err();
+  assert_eq!(refused.code, ErrorCode::PlanChanged, "{refused:?}");
+  assert!(refused.message.contains("the slot holds another lease"), "{}", refused.message);
+  assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "nothing was written");
+  assert_eq!(fixture.operations().await, Vec::new());
+
+  witness.epoch = Some(epoch);
+  fixture.rewrite(&unstack(&witness)).await.unwrap();
+  assert_ne!(fixture.repo.rev_parse("HEAD").unwrap(), head, "the rewrite of the epoch of the session ran");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn stack_together_is_one_rewrite_of_every_named_branch() {
   let fixture = fixture(true).await;

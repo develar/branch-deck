@@ -114,6 +114,7 @@ pub fn asked_on(expect_head: Option<&str>) -> TableWitness {
   TableWitness {
     head: expect_head.unwrap_or_default().to_owned(),
     store_tips: StoreTips::default(),
+    epoch: None,
   }
 }
 

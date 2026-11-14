@@ -79,6 +79,8 @@ struct ScriptedHost {
   /// How long a read of the inputs takes to answer after it read and counted them, as a blocking thread that a loaded
   /// machine preempts: a wait for the count alone goes on before the check answered
   late_answer: Mutex<Duration>,
+  /// A read of the inputs waits for this gate once it counted, while the test holds it
+  inputs_gate: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
   /// The reporter of every run, which a test may keep using after its run ended
   reporters: Mutex<Vec<RunReporter>>,
   /// When each event of the runs was sent, on the runtime's clock
@@ -200,6 +202,10 @@ impl SessionHost for ScriptedHost {
     let inputs = self.inputs.lock().unwrap().clone();
     *self.checks.lock().unwrap() += 1;
     std::thread::sleep(*self.late_answer.lock().unwrap());
+    let gate = self.inputs_gate.lock().unwrap().take();
+    if let Some(gate) = gate {
+      let _ = gate.recv();
+    }
     inputs
   }
 
@@ -2217,6 +2223,95 @@ async fn a_stamp_under_another_lease_opens_the_session_anew_for_that_lease() {
   );
   assert!(snapshot(&sessions, &key).await.facts.robots.robots.is_empty());
   assert_eq!(host.runs(), 0, "the first sync of the new worktree is the user's");
+}
+
+/// A stamp of another lease comes while a run of the session under the lease before is in flight, with the inputs
+/// changed and a request waiting for the follow-up: the run cannot be cancelled and ends for its request, while the
+/// scheduler of the facts hears the session close at once; then the session opens anew for the new lease, its table of
+/// no run, and no recheck of the stamp and no follow-up of the session before runs: the waiting request gets nothing
+#[tokio::test]
+async fn a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_the_run_ended() {
+  let host = host_of(frame_of_lease("lease-a"), lease("lease-a"));
+  host.set_inputs(1);
+  let gate = Arc::new(Notify::new());
+  host.push_gated(auth_built(), Ok(report(false, &[])), Some(Arc::clone(&gate)));
+  // what a recheck or a follow-up of the session before would run
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let mut events = sessions.events().unwrap();
+  let key = key("/repo");
+  let (_, view) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  let manual = sessions.sync(&key, SyncReason::Manual);
+  while host.runs() == 0 {
+    tokio::task::yield_now().await;
+  }
+  let follow_up = sessions.sync(&key, SyncReason::AfterRewrite);
+  heard(&mut events);
+
+  *host.epoch.lock().unwrap() = lease("lease-b");
+  host.set_inputs(2);
+  let stamp = sessions.sync(&key, SyncReason::Stamp);
+  // the stamp found the new lease during the run: nothing of the lease before is read from now
+  let closed = async {
+    while let Some(SessionEvent { kind, .. }) = events.recv().await {
+      if matches!(kind, SessionEventKind::Closed) {
+        return;
+      }
+    }
+  };
+  tokio::time::timeout(UNHURRIED, closed).await.expect("the session closes as the stamp finds the new lease");
+  assert_eq!(snapshot(&sessions, &key).await.version.epoch, view.version.epoch, "the run in flight ends first");
+
+  gate.notify_one();
+  assert_eq!(outcome(manual).await, Ok(SyncOutcome::Synced), "the run ended for its request");
+  assert_eq!(outcome(follow_up).await, Ok(SyncOutcome::Skipped), "no follow-up of the session before");
+  assert_eq!(outcome(stamp).await, Ok(SyncOutcome::Skipped), "the first sync of the new worktree is the user's");
+  let now = snapshot(&sessions, &key).await;
+  assert_ne!(now.version.epoch, view.version.epoch, "the session of the new lease");
+  assert_eq!((now.order.clone(), now.synced), (Vec::<String>::new(), false), "nothing of the run of the lease before");
+  assert_eq!(host.runs(), 1, "no recheck of the stamp under the session before");
+  assert_eq!(heard(&mut events), vec!["watched true"], "the session closed once");
+}
+
+/// A stamp of another lease comes while a check of the inputs of a focus is in flight: no run holds the worktree, so the
+/// session opens anew at once; the focus answers nothing of the session before, and the answer of its check, which comes
+/// later, is no answer of the session of the new lease
+#[tokio::test]
+async fn a_stamp_under_another_lease_during_a_check_opens_the_session_anew_at_once() {
+  let host = host_of(frame_of_lease("lease-a"), lease("lease-a"));
+  *host.synced_before.lock().unwrap() = true;
+  host.set_inputs(1);
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let mut events = sessions.events().unwrap();
+  let key = key("/repo");
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  let opened = view_when(&sessions, &key, |view| view.sync == SyncState::Idle && host.runs() == 1).await;
+  let checks = *host.checks.lock().unwrap();
+  let (release, gate) = std::sync::mpsc::channel();
+  *host.inputs_gate.lock().unwrap() = Some(gate);
+  let focus = sessions.set_window_focus(&key, true).unwrap();
+  while *host.checks.lock().unwrap() == checks {
+    tokio::task::yield_now().await;
+  }
+  heard(&mut events);
+
+  *host.epoch.lock().unwrap() = lease("lease-b");
+  *host.synced_before.lock().unwrap() = false;
+  let stamp = tokio::time::timeout(UNHURRIED, outcome(sessions.sync(&key, SyncReason::Stamp))).await;
+  assert_eq!(
+    stamp.expect("the stamp waits for no check"),
+    Ok(SyncOutcome::Skipped),
+    "the first sync of the new worktree is the user's"
+  );
+  assert_eq!(outcome(focus).await, Ok(SyncOutcome::Skipped), "nothing of the session before answers the focus");
+  let now = snapshot(&sessions, &key).await;
+  assert_ne!(now.version.epoch, opened.version.epoch, "the session opened anew during the check");
+  release.send(()).unwrap();
+  // the late answer of the check reached the session of the new lease, which ran nothing for it
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Stamp)).await, Ok(SyncOutcome::Skipped));
+  assert_eq!(host.runs(), 1);
+  assert_eq!(heard(&mut events), vec!["closed", "watched true"]);
 }
 
 /// An epoch the files could not tell (a state of the pool this build cannot parse, a read during a rename) decides

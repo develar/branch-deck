@@ -411,6 +411,17 @@ async fn resolve(
   let Some(asked) = rewrite.witness() else {
     return Ok((rewrite.clone(), None));
   };
+  // the rows it was asked on are of a session that opened anew since (another lease of the slot): a branch of the same
+  // name is another branch now, which no rewrite by its name may take for it
+  if let Some(epoch) = asked.epoch
+    && sessions.view_version(key).await.is_some_and(|now| now.epoch != epoch)
+  {
+    let intent = Intent::Rewrite(Box::new(rewrite.clone()));
+    return Err(plan_changed(
+      &intent,
+      Some("the rows it was asked on are of the worktree before, the slot holds another lease"),
+    ));
+  }
   let mut seen = seen_now(sessions, key).await;
   if seen.as_ref().is_some_and(|seen| seen.cached) {
     after_first_sync(sessions, key, guard, rewrite).await?;
@@ -577,6 +588,7 @@ fn read_witness(git: &GitCommandExecutor, path: &str, branch: &str) -> anyhow::R
       stack_parents: tip(STACK_PARENTS_REF),
       parked: tip(PARKED_REF),
     },
+    epoch: None,
   })
 }
 

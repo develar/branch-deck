@@ -10223,6 +10223,12 @@ export type TableWitness = {
 	/**  The commit HEAD pointed at */
 	head: string,
 	storeTips: StoreTips,
+	/**
+	 *  The epoch of the view of the session the table was seen in (`Version::epoch`), which a window names: a rewrite asked
+	 *  on the rows of a session that opened anew since (a slot of a lease pool leased again) is refused, as a branch of the
+	 *  same name there is another branch. None from `brd`, which sees no view
+	 */
+	epoch?: number | null,
 };
 
 /**  What the resolver answers for a target */

@@ -14,8 +14,9 @@ import {
   getStackIslandRoots,
   getUnparkedStackDescendants,
 } from "@/stores/branch-sync"
-import { getCollapsedSideStacks } from "@/stores/stack-collapse"
+import { getCollapsedSideStacks, toggleSideStackCollapsed } from "@/stores/stack-collapse"
 import { placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { forgetRows } from "@/stores/view-rows"
 
 vi.mock("@tauri-apps/api/core", () => ({ Channel: Object }))
 vi.mock("@/lib/bindings", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/bindings")>()), commands: {} }))
@@ -57,6 +58,13 @@ function graph(visible: ReadonlySet<string> | null = null): string[] {
     const place = `${lanes.lane}${lanes.forkFrom === null ? "" : `<${lanes.forkFrom}`}${lanes.up ? "^" : ""}${lanes.down ? "v" : ""}${lanes.through.length > 0 ? `|${lanes.through.join(",")}` : ""}`
     return `${row.familyIndent === 1 ? ">" : ""}${row.name}:${place}${row.dimmed ? "~" : ""}`
   })
+}
+
+/** The branches of the side stack on `side` are pushed and up to date: the stack is quiet */
+function pushSideStack(): void {
+  branchSyncStore.setState(state => ({
+    branches: { ...state.branches, side: { ...state.branches.side!, remoteStatus: testRemoteStatus() }, side2: { ...state.branches.side2!, remoteStatus: testRemoteStatus() } },
+  }))
 }
 
 describe("branch table rows with stacked branches", () => {
@@ -254,9 +262,21 @@ describe("branch table rows with stacked branches", () => {
     expect(hidden).toEqual(new Map([["side", 1]]))
     // with work for the remote it shows; pushed and up to date it collapses
     expect(getCollapsedSideStacks()).toEqual(new Set())
-    branchSyncStore.setState(state => ({
-      branches: { ...state.branches, side: { ...state.branches.side!, remoteStatus: testRemoteStatus() }, side2: { ...state.branches.side2!, remoteStatus: testRemoteStatus() } },
-    }))
+    pushSideStack()
+    expect(getCollapsedSideStacks()).toEqual(new Set(["side"]))
+  })
+
+  it("forgets which side stacks the user collapsed or expanded once the window takes the view of another session", () => {
+    setBranches(["a4", "a3"], ["a3", "a2"], ["a2", "a1"], ["side2", "side"], ["side", "a1"], ["a1", null])
+    pushSideStack()
+    expect(getCollapsedSideStacks()).toEqual(new Set(["side"]))
+    // the user expands the quiet side stack (no row has the focus): it stays expanded in this view
+    vi.stubGlobal("document", { activeElement: null })
+    expect(toggleSideStackCollapsed("side", false)).toBe(true)
+    vi.unstubAllGlobals()
+    expect(getCollapsedSideStacks()).toEqual(new Set())
+    // a slot leased again: a root of the same name is another branch, quiet, so collapsed
+    forgetRows()
     expect(getCollapsedSideStacks()).toEqual(new Set(["side"]))
   })
 

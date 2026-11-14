@@ -1,5 +1,6 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
+import { onRowsForgotten } from "@/stores/view-rows"
 
 interface CreatePullRequestDialogState {
   /** The branch whose dialog the window shows, or the root of the whole stack (`wholeStack`); null while it is closed */
@@ -16,6 +17,10 @@ interface CreatePullRequestDialogState {
  * opens it for the whole stack.
  */
 export const createPullRequestDialogStore = createStore<CreatePullRequestDialogState>(() => ({ branchName: null, wholeStack: false, generation: 0 }))
+
+// the rows are of another session of the repository: the dialog of a branch of the rows before closes, as a branch of
+// the same name there is another branch
+onRowsForgotten(() => createPullRequestDialogStore.setState({ branchName: null, wholeStack: false }))
 
 export function useCreatePullRequestBranch(): string | null {
   return useStore(createPullRequestDialogStore, state => state.branchName)

@@ -2282,11 +2282,25 @@ that shows a slot while it goes back and an agent leases it again hears of it by
 opens anew for the new lease by the code of an open (`Actor::reopened`: `Actor::new` and `open`, so its table, its
 facts, its sync scheduler and the state of its frames are what an open makes, the scheduler of the facts hears it close
 and its windows watch it again, and the answer of a read of the lease before applies to it no more), in a new epoch of
-its view; not while a run is in flight. Each window keeps its subscription and gets one patch from the version it holds
-into the new epoch, with no change, which applies to no view: the page reads the snapshot and takes it as the view of
-another session, as on a switch (`installAnother` and `forgetRows` of `src/model/store.ts`), and the mirror of `brd
-mcp` moves to the session as at a change of the prefix (`Server::resync`), so the window shows the Ready to Sync card
-and nothing of the rows of the lease before. The collapsed stacks of a recent project
+its view, right after the message of the stamp, before any other (`reopen_now`). A run in flight cannot be cancelled:
+the session opens anew once it ended (`reopen_after_run`, `finish_run`), its table dropped, the requests it served
+told its end, the follow-up and the recheck of the session before never run (`SyncScheduler::abandon`, answered
+`Skipped`), and the scheduler of the facts hears the session close at the stamp already
+(`a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_the_run_ended`); a check of the inputs in flight
+holds nothing of the worktree, so the session opens anew at once, the requests it served answered `Skipped` and its late
+answer dropped by the new session, which is checking nothing (`InputsRead`,
+`a_stamp_under_another_lease_during_a_check_opens_the_session_anew_at_once`). Each window keeps its
+subscription and gets one patch from the version it holds into the new epoch, with no change, which applies to no view:
+the page reads the snapshot and takes it as the view of another session, as on a switch (`installAnother` and
+`forgetRows` of `src/model/store.ts`; every store that names a branch forgets what it held of a row, `row-store` of
+`pnpm lint:arch`), and the mirror of `brd mcp` moves to the session as at a change of the prefix (`Server::resync`),
+so the window shows the Ready to Sync card and nothing of the rows of the lease before. An intent the page asked on the
+rows before runs on nothing of them: a rewrite names the epoch of the view its table was seen in (`TableWitness::epoch`),
+and one of another epoch than the session's is `plan_changed` before anything is admitted to write
+(`a_rewrite_asked_on_the_rows_of_a_session_before_it_opened_anew_is_refused`), as a rewrite by a branch's name would
+take the branch of the same name of the new lease for it; every other intent is planned again on the session it runs
+in and runs only on the fingerprint of its plan (`operations::witness`: the tips of the refs it moves, the pull
+requests and robots it reads), so it has no plan before the first sync of the new lease and a changed one after it. The collapsed stacks of a recent project
 are of the epoch too (`COLLAPSED_STACKS_EPOCH_FIELD`): roots of the lease before would collapse stacks of the same
 names of the next. The id, not the time of the lease: a get, a return and a get within one second are two epochs.
 
