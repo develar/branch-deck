@@ -571,7 +571,9 @@ shows.
   check of the alignment polls. A collapse that removes rows writes once (a microtask). WebKit renders a commit of
   React that waited in a microtask after the observer's callback in the same rendering update: an item that commit
   resizes would be an observation that update skips, a ResizeObserver loop, so until the next task the changes of the
-  view (a `MutationObserver`) are measured at once and their items observed anew from the next task.
+  view (a `MutationObserver`, `ReportGuard`) let their items leave the observer at once, and the items are measured,
+  written and observed anew in the next task, never in the rendering update, where a write resizes what other
+  observers watch.
 - **Empty is free**: a track that no row of any card fills is 0 wide, and so is its gutter (`--bd-gap-<kind>`, 8px
   while the track has content): a view without Patronus has no step column, a pushed view no push column.
 - **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The labels of

@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react"
 import { flushSync } from "react-dom"
+import { nextTask, observedAbove, ReportGuard } from "@/lib/report-guard"
 
 /** A height within this of the one the layout has is the same: a subpixel of a resize lays out nothing again */
 const TOLERANCE = 0.5
@@ -17,9 +18,11 @@ export interface MeasuredHeights {
  * after every change of its height (the width of the view, the load of a font, a disclosure, a text that arrives). It
  * reports after the layout of the frame and before its paint, and the heights it reports are rendered at once
  * (`flushSync`), so no frame paints a block over the card below it. Only the positions of the blocks depend on the
- * heights, never their sizes. But that render takes in every update pending then, a text that arrived in the same frame
- * included, which can resize a block again: such a block is measured and rendered at once too, and observed again from
- * the next frame, because an observation resized in its own delivery is a ResizeObserver loop (an uncaught error)
+ * heights, never their sizes. But a change in the rendering update of a report can resize a block after it (that render
+ * takes in every update pending then, a text that arrived in the same frame included; WebKit renders a commit that waited
+ * in a microtask there): such a block leaves the observer at once and is measured, rendered and observed anew in the
+ * next task (`ReportGuard`), because an observation resized in its own delivery is a ResizeObserver loop (an uncaught
+ * error)
  */
 export function useMeasuredHeights(): MeasuredHeights {
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map())
@@ -50,24 +53,25 @@ export function useMeasuredHeights(): MeasuredHeights {
             : []
         }),
       )
-      const again = [...blocks].flatMap(block => {
-        const height = block.getBoundingClientRect().height
-        const known = rendered.get(block)
-        return block.isConnected && (known === undefined || Math.abs(known - height) > TOLERANCE) ? [[block, height] as const] : []
-      })
-      if (again.length > 0) {
-        render(again)
-        for (const [block] of again) {
-          resize.unobserve(block)
-          requestAnimationFrame(() => {
-            if (blocks.has(block)) {
-              resize.observe(block)
-            }
-          })
-        }
-      }
+      guard.reported()
     })
-    return { blocks, rendered, resize }
+    // a block a change resized after its report leaves the observer at once (no observation of it is left to skip), and
+    // is measured, rendered and observed anew in the next task: a render in the rendering update would take in the
+    // updates pending then, and resize other observed elements in their own delivery
+    const guard = new ReportGuard(touched => {
+      const resized = [...observedAbove(touched, element => blocks.has(element as HTMLElement))] as HTMLElement[]
+      for (const block of resized) {
+        resize.unobserve(block)
+      }
+      nextTask(() => {
+        const present = resized.filter(block => blocks.has(block) && block.isConnected)
+        render(present.map(block => [block, block.getBoundingClientRect().height] as const))
+        for (const block of present) {
+          resize.observe(block)
+        }
+      })
+    })
+    return { blocks, rendered, resize, guard }
   })
   // one ref callback for the life of the view: another function would detach and attach every block it measures
   const measure = useCallback(
@@ -77,6 +81,7 @@ export function useMeasuredHeights(): MeasuredHeights {
       }
       observer.blocks.add(element)
       observer.resize.observe(element)
+      observer.guard.watch(element)
       return () => {
         observer.blocks.delete(element)
         observer.rendered.delete(element)

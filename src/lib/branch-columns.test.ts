@@ -125,7 +125,7 @@ describe("ColumnRegistry", () => {
     vi.unstubAllGlobals()
   })
 
-  it("measures an item a commit resizes in the rendering update of a report at once, and observes it anew from the next task", async () => {
+  it("lets an item a commit resizes in the rendering update of a report go at once, and measures and observes it in the next task", async () => {
     // WebKit renders a commit of React that waited in a microtask after the observer's callback in the same rendering
     // update: an item it resized after its report would be an observation that update skips, a ResizeObserver loop
     vi.stubGlobal("MutationObserver", FakeMutationObserver)
@@ -137,9 +137,11 @@ describe("ColumnRegistry", () => {
 
     status.width = 83
     FakeMutationObserver.current!.commit(status.element)
-    expect(view.variables.get("--bd-track-state")).toBe("83px")
+    // no observation of it is left for the rendering update to skip, and nothing is written there
     expect(FakeResizeObserver.current!.reported.has(status.element)).toBe(false)
+    expect(view.variables.get("--bd-track-state")).toBe("61px")
     await nextTask()
+    expect(view.variables.get("--bd-track-state")).toBe("83px")
     expect(FakeResizeObserver.current!.reported.has(status.element)).toBe(true)
 
     // after the rendering update a commit is the observer's to report, as any change

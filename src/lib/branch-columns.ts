@@ -7,6 +7,8 @@
  * the view; every item of the track is at least that wide. A track that no row fills is 0 wide, its gutter too. The
  * label of a column heading a group of tracks is a minimum of the group.
  */
+import { nextTask, observedAbove, ReportGuard } from "@/lib/report-guard"
+
 export const BRANCH_TRACKS = ["commits", "state", "pr", "landed", "push", "step", "more"] as const
 export type BranchTrack = (typeof BRANCH_TRACKS)[number]
 
@@ -125,87 +127,47 @@ export class ColumnRegistry {
           if (resized) {
             this.write()
           }
-          this.delivering()
+          this.guard.reported()
         })
-  /**
-   * Whether the rendering update of a report of the observer still runs: WebKit renders a commit of React that waited in
-   * a microtask after the observer's callback, in that same rendering update, and an item that commit resized after its
-   * report is an observation that rendering update skips, a ResizeObserver loop (an uncaught error of the page). The
-   * changes of the view then (`mutations`) are measured at once and their items observed anew from the next task
-   */
-  private inDelivery = false
+  /** The items a change resized in the rendering update of a report, measured at once (`ReportGuard`) */
+  private readonly guard = new ReportGuard(touched => this.recheck(touched))
   private readonly reobserved = new Set<Element>()
-  private readonly mutations: MutationObserver | null = typeof MutationObserver === "undefined" ? null : new MutationObserver(records => this.recheck(records))
-
-  /** A report of the observer was taken: until the next task, a change of an item is measured at once (`recheck`) */
-  private delivering(): void {
-    if (this.inDelivery) {
-      return
-    }
-    this.inDelivery = true
-    // a task after the rendering update, as MessageChannel runs (the timers of a page can be a test's fake clock)
-    const channel = new MessageChannel()
-    channel.port1.onmessage = () => {
-      this.inDelivery = false
-      channel.port1.close()
-    }
-    channel.port2.postMessage(null)
-  }
 
   /**
-   * The items that `records`, the changes of the view, resized in the rendering update of a report of the observer:
-   * written at their width as laid out now, and observed anew from the next task, so that rendering update has no
-   * observation of them left to skip
+   * The items among `touched` leave the observer at once, so the rendering update of the report has no observation of
+   * them left to skip, and are measured, written and observed anew in the next task: a write in the rendering update
+   * would resize what other observers watch (a popup at a row) in their own delivery
    */
-  private recheck(records: readonly MutationRecord[]): void {
+  private recheck(touched: readonly Node[]): void {
     const observer = this.observer
-    if (!this.inDelivery || observer === null) {
+    if (observer === null) {
       return
     }
-    const changed = new Set<Element>()
-    for (const record of records) {
-      for (let node: Node | null = record.target; node !== null && node !== this.root; node = node.parentNode) {
-        // the items are elements: a text or a comment is no key of them
-        const element = node as Element
-        if (this.items.has(element)) {
-          changed.add(element)
-          break
-        }
-      }
-    }
-    let resized = false
-    for (const element of changed) {
-      const item = this.items.get(element)
-      const width = element.getBoundingClientRect().width
-      if (item === undefined || width === item.width) {
-        continue
-      }
-      item.width = width
-      resized = true
+    const resized = observedAbove(touched, element => this.items.has(element))
+    for (const element of resized) {
       observer.unobserve(element)
       this.reobserved.add(element)
     }
-    if (!resized) {
+    if (resized.size === 0) {
       return
     }
-    this.write()
-    const channel = new MessageChannel()
-    channel.port1.onmessage = () => {
-      channel.port1.close()
+    nextTask(() => {
       for (const element of this.reobserved) {
-        if (this.items.has(element)) {
+        const item = this.items.get(element)
+        if (item !== undefined) {
+          item.width = element.getBoundingClientRect().width
           observer.observe(element, { box: "border-box" })
         }
       }
       this.reobserved.clear()
-    }
-    channel.port2.postMessage(null)
+      this.write()
+    })
   }
 
   setRoot(root: HTMLElement | null): void {
     if (this.root !== null) {
       this.observer?.unobserve(this.root)
-      this.mutations?.disconnect()
+      this.guard.disconnect()
     }
     this.root = root
     this.written.clear()
@@ -215,7 +177,7 @@ export class ColumnRegistry {
     // (the content box, as a container query compares)
     if (root !== null) {
       this.observer?.observe(root)
-      this.mutations?.observe(root, { subtree: true, childList: true, characterData: true, attributeFilter: ["class", "style", "hidden"] })
+      this.guard.watch(root)
     }
     this.write()
   }
