@@ -2,8 +2,8 @@
 //! openspec/specs/commit/quiet-changes/spec.md, "Measurement"; docs/design/diff-view.md, "Measured on real history"):
 //! the diffs a view of the subject gets, through the stream a view reads, with what a view is not told.
 //!
-//! - **The time** from the start of the read to its first content and to its end, and of the answer of the index: of
-//!   its renames, the stage a view gets first, and of its moves after them.
+//! - **The time** from the start of the read to its first content and to its end, and of each stage of the answer of
+//!   the index: its renames, the stage a view gets first, its moves after them, and the uses that follow a move.
 //! - **The texts** of both sides of each file, so the lines of a mark can be printed and read by a person.
 //! - **The proofs**: the runs whose proof holds though their kind is a label (`PairMarks::proven`,
 //!   `SubjectMarks::confirmed`), and the stops the file has once every kind with a proof is quiet. They are what the
@@ -43,11 +43,15 @@ pub struct MeasuredSubject {
   pub first_content: Option<Duration>,
   /// From the start of the read to the end of its stream
   pub end: Duration,
-  /// The answer of the index of the renames after it (`IndexStage::Renames`); `None` when none was asked
+  /// The answer of the index of the renames after it (`IndexStage::Renames`), what a view waits for its proofs;
+  /// `None` without an index. A subject without a renamed name waits for the reading of its facts alone
   pub index: Option<Duration>,
-  /// The answer of the moves after that, the uses that follow them with it (`IndexStage::Moves`, `MovedUses`);
-  /// `None` when none was asked
+  /// The answer of the moves after that (`IndexStage::Moves`); `None` when they were not asked: without an index,
+  /// and when the subject may have moved no declaration (it only adds lines, or only deletes them)
   pub moves: Option<Duration>,
+  /// The answer of the uses that follow a move after them (`IndexStage::MovedUses`); `None` when no index was asked,
+  /// and when no file of the subject may follow a move, which asks nothing more
+  pub moved_uses: Option<Duration>,
 }
 
 /// A file of a measured subject
@@ -124,14 +128,22 @@ impl FileDiffs {
       }
     })?;
     let end = started.elapsed();
-    let mut renames = None;
-    self.answer_index(git, cache, index, &params, &mut read, &mut |stage| {
-      if stage == IndexStage::Renames {
-        renames = Some(started.elapsed());
+    // the end of each stage the index told, from the start of the read
+    let (mut renames, mut moved, mut followed) = (None, None, None);
+    let mut moves_asked = false;
+    self.answer_index(git, cache, index, &params, &mut read, &mut |stage, asked| {
+      let at = Some(started.elapsed());
+      match stage {
+        IndexStage::Renames => renames = at,
+        IndexStage::Moves => (moved, moves_asked) = (at, asked),
+        IndexStage::MovedUses => followed = at,
       }
     })?;
-    let answered = index.map(|_| renames.unwrap_or_else(|| started.elapsed()).saturating_sub(end));
-    let moves = index.map(|_| started.elapsed().saturating_sub(renames.unwrap_or(end)));
+    let answered_at = started.elapsed();
+    let (renames, moved) = (renames.unwrap_or(answered_at), moved.unwrap_or(answered_at));
+    let answered = index.map(|_| renames.saturating_sub(end));
+    let moves = moves_asked.then(|| moved.saturating_sub(renames));
+    let moved_uses = followed.map(|followed: Duration| followed.saturating_sub(moved));
     let files = read.into_files();
     if self.marks_off {
       let files = files.into_iter().map(|file| MeasuredFile { file, text: None }).collect();
@@ -141,6 +153,7 @@ impl FileDiffs {
         end,
         index: answered,
         moves,
+        moved_uses,
       });
     }
 
@@ -168,6 +181,7 @@ impl FileDiffs {
       end,
       index: answered,
       moves,
+      moved_uses,
     })
   }
 

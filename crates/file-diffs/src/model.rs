@@ -52,12 +52,20 @@ pub struct FileMarks {
 pub struct IndexMarks {
   pub stage: IndexStage,
   pub files: Vec<FileMarks>,
+  /// The stage asked the index (or the memory of its answer) at all: a subject without a question of it tells the
+  /// stage as it was before. What a measurement times (`FileDiffs::measure`); never sent
+  #[serde(skip)]
+  pub asked: bool,
 }
 
 impl IndexMarks {
-  /// A stage that changed no file
+  /// A stage that asked nothing and changed no file
   pub const fn empty(stage: IndexStage) -> Self {
-    Self { stage, files: Vec::new() }
+    Self {
+      stage,
+      files: Vec::new(),
+      asked: false,
+    }
   }
 }
 

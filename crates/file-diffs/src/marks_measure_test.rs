@@ -2,10 +2,11 @@
 //! the texts, the proofs and the times, and the same subject without any mark.
 
 use crate::accio::FixtureIndex;
-use crate::fixture_test::{confirmed_messages, unhurried};
+use crate::fixture_test::{commit_all, confirmed_messages, unhurried, write};
 use crate::marks_measure::{MeasuredFile, MeasuredSubject};
 use crate::model::{DiffContent, DiffSource};
 use crate::service::{FileDiffs, diff_options, disk_key, model_version};
+use crate::service_test::moved_title;
 use code_tokens::Grammar;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -135,7 +136,8 @@ fn a_run_the_index_confirmed_is_proven_and_the_marks_read_again_are_those_of_the
 
   // the index lists the declaration and its two calls in both trees (`confirmed_messages`)
   let measured = unhurried().measure(git, path, &cache, Some(&FixtureIndex), &source, Exact, None).unwrap();
-  assert!(measured.index.is_some());
+  // the renames and the moves were asked; no file may follow a move, so nothing more was
+  assert_eq!((measured.index.is_some(), measured.moves.is_some(), measured.moved_uses), (true, true, None));
   let (messages, diff) = file(&measured, "src/Messages.kt");
   let text = messages.text.as_ref().unwrap();
   let subject = diff.marks.subject.as_ref().unwrap();
@@ -144,4 +146,34 @@ fn a_run_the_index_confirmed_is_proven_and_the_marks_read_again_are_those_of_the
   // the runs are those of the pair, quiet by the answer: no difference, both proven, the declaration alone is read
   assert_eq!((text.differs, text.proven.as_slice()), (None, &[true, true][..]));
   assert_eq!((diff.marks.starts.as_slice(), text.proven_starts.as_slice()), (&[0, 1, 2][..], &[0, 1, 2][..]));
+}
+
+/// Each stage of the answer of the index has its own time: the renames, the moves, and the uses that follow a move,
+/// which only a subject with a file that may follow one asks. A subject that only adds lines moved nothing and asks
+/// no moves, so it has no time of them; no index, no time of any stage
+#[test]
+fn each_stage_of_the_answer_of_the_index_has_its_time() {
+  let (repo, head, index) = moved_title();
+  let source = DiffSource::Commit { id: head };
+  let (git, path, cache) = (repo.git_executor(), repo.path_str(), ObjectCache::disabled());
+  let stages = |measured: &MeasuredSubject| (measured.index.is_some(), measured.moves.is_some(), measured.moved_uses.is_some());
+  let measured = unhurried().measure(git, path, &cache, Some(&index), &source, Exact, None).unwrap();
+  assert_eq!(stages(&measured), (true, true, true));
+  assert_eq!(
+    (index.moves_asked.lock().unwrap().len(), index.asked().len()),
+    (1, 1),
+    "the moves, then the uses that follow them"
+  );
+  let use_file = file(&measured, "src/Use.kt").1.marks.subject.as_ref().unwrap();
+  assert_eq!(use_file.used.iter().map(|used| used.proof).collect::<Vec<_>>(), [RenameProof::Confirmed]);
+  let without = unhurried().measure(git, path, &cache, None, &source, Exact, None).unwrap();
+  assert_eq!(stages(&without), (false, false, false));
+
+  write(&repo, "src/Total.kt", b"fun total(account: String) = account.length\n");
+  let added = DiffSource::Commit {
+    id: commit_all(&repo, "Add the total"),
+  };
+  let measured = unhurried().measure(git, path, &cache, Some(&index), &added, Exact, None).unwrap();
+  assert_eq!(stages(&measured), (true, false, false));
+  assert_eq!(index.moves_asked.lock().unwrap().len(), 1, "no moves asked of a commit that only adds lines");
 }

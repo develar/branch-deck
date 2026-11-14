@@ -7,8 +7,9 @@
 //! - **The counts**, in all and by the grammar of the files: the blocks, the stops the views have and the stops they
 //!   have once every proven run is quiet, the runs of each kind, the moves within a file by their size and their
 //!   edited lines, the renames by what proves them, the moves between files.
-//! - **The times** of each read to its first content and to its end; `--no-marks` reads the same subjects without any
-//!   mark, which is what the marks cost.
+//! - **The times** of each read to its first content and to its end, and with `--index` of each stage of the answer
+//!   of the index (`index_ms`, `moves_ms`, `moved_uses_ms`); `--no-marks` reads the same subjects without any mark,
+//!   which is what the marks cost.
 //! - **The sample** (`--mark-sample <N>`): N marks of each kind, spread evenly over the subjects, each with the lines
 //!   of both sides, for a person to read: a quiet kind must hold no change of behaviour, a label must be true.
 //! - **What other thresholds of a move find** (`--min-move-chars <N>`, `--max-edited <N/D>`): each file is searched
@@ -270,9 +271,14 @@ pub struct MarkTimes {
   /// The answers of the index of the renames, with --index: what a view waits for its proofs
   #[serde(skip_serializing_if = "Option::is_none")]
   pub index_ms: Option<Spread>,
-  /// The answers of the moves after them, and of the uses that follow a move, with --index
+  /// The answers of the moves after them, with --index: of the subjects that may have moved a declaration, the only
+  /// ones that ask them (a subject that only adds lines, or only deletes them, asks none)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub moves_ms: Option<Spread>,
+  /// The answers of the uses that follow a move after those, with --index: of the subjects a file of which may
+  /// follow a move, the only ones that ask it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub moved_uses_ms: Option<Spread>,
   /// The subjects that took the longest to their end
   pub slowest: Vec<SubjectTime>,
 }
@@ -280,6 +286,8 @@ pub struct MarkTimes {
 /// How a time spreads over the subjects, in milliseconds
 #[derive(Debug, Default, Serialize)]
 pub struct Spread {
+  /// The subjects that have the time
+  pub count: usize,
   pub sum: f64,
   pub median: f64,
   pub p95: f64,
@@ -373,6 +381,7 @@ pub fn mark_stats_with(context: &RepoContext, args: &MarkStatsArgs, index: Optio
   let mut times: Vec<SubjectTime> = Vec::with_capacity(subjects.len());
   let mut index_times: Vec<f64> = Vec::new();
   let mut moves_times: Vec<f64> = Vec::new();
+  let mut moved_uses_times: Vec<f64> = Vec::new();
   let mut subjects_of: BTreeMap<&'static str, usize> = BTreeMap::new();
   let mut differ_in: Vec<String> = Vec::new();
   for source in &subjects {
@@ -404,6 +413,7 @@ pub fn mark_stats_with(context: &RepoContext, args: &MarkStatsArgs, index: Optio
     });
     index_times.extend(measured.index.map(millis));
     moves_times.extend(measured.moves.map(millis));
+    moved_uses_times.extend(measured.moved_uses.map(millis));
     for language in read {
       *subjects_of.entry(language).or_default() += 1;
     }
@@ -444,6 +454,7 @@ pub fn mark_stats_with(context: &RepoContext, args: &MarkStatsArgs, index: Optio
       end_ms,
       index_ms: (!index_times.is_empty()).then(|| Spread::of(index_times)),
       moves_ms: (!moves_times.is_empty()).then(|| Spread::of(moves_times)),
+      moved_uses_ms: (!moved_uses_times.is_empty()).then(|| Spread::of(moved_uses_times)),
       slowest: times,
     },
     sample: sampler.into_sample(),
@@ -463,6 +474,7 @@ impl Spread {
     times.sort_by(f64::total_cmp);
     let at = |share: usize| times[(times.len() * share / 100).min(times.len() - 1)];
     Self {
+      count: times.len(),
       sum: (times.iter().sum::<f64>() * 10.0).round() / 10.0,
       median: at(50),
       p95: at(95),

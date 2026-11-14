@@ -205,7 +205,11 @@ fn the_index_is_asked_of_the_renamed_names_and_refused_where_the_machine_has_non
     (&json!({ "unavailable": 2 }), None)
   );
   assert_eq!(with["total"]["renames"]["proofs"], json!({ "confirmed": 2 }));
-  assert!(with["time"]["index_ms"]["max"].is_number(), "{with}");
+  // the time of each stage of the answer, of the one commit: the renames, the moves; no file may follow a move, so no
+  // more is asked
+  assert!(with["time"]["index_ms"]["max"].is_number() && with["time"]["moves_ms"]["max"].is_number(), "{with}");
+  assert_eq!((&with["time"]["index_ms"]["count"], &with["time"]["moves_ms"]["count"]), (&json!(1), &json!(1)));
+  assert_eq!((with["time"].get("moved_uses_ms"), without["time"].get("moves_ms")), (None, None));
   // the two calls are quiet and proven, the marks read again are those of the view, and two stops are gone
   assert_eq!(with["total"]["renamed"], json!({ "runs": 5, "quiet": 5, "proven": 5, "old_lines": 5, "new_lines": 5 }));
   let counts = |output: &Value| ["differ", "stops", "stops_proven"].map(|count| output["total"][count].as_u64().unwrap());

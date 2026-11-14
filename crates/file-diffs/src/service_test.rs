@@ -392,12 +392,12 @@ type Answering = fn() -> Renames;
 type AnsweringPairs = Box<dyn Fn(&[RenamePair]) -> Renames + Send + Sync>;
 
 /// An index of a test: it answers `renames` with `answer` and `moves` with `moves`, and keeps what it was asked
-struct RenameIndex {
+pub(crate) struct RenameIndex {
   answer: AnsweringPairs,
   asked: std::sync::Mutex<Vec<(Vec<RenamePair>, String, String)>>,
   moves: Option<MovesAnswer>,
   /// The trees `moves` was asked of
-  moves_asked: std::sync::Mutex<Vec<(String, String)>>,
+  pub(crate) moves_asked: std::sync::Mutex<Vec<(String, String)>>,
 }
 
 impl RenameIndex {
@@ -422,7 +422,7 @@ impl RenameIndex {
     }
   }
 
-  fn asked(&self) -> Vec<(Vec<RenamePair>, String, String)> {
+  pub(crate) fn asked(&self) -> Vec<(Vec<RenamePair>, String, String)> {
     self.asked.lock().unwrap().clone()
   }
 }
@@ -674,13 +674,10 @@ fn the_moves_of_a_subject_are_asked_after_its_diffs_once_by_its_trees() {
   assert_eq!(index.moves_asked.lock().unwrap().len(), 1);
 }
 
-/// The answer of the index comes in stages, the renames first: the moves are asked only once the renames were told,
-/// so no question of them delays a proof of a rename. A file that may follow a move under another owner (the owner in
-/// front of a call written anew) says nothing with the moves; the uses of the declaration that moved are asked after
-/// them, one process more, and once they prove it the file gets its run, quiet. Memory keeps both answers by the two
-/// trees
-#[test]
-fn the_stages_of_the_answer_of_the_index_tell_the_renames_before_the_moves_are_asked() {
+/// The repository of a commit that takes a function whole from the ledger into the report, to another file and under
+/// another owner, with a file whose call writes the new owner in front of it; the commit, and the index that answers
+/// its move and the uses of the function in both trees
+pub(crate) fn moved_title() -> (TestRepo, String, RenameIndex) {
   let repo = TestRepo::new();
   std::fs::create_dir_all(repo.path().join("src")).unwrap();
   let title = "  fun title(account: String): String {\n    return \"Title of $account\"\n  }\n";
@@ -711,6 +708,17 @@ fn the_stages_of_the_answer_of_the_index_tell_the_renames_before_the_moves_are_a
     moves: Some(moves),
     ..RenameIndex::of_pairs(move |pairs| Ok(Some(pairs.iter().map(|_| serde_json::from_str(proven).unwrap()).collect())))
   };
+  (repo, second, index)
+}
+
+/// The answer of the index comes in stages, the renames first: the moves are asked only once the renames were told,
+/// so no question of them delays a proof of a rename. A file that may follow a move under another owner (the owner in
+/// front of a call written anew) says nothing with the moves; the uses of the declaration that moved are asked after
+/// them, one process more, and once they prove it the file gets its run, quiet. Memory keeps both answers by the two
+/// trees
+#[test]
+fn the_stages_of_the_answer_of_the_index_tell_the_renames_before_the_moves_are_asked() {
+  let (repo, second, index) = moved_title();
   let diffs = unhurried();
   let params = GetIndexMarksParams {
     repository_path: repo_path(&repo).to_string(),

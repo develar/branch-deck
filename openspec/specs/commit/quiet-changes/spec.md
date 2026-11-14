@@ -2851,10 +2851,10 @@ whatever it changes of the section (the height of its rows, its header), and dro
 
 ### Requirement: Measurement: A subject is measured as a view reads it
 
-A measurement (`FileDiffs::measure`) MUST read a subject through the stream a view reads and give each file as the
-view gets it, with the times, both texts, whether its tokens were read, the runs proven whatever their kind, the
-starts once they are passed, and what of the marks read again differs. With an index it MUST ask of the renamed
-names, and a run it confirmed is proven and no difference; with other thresholds of a move, the moves under them.
+A measurement (`FileDiffs::measure`) MUST read a subject through the stream of a view and give each file as the
+view gets it, with the times of the read and of each stage of the index, both texts, whether its tokens were read,
+the runs proven whatever their kind, the starts with them passed, and what of the marks read again differs. With an
+index it MUST ask the renamed names: a run it confirmed is proven. Under other thresholds of a move, their moves.
 Diffs without marks MUST enter no store.
 
 #### Scenario: The template of the marks
@@ -2873,6 +2873,13 @@ Diffs without marks MUST enter no store.
 - **WHEN** a commit renames a function its file declares and calls at two places, and is measured without an index and with one that lists the declaration and both calls in both trees
 - **THEN** without the index the two calls are labels, each a stop, and no run is proven; with it they are quiet and proven, the declaration alone is read, and the marks read again from the texts are those of the view
   [@test] crates/file-diffs/src/marks_measure_test.rs (`a_run_the_index_confirmed_is_proven_and_the_marks_read_again_are_those_of_the_view`)
+
+#### Scenario: The time of each stage of the index
+- **WHEN** a commit takes a function whole to another file under another owner, with a file whose call writes the new owner in front of it, and is measured with an index that answers the move and the uses of the function, and without an index
+- **THEN** with the index the renames, the moves and the uses that follow the move each have a time, the moves and the uses are asked once each, and the call is confirmed; without it no stage has a time
+- **AND** a subject no file of which may follow a move has the times of the renames and the moves and none of the uses
+- **AND** a commit that only adds lines, measured with the index, asks no moves and has no time of them
+  [@test] crates/file-diffs/src/marks_measure_test.rs (`each_stage_of_the_answer_of_the_index_has_its_time`, `a_run_the_index_confirmed_is_proven_and_the_marks_read_again_are_those_of_the_view`)
 
 ### Requirement: Measurement: `brd commits --mark-stats` counts the marks of real commits and prints a sample of each kind
 
@@ -2896,7 +2903,7 @@ It MUST write the object cache only.
 
 #### Scenario: The index
 - **WHEN** it runs with `--index` on the `commit_marks` template, with no index, and with one that lists the declaration of the renamed function and its two calls
-- **THEN** without an index it is refused as invalid arguments; with one the two names are `confirmed`, the two calls are quiet and proven, two stops fewer are left, the marks read again are those of the view, and the time of the answer is printed
+- **THEN** without an index it is refused as invalid arguments; with one the two names are `confirmed`, the two calls are quiet and proven, two stops fewer are left, the marks read again are those of the view, and the times of the renames and of the moves are printed (`index_ms`, `moves_ms`) of the one commit (`count`), and none of the uses that follow a move (`moved_uses_ms`), which no file of it may follow
 - **AND** without the flag no index is asked, whatever index there is
   [@test] crates/bd-rewrite/src/mark_stats_test.rs (`the_index_is_asked_of_the_renamed_names_and_refused_where_the_machine_has_none`)
 

@@ -211,7 +211,7 @@ impl PlanReading {
   pub(crate) fn answer(&mut self, git: &GitCommandExecutor, sources: PlanSources<'_>) -> Result<()> {
     sources
       .file_diffs
-      .answer_index(git, sources.cache, sources.index, &self.params, &mut self.read, &mut |_| {})
+      .answer_index(git, sources.cache, sources.index, &self.params, &mut self.read, &mut |_, _| {})
   }
 }
 

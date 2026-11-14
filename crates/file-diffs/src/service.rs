@@ -542,7 +542,7 @@ impl FileDiffs {
       priority_paths: Vec::new(),
     };
     let mut read = self.collect(git, cache, index.is_some(), &params, &mut |_| {})?;
-    self.answer_index(git, cache, index, &params, &mut read, &mut |_| {})?;
+    self.answer_index(git, cache, index, &params, &mut read, &mut |_, _| {})?;
     Ok(read.into_files())
   }
 
@@ -608,7 +608,8 @@ impl FileDiffs {
 
   /// Asks `index` of the names the subject of `params` renamed and of the declarations it moved (`index_marks`) and
   /// puts the marks of each stage of its answer into the files of `read`, in their order; `stage` is told of the end of
-  /// each. Without an index nothing is asked: the proofs say so already
+  /// each, and whether it asked the index (`IndexMarks::asked`). Without an index nothing is asked: the proofs say so
+  /// already
   pub fn answer_index(
     &self,
     git: &GitCommandExecutor,
@@ -616,7 +617,7 @@ impl FileDiffs {
     index: Option<&dyn SymbolIndex>,
     params: &GetFileDiffsParams,
     read: &mut Collected,
-    stage: &mut dyn FnMut(IndexStage),
+    stage: &mut dyn FnMut(IndexStage, bool),
   ) -> Result<()> {
     if index.is_none() {
       return Ok(());
@@ -633,7 +634,7 @@ impl FileDiffs {
           diff.marks = marks;
         }
       }
-      stage(answered.stage);
+      stage(answered.stage, answered.asked);
     })?;
     Ok(())
   }
@@ -774,7 +775,7 @@ impl FileDiffs {
     let values = subject_values(&texts);
     let facts = subject_facts(&entries, &texts, &values);
     // each stage told as the marks of the files that changed since the one before
-    let mut told = |stage: IndexStage, before: &[Option<diff_marks::model::DiffMarks>], marks: &[Option<diff_marks::model::DiffMarks>]| {
+    let mut told = |stage: IndexStage, asked: bool, before: &[Option<diff_marks::model::DiffMarks>], marks: &[Option<diff_marks::model::DiffMarks>]| {
       let files = entries
         .iter()
         .zip(marks)
@@ -790,7 +791,7 @@ impl FileDiffs {
           })
         })
         .collect();
-      emit(IndexMarks { stage, files });
+      emit(IndexMarks { stage, files, asked });
     };
 
     // the renames: the marks `stream` gave said the index is there to be asked, of the subject without the moves of
@@ -809,20 +810,21 @@ impl FileDiffs {
     };
     let answer = answers.as_deref().map_or(IndexAnswer::Unavailable, |answers| IndexAnswer::Answered(answers));
     let renamed = plain.marks(answer);
-    told(IndexStage::Renames, &streamed, &renamed);
+    told(IndexStage::Renames, !questions.is_empty(), &streamed, &renamed);
 
-    // the declarations moved whole
-    let moves = match index.filter(|_| plain.may_move()).map(|index| self.moves_of(index, repository_path, &base, &head)) {
+    // the declarations moved whole, asked only of a subject that may have moved one
+    let moves_index = index.filter(|_| plain.may_move());
+    let moves = match moves_index.map(|index| self.moves_of(index, repository_path, &base, &head)) {
       Some(Err(SearchCanceled)) => return Ok(false),
       Some(Ok(moves)) => moves,
       None => None,
     };
     let Some(moves) = moves else {
-      told(IndexStage::Moves, &renamed, &renamed);
+      told(IndexStage::Moves, moves_index.is_some(), &renamed, &renamed);
       return Ok(true);
     };
     let moved = Subject::with_moves(&facts, &moves).marks(answer);
-    told(IndexStage::Moves, &renamed, &moved);
+    told(IndexStage::Moves, true, &renamed, &moved);
 
     // the owners in front of the uses of a declaration moved under another owner, marks once the index proved them
     let following = Subject::following_moves(&facts, &moves);
@@ -840,7 +842,7 @@ impl FileDiffs {
     } else {
       Subject::with_followed(&facts, &moves, &followed).marks(answer)
     };
-    told(IndexStage::MovedUses, &moved, &followed);
+    told(IndexStage::MovedUses, true, &moved, &followed);
     Ok(true)
   }
 

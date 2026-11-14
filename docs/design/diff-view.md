@@ -431,32 +431,44 @@ rest gets a label and stays a stop.
   warm and 41 s cold on the IntelliJ monorepo, for one declaration), and three things wait for the end of the read
   of a subject's diffs: a review that follows its branch to a new head, the link that opened a review, and the read
   ahead of the neighbours. So the diffs ask no index. The answer comes in stages on its channel (`IndexMarks`): the
-  proofs of the renames, then the moves, then the uses that follow a move. A moves query reads the declarations of
-  every changed file of both trees: on the 400 commits of idea-1 above, under the load of this Mac, the renames
-  answer at a median of 261 ms (p95 926 ms; 348 ms and 1.3 s for the build that asked the renames alone, at another
-  moment of the load), the moves after them at a median of 10.7 s (p95 33 s). Asked first in one answer, the moves
-  made a view wait seconds for the proofs it had in a tenth of one; as a later stage they delay none. With one on the machine, the stream of a subject of two trees
-  says that it is there to be asked (`asksIndex`), the names a subject renamed say `asked`, and the read ends with
-  its last file. The page asks then (`get_index_marks`), and only of a subject a
-  view shows: the store counts the views that hold an entry (`useFileDiffs`), and a subject read ahead of its view
-  has none. One question at a time, of the subject held last; a question whose subject no view shows any more
-  gives way to the next one, and the backend kills its query (one request of a kind per window, as a symbol search;
-  also once the window closes or loads again). A question that got no answer leaves the names `asked`, and the
-  subject is asked again when a view shows it again; an answer is kept in memory by the two trees and the
+  proofs of the renames, then the moves, then the uses that follow a move. A moves query compares the declarations
+  of the two trees where the index holds them apart: a tree other than the commit of the index is a segment of it,
+  built by the first query of that tree (a renames query too), and accio compares the files those segments hold.
+  Measured on the Mac Studio (2026-11-14, a load of 4 to 14 on 20 cores; `brd --no-cache commits --mark-stats
+  --index`, an index of its idea-1 checkout at 4839847e without libraries), on the 92 commits right under the commit
+  of the index (300f1a79..4839847e, each tree at most 887 files away from it): the renames answer at a median of
+  193 ms (p95 207 ms, 1.1 s at most; 196 ms on commits that ask accio nothing, the work of Branch Deck before its
+  question), the moves after them, of the 83 commits that ask them (the other nine only add lines or only delete them,
+  and ask none), at a median of 630 ms (p95 1.0 s; 1.39 s and 1.93 s with the accio before 565a37275, which compared
+  every file of both trees), the uses that follow a move, of the one commit that asked them, in 0.5 to 1.1 s. Far from
+  the commit of the index the segment is the cost: on the first six commits of e8b5bb3d..008a0a18, whose trees differ
+  from it in about 107,000 files, the moves take 24 s with either accio, nearly all of it the segment of the new tree
+  (accio #777), the renames 0.2 s, as none of them renamed a name that is not local. Asked first in one answer, the
+  moves made a view wait seconds for the proofs it had in a tenth of one; as a later stage they delay none. Asked
+  beside the renames they would gain little: a commit asks accio of its renames only where it renamed such a name
+  (more than 207 ms on four of the 92 at most), both queries need the same segments, which accio builds once while a
+  second query of them waits, and what is left to overlap is the work of accio after the segments, a few hundred
+  milliseconds of a stage no view waits for first, bought with a renames query that shares the cores with the moves.
+  With one on the machine, the stream of a subject of two trees says that it is there to be asked (`asksIndex`), the
+  names a subject renamed say `asked`, and the read ends with its last file. The page asks then (`get_index_marks`),
+  and only of a subject a view shows: the store counts the views that hold an entry (`useFileDiffs`), and a subject
+  read ahead of its view has none. One question at a time, of the subject held last; a question whose subject no view
+  shows any more gives way to the next one, and the backend kills its query (one request of a kind per window, as a
+  symbol search; also once the window closes or loads again). A question that got no answer leaves the names `asked`,
+  and the subject is asked again when a view shows it again; an answer is kept in memory by the two trees and the
   declarations asked, so that costs no process. Only a final answer is kept (`RenameAnswer::is_final`, accio's
-  `final`: the same trees asked the same pairs give it again), complete or not: a pair accio could not ask, two
-  places that are not one declaration, a use tied by the name alone, a side cut by the work. accio shares one budget
-  of 30 s between the declarations of a call, and a cold index spends it: an answer the clock cut (`cut: time`, with
-  no uses when the budget ran out before the pair) says what that query got to, on that machine at that load, and
-  since the pairs of a call share the relations they read, accio then says no pair of it that read anything is
-  final. Such an answer is the answer of its question (`incomplete`), and the next question asks its pair again,
-  without the pairs memory has a final answer of (a call the clock cut has no other final pair than one accio could
-  not ask, which read nothing), so a result of the load never outlives the query that had it. An accio before
-  `final` writes none, and none of its answers is kept. The answer is the marks of the files it says something of, and it
-  comes after their rows: a view passes a confirmed run and shows each of its lines, where a quiet run of the pair
-  is shown once. That is why `confirmed` is a list of its own beside `quiet`. Only a commit and a range named by
-  their ids are asked: the working tree may be another by the time accio reads it, and its answer would be of
-  other texts than the ones shown.
+  `final`: the same trees asked the same pairs give it again), complete or not: a pair accio could not ask, two places
+  that are not one declaration, a use tied by the name alone, a side cut by the work. accio shares one budget of 30 s
+  between the declarations of a call, and a cold index spends it: an answer the clock cut (`cut: time`, with no uses
+  when the budget ran out before the pair) says what that query got to, on that machine at that load, and since the
+  pairs of a call share the relations they read, accio then says no pair of it that read anything is final. Such an
+  answer is the answer of its question (`incomplete`), and the next question asks its pair again, without the pairs
+  memory has a final answer of (a call the clock cut has no other final pair than one accio could not ask, which read
+  nothing), so a result of the load never outlives the query that had it. An accio before `final` writes none, and
+  none of its answers is kept. The answer is the marks of the files it says something of, and it comes after their
+  rows: a view passes a confirmed run and shows each of its lines, where a quiet run of the pair is shown once. That
+  is why `confirmed` is a list of its own beside `quiet`. Only a commit and a range named by their ids are asked: the
+  working tree may be another by the time accio reads it, and its answer would be of other texts than the ones shown.
 - **How a view reads the marks of a subject.** `marks.subject` is absent or `null` for a file the subject says
   nothing of. `movedOut` and `movedIn` are `{start, len, file, line}`: `len` lines from `start` (old lines where
   they left, new lines where they stand now), `file` the index of the other file among the files of the subject,
