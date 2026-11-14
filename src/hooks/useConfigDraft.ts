@@ -58,7 +58,8 @@ export function useConfigDraft({
     return writes.save(
       typed,
       () => write(typed === "" ? null : typed),
-      () => setDraft(null),
+      // an edit typed while the write ran stays, and is written after it
+      value => setDraft(current => (current !== null && normalize(current) === value ? null : current)),
     )
   }
 

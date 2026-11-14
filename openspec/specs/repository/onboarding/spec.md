@@ -394,9 +394,9 @@ the toolbar MUST have no field for it, as the prefix is set once and the welcome
 
 ### Requirement: Welcome card: The field of Settings saves on Enter and when it loses the focus
 
-The field of Settings MUST save on Enter and when it loses the focus, never on a key (the prefix names the branches of
-the sync and the robots of Patronus), MUST refuse a prefix git cannot take in place, and Escape MUST take the typing
-back before it closes the window.
+The field of Settings MUST save on Enter, when it loses the focus and when the window closes, never on a key (the
+prefix names the branches of the sync and the robots of Patronus), MUST refuse a prefix git cannot take in place, and
+Escape MUST take the typing back before it closes the window.
 
 #### Scenario: Enter or the field left
 - **WHEN** the user types a prefix and presses Enter, or leaves the field
@@ -412,6 +412,11 @@ back before it closes the window.
 - **WHEN** the user types and presses Escape
 - **THEN** the field takes the typing back and the window stays open
   [@test] tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`)
+
+#### Scenario: The window closes with the typing
+- **WHEN** the user types a prefix and closes the window by ⌘W
+- **THEN** the prefix is saved before the window goes, and the window opened again shows it
+  [@test] tests/e2e/onboarding/onboarding.spec.ts (`saves the prefix typed in Settings when the window closes, and the window opened again shows it`)
 
 ### Requirement: Welcome card: An empty field applies the prefix of the global git config
 

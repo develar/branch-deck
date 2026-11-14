@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useEffectEvent, useState } from "react"
 import { CircleHelpIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,16 +8,20 @@ import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { commands } from "@/lib/bindings"
 import type { ResolvedBranchPrefix } from "@/lib/bindings"
 import { appPrefixOf, INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
+import { FieldWrites } from "@/lib/field-writes"
 import { repositoryName } from "@/lib/repository-config"
 import { onSettingFieldKey } from "@/lib/setting-field"
+import { saveBeforeClose } from "@/lib/settings-close"
 import { openSettings } from "@/lib/settings-window"
 import { setGlobalUserBranchPrefix, useAppSettings } from "@/stores/settings/appSettings"
-import { onWriterChange, snapshotValueOf } from "@/stores/settings/persistent-store"
+import { onWriterChange, snapshotValueOf, whenSettingWritten } from "@/stores/settings/persistent-store"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 /**
- * The branch prefix of every repository (`globalUserBranchPrefix`, Settings → Branches, All repositories), saved on Enter and when the field loses the focus,
- * not on every key: the prefix names the branches of the sync and the robots of Patronus. Escape takes the typing back.
+ * The branch prefix of every repository (`globalUserBranchPrefix`, Settings → Branches, All repositories), saved on Enter,
+ * when the field loses the focus and when the window closes (`saveBeforeClose`, which waits for the writer), not on every
+ * key: the prefix names the branches of the sync and the robots of Patronus; one change is one write (`FieldWrites`).
+ * Escape takes the typing back.
  * Empty, the prefix of the global git config (`branchdeck.branchPrefix`) applies, its value the placeholder. The selected
  * repository's own git prefix wins over it, which the field says, with the way to its page: what Rust resolved for the
  * repository (`resolve_branch_prefix`) and its source, shown as they are. A sync resolves the prefix when it starts, so a
@@ -42,12 +46,35 @@ export function BranchPrefixSetting() {
   const named = prefix || (repositoryPrefix === "" ? globalPrefix : "")
   const showsNames = repositoryPrefix === "" || prefix !== ""
 
-  const save = () => {
-    if (draft !== null && !invalid) {
-      setGlobalUserBranchPrefix(prefix === "" ? undefined : prefix)
-      setDraft(null)
+  const [writes] = useState(() => new FieldWrites())
+  useEffect(() => {
+    if (draft === null) {
+      writes.typingCleared()
     }
+  }, [draft, writes])
+
+  const save = (): Promise<void> => {
+    if (draft === null || invalid) {
+      return Promise.resolve()
+    }
+    if (prefix === saved) {
+      setDraft(null)
+      return Promise.resolve()
+    }
+    return writes.save(
+      prefix,
+      () => {
+        setGlobalUserBranchPrefix(prefix === "" ? undefined : prefix)
+        return whenSettingWritten("appSettings")
+      },
+      // an edit typed while the write ran stays, and is written after it
+      value => setDraft(current => (current !== null && normalizeBranchPrefix(current) === value ? null : current)),
+    )
   }
+
+  // a window closed while the field holds valid typing saves it first
+  const saveOnClose = useEffectEvent(() => save())
+  useEffect(() => saveBeforeClose(() => saveOnClose()), [])
 
   return (
     <div className="flex flex-col gap-1.5" data-testid="setting-branch-prefix">
@@ -55,8 +82,8 @@ export function BranchPrefixSetting() {
         <Input
           value={value}
           onChange={event => setDraft(event.target.value)}
-          onBlur={save}
-          onKeyDown={event => onSettingFieldKey(event, save, draft === null ? null : () => setDraft(null))}
+          onBlur={() => void save()}
+          onKeyDown={event => onSettingFieldKey(event, () => void save(), draft === null ? null : () => setDraft(null))}
           placeholder={globalPrefix || "your-name"}
           aria-label="Branch prefix"
           aria-invalid={invalid || undefined}

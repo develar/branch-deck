@@ -91,6 +91,17 @@ test.describe("Onboarding", () => {
     await expectSettingsPrefix(page, "jane")
   })
 
+  test("saves the prefix typed in Settings when the window closes, and the window opened again shows it", async ({ page, setupRepo, testStore }) => {
+    await setupRepo("simple", { prepopulateStore: true })
+    const settings = await openSettingsWindow(page, { page: "branches" })
+    await settings.getByRole("textbox", { name: "Branch prefix", exact: true }).fill("jane")
+    // ⌘W with the typing in the field: the window saves it first, waits for the writer, then goes
+    await emitTauriEvent(settings, "tauri://close-requested")
+    await expect.poll(() => windowCalls(settings)).toContain("destroy")
+    expect(((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
+    await expectSettingsPrefix(page, "jane")
+  })
+
   test("changes the prefix in Settings on Enter or when the field is left, not on every key", async ({ page, setupRepo, testStore }) => {
     await setupRepo("simple", { prepopulateStore: true })
     const settings = await openSettingsWindow(page, { page: "branches" })

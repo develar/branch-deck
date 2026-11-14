@@ -51,6 +51,8 @@ interface KeySync {
   sent: SettingsPatch | null
   /** The local changes made while `sent` is unanswered, merged into one patch */
   queued: SettingsPatch | null
+  /** Who waits for the writer to answer every local change (`whenSettingWritten`): whether it took the last one */
+  readonly waiting: Array<(taken: boolean) => void>
 }
 
 /** The value of a key as the writer has it, with the version of the change that gave it (the snapshot's first) */
@@ -189,6 +191,10 @@ function send(sync: KeySync, patch: SettingsPatch): void {
     sync.queued = null
     if (queued !== null) {
       send(sync, queued)
+    } else {
+      for (const waiter of sync.waiting.splice(0)) {
+        waiter(change !== null)
+      }
     }
     refresh(sync)
   }
@@ -211,6 +217,20 @@ function changedLocally(sync: KeySync): void {
   } else {
     sync.queued = mergePatch(sync.queued, patch)
   }
+}
+
+/**
+ * Resolves once the writer answered every change this window made of `key` so far, with whether it took the last one:
+ * a field of Settings saved as the window closes waits for its write (`saveBeforeClose`); at once without one
+ */
+export function whenSettingWritten(key: string): Promise<boolean> {
+  const sync = syncs.get(key)
+  if (sync === undefined || (sync.sent === null && sync.queued === null)) {
+    return Promise.resolve(true)
+  }
+  return new Promise(resolve => {
+    sync.waiting.push(resolve)
+  })
 }
 
 /**
@@ -348,6 +368,7 @@ export function createPersistentStore(key: string, { schema, isArray, isMainOnly
     known: initialValue,
     sent: null,
     queued: null,
+    waiting: [],
   }
   // a key created again (HMR) replaces the previous one
   syncs.set(key, sync)

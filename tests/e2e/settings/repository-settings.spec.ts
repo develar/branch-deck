@@ -351,6 +351,50 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
     await expectTheRepositoryWrittenOnce(window, writes, repo.path)
   })
 
+  /**
+   * Types "acme/one" as the GitHub repository and leaves the field, whose write runs on the server and whose answer is
+   * held, then types "acme/two" meanwhile: the answer of the first write, to release
+   */
+  async function editDuringTheWriteOfABlur(window: Page): Promise<{ field: Locator; release: () => void }> {
+    const field = row(window, "githubRepository").getByRole("textbox", { name: "GitHub repository" })
+    await field.fill("acme/one")
+    const write = await holdNextAnswer(window, "set_repository_config")
+    await field.blur()
+    await write.ran
+    await field.fill("acme/two")
+    return { field, release: write.release }
+  }
+
+  /** The two values written in order, each once */
+  function writtenInOrder(path: string): Array<Record<string, unknown>> {
+    return ["acme/one", "acme/two"].map(value => ({ repositoryPath: path, change: { key: "githubRepository", value }, scope: "local" }))
+  }
+
+  test("should write an edit typed during the write of a blur once that write answered, when the window closes", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple")
+    const window = await openRepositoryLanding(page)
+    const writes = recordWrites(window)
+    const { release } = await editDuringTheWriteOfABlur(window)
+    // ⌘W while the first write waits for its answer: the close waits for it, then writes the edit
+    await emitTauriEvent(window, "tauri://close-requested")
+    release()
+    await expect.poll(() => windowCalls(window)).toContain("destroy")
+    expect(writes).toEqual(writtenInOrder(repo.path))
+  })
+
+  test("should write an edit typed and entered during the write of a blur once that write answered, and keep it in the field", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple")
+    const window = await openRepositoryLanding(page)
+    const writes = recordWrites(window)
+    const { field, release } = await editDuringTheWriteOfABlur(window)
+    await field.press("Enter")
+    release()
+    await expect.poll(() => writes.length).toBe(2)
+    expect(writes).toEqual(writtenInOrder(repo.path))
+    await expect(field).toHaveValue("acme/two")
+    await expect(source(window, "githubRepository")).toHaveText(ownLine(repo.path))
+  })
+
   test("should show only the value of every repository without a repository, and say how to set the rest", async ({ page, setupRepo }) => {
     await setupRepo("NO_REPO", { prepopulateStore: false })
     const window = await openSettingsWindow(page, { page: "landing", scope: "repository" })

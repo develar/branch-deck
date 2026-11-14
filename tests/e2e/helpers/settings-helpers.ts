@@ -37,9 +37,10 @@ export function settingsTab(window: Page, name: string): Locator {
 }
 
 /**
- * The window asks to close (`tauri://close-requested`, ⌘W) as the answer of the next `command` lands: once the promises
- * of the answer ran (a chain of microtasks, longer than the page's), before the page renders what they set, which React
- * does in a task of its own. The moment a close of the user can come that no wait of a test reaches
+ * The window asks to close (`tauri://close-requested`, ⌘W) as the answer of the next `command` lands: in a task posted
+ * as its body is read, which runs after the page took the answer (the microtasks of its promises) and before the
+ * render of what they set, which React posts after it in the same task source (`MessageChannel`, run in order). The
+ * moment a close of the user can come that no wait of a test reaches
  */
 export async function closeAsTheAnswerLands(window: Page, command: string): Promise<void> {
   await window.evaluate(suffix => {
@@ -49,19 +50,16 @@ export async function closeAsTheAnswerLands(window: Page, command: string): Prom
       const body = await arrayBuffer.call(this)
       if (this.url.endsWith(suffix)) {
         Object.defineProperty(Response.prototype, "arrayBuffer", descriptor)
-        let hops = 200
-        const close = () => {
-          if (--hops > 0) {
-            queueMicrotask(close)
-          } else {
-            ;(window as unknown as { __e2eEmitTauriEvent: (event: string, payload: unknown, label: string | null) => void }).__e2eEmitTauriEvent(
-              "tauri://close-requested",
-              null,
-              null,
-            )
-          }
+        const channel = new MessageChannel()
+        channel.port1.onmessage = () => {
+          channel.port1.close()
+          ;(window as unknown as { __e2eEmitTauriEvent: (event: string, payload: unknown, label: string | null) => void }).__e2eEmitTauriEvent(
+            "tauri://close-requested",
+            null,
+            null,
+          )
         }
-        queueMicrotask(close)
+        channel.port2.postMessage(null)
       }
       return body
     }
