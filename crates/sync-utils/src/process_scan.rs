@@ -362,21 +362,36 @@ pub fn host_name() -> &'static str {
   HOST.get_or_init(|| gethostname::gethostname().to_string_lossy().into_owned())
 }
 
-/// The processes below `pid`, which started at `started`, each with its start: the children by their parent pid, their
-/// children, and so on, as one scan of the process list sees them. A process counts as a child only when it started
-/// after its parent, so a pid that the system gave again to an older process ends no chain. Not found: a process whose
-/// parent exited before the scan (the system gave it to launchd or init, or it daemonized so), and a process forked
-/// after the scan (`process_tree` stops what it found and scans again until a pass finds nothing new). Empty where the
-/// system tells no process list (Windows: a job holds the processes of a child there, `process_tree`)
-pub fn descendants(pid: u32, started: u64) -> Vec<(u32, u64)> {
+/// A process below another one (`descendants`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Descendant {
+  pub pid: u32,
+  /// Its start (`process_started`)
+  pub started: u64,
+  /// The pid of its parent when the scan read it
+  pub parent: u32,
+}
+
+/// The processes below `pid`, which started at `started`, each with its start and parent: the children by their parent
+/// pid, their children, and so on, as one scan of the process list sees them, each after its parent. A process counts
+/// as a child only when it started after its parent, so a pid that the system gave again to an older process ends no
+/// chain. Not found: a process whose parent exited before the scan (the system gave it to launchd or init, or it
+/// daemonized so), and a process forked after the scan (`process_tree` stops what it found and scans again until a pass
+/// finds nothing new). Empty where the system tells no process list (Windows: a job holds the processes of a child
+/// there, `process_tree`)
+pub fn descendants(pid: u32, started: u64) -> Vec<Descendant> {
   let Some(processes) = platform::processes() else { return Vec::new() };
-  let mut found: Vec<(u32, u64)> = Vec::new();
+  let mut found: Vec<Descendant> = Vec::new();
   let mut parents = vec![(pid, started)];
   while let Some((parent, parent_started)) = parents.pop() {
     for process in &processes {
       let Some(process_started) = process.started else { continue };
-      if process.parent == parent && process.pid != parent && process_started >= parent_started && !found.iter().any(|(seen, _)| *seen == process.pid) {
-        found.push((process.pid, process_started));
+      if process.parent == parent && process.pid != parent && process_started >= parent_started && !found.iter().any(|seen| seen.pid == process.pid) {
+        found.push(Descendant {
+          pid: process.pid,
+          started: process_started,
+          parent,
+        });
         parents.push((process.pid, process_started));
       }
     }
@@ -415,6 +430,13 @@ pub fn stop(pid: u32, started: u64) -> bool {
 #[cfg(unix)]
 pub fn halted(pid: u32) -> Option<bool> {
   platform::halted(pid)
+}
+
+/// Whether the process that had `pid` and started at `started` has exited: it is gone, another process has the pid now,
+/// or it is a zombie, which waits only for its parent to reap it. Unlike `halted`, false for a stopped process
+#[cfg(unix)]
+pub fn exited(pid: u32, started: u64) -> bool {
+  !is_running(pid, Some(started)) || platform::zombie(pid)
 }
 
 /// The signals of `signal`
@@ -570,6 +592,11 @@ mod platform {
         .into_iter()
         .all(|thread| thread_info(pid, thread).is_none_or(|info| stopped.contains(&info.pth_run_state))),
     )
+  }
+
+  /// A zombie (`SZOMB`), which libproc still describes with its start
+  pub(super) fn zombie(pid: u32) -> bool {
+    bsd_info(pid).is_some_and(|info| info.pbi_status == libc::SZOMB)
   }
 
   /// The thread handles of the process `pid` (`PROC_PIDLISTTHREADS`); `None` when it tells none
@@ -836,6 +863,11 @@ mod platform {
     Stat::read(pid).filter(|stat| !stat.zombie).map(|stat| stat.started)
   }
 
+  /// A zombie (`Z`): `started` already tells none for it
+  pub(super) fn zombie(pid: u32) -> bool {
+    Stat::read(pid).is_some_and(|stat| stat.zombie)
+  }
+
   /// Each thread stopped (`T`, or `t` under a tracer), a zombie (`Z`) or dead (`X`): `/proc/<pid>/stat` has the state of
   /// the main thread, and another one runs on to the end of its call (a fork)
   pub(super) fn halted(pid: u32) -> Option<bool> {
@@ -1037,6 +1069,11 @@ mod platform {
 
   pub(super) const fn halted(_pid: u32) -> Option<bool> {
     None
+  }
+
+  #[cfg(unix)]
+  pub(super) const fn zombie(_pid: u32) -> bool {
+    false
   }
 }
 

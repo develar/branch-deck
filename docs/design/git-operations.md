@@ -454,7 +454,10 @@ the kill. On Unix the kill takes the processes
 below git by their parent pids in passes: it stops git and what each pass found (`SIGSTOP`, so nothing forks more),
 waits until each of their threads has stopped (a thread in the middle of a fork finishes it first, while macOS calls the
 process stopped as the signal comes; at most 10 s in all) and scans again until a pass finds nothing new, then kills
-them all; a signal goes only to a process that still has the
+them from the bottom up, each process once its children have exited (zombies of their stopped parent), git last: a
+stopped process that outlived its parent would go to launchd or init alive, and on macOS the exits of such processes
+made the kernel send SIGHUP to the process group that git shares with the caller, the caller too. A signal goes only to
+a process that still has the
 start time the scan read, so a reused pid gets none. A process whose parent exited before the kill, which the system gave
 to launchd or init (a daemon that detached), is not found and runs on. git stays in the process group of the caller, so
 the passphrase prompt of an ssh in a terminal still reads it; on Linux `PR_SET_CHILD_SUBREAPER` would keep such orphans

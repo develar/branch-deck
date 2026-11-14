@@ -15,9 +15,14 @@
 //! stops the child and each process a pass found (`SIGSTOP`: a stopped process forks no more), waits until each of
 //! their threads has stopped (`process_scan::halted`, up to `STOP_WAIT` in all: a thread in the middle of a fork
 //! finishes it first, and a load can delay that past the next scan), and scans again, until a pass finds nothing new (at
-//! most `MAX_PASSES`), then `SIGKILL`s the child and each of them. A process forked before its parent stopped is a child
-//! of a process still there, so the next pass finds it; the usual tree takes two scans of the process list, about 20 ms
-//! each. Each signal goes only to a process that still has the start time the
+//! most `MAX_PASSES`), then `SIGKILL`s them from the bottom up: a process only once each of its children has exited (a
+//! zombie, which its stopped parent keeps, or gone), the child last. So no stopped process outlives its parent: one
+//! that did would go to launchd or init alive, and on macOS the kernel then sent SIGHUP, as to an orphaned process
+//! group with a stopped member, to the whole process group that the child shares with this process, this process too
+//! (the kill of a child with 20 stopped children, on every run of the macOS runners of CI and in most runs of a launchd
+//! job here, never under a terminal). A process forked
+//! before its parent stopped is a child of a process still there, so the next pass finds it; the usual tree takes two
+//! scans of the process list, about 20 ms each. Each signal goes only to a process that still has the start time the
 //! scan read (`process_scan::stop`, `process_scan::kill`), so a pid that the system gave again in the meantime gets none.
 //! Not found, and left running: a process whose parent exited before the kill, which the system gave to launchd or init
 //! (a daemon that detached, the child of a helper that ended), and one that another user's process started.
@@ -33,6 +38,12 @@ use std::process::Child;
 /// its stop adds another
 #[cfg(unix)]
 const MAX_PASSES: usize = 8;
+
+/// The longest wait of a kill for the children of a process to exit before it kills the process: a killed process
+/// exits as soon as it runs again; one that won't (a thread stuck in a call) is waited for no longer, and its parent is
+/// killed anyway
+#[cfg(unix)]
+const EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The longest wait of a kill for the processes it stopped to halt: a thread stops only once it runs again and its call
 /// returns, which a loaded machine gives a background process only after a while (one in ten waits of the review fetch
@@ -83,31 +94,75 @@ impl ProcessTree {
       return;
     }
     #[cfg(unix)]
-    let below = self.root.map_or_else(Vec::new, stopped_tree);
-    #[cfg(unix)]
-    tracing::debug!(child = child.id(), below = ?below, "killing a process tree");
-    let _ = child.kill();
-    #[cfg(unix)]
-    for (pid, started) in below {
-      crate::process_scan::kill(pid, started);
+    if let Some(root) = self.root {
+      let below = stopped_tree(root);
+      tracing::debug!(child = child.id(), below = ?below, "killing a process tree");
+      let deadline = std::time::Instant::now() + EXIT_WAIT;
+      kill_bottom_up(
+        root.0,
+        &below,
+        crate::process_scan::exited,
+        |process| {
+          crate::process_scan::kill(process.pid, process.started);
+        },
+        || {
+          let waited = std::time::Instant::now() < deadline;
+          if waited {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+          }
+          waited
+        },
+      );
     }
+    let _ = child.kill();
   }
 }
 
-/// The processes below `root`, stopped: the root, then each pass of `process_scan::descendants` stops what it found,
-/// until a pass finds nothing new
+/// Kills each of `below` (each after its parent, as `process_scan::descendants` lists them) from the bottom up: a process
+/// once each of its children has `exited`, and returns once the children of `root` have, so the caller kills `root`
+/// last. `wait` waits a little and says whether to go on waiting; once it says no, the rest is killed without waiting
 #[cfg(unix)]
-fn stopped_tree((pid, started): (u32, u64)) -> Vec<(u32, u64)> {
+fn kill_bottom_up(
+  root: u32,
+  below: &[crate::process_scan::Descendant],
+  exited: impl Fn(u32, u64) -> bool,
+  mut kill: impl FnMut(&crate::process_scan::Descendant),
+  mut wait: impl FnMut() -> bool,
+) {
+  let mut waiting = true;
+  let mut children_exited = |parent: u32, waiting: &mut bool| {
+    while *waiting && below.iter().any(|child| child.parent == parent && !exited(child.pid, child.started)) {
+      if !wait() {
+        tracing::warn!(parent, "a killed process of a tree did not exit: its parent is killed before it");
+        *waiting = false;
+      }
+    }
+  };
+  for process in below.iter().rev() {
+    children_exited(process.pid, &mut waiting);
+    kill(process);
+  }
+  children_exited(root, &mut waiting);
+}
+
+/// The processes below `root`, stopped, each after its parent: the root, then each pass of `process_scan::descendants`
+/// stops what it found, until a pass finds nothing new. A later pass finds only processes below those of the earlier
+/// ones, so the order holds across passes too
+#[cfg(unix)]
+fn stopped_tree((pid, started): (u32, u64)) -> Vec<crate::process_scan::Descendant> {
   let deadline = std::time::Instant::now() + STOP_WAIT;
   stop_all(&[(pid, started)], deadline);
-  let mut tree: Vec<(u32, u64)> = Vec::new();
+  let mut tree: Vec<crate::process_scan::Descendant> = Vec::new();
   for _ in 0..MAX_PASSES {
-    let new: Vec<(u32, u64)> = crate::process_scan::descendants(pid, started).into_iter().filter(|found| !tree.contains(found)).collect();
-    if new.is_empty() {
+    let found: Vec<crate::process_scan::Descendant> = crate::process_scan::descendants(pid, started)
+      .into_iter()
+      .filter(|found| !tree.iter().any(|known| known.pid == found.pid && known.started == found.started))
+      .collect();
+    if found.is_empty() {
       break;
     }
-    stop_all(&new, deadline);
-    tree.extend(new);
+    stop_all(&found.iter().map(|process| (process.pid, process.started)).collect::<Vec<_>>(), deadline);
+    tree.extend(found);
   }
   tree
 }
@@ -156,3 +211,7 @@ mod job {
     unsafe { TerminateJobObject(job.as_raw_handle(), 1) != 0 }
   }
 }
+
+#[cfg(all(test, unix))]
+#[path = "process_tree_test.rs"]
+mod process_tree_test;
