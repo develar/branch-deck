@@ -8,7 +8,9 @@
 // default); an action whose label ends with "…" (it opens a dialog or a popover) closes its toast when pressed
 // (`opensDialog`); `data.running` disables the primary action, `secondaryAction.disabled` the secondary one, while the
 // operation it started runs ("Updating…", `src/lib/event-toast.ts`); the icon, the action beside the text and the close
-// button align with the first line of the title (`items-start`), not with the middle of a long description
+// button align with the first line of the title (`items-start`), not with the middle of a long description; the content
+// keeps its own height in a box that the root's height clips (`ToastContent`), so the observer of Base UI never sees the
+// root's height animate
 "use client"
 
 import * as React from "react"
@@ -66,14 +68,19 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
 
 function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
   return (
-    <ToastPrimitive.Content
-      data-slot="toast-content"
-      className={cn(
-        "flex h-full items-start gap-3 overflow-hidden p-4 transition-opacity duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] data-behind:opacity-0 data-expanded:opacity-100",
-        className,
-      )}
-      {...props}
-    />
+    // the height of the root clips the content, whose own height Base UI observes: content of the root's height followed
+    // its animated height as toasts stacked, and its observer saw that again in the frame it measured (a ResizeObserver
+    // loop, an uncaught error of the page)
+    <div className="h-full overflow-hidden">
+      <ToastPrimitive.Content
+        data-slot="toast-content"
+        className={cn(
+          "flex items-start gap-3 overflow-hidden p-4 transition-opacity duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] data-behind:opacity-0 data-expanded:opacity-100",
+          className,
+        )}
+        {...props}
+      />
+    </div>
   )
 }
 
