@@ -37,8 +37,34 @@ interface Item {
 
 function item(width: number): Item {
   const it: Item = { width, element: {} as Element }
-  it.element = { getBoundingClientRect: () => ({ width: it.width }) } as unknown as Element
+  it.element = { getBoundingClientRect: () => ({ width: it.width }), parentNode: null } as unknown as Element
   return it
+}
+
+/** The observer of the changes of a view: the test tells the records of a commit by hand (`commit`) */
+class FakeMutationObserver {
+  static current: FakeMutationObserver | null = null
+
+  constructor(private readonly callback: MutationCallback) {
+    FakeMutationObserver.current = this
+  }
+
+  observe(): void {}
+
+  disconnect(): void {}
+
+  /** A commit of React changed the content of `elements` */
+  commit(...elements: Element[]): void {
+    this.callback(
+      elements.map(target => ({ target }) as unknown as MutationRecord),
+      this as unknown as MutationObserver,
+    )
+  }
+}
+
+/** The next task, after which a rendering update is over */
+function nextTask(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0))
 }
 
 /** The observer's report of the elements as they are laid out now */
@@ -80,6 +106,16 @@ function root(): { element: HTMLElement; variables: Map<string, string>; writes:
   return { element: { style, toggleAttribute: () => true, getBoundingClientRect: () => ({ width: 752 }) } as unknown as HTMLElement, variables, writes }
 }
 
+/** A registry on a root whose reports it reads: the root's report compares the view with 56rem */
+function registryOfReportedRoot(): { registry: ColumnRegistry; view: ReturnType<typeof root> } {
+  vi.stubGlobal("document", { documentElement: {} })
+  vi.stubGlobal("getComputedStyle", () => ({ fontSize: "16px" }))
+  const registry = new ColumnRegistry()
+  const view = root()
+  registry.setRoot(view.element)
+  return { registry, view }
+}
+
 describe("ColumnRegistry", () => {
   beforeEach(() => {
     vi.stubGlobal("ResizeObserver", FakeResizeObserver)
@@ -87,6 +123,31 @@ describe("ColumnRegistry", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it("measures an item a commit resizes in the rendering update of a report at once, and observes it anew from the next task", async () => {
+    // WebKit renders a commit of React that waited in a microtask after the observer's callback in the same rendering
+    // update: an item it resized after its report would be an observation that update skips, a ResizeObserver loop
+    vi.stubGlobal("MutationObserver", FakeMutationObserver)
+    const { registry, view } = registryOfReportedRoot()
+    const status = item(61)
+    registry.observe(status.element, "state")
+    report(status)
+    expect(view.variables.get("--bd-track-state")).toBe("61px")
+
+    status.width = 83
+    FakeMutationObserver.current!.commit(status.element)
+    expect(view.variables.get("--bd-track-state")).toBe("83px")
+    expect(FakeResizeObserver.current!.reported.has(status.element)).toBe(false)
+    await nextTask()
+    expect(FakeResizeObserver.current!.reported.has(status.element)).toBe(true)
+
+    // after the rendering update a commit is the observer's to report, as any change
+    status.width = 90
+    FakeMutationObserver.current!.commit(status.element)
+    expect(view.variables.get("--bd-track-state")).toBe("83px")
+    renderingUpdate()
+    expect(view.variables.get("--bd-track-state")).toBe("90px")
   })
 
   it("writes no track before the observer measured an item, then every track at once", () => {
@@ -155,12 +216,7 @@ describe("ColumnRegistry", () => {
   })
 
   it("follows an item read wider as the hold ends and back at its reported width before the next rendering update", () => {
-    // the root's report compares the view with 56rem
-    vi.stubGlobal("document", { documentElement: {} })
-    vi.stubGlobal("getComputedStyle", () => ({ fontSize: "16px" }))
-    const registry = new ColumnRegistry()
-    const view = root()
-    registry.setRoot(view.element)
+    const { registry, view } = registryOfReportedRoot()
     const state = item(98.36)
     const step = item(0)
     registry.observe(state.element, "state")

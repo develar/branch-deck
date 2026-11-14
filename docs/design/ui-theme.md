@@ -568,7 +568,10 @@ shows.
 - **One measurement**: `ColumnRegistry` (one per view, `BranchColumnsRoot` around the table and its islands) observes
   the content of every item with one `ResizeObserver` and writes the widest per track as `--bd-track-<kind>` on the
   root. The observer reports a frame's sizes before it paints, so the columns are in place in every painted frame; a
-  check of the alignment polls. A collapse that removes rows writes once (a microtask).
+  check of the alignment polls. A collapse that removes rows writes once (a microtask). WebKit renders a commit of
+  React that waited in a microtask after the observer's callback in the same rendering update: an item that commit
+  resizes would be an observation that update skips, a ResizeObserver loop, so until the next task the changes of the
+  view (a `MutationObserver`) are measured at once and their items observed anew from the next task.
 - **Empty is free**: a track that no row of any card fills is 0 wide, and so is its gutter (`--bd-gap-<kind>`, 8px
   while the track has content): a view without Patronus has no step column, a pushed view no push column.
 - **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The labels of

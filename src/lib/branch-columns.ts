@@ -125,11 +125,87 @@ export class ColumnRegistry {
           if (resized) {
             this.write()
           }
+          this.delivering()
         })
+  /**
+   * Whether the rendering update of a report of the observer still runs: WebKit renders a commit of React that waited in
+   * a microtask after the observer's callback, in that same rendering update, and an item that commit resized after its
+   * report is an observation that rendering update skips, a ResizeObserver loop (an uncaught error of the page). The
+   * changes of the view then (`mutations`) are measured at once and their items observed anew from the next task
+   */
+  private inDelivery = false
+  private readonly reobserved = new Set<Element>()
+  private readonly mutations: MutationObserver | null = typeof MutationObserver === "undefined" ? null : new MutationObserver(records => this.recheck(records))
+
+  /** A report of the observer was taken: until the next task, a change of an item is measured at once (`recheck`) */
+  private delivering(): void {
+    if (this.inDelivery) {
+      return
+    }
+    this.inDelivery = true
+    // a task after the rendering update, as MessageChannel runs (the timers of a page can be a test's fake clock)
+    const channel = new MessageChannel()
+    channel.port1.onmessage = () => {
+      this.inDelivery = false
+      channel.port1.close()
+    }
+    channel.port2.postMessage(null)
+  }
+
+  /**
+   * The items that `records`, the changes of the view, resized in the rendering update of a report of the observer:
+   * written at their width as laid out now, and observed anew from the next task, so that rendering update has no
+   * observation of them left to skip
+   */
+  private recheck(records: readonly MutationRecord[]): void {
+    const observer = this.observer
+    if (!this.inDelivery || observer === null) {
+      return
+    }
+    const changed = new Set<Element>()
+    for (const record of records) {
+      for (let node: Node | null = record.target; node !== null && node !== this.root; node = node.parentNode) {
+        // the items are elements: a text or a comment is no key of them
+        const element = node as Element
+        if (this.items.has(element)) {
+          changed.add(element)
+          break
+        }
+      }
+    }
+    let resized = false
+    for (const element of changed) {
+      const item = this.items.get(element)
+      const width = element.getBoundingClientRect().width
+      if (item === undefined || width === item.width) {
+        continue
+      }
+      item.width = width
+      resized = true
+      observer.unobserve(element)
+      this.reobserved.add(element)
+    }
+    if (!resized) {
+      return
+    }
+    this.write()
+    const channel = new MessageChannel()
+    channel.port1.onmessage = () => {
+      channel.port1.close()
+      for (const element of this.reobserved) {
+        if (this.items.has(element)) {
+          observer.observe(element, { box: "border-box" })
+        }
+      }
+      this.reobserved.clear()
+    }
+    channel.port2.postMessage(null)
+  }
 
   setRoot(root: HTMLElement | null): void {
     if (this.root !== null) {
       this.observer?.unobserve(this.root)
+      this.mutations?.disconnect()
     }
     this.root = root
     this.written.clear()
@@ -139,6 +215,7 @@ export class ColumnRegistry {
     // (the content box, as a container query compares)
     if (root !== null) {
       this.observer?.observe(root)
+      this.mutations?.observe(root, { subtree: true, childList: true, characterData: true, attributeFilter: ["class", "style", "hidden"] })
     }
     this.write()
   }
@@ -211,6 +288,7 @@ export class ColumnRegistry {
       this.observer?.unobserve(element)
       this.items.delete(element)
       this.unconfirmed.delete(element)
+      this.reobserved.delete(element)
       // the widest item may be gone: once for the rows a collapse removes together
       if (!this.scheduled) {
         this.scheduled = true
