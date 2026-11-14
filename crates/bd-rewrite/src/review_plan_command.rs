@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 37` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 38` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -70,7 +70,9 @@
 //! version 36 the `filesToReadProven` and `toReadProven` of each role of the `reading`: what is left to read in the
 //! files it proves;
 //! version 37 the `renamed` of a `behaviour` unit whose body changed in renamed names alone that the index has not
-//! proven: its `names` and its `wait`
+//! proven: its `names` and its `wait`;
+//! version 38 the `renamed_from` of a declaration renamed where the index has not proven it, its `old` name and its
+//! `wait`: the declarations of the old and the new name one unit, in place of a removed and an added one
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -93,14 +95,14 @@ use review_plan::registrations::Registration;
 use review_plan::shown::ShownForm;
 use review_plan::steps::ReviewSteps;
 use review_plan::texts::UiText;
-use review_plan::units::{OtherReason, RenamedUses, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
+use review_plan::units::{OtherReason, RenamedFrom, RenamedUses, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use review_plan::{PlanSources, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision, review_plan_core};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 37;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 38;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -414,6 +416,10 @@ pub struct UnitOutput {
   /// index is asked, `notProven` where none proved them); absent for any other unit
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub renamed: Option<RenamedUses>,
+  /// Of a declaration the commits renamed, which the index has not proven: its `old` name and what the rename waits on
+  /// (`wait`), the declarations of both names this one unit; absent for any other unit
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub renamed_from: Option<RenamedFrom>,
 }
 
 /// What a unit changes
@@ -689,6 +695,7 @@ fn unit_output(unit: ReviewUnit) -> UnitOutput {
     slices: unit.slices.into_iter().map(slice).collect(),
     fingerprint: unit.fingerprint,
     renamed: unit.renamed,
+    renamed_from: unit.renamed_from,
   };
   output.kind = match unit.kind {
     UnitKind::Shape { changes } => {

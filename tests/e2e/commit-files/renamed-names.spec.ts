@@ -610,6 +610,9 @@ test.describe("The renames of a diff in a review with its plan", () => {
     const headings = code.getByTestId("diff-unit-heading")
     await expect(headings.filter({ hasText: "balance" })).toHaveText("balance — only renamed sumOf → totalOf, not proven")
     await expect(headings.filter({ hasText: "half" })).toHaveText("half — body changed")
+    // the declaration of the new name is the one of the old name renamed, one change, not proven
+    await expect(headings.filter({ hasText: "totalOf —" })).toHaveText("totalOf — renamed from sumOf, not proven")
+    await expect(headings.filter({ hasText: "sumOf —" })).toHaveCount(0)
     // the call is read: the old name struck through before the new one, both in the mark of a renamed name
     await expect(renamedNames(code).filter({ hasText: "totalOf" }).first()).toBeVisible()
   })

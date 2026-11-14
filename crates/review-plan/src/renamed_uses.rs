@@ -14,11 +14,19 @@
 //!   body that changed: more than a rename the index cannot prove is to be read.
 //! - **A block** of the unit is matched to a block of the diff by its lines; a unit whose blocks the diff does not hold
 //!   so (another pair, a lone carriage return) is a body that changed.
+//! - **A declaration renamed** (openspec/specs/branch/review-units/spec.md, "Units: A declaration renamed where the
+//!   index has not proven it is one unit"): a rename this file declares (`DiffMarks::renames`, its proof in
+//!   `SubjectMarks::declared`) whose proof waits for the index or is not proven names a declaration whose code changed
+//!   in names alone: else the diff says `OtherDeclaration`, and no index is asked. Such renames, by the path of their
+//!   file (`DeclaredRenames`), pair the declaration of the old name with the one of the new name as one unit
+//!   (`units::SourceFile::cut`, `ReviewUnit::renamed_from`) in place of a removed and an added one. A rename the index
+//!   confirmed, or said is more than a rename, pairs nothing: the two stay as they are. The plan reads them again with
+//!   the answer of the index, and tells its story again only where the pairs changed (`DeclaredRenames::pairs`).
 
 use crate::units::{RenameWait, RenamedName, RenamedUses, ReviewUnit, UnitBlock, UnitKind};
 use file_diffs::model::DiffContent;
 use file_diffs::service::Collected;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 use text_diff::model::{LineRun, Rename, RenameProof, RunKind, TextDiff};
 
@@ -71,11 +79,7 @@ fn renamed_uses(unit: &ReviewUnit, diffs: &HashMap<&str, &TextDiff>) -> Option<R
         return None;
       }
       for (rename, proof) in renames {
-        match proof {
-          RenameProof::Asked => checking = true,
-          RenameProof::Unavailable | RenameProof::Incomplete => {}
-          RenameProof::Confirmed | RenameProof::UsesOutside | RenameProof::OtherMeaning | RenameProof::OtherDeclaration => return None,
-        }
+        checking |= wait_of(proof)? == RenameWait::Checking;
         if !names.iter().any(|name| name.old == rename.old && name.new == rename.new) {
           names.push(RenamedName {
             old: rename.old.clone(),
@@ -117,4 +121,124 @@ fn renames_of(diff: &TextDiff, lines: Range<u32>) -> Vec<(&Rename, RenameProof)>
   });
   let used = subject.used.iter().filter(|used| placed(&used.rename)).map(|used| (&used.rename, used.proof));
   declared.chain(used).collect()
+}
+
+/// What a rename the index has not proven waits on, by its proof; `None` for a proof that says something: confirmed, or
+/// more than a rename
+const fn wait_of(proof: RenameProof) -> Option<RenameWait> {
+  match proof {
+    RenameProof::Asked => Some(RenameWait::Checking),
+    RenameProof::Unavailable | RenameProof::Incomplete => Some(RenameWait::NotProven),
+    RenameProof::Confirmed | RenameProof::UsesOutside | RenameProof::OtherMeaning | RenameProof::OtherDeclaration => None,
+  }
+}
+
+/// A rename of a declaration of its file that the index has not proven (`DeclaredRenames`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeclaredRename {
+  pub(crate) old: String,
+  pub(crate) new: String,
+  pub(crate) wait: RenameWait,
+}
+
+/// The renames of one file (`DeclaredRenames`)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct FileRenames {
+  /// Those it declares that the index has not proven
+  pub(crate) declared: Vec<DeclaredRename>,
+  /// Every name the diff of the file says the commits renamed, local or not, the old and the new spelling: what a
+  /// declaration renamed may differ in beside its own name (`same_but_names`)
+  pub(crate) names: Vec<(String, String)>,
+}
+
+/// The renames each file of the pair declares that the index has not proven, by the path of the file after the
+/// commits: what pairs a declaration of the old name with one of the new name (`units::SourceFile::cut`)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct DeclaredRenames {
+  by_path: HashMap<String, FileRenames>,
+}
+
+impl DeclaredRenames {
+  /// The renames of the marks of the diffs of `read`
+  pub(crate) fn of(read: &Collected) -> Self {
+    let mut by_path: HashMap<String, FileRenames> = HashMap::new();
+    for (header, content) in read.files() {
+      let Some(DiffContent::Text(diff)) = content else { continue };
+      let Some(subject) = diff.marks.subject.as_deref() else { continue };
+      let mut declared: Vec<DeclaredRename> = Vec::new();
+      for check in &subject.declared {
+        let Some(rename) = diff.marks.renames.get(check.rename as usize) else { continue };
+        let Some(wait) = wait_of(check.proof) else { continue };
+        if !rename.local && !rename.declared.is_empty() && !declared.iter().any(|known| known.old == rename.old && known.new == rename.new) {
+          declared.push(DeclaredRename {
+            old: rename.old.clone(),
+            new: rename.new.clone(),
+            wait,
+          });
+        }
+      }
+      if declared.is_empty() {
+        continue;
+      }
+      let renamed = diff.marks.renames.iter().chain(subject.used.iter().map(|used| &used.rename));
+      let names = renamed.map(|rename| (rename.old.clone(), rename.new.clone())).collect();
+      by_path.insert(header.path.clone(), FileRenames { declared, names });
+    }
+    Self { by_path }
+  }
+
+  /// The renames of the file at `path` (after the commits), none where it declares none the index has not proven
+  pub(crate) fn of_file(&self, path: &str) -> Option<&FileRenames> {
+    self.by_path.get(path)
+  }
+
+  /// The renames as the units pair by them, without what they wait on: another set cuts other units
+  pub(crate) fn pairs(&self) -> BTreeSet<(&str, &str, &str)> {
+    self
+      .by_path
+      .iter()
+      .flat_map(|(path, renames)| renames.declared.iter().map(move |rename| (path.as_str(), rename.old.as_str(), rename.new.as_str())))
+      .collect()
+  }
+
+  /// What the unit of each declaration renamed (`ReviewUnit::renamed_from`) waits on, as these renames say it: the units
+  /// cut by renames of the same pairs (`pairs`), read again with the answer of the index
+  pub(crate) fn mark_waits(&self, units: &mut [ReviewUnit]) {
+    for unit in units {
+      let (Some(from), [slice], Some(name)) = (unit.renamed_from.as_mut(), unit.slices.as_slice(), unit.name.as_deref()) else {
+        continue;
+      };
+      let declared = self.of_file(&slice.path).map_or(&[][..], |renames| renames.declared.as_slice());
+      if let Some(rename) = declared.iter().find(|rename| rename.old == from.old && rename.new == name) {
+        from.wait = rename.wait;
+      }
+    }
+  }
+}
+
+/// Whether `old` (a text before the commits) is `new` (after them) but for the names `names` renamed and whitespace: the
+/// same words and the same other characters, in order, each old word that a rename names read as its new spelling. A
+/// name of the same spelling the commits did not rename reads as renamed too, and so differs: never a false sameness
+pub(crate) fn same_but_names(old: &str, new: &str, names: &[(String, String)]) -> bool {
+  let renamed: HashMap<&str, &str> = names.iter().map(|(old, new)| (old.as_str(), new.as_str())).collect();
+  let old_tokens = tokens(old).map(|token| renamed.get(token).copied().unwrap_or(token));
+  old_tokens.eq(tokens(new))
+}
+
+/// The words (letters, digits, `_` and `$`) and the other characters of `text` but whitespace, in order
+fn tokens(text: &str) -> impl Iterator<Item = &str> {
+  let word = |character: char| character.is_alphanumeric() || character == '_' || character == '$';
+  let mut rest = text;
+  std::iter::from_fn(move || {
+    rest = rest.trim_start();
+    let first = rest.chars().next()?;
+    let end = if word(first) {
+      rest.find(|character: char| !word(character)).unwrap_or(rest.len())
+    } else {
+      first.len_utf8()
+    };
+    let (token, after) = rest.split_at(end);
+    rest = after;
+    Some(token)
+  })
 }

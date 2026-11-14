@@ -1,4 +1,4 @@
-import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, RenamedUses, ReviewTitle, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, RenamedFrom, RenamedUses, RenameWait, ReviewTitle, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
 import { plainTitle } from "@/lib/commit"
 import { headingText } from "@/lib/diff/rows"
 import type { Heading, HeadingPart, SectionUnits } from "@/lib/diff/rows"
@@ -89,21 +89,40 @@ function fileName(path: string): string {
  */
 export function formatRenamedUses(renamed: RenamedUses): string {
   const names = joinNames(renamed.names.map(name => `${name.old} → ${name.new}`))
-  return `only renamed ${names}, ${renamed.wait === "checking" ? "checking" : "not proven"}`
+  return `only renamed ${names}, ${waitWords(renamed.wait)}`
+}
+
+/** What a rename the index has not proven waits on: "checking" while it is asked, "not proven" else */
+function waitWords(wait: RenameWait): string {
+  return wait === "checking" ? "checking" : "not proven"
+}
+
+/**
+ * A declaration renamed where the index has not proven it (`ReviewUnit.renamed_from`, decided in Rust), after what else
+ * changed of its form if anything: "renamed from sumOf, not proven", "parameters changed, renamed from sumOf, checking"
+ */
+function formatRenamedFrom(from: RenamedFrom, changed: string | null): string {
+  const renamed = `renamed from ${from.old}, ${waitWords(from.wait)}`
+  return changed === null ? renamed : `${changed}, ${renamed}`
 }
 
 /**
  * The change of `unit` as the heading of its block words it: its name in the code font and what changed ("open" and
- * "parameters changed", "close" and "body changed", "balance" and "only renamed sumOf → totalOf, not proven", "Fresh"
- * and "new"); "Changes outside a declaration" of no name
+ * "parameters changed", "close" and "body changed", "balance" and "only renamed sumOf → totalOf, not proven", "totalOf"
+ * and "renamed from sumOf, not proven", "Fresh" and "new"); "Changes outside a declaration" of no name
  */
 export function formatUnitHeading(unit: ReviewUnit): HeadingPart {
   const name = unit.name ?? ""
   const named = (words: string): HeadingPart => ({ name, words })
   switch (unit.kind.kind) {
-    case "shape":
-      return named(`${joinNames(unit.kind.changes.map(change => FORM_WORDS[change]))} changed`)
+    case "shape": {
+      const changed = `${joinNames(unit.kind.changes.map(change => FORM_WORDS[change]))} changed`
+      return named(unit.renamedFrom == null ? changed : formatRenamedFrom(unit.renamedFrom, changed))
+    }
     case "behaviour":
+      if (unit.renamedFrom != null) {
+        return named(formatRenamedFrom(unit.renamedFrom, null))
+      }
       return named(unit.renamed == null ? "body changed" : formatRenamedUses(unit.renamed))
     case "added":
       return named("new")

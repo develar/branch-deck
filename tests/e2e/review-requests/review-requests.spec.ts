@@ -1802,7 +1802,7 @@ test.describe("What a range leaves to read", () => {
     await expect(review.getByTestId("review-reading")).toHaveText("1 change to read in 1 file")
   })
 
-  test("should say of a call that changed in a rename no index proved that it is the rename, not proven, as the header says of its file", async ({
+  test("should say of the calls and the declaration of a helper renamed where no index proves it that they are the rename, not proven, as the header says of its file", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -1824,6 +1824,9 @@ test.describe("What a range leaves to read", () => {
       "averageAmount — only renamed sumOf → totalOf, not proven",
     ])
     await expect(headings.filter({ hasText: "body changed" })).toHaveCount(0)
+    // the helper itself is one declaration renamed, not proven: never a new one beside a removed one
+    await expect(headings.filter({ hasText: "totalOf —" })).toHaveText("totalOf — renamed from sumOf, not proven")
+    await expect(headings.filter({ hasText: /— (new|removed)$/ })).toHaveCount(0)
   })
 
   test("should open a stack on its first layer to read, fold the layers with nothing to read and pass them by ↑/↓", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -305,9 +305,10 @@ fn prints_the_texts_of_the_ui() {
 }
 
 /// The units of a private function renamed at its declaration and its calls, which no index of the repository proves:
-/// each call is `behaviour` with the rename it changed in alone, not proven; no other unit says one
+/// each call is `behaviour` with the rename it changed in alone, not proven, and the declaration one unit renamed from
+/// its old name
 #[test_log::test]
-fn prints_the_renamed_of_a_body_changed_in_a_rename_alone() {
+fn prints_the_renamed_of_a_body_changed_in_a_rename_alone_and_of_the_declaration() {
   let ledger = |name: &str| {
     format!(
       "package a\n\nclass Ledger(private val entries: List<Int>) {{\n  fun balance(): Int {{\n    return {name}(entries)\n  }}\n\n  private fun {name}(list: List<Int>): Int {{\n    return list.sum()\n  }}\n}}\n"
@@ -320,18 +321,22 @@ fn prints_the_renamed_of_a_body_changed_in_a_rename_alone() {
 
   let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
   assert_eq!(exit_code, 0, "{output}");
-  let renamed: Vec<(Value, Value)> = output["units"]
+  let field = |unit: &Value, name: &str| unit.get(name).cloned().unwrap_or(Value::Null);
+  let renamed: Vec<(Value, Value, Value)> = output["units"]
     .as_array()
     .unwrap()
     .iter()
-    .map(|unit| (unit["name"].clone(), unit.get("renamed").cloned().unwrap_or(Value::Null)))
+    .map(|unit| (unit["name"].clone(), field(unit, "renamed"), field(unit, "renamed_from")))
     .collect();
   assert_eq!(
     renamed,
     [
-      (json!("balance"), json!({ "names": [{ "old": "sumOf", "new": "totalOf" }], "wait": "notProven" })),
-      (json!("totalOf"), Value::Null),
-      (json!("sumOf"), Value::Null),
+      (
+        json!("balance"),
+        json!({ "names": [{ "old": "sumOf", "new": "totalOf" }], "wait": "notProven" }),
+        Value::Null
+      ),
+      (json!("totalOf"), Value::Null, json!({ "old": "sumOf", "wait": "notProven" })),
     ],
     "{output}"
   );

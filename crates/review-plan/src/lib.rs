@@ -76,6 +76,7 @@ use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
 use crate::reading::PlanReading;
 use crate::registrations::{Registration, RegistrationsInput, changed_descriptors, registrations_of};
+use crate::renamed_uses::DeclaredRenames;
 use crate::steps::{ReviewSteps, StepsInput, review_steps};
 use crate::texts::{UiText, bundle_blobs, ui_texts};
 use crate::units::{FreeOrder, PairUnits, ReviewUnit, review_units};
@@ -590,12 +591,12 @@ pub fn review_plan_of(
     };
     // the API as the plan of git has it: the story is told by it, also when the moves the index answers tell it again
     let story_api = api.clone();
-    // the units of the pair, which the free reorders the index answered fold: read once of what git read, whatever the
-    // modules
-    let units_of = |free: &FreeOrder| {
-      input
-        .as_ref()
-        .map_or_else(PairUnits::default, |input| review_units(input, &changed, &pairs, &texts, &tokens, &kinds, &order, free))
+    // the units of the pair, which the free reorders the index answered fold and the renames of declarations it has not
+    // proven pair: read once of what git read, whatever the modules
+    let units_of = |free: &FreeOrder, renames: &DeclaredRenames| {
+      input.as_ref().map_or_else(PairUnits::default, |input| {
+        review_units(input, &changed, &pairs, &texts, &tokens, &kinds, &order, free, renames)
+      })
     };
     // the concerns, the brief and the steps of the units, which the links and the modules shape
     let story = |units: PairUnits, links: &[FileLink], modules: &Modules| -> Story {
@@ -621,7 +622,8 @@ pub fn review_plan_of(
     };
     // the plan of the roots, if they answered, with no other answer of the index in it, and the paths whose commits
     // change a test inside them
-    let units = units_of(&FreeOrder::default());
+    let renames = pair_reading.declared_renames();
+    let units = units_of(&FreeOrder::default(), &renames);
     // a declaration that moved with its code the same is folded where the index says its order is free
     let asks_moves = units.moved && index.is_some();
     let plan_of = |roots: Option<&DeclaredRoots>, pair_reading: &PlanReading| -> (ReviewPlan, Modules, HashSet<String>) {
@@ -732,11 +734,12 @@ pub fn review_plan_of(
         entries?;
         let (api, usages_note) = usages?;
         // the story again where the index says the order of a declaration that moved is free: it folds that move
+        let mut free = FreeOrder::default();
         if let Some(moves) = moves {
           let answered = moves.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the moves panicked")))?;
-          let free = answered.map_or_default(|moves| FreeOrder::of(&moves));
+          free = answered.map_or_default(|moves| FreeOrder::of(&moves));
           if !free.is_empty() {
-            let told = story(units_of(&free), &plan.links, &modules);
+            let told = story(units_of(&free, &renames), &plan.links, &modules);
             (plan.units, inline_tests, plan.concerns, plan.brief, plan.steps) = (told.units.units, told.units.tests, told.concerns, told.brief, told.steps);
             pair_reading.mark_renamed_uses(&mut plan.units);
             if tests_asked {
@@ -757,15 +760,28 @@ pub fn review_plan_of(
           plan.index_note = usages_note.clone().or_else(|| registrations_note.clone());
           stage(&plan, PlanWait::Tests);
         }
+        // the renames last, while the tests are asked, when the window that shows the pair asked them already: memory
+        // keeps its final answer. Where the answer pairs other declarations renamed (`DeclaredRenames::pairs`: the index
+        // proved one), the story is told again; else only what each rename waits on changes
+        pair_reading.answer(git, sources)?;
+        plan.reading = pair_reading.reading();
+        let answered = pair_reading.declared_renames();
+        if answered.pairs() == renames.pairs() {
+          answered.mark_waits(&mut plan.units);
+        } else {
+          let told = story(units_of(&free, &answered), &plan.links, &modules);
+          (plan.units, inline_tests, plan.concerns, plan.brief, plan.steps) = (told.units.units, told.units.tests, told.concerns, told.brief, told.steps);
+          order_by_entries(&mut plan.steps.steps, &plan.modules);
+          let (files, repeated_edits) = file_facts(&changed, &kinds, &plan.links, &plan.api, &inline_tests);
+          (plan.files, plan.repeated_edits) = (files, repeated_edits);
+          with_modules(&mut plan.files, &changed, &modules);
+        }
+        pair_reading.mark_renamed_uses(&mut plan.units);
         let answer = tests.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the tests panicked")))?;
         // after `order_by_entries`: it moves the stops of a step, never a step, so `proves` are of the final order
         // either way
         let tests_note = plan.steps.apply_tests(answer);
         plan.index_note = usages_note.or(tests_note).or(registrations_note);
-        // the renames last, when the window that shows the pair asked them already: memory keeps its final answer
-        pair_reading.answer(git, sources)?;
-        plan.reading = pair_reading.reading();
-        pair_reading.mark_renamed_uses(&mut plan.units);
         Ok(plan)
       })
     })

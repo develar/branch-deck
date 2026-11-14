@@ -68,6 +68,16 @@ describe("the story of a review", () => {
     expect(headingText([formatUnitHeading({ ...balance, renamed: null })])).toBe("balance — body changed")
   })
 
+  it("words a declaration renamed where the index has not proven it as renamed from its old name, after what else of its form changed", () => {
+    const totalOf = unit({ kind: "behaviour" }, "totalOf", [])
+    expect(headingText([formatUnitHeading({ ...totalOf, renamedFrom: { old: "sumOf", wait: "notProven" } })])).toBe("totalOf — renamed from sumOf, not proven")
+    expect(headingText([formatUnitHeading({ ...totalOf, renamedFrom: { old: "sumOf", wait: "checking" } })])).toBe("totalOf — renamed from sumOf, checking")
+    const shape = unit({ kind: "shape", changes: ["parameters"] }, "totalOf", [])
+    expect(headingText([formatUnitHeading({ ...shape, renamedFrom: { old: "sumOf", wait: "notProven" } })])).toBe("totalOf — parameters changed, renamed from sumOf, not proven")
+    // no rename Rust told of: a body that changed
+    expect(headingText([formatUnitHeading({ ...totalOf, renamedFrom: null })])).toBe("totalOf — body changed")
+  })
+
   it("makes a run of changes of one file one section with a heading per change, and a group a section per file", () => {
     const units = [
       unit({ kind: "shape", changes: ["parameters"] }, "open", [{ path: "src/Api.kt", blocks: [block(1, 10)] }]),

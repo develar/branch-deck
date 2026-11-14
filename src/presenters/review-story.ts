@@ -137,7 +137,8 @@ function withDescription(place: ReviewPlace, card: MentionCard): ReturnType<Ment
 
 /**
  * What a unit is to the change, the badge of the card of a name: "New", "Removed", "Body changed", "Renamed, not
- * proven" (a body that changed in renamed names alone, `ReviewUnit.renamed`), "Form changed"
+ * proven" (a body that changed in renamed names alone, `ReviewUnit.renamed`, or a declaration renamed,
+ * `ReviewUnit.renamedFrom`), "Form changed"
  */
 function unitStatus(unit: ReviewUnit): Pick<MentionCard, "status" | "tone"> {
   switch (unit.kind.kind) {
@@ -150,11 +151,13 @@ function unitStatus(unit: ReviewUnit): Pick<MentionCard, "status" | "tone"> {
     case "deletedFile":
     case "deletedFiles":
       return { status: "Deleted file", tone: "destructive" }
-    case "behaviour":
-      if (unit.renamed != null) {
-        return { status: unit.renamed.wait === "checking" ? "Renamed, checking" : "Renamed, not proven", tone: "secondary" }
+    case "behaviour": {
+      const wait = unit.renamedFrom?.wait ?? unit.renamed?.wait
+      if (wait != null) {
+        return { status: wait === "checking" ? "Renamed, checking" : "Renamed, not proven", tone: "secondary" }
       }
       return { status: "Body changed", tone: "secondary" }
+    }
     case "shape":
       return { status: "Form changed", tone: "secondary" }
     default:

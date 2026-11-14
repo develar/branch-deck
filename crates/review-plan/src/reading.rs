@@ -16,7 +16,7 @@
 
 use crate::PlanSources;
 use crate::modules::reading_role;
-use crate::renamed_uses::mark_renamed_uses;
+use crate::renamed_uses::{DeclaredRenames, mark_renamed_uses};
 use crate::units::ReviewUnit;
 use anyhow::Result;
 use code_tokens::grammar_of;
@@ -198,6 +198,12 @@ impl PlanReading {
   /// marks this reading proves (`renamed_uses`): what the header says of their file, said of each of them
   pub(crate) fn mark_renamed_uses(&self, units: &mut [ReviewUnit]) {
     mark_renamed_uses(units, &self.read);
+  }
+
+  /// The renames of declarations this reading has not proven, by the path of their file (`DeclaredRenames`): what pairs
+  /// the declaration of an old name with the one of the new name as one unit
+  pub(crate) fn declared_renames(&self) -> DeclaredRenames {
+    DeclaredRenames::of(&self.read)
   }
 
   /// The answers of the index put in: one query of every rename of the subject, none when memory has a final answer

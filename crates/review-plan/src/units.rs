@@ -28,7 +28,10 @@
 //!   `test`, a block of a repeated edit inside test code, a new file that declares a test.
 //! - **A group** is one unit over its files: a kind of mechanical change, a repeated edit.
 //! - **Renames**: a unit `Behaviour` whose body changed in renamed names alone that the index has not proven says so
-//!   (`ReviewUnit::renamed`), from the marks of the reading of the plan (`renamed_uses`), never another kind.
+//!   (`ReviewUnit::renamed`), from the marks of the reading of the plan (`renamed_uses`), never another kind. A
+//!   declaration renamed where the index has not proven it (`DeclaredRenames`) is paired with its old name, as one unit
+//!   (`ReviewUnit::renamed_from`): the key of a declaration before the commits reads as the rename renamed it, or one
+//!   around it (`renamed_key`).
 //! - **The order**: the files in the order of the plan (`order`), each unit at its first block, the declarations
 //!   without a block after the unit of the block that holds them, by their line; a repeated edit at the place of its
 //!   first file; the mechanical units last.
@@ -42,6 +45,7 @@
 use crate::api::{FormChange, form_changes, listed};
 use crate::files::{ChangedFile, FileKinds, MechanicalKind, lines_edit_key, without_whitespace};
 use crate::pair::{LineBlock, PairBlocks};
+use crate::renamed_uses::{DeclaredRenames, FileRenames, same_but_names};
 use crate::whitespace::{Sides, TextTokens};
 use code_symbols::language::language_of;
 use code_tokens::indentation_matters;
@@ -51,10 +55,11 @@ use file_diffs::service::imports_only;
 use line_diff::text_lines::TextLines;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::ops::Range;
-use trial_check::symbol_dependencies::declaration_checks::{FileDeclarations, SpannedDeclaration, spanned_declarations};
+use trial_check::symbol_dependencies::declaration_checks::{FileDeclarations, Form, SpannedDeclaration, spanned_declarations};
 use trial_check::symbol_scan::SymbolInput;
 
 /// What a unit changes
@@ -174,6 +179,23 @@ pub struct ReviewUnit {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub renamed: Option<RenamedUses>,
+  /// Of a declaration the commits renamed, which the index has not proven (`renamed_uses`, "A declaration renamed"):
+  /// its old name and what the rename waits on. The declaration of the old name and the one of the new name are this
+  /// one unit, named by the new one. `None` for any other unit, and where the index proved the rename or said it is
+  /// more than one: the two are then removed and added, as without a rename
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub renamed_from: Option<RenamedFrom>,
+}
+
+/// The old name of a declaration renamed where the index has not proven the rename (`ReviewUnit::renamed_from`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RenamedFrom {
+  pub old: String,
+  pub wait: RenameWait,
 }
 
 /// The renamed names a body changed in alone, which the index has not proven (`ReviewUnit::renamed`)
@@ -346,21 +368,38 @@ struct Paired {
   after: Option<usize>,
 }
 
-/// The places of `declarations` by their key, in order
-fn by_key(declarations: &[SpannedDeclaration]) -> BTreeMap<&str, Vec<usize>> {
-  let mut keys: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+/// The places of `declarations` by their key, in order, each key as `key_of` gives it
+fn by_key<'a>(declarations: &'a [SpannedDeclaration], key_of: impl Fn(&'a str) -> Cow<'a, str>) -> BTreeMap<Cow<'a, str>, Vec<usize>> {
+  let mut keys: BTreeMap<Cow<'a, str>, Vec<usize>> = BTreeMap::new();
   for (index, declaration) in declarations.iter().enumerate() {
-    keys.entry(declaration.form.key.as_str()).or_default().push(index);
+    keys.entry(key_of(declaration.form.key.as_str())).or_default().push(index);
   }
   keys
 }
 
-/// The declarations of the two sides paired: per key, an equal form first, then in order; each one once
-fn pair_declarations(before: &[SpannedDeclaration], after: &[SpannedDeclaration]) -> Vec<Paired> {
-  let (old_keys, mut new_keys) = (by_key(before), by_key(after));
+/// `key` of a declaration before the commits as it reads after them, where `renamed` (old key -> new key) renamed it or
+/// a declaration around it (`SourceFile::renamed_keys`)
+fn renamed_key<'a>(key: &'a str, renamed: &HashMap<String, (String, usize)>) -> Cow<'a, str> {
+  if let Some((new, _)) = renamed.get(key) {
+    return Cow::Owned(new.clone());
+  }
+  let mut container = key;
+  while let Some((outer, _)) = container.rsplit_once('.') {
+    if let Some((new, _)) = renamed.get(outer) {
+      return Cow::Owned(format!("{new}{}", &key[outer.len()..]));
+    }
+    container = outer;
+  }
+  Cow::Borrowed(key)
+}
+
+/// The declarations of the two sides paired: per key, an equal form first, then in order; each one once. A key of a
+/// declaration before the commits is read as `renamed` renamed it (`renamed_key`)
+fn pair_declarations(before: &[SpannedDeclaration], after: &[SpannedDeclaration], renamed: &HashMap<String, (String, usize)>) -> Vec<Paired> {
+  let (old_keys, mut new_keys) = (by_key(before, |key| renamed_key(key, renamed)), by_key(after, Cow::Borrowed));
   let mut pairs: Vec<Paired> = Vec::new();
   for (key, olds) in old_keys {
-    let mut news = new_keys.remove(key).unwrap_or_default();
+    let mut news = new_keys.remove(&key).unwrap_or_default();
     let mut left: Vec<usize> = Vec::new();
     for old in olds {
       match news
@@ -385,6 +424,26 @@ fn pair_declarations(before: &[SpannedDeclaration], after: &[SpannedDeclaration]
   }
   pairs.extend(new_keys.into_values().flatten().map(|new| Paired { before: None, after: Some(new) }));
   pairs
+}
+
+/// `form` with every whole word `old` of its header `new`: the form of a declaration renamed as it reads under its new
+/// name (`SourceFile::cut`)
+fn renamed_form(form: &Form, old: &str, new: &str) -> Form {
+  let word = |character: char| character.is_alphanumeric() || character == '_' || character == '$';
+  let header = form.header.as_ref().map(|header| {
+    let mut renamed = String::with_capacity(header.len());
+    let mut rest = header.as_str();
+    while let Some(at) = rest.find(old) {
+      let (before, after) = (&rest[..at], &rest[at + old.len()..]);
+      let whole = !before.ends_with(word) && !after.starts_with(word);
+      renamed.push_str(before);
+      renamed.push_str(if whole { new } else { old });
+      rest = after;
+    }
+    renamed.push_str(rest);
+    renamed
+  });
+  Form { header, ..form.clone() }
 }
 
 /// Where a block of a source file goes
@@ -469,6 +528,7 @@ impl PairFile<'_> {
         fingerprint: slice.fingerprint.clone(),
         slices: vec![slice],
         renamed: None,
+        renamed_from: None,
       },
     }
   }
@@ -492,6 +552,7 @@ pub(crate) fn review_units(
   kinds: &FileKinds,
   order: &[String],
   free: &FreeOrder,
+  renames: &DeclaredRenames,
 ) -> PairUnits {
   let place: HashMap<&str, usize> = order.iter().enumerate().map(|(index, path)| (path.as_str(), index)).collect();
   // file -> its group of repeated edits and the edit
@@ -543,6 +604,7 @@ pub(crate) fn review_units(
             let (old, new) = (TextLines::of(old_text), TextLines::of(new_text));
             let source = SourceFile {
               free: free.of_file(file.first_path, file.path, &old, &new),
+              renames: renames.of_file(file.path),
               pair_file: &pair_file,
               sides: tokens.sides(file.first_path, file.before, file.path, file.after),
               before: in_lines_of_diffs(before, &old),
@@ -588,6 +650,7 @@ pub(crate) fn review_units(
         slices,
         fingerprint,
         renamed: None,
+        renamed_from: None,
       },
     });
   }
@@ -607,6 +670,7 @@ pub(crate) fn review_units(
         slices,
         fingerprint,
         renamed: None,
+        renamed_from: None,
       },
     });
   }
@@ -629,6 +693,7 @@ pub(crate) fn review_units(
       slices,
       fingerprint,
       renamed: None,
+      renamed_from: None,
     });
   }
   debug_assert!(every_block_once(files, pairs, &units), "a block in no unit or in two: {units:#?}");
@@ -716,6 +781,8 @@ struct SourceFile<'a, 't> {
   /// The declarations the index says the commits put in another order where it is free, by the lines of the diffs
   /// on both sides (`FreeOrder`)
   free: Vec<[Range<u32>; 2]>,
+  /// The renames this file declares that the index has not proven (`DeclaredRenames`)
+  renames: Option<&'a FileRenames>,
 }
 
 impl SourceFile<'_, '_> {
@@ -875,11 +942,40 @@ impl SourceFile<'_, '_> {
       .collect()
   }
 
+  /// The declarations before the commits that a rename of `renames` names, by their key, each with the key of the
+  /// declaration of the new name after the commits and the rename by its place: of the same kind, the same key but for
+  /// the last name, the old key gone after the commits and the new one not there before them, and the same code but
+  /// for the names the commits renamed and whitespace (`same_but_names`): the same declaration under another name
+  fn renamed_keys(&self) -> HashMap<String, (String, usize)> {
+    let (before, after) = (&self.before.declarations, &self.after.declarations);
+    let mut renamed: HashMap<String, (String, usize)> = HashMap::new();
+    let Some(renames) = self.renames else { return renamed };
+    for (place, rename) in renames.declared.iter().enumerate() {
+      for old in before.iter().filter(|declaration| declaration.form.name == rename.old) {
+        let Some(prefix) = old.form.key.strip_suffix(rename.old.as_str()) else { continue };
+        let new_key = format!("{prefix}{}", rename.new);
+        // the same code but for the names the diff says the commits renamed: a body that changed is no rename
+        let renamed_one = after.iter().any(|new| {
+          new.form.name == rename.new
+            && new.form.key == new_key
+            && new.form.kind == old.form.kind
+            && same_but_names(&self.old.text(&lines_of(old)).join("\n"), &self.new.text(&lines_of(new)).join("\n"), &renames.names)
+        });
+        let kept = after.iter().any(|new| new.form.key == old.form.key) || before.iter().any(|was| was.form.key == new_key);
+        if renamed_one && !kept {
+          renamed.insert(old.form.key.clone(), (new_key, place));
+        }
+      }
+    }
+    renamed
+  }
+
   /// Cut `blocks` into the units of this file and the slices of the groups
   fn cut(&self, blocks: &[LineBlock], cut: &mut Cut) {
     let pair_file = self.pair_file;
     let at = pair_file.at;
-    let pairs = pair_declarations(&self.before.declarations, &self.after.declarations);
+    let renamed = self.renamed_keys();
+    let pairs = pair_declarations(&self.before.declarations, &self.after.declarations, &renamed);
     let of_before: HashMap<usize, usize> = pairs.iter().enumerate().filter_map(|(pair, paired)| Some((paired.before?, pair))).collect();
     let of_after: HashMap<usize, usize> = pairs.iter().enumerate().filter_map(|(pair, paired)| Some((paired.after?, pair))).collect();
     let folded = self.folded(&pairs);
@@ -939,11 +1035,25 @@ impl SourceFile<'_, '_> {
       let after = paired.after.map(|index| &self.after.declarations[index]);
       let old_text = before.map_or_else(String::new, |declaration| self.side_text(false, lines_of(declaration)));
       let new_text = after.map_or_else(String::new, |declaration| self.side_text(true, lines_of(declaration)));
-      let kind = match (before, after) {
-        (Some(before), Some(after)) if before.form.form != after.form.form => UnitKind::Shape {
-          changes: form_changes(&before.form.form, &after.form.form),
+      // the declaration of the old name paired with the one of the new name: one declaration renamed
+      let renamed_from = before
+        .filter(|before| after.is_some_and(|after| after.form.key != before.form.key))
+        .and_then(|before| renamed.get(&before.form.key))
+        .and_then(|&(_, place)| self.renames.map(|renames| &renames.declared[place]))
+        .map(|rename| RenamedFrom {
+          old: rename.old.clone(),
+          wait: rename.wait,
+        });
+      // the form of a declaration renamed as it reads under its new name: its header names it
+      let old_form = before.map(|before| match (&renamed_from, after) {
+        (Some(from), Some(after)) => Cow::Owned(renamed_form(&before.form.form, &from.old, &after.form.name)),
+        _ => Cow::Borrowed(&before.form.form),
+      });
+      let kind = match (before, after, old_form.as_deref()) {
+        (Some(_), Some(after), Some(old_form)) if *old_form != after.form.form => UnitKind::Shape {
+          changes: form_changes(old_form, &after.form.form),
         },
-        (Some(before), Some(after)) => {
+        (Some(before), Some(after), _) => {
           // the same declaration at another place of its file, which a review folds only where that place has no
           // meaning and is a change of behaviour elsewhere, never whitespace; or the same but for its whitespace: a
           // change of whitespace across lines
@@ -960,8 +1070,8 @@ impl SourceFile<'_, '_> {
           }
           UnitKind::Behaviour
         }
-        (None, _) => UnitKind::Added,
-        (_, None) => UnitKind::Removed,
+        (None, ..) => UnitKind::Added,
+        (_, None, _) => UnitKind::Removed,
       };
       let Some(declaration) = after.or(before) else { continue };
       let form = &declaration.form;
@@ -993,6 +1103,7 @@ impl SourceFile<'_, '_> {
           slices: vec![pair_file.slice(false, unit_blocks, fingerprint.clone())],
           fingerprint,
           renamed: None,
+          renamed_from,
         },
       });
     }
@@ -1014,6 +1125,7 @@ impl SourceFile<'_, '_> {
           slices: vec![pair_file.slice(false, run, fingerprint.clone())],
           fingerprint,
           renamed: None,
+          renamed_from: None,
         },
       });
     }

@@ -615,6 +615,15 @@ the review.
    the index answers drops the word without telling the story again. A rename the index confirmed makes its lines quiet
    and leaves the heading as it was; any other answer (uses outside, another meaning) and any other change of the body
    keep "body changed": more than a proven rename is read.
+   The declaration of the helper itself still stood as two units, "totalOf — new · sumOf — removed". Where the file
+   declares the rename and the index has not proven it, the two are now one unit named by the new name with its old
+   one (`ReviewUnit::renamed_from`, "totalOf — renamed from sumOf, not proven"): the keys of the old side read as
+   renamed (`units::renamed_key`), so a class renamed pairs its members too, and only where the code is the same but
+   for the names the diff renamed (`same_but_names`), since the diff calls a container renamed whose member changed a
+   rename all the same. That is a change of the units, not a word on one, so the plan reads the renames again with the
+   answer of the index, while the tests are asked, and tells the story again where the pairs changed (the index proved
+   one: the two are added and removed, as with an index before). A function removed and another of the same code added
+   in its place is a rename to the diff, and so one unit.
 
 31. **An approval of a layer counts once it goes into master** (2026-11-14). Your Turn groups a chain of someone else's
    pull requests into one stack, and Review Stack approves the layer shown; the real case is a chain of 12 in the

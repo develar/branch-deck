@@ -7321,6 +7321,12 @@ export type RenameWait =
 /**  No index proved them: none answered, or it did not list every use (`RenameProof::Unavailable`, `Incomplete`) */
 "notProven";
 
+/**  The old name of a declaration renamed where the index has not proven the rename (`ReviewUnit::renamed_from`) */
+export type RenamedFrom = {
+	old: string,
+	wait: RenameWait,
+};
+
 /**  A name as the commits renamed it */
 export type RenamedName = {
 	old: string,
@@ -8281,6 +8287,13 @@ export type ReviewUnit = {
 	 *  proved them (the diffs pass such lines) or said they are more than a rename
 	 */
 	renamed?: RenamedUses | null,
+	/**
+	 *  Of a declaration the commits renamed, which the index has not proven (`renamed_uses`, "A declaration renamed"):
+	 *  its old name and what the rename waits on. The declaration of the old name and the one of the new name are this
+	 *  one unit, named by the new one. `None` for any other unit, and where the index proved the rename or said it is
+	 *  more than one: the two are then removed and added, as without a rename
+	 */
+	renamedFrom?: RenamedFrom | null,
 };
 
 /**  The base and the tip of a branch as the user reviewed it */

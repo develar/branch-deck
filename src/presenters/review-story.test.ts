@@ -1021,6 +1021,12 @@ describe("the document of a review", () => {
       ).card?.status
     const names = [{ old: "sumOf", new: "totalOf" }]
     expect([badge({ names, wait: "notProven" }), badge({ names, wait: "checking" }), badge(null)]).toEqual(["Renamed, not proven", "Renamed, checking", "Body changed"])
+    const declared = (wait: "checking" | "notProven") =>
+      mentionWords({ units: [{ ...balance, renamedFrom: { old: "sum", wait } }] })(
+        { kind: "unit", unit: balance.id, name: "balance", path: "src/a/Ledger.kt", side: "new", line: 6, step: 4 },
+        "Ledger.balance",
+      ).card?.status
+    expect([declared("notProven"), declared("checking")]).toEqual(["Renamed, not proven", "Renamed, checking"])
     // read in its own step, the card names no step
     expect(
       mentionWords({ units: [fresh] }, 4)({ kind: "unit", unit: fresh.id, name: "read", path: "src/a/LayoutStore.kt", side: "new", line: 4, step: 4 }, "LayoutStore.read").card

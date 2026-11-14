@@ -87,7 +87,7 @@ fun close(x: Int): Int {
 }
 
 fun fresh(x: Int): Int {
-  return x
+  return x * 2
 }
 ";
 
