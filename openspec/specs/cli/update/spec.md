@@ -194,9 +194,10 @@ and without `verify.regenerate`, `verify` MUST be absent.
 
 ### Requirement: Update: `verify.regenerate` names the generated files both sides changed
 
-An update that applies (at once or at the finish of a session) MUST list in `verify.regenerate` each generated file that
-the local commits and the baseline both changed since their merge base, each to another blob, and that the new HEAD
-keeps, with `generated_by`: also without a conflict, since a generated file can be stale without one.
+An update that applies (at once or at the finish of a session) MUST list in `verify.regenerate`, with `generated_by`,
+each generated file that the baseline changed since the merge base and that the update changed again (the local
+commits as they replayed, or a round that kept its commit and took `onto`), and that the new HEAD keeps: also without
+a conflict, since a generated file can be stale without one.
 
 #### Scenario: A round of a generated file taken from `onto`
 - **WHEN** a session finishes after a round of a generated file took `onto`
@@ -208,11 +209,22 @@ keeps, with `generated_by`: also without a conflict, since a generated file can 
 - **THEN** `verify.regenerate` names it
   [@test] crates/bd-update/src/resolve_test.rs (`an_update_without_a_conflict_names_the_generated_files_both_sides_changed`)
 
+#### Scenario: A generated file the baseline deleted
+- **WHEN** the baseline deleted a generated file that the commit changes, and its round takes the commit's file
+- **THEN** `verify.regenerate` names it
+  [@test] crates/bd-update/src/resolve_test.rs (`a_generated_file_the_upstream_deletes_and_the_round_keeps_is_named_to_regenerate`)
+
 #### Scenario: A generated file of one side
 - **WHEN** only one side changed a generated file, both sides made the same change, or the new HEAD deleted it
 - **THEN** `verify.regenerate` does not name it
   [@test] crates/git-ops/src/generated_test.rs (`the_generated_files_both_sides_changed_are_the_ones_to_regenerate`)
   [@test] crates/bd-update/src/resolve_test.rs (`an_update_without_a_conflict_names_the_generated_files_both_sides_changed`)
+
+#### Scenario: A commit dropped as landed
+- **WHEN** a local commit that changed a generated file is dropped because the baseline has its patch, and the
+  baseline changed the file again
+- **THEN** `verify.regenerate` does not name it
+  [@test] crates/bd-update/src/resolve_test.rs (`a_generated_file_of_a_commit_dropped_as_landed_is_not_named_to_regenerate`)
 
 ### Requirement: Update: The fetch runs before the lock
 
@@ -1147,6 +1159,11 @@ header a tool wrote into a side) MUST NOT be resolved by words: its conflict ope
 - **THEN** a round opens, and its file has `generated_by` and a `hint` with the takes and the `fixup!` of the commit
 - **AND** `--status` names `generated_by` too
   [@test] crates/bd-update/src/resolve_test.rs (`a_generated_file_whose_conflict_its_words_resolve_opens_a_round_and_the_finish_names_it_to_regenerate`)
+
+#### Scenario: A file its attributes mark generated
+- **WHEN** a round opens on a file that only its attributes mark generated (`linguist-generated`)
+- **THEN** its `generated_by` is `attribute`
+  [@test] crates/bd-update/src/resolve_test.rs (`a_round_names_a_file_that_its_attributes_mark_generated`)
 
 #### Scenario: A file a person writes with the same conflict
 - **WHEN** the same conflict is in a file a person writes

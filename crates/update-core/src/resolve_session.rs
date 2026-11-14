@@ -20,8 +20,8 @@ use git_ops::landed_pairing::{Interdiff, LandedDrop, LandedProof, interdiffs};
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
 use git_ops::update_resolve::{
-  ConflictKind, EditCopy, LandedInput, PreparedStart, RefusalKind, Resolution, ResolveError, RoundConflict, RoundInput, RoundObjects, Session, SessionState, SessionStatus, Side,
-  Stage, Step, abort_session, apply_prepared_round, commit_patch, finish_prepared, list_sessions, prepare_continue_session, read_round_objects, read_session,
+  ConflictKind, EditCopy, LandedInput, Outcome, PreparedStart, RefusalKind, Resolution, ResolveError, RoundConflict, RoundInput, RoundObjects, Session, SessionState,
+  SessionStatus, Side, Stage, Step, abort_session, apply_prepared_round, commit_patch, finish_prepared, list_sessions, prepare_continue_session, read_round_objects, read_session,
   round_upstream_commits, session_blocked_paths,
 };
 use history_rewrite::commit_grouper::GroupingInputs;
@@ -777,7 +777,16 @@ fn outcome(
         record_landed_update(git_executor, repo_path, &report, grouping)
       };
       let replayed = count(git_executor, repo_path, &new_head, &state.upstream_head)?;
-      let regenerate = regenerate_files(git_executor, repo_path, &state.base, &previous_head, &state.upstream_head, &new_head);
+      // a round that kept its commit and took `onto` for a file left out the commit's change of it
+      let taken_onto: Vec<String> = state
+        .resolutions
+        .iter()
+        .filter(|resolution| !resolution.dropped())
+        .flat_map(|resolution| &resolution.paths)
+        .filter(|path| path.outcome == Outcome::Onto)
+        .map(|path| path.renamed_to.clone().unwrap_or_else(|| path.path.clone()))
+        .collect();
+      let regenerate = regenerate_files(git_executor, repo_path, &state.base, &state.upstream_head, &new_head, &taken_onto);
       let mut view = view_state(git_executor, repo_path, state, None, None, ViewDetail::Full)?;
       view.dropped = with_empty_drops(std::mem::take(&mut view.dropped), &landed);
       view.dropped_count = view.dropped.len();
@@ -793,10 +802,11 @@ fn outcome(
   }
 }
 
-/// The generated files an applied update of `head` (onto `upstream_head`, from their merge base `base`) to `new_head`
-/// brought together (`merged_generated_files`), read after the update is done: a failure is logged, not returned
-pub(crate) fn regenerate_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, head: &str, upstream_head: &str, new_head: &str) -> Vec<GeneratedFile> {
-  merged_generated_files(git_executor, repo_path, base, head, upstream_head, new_head).unwrap_or_else(|e| {
+/// The generated files an applied update onto `upstream_head` (from the merge base `base`) to `new_head` brought together,
+/// with the files its rounds took from `onto` (`merged_generated_files`), read after the update is done: a failure is
+/// logged, not returned
+pub(crate) fn regenerate_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, upstream_head: &str, new_head: &str, taken_onto: &[String]) -> Vec<GeneratedFile> {
+  merged_generated_files(git_executor, repo_path, base, upstream_head, new_head, taken_onto).unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't find the generated files the update changed on both sides");
     Vec::new()
   })

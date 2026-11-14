@@ -3,19 +3,17 @@
 //! generator merges (docs/design/git-operations.md, "Update project", "Resolve session").
 
 use crate::attributes::read_attributes;
-use crate::cat_file_batch::{BatchEntry, for_each_object};
+use crate::cat_file_batch::{BatchEntry, for_each_object_with_heads};
 use crate::commit_files::MAX_BLOB_BYTES;
-use crate::paths::{ChangedPath, changed_paths};
+use crate::paths::changed_paths;
 use anyhow::Result;
 use generated_files::attributes::{GENERATED_ATTRIBUTES, marks_generated};
 use generated_files::generated_by::{GeneratedBy, generated_by};
+use generated_files::header::HEADER_BYTES;
 use generated_files::names::{generated_name, is_lock_file};
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use tracing::instrument;
-
-/// The mode of a submodule: no file to generate
-const GITLINK_MODE: &str = "160000";
 
 /// The paths that the attributes of the tree-ish `source` mark `linguist-generated` or `-diff`, from one
 /// `check-attr --source=<source>` for all of them; none without paths
@@ -67,36 +65,33 @@ pub struct GeneratedFile {
   pub generated_by: GeneratedBy,
 }
 
-/// The generated files that the local commits (`base..head`) and the upstream (`base..upstream_head`) both changed, each to
-/// another blob, and that `new_head`, the update of `head` onto `upstream_head`, keeps: whatever wrote the file in
-/// `new_head` (git's merge, the words, a side taken, an edit), its text is no run of its generator on the merged inputs,
-/// so the generator runs again. In the order of the paths. Two `diff-tree`; with files changed on both sides one
-/// `check-attr --source=<new_head>` for those their name does not call generated and one `cat-file --batch` of them in
-/// `new_head`, for their header; none for a fast-forward (`base` is `head`)
-#[instrument(skip(git))]
-pub fn merged_generated_files(git: &GitCommandExecutor, repository: &str, base: &str, head: &str, upstream_head: &str, new_head: &str) -> Result<Vec<GeneratedFile>> {
-  if base == head {
+/// The generated files that an update brought together with the upstream's, and that `new_head`, the update onto
+/// `upstream_head` (their merge base `base`), keeps: changed by the upstream since `base`, and by the local commits as
+/// they replayed (`upstream_head..new_head`: a commit dropped because the upstream proves it has it changes nothing
+/// there) or taken from `onto` in a round that kept its commit (`taken_onto`, whose change of the file the round left
+/// out). Whatever wrote such a file in `new_head` (git's merge, the words, a side taken, an edit), its text is no run of
+/// its generator on the merged inputs, so the generator runs again. In the order of the paths. Two `diff-tree`; with
+/// files changed on both sides one `check-attr --source=<new_head>` for those their name does not call generated and one
+/// `cat-file --batch` of them in `new_head`, for their header (the first `HEADER_BYTES` of a file over `MAX_BLOB_BYTES`);
+/// none for a fast-forward
+#[instrument(skip(git, taken_onto))]
+pub fn merged_generated_files(git: &GitCommandExecutor, repository: &str, base: &str, upstream_head: &str, new_head: &str, taken_onto: &[String]) -> Result<Vec<GeneratedFile>> {
+  if base == upstream_head {
     return Ok(Vec::new());
   }
-  let local = changed_paths(git, repository, base, head)?;
+  let mut local: BTreeSet<String> = taken_onto.iter().cloned().collect();
+  if new_head != upstream_head {
+    local.extend(
+      changed_paths(git, repository, upstream_head, new_head)?
+        .into_iter()
+        .filter_map(|change| String::from_utf8(change.path).ok()),
+    );
+  }
   if local.is_empty() {
     return Ok(Vec::new());
   }
-  let upstream: HashMap<Vec<u8>, ChangedPath> = changed_paths(git, repository, base, upstream_head)?
-    .into_iter()
-    .map(|change| (change.path.clone(), change))
-    .collect();
-  // both sides keep the file, each another blob
-  let kept = |id: &str| id.bytes().any(|byte| byte != b'0');
-  let both: Vec<String> = local
-    .into_iter()
-    .filter(|change| {
-      upstream
-        .get(&change.path)
-        .is_some_and(|theirs| kept(&change.new_id) && kept(&theirs.new_id) && change.new_id != theirs.new_id && change.old_mode != GITLINK_MODE)
-    })
-    .filter_map(|change| String::from_utf8(change.path).ok())
-    .collect();
+  let upstream: HashSet<Vec<u8>> = changed_paths(git, repository, base, upstream_head)?.into_iter().map(|change| change.path).collect();
+  let both: Vec<String> = local.into_iter().filter(|path| upstream.contains(path.as_bytes())).collect();
   if both.is_empty() {
     return Ok(Vec::new());
   }
@@ -106,15 +101,14 @@ pub fn merged_generated_files(git: &GitCommandExecutor, repository: &str, base: 
     Some(new_head),
     both.iter().map(String::as_str).filter(|path| generated_name(path).is_none()),
   )?;
-  // the file in `new_head`: whether it keeps it, and its header
+  // the file in `new_head`: whether it keeps it as a file, and its header
   let names: Vec<String> = both.iter().map(|path| format!("{new_head}:{path}")).collect();
   let mut texts: Vec<Option<Vec<u8>>> = vec![None; names.len()];
-  for_each_object(git, repository, &names, MAX_BLOB_BYTES, |index, entry| {
+  for_each_object_with_heads(git, repository, &names, MAX_BLOB_BYTES, HEADER_BYTES, |index, entry| {
     match entry {
-      BatchEntry::Object { content, .. } => texts[index] = Some(content),
-      // over the limit: kept, its header unread
-      BatchEntry::TooLarge { .. } => texts[index] = Some(Vec::new()),
-      BatchEntry::Missing => {}
+      BatchEntry::Object { kind: "blob", content, .. } => texts[index] = Some(content),
+      BatchEntry::TooLarge { kind: "blob", head, .. } => texts[index] = Some(head),
+      _ => {}
     }
     Ok(())
   })?;

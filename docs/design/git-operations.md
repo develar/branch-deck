@@ -1737,14 +1737,21 @@ the largest share.
 - **`verify`.** At exit 0, `verify.paths` names the files to build and test: the paths of the rounds that did not drop
   their commit, with `how` edited, commit, deleted or words, and the files of the commits that an update resolved by
   words. A file taken from `onto` is the upstream's, tested there. The words are in it because nobody saw their merge.
-  `verify.regenerate` names the generated files that the local commits (`base..HEAD`) and the upstream
-  (`base..upstream`) both changed, each to another blob, and that the new HEAD keeps, with `generated_by`
-  (`git_ops::generated::merged_generated_files`): whatever wrote such a file in the new HEAD (git's clean merge, a side
-  taken, an edit), no run of its generator did, so it can be stale without a conflict, as the second output of a
-  generator whose first one conflicted. It runs after the move and the release of the lock, for every update of
-  `brd update` that applies, at once or at the finish: two `diff-tree` (none for a fast-forward), and with files
-  changed on both sides one `check-attr --source=<new head>` and one `cat-file --batch` of their texts for the header;
-  a failure leaves the list out. The app's Update Project reads none of it.
+  `verify.regenerate` names the generated files that the upstream changed since the merge base (`base..upstream`) and
+  the update changed again, and that the new HEAD keeps, with `generated_by`
+  (`git_ops::generated::merged_generated_files`). The update's side is what the local commits change as they replayed
+  (`upstream..new head`), so a commit dropped because the upstream proves it has it changes nothing there, and the
+  agent is never told to fix up a commit that is gone; a file a round took from `onto`, in a round that kept its
+  commit, is the upstream's in the new HEAD, but the commit changed it, so it is in it too. Whatever wrote such a file
+  in the new HEAD (git's clean merge, the words, a side taken, an edit, also a file one side deleted), no run of its
+  generator did, so it can be stale without a conflict. It runs after the move and the release of the lock, for every
+  update of `brd update` that applies, at once or at the finish: two `diff-tree` (none for a fast-forward), and with
+  such files one `check-attr --source=<new head>` and one `cat-file --batch` of their texts in the new HEAD for the
+  header (the first bytes of a file over 8 MiB); a failure leaves the list out. The app's Update Project reads none of
+  it. A generated file that only the upstream changed is not named: the output of the upstream's run of its generator,
+  maybe stale where the local commits changed the generator's inputs, which no file tells; in the case of #229 a JSON
+  model of the new product, which only the upstream added and which has no header, is not listed, and the run of the
+  generator that the table (`plans.bzl`, both sides) names writes it again.
 - **A generated file.** Its round names why it is generated (`generated_by`: `name`, `attribute`, or `header` with the
   line that names the generator) and its `hint` says to take a side, never to edit its text, then to run the generator
   after the update and commit what it changed as `fixup! <subject>`; the finish names it in `verify.regenerate`.
@@ -3032,8 +3039,12 @@ In Update Project and `brd update`, with the same setting (`crates/git-ops/src/w
   side (`generated_by::generated_by`), is `NotResolved::Generated`: the check stops at its commit, and its round opens.
   A merge of words cannot see the conflict of a generated file: the upstream added an entry that refers to a name the
   local commit renamed on another line, the words keep both, and the file no longer loads. Its resolution is the
-  output of its generator on the merged inputs, never a merge of its text. The sync keeps the words for the copies of a
-  virtual branch (`AllTexts`).
+  output of its generator on the merged inputs, never a merge of its text. The copies of a sync (`copy_commit`: the
+  virtual branches, the stack branches, the build of `brd robot`, the trial builds) keep the words for every text
+  (`AllTexts`), on purpose for now: there a conflict of a generated file is a conflict of the sync, and two branches
+  that change one lock file or one generated table would conflict on every sync, while a copy that the words resolve
+  lands only after its build. The trade-off is open in
+  [develar/branch-deck#232](https://github.com/develar/branch-deck/issues/232).
 - **The cost.** A check that conflicts in a commit whose words do not resolve replays the prefixes once more: one
   binary search, which names the first conflict; the session opens its round there without a search of its own. The
   trial without the words is unchanged.

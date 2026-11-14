@@ -332,10 +332,10 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // what `bd` lists of the drops and of the generated files: the app shows `landed`
   let (dropped, regenerate) = match &applied {
     Some(applied) if matches!(resolve, Resolve::Yes { .. }) => {
-      let UpdateCheck { base, head, upstream_head, .. } = &plan.check;
+      let UpdateCheck { base, upstream_head, .. } = &plan.check;
       (
         with_empty_drops(with_subjects(git_executor, repo_path, plan.landed_drops()), &landed),
-        regenerate_files(git_executor, repo_path, base, head, upstream_head, &applied.new_head),
+        regenerate_files(git_executor, repo_path, base, upstream_head, &applied.new_head, &[]),
       )
     }
     _ => (Vec::new(), Vec::new()),

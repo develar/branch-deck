@@ -2,7 +2,7 @@
 //! the output streams, or only their ids and types (`object_ids_and_types`) or sizes (`object_sizes`) from one
 //! `--batch-check`. Names and entries are NUL-terminated (`-Z`), so a name may hold a space or a newline; the content
 //! of an object over the caller's limit is skipped as it arrives, never buffered, so memory holds one object within
-//! the limit, not the output.
+//! the limit, not the output; a reader of heads keeps its first bytes (`for_each_object_with_heads`).
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -17,8 +17,9 @@ pub const NO_LIMIT: usize = usize::MAX;
 pub enum BatchEntry<'a> {
   /// The id, the type (`blob`, `tree`, `commit`, `tag`) and the bytes as git stores them
   Object { id: &'a str, kind: &'a str, content: Vec<u8> },
-  /// An object larger than the limit: its bytes were skipped unread
-  TooLarge { id: &'a str, kind: &'a str, size: usize },
+  /// An object larger than the limit: its bytes were skipped unread, but the first ones a reader of heads asked for
+  /// (`for_each_object_with_heads`; else empty)
+  TooLarge { id: &'a str, kind: &'a str, size: usize, head: Vec<u8> },
   /// `<name> missing` or `<name> ambiguous`: git cannot resolve the name
   Missing,
 }
@@ -33,11 +34,25 @@ pub fn for_each_object<S: AsRef<str>>(
   max_bytes: usize,
   on_entry: impl FnMut(usize, BatchEntry<'_>) -> Result<()>,
 ) -> Result<()> {
+  for_each_object_with_heads(git, repository_path, names, max_bytes, 0, on_entry)
+}
+
+/// `for_each_object`, an object larger than `max_bytes` with its first `head_bytes` (`TooLarge::head`), the rest skipped
+/// as it arrives: what a reader of the start of a file needs, as the header a tool wrote, of a file of any size
+pub fn for_each_object_with_heads<S: AsRef<str>>(
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  names: &[S],
+  max_bytes: usize,
+  head_bytes: usize,
+  on_entry: impl FnMut(usize, BatchEntry<'_>) -> Result<()>,
+) -> Result<()> {
   if names.is_empty() {
     return Ok(());
   }
   let input = nul_terminated(names)?;
   let mut parser = BatchParser::new(names.len(), max_bytes, on_entry);
+  parser.head_bytes = head_bytes;
   git
     .cmd(&["cat-file", "--batch", "--buffer", "-Z"], repository_path)
     .stdin(&input)
@@ -149,6 +164,8 @@ struct BatchParser<F> {
   /// The entries the output must have: one per name
   names: usize,
   max_bytes: usize,
+  /// The bytes kept of an object over the limit
+  head_bytes: usize,
   on_entry: F,
   /// The entries handed over
   entries: usize,
@@ -168,6 +185,11 @@ enum State {
   Skip {
     remaining: usize,
   },
+  /// The content of an object over the limit, its first bytes kept, handed over once the rest is skipped
+  SkipKeeping {
+    head: Vec<u8>,
+    remaining: usize,
+  },
   /// The NUL after the content
   End,
 }
@@ -177,6 +199,7 @@ impl<F: FnMut(usize, BatchEntry<'_>) -> Result<()>> BatchParser<F> {
     Self {
       names,
       max_bytes,
+      head_bytes: 0,
       on_entry,
       entries: 0,
       header: Vec::new(),
@@ -218,6 +241,20 @@ impl<F: FnMut(usize, BatchEntry<'_>) -> Result<()>> BatchParser<F> {
             self.state = State::Skip { remaining: remaining - skipped };
           }
         }
+        State::SkipKeeping { mut head, remaining } => {
+          let taken = remaining.min(chunk.len());
+          let kept = (self.head_bytes - head.len()).min(taken);
+          head.extend_from_slice(&chunk[..kept]);
+          chunk = &chunk[taken..];
+          if taken < remaining {
+            self.state = State::SkipKeeping {
+              head,
+              remaining: remaining - taken,
+            };
+          } else {
+            self.hand_over_large(head)?;
+          }
+        }
         State::End => {
           if first != 0 {
             bail!("cat-file content of {:?} is not followed by a NUL", String::from_utf8_lossy(&self.header));
@@ -248,8 +285,13 @@ impl<F: FnMut(usize, BatchEntry<'_>) -> Result<()>> BatchParser<F> {
       return Ok(());
     }
     let (id, kind, size) = parse_header(header)?;
-    if size > self.max_bytes {
-      (self.on_entry)(self.entries, BatchEntry::TooLarge { id, kind, size })?;
+    if size > self.max_bytes && self.head_bytes > 0 {
+      self.state = State::SkipKeeping {
+        head: Vec::with_capacity(self.head_bytes.min(size)),
+        remaining: size,
+      };
+    } else if size > self.max_bytes {
+      (self.on_entry)(self.entries, BatchEntry::TooLarge { id, kind, size, head: Vec::new() })?;
       self.entries += 1;
       self.state = State::Skip { remaining: size };
     } else if size == 0 {
@@ -267,6 +309,16 @@ impl<F: FnMut(usize, BatchEntry<'_>) -> Result<()>> BatchParser<F> {
     let header = std::str::from_utf8(&self.header).map_err(|e| anyhow!("cat-file header is not UTF-8: {e}"))?;
     let (id, kind, _) = parse_header(header)?;
     (self.on_entry)(self.entries, BatchEntry::Object { id, kind, content })?;
+    self.entries += 1;
+    self.state = State::End;
+    Ok(())
+  }
+
+  /// The object over the limit whose content was skipped, with its first bytes; the NUL after it comes next
+  fn hand_over_large(&mut self, head: Vec<u8>) -> Result<()> {
+    let header = std::str::from_utf8(&self.header).map_err(|e| anyhow!("cat-file header is not UTF-8: {e}"))?;
+    let (id, kind, size) = parse_header(header)?;
+    (self.on_entry)(self.entries, BatchEntry::TooLarge { id, kind, size, head })?;
     self.entries += 1;
     self.state = State::End;
     Ok(())

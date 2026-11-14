@@ -1,4 +1,4 @@
-use super::{BatchEntry, BatchParser, NO_LIMIT, for_each_object, object_ids_and_types, object_types, read_objects};
+use super::{BatchEntry, BatchParser, NO_LIMIT, for_each_object, for_each_object_with_heads, object_ids_and_types, object_types, read_objects};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -15,7 +15,7 @@ enum Seen {
 fn seen(entry: BatchEntry<'_>) -> Seen {
   match entry {
     BatchEntry::Object { id, kind, content } => Seen::Object(id.to_string(), kind.to_string(), content),
-    BatchEntry::TooLarge { id, kind, size } => Seen::TooLarge(id.to_string(), kind.to_string(), size),
+    BatchEntry::TooLarge { id, kind, size, .. } => Seen::TooLarge(id.to_string(), kind.to_string(), size),
     BatchEntry::Missing => Seen::Missing,
   }
 }
@@ -121,6 +121,40 @@ fn an_object_over_the_limit_is_too_large_and_the_next_ones_are_read() {
       Seen::TooLarge(String::new(), "blob".to_string(), 11),
     ]
   );
+}
+
+/// A reader of heads gets the first bytes of an object over the limit, also when they arrive in pieces, and of a smaller
+/// one its content whole
+#[test]
+fn an_object_over_the_limit_keeps_its_head_for_a_reader_of_heads() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("files", &[("large.txt", "0123456789\n"), ("small.txt", "abc\n")]);
+  let mut entries = Vec::new();
+  let names = ["HEAD:large.txt", "HEAD:small.txt", "HEAD:no such file"];
+  for_each_object_with_heads(repo.git_executor(), repo.path_str(), &names, 4, 6, |index, entry| {
+    entries.push(match entry {
+      BatchEntry::TooLarge { size, head, .. } => (index, format!("{size}: {}", String::from_utf8_lossy(&head))),
+      BatchEntry::Object { content, .. } => (index, String::from_utf8_lossy(&content).into_owned()),
+      BatchEntry::Missing => (index, "missing".to_string()),
+    });
+    Ok(())
+  })
+  .unwrap();
+  assert_eq!(entries, [(0, "11: 012345".to_string()), (1, "abc\n".to_string()), (2, "missing".to_string())]);
+
+  let mut heads = Vec::new();
+  let mut parser = BatchParser::new(2, 2, |_, entry| {
+    if let BatchEntry::TooLarge { head, .. } = entry {
+      heads.push(head);
+    }
+    Ok(())
+  });
+  parser.head_bytes = 3;
+  for piece in [&b"0123 blob 5\0a"[..], b"b", b"cde\0", b"4567 blob 2\0xy\0"] {
+    parser.push(piece).unwrap();
+  }
+  parser.finish().unwrap();
+  assert_eq!(heads, [b"abc".to_vec()]);
 }
 
 /// The bytes of an object over the limit are skipped as they arrive: whatever its size, the parser holds no more than
