@@ -43,7 +43,7 @@ use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsChange, Sett
 use domain_types::worktree_epoch::WorktreeEpoch;
 use notify::RecommendedWatcher;
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
@@ -66,6 +66,16 @@ pub const EPOCH_ORIGIN: &str = "epoch";
 /// The field of an entry of `repositoryState` that names the epoch of its worktree it was written under; none for a path
 /// outside a lease pool
 pub const EPOCH_FIELD: &str = "epoch";
+
+/// The epoch of a path read without the mutex of the writer (`epochs_now`), beside the epoch its entry named when the
+/// read began: an entry written meanwhile (a window of the lease now) is no entry the epoch was read for
+struct EpochNow {
+  seen: Option<String>,
+  epoch: WorktreeEpoch,
+}
+
+/// The epochs read without the mutex, by path
+type EpochsNow = HashMap<String, EpochNow>;
 
 /// The epoch of the worktree at a path (`lease_pool::epoch::worktree_epoch`), which the host gives the writer
 pub type WorktreeEpochs = Arc<dyn Fn(&str) -> WorktreeEpoch + Send + Sync>;
@@ -430,17 +440,20 @@ impl SettingsService {
   }
 
   /// The epoch now of each path an entry of `repositoryState` names an epoch for, and of `written`, the paths a patch
-  /// writes: read without the mutex, which the writer holds again only to apply them; none without the epochs
-  fn epochs_now(&self, written: Vec<String>) -> Option<HashMap<String, WorktreeEpoch>> {
+  /// writes, beside the epoch each entry named then: read without the mutex, which the writer holds again only to apply
+  /// them; none without the epochs
+  fn epochs_now(&self, written: Vec<String>) -> Option<EpochsNow> {
     let epochs = self.epochs()?;
-    let mut paths: BTreeSet<String> = stamped_paths(&self.shared.lock());
-    paths.extend(written);
+    let mut seen: BTreeMap<String, Option<String>> = stamped_paths(&self.shared.lock());
+    for path in written {
+      seen.entry(path).or_default();
+    }
     Some(
-      paths
+      seen
         .into_iter()
-        .map(|path| {
+        .map(|(path, seen)| {
           let epoch = epochs(&path);
-          (path, epoch)
+          (path, EpochNow { seen, epoch })
         })
         .collect(),
     )
@@ -794,10 +807,10 @@ fn epoch_of(entry: &Value) -> Option<&str> {
 }
 
 /// The paths whose entries of `repositoryState` name an epoch
-fn stamped_paths(state: &State) -> BTreeSet<String> {
+fn stamped_paths(state: &State) -> BTreeMap<String, Option<String>> {
   match state.repository_state_file.content.other.get(REPOSITORY_STATE_KEY) {
-    Some(Value::Object(entries)) => entries.iter().filter(|(_, entry)| epoch_of(entry).is_some()).map(|(path, _)| path.clone()).collect(),
-    _ => BTreeSet::new(),
+    Some(Value::Object(entries)) => entries.iter().filter_map(|(path, entry)| Some((path.clone(), Some(epoch_of(entry)?.to_owned())))).collect(),
+    _ => BTreeMap::new(),
   }
 }
 
@@ -805,7 +818,7 @@ fn stamped_paths(state: &State) -> BTreeSet<String> {
 /// (`EPOCH_FIELD`, removed for a path outside a pool): the page never writes it, so its entries are always of the epoch
 /// they were written under. An entry whose epoch is unknown keeps the one the writer has of it, so a failed read stamps
 /// nothing anew
-fn stamp_epochs(patch: &mut SettingsPatch, now: &HashMap<String, WorktreeEpoch>, state: &State) {
+fn stamp_epochs(patch: &mut SettingsPatch, now: &EpochsNow, state: &State) {
   let stored = state.repository_state_file.content.other.get(REPOSITORY_STATE_KEY);
   let Some(entries) = written_entries(patch) else {
     return;
@@ -814,7 +827,7 @@ fn stamp_epochs(patch: &mut SettingsPatch, now: &HashMap<String, WorktreeEpoch>,
     let Value::Object(entry) = entry else {
       continue;
     };
-    let epoch = match now.get(path).and_then(WorktreeEpoch::recorded) {
+    let epoch = match now.get(path).and_then(|now| now.epoch.recorded()) {
       Some(recorded) => recorded.map(str::to_owned),
       None => stored.and_then(|stored| stored.get(path)).and_then(epoch_of).map(str::to_owned),
     };
@@ -827,14 +840,19 @@ fn stamp_epochs(patch: &mut SettingsPatch, now: &HashMap<String, WorktreeEpoch>,
 
 /// Removes from `repositoryState` each entry written under an epoch of its worktree that `now` knows to be another
 /// (`WorktreeEpoch::outdates`), as a change of the writer (`EPOCH_ORIGIN`) that the next save writes; an entry that names
-/// no epoch, whose epoch is unknown, or which `now` has not read (written since), stays. Whether it removed one
-fn forget_other_epochs(state: &mut State, now: &HashMap<String, WorktreeEpoch>) -> bool {
+/// no epoch, whose epoch is unknown, which `now` has not read, or which names another epoch than when `now` read it (a
+/// write of the lease now came between), stays. Whether it removed one
+fn forget_other_epochs(state: &mut State, now: &EpochsNow) -> bool {
   let Some(Value::Object(entries)) = state.repository_state_file.content.other.get_mut(REPOSITORY_STATE_KEY) else {
     return false;
   };
   let stale: Vec<String> = entries
     .iter()
-    .filter(|(path, entry)| now.get(*path).is_some_and(|epoch| epoch.outdates(epoch_of(entry))))
+    .filter(|(path, entry)| {
+      now
+        .get(*path)
+        .is_some_and(|now| now.seen.as_deref() == epoch_of(entry) && now.epoch.outdates(epoch_of(entry)))
+    })
     .map(|(path, _)| path.clone())
     .collect();
   if stale.is_empty() {

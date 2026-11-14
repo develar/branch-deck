@@ -6,41 +6,54 @@
 //! the state of a worktree by its path applies. An epoch the files cannot tell is `Unknown`, which decides nothing.
 //!
 //! Read without git and without the lock of the pool: the `.git` file of the worktree, its admin directory and the state
-//! of the pool, which every writer replaces by a rename (`state_file`), so a read sees one whole state. Only what the
-//! epoch needs is parsed (`PoolSlots`): a state a later build wrote, with a state of a lease or a field this build does
-//! not know, still tells it. The parsed slots are kept by the identity of the file (its size, its time and, on Unix, its
-//! inode, which each rename changes), and what a linked worktree names by the identity of its `.git` file, so a read of
-//! an unchanged slot of an unchanged pool is two `stat` calls.
+//! of the pool, which every writer replaces by a rename (`state_file`), so a read sees one whole state. A `.git` file
+//! that names a git directory without a `commondir` (a submodule, a checkout of `git init --separate-git-dir`) is no
+//! linked worktree, so no slot, which a read that fails never says. Only what the epoch needs is parsed (`PoolSlots`): a
+//! state a later build wrote, with a state of a lease or a field this build does not know, still tells it. The parse of
+//! a state is kept by its bytes, and what a `.git` file names by its bytes, so a read of an unchanged slot of an
+//! unchanged pool reads two small files and parses nothing.
 
 use crate::lease::POOL_FILE;
 use crate::state_file::STATE_DIR;
 use domain_types::worktree_epoch::WorktreeEpoch;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::SystemTime;
 use sync_utils::paths::display_path;
 
 /// The epoch of the worktree at `worktree`: `NotASlot` for a path that is no slot of a pool (the main checkout, a worktree
-/// of `git worktree add`, a path that is no git worktree, a repository without a pool), `Lease` with the id of the lease
-/// of its slot or `returned <n>` of a free slot, `Unknown` when a file that tells could not be read or parsed
+/// of `git worktree add`, a submodule, a checkout of a separate git directory, a path that is no git worktree, a
+/// repository without a pool), `Lease` with the id of the lease of its slot or `returned <n>` of a free slot, `Unknown`
+/// when a file that tells could not be read or parsed
 #[must_use]
 pub fn worktree_epoch(worktree: &Path) -> WorktreeEpoch {
   let dot_git = worktree.join(".git");
-  let identity = match std::fs::symlink_metadata(&dot_git) {
+  match std::fs::symlink_metadata(&dot_git) {
     Ok(metadata) if metadata.is_dir() => return WorktreeEpoch::NotASlot,
-    Ok(metadata) => FileIdentity::of(&metadata),
-    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return WorktreeEpoch::NotASlot,
+    Ok(_) => {}
+    Err(error) if error.kind() == ErrorKind::NotFound => return WorktreeEpoch::NotASlot,
     Err(_) => return WorktreeEpoch::Unknown,
+  }
+  let linked = match linked_of(worktree, &dot_git) {
+    Ok(Some(linked)) => linked,
+    Ok(None) => return WorktreeEpoch::NotASlot,
+    Err(Unreadable) => return WorktreeEpoch::Unknown,
   };
-  let Some(linked) = linked_of(worktree, identity) else {
-    return WorktreeEpoch::Unknown;
-  };
-  let Some(slots) = pool_slots(&linked.pool_file) else {
-    return WorktreeEpoch::Unknown;
-  };
-  slots.get(&linked.path).cloned().map_or(WorktreeEpoch::NotASlot, WorktreeEpoch::Lease)
+  match pool_slots(&linked.pool_file) {
+    Ok(slots) => slots.get(&linked.path).cloned().map_or(WorktreeEpoch::NotASlot, WorktreeEpoch::Lease),
+    Err(Unreadable) => WorktreeEpoch::Unknown,
+  }
+}
+
+/// A file that tells the epoch could not be read or parsed
+struct Unreadable;
+
+impl From<std::io::Error> for Unreadable {
+  fn from(_error: std::io::Error) -> Self {
+    Self
+  }
 }
 
 /// What the epoch reads of a linked worktree: the state file of the pool of its common directory and its path as the
@@ -51,30 +64,51 @@ struct Linked {
   path: String,
 }
 
-/// The linked worktrees read so far, by their top level, with the identity of their `.git` file then: a worktree
-/// added anew at the path writes another one
-static WORKTREES: Mutex<Option<HashMap<PathBuf, (FileIdentity, Linked)>>> = Mutex::new(None);
+/// What a `.git` file names by the top level of its worktree, with the bytes it had then: none for one that names no
+/// linked worktree
+type KeptWorktrees = HashMap<PathBuf, (Vec<u8>, Option<Linked>)>;
 
-/// The linked worktree at `worktree`, whose `.git` file has `identity`: its admin directory names the common one; a
-/// `.git` file of another kind (a submodule) is told apart by that directory only, so whatever stops the read is no
-/// answer (`None`)
-fn linked_of(worktree: &Path, identity: FileIdentity) -> Option<Linked> {
+/// What each `.git` file read so far names
+static WORKTREES: Mutex<Option<KeptWorktrees>> = Mutex::new(None);
+
+/// The linked worktree at `worktree`, whose `.git` file is `dot_git`, `None` for a `.git` file of another kind: one
+/// that names no git directory, or a git directory without a `commondir` (a submodule, a separate git directory) or not
+/// under the `worktrees` of its common directory. A file that cannot be read is no answer (`Unreadable`)
+fn linked_of(worktree: &Path, dot_git: &Path) -> Result<Option<Linked>, Unreadable> {
+  let bytes = std::fs::read(dot_git)?;
   if let Some((kept, linked)) = WORKTREES.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert_with(HashMap::new).get(worktree)
-    && *kept == identity
+    && *kept == bytes
   {
-    return Some(linked.clone());
+    return Ok(linked.clone());
   }
-  let worktree_dirs = git_ops::lease_slot::linked_worktree(worktree)?;
-  let linked = Linked {
-    pool_file: worktree_dirs.git_common_dir.join(STATE_DIR).join(POOL_FILE),
-    path: display_path(&std::fs::canonicalize(worktree).ok()?),
-  };
+  let linked = read_linked(worktree, &bytes)?;
   WORKTREES
     .lock()
     .unwrap_or_else(PoisonError::into_inner)
     .get_or_insert_with(HashMap::new)
-    .insert(worktree.to_path_buf(), (identity, linked.clone()));
-  Some(linked)
+    .insert(worktree.to_path_buf(), (bytes, linked.clone()));
+  Ok(linked)
+}
+
+fn read_linked(worktree: &Path, dot_git: &[u8]) -> Result<Option<Linked>, Unreadable> {
+  let text = String::from_utf8_lossy(dot_git);
+  let Some(admin) = text.lines().next().and_then(|line| line.strip_prefix("gitdir:")).map(str::trim) else {
+    return Ok(None);
+  };
+  let admin = std::fs::canonicalize(worktree.join(admin))?;
+  let common = match std::fs::read_to_string(admin.join("commondir")) {
+    Ok(common) => common,
+    Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+    Err(error) => return Err(error.into()),
+  };
+  let common = std::fs::canonicalize(admin.join(common.trim()))?;
+  if admin.parent() != Some(common.join("worktrees").as_path()) {
+    return Ok(None);
+  }
+  Ok(Some(Linked {
+    pool_file: common.join(STATE_DIR).join(POOL_FILE),
+    path: display_path(&std::fs::canonicalize(worktree)?),
+  }))
 }
 
 /// What the epoch reads of the state of a pool: the path of each slot and its lease or last return. Every other field,
@@ -99,56 +133,30 @@ struct LeaseId {
   id: String,
 }
 
-/// The identity of a state file: a rename over it changes it
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct FileIdentity {
-  len: u64,
-  modified: Option<SystemTime>,
-  inode: u64,
-}
-
-impl FileIdentity {
-  fn of(metadata: &std::fs::Metadata) -> Self {
-    Self {
-      len: metadata.len(),
-      modified: metadata.modified().ok(),
-      inode: inode_of(metadata),
-    }
-  }
-}
-
-#[cfg(unix)]
-fn inode_of(metadata: &std::fs::Metadata) -> u64 {
-  std::os::unix::fs::MetadataExt::ino(metadata)
-}
-
-#[cfg(not(unix))]
-const fn inode_of(_metadata: &std::fs::Metadata) -> u64 {
-  0
-}
-
 /// The epoch of each slot of a pool by its path, of the state file as it was when read
 type SlotEpochs = Arc<HashMap<String, String>>;
 
-/// The slots of the state files read so far, by the path of each file, with the identity it had then
-static POOLS: Mutex<Option<HashMap<PathBuf, (FileIdentity, SlotEpochs)>>> = Mutex::new(None);
+/// The slots of a state file by its path, with the bytes it had when parsed
+type KeptPools = HashMap<PathBuf, (Vec<u8>, SlotEpochs)>;
 
-/// The epoch of each slot of the pool whose state is `file`: empty for a pool that has no state yet, none when the file
-/// cannot be read or parsed
-fn pool_slots(file: &Path) -> Option<SlotEpochs> {
-  let metadata = match std::fs::metadata(file) {
-    Ok(metadata) => metadata,
-    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(SlotEpochs::default()),
-    Err(_) => return None,
+/// The slots of the state files parsed so far
+static POOLS: Mutex<Option<KeptPools>> = Mutex::new(None);
+
+/// The epoch of each slot of the pool whose state is `file`: empty for a pool that has no state yet. Parsed only when its
+/// bytes changed since the last parse: a size, a time and an inode tell a change apart on APFS only (Linux keeps times by
+/// the millisecond and gives an inode again, Windows has none and keeps times by the tick)
+fn pool_slots(file: &Path) -> Result<SlotEpochs, Unreadable> {
+  let bytes = match std::fs::read(file) {
+    Ok(bytes) => bytes,
+    Err(error) if error.kind() == ErrorKind::NotFound => return Ok(SlotEpochs::default()),
+    Err(error) => return Err(error.into()),
   };
-  let identity = FileIdentity::of(&metadata);
   if let Some((kept, slots)) = POOLS.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert_with(HashMap::new).get(file)
-    && *kept == identity
+    && *kept == bytes
   {
-    return Some(Arc::clone(slots));
+    return Ok(Arc::clone(slots));
   }
-  let text = std::fs::read_to_string(file).ok()?;
-  let parsed: PoolSlots = serde_json::from_str(&text).ok()?;
+  let parsed: PoolSlots = serde_json::from_slice(&bytes).map_err(|_unparsed| Unreadable)?;
   let slots: SlotEpochs = Arc::new(
     parsed
       .slots
@@ -163,11 +171,10 @@ fn pool_slots(file: &Path) -> Option<SlotEpochs> {
       })
       .collect(),
   );
-  // the identity the parse is of: a write since the stat is read again next time
   POOLS
     .lock()
     .unwrap_or_else(PoisonError::into_inner)
     .get_or_insert_with(HashMap::new)
-    .insert(file.to_path_buf(), (identity, Arc::clone(&slots)));
-  Some(slots)
+    .insert(file.to_path_buf(), (bytes, Arc::clone(&slots)));
+  Ok(slots)
 }

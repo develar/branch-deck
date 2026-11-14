@@ -128,3 +128,32 @@ fn an_entry_whose_epoch_cannot_be_read_stays_as_it_is_and_on_disk() {
   *epochs.lock().unwrap() = json!({ "/pool/1/repo": "lease-a" });
   assert!(synced_before(&service, "/pool/1/repo"));
 }
+
+/// The epochs are read without the mutex of the writer, between two holds of it: a write that comes between (the slot
+/// leased again, a window of the new lease that records a sync) is of the lease now, so the epoch read before it, of the
+/// lease before, forgets nothing of it
+#[test]
+fn an_entry_written_while_its_epoch_was_read_stays() {
+  let directory = tempfile::tempdir().unwrap();
+  let service = std::sync::Arc::new(SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::from_hours(1)).unwrap());
+  let lease = std::sync::Arc::new(std::sync::Mutex::new("lease-a"));
+  let between = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+  let (writer, current, write_between) = (std::sync::Arc::downgrade(&service), std::sync::Arc::clone(&lease), std::sync::Arc::clone(&between));
+  service.set_worktree_epochs(move |_path| {
+    let read = *current.lock().unwrap();
+    if write_between.swap(false, std::sync::atomic::Ordering::SeqCst) {
+      // as the read of the lease before ends, the slot holds another lease and its window records a sync
+      *current.lock().unwrap() = "lease-b";
+      record_sync(&writer.upgrade().unwrap(), "/pool/1/repo");
+    }
+    WorktreeEpoch::Lease(read.to_owned())
+  });
+  record_sync(&service, "/pool/1/repo");
+  assert_eq!(service.value("repositoryState")["/pool/1/repo"]["epoch"], "lease-a");
+
+  *lease.lock().unwrap() = "lease-a";
+  between.store(true, std::sync::atomic::Ordering::SeqCst);
+  let (_, snapshot) = service.snapshot();
+  assert_eq!(snapshot["repositoryState"]["/pool/1/repo"]["epoch"], "lease-b", "{snapshot}");
+  assert!(synced_before(&service, "/pool/1/repo"));
+}

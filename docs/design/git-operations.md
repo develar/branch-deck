@@ -2249,19 +2249,23 @@ the next lease is a worktree no sync built anything for, and a window that opens
 **The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`, `domain_types::worktree_epoch::WorktreeEpoch`): the
 path stays too, and the app keeps what it records of a worktree by its path. The epoch is `Lease` with the id of the
 lease the slot holds now (`returned <n>` of a free slot, by the number of its last return), `NotASlot` for a worktree
-that is no slot (the main checkout, a worktree of `git worktree add`, a path that is no git worktree), and `Unknown` when
-a file that tells could not be read or parsed. It is read without git and without the lock of the pool: the `.git` file
+that is no slot (the main checkout, a worktree of `git worktree add`, a submodule and a checkout of a separate git
+directory, whose `.git` file names a git directory without a `commondir`, a path that is no git worktree), and
+`Unknown` when a file that tells could not be read or parsed. It is read without git and without the lock of the pool: the `.git` file
 of the worktree, its admin directory and the state of the pool, which every writer replaces by a rename, and of that
 state only the path of each slot and the id of its lease or its last return (a state a later build wrote, with a state
-of a lease or a field this build does not know, still tells it). The slots of a state are kept by the identity of the
-file (size, time, inode) and what a worktree names by that of its `.git` file: an unchanged slot of an unchanged pool is
-two `stat` calls, about 5 µs on this Mac, and a first read with the parse of the pool of idea-1 (16 KB, 15 slots) 1 to
-8 ms under load. Every record of the app by path is of the epoch it was recorded under, and one that names another known
+of a lease or a field this build does not know, still tells it). The parse of a state is kept by its bytes, and what a
+worktree names by those of its `.git` file (a size, a time and an inode tell a change apart on APFS only: Linux keeps
+times by the millisecond and gives an inode again, Windows has none): an unchanged slot of an unchanged pool reads two
+small files and parses nothing, and a first read with the parse of the pool of idea-1 (16 KB, 15 slots) takes 1 to 8 ms
+under load. Every record of the app by path is of the epoch it was recorded under, and one that names another known
 epoch is of an earlier lease and counts as absent (`WorktreeEpoch::outdates`); `Unknown` decides nothing, so a failed
 read never forgets a record. The writer of the settings names the epoch in each entry of `repositoryState` it writes
 (`EPOCH_FIELD`; the host gives it the function, `give_worktree_epochs`), an entry under `Unknown` keeping the epoch it
 names, and forgets an entry of another known epoch before the key leaves it (`snapshot`, `changes_since`, `value`, the
-change of a `set`), the epochs read before its mutex is taken; an entry that names no epoch (a path outside a pool) stays.
+change of a `set`), the epochs read before its mutex is taken, and only an entry that still names the epoch it named
+when the read began (a write of the lease now may come between); an entry that names no epoch (a path outside a pool)
+stays.
 So `synced_before`, "Last synced", the room of the loading table and the settled layout are of the lease now. A frame
 names its epoch and seeds only a session of the same known epoch (`CachedSession::seeds`); under `Unknown` it seeds
 nothing and the session saves its frames under the epoch the frame names. A window that comes back to a session kept

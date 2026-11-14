@@ -1440,6 +1440,12 @@ which a window that comes back does not join. An epoch the files cannot tell MUS
   [@test] crates/app-settings/src/projects_test.rs (`an_entry_whose_epoch_cannot_be_read_stays_as_it_is_and_on_disk`)
   [@test] crates/repository-model/src/session_test.rs (`a_frame_keeps_its_epoch_while_the_epoch_of_the_worktree_cannot_be_read`, `a_kept_session_stays_while_the_epoch_of_the_worktree_cannot_be_read`)
 
+#### Scenario: A write while the epoch is read
+- **GIVEN** the writer reads the epoch of an entry outside its mutex
+- **WHEN** a write of the lease now changes the entry before the writer holds the mutex again
+- **THEN** that entry stays: only an entry that still names the epoch it named when the read began is forgotten
+  [@test] crates/app-settings/src/projects_test.rs (`an_entry_written_while_its_epoch_was_read_stays`)
+
 ### Requirement: Repository problems: Browse opens the folder dialog of the system
 
 Browse MUST open the folder dialog of the system (`browse_repository` of app-api, `DialogHost`): the folder picked is

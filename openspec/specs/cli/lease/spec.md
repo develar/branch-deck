@@ -1149,6 +1149,17 @@ what it records of a slot under it ([Onboarding](../../repository/onboarding/spe
 - **AND** a state that cannot be parsed makes it `Unknown`, never `NotASlot`
   [@test] crates/bd-lease/src/lease_test.rs (`the_epoch_reads_a_state_of_a_later_build_and_is_unknown_for_one_it_cannot_parse`)
 
+#### Scenario: A submodule, a separate git directory, a `.git` file that cannot be read
+- **GIVEN** a submodule and a checkout of `git init --separate-git-dir`, whose `.git` files name a git directory without
+  a `commondir`
+- **THEN** their epoch is `NotASlot`, as the main checkout's, and a `.git` file that cannot be read makes it `Unknown`
+  [@test] crates/bd-lease/src/lease_test.rs (`a_submodule_and_a_separate_git_directory_are_no_slot_and_an_unreadable_git_file_is_unknown`)
+
+#### Scenario: A state of the same size and time
+- **WHEN** a state of the pool is written over the one before with its size and its time
+- **THEN** the epoch is read from the new state
+  [@test] crates/bd-lease/src/lease_test.rs (`the_epoch_reads_a_state_anew_that_keeps_the_size_and_the_time_of_the_one_before`)
+
 ### Requirement: Return: A return frees the lease of the worktree
 
 `brd lease return` MUST free the lease of the worktree of `--workspace` (default: of `-C`, else of the current

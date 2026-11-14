@@ -505,6 +505,93 @@ fn the_epoch_reads_a_state_of_a_later_build_and_is_unknown_for_one_it_cannot_par
   assert_eq!(worktree_epoch(Path::new(&path)), lease);
 }
 
+/// A submodule and a checkout of a separate git directory have a `.git` file too, which names a git directory without a
+/// `commondir`: no linked worktree, so no slot (`NotASlot`), as the main checkout; their frames seed. A `.git` file that
+/// cannot be read tells nothing (`Unknown`)
+#[test_log::test]
+fn a_submodule_and_a_separate_git_directory_are_no_slot_and_an_unreadable_git_file_is_unknown() {
+  let fixture = Fixture::new();
+  let place = tempfile::tempdir().unwrap();
+  let separate = place.path().join("checkout");
+  let status = test_utils::git_test_utils::git_command()
+    .args(["init", "--quiet", "--separate-git-dir"])
+    .arg(place.path().join("checkout.git"))
+    .arg(&separate)
+    .status()
+    .unwrap();
+  assert!(status.success());
+  assert!(separate.join(".git").is_file());
+  assert_eq!(worktree_epoch(&separate), WorktreeEpoch::NotASlot);
+  // a commit, so the checkout can be the repository of a submodule
+  let status = test_utils::git_test_utils::git_command()
+    .args([
+      "-c",
+      "user.name=Test User",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "Initial",
+    ])
+    .current_dir(&separate)
+    .status()
+    .unwrap();
+  assert!(status.success());
+
+  let status = test_utils::git_test_utils::git_command()
+    .args(["-c", "protocol.file.allow=always", "submodule", "--quiet", "add"])
+    .arg(&separate)
+    .arg("sub")
+    .current_dir(fixture.repo.path())
+    .status()
+    .unwrap();
+  assert!(status.success());
+  let submodule = fixture.repo.path().join("sub");
+  assert!(submodule.join(".git").is_file());
+  assert_eq!(worktree_epoch(&submodule), WorktreeEpoch::NotASlot);
+
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    let dot_git = submodule.join(".git");
+    std::fs::set_permissions(&dot_git, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let unreadable = worktree_epoch(&submodule);
+    std::fs::set_permissions(&dot_git, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(unreadable, WorktreeEpoch::Unknown);
+  }
+}
+
+/// The parse of the state of a pool is kept by its bytes: a state written in place with the size and the time of the one
+/// before (a time by the millisecond on Linux, an inode given again, no inode on Windows) is read anew
+#[test_log::test]
+fn the_epoch_reads_a_state_anew_that_keeps_the_size_and_the_time_of_the_one_before() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&[]);
+  let path = path_of(&got);
+  let id = got["lease_id"].as_str().unwrap().to_owned();
+  assert_eq!(worktree_epoch(Path::new(&path)), WorktreeEpoch::Lease(id.clone()));
+  let state = std::fs::read_to_string(fixture.state_file()).unwrap();
+  let modified = std::fs::metadata(fixture.state_file()).unwrap().modified().unwrap();
+  // another id of the same length, written over the file, its time set back
+  let other: String = id
+    .chars()
+    .map(|char| {
+      if char == '-' {
+        '-'
+      } else if char == 'f' {
+        'e'
+      } else {
+        'f'
+      }
+    })
+    .collect();
+  std::fs::write(fixture.state_file(), state.replace(&id, &other)).unwrap();
+  std::fs::File::options().write(true).open(fixture.state_file()).unwrap().set_modified(modified).unwrap();
+  assert_eq!(worktree_epoch(Path::new(&path)), WorktreeEpoch::Lease(other));
+}
+
 /// Replaces the state of the pool of `fixture` with `text` by a rename, as every writer of the pool does
 fn write_state(fixture: &Fixture, text: &str) {
   let temporary = fixture.state_file().with_extension("next");
