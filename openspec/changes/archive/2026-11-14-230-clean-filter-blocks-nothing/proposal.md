@@ -12,8 +12,11 @@ through.
 
 ## What Changes
 
-- A file whose filtered id differs from the old blob is compared as it is too: the id of its bytes without the filters
+- A file whose filtered id differs from the old blob, but whose length is the blob's size (`%(objectsize)` of the same
+  `cat-file --batch-check` of the index entries), is compared as it is too: the id of its bytes without the filters
   (`commit_utils::file_blob_id`, what `hash-object --no-filters` gives, in process, the file read in chunks). Equal to
-  the old blob, the file is what HEAD has and blocks nothing; the probe of the preview keeps that id beside the
-  filtered one. No new process.
+  the old blob, it blocks nothing where git keeps such bytes (`crlf::crlf_kept_paths`: the safer autocrlf of
+  `text=auto`, `-text` or neither `text` nor `eol`, and no `ident`, `filter` or `working-tree-encoding`; one
+  `check-attr` of such files only); where git converts them (`text`, an `eol` alone), git shows the file changed, and
+  so does the preview. The probe of the preview keeps that id beside the filtered one.
 - Capability `repository/update-project`: a file that differs from its blob only by the clean filter does not block.

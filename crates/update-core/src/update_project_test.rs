@@ -698,22 +698,37 @@ fn preview_compares_a_symlink_by_its_target() {
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
 }
 
-/// A clone that holds `win.txt` as it was committed, with CRLF, and the attributes that came after it, `text=auto eol=lf`
-/// (git keeps a blob with CR as it is: the safer autocrlf), and the fetched upstream commit that changes it
-fn crlf_clone() -> Setup {
+/// A clone that holds `win.txt` as it was committed, with CRLF, the `attributes` that came after it (none for an empty
+/// line), and the fetched upstream commit that changes it
+fn crlf_clone(attributes: &str) -> Setup {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("win.txt", "one\r\ntwo\r\n"), ("other.txt", "other\n")]);
-  upstream.create_commit("Normalize the line ends of new files", ".gitattributes", "*.txt text=auto eol=lf\n");
-  git(&clone, &["pull", "-q", "--ff-only"]);
+  if !attributes.is_empty() {
+    upstream.create_commit("Set the line ends of the texts", ".gitattributes", &format!("{attributes}\n"));
+    git(&clone, &["pull", "-q", "--ff-only"]);
+  }
   upstream.create_commit("Change win.txt upstream", "win.txt", "one\r\ntwo\r\nthree\r\n");
   git(&clone, &["fetch", "-q", "origin"]);
   Setup { upstream, clone }
 }
 
-/// A file that only the clean filter tells from its blob (committed with CRLF under `eol=lf`) is no local change: the
-/// preview compares its bytes as they are too, and the update applies. A real edit of it still blocks
+/// The preview of `clone` with `win.txt` written as `content`, its modification time older than the racy margin, so a
+/// second preview takes the probe of the first: the state of both, which must agree
+fn trusted_previews(clone: &TestRepo, content: &str) -> UpdateState {
+  write(clone, "win.txt", content);
+  let file = fs::File::options().write(true).open(clone.path().join("win.txt")).unwrap();
+  file.set_modified(std::time::SystemTime::now() - Duration::from_secs(5)).unwrap();
+  drop(file);
+  let first = preview(clone);
+  assert_eq!(preview(clone), first, "the probe of a trusted file says what its hash said: {content:?}");
+  first
+}
+
+/// A file that only the clean filter tells from its blob, a blob committed with CRLF under `text=auto eol=lf`, which git
+/// keeps as it is (the safer autocrlf), is no local change: the preview compares its bytes as they are too, and the
+/// update applies. A real edit of it still blocks, of another length or of the same one
 #[test]
 fn preview_does_not_block_a_file_that_differs_from_its_blob_only_by_the_clean_filter() {
-  let Setup { upstream: _upstream, clone } = crlf_clone();
+  let Setup { upstream: _upstream, clone } = crlf_clone("*.txt text=auto eol=lf");
   assert_eq!(status(&clone), "", "git sees no local change");
   assert_ne!(
     git(&clone, &["hash-object", "win.txt"]),
@@ -724,14 +739,45 @@ fn preview_does_not_block_a_file_that_differs_from_its_blob_only_by_the_clean_fi
 
   write(&clone, "win.txt", "one\r\ntwo, local\r\n");
   assert_eq!(preview(&clone), blocked(&["win.txt"]));
+  write(&clone, "win.txt", "one\r\nTWO\r\n");
+  assert_eq!(preview(&clone), blocked(&["win.txt"]), "an edit of the same length");
   write(&clone, "win.txt", "one\r\ntwo\r\n");
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward }, "the same bytes again");
+
+  // the probe of a file hashed before the racy margin says the same
+  assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), UpdateState::Clean { kind: UpdateKind::FastForward });
+  assert_eq!(trusted_previews(&clone, "one\r\nTWO\r\n"), blocked(&["win.txt"]));
+  assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), UpdateState::Clean { kind: UpdateKind::FastForward });
 
   let result = update(&clone).unwrap();
   assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
   assert!(result.applied.is_some(), "{result:?}");
   assert_eq!(read(&clone, "win.txt"), "one\r\ntwo\r\nthree\r\n");
   assert_eq!(status(&clone), "");
+}
+
+/// Without attributes the bytes are kept too, also when `core.autocrlf` makes the conversion `auto`
+#[test]
+fn preview_does_not_block_a_crlf_blob_under_core_autocrlf() {
+  let Setup { upstream: _upstream, clone } = crlf_clone("");
+  git(&clone, &["config", "core.autocrlf", "true"]);
+  assert_ne!(git(&clone, &["hash-object", "win.txt"]), git(&clone, &["rev-parse", "HEAD:win.txt"]));
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
+}
+
+/// Where git converts the bytes (`text`, `eol` without `text=auto`), the same file is a change of git, and the preview
+/// blocks as the exact check does; beside `ident`, which the preview does not model, it leans to blocked. The attributes
+/// of the working tree, which `hash-object` and `check-attr` read, change from case to case, the file written again each
+/// time, so no probe of another case answers
+#[test]
+fn preview_blocks_a_crlf_blob_where_git_converts_it() {
+  let Setup { upstream: _upstream, clone } = crlf_clone("");
+  for attributes in ["*.txt text eol=lf", "*.txt text eol=crlf", "*.txt eol=lf", "*.txt text=auto eol=lf ident"] {
+    write(&clone, ".gitattributes", &format!("{attributes}\n"));
+    assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), blocked(&["win.txt"]), "{attributes}");
+  }
+  write(&clone, ".gitattributes", "*.txt text=auto eol=lf\n");
+  assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), UpdateState::Clean { kind: UpdateKind::FastForward });
 }
 
 #[test]

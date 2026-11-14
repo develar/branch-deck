@@ -16,6 +16,7 @@
 //! - `notes`: the mapping notes of the sync (original commit -> its virtual copy) and the notes of many commits, with
 //!   their committer times and subjects; the source and the resolve a note records are `domain_types::commit`'s
 //! - `attributes`: the git attributes of paths at a tree-ish, one `check-attr --stdin -z`
+//! - `crlf`: the safer autocrlf of git: where it keeps a blob with CRLF as it is, though `hash-object` normalizes it
 //! - `generated`: the git of the rule of `generated_files`: the attributes that mark generated files, why each file of a
 //!   round is generated, the generated files both sides of an update changed
 //! - `branch_description`: `branch.<name>.description`, the pull request text of a virtual branch
@@ -99,6 +100,7 @@ pub mod commit_utils;
 pub mod commit_writer;
 pub mod conflict_analysis;
 pub mod copy_commit;
+pub mod crlf;
 pub mod generated;
 pub mod history;
 #[cfg(unix)]

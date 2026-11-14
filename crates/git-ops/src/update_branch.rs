@@ -9,6 +9,7 @@
 use crate::commit_signing::{Signing, sign_range};
 use crate::commit_utils::{blob_id, file_blob_id};
 use crate::commit_writer::{WrittenCommits, current_committer, write_notes_to_refs};
+use crate::crlf::crlf_kept_paths;
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
 use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_before_replay, read_landed, with_patch_identical};
 use crate::merge_tree_output::parse_merge_tree_batch;
@@ -963,9 +964,16 @@ struct LocalProbe {
   /// The index file `index_ids` were read from: git writes a new file (a new inode) on every change
   index_stamp: Option<FileStamp>,
   /// Per changed path: the blob of its index entry, `None` without one
-  index_ids: HashMap<Vec<u8>, Option<String>>,
+  index_ids: HashMap<Vec<u8>, Option<IndexBlob>>,
   /// Per hashed file: its stamp, when it was hashed and its blob ids
   files: HashMap<Vec<u8>, HashedFile>,
+}
+
+/// The blob of an index entry
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IndexBlob {
+  id: String,
+  size: u64,
 }
 
 /// A file the preview hashed
@@ -975,19 +983,34 @@ struct HashedFile {
   read_at: SystemTime,
   /// Its blob id with the clean filters (`hash-object --stdin-paths`)
   id: String,
-  /// The blob id of its bytes as they are (`commit_utils::file_blob_id`), read only once `id` differed from the old blob:
-  /// a blob committed with CRLF under `eol=lf` is what the file holds, though its clean filter gives another id
+  /// The blob id of its bytes as they are (`commit_utils::file_blob_id`), read only once `id` differed from the old blob
+  /// and the file has its length
   raw: Option<String>,
 }
 
+/// How a hashed file compares with an old blob
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sameness {
+  /// Its id with the clean filters is the blob
+  Filtered,
+  /// Its bytes as they are are the blob, its filtered id is another: git keeps such a file only by the safer autocrlf
+  /// (`crlf`), which its attributes tell
+  AsItIs,
+  Differs,
+  /// Only the id of its bytes as they are can tell, and it is not read
+  Unread,
+}
+
 impl HashedFile {
-  /// Whether the file is the blob `old_id`, with the clean filters or as it is; `None` when only the id of its bytes as
-  /// they are can tell, and it is not read yet
-  fn is(&self, old_id: &str) -> Option<bool> {
+  fn compare(&self, old_id: &str) -> Sameness {
     if self.id == old_id {
-      return Some(true);
+      return Sameness::Filtered;
     }
-    self.raw.as_ref().map(|raw| raw == old_id)
+    match &self.raw {
+      Some(raw) if raw == old_id => Sameness::AsItIs,
+      Some(_) => Sameness::Differs,
+      None => Sameness::Unread,
+    }
   }
 }
 
@@ -2057,12 +2080,16 @@ const SYMLINK_MODE: &str = "120000";
 /// - a changed or deleted path is blocked if its index entry differs from the old tree (staged: one
 ///   `cat-file --batch-check` of `:<path>`, a lookup per path, again only once the index file changed), or if its file
 ///   differs (`hash-object --stdin-paths` with the clean filters, only for the files whose stat data changed since
-///   `probe` hashed them), also as it is (`commit_utils::file_blob_id`, the id `hash-object --no-filters` gives, in
-///   process: a blob committed with CRLF under `eol=lf` is the file as it is, though the clean filter normalizes it).
-///   Comparing content, a file that was only touched does not block, without refreshing the index.
+///   `probe` hashed them). Comparing content, a file that was only touched does not block, without refreshing the index.
+/// - a file whose filtered id differs, but whose length is the old blob's, is compared as it is too
+///   (`commit_utils::file_blob_id`, the id `hash-object --no-filters` gives, in process): when its bytes are the old blob,
+///   it does not block where git keeps them (`crlf::crlf_kept_paths`, one `check-attr` of such files, each preview: a
+///   blob committed with CRLF under `text=auto`, which `hash-object` normalizes but git does not), and blocks where git
+///   converts them (`text`, an `eol` without `text=auto`).
 ///
 /// The update itself runs the exact dry run again. Where the two differ (a sparse checkout, an executable bit with
-/// `core.fileMode=false`, a path with a newline), the preview leans to blocked.
+/// `core.fileMode=false`, a path with a newline, a file kept as it is under `ident`, a `filter` or a
+/// `working-tree-encoding`, which the preview does not model), the preview leans to blocked.
 fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath], probe: &mut LocalProbe) -> Result<Vec<String>> {
   let root = Path::new(repo_path);
   probe.retain(changed);
@@ -2082,13 +2109,15 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
   read_index_ids(git_executor, repo_path, changed, &tracked, probe)?;
   let mut sparse_checkout: Option<bool> = None;
   let mut to_hash = Vec::new();
-  // the files whose filtered id is not the old blob: the id of their bytes as they are tells
-  let mut as_they_are = Vec::new();
+  // the files whose filtered id is not the old blob, with their length: the id of their bytes as they are tells
+  let mut as_they_are: Vec<(usize, u64)> = Vec::new();
+  // the files whose bytes as they are are the old blob: their attributes tell whether git keeps them
+  let mut kept_by_git = Vec::new();
   let mut links = Vec::new();
   for &i in &tracked {
     let c = &changed[i];
     // staged: the index entry differs from the old tree
-    if probe.index_ids.get(&c.path).and_then(Option::as_deref) != Some(c.old_id.as_str()) {
+    if probe.index_ids.get(&c.path).and_then(Option::as_ref).map(|blob| blob.id.as_str()) != Some(c.old_id.as_str()) {
       blocked[i] = true;
       continue;
     }
@@ -2114,9 +2143,11 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
         }
         let stamp = FileStamp::of(&metadata);
         match probe.files.get(&c.path) {
-          Some(file) if file.stamp == stamp && file.stamp.is_trusted(file.read_at) => match file.is(&c.old_id) {
-            Some(is) => blocked[i] = !is,
-            None => as_they_are.push(i),
+          Some(file) if file.stamp == stamp && file.stamp.is_trusted(file.read_at) => match file.compare(&c.old_id) {
+            Sameness::Filtered => {}
+            Sameness::AsItIs => kept_by_git.push(i),
+            Sameness::Differs => blocked[i] = true,
+            Sameness::Unread => as_they_are.push((i, stamp.len)),
           },
           _ => to_hash.push((i, stamp)),
         }
@@ -2136,7 +2167,7 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
     let ids = String::from_utf8(ids)?;
     for ((i, stamp), id) in to_hash.into_iter().zip(ids.lines()) {
       if id != changed[i].old_id {
-        as_they_are.push(i);
+        as_they_are.push((i, stamp.len));
       }
       let file = HashedFile {
         stamp,
@@ -2147,14 +2178,30 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
       probe.files.insert(changed[i].path.clone(), file);
     }
   }
-  // the bytes as they are, hashed in-process (`hash-object --no-filters`): a file that holds the old blob does not block;
-  // one that can't be read, or changes its length meanwhile, does
-  for i in as_they_are {
+  // the bytes as they are, hashed in-process (`hash-object --no-filters`) when the file has the length of the old blob:
+  // one that holds it goes on to its attributes; one that can't be read, or changes its length meanwhile, blocks
+  for (i, length) in as_they_are {
     let c = &changed[i];
+    if probe.index_ids.get(&c.path).and_then(Option::as_ref).is_none_or(|blob| blob.size != length) {
+      blocked[i] = true;
+      continue;
+    }
     let raw = c.path.to_path().ok().and_then(|file| file_blob_id(&c.old_id, &root.join(file)).ok().flatten());
-    blocked[i] = raw.as_deref() != Some(c.old_id.as_str());
+    if raw.as_deref() == Some(c.old_id.as_str()) {
+      kept_by_git.push(i);
+    } else {
+      blocked[i] = true;
+    }
     if let (Some(raw), Some(file)) = (raw, probe.files.get_mut(&c.path)) {
       file.raw = Some(raw);
+    }
+  }
+  // the old blob as it is: no change only where git keeps such bytes (the safer autocrlf); the attributes are read each
+  // preview, as a change of them moves no stamp
+  if !kept_by_git.is_empty() {
+    let kept = crlf_kept_paths(git_executor, repo_path, kept_by_git.iter().filter_map(|&i| std::str::from_utf8(&changed[i].path).ok()))?;
+    for i in kept_by_git {
+      blocked[i] = std::str::from_utf8(&changed[i].path).map_or(true, |path| !kept.contains(path));
     }
   }
   for i in links {
@@ -2211,13 +2258,22 @@ fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &
     return Ok(());
   }
 
-  // `<id>\0` per entry, `<input> missing\0` for a path not in the index
+  // `<id> <size>\0` per entry, `<input> missing\0` for a path not in the index
   let input = index_names(unknown.iter().copied());
-  let output = git_executor.cmd(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path).stdin(&input).bytes()?;
-  let mut ids = output.split(|&b| b == 0);
+  let output = git_executor
+    .cmd(&["cat-file", "--batch-check=%(objectname) %(objectsize)", "-Z"], repo_path)
+    .stdin(&input)
+    .bytes()?;
+  let mut entries = output.split(|&b| b == 0);
   for path in unknown {
-    let id = ids.next().filter(|id| !id.ends_with(b" missing")).map(|id| String::from_utf8_lossy(id).into_owned());
-    probe.index_ids.insert(path.to_vec(), id);
+    let blob = entries.next().filter(|entry| !entry.ends_with(b" missing")).and_then(|entry| {
+      let (id, size) = entry.to_str().ok()?.split_once(' ')?;
+      Some(IndexBlob {
+        id: id.to_string(),
+        size: size.parse().ok()?,
+      })
+    });
+    probe.index_ids.insert(path.to_vec(), blob);
   }
   Ok(())
 }

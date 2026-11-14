@@ -1034,7 +1034,8 @@ fn local_changes_that_will_block_the_finish_are_named_from_the_start() {
 }
 
 /// A file that the update writes and that differs from its blob only by the clean filter (committed with CRLF, the
-/// attributes `text=auto eol=lf` after it) is no local change: the session asks the user nothing. A real edit of it is
+/// attributes `text=auto eol=lf` after it) is no local change: the session asks the user nothing. A real edit of it
+/// blocks the finish
 #[test_log::test]
 fn a_file_that_differs_from_its_blob_only_by_the_clean_filter_blocks_nothing() {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("win.txt", "one\r\ntwo\r\n")]);

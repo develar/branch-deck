@@ -1491,22 +1491,27 @@ Details:
   with a huge index; its cost grows with the paths the update changes, not with the index:
   - **No index copy, no full refresh, no dry run.** The paths come from the raw `diff-tree -r -z --no-renames H N`
     (mode and blob in H). An added path is blocked by anything on disk there (step 8). A changed or deleted path is
-    blocked if its index entry differs from H (staged: one `cat-file --batch-check=%(objectname) -Z` of `:<path>`, a
-    binary search per path) or if its file differs from H's blob (`hash-object --stdin-paths`, with the clean
-    filters; a symlink by the id of its target, `blob <length>\0<target>` hashed in-process with the algorithm of the
-    repository, `commit_utils::blob_id`). A file whose filtered id differs is compared as it is too: the id of its
-    bytes without the filters (`commit_utils::file_blob_id`, what `hash-object --no-filters` gives, hashed in-process
-    in chunks); equal to H's blob, the file is what H has and does not block. So a blob committed with CRLF under
-    `text=auto eol=lf`, which the filter normalizes but git keeps as it is (the safer autocrlf of `text=auto`), is no
-    local change, and `brd update` asks the user nothing about it. Comparing content, a file that was only touched does
-    not block, and the index is never written.
+    blocked if its index entry differs from H (staged: one `cat-file --batch-check='%(objectname) %(objectsize)' -Z` of
+    `:<path>`, a binary search per path) or if its file differs from H's blob (`hash-object --stdin-paths`, with the
+    clean filters; a symlink by the id of its target, `blob <length>\0<target>` hashed in-process with the algorithm of
+    the repository, `commit_utils::blob_id`). A file whose filtered id differs, but whose length is the size of the
+    blob of its index entry, is compared as it is too: the id of its bytes without the filters
+    (`commit_utils::file_blob_id`, what `hash-object --no-filters` gives, hashed in-process in chunks). Equal to H's
+    blob, it does not block only where git keeps such bytes (`crlf::crlf_kept_paths`, one `check-attr` of these files
+    in each preview, since a change of the attributes moves no stamp): the safer autocrlf of `convert.c`, which adds a
+    file whose blob holds CRLF as it is when its conversion is `auto` (`text=auto`, or neither `text` nor `eol`, which
+    leaves it to `core.autocrlf`) or none (`-text`), though `hash-object`, which reads no index, normalizes it. So a blob
+    committed with CRLF under `text=auto eol=lf` is no local change, and `brd update` asks the user nothing about it.
+    Under `text` or an `eol` without `text=auto` git converts the bytes and shows the same file as ` M` at once; the
+    preview blocks it, as the exact check does. Comparing content, a file that was only touched does not block, and
+    the index is never written.
     `status`, `diff-files` and `diff-index` take no `--pathspec-from-file`, and as arguments thousands of pathspecs
     are matched against every index entry: `status` with 2,105 pathspecs took 5–12 s on a 50k-file index.
   - **Cache.** Per repository, in memory: the replay outcome (conflict, or the new tip and the changed paths) keyed by
     H, U and the excluded previous tips, and a probe of the local state. The probe keeps the index blobs for one
     index file (git writes a new file, a new inode, on every change) and, per hashed file, its stat data, when it was
-    hashed and its blob (with the id of its bytes as they are, once read), trusted like git's racy check only when the
-    file was modified at least 2 s before it was hashed. An unchanged state therefore costs no replay, no `cat-file` and no `hash-object`, only an `lstat` per
+    hashed and its blobs (with the filters, and as it is once read), trusted like git's racy check only when the file
+    was modified at least 2 s before it was hashed; the attributes of a file kept as it is are read again. An unchanged state therefore costs no replay, no `cat-file` and no `hash-object`, only an `lstat` per
     changed path; after a fetch only the newly changed paths are read.
   - Its replay sets `GIT_COMMITTER_DATE=@0 +0000`, so a replay after a cache miss writes the same objects again; such
     a plan can't be applied.
@@ -1521,9 +1526,9 @@ Details:
     reports the first 100 paths and counts all (`path_count`). The event of every sync carries the state, so a conflict
     in thousands of files costs the app and `brd` a list of 50, not thousands of paths and file lists per commit.
   - It leans to blocked where the two can differ: a sparse checkout (a missing file then doesn't block), an
-    executable bit with `core.fileMode=false`, a symlink, a path with a newline. One case leans the other way: a file
-    that holds H's blob as it is, under a filter that `text` without `auto` sets, git calls changed once its stat data
-    changed; the update's exact check then blocks it. A directory that the update replaces
+    executable bit with `core.fileMode=false`, a symlink, a path with a newline, and a file that holds H's blob as it
+    is under `ident`, a `filter` driver or a `working-tree-encoding`, whose conversion the preview does not model
+    (`git add` keeps the CRLF of a blob beside `ident`, and the preview blocks it all the same). A directory that the update replaces
     by a file, or the reverse, is checked by the update's dry run only. The update always runs the exact check
     (`CheckPurpose::Apply`) after its fetch.
 
