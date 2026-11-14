@@ -1510,7 +1510,9 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
 - **Scale.** The document as tall as the `scrollHeight` of the scroller, never shorter than the view, is scaled to the
   height of the track, so a short review keeps its sections where its cards are. The ticks come from the layout
   (`fileMapScale`, `fileMapTicks` of `src/lib/diff/file-map.ts`, `DiffLayout.sectionStart`): the map measures
-  nothing but the sizes of the track and the view, from their `ResizeObserver`; the heights of the openings are the
+  nothing but the sizes of the track and the view, from their `ResizeObserver`, made once as the map mounts (the view
+  passes a new `scroller` with each layout; an observer made anew each time observed the view again in the frame that
+  laid it out, as the measured heights render at once, a ResizeObserver loop); the heights of the openings are the
   layout's already.
 - **Ticks.** A tick of 1 px at the start of each section, in a token of its own
   (`--diff-map-tick`, `--foreground` 26% into the canvas, one formula for both themes: `--border` is the canvas itself

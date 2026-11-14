@@ -343,6 +343,29 @@ simpleTest.describe("Commit review", () => {
     await expect(code.locator("[data-testid=diff-view-file][data-path='README.md']").getByTestId("review-card-end")).toHaveText("End of the review")
   })
 
+  simpleTest("should observe the size of the map of the files once as the review opens, however often its diffs lay out", async ({ page }) => {
+    // the observations the review window starts on the track of the map
+    await page.addInitScript(() => {
+      const counts = globalThis as unknown as { mapObservations?: number }
+      globalThis.ResizeObserver = class extends globalThis.ResizeObserver {
+        override observe(target: Element, options?: ResizeObserverOptions): void {
+          if (target instanceof HTMLElement && target.dataset.testid === "review-file-map-track") {
+            counts.mapObservations = (counts.mapObservations ?? 0) + 1
+          }
+          super.observe(target, options)
+        }
+      }
+    })
+    const window = await openLowTreeReview(page)
+    const code = window.getByTestId("commit-review-code")
+    // the diffs lay out as they open, then again for every line of a file
+    await code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" }).click()
+    const map = code.getByTestId("review-file-map")
+    await expect(map).toHaveAttribute("data-sections", "5")
+    await expect(map).toHaveAttribute("data-current", /\/RowMapper\.kt$/)
+    expect(await map.evaluate(() => (globalThis as unknown as { mapObservations?: number }).mapObservations)).toBe(1)
+  })
+
   simpleTest(
     "should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows",
     async ({ page }) => {

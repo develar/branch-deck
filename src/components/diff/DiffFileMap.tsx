@@ -1,4 +1,4 @@
-import { useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState } from "react"
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, Ref, WheelEvent as ReactWheelEvent } from "react"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import type { FileStatus } from "@/lib/bindings"
@@ -96,9 +96,12 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
   }, [scroller, size, layout, sections, current])
   useImperativeHandle(ref, () => ({ sync }))
 
-  // the sizes of the map and of the view, the screen (the zoom of Appearance moves it) and the theme of the ticks
+  // the sizes of the map and of the view, the screen (the zoom of Appearance moves it) and the theme of the ticks, observed
+  // once: the view passes a new `scroller` with each layout, and an observer made again for each made a new observation
+  // of the view in the frame that laid it out (the heights it measured render at once), a ResizeObserver loop
+  const scrollerNow = useEffectEvent(() => scroller())
   useLayoutEffect(() => {
-    const element = scroller()
+    const element = scrollerNow()
     const area = track.current
     if (element === null || area === null) {
       return
@@ -123,7 +126,7 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
       resolution.removeEventListener("change", onResolution)
       themes.disconnect()
     }
-  }, [scroller])
+  }, [])
 
   // the ticks, drawn again for a new layout (a collapse, the row height, the wraps), a size, the screen and the theme;
   // never on a scroll
