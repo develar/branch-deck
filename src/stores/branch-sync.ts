@@ -264,6 +264,8 @@ export interface BranchSyncState {
   unassignedCommits: Commit[]
   /** The fixup commits and their targets, loaded after a sync that found fixup commits; null without any */
   autosquashPlan: AutosquashPlan | null
+  /** The last read of the plan failed (logged): a fixup commit it does not know is not being read */
+  autosquashPlanFailed: boolean
   /** null until a sync reported it */
   baselineStatus: BaselineStatus | null
   /** The run of the session (`nextRunNumber`) whose grouping `branches` holds: their counts tell how far it is; 0 before one */
@@ -423,6 +425,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   branches: {},
   unassignedCommits: [],
   autosquashPlan: null,
+  autosquashPlanFailed: false,
   baselineStatus: null,
   groupedRun: 0,
   // unknown until a sync says (its default is on, in Rust): no plan is read before
@@ -1283,6 +1286,11 @@ export function useAutosquashPlan(): AutosquashPlan | null {
 
 export function getAutosquashPlan(): AutosquashPlan | null {
   return branchSyncStore.getState().autosquashPlan
+}
+
+/** Whether the last read of the plan failed, so a fixup commit it does not know waits for no answer */
+export function isAutosquashPlanFailed(): boolean {
+  return branchSyncStore.getState().autosquashPlanFailed
 }
 
 /** The update state of the selected repository; null before its first sync */

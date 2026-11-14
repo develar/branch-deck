@@ -27,6 +27,7 @@
  * (`onSessionFacts`: the review status of the main window); a fact is asked again with `refreshSessionFacts`.
  */
 import { Channel } from "@tauri-apps/api/core"
+import { isFixupCommit } from "@/lib/autosquash"
 import type {
   ActionState,
   ApiError,
@@ -1020,6 +1021,7 @@ function resetTable(): void {
     branches: {},
     unassignedCommits: [],
     autosquashPlan: null,
+    autosquashPlanFailed: false,
     baselineStatus: null,
     // unknown until a sync of the repository says (its default is on, in Rust): no plan is read before
     reviewExperimental: false,
@@ -1329,10 +1331,6 @@ export function nextRunNumber(): number {
   return runCount + 1
 }
 
-function isFixupCommit(commit: Commit): boolean {
-  return commit.subjectParts.autosquash !== ""
-}
-
 let autosquashPlanRequest = 0
 
 /** Loads the plan only if a commit is a fixup: most syncs find none and need no extra git process */
@@ -1341,9 +1339,10 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
   const { branches, unassignedCommits } = branchSyncStore.getState()
   const hasFixups = unassignedCommits.some(isFixupCommit) || Object.values(branches).some(branch => branch.commits.some(isFixupCommit))
   if (!hasFixups) {
-    branchSyncStore.setState({ autosquashPlan: null })
+    branchSyncStore.setState({ autosquashPlan: null, autosquashPlanFailed: false })
     return
   }
+  branchSyncStore.setState({ autosquashPlanFailed: false })
   const result = await invokeCommand(() => commands.getAutosquashPlan({ repositoryPath }))
   // a later sync started its own request
   if (request !== autosquashPlanRequest) {
@@ -1351,7 +1350,7 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
   }
   if (result.status === "error") {
     logError("Cannot read the plan of the fixups", result.error)
-    branchSyncStore.setState({ autosquashPlan: null })
+    branchSyncStore.setState({ autosquashPlan: null, autosquashPlanFailed: true })
     return
   }
   branchSyncStore.setState({ autosquashPlan: result.data })

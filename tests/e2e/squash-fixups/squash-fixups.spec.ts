@@ -5,7 +5,7 @@ import { branchTree, expandBranch, findBranchRow, getBranchCommitRow, getUnassig
 import { editCommitMessage } from "../helpers/preview-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync, runAndWaitForAnswer } from "../helpers/sync-helpers"
-import { expectClosed, openTooltip } from "../helpers/wait-helpers"
+import { expectClosed, holdCommandCalls, openTooltip } from "../helpers/wait-helpers"
 
 function popover(page: Page): Locator {
   return page.getByTestId("squash-fixups-popover")
@@ -62,6 +62,29 @@ test.describe("Squash fixups", () => {
 
     await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
     await verifyCommitCount(authRow, 3)
+    await expect(authRow.getByTestId("branch-fixup-count")).toHaveText("1 fixup")
+  })
+
+  test("should show Squash 1 Fixup… in a branch menu opened before the plan of the fixups answered, in the place it held", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the plan the page reads after each sync that found the fixups, held until the menu is open
+    const plan = await holdCommandCalls(page, "get_autosquash_plan")
+    await setupRepo("fixups")
+    await syncAndWaitForBranches()
+    await expect.poll(() => plan.calls.length).toBeGreaterThan(0)
+    const authRow = findBranchRow(page, "auth")
+    await openContextMenu(page, authRow)
+    const menu = page.getByRole("menu")
+    // its place in the menu, disabled while the plan reads the fixup commit of the branch
+    const reading = menu.getByRole("menuitem", { name: "Squash Fixups…" })
+    await expect(reading).toBeVisible()
+    await expect(reading).toHaveAttribute("aria-disabled", "true")
+    await expect(authRow.getByTestId("branch-fixup-count")).toHaveCount(0)
+    plan.release()
+    // the plan answered: the menu that stayed open shows the squash there, and it opens the confirmation
+    const squash = menu.getByRole("menuitem", { name: "Squash 1 Fixup…" })
+    await expect(squash).toBeEnabled()
+    await squash.click()
+    await expect(popover(page).getByTestId("squash-fixups-groups").locator("li")).toHaveCount(1)
     await expect(authRow.getByTestId("branch-fixup-count")).toHaveText("1 fixup")
   })
 

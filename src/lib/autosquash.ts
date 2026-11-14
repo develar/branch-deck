@@ -1,4 +1,6 @@
 import type { AutosquashPlan, AutosquashScope, FixupKind, OrphanFixup, PlannedGroup, SquashedTarget } from "@/lib/bindings"
+import type { CommitUnion } from "@/lib/commit"
+import { getCommitHash } from "@/lib/commit"
 
 /** The fixups of one list: a branch, or the unassigned commits (null) */
 export interface ListFixups {
@@ -53,6 +55,19 @@ export function getFixupTarget(plan: AutosquashPlan | null, commitId: string): F
     targetIndexes.set(plan, index)
   }
   return index.get(commitId)
+}
+
+/** Whether `commit` is a fixup commit: its subject starts with an autosquash marker (`fixup!`, `squash!`, `amend!`) */
+export function isFixupCommit(commit: Pick<CommitUnion, "subjectParts">): boolean {
+  return commit.subjectParts.autosquash !== ""
+}
+
+/**
+ * Whether `commits` hold a fixup commit that `plan` does not know: the plan the page reads after a sync has not answered
+ * for it yet (null before its first answer)
+ */
+export function hasUnreadFixups(plan: AutosquashPlan | null, commits: readonly CommitUnion[]): boolean {
+  return commits.some(commit => isFixupCommit(commit) && getFixupTarget(plan, getCommitHash(commit)) === undefined)
 }
 
 /** "Squash 1 Fixup…", "Squash 3 Fixups…": the button above the commits and the branch menu, which open the confirmation */

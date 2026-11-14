@@ -12,8 +12,8 @@ import { useSourceMemo } from "@/hooks/useSourceMemo"
 import { restackBranch } from "@/hooks/useStackActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import { cancelAutoMerge } from "@/lib/auto-merge-news"
-import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
-import type { ActionId, ActionState, PullRequest } from "@/lib/bindings"
+import { formatSquashFixupsLabel, getListFixups, hasUnreadFixups } from "@/lib/autosquash"
+import type { ActionId, ActionState, AutosquashPlan, PullRequest } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
@@ -53,6 +53,7 @@ import {
   getStackDescendants,
   isBranchPushing,
   isStackPushing,
+  isAutosquashPlanFailed,
 } from "@/stores/branch-sync"
 import { commitMoveStore, getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
@@ -202,7 +203,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     groups.push(stackView)
   }
 
-  const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
+  const plan = getAutosquashPlan()
+  const fixupCount = getListFixups(plan, branch.name).count
   groups.push(
     present(
       branchItem(branch, "amend-changes", {
@@ -213,14 +215,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
         },
       }),
       branchItem(branch, "add-issue-reference", { onSelect: () => openInline("issue-reference", branch.name) }),
-      // the fixups of the autosquash plan, which the page loads beside the view
-      fixupCount === 0
-        ? null
-        : branchItem(branch, "squash-fixups", {
-            label: formatSquashFixupsLabel(fixupCount),
-            // the confirmation opens from the fixups badge of the row, the commits collapsed or not
-            onSelect: () => openInline("squash-fixups", branch.name),
-          }),
+      // the fixups of the autosquash plan, which the page reads after the sync that found them
+      fixupCount === 0 ? getUnreadFixupsItem(branch, plan) : getSquashFixupsItem(branch, fixupCount),
     ),
   )
 
@@ -741,6 +737,30 @@ function getBranchMenuNow(name: string, setExpanded: (name: string, expanded: bo
 export function useBranchMenu(name: string, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups | null {
   const memo = useSourceMemo<MenuItemGroups | null>()
   return useMenuStores(() => memo([name, setExpanded, ...menuSources()], () => getBranchMenuNow(name, setExpanded)))
+}
+
+/** "Squash 1 Fixup…" of a branch with fixups whose target is in it: the confirmation opens at the fixups badge of its row */
+function getSquashFixupsItem(branch: Branch, count: number): MenuItem | null {
+  return branchItem(branch, "squash-fixups", {
+    label: formatSquashFixupsLabel(count),
+    // the confirmation opens from the fixups badge of the row, the commits collapsed or not
+    onSelect: () => openInline("squash-fixups", branch.name),
+  })
+}
+
+/**
+ * While the plan has not read the fixup commits of `branch` (the sync that found them asked it), "Squash Fixups…" holds
+ * the place of the squash, disabled: an open menu shows each item in its place as it is now and an item that came only
+ * at its next open (`frozenMenuGroups`), so a menu opened right after the sync shows "Squash 1 Fixup…" there once the
+ * plan answers. None once the plan knows them (a fixup without a target, one whose target is in another branch), nor
+ * after a read that failed
+ */
+function getUnreadFixupsItem(branch: Branch, plan: AutosquashPlan | null): MenuItem | null {
+  if (isAutosquashPlanFailed() || !hasUnreadFixups(plan, branch.commits)) {
+    return null
+  }
+  const item = branchItem(branch, "squash-fixups", { label: "Squash Fixups…", onSelect: () => {} })
+  return item === null ? null : { ...item, disabled: true, description: "Reading the fixups of the branch…" }
 }
 
 /**
