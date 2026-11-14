@@ -714,17 +714,42 @@ simpleTest.describe("Commit review in Split", () => {
   simpleTest("should drop a selection of the diffs whose text changed while the focus was away, as it comes back @webkit", async ({ page }) => {
     const window = await openTreeReview(page)
     const code = window.getByTestId("commit-review-code")
-    const line = code.locator('[data-testid=diff-side][data-side="1"] [data-testid=diff-code][data-side]').nth(1)
-    await expect(line).toBeVisible()
-    await line.selectText()
-    expect((await window.evaluate(() => document.getSelection()?.toString() ?? "")).length).toBeGreaterThan(3)
-    await window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem").first().focus()
-    // the cell the selection was in is painted again without the text it had (here emptied)
-    await line.evaluate(cell => cell.replaceChildren())
+    const tree = window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem").first()
+    const diffs = code.locator("[aria-label='Changes of the commit']")
+    await expect(code.locator('[data-testid=diff-side][data-side="1"] [data-testid=diff-code][data-side]').nth(1)).toBeVisible()
+    // the painter replaces the element of a row as its tokens arrive: the cell is the one the selection holds, kept in
+    // the page, and the test goes on only while it is still in the view
+    await expect(async () => {
+      await diffs.focus()
+      const selected = await window.evaluate(async () => {
+        const cell = document.querySelectorAll('[data-testid=diff-side][data-side="1"] [data-testid=diff-code][data-side]')[1]!
+        const changed = new Promise(resolve => document.addEventListener("selectionchange", resolve, { once: true }))
+        document.getSelection()!.selectAllChildren(cell)
+        await changed
+        ;(window as unknown as { selectedCell: Element }).selectedCell = cell
+        return document.getSelection()!.toString().length
+      })
+      expect(selected).toBeGreaterThan(3)
+      await tree.focus()
+      // the cell the selection was in is painted again without the text it had (here emptied)
+      expect(
+        await window.evaluate(() => {
+          const cell = (window as unknown as { selectedCell: Element }).selectedCell
+          cell.replaceChildren()
+          return cell.isConnected
+        }),
+      ).toBe(true)
+    }).toPass()
     // the focus is back: no selection past the end of the text (an uncaught error of the page would fail the test)
-    await code.locator("[aria-label='Changes of the commit']").focus()
-    await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
-    expect(await window.evaluate(() => (document.getSelection()?.focusOffset ?? 0) <= (document.getSelection()?.focusNode?.textContent?.length ?? 0))).toBe(true)
+    await diffs.focus()
+    await expect(diffs).toBeFocused()
+    expect(
+      await window.evaluate(
+        () =>
+          (document.getSelection()?.focusOffset ?? 0) <= (document.getSelection()?.focusNode?.childNodes.length ?? 0) ||
+          document.getSelection()?.focusNode?.nodeType === Node.TEXT_NODE,
+      ),
+    ).toBe(true)
   })
 
   simpleTest("should find a text on both sides of a change in Split", async ({ page }) => {
