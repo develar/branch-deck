@@ -13,6 +13,9 @@
 //! summary by name and line: `declaration-set-diff` names one that only one side declares, `end-line-diff` a pair whose
 //! spans end apart, and `kind-pair` counts the kind words of the pairs, so that a table of `--compare` shows which kinds
 //! of the two sides meet. `--parse-only` asks only that, for a corpus accio has no index of.
+//!
+//! A tool of a developer run from a terminal, so accio starts by `std::process::Command`: the crate depends on no
+//! helper of Branch Deck's processes.
 
 use code_symbols::extract::summarize;
 use code_symbols::language::Language;
@@ -25,7 +28,7 @@ use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
 use std::io::{BufWriter, Write as _};
 use std::path::Path;
-use sync_utils::child_process::windowless_command;
+use std::process::Command;
 
 #[path = "shared/fact_text.rs"]
 mod fact_text;
@@ -357,7 +360,7 @@ fn references(project: &Path, paths: &[String], at: &[(String, u32, u32)]) -> Ve
 
 /// The text accio prints for `command` over `paths`
 fn accio_text(project: &Path, command: &str, paths: &[String]) -> String {
-  let output = windowless_command("accio")
+  let output = Command::new("accio")
     .arg("--project")
     .arg(project)
     .arg(command)
@@ -369,7 +372,7 @@ fn accio_text(project: &Path, command: &str, paths: &[String]) -> String {
 }
 
 fn accio<T: for<'de> Deserialize<'de>>(project: &Path, args: &[String]) -> T {
-  let mut command = windowless_command("accio");
+  let mut command = Command::new("accio");
   command.arg("--project").arg(project).args(args);
   let output = command.output().unwrap_or_else(|error| panic!("cannot run accio: {error}"));
   assert!(output.status.success(), "accio {:?} failed: {}", args, String::from_utf8_lossy(&output.stderr));

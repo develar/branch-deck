@@ -13,7 +13,7 @@ domain-types = { path = "../domain-types" }
 object-cache = { path = "../object-cache" }
 # the cut of the lists a check reports (`list_cut::kept`)
 sync-utils = { path = "../sync-utils" }
-line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+line-diff.workspace = true
 # the merge of three texts that its words resolve (`merge_model::merge_texts`, `compose::compose_merge`)
 text-diff = { path = "../text-diff" }
 

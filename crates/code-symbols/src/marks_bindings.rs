@@ -1,8 +1,10 @@
 //! The bindings of the names of a text that the renames of a diff ask (`diff_marks::bindings::Bindings`), answered by
-//! the navigation of `code-symbols` (`code_symbols::navigate::names_at_within`, openspec/specs/commit/name-bindings/spec.md):
-//! its answers as the marks read them.
+//! the navigation of this crate (`navigate::names_at_within`, openspec/specs/commit/name-bindings/spec.md): its
+//! answers as the marks read them. Behind the feature `marks`, which a reader of the marks turns on (Branch Deck's
+//! `file-diffs`); its tests (`marks_bindings_test.rs`, `marks_bindings_renames_test.rs`,
+//! `marks_bindings_subject_test.rs`) are the marks of real texts read with it, and run whatever the features.
 
-use code_symbols::navigate::{self, LocalBinding, LocalKind};
+use crate::navigate::{self, LocalBinding, LocalKind};
 use code_tokens::Grammar;
 use diff_marks::bindings::{Access, Bindings, Local, NameAt, NameQuestion, NameUse, NamesAt, Position, Site};
 

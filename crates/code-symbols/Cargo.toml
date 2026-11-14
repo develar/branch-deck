@@ -14,27 +14,28 @@ description = "Declarations, imports and references of one source file, its high
 # reader of psi-syntax shares of its parse (the dialects, the options, the recovery, the stack); oxc is named only
 # through its re-exports. `rust-syntax` is rust-analyzer's parser, the parse accio reads Rust with; its `ra_ap_syntax`
 # and `rowan` are named only through its re-exports.
-csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
-java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
-js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
-kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
+csharp-syntax = { workspace = true, optional = true }
+java-syntax = { workspace = true, optional = true }
+js-syntax = { workspace = true, optional = true }
+kotlin-syntax = { workspace = true, optional = true }
 # the tokens of a file, and the one parser of each language per thread that every walk of a tree here reads it by
-code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", default-features = false }
-psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
-rust-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
-starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
+code-tokens.workspace = true
+psi-builder.workspace = true
+rust-syntax = { workspace = true, optional = true }
+starlark-syntax = { workspace = true, optional = true }
+# the bindings of the names that the renames of a diff ask (`marks_bindings`: `diff_marks::bindings::Bindings`) and the
+# marks of a diff as words (`marks_text`), of the diff of `line-diff`: the feature `marks`
+diff-marks = { workspace = true, optional = true }
+line-diff = { workspace = true, optional = true }
 serde.workspace = true
 
 [dev-dependencies]
-# the benchmark of the bindings of many names (`benches/names_bench.rs`)
-criterion = "0.8"
+# the tests of `marks_bindings`, which run whatever the features
+diff-marks.workspace = true
+line-diff.workspace = true
 pretty_assertions.workspace = true
 serde_json.workspace = true
-sync-utils = { path = "../sync-utils" }
-
-[[bench]]
-name = "names_bench"
-harness = false
+test-log.workspace = true
 
 [features]
 default = ["kotlin", "java", "csharp", "starlark", "rust", "typescript"]
@@ -44,6 +45,8 @@ csharp = ["dep:csharp-syntax", "code-tokens/csharp"]
 starlark = ["dep:starlark-syntax", "code-tokens/starlark"]
 rust = ["dep:rust-syntax", "code-tokens/rust"]
 typescript = ["dep:js-syntax", "code-tokens/typescript"]
+# the bindings of the names for the marks of a diff (`marks_bindings`) and the marks as words (`marks_text`)
+marks = ["dep:diff-marks", "dep:line-diff"]
 
 [lints]
 workspace = true

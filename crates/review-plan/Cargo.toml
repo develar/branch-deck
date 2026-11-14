@@ -17,24 +17,24 @@ history-rewrite = { path = "../history-rewrite" }
 trial-check = { path = "../trial-check" }
 code-symbols = { path = "../code-symbols" }
 # the tokens of a file and the rule "equal by tokens", the grammar of a path
-code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+code-tokens = { workspace = true, default-features = true }
 # the specs as their formats define them (OpenSpec's, IntelliJ's `*.spec.md`): the rules of a new spec, the `[@test]`
 # lines of a change, a link's path by its format's rule; psi-syntax's reader, which accio's records share (accio's
 # decision 2026-11-10-specs-parsed-by-spec-syntax), a revision of develar/psi-syntax, its public mirror
-spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+spec-syntax.workspace = true
 object-cache = { path = "../object-cache" }
 # the blocks of the diffs, and accio for the fan-in, the tests and the descriptors (`SymbolIndex`, `Lenient`)
 file-diffs = { path = "../file-diffs" }
 # the marks of the diffs what a range leaves to read is proven from (`reading`)
 text-diff = { path = "../text-diff" }
 # the answers of the index a diff decides by (`diff_marks::index`)
-diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+diff-marks.workspace = true
 # the generated files: by their name, the attributes of the head, the header a tool wrote (`files::generated_of`)
 generated-files = { path = "../generated-files" }
 # the span of the fan-in's threads (`in_current_span`), the grammar of a body and the subject without its prefix
 sync-utils = { path = "../sync-utils" }
 # the blocks of a body that changed since the review (`lcs::diff::build_changes`)
-line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+line-diff.workspace = true
 # the dependency entries of the build files: the `*.iml` and the plugin descriptors, `Cargo.toml`, `package.json`
 quick-xml = "0.42"
 toml = "1.2"

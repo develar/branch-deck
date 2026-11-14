@@ -19,7 +19,8 @@ without the bindings of the app (no `specta`): the model of a view (`model`), th
 `moves_across`) and the blocks applied to bytes (`apply`) are in it too. It lives in psi-syntax, with `code-tokens`
 and `diff-marks` above it, so that the diff of Branch Deck and the diff of accio are one implementation (accio's
 decision 2026-11-13-diff-marks-in-psi-syntax): Branch Deck links it by the revision of develar/psi-syntax, the public
-mirror of accio's `psi-syntax/`, that it links the parsers by (`code_symbols::extract::PSI_SYNTAX_REVISION`), and a
+mirror of accio's `psi-syntax/`, that it links the parsers by (one line of `[workspace.dependencies]`,
+`file_diffs::PSI_SYNTAX_REVISION`), and a
 change of it is a commit of accio, then a new revision here. To try one before that, build with every crate of
 psi-syntax Cargo.lock holds (but `lmdb-env`) patched to accio's checkout, one
 `--config 'patch."https://github.com/develar/psi-syntax".<crate>.path="<accio>/psi-syntax/crates/<crate>"'` each:

@@ -140,7 +140,7 @@ pub fn symbol_stats(context: &RepoContext, sample_size: usize) -> Result<SymbolS
   Ok(SymbolStatsOutput {
     head: short.get(head).to_string(),
     commits: ids.len(),
-    extractor_version: code_symbols::extract::extractor_version(),
+    extractor_version: file_diffs::summaries_version(),
     languages: stats
       .blobs
       .iter()

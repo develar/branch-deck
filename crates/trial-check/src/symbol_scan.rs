@@ -9,7 +9,7 @@
 use crate::diff_scan::CommitDiff;
 use crate::module_roots::{FileAt, ModuleRoots};
 use anyhow::Result;
-use code_symbols::extract::{MAX_BYTES, extractor_version, summarize};
+use code_symbols::extract::{MAX_BYTES, summarize};
 use code_symbols::language::{Language, language_of, summary_key};
 use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -110,7 +110,7 @@ pub fn read_symbol_input_with(
   extra: &[String],
 ) -> Result<(SymbolInput, Vec<Option<Vec<u8>>>)> {
   let started = Instant::now();
-  let version = extractor_version();
+  let version = file_diffs::summaries_version();
   let wanted = source_blobs(diffs);
   let sources: Vec<&str> = diffs
     .iter()

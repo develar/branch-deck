@@ -638,7 +638,7 @@ flowchart TD
     decisions 26 and 27, after which no reader of Branch Deck is tree-sitter's. tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
     (`jvm.rs`: the containers, the stack of supertypes and `enclosed`, the JVM facts of a declaration, the receivers'
     types, the smart casts), and `extractor_version` hashes the revision of psi-syntax for Kotlin and Java
-    (`PSI_SYNTAX_REVISION`, which a test checks against `Cargo.toml` and `Cargo.lock`) where it hashed their grammars'
+    (`file_diffs::PSI_SYNTAX_REVISION`, which a test checks against `Cargo.lock`) where it hashed their grammars'
     node types.
     **Rationale**: two parsers of one language give two readings of one file, the summary's and the view's. Against the
     tree-sitter baseline (intellij-community 3caa0bf, `examples/facts.rs`) the moved facts are the sums of the readings
@@ -842,7 +842,8 @@ flowchart TD
 
 ### Implementation Notes
 
-- `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the revision of psi-syntax).
+- `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and a revision of psi-syntax; the
+  `blob_summary` store is keyed by `file_diffs::summaries_version`, that of the revision the workspace links).
   Kotlin (`kotlin/summary.rs`) and Java (`java/summary.rs`) are walks of
   their PSI on the JVM rules of `jvm.rs` (decision 22): the `JvmFields` of a declaration (the signatures,
   `overrides`, `overridable`, `jvm_static`, `jvm_field`, `jvm_name`, `lateinit` and the `setter` of a `var`, `test`,

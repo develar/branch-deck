@@ -7,9 +7,10 @@ description = "Disk cache keyed by git object ids (LMDB via psi-syntax's lmdb-en
 
 [dependencies]
 # The LMDB environment and its rules, shared with accio (decision 2026-11-09-lmdb-env-in-psi-syntax of accio): a revision
-# of develar/psi-syntax, the public mirror. It moves apart from `code-symbols`' revision, which keys the cached summaries
-# (`PSI_SYNTAX_REVISION`): a fix of the environment makes no summary again.
-lmdb-env = { git = "https://github.com/develar/psi-syntax", rev = "abef29d0987c61fb86efbbd2eb6f297ed6c1c0b0" }
+# of develar/psi-syntax, the public mirror, of its own in the workspace's dependencies. It moves apart from the revision
+# of the other crates of psi-syntax, which keys the cached summaries (`file_diffs::PSI_SYNTAX_REVISION`): a fix of the
+# environment makes no summary again.
+lmdb-env.workspace = true
 postcard = { version = "1.1.3", default-features = false, features = ["use-std"] }
 serde.workspace = true
 specta = { workspace = true, optional = true }

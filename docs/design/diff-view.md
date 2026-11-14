@@ -1709,7 +1709,7 @@ and JavaScript from oxc's tokens and tree (psi-syntax's `js-syntax` in the diale
   (`diff-view.css`: Rust's and TypeScript's type parameters, the underline of a mutable Kotlin or Rust name);
 - the answer is the format of the worker: the lines as `buildLineTable` splits them, runs of (UTF-16 offset, style) per
   line, a style the role in its low 6 bits and the font style above; the roles are `SYNTAX_ROLES` in their order
-  (`roles_match_the_view` checks it);
+  (`roles_match_the_view` of `file-diffs` checks it);
 - bounded: over `MAX_BYTES` (8 MiB, the limit of the texts) there is no highlighting; psi-syntax parses any text, a
   construct nested past its limit (1000 levels of Kotlin, 1200 of Java) as an error element, and a Rust or a script
   file nested deeper than `rust_syntax` or `js_syntax` reads has none (its parse, walk and drop run on a stack sized
@@ -1864,7 +1864,7 @@ real history"). A stored diff holds the renames those answers allowed, so the ru
 names have a version (`navigate::RULES_VERSION`, bumped with any rule that changes an answer) in the version the
 store keeps the diffs under (`file_diffs::service::model_version`): a scope that was fixed takes its renames with it.
 
-| 200 places of a file of 250 functions, each a local asked with a new name (`benches/names_bench.rs`, the Studio at load 4 to 8 of 20 cores) | together | one by one |
+| 200 places of a file of 250 functions, each a local asked with a new name (`crates/file-diffs/benches/names_bench.rs`, the Studio at load 4 to 8 of 20 cores) | together | one by one |
 |---|---|---|
 | Kotlin, 2 504 lines | 26 ms | 316 ms |
 | Java, 2 505 lines | 169 ms | 576 ms |

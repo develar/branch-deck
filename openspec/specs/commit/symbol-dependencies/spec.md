@@ -28,6 +28,7 @@ targets:
   - crates/git-ops/src/object_texts.rs
   - crates/trial-check/src/diff_scan.rs
   - crates/bd-rewrite/src/symbol_stats.rs
+  - crates/file-diffs/src/lib.rs
 ---
 
 # Symbol Dependencies
@@ -1165,7 +1166,8 @@ Starlark, TypeScript, JavaScript and Rust.
 #### Scenario: The version and the revision
 - **WHEN** the rules or the revision of psi-syntax change
 - **THEN** the extractor version changes, and the revision is the one cargo builds
-  [@test] crates/code-symbols/src/summary_test.rs (`extractor_version_is_stable`, `the_psi_syntax_revision_is_the_one_cargo_builds`)
+  [@test] crates/code-symbols/src/summary_test.rs (`extractor_version_is_stable`)
+  [@test] crates/file-diffs/src/lib_test.rs (`the_psi_syntax_revision_is_the_one_cargo_builds`)
 
 ### Requirement: Summaries: A Rust macro in item position declares its `pub` items
 

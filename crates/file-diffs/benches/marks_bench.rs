@@ -16,6 +16,7 @@
 //! - `indented`: every function indented again, a name changed in the first: 300 blocks, one of them with a line to
 //!   read beside its run.
 
+use code_symbols::marks_bindings::CodeSymbolBindings;
 use code_symbols::navigate::resolution_work;
 use code_tokens::Grammar;
 use code_tokens::{Tokens, compare, equal_by_tokens, tokens};
@@ -24,7 +25,6 @@ use diff_marks::leftovers::Leftovers;
 use diff_marks::marks::{MAX_BLOCK_TOKENS, MAX_RENAME_WORK, MAX_TOKEN_EDITS, marks_of};
 use diff_marks::marks_subject::{IndexAnswer, PairFacts, Subject};
 use diff_marks::model::DiffMarks;
-use file_diffs::bindings::CodeSymbolBindings;
 use file_diffs::model::{DiffSource, FileDiffEvent, GetFileDiffsParams};
 use file_diffs::service::{DiffLimits, FileDiffs};
 use line_diff::model::{BlockKind, DiffBlock, DiffBudget, LineDiff, diff_texts};

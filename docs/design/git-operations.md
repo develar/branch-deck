@@ -3478,7 +3478,7 @@ git plumbing does not depend on.
   `file_diff` store, under `model_version()`: `MODEL_VERSION` with the version of the tokens (`store_version`,
   `code_tokens::tokens_version`), that of the rules the names of its renames are bound by
   (`code_symbols::navigate::RULES_VERSION`) and that of the summaries its scopes and its blocks of the imports alone
-  are read from (`code_symbols::extract::extractor_version`), so a diff made with other parsers, other rules or
+  are read from (`file_diffs::summaries_version`), so a diff made with other parsers, other rules or
   other summaries is never read. The store never keeps a
   diff that the time cut short (`BudgetedDiff::out_of_time`: its inner ranges or its lines ran out, also of a file over
   the inner limits); memory keeps it for the run, with the marks of its blocks. What a pair left is a

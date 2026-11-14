@@ -1,9 +1,10 @@
-//! The pass over the files of a subject (`marks_subject.rs`): the lines that moved between two files, the names one
+//! The pass over the files of a subject (`diff_marks::marks_subject`) read with the bindings of this crate
+//! (`marks_bindings`): the lines that moved between two files, the names one
 //! file declares and another uses, and what each answer of the index proves of them. Every file of a case is read as
 //! the service reads a pair: its diff, its marks and what it left, from its two texts.
 
-use crate::bindings::CodeSymbolBindings;
-use crate::marks_test::MarkedDiff;
+use crate::marks_bindings::CodeSymbolBindings;
+use crate::marks_text::MarkedDiff;
 use code_tokens::tokens;
 use diff_marks::index::{
   Access, DeclaredAt, MovedDeclaration, MovesAnswer, Order, RenameAnswer, RenameConflict, RenamePair, RenameUse, RenameUses, RenamedDeclaration, Reordered, Resolved,
@@ -625,7 +626,7 @@ fn moved_under_another_owner(use_old: &[&str], use_new: &[&str]) -> Case {
 
 /// What accio moves answers of the title function of `moved_under_another_owner`: from the object `Ledger` of
 /// src/Ledger.kt to the object `Report` of src/Report.kt, its lines 2 to 4 (from 1) in both
-pub(crate) fn title_moves() -> MovesAnswer {
+fn title_moves() -> MovesAnswer {
   let at = |file: &str, parent: &str| DeclaredAt {
     file: file.to_string(),
     line: 2,
@@ -752,7 +753,7 @@ fn renamed_store() -> Case {
   ])
 }
 
-fn run(old: u32, new: u32) -> LineRun {
+const fn run(old: u32, new: u32) -> LineRun {
   LineRun {
     old_start: old,
     old_end: old + 1,

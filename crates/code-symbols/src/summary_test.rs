@@ -1,12 +1,15 @@
-use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, PSI_SYNTAX_REVISION, RULES_VERSION, extractor_version};
+use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, RULES_VERSION, extractor_version};
 use crate::language::{Family, Language, language_of};
 use crate::summary::{DeclKind, FileSummary, Reach, Role};
 use crate::summary_text::render;
 use crate::test_support::{check_golden, declaration, summarize, summary_of};
 
-/// The value for the parsers and rules of this build. A change of `RULES_VERSION` or of the psi-syntax revision changes
-/// it: replace it with the value the failure prints.
+/// The value for the rules and the languages of this build at `PINNED_REVISION`. A change of `RULES_VERSION` or of the
+/// languages changes it: replace it with the value the failure prints.
 const EXTRACTOR_VERSION: u32 = 3_367_846_191;
+/// A revision of psi-syntax the value above is of: the one Branch Deck linked the parsers by when it was pinned. Any
+/// would do, since the caller names its own (`file_diffs::PSI_SYNTAX_REVISION`), and another one gives another value
+const PINNED_REVISION: &str = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9";
 
 #[test]
 fn every_fixture_matches_its_golden_file() {
@@ -15,8 +18,8 @@ fn every_fixture_matches_its_golden_file() {
   for directory in std::fs::read_dir(&testdata).unwrap() {
     let directory = directory.unwrap().path();
     // the fixtures of the highlighting have their own golden files (`highlight_test.rs`), those of the navigation are
-    // read by their tests (`test_support::readings_unlike_the_compiler`)
-    if directory.ends_with("highlight") || directory.ends_with("navigate") {
+    // read by their tests (`test_support::readings_unlike_the_compiler`), those of the marks too (`marks_bindings_test.rs`)
+    if directory.ends_with("highlight") || directory.ends_with("navigate") || directory.ends_with("marks") {
       continue;
     }
     let mut files: Vec<String> = std::fs::read_dir(&directory)
@@ -36,52 +39,15 @@ fn every_fixture_matches_its_golden_file() {
 }
 
 #[test]
-fn the_psi_syntax_revision_is_the_one_cargo_builds() {
-  // `extractor_version` hashes the revision: a cached summary of another parser is made again. `code-tokens` parses
-  // by the parsers of its own revision, and file-diffs gives this one to `code_tokens::tokens_version`
-  // (`PSI_SYNTAX_REVISION`), so a stored diff of another parser is made again too: every crate of psi-syntax that
-  // Cargo.lock holds is at this revision, but `lmdb-env`, which object-cache pins apart
-  let manifest = include_str!("../Cargo.toml");
-  let lock = include_str!("../../../Cargo.lock");
-  let source = "source = \"git+https://github.com/develar/psi-syntax?rev=";
-  let locked: Vec<(&str, &str)> = lock
-    .split("[[package]]\n")
-    .filter_map(|package| {
-      let name = package.strip_prefix("name = \"")?.split('"').next()?;
-      let revision = package.split_once(source)?.1.split('#').next()?;
-      Some((name, revision))
-    })
-    .collect();
-  for (name, revision) in locked.iter().filter(|(name, _)| *name != "lmdb-env") {
-    assert_eq!(*revision, PSI_SYNTAX_REVISION, "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.lock");
-  }
-  let dependency = |name: &str| format!("{name} = {{ git = \"https://github.com/develar/psi-syntax\", rev = \"{PSI_SYNTAX_REVISION}\"");
-  for name in [
-    "csharp-syntax",
-    "java-syntax",
-    "js-syntax",
-    "kotlin-syntax",
-    "psi-builder",
-    "rust-syntax",
-    "starlark-syntax",
-    "code-tokens",
-  ] {
-    assert!(manifest.contains(&dependency(name)), "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.toml");
-  }
-  for name in ["csharp-syntax", "code-tokens", "line-diff", "diff-marks"] {
-    assert!(locked.iter().any(|(locked, _)| *locked == name), "{name} is not in Cargo.lock");
-  }
-}
-
-#[test]
 fn extractor_version_is_stable() {
-  let version = extractor_version();
-  assert_eq!(version, extractor_version());
+  let version = extractor_version(PINNED_REVISION);
+  assert_eq!(version, extractor_version(PINNED_REVISION));
   if cfg!(all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript", feature = "starlark")) {
     assert_eq!(
       version, EXTRACTOR_VERSION,
-      "RULES_VERSION {RULES_VERSION} or a grammar changed: set EXTRACTOR_VERSION to {version}"
+      "RULES_VERSION {RULES_VERSION} or the languages changed: set EXTRACTOR_VERSION to {version}"
     );
+    assert_ne!(version, extractor_version("0000000000000000000000000000000000000000"), "another revision, another version");
   }
 }
 

@@ -55,8 +55,9 @@ use crate::reading::DiffReading;
 use crate::scopes::scopes_of_summary;
 use crate::syntax::{SYNTAX_CACHE_BYTES, syntax_weight};
 use crate::worktree::{read_worktree_blob, uncommitted_entries};
+use crate::{PSI_SYNTAX_REVISION, summaries_version};
 use anyhow::{Result, bail};
-use code_symbols::extract::{PSI_SYNTAX_REVISION, extractor_version, summarize};
+use code_symbols::extract::summarize;
 use code_symbols::highlight::lines::LineRuns;
 use code_symbols::language::{Language, language_of, summary_key};
 use code_symbols::navigate::RULES_VERSION;
@@ -105,12 +106,12 @@ pub const MODEL_VERSION: u32 = 20;
 /// are read from (`code_tokens::tokens_version`: the parsers of this build and the rules of the tokens), the
 /// version of the rules the names of the renames are bound by (`code_symbols::navigate::RULES_VERSION`: the
 /// scopes, the locals, the sites, the clashes) and the version of the summaries the scopes and the blocks of the
-/// imports alone are read from (`code_symbols::extract::extractor_version`: the parsers, the rules of the summaries
-/// and the languages of this build), so a stored diff is never read with marks of other tokens or of other
+/// imports alone are read from (`summaries_version`: the parsers, the rules of the summaries and the languages of this
+/// build), so a stored diff is never read with marks of other tokens or of other
 /// bindings, or with the labels of other summaries: a rule of a scope that was fixed takes the renames and the
 /// quiet runs it had allowed with it, a fix of the summaries the labels of the hunks it had made
 pub fn model_version() -> u32 {
-  store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION, extractor_version())
+  store_version(MODEL_VERSION, tokens_version(PSI_SYNTAX_REVISION), RULES_VERSION, summaries_version())
 }
 
 /// The version of the store for a version of the model, one of the tokens, one of the rules of the names and one
@@ -1588,7 +1589,7 @@ pub(crate) fn read_summaries(cache: &ObjectCache, keys: &[(u8, &str)]) -> HashMa
   }
   keys
     .iter()
-    .zip(cache.get_blob_summaries::<FileSummary>(extractor_version(), keys))
+    .zip(cache.get_blob_summaries::<FileSummary>(summaries_version(), keys))
     .filter_map(|(&(language, id), summary)| summary.map(|summary| ((language, id.to_string()), summary)))
     .collect()
 }
@@ -1596,7 +1597,7 @@ pub(crate) fn read_summaries(cache: &ObjectCache, keys: &[(u8, &str)]) -> HashMa
 /// Writes the summaries that a read made, in one transaction
 pub(crate) fn write_summaries(cache: &ObjectCache, summaries: &[((u8, String), FileSummary)]) {
   let entries: Vec<((u8, &str), &FileSummary)> = summaries.iter().map(|((language, id), summary)| ((*language, id.as_str()), summary)).collect();
-  cache.put_blob_summaries(extractor_version(), &entries);
+  cache.put_blob_summaries(summaries_version(), &entries);
 }
 
 /// The text of a side; an empty side is the empty text

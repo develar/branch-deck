@@ -6,18 +6,20 @@ license.workspace = true
 description = "The typed diffs of the files of a commit, a range or the working tree, for the views of the app"
 
 [dependencies]
-code-symbols = { path = "../code-symbols" }
+# the summaries, the highlighting and the navigation of a file, and the bindings of its names that the marks ask
+# (`code_symbols::marks_bindings`)
+code-symbols = { path = "../code-symbols", features = ["marks"] }
 # the tokens of a file and the rule "equal by tokens", the grammar of a path
-code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+code-tokens = { workspace = true, default-features = true }
 # the marks of a diff, and the answers of the index they decide by
-diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+diff-marks.workspace = true
 # the names of the generated files, which start collapsed (`collapse_of`)
 generated-files = { path = "../generated-files" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 object-cache = { path = "../object-cache" }
 sync-utils = { path = "../sync-utils" }
-line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+line-diff.workspace = true
 # the merge of three texts (`merge_model`, `compose`) and the wire model of the diffs for the bindings
 text-diff = { path = "../text-diff", features = ["marks"] }
 
@@ -29,7 +31,7 @@ specta = { workspace = true, optional = true }
 tracing.workspace = true
 
 [dev-dependencies]
-# the benchmark of the marks (`benches/marks_bench.rs`)
+# the benchmarks of the marks (`benches/marks_bench.rs`) and of the bindings of many names (`benches/names_bench.rs`)
 criterion = "0.8"
 pretty_assertions.workspace = true
 tempfile.workspace = true
@@ -38,6 +40,10 @@ test-utils = { path = "../test-utils" }
 
 [[bench]]
 name = "marks_bench"
+harness = false
+
+[[bench]]
+name = "names_bench"
 harness = false
 
 [features]

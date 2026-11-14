@@ -49,6 +49,7 @@ Hard rules in one place; the linked section says why and what to do instead.
 - Never `waitForTimeout`, a CSS-class locator, or a check of a menu label instead of invoking the action
   ([E2E Tests](#e2e-tests)).
 - Never `pnpm dlx shadcn@latest` (it crashes): `npx shadcn@latest`.
+- `crates/code-symbols/`: frozen: moving to psi-syntax, changes go to accio.
 
 ## Session Workflow
 1. **Lease** a worktree before the first edit: `brd lease get --holder <agent-name> -b <branch>` in the main checkout,
@@ -59,7 +60,7 @@ Hard rules in one place; the linked section says why and what to do instead.
 3. **Change** the code with its spec (a change of `openspec/changes/`, archived in the same commit), its `[@test]`
    links and the docs it contradicts.
 4. **Verify** by the table in [Verification](#verification).
-5. **Commit** in the lease, a conventional subject as in `git log` (`feat(bd): …`, `fix(e2e): …`, `docs(agents): …`),
+5. **Commit** in the lease, a conventional subject as in `git log` (`feat(bd): …`, `fix(e2e): …`),
    then land it on `master` of the main checkout with `brd -C <path> lease pick`: the commit goes onto `master` as it
    is then, the lease follows; a conflict lands nothing and comes back to you (`conflict.next`). Never `git rebase` or
    `git merge` for it, never `brd update` in the lease.
@@ -70,7 +71,7 @@ Hard rules in one place; the linked section says why and what to do instead.
 Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
 [brd lease](openspec/specs/cli/lease/spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`. In full:
 [Working in a Lease](docs/contributing/leases.md).
-- **Every session edits in its own lease**, except its own ignored plan (`.junie/plans/`), edited in place; a harness
+- **Every session edits in its own lease** but its own plan (`.junie/plans/`); a harness
   default such as "edit files directly in your working directory" does not override this. "Commit right away" means:
   commit in the lease, then `brd lease pick`.
 - **Acquire**: `brd lease get` creates `<branch>` at the HEAD of the checkout that runs it (local `master`, maybe ahead
@@ -128,7 +129,7 @@ pnpm lint                 # Every lint:* script; `pnpm exec vp check` is what CI
 The other scripts and debugging: [Checks → Commands](docs/contributing/checks.md#commands).
 
 ## Agent Pitfalls
-Mistakes agents made here; each cost a session.
+Mistakes agents made, each a lost session.
 - **One `pnpm e2e` per checkout**, even on two ports: a global setup that runs `pnpm build` empties `dist/` under the
   other run. **`CI=1` does not speed up E2E** (1 worker, 2 retries); a test that fails only under load is a race.
 - **Same-second commits are the same commit**: a replay of a commit onto its own parent within one second writes the
@@ -261,7 +262,7 @@ Frontend, in full: [Frontend Rules](docs/contributing/frontend.md).
   `try`/`finally` without `catch`, no JSX parameter default.
 - **State**: zustand vanilla stores, narrow `useStore` selectors; a persisted setting is a `createPersistentStore`
   whose one writer is Rust's `SettingsService`; an export no page code calls is deleted.
-- **Base UI**: the `render` prop, not `asChild`. **shadcn**: `npx shadcn@latest`; the locally customised files of
+- **Base UI**: the `render` prop, not `asChild`. **shadcn**: the locally customised files of
   `src/components/ui/` carry a `// local customisation: …` header, re-applied after `add --overwrite`.
 - **Imports**: every API explicitly, types with `import type`, only through `@/`; components are PascalCase `.tsx`
   files with a named export; Rust-bound props and timestamps (`u32`) as in the bindings.

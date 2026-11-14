@@ -1,9 +1,9 @@
 //! The marks of the diffs of the service (`diff_marks::marks`; openspec/specs/commit/quiet-changes/spec.md): the tokens
 //! of a side read once per blob and grammar and kept in memory (`TOKENS_CACHE_BYTES`), and the bindings of the names
-//! of a text answered by `code-symbols` (`bindings::CodeSymbolBindings`).
+//! of a text answered by `code-symbols` (`code_symbols::marks_bindings::CodeSymbolBindings`).
 
-use crate::bindings::CodeSymbolBindings;
 use crate::service::FileDiffs;
+use code_symbols::marks_bindings::CodeSymbolBindings;
 use code_tokens::{Tokens, tokens};
 use diff_marks::marks::{PairMarks, marks_of, pair_grammar, pair_indented};
 use line_diff::model::LineDiff;

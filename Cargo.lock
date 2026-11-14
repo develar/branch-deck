@@ -1349,18 +1349,19 @@ name = "code-symbols"
 version = "0.1.0"
 dependencies = [
  "code-tokens",
- "criterion",
  "csharp-syntax",
+ "diff-marks",
  "java-syntax",
  "js-syntax",
  "kotlin-syntax",
+ "line-diff",
  "pretty_assertions",
  "psi-builder",
  "rust-syntax",
  "serde",
  "serde_json",
  "starlark-syntax",
- "sync-utils",
+ "test-log",
 ]
 
 [[package]]

@@ -6,7 +6,7 @@ use crate::blocks::{BlobPair, PairDiff};
 use crate::fixture_test::{RENAMED_STORE_ANSWER, REPORT, STORE, commit_all, process_counts, renamed_store, repo_path, unhurried, write};
 use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, FileMarks, GetFileDiffsParams, GetIndexMarksParams, IndexMarks, IndexStage};
 use crate::service::{DiffLimits, FileDiffs, MODEL_VERSION, MemoryKey, diff_options, disk_key, model_version, priority_order, store_version};
-use code_symbols::extract::{PSI_SYNTAX_REVISION, extractor_version};
+use crate::{PSI_SYNTAX_REVISION, summaries_version};
 use code_symbols::navigate::RULES_VERSION;
 use code_tokens::Grammar;
 use code_tokens::tokens_version;
@@ -693,7 +693,13 @@ fn the_stages_of_the_answer_of_the_index_tell_the_renames_before_the_moves_are_a
   write(&repo, "src/Report.kt", format!("object Report {{\n{title}}}\n").as_bytes());
   write(&repo, "src/Use.kt", call("Report").as_bytes());
   let second = commit_all(&repo, "Move the title to the report");
-  let moves = crate::marks_subject_test::title_moves();
+  // what `accio moves` answers of it: `title` taken whole into the report, to another file and under another owner
+  let moves: MovesAnswer = serde_json::from_str(
+    r#"{"moved": [{"old": {"file": "src/Ledger.kt", "line": 2, "end_line": 4, "kind": "function", "name": "title", "parent": "Ledger", "language": "kotlin"},
+      "new": {"file": "src/Report.kt", "line": 2, "end_line": 4, "kind": "function", "name": "title", "parent": "Report", "language": "kotlin"},
+      "file": true, "owner": true}], "total": 1, "complete": true}"#,
+  )
+  .unwrap();
   // the declaration and the call behind its owner, in both trees
   let proven = r#"{"same": false, "differs": ["owner"], "renamed": false, "moved": true, "body_equal": true, "complete": true, "final": true,
     "old": {"language": "kotlin"}, "new": {"language": "kotlin"}, "conflicts": [],
@@ -1638,7 +1644,7 @@ fn pair_of(key: &MemoryKey) -> BlobPair<'_> {
 fn a_diff_stored_with_the_tokens_of_other_parsers_is_not_read() {
   let (repo, second, key) = wrapped_commit();
   let pair = pair_of(&key);
-  let (tokens, summaries) = (tokens_version(PSI_SYNTAX_REVISION), extractor_version());
+  let (tokens, summaries) = (tokens_version(PSI_SYNTAX_REVISION), summaries_version());
   let ours = store_version(MODEL_VERSION, tokens, RULES_VERSION, summaries);
   let other_tokens = store_version(MODEL_VERSION, tokens ^ 1, RULES_VERSION, summaries);
   let other_names = store_version(MODEL_VERSION, tokens, RULES_VERSION + 1, summaries);

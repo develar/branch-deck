@@ -1,3 +1,6 @@
+//! **Frozen: moving to psi-syntax, changes go to accio** (its `psi-syntax/crates/code-symbols`, then the mirror, then
+//! the revision of Branch Deck).
+//!
 //! The declarations, imports and references of one source file (Kotlin, Java, C#, Rust, TypeScript and JavaScript), for
 //! relating the commits of a branch: which declarations a commit adds or removes, which commit's lines use a name
 //! another commit declares, and whether a word on a line is a real reference at all; the highlighting
@@ -27,6 +30,10 @@
 pub mod extract;
 pub mod highlight;
 pub mod language;
+#[cfg(any(feature = "marks", test))]
+pub mod marks_bindings;
+#[cfg(any(feature = "marks", test))]
+pub mod marks_text;
 pub mod navigate;
 pub mod summary;
 pub mod summary_text;
@@ -60,6 +67,12 @@ mod highlight_test;
 mod java_test;
 #[cfg(all(test, feature = "kotlin"))]
 mod kotlin_test;
+#[cfg(all(test, feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript"))]
+mod marks_bindings_renames_test;
+#[cfg(all(test, feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript"))]
+mod marks_bindings_subject_test;
+#[cfg(all(test, feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript"))]
+mod marks_bindings_test;
 #[cfg(all(test, feature = "kotlin", feature = "java", feature = "rust", feature = "typescript"))]
 mod navigate_test;
 #[cfg(all(test, feature = "rust"))]

@@ -1,13 +1,29 @@
-//! The highlighting of blobs for the views: the layout of the answer, where the text comes from, and the git processes
+//! The highlighting of blobs for the views: the layout of the answer, where the text comes from, the git processes, and
+//! the roles of the highlighting against those of the view
 
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{BlobRequest, DiffSource, GetBlobSyntaxParams};
 use crate::syntax::{SYNTAX_FORMAT, SyntaxStatus};
+use code_symbols::highlight::Role;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use text_diff::model::WhitespacePolicy;
+
+/// The roles of `code_symbols::highlight`, by their ids, are the roles of the view: `SYNTAX_ROLES` of
+/// `src/lib/diff/islands-themes.ts`, in their order after the default foreground
+#[test]
+fn roles_match_the_view() {
+  let themes = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/lib/diff/islands-themes.ts")).unwrap();
+  let list = themes
+    .split("export const SYNTAX_ROLES = [")
+    .nth(1)
+    .and_then(|rest| rest.split(']').next())
+    .expect("SYNTAX_ROLES in islands-themes.ts");
+  let names: Vec<&str> = list.split(',').map(|it| it.trim().trim_matches('"')).filter(|it| !it.is_empty()).collect();
+  assert_eq!(names, Role::NAMES[..names.len()], "the roles of the view are the roles of the highlighting, in their order");
+}
 
 const KOTLIN: &str = "class A {\n  val count = 1\n  fun get() = count\n}\n";
 

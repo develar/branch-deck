@@ -1,6 +1,7 @@
 //! What the bindings of many names cost (docs/design/diff-view.md, "The bindings of many names"): `names_at` of 200
-//! places of a file asked together, from one parse, and each of them asked alone, a parse per place. `cargo bench -p
-//! code-symbols --bench names_bench`, on a quiet machine.
+//! places of a file asked together, from one parse, and each of them asked alone, a parse per place, by the
+//! navigation of `code-symbols` that the marks ask through `code_symbols::marks_bindings`. `cargo bench -p file-diffs
+//! --bench names_bench`, on a quiet machine.
 //!
 //! The file of each language is 250 functions of one shape: two parameters and three locals, each read a few times, so
 //! every function has its own bindings of the same spellings and a spelling has 250 declarations. The places asked are

@@ -694,7 +694,7 @@ pub fn names_at_within(grammar: Grammar, text: &str, questions: &[NameQuestion<'
 /// What a resolution of a name costs in a text of `grammar`, as a part of the tokens of the text, for a reader that
 /// bounds its resolutions by work: all of them where a resolution walks the tree with its scopes (Java, C#,
 /// Starlark), an eighth where it reads the names of one spelling (Kotlin, Rust, TypeScript, JavaScript). The measure
-/// is `benches/names_bench.rs`: 0.4 to 1 ms a resolution of the first in a file of 2,500 lines, 0.06 to 0.08 ms of
+/// is Branch Deck's `crates/file-diffs/benches/names_bench.rs`: 0.4 to 1 ms a resolution of the first in a file of 2,500 lines, 0.06 to 0.08 ms of
 /// the others
 pub const fn resolution_work(grammar: Grammar, tokens: usize) -> u64 {
   let tokens = tokens as u64;

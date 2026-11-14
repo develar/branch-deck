@@ -1,10 +1,10 @@
-//! The renames of a diff (`marks_renames.rs`): what is a rename, which of its places are passed, which are a label and
+//! The renames of a diff (`diff_marks::marks_renames`) read with the bindings of this crate (`marks_bindings`): what is a rename, which of its places are passed, which are a label and
 //! which are read, in each grammar family; what is none; the limit of the work.
 
-use crate::bindings::CodeSymbolBindings;
-use crate::marks_test::MarkedDiff;
-use crate::marks_test::{ANY_TEXT, check_marks, read_pair, show_rename};
-use code_symbols::navigate::resolution_work;
+use crate::marks_bindings::CodeSymbolBindings;
+use crate::marks_bindings_test::{ANY_TEXT, check_marks, read_pair};
+use crate::marks_text::{MarkedDiff, show_rename};
+use crate::navigate::resolution_work;
 use code_tokens::tokens;
 use code_tokens::{Grammar, grammar_of};
 use diff_marks::marks::{MAX_FILE_TOKEN_WORK, MAX_RENAME_WORK, has_proof, is_quiet, marks_of, pair_grammar};
@@ -33,7 +33,7 @@ fn read(path: &str, old: &str, new: &str) -> (MarkedDiff, Vec<Rename>) {
 
 /// The marks of a diff as `marks_test::show` words them, then the names the pair leaves to the other files
 fn show(diff: &MarkedDiff, undeclared: &[Rename]) -> String {
-  let mut shown = crate::marks_test::show(diff);
+  let mut shown = crate::marks_text::show(diff);
   for rename in undeclared {
     write!(shown, " undeclared [{}]", show_rename(rename)).unwrap();
   }

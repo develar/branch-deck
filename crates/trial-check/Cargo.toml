@@ -17,9 +17,9 @@ object-cache = { path = "../object-cache" }
 file-diffs = { path = "../file-diffs" }
 code-symbols = { path = "../code-symbols" }
 # the path aliases of a `tsconfig.json` with its `extends` chain as tsc reads them (`js_syntax::tsconfig`): psi-syntax's
-# reader, which accio's modules read them with too, at the revision of the parsers (`code_symbols::extract::PSI_SYNTAX_REVISION`)
-js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
-line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+# reader, which accio's modules read them with too, at the revision of the parsers (`file_diffs::PSI_SYNTAX_REVISION`)
+js-syntax.workspace = true
+line-diff.workspace = true
 text-diff = { path = "../text-diff" }
 anyhow.workspace = true
 tracing.workspace = true

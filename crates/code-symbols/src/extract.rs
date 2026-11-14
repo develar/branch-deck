@@ -53,23 +53,16 @@ pub fn summarize(language: Language, path: &str, source: &[u8]) -> FileSummary {
   summary
 }
 
-/// The revision of psi-syntax, whose `kotlin-syntax`, `java-syntax` and `csharp-syntax` read Kotlin, Java and C#, whose
-/// `starlark-syntax` reads Starlark, whose `js-syntax` reads TypeScript and JavaScript and whose `rust-syntax` reads Rust:
-/// the `rev` of develar/psi-syntax (the public mirror of accio's `psi-syntax/`) of the psi-syntax dependencies in
-/// `Cargo.toml`, and of every crate of psi-syntax the workspace builds: `code-tokens`, whose parsers are of the same
-/// revision and whose version of the tokens is keyed by it (`code_tokens::tokens_version`), `line-diff` and
-/// `diff-marks` (`the_psi_syntax_revision_is_the_one_cargo_builds`)
-pub const PSI_SYNTAX_REVISION: &str = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9";
-
 /// A stable hash of the rules and the parsers of this build: a cached summary is valid only for the same value. FNV-1a
-/// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax that reads it, so it is the same
-/// across runs and compilers.
-pub fn extractor_version() -> u32 {
+/// over `RULES_VERSION` and, for each enabled language, `revision`, the revision of psi-syntax whose parser reads it,
+/// so it is the same across runs and compilers. The caller names the revision it links the parsers by
+/// (`file_diffs::PSI_SYNTAX_REVISION` in Branch Deck): this crate builds by one, and does not know its name.
+pub fn extractor_version(revision: &str) -> u32 {
   let mut hash = Fnv::new();
   hash.write(&RULES_VERSION.to_le_bytes());
   for language in Language::ALL.into_iter().filter(|it| it.is_enabled()) {
     hash.write(&[language.id()]);
-    hash.write(PSI_SYNTAX_REVISION.as_bytes());
+    hash.write(revision.as_bytes());
   }
   hash.finish()
 }

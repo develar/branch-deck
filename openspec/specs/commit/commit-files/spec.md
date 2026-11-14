@@ -1266,7 +1266,7 @@ name), and a font style where the schemes differ.
 #### Scenario: The roles of the view
 - **WHEN** the backend gives a token a role
 - **THEN** the role is one the view resolves in the schemes of Islands Light ("Light") and Islands Dark
-  [@test] crates/code-symbols/src/highlight_test.rs (`roles_match_the_view`)
+  [@test] crates/file-diffs/src/syntax_test.rs (`roles_match_the_view`)
 
 #### Scenario: A font style where the schemes differ
 - **WHEN** a comment, a JavaScript parameter and label, or a global variable is shown in each scheme

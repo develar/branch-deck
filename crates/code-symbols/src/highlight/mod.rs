@@ -30,8 +30,6 @@ pub(crate) mod scopes;
 use code_tokens::Grammar;
 use lines::LineRuns;
 
-/// The version of the highlighting rules; bump it on any rule change, so that cached highlightings are made again
-pub const RULES_VERSION: u32 = 8;
 /// Files above this size are not highlighted: `MAX_BLOB_BYTES` of the texts the view reads
 pub const MAX_BYTES: usize = 8 << 20;
 
@@ -50,7 +48,7 @@ pub(crate) const FIELD: u32 = Role::Field.style();
 pub(crate) const STATIC_FIELD: u32 = Role::Field.style() | ITALIC;
 
 /// The roles of the highlighting, by their ids in the view: `SYNTAX_ROLES` of `src/lib/diff/islands-themes.ts` is this
-/// order after the default foreground (`roles_match_the_view` checks it)
+/// order after the default foreground (`roles_match_the_view` of Branch Deck's `file-diffs` checks it)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Role {
@@ -136,11 +134,6 @@ impl Role {
   pub const fn style(self) -> u32 {
     self as u32
   }
-}
-
-/// A stable hash of the rules and the grammars of this build: a cached highlighting is valid only for the same value
-pub fn highlighter_version() -> u32 {
-  crate::extract::extractor_version() ^ RULES_VERSION.wrapping_mul(0x9e37_79b9)
 }
 
 /// A name in the style of a constant or an enum entry: upper case, digits and underscores

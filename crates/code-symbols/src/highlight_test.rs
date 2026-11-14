@@ -1,6 +1,6 @@
 //! The highlighting: golden files of every grammar (`testdata/highlight/<file>.highlight`, each line with its coloured
 //! pieces; `CODE_SYMBOLS_UPDATE=1 cargo nextest run -p code-symbols` rewrites them, review the diff), the lines and
-//! offsets of the view, and the roles of the view.
+//! offsets of the view. The roles against those of the view are a test of Branch Deck (`file-diffs`, `roles_match_the_view`).
 
 use crate::highlight::lines::LineRuns;
 use crate::highlight::{BOLD, ITALIC, ROLE_BITS, Role, STATIC_FIELD, UNDERLINE, highlight};
@@ -130,18 +130,6 @@ fn chooses_the_grammar_of_the_dialect_of_the_extension() {
       None
     ]
   );
-}
-
-#[test]
-fn roles_match_the_view() {
-  let themes = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../src/lib/diff/islands-themes.ts")).unwrap();
-  let list = themes
-    .split("export const SYNTAX_ROLES = [")
-    .nth(1)
-    .and_then(|rest| rest.split(']').next())
-    .expect("SYNTAX_ROLES in islands-themes.ts");
-  let names: Vec<&str> = list.split(',').map(|it| it.trim().trim_matches('"')).filter(|it| !it.is_empty()).collect();
-  assert_eq!(names, Role::NAMES[..names.len()], "the roles of the view are the roles of the highlighting, in their order");
 }
 
 #[test]

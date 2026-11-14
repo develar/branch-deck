@@ -8,9 +8,9 @@ description = "The wire model of the diffs of the app, mapped to the values of l
 
 [dependencies]
 # the marks of a diff, whose values the model maps to (`marks`)
-diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
+diff-marks = { workspace = true, optional = true }
 # the comparison, its values and the lines of a text
-line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
+line-diff.workspace = true
 serde.workspace = true
 specta = { workspace = true, optional = true }
 
