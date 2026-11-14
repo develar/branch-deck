@@ -220,7 +220,8 @@ succeeded, of the app or of `brd`, names its branch prefix in the mark of its wo
 directory of the worktree, one prefix per line): only `sync_core::synced_mark::mark_synced` writes it, at the end of a
 successful `sync_branches`, through a temporary file and a rename, no git; only the hosts of the app's sessions read it
 (`SessionHost::synced_before` of the session's prefix, without git); only a lease slot takes it out, as it goes back
-(`finish_return`) and as a get reuses it (`move_reused_slot`), with `forget_synced` (`fs_retry`). Beside it, the landed
+(`finish_return` of a return, a takeover and a reclaim, first, so one that fails after it leaves none) and as a get
+reuses it (`move_reused_slot`), with `forget_synced` (`fs_retry`). Beside it, the landed
 state of the worktree (`branch-deck/landed.json`, `sync_core::landed`): written by the update check of a sync
 (`record_sync`) and by Update Project, its undo and a dismiss (`record_update` and the others under `landed.lock`), each
 through a temporary file and a rename. A start records what it sends before

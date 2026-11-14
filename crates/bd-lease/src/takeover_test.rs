@@ -410,3 +410,52 @@ fn a_get_below_the_minimum_free_space_deletes_the_trash_of_gone_runs_first() {
   }
   assert!(running.exists(), "the trash of a running process stays");
 }
+
+/// The mark of a sync in the git directory of `path` (`synced_mark`), as a sync in the slot leaves it
+fn mark_synced_in(path: &str) {
+  let mark = slot_git(path, &["rev-parse", "--path-format=absolute", "--git-path", sync_core::synced_mark::SYNCED_FILE]);
+  sync_core::synced_mark::mark_synced(Path::new(mark.trim()), PREFIX);
+  assert!(sync_core::synced_mark::synced_before(path, PREFIX));
+}
+
+/// `brd lease reclaim` returns an idle lease as a return does: it takes out the mark of a sync in its slot, so the next
+/// lease of the slot is a worktree no sync built anything for
+#[test_log::test]
+fn reclaim_takes_out_the_mark_of_a_sync_in_the_slot() {
+  let fixture = Fixture::new();
+  let (landed, _) = landed_lease(&fixture, "landed-agent");
+  let landed = path_of(&landed);
+  mark_synced_in(&landed);
+  make_idle(&fixture, &landed);
+  let (exit_code, reclaimed) = fixture.run(&["lease", "reclaim", "--idle"]);
+  assert_eq!(exit_code, 0, "{reclaimed}");
+  assert_eq!(reclaimed["reclaimed"][0]["path"], json!(slot_path(&landed)), "{reclaimed}");
+  assert!(!sync_core::synced_mark::synced_before(&landed, PREFIX));
+}
+
+/// A takeover whose return of the idle lease fails gives the slot back, free: the mark of a sync is out of it all the
+/// same, taken out before anything of the return can fail, so the next get of the slot finds none
+#[cfg(unix)]
+#[test_log::test]
+fn a_takeover_that_fails_leaves_no_mark_of_a_sync_in_the_slot() {
+  use std::os::unix::fs::PermissionsExt;
+  let fixture = Fixture::new();
+  let (old, _) = landed_lease(&fixture, "gone-agent");
+  let path = path_of(&old);
+  mark_synced_in(&path);
+  // a seeded path the return cannot move out: its directory takes no change, and git ignores it
+  let blocked = Path::new(&path).join("blocked");
+  std::fs::create_dir_all(&blocked).unwrap();
+  std::fs::write(blocked.join("inner"), "seeded\n").unwrap();
+  std::fs::create_dir_all(fixture.repo.path().join(".git/info")).unwrap();
+  std::fs::write(fixture.repo.path().join(".git/info/exclude"), "blocked/\n").unwrap();
+  std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o555)).unwrap();
+  update_lease(&fixture, &path, |lease| lease["seeded"] = json!(["blocked/inner"]));
+  make_idle(&fixture, &path);
+
+  let (exit_code, failed) = fixture.run(&["lease", "get", "--holder", "next-agent"]);
+  std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o755)).unwrap();
+  assert_ne!(exit_code, 0, "{failed}");
+  assert_eq!(slot_status(&fixture, &path)["state"], json!("free"), "the get gave the slot back, free");
+  assert!(!sync_core::synced_mark::synced_before(&path, PREFIX));
+}

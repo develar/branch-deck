@@ -3065,6 +3065,13 @@ fn finish_return(
   clean: Option<CleanOverrides>,
   trash: &Trash,
 ) -> Result<FinishedReturn> {
+  // the next lease of the slot is a worktree no sync built anything for (`synced_mark`): a window that opens it shows
+  // the Ready to Sync card, never syncs it of itself. First, so a return, a takeover or a reclaim that fails after it
+  // leaves no mark either (a takeover that fails gives the slot back, free). As the clean rules, it never fails the
+  // return
+  if let Err(error) = forget_synced(Path::new(path)) {
+    warn!(slot = %path, "cannot take the mark of a sync out of the slot: {error}");
+  }
   if let Some(untracked) = discard {
     discard_slot_changes(git_executor, path, untracked)?;
   }
@@ -3072,11 +3079,6 @@ fn finish_return(
   let detached_branch = read_head(git_executor, path)?.and_then(|(_, branch)| branch);
   if detached_branch.is_some() {
     detach_waiting_for_head_lock(git_executor, path)?;
-  }
-  // the next lease of the slot is a worktree no sync built anything for (`synced_mark`): a window that opens it shows
-  // the Ready to Sync card, never syncs it of itself. As the clean rules, it never fails the return
-  if let Err(error) = forget_synced(Path::new(path)) {
-    warn!(slot = %path, "cannot take the mark of a sync out of the slot: {error}");
   }
   // the rules of the source, as the seed is read; the slot's own when the source is gone. They never fail the return
   let rules_from = Some(Path::new(&lease.source))

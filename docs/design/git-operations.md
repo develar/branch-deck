@@ -2242,7 +2242,8 @@ names the check (`landed_check`) and the proof of each commit found landed (`lan
 the pick and about twenty more, only when `log` found commits (`a_lease_return_whose_commit_landed_by_the_ladder`).
 The slot keeps its git directory across its leases, so the return takes out the mark a sync left there, and so does
 a get that reuses a free slot, which a return of an older build may have left marked (`branch-deck/synced`, "The first
-sync"; `forget_synced` of `finish_return` and `move_reused_slot`; `a_return_takes_out_the_mark_of_a_sync_in_the_lease`):
+sync"; `forget_synced` first of `finish_return`, also of a takeover and a reclaim, and of `move_reused_slot`;
+`a_return_takes_out_the_mark_of_a_sync_in_the_lease`, `a_takeover_that_fails_leaves_no_mark_of_a_sync_in_the_slot`):
 the next lease is a worktree no sync built anything for, and a window that opens it shows the Ready to Sync card.
 
 **The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`): the path stays too, and the app keeps what it records
