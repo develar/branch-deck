@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 36` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 37` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -68,7 +68,9 @@
 //! version 35 the `reading` of the pair, what it leaves to read by the role of each file, the files no proof can be
 //! made of and the kinds of proof that passed a change;
 //! version 36 the `filesToReadProven` and `toReadProven` of each role of the `reading`: what is left to read in the
-//! files it proves
+//! files it proves;
+//! version 37 the `renamed` of a `behaviour` unit whose body changed in renamed names alone that the index has not
+//! proven: its `names` and its `wait`
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -91,14 +93,14 @@ use review_plan::registrations::Registration;
 use review_plan::shown::ShownForm;
 use review_plan::steps::ReviewSteps;
 use review_plan::texts::UiText;
-use review_plan::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
+use review_plan::units::{OtherReason, RenamedUses, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use review_plan::{PlanSources, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision, review_plan_core};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 36;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 37;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -407,6 +409,11 @@ pub struct UnitOutput {
   pub slices: Vec<UnitSliceOutput>,
   /// The change, wherever it sits: the same across a rebase or an amend that keeps it
   pub fingerprint: String,
+  /// Of a `behaviour` unit whose every changed line changed in renamed names that are not local, which the index has
+  /// not proven: those renames (`names`, each its `old` and `new`) and what they wait on (`wait`: `checking` while the
+  /// index is asked, `notProven` where none proved them); absent for any other unit
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub renamed: Option<RenamedUses>,
 }
 
 /// What a unit changes
@@ -681,6 +688,7 @@ fn unit_output(unit: ReviewUnit) -> UnitOutput {
     line: unit.line,
     slices: unit.slices.into_iter().map(slice).collect(),
     fingerprint: unit.fingerprint,
+    renamed: unit.renamed,
   };
   output.kind = match unit.kind {
     UnitKind::Shape { changes } => {

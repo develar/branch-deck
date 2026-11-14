@@ -7299,6 +7299,26 @@ export type RenameProof =
  */
 "unavailable";
 
+/**  What the renames of a body that changed in them alone wait on */
+export type RenameWait = 
+/**  The index of the repository is asked (`RenameProof::Asked`): its answer may prove them */
+"checking" | 
+/**  No index proved them: none answered, or it did not list every use (`RenameProof::Unavailable`, `Incomplete`) */
+"notProven";
+
+/**  A name as the commits renamed it */
+export type RenamedName = {
+	old: string,
+	new: string,
+};
+
+/**  The renamed names a body changed in alone, which the index has not proven (`ReviewUnit::renamed`) */
+export type RenamedUses = {
+	/**  Each rename once, in the order of its first place in the unit */
+	names: RenamedName[],
+	wait: RenameWait,
+};
+
 /**
  *  A move within a file whose declarations were reordered where their order is free: the lines of its two ends,
  *  0-based, as the move names them (a move of `DiffMarks::moves` by `old_start`, `new_start` and `len` on both sides;
@@ -8234,6 +8254,12 @@ export type ReviewUnit = {
 	slices: UnitSlice[],
 	/**  The change across plans: the slice's, or of a group the set of its slices' (`units`, "Identity") */
 	fingerprint: string,
+	/**
+	 *  Of a `Behaviour` unit whose every changed line changed in renamed names that are not local, which the index has
+	 *  not proven (`renamed_uses`): those renames and what they wait on. `None` for any other unit, and once the index
+	 *  proved them (the diffs pass such lines) or said they are more than a rename
+	 */
+	renamed?: RenamedUses | null,
 };
 
 /**  The base and the tip of a branch as the user reviewed it */

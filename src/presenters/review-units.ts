@@ -1,4 +1,4 @@
-import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, ReviewTitle, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, RenamedUses, ReviewTitle, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
 import { plainTitle } from "@/lib/commit"
 import { headingText } from "@/lib/diff/rows"
 import type { Heading, HeadingPart, SectionUnits } from "@/lib/diff/rows"
@@ -83,8 +83,19 @@ function fileName(path: string): string {
 }
 
 /**
+ * A body that changed in renamed names alone, which the index has not proven (`ReviewUnit.renamed`, decided in Rust):
+ * "only renamed sumOf → totalOf, not proven", "only renamed a → b and c → d, checking"; the words of the header of the
+ * review for the same file are "not proven" and "checking renames"
+ */
+export function formatRenamedUses(renamed: RenamedUses): string {
+  const names = joinNames(renamed.names.map(name => `${name.old} → ${name.new}`))
+  return `only renamed ${names}, ${renamed.wait === "checking" ? "checking" : "not proven"}`
+}
+
+/**
  * The change of `unit` as the heading of its block words it: its name in the code font and what changed ("open" and
- * "parameters changed", "close" and "body changed", "Fresh" and "new"); "Changes outside a declaration" of no name
+ * "parameters changed", "close" and "body changed", "balance" and "only renamed sumOf → totalOf, not proven", "Fresh"
+ * and "new"); "Changes outside a declaration" of no name
  */
 export function formatUnitHeading(unit: ReviewUnit): HeadingPart {
   const name = unit.name ?? ""
@@ -93,7 +104,7 @@ export function formatUnitHeading(unit: ReviewUnit): HeadingPart {
     case "shape":
       return named(`${joinNames(unit.kind.changes.map(change => FORM_WORDS[change]))} changed`)
     case "behaviour":
-      return named("body changed")
+      return named(unit.renamed == null ? "body changed" : formatRenamedUses(unit.renamed))
     case "added":
       return named("new")
     case "removed":

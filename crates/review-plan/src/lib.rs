@@ -52,6 +52,7 @@ pub mod pair;
 pub mod prose;
 pub mod reading;
 pub mod registrations;
+mod renamed_uses;
 pub mod shown;
 pub mod steps;
 pub mod story;
@@ -631,7 +632,7 @@ pub fn review_plan_of(
         brief,
         steps,
       } = story(units.clone(), &links, &modules);
-      let plan = ReviewPlan {
+      let mut plan = ReviewPlan {
         branch: branch.clone(),
         title: title.clone(),
         base: base.clone(),
@@ -654,6 +655,7 @@ pub fn review_plan_of(
         reading: pair_reading.reading(),
         index_note: None,
       };
+      pair_reading.mark_renamed_uses(&mut plan.units);
       (plan, modules, tests)
     };
     // the usages of the API and the moves of the pairs need no module: each one query of the index, asked as soon as
@@ -736,6 +738,7 @@ pub fn review_plan_of(
           if !free.is_empty() {
             let told = story(units_of(&free), &plan.links, &modules);
             (plan.units, inline_tests, plan.concerns, plan.brief, plan.steps) = (told.units.units, told.units.tests, told.concerns, told.brief, told.steps);
+            pair_reading.mark_renamed_uses(&mut plan.units);
             if tests_asked {
               plan.steps.await_tests();
             }
@@ -762,6 +765,7 @@ pub fn review_plan_of(
         // the renames last, when the window that shows the pair asked them already: memory keeps its final answer
         pair_reading.answer(git, sources)?;
         plan.reading = pair_reading.reading();
+        pair_reading.mark_renamed_uses(&mut plan.units);
         Ok(plan)
       })
     })
@@ -872,6 +876,8 @@ mod prose_test;
 mod reading_test;
 #[cfg(test)]
 mod registrations_test;
+#[cfg(test)]
+mod renamed_uses_test;
 #[cfg(test)]
 mod shown_test;
 #[cfg(test)]

@@ -590,6 +590,29 @@ test.describe("The renames of a diff in a review with its plan", () => {
     await expect(renamedNames(code)).toHaveText(["all", "all"])
     await expect(code.locator(STRUCK_NAME)).toHaveCount(0)
   })
+
+  test("a body that changed in a rename no index proved says it is the rename, not proven, and a body with more beside it says it changed", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("simple")
+    // the private `sumOf` is `totalOf` at its declaration and its two calls; `half` also divides by another number
+    const ledger = (name: string, divisor: number) =>
+      `class Ledger(private val entries: List<Int>) {\n  fun balance(): Int {\n    return ${name}(entries)\n  }\n\n  fun half(): Int {\n    return ${name}(entries) / ${divisor}\n  }\n\n  private fun ${name}(list: List<Int>): Int {\n    var total = 0\n    for (e in list) {\n      total += e\n    }\n    return total\n  }\n}\n`
+    await repo.commit("Add the ledger", { "src/Ledger.kt": ledger("sumOf", 2) }, 1704120600)
+    await repo.pushInTerminal("master")
+    await repo.commit("(ledger) the sum of the ledger is its total", { "src/Ledger.kt": ledger("totalOf", 3) }, 1704121200)
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "ledger")
+    // no index proves the rename: the call says it is that rename, not proven; the call that also divides by another number changed
+    const code = window.getByTestId("commit-review-code")
+    const headings = code.getByTestId("diff-unit-heading")
+    await expect(headings.filter({ hasText: "balance" })).toHaveText("balance — only renamed sumOf → totalOf, not proven")
+    await expect(headings.filter({ hasText: "half" })).toHaveText("half — body changed")
+    // the call is read: the old name struck through before the new one, both in the mark of a renamed name
+    await expect(renamedNames(code).filter({ hasText: "totalOf" }).first()).toBeVisible()
+  })
 })
 
 // src/Pairs.kt of a change built in the test. In `sums` three locals are renamed, each declared on a line of one block

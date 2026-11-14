@@ -27,6 +27,8 @@
 //!   `review_units` names the files whose commits change a test inside them too, for `untested`: by a unit that is
 //!   `test`, a block of a repeated edit inside test code, a new file that declares a test.
 //! - **A group** is one unit over its files: a kind of mechanical change, a repeated edit.
+//! - **Renames**: a unit `Behaviour` whose body changed in renamed names alone that the index has not proven says so
+//!   (`ReviewUnit::renamed`), from the marks of the reading of the plan (`renamed_uses`), never another kind.
 //! - **The order**: the files in the order of the plan (`order`), each unit at its first block, the declarations
 //!   without a block after the unit of the block that holds them, by their line; a repeated edit at the place of its
 //!   first file; the mechanical units last.
@@ -166,6 +168,45 @@ pub struct ReviewUnit {
   pub slices: Vec<UnitSlice>,
   /// The change across plans: the slice's, or of a group the set of its slices' (`units`, "Identity")
   pub fingerprint: String,
+  /// Of a `Behaviour` unit whose every changed line changed in renamed names that are not local, which the index has
+  /// not proven (`renamed_uses`): those renames and what they wait on. `None` for any other unit, and once the index
+  /// proved them (the diffs pass such lines) or said they are more than a rename
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub renamed: Option<RenamedUses>,
+}
+
+/// The renamed names a body changed in alone, which the index has not proven (`ReviewUnit::renamed`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RenamedUses {
+  /// Each rename once, in the order of its first place in the unit
+  pub names: Vec<RenamedName>,
+  pub wait: RenameWait,
+}
+
+/// A name as the commits renamed it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RenamedName {
+  pub old: String,
+  pub new: String,
+}
+
+/// What the renames of a body that changed in them alone wait on
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum RenameWait {
+  /// The index of the repository is asked (`RenameProof::Asked`): its answer may prove them
+  Checking,
+  /// No index proved them: none answered, or it did not list every use (`RenameProof::Unavailable`, `Incomplete`)
+  NotProven,
 }
 
 /// The order of the mechanical units, as the tree of the review lists the kinds: the generated files last, which a
@@ -427,6 +468,7 @@ impl PairFile<'_> {
         line: None,
         fingerprint: slice.fingerprint.clone(),
         slices: vec![slice],
+        renamed: None,
       },
     }
   }
@@ -545,6 +587,7 @@ pub(crate) fn review_units(
         line: None,
         slices,
         fingerprint,
+        renamed: None,
       },
     });
   }
@@ -563,6 +606,7 @@ pub(crate) fn review_units(
         line: None,
         slices,
         fingerprint,
+        renamed: None,
       },
     });
   }
@@ -584,6 +628,7 @@ pub(crate) fn review_units(
       line: None,
       slices,
       fingerprint,
+      renamed: None,
     });
   }
   debug_assert!(every_block_once(files, pairs, &units), "a block in no unit or in two: {units:#?}");
@@ -947,6 +992,7 @@ impl SourceFile<'_, '_> {
           line: Some(form.line),
           slices: vec![pair_file.slice(false, unit_blocks, fingerprint.clone())],
           fingerprint,
+          renamed: None,
         },
       });
     }
@@ -967,6 +1013,7 @@ impl SourceFile<'_, '_> {
           line: None,
           slices: vec![pair_file.slice(false, run, fingerprint.clone())],
           fingerprint,
+          renamed: None,
         },
       });
     }

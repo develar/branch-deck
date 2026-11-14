@@ -1226,6 +1226,7 @@ fn unit_of(id: &str, kind: UnitKind, line: Option<u32>, blocks: Vec<UnitBlock>) 
       fingerprint: String::new(),
     }],
     fingerprint: String::new(),
+    renamed: None,
   }
 }
 

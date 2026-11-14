@@ -52,6 +52,22 @@ describe("the story of a review", () => {
     expect(formatUnitHeading(unit({ kind: "other", reason: "outside" }, "Store.kt", []))).toEqual({ name: null, words: "Changes outside a declaration" })
   })
 
+  it("words a body that changed in renamed names alone as the renames, not proven or checking, as Rust decided", () => {
+    const balance = unit({ kind: "behaviour" }, "balance", [])
+    const renamed = (wait: "checking" | "notProven", ...names: [string, string][]): ReviewUnit => ({
+      ...balance,
+      renamed: { names: names.map(([old, renamedTo]) => ({ old, new: renamedTo })), wait },
+    })
+    expect(headingText([formatUnitHeading(renamed("notProven", ["sumOf", "totalOf"]))])).toBe("balance — only renamed sumOf → totalOf, not proven")
+    expect(headingText([formatUnitHeading(renamed("checking", ["sumOf", "totalOf"]))])).toBe("balance — only renamed sumOf → totalOf, checking")
+    expect(formatUnitHeading(renamed("notProven", ["sumOf", "totalOf"], ["count", "size"]))).toEqual({
+      name: "balance",
+      words: "only renamed sumOf → totalOf and count → size, not proven",
+    })
+    // no renames Rust told of: the body changed
+    expect(headingText([formatUnitHeading({ ...balance, renamed: null })])).toBe("balance — body changed")
+  })
+
   it("makes a run of changes of one file one section with a heading per change, and a group a section per file", () => {
     const units = [
       unit({ kind: "shape", changes: ["parameters"] }, "open", [{ path: "src/Api.kt", blocks: [block(1, 10)] }]),

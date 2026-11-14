@@ -1012,6 +1012,15 @@ describe("the document of a review", () => {
       // the card of its hover: what it is and where, never the name again; its step, which is not the one read
       card: { status: "New file", tone: "success", location: "LayoutStore.kt:4", step: "in step 5" },
     })
+    // a body that changed in a rename the index has not proven: the badge says so, never "Body changed"
+    const balance: ReviewUnit = { ...unit, id: "declaration:src/a/Ledger.kt:a.Ledger.balance:", kind: { kind: "behaviour" }, name: "balance", key: "a.Ledger.balance", line: 6 }
+    const badge = (renamed: ReviewUnit["renamed"]) =>
+      mentionWords({ units: [{ ...balance, renamed }] })(
+        { kind: "unit", unit: balance.id, name: "balance", path: "src/a/Ledger.kt", side: "new", line: 6, step: 4 },
+        "Ledger.balance",
+      ).card?.status
+    const names = [{ old: "sumOf", new: "totalOf" }]
+    expect([badge({ names, wait: "notProven" }), badge({ names, wait: "checking" }), badge(null)]).toEqual(["Renamed, not proven", "Renamed, checking", "Body changed"])
     // read in its own step, the card names no step
     expect(
       mentionWords({ units: [fresh] }, 4)({ kind: "unit", unit: fresh.id, name: "read", path: "src/a/LayoutStore.kt", side: "new", line: 4, step: 4 }, "LayoutStore.read").card

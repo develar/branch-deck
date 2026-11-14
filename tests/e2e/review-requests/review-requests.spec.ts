@@ -1790,6 +1790,30 @@ test.describe("What a range leaves to read", () => {
     await expect(review.getByTestId("review-reading")).toHaveText("1 change to read in 1 file")
   })
 
+  test("should say of a call that changed in a rename no index proved that it is the rename, not proven, as the header says of its file", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const renamed = reviewRequest("rename", 405, 4, { title: "Rename the sum helper", author: "niyaz" })
+    const repo = await setupRepo("stacked_reading", { reviewRequests: availableReviewRequests([renamed]) })
+    turnOnReviewPlan(repo)
+    await syncAndWaitForBranches()
+    const { window, review, fetched } = await openRequestReview(page, 405)
+    await fetched
+    await window.keyboard.press("d")
+    // the repository has no index: the header says the file is not proven, and each call of the renamed `sumOf` says
+    // it is that rename, never that its body changed
+    await expect(review.getByTestId("review-reading")).toHaveText("4 changes to read in 1 file · 1 file not proven")
+    const headings = window.getByTestId("diff-unit-heading")
+    await expect(headings.filter({ hasText: /^(balance|balanceOn|averageAmount) — / })).toHaveText([
+      "balance — only renamed sumOf → totalOf, not proven",
+      "balanceOn — only renamed sumOf → totalOf, not proven",
+      "averageAmount — only renamed sumOf → totalOf, not proven",
+    ])
+    await expect(headings.filter({ hasText: "body changed" })).toHaveCount(0)
+  })
+
   test("should open a stack on its first layer to read, fold the layers with nothing to read and pass them by ↑/↓", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("stacked_reading", { reviewRequests: availableReviewRequests([READ_FORMAT, READ_CHECK, READ_TIDY, READ_LOGIN]) })
     turnOnReviewPlan(repo)

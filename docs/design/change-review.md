@@ -603,6 +603,18 @@ the review.
    24 s, that plan at 70 s); asked beside the modules, 0.03–1.8 s after them (a cold usages query answered at 8 s, the
    modules at 22 s). The plan whole still waits for the tests, asked after the modules, and came at 15–88 s on those
    ranges.
+31. **A body changed in a rename no index proved says the rename** (2026-11-14). On a pull request that only renamed a
+   private helper (`return sumOf(entries)` to `return totalOf(entries)` in two functions), without an index each call
+   stood under "balance — body changed" while the header of the same review said "4 changes to read in 1 file · 1 file
+   not proven": "body changed" reads as a change of behaviour, and the only change there is a name whose rename the
+   index did not prove. A unit `behaviour` whose every changed line is a run `Renamed` of a name that is not local, not
+   proven, now carries the renames and what they wait on (`ReviewUnit::renamed`, `checking` while the index is asked,
+   `notProven` where none answered), read from the marks the reading of the plan proves (`renamed_uses.rs`), so the
+   heading says what the header says of the same file: "balance — only renamed sumOf → totalOf, not proven". It is a
+   word of the unit, never another kind: the concerns, the brief and the steps read the body as they did, and a plan
+   the index answers drops the word without telling the story again. A rename the index confirmed makes its lines quiet
+   and leaves the heading as it was; any other answer (uses outside, another meaning) and any other change of the body
+   keep "body changed": more than a proven rename is read.
 
 ## Review Rounds
 

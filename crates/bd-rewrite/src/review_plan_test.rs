@@ -303,3 +303,36 @@ fn prints_the_texts_of_the_ui() {
   let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["review_plan"], &schema["outputs"]["review_plan"], &output, "review_plan");
 }
+
+/// The units of a private function renamed at its declaration and its calls, which no index of the repository proves:
+/// each call is `behaviour` with the rename it changed in alone, not proven; no other unit says one
+#[test_log::test]
+fn prints_the_renamed_of_a_body_changed_in_a_rename_alone() {
+  let ledger = |name: &str| {
+    format!(
+      "package a\n\nclass Ledger(private val entries: List<Int>) {{\n  fun balance(): Int {{\n    return {name}(entries)\n  }}\n\n  private fun {name}(list: List<Int>): Int {{\n    return list.sum()\n  }}\n}}\n"
+    )
+  };
+  let repo = repo_with_baseline(&[("src/a/Ledger.kt", &ledger("sumOf"))]);
+  let base = git(&repo, &["rev-parse", "HEAD"]);
+  write(&repo, "src/a/Ledger.kt", ledger("totalOf"));
+  commit_all(&repo, "Rename sumOf", 1_700_000_100);
+
+  let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
+  assert_eq!(exit_code, 0, "{output}");
+  let renamed: Vec<(Value, Value)> = output["units"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|unit| (unit["name"].clone(), unit.get("renamed").cloned().unwrap_or(Value::Null)))
+    .collect();
+  assert_eq!(
+    renamed,
+    [
+      (json!("balance"), json!({ "names": [{ "old": "sumOf", "new": "totalOf" }], "wait": "notProven" })),
+      (json!("totalOf"), Value::Null),
+      (json!("sumOf"), Value::Null),
+    ],
+    "{output}"
+  );
+}

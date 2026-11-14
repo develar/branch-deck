@@ -208,7 +208,7 @@ warning tone, or a compact chip of the title after them, its hover why.
 
 ### Requirement: `brd`: brd review-plan prints the reading of the pair
 
-`brd review-plan` MUST print the `reading` of its pair, the same `RangeReading` the window reads, with `"schema": 36`.
+`brd review-plan` MUST print the `reading` of its pair, the same `RangeReading` the window reads, with `"schema": 37`.
 
 #### Scenario: The output is in the schema
 - **WHEN** `brd schema` runs

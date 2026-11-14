@@ -16,6 +16,8 @@
 
 use crate::PlanSources;
 use crate::modules::reading_role;
+use crate::renamed_uses::mark_renamed_uses;
+use crate::units::ReviewUnit;
 use anyhow::Result;
 use code_tokens::grammar_of;
 use domain_types::range_reading::{FileRole, QuietProof, RangeReading, RoleReading, Unproven, UnprovenFile};
@@ -190,6 +192,12 @@ impl PlanReading {
 
   pub(crate) fn reading(&self) -> RangeReading {
     range_reading(&self.read)
+  }
+
+  /// The units of `units` whose body changed in renamed names alone that the index has not proven, told so by the
+  /// marks this reading proves (`renamed_uses`): what the header says of their file, said of each of them
+  pub(crate) fn mark_renamed_uses(&self, units: &mut [ReviewUnit]) {
+    mark_renamed_uses(units, &self.read);
   }
 
   /// The answers of the index put in: one query of every rename of the subject, none when memory has a final answer
