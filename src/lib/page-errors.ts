@@ -1,4 +1,4 @@
-import { error as logToBackend } from "@tauri-apps/plugin-log"
+import { error as logToBackend, warn as warnToBackend } from "@tauri-apps/plugin-log"
 
 /*
  * The errors of the page that nothing caught reach the log of the app (`BranchDeck.log`), not only the console of the
@@ -20,7 +20,42 @@ export function logUncaughtError(title: string, error: unknown, componentStack?:
   })
 }
 
+/** What the engine reports of a ResizeObserver whose rendering update skipped an observation it resized again */
+const RESIZE_LOOP = "ResizeObserver loop completed with undelivered notifications."
+/** More loops than this within `RESIZE_LOOP_WINDOW_MS` are a cycle, which renders the window again and again */
+const RESIZE_LOOPS_OF_A_CYCLE = 2
+const RESIZE_LOOP_WINDOW_MS = 1000
+/** When the window reported its last loops */
+const resizeLoops: number[] = []
+
+/**
+ * A ResizeObserver loop: one is no failure, its notifications come in the next frame (the observers of a library, timed
+ * as the specification says, can make one under load), and the log has a warning of it; more than
+ * `RESIZE_LOOPS_OF_A_CYCLE` within a second are a cycle, an error (docs/contributing/frontend.md, "A flushSync in the
+ * delivery of a ResizeObserver")
+ */
+function logResizeLoop(): void {
+  const now = performance.now()
+  resizeLoops.push(now)
+  while (resizeLoops[0]! < now - RESIZE_LOOP_WINDOW_MS) {
+    resizeLoops.shift()
+  }
+  if (resizeLoops.length > RESIZE_LOOPS_OF_A_CYCLE) {
+    logUncaughtError("A ResizeObserver loop repeats in the page", `${resizeLoops.length} loops within ${RESIZE_LOOP_WINDOW_MS} ms`)
+    return
+  }
+  console.warn(RESIZE_LOOP)
+  warnToBackend(`A ResizeObserver loop of the page: ${RESIZE_LOOP}`).catch((logFailure: unknown) => {
+    console.error("Failed to forward the warning to backend log", logFailure)
+  })
+}
+
 window.addEventListener("error", event => {
+  // the engine's event of a loop carries no error, only its words
+  if (event.error === null && event.message === RESIZE_LOOP) {
+    logResizeLoop()
+    return
+  }
   logUncaughtError("Uncaught error of the page", event.error ?? event.message)
 })
 window.addEventListener("unhandledrejection", event => {

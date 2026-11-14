@@ -300,7 +300,7 @@ export async function whenSessionViewAt(repositoryPath: string, version: Version
 export async function refreshSessionFacts(repositoryPath: string, family: FactFamily, reason: FactRefreshReason, subject?: string): Promise<boolean> {
   const result = await commands.refreshFacts({ repositoryPath, family, reason, ...(subject !== undefined && { subject }) })
   if (result.status === "error") {
-    console.warn("Cannot ask the session to read its facts again", result.error)
+    logError("Cannot ask the session to read its facts again", result.error)
     return false
   }
   await whenSessionViewAt(repositoryPath, result.data)

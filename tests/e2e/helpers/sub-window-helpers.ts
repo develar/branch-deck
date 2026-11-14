@@ -87,6 +87,12 @@ export async function openSubWindowPage(page: Page, subWindow: OpenedSubWindow):
   await page.addInitScript(data => {
     ;(window as unknown as { __INIT_DATA__: unknown }).__INIT_DATA__ = data
   }, subWindow.data)
+  // the page leaves for the page of another window, which the app never does (each window is a webview of its own):
+  // WebKit fails the requests it still has then, which base-test counts no error of the app (`[e2e-leaving]`)
+  await page.evaluate(() => {
+    ;(window as unknown as { __e2eLeaving: boolean }).__e2eLeaving = true
+    console.info("[e2e-leaving]")
+  })
   await page.goto(`${subWindow.url}?repoId=${repoId}`)
 }
 

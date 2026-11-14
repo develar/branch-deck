@@ -1,6 +1,6 @@
 import type { BrowserContext, Locator, Page } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
-import { resizeTrace } from "../setup/resize-trace"
+import { resizeObservers } from "../setup/resize-observers"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
 
 /**
@@ -142,9 +142,11 @@ export function hoverSubmenuTrigger(trigger: Locator, options?: HoverOptions): P
 const LOG_ERROR_MARK = "[e2e-log-error] "
 /**
  * The same of a page that leaves for the page of another window (`openSubWindowPage`), which the app never does: the
- * requests it still had fail in WebKit ("Load failed"), and nothing of the app failed
+ * requests it still had fail in WebKit, which is no error of the app (`NETWORK_FAILURE`); any other error of it counts
  */
 const LEAVING_LOG_ERROR_MARK = "[e2e-log-error-leaving] "
+/** What WebKit and Chromium say of a request that failed as its page left: no error of the app */
+const NETWORK_FAILURE = /Load failed|Failed to fetch|Fetch API cannot load .* due to access control checks/
 
 /** An error a test declares (`expectErrorLog`), and whether it must come (`allowErrorLog`: it may) */
 interface DeclaredError {
@@ -230,8 +232,8 @@ export const test = base.extend({
     const leaving: string[] = []
     const uncaught: Error[] = []
     const consoleErrors: string[] = []
-    // the pages that leave for the page of another window, until their next document: what fails of their requests then
-    // is no error of the app
+    // the pages that leave for the page of another window (`openSubWindowPage` tells it), until their next document: a
+    // request of theirs that fails then is no error of the app
     const leavingPages = new Set<Page>()
     const followNavigations = (opened: Page) => opened.on("framenavigated", frame => frame === opened.mainFrame() && leavingPages.delete(opened))
     followNavigations(page)
@@ -245,20 +247,26 @@ export const test = base.extend({
       } else if (message.type() === "info" && message.text().startsWith(LOG_ERROR_MARK)) {
         logged.push(message.text().slice(LOG_ERROR_MARK.length))
       } else if (message.type() === "info" && message.text().startsWith(LEAVING_LOG_ERROR_MARK)) {
-        leaving.push(message.text().slice(LEAVING_LOG_ERROR_MARK.length))
+        const line = message.text().slice(LEAVING_LOG_ERROR_MARK.length)
+        // a request that failed as the page left is no error of the app; any other error of the leaving page counts
+        ;(NETWORK_FAILURE.test(line) ? leaving : logged).push(line)
       } else if (process.env.DEBUG_E2E) {
         console.log("[Browser]", message.type(), message.text())
       } else if (message.type() === "error") {
         pageErrors.push(message.text())
       }
       const from = message.page()
-      if (message.type() === "error" && (from === null || !leavingPages.has(from))) {
+      if (message.type() === "error" && !(from !== null && leavingPages.has(from) && NETWORK_FAILURE.test(message.text()))) {
         consoleErrors.push(message.text())
       }
     })
     context.on("weberror", error => {
       const from = error.page()
-      if (from === null || !leavingPages.has(from)) {
+      // a ResizeObserver loop is the page's to weigh (`src/lib/page-errors.ts`): one is a warning, harmless as its
+      // notifications come in the next frame; a cycle is an error line, on which the test fails
+      const loop = error.error().message.includes("ResizeObserver loop completed with undelivered notifications")
+      const leftBehind = from !== null && leavingPages.has(from) && NETWORK_FAILURE.test(error.error().message)
+      if (!loop && !leftBehind) {
         uncaught.push(error.error())
       }
       pageErrors.push(`Uncaught: ${error.error().stack ?? error.error().message}`)
@@ -275,9 +283,9 @@ export const test = base.extend({
     // Inject Tauri mocks before each navigation
     await page.addInitScript(tauriMockInitScript())
     // the trace of the ResizeObservers of the pages, and a CPU as slow as a loaded machine's (Chromium only): what found the
-    // loops of the toasts, of a review and of the branch columns (tests/e2e/setup/resize-trace.ts)
+    // loops of the toasts, of a review and of the branch columns (tests/e2e/setup/resize-observers.ts)
     if (process.env.E2E_RO_TRACE) {
-      await context.addInitScript(resizeTrace)
+      await context.addInitScript(resizeObservers, { trace: true })
       if (process.env.E2E_CPU_THROTTLE) {
         const rate = Number(process.env.E2E_CPU_THROTTLE)
         context.on("page", async opened => {

@@ -4,6 +4,7 @@ import { createStore } from "zustand/vanilla"
 import type { PatronusRobot, RobotCommitMap, RobotCommitState } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { getCommitHash } from "@/lib/commit"
+import { logError } from "@/lib/errors"
 import type { LandingDescendant } from "@/lib/patronus"
 import type { RobotCoverage } from "@/lib/robot-coverage"
 import { branchCoverageOf, robotCoverageNeed, robotCovers } from "@/lib/robot-coverage"
@@ -179,7 +180,7 @@ async function askRobotCoverage(): Promise<void> {
             })
             .catch((error: unknown) => ({ status: "error" as const, error }))
           if (result.status === "error") {
-            console.warn("Cannot read which commits the robot covers", result.error)
+            logError("Cannot read which commits the robot covers", result.error)
           }
           robotCoverageStore.setState(it => ({ maps: { ...it.maps, [coverage]: result.status === "ok" ? result.data : null } }))
         } finally {

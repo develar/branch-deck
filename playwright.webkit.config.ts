@@ -41,6 +41,7 @@ export default defineConfig({
     "commit-files/subject-marks.spec.ts",
     "commit-files/symbol-navigation.spec.ts",
     "commit-message/commit-message.spec.ts",
+    "resize-loops/resize-loops.spec.ts",
   ],
   grep: [/drag|dropped|new branch zone/i, /@webkit/],
   ignoreSnapshots: true,

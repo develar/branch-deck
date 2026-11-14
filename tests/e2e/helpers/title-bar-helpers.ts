@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import type { TitleBar } from "../../../src/lib/title-bar"
 import { expect } from "../fixtures/base-test"
 
@@ -56,4 +56,15 @@ export async function openMainMenuView(page: Page): Promise<void> {
   await expect(page.getByRole("menuitem", { name: /Sync Branches/ })).toBeVisible()
   await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[role=menu]") !== null)).toBe(true)
   await page.keyboard.press("ArrowRight")
+}
+
+/** A toast of the page with `text` */
+export function toastWith(page: Page, text: string): Locator {
+  return page.locator("[data-slot=toast]").filter({ hasText: text })
+}
+
+/** Check for Updates… of Help of ☰ of a custom title bar, as Alt+H opens it */
+export async function checkForUpdatesFromMenu(page: Page): Promise<void> {
+  await page.keyboard.press("Alt+KeyH")
+  await page.getByRole("menuitem", { name: "Check for Updates…" }).click()
 }

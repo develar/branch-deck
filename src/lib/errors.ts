@@ -1,4 +1,4 @@
-import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
+import { error as logErrorToBackend, warn as logWarningToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
 import type { ApiError, ErrorCode } from "@/lib/bindings"
 import type { ToastActionProps } from "@/lib/toast-message"
@@ -119,6 +119,14 @@ export function notifyError(title: string, error: unknown, action?: ToastActionP
         },
       },
     }),
+  })
+}
+
+/** Logs a warning: no failure of the app, a thing of the user's own the app cannot use (a pattern of theirs that is no regex) */
+export function logWarning(title: string, detail: unknown): void {
+  console.warn(title, detail)
+  logWarningToBackend(title, { keyValues: { detail: getErrorDetails(detail) } }).catch((logFailure: unknown) => {
+    console.error("Failed to forward the warning to backend log", logFailure)
   })
 }
 

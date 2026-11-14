@@ -172,9 +172,15 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   ([Patched Dependencies](#patched-dependencies)); the tests of "Hover back over a trigger whose popup closed"
   (`branch-row-layout.spec.ts`) fail without it.
 - **A flushSync in the delivery of a ResizeObserver** renders every update pending then, which can resize other observed
-  elements after their reports: a ResizeObserver loop, an uncaught error the E2E tests fail on. Toast.Content of Base UI
-  1.9 set the height of its toast so; the same patch sets it in the next frame. Our own observers that render at once
-  (`useMeasuredHeights`) measure again what that render resized and observe it anew from the next frame.
+  elements after their reports, and WebKit renders a commit of React that waited in a microtask after the callback in
+  that same rendering update: a ResizeObserver loop. Toast.Content of Base UI 1.9 set the height of its toast so; the
+  same patch sets it in the next frame (an issue for upstream is drafted). Every observer of ours is made by
+  `observeSize` (src/lib/observe-size.ts, `pnpm lint:arch` `resize-observer`): until the next task after a report, an
+  element a change of its subtree touches leaves its observer and is observed anew, read a frame later; an element let
+  go so in every frame of a second is a cycle, logged as an error. The page logs a single loop as a warning (a library's
+  observer may make one under load) and a repeated one as an error (`src/lib/page-errors.ts`). The WebKit check
+  `tests/e2e/resize-loops/` attributes each loop in the test only: one of an observer of ours fails it, one of a
+  library's is a warning of its report. `react-resizable-panels` 4.18 makes no flushSync in its observers.
 - **A disabled root does not hear the pointer that came**: Base UI listens on the trigger of a disabled tooltip only once
   it is enabled, so a tooltip that got its words with the pointer resting on it (the description of Approve) opened
   only at the next move. The tooltip replays the hover of its trigger as it is enabled (`hoverAgain`), for a pointer

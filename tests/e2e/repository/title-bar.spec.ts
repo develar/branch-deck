@@ -9,7 +9,7 @@ import { availableReviewRequests, getYourTurnCard, openRequestReview, reviewRequ
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents, getOpenedSubWindows, getWindowMenus, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
-import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
+import { checkForUpdatesFromMenu, TITLE_BARS, toastWith, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
 import { waitForConflictViewer, expectClosed } from "../helpers/wait-helpers"
 
@@ -494,17 +494,6 @@ test.describe("Main menu", () => {
     await expect(settings.getByTestId("setting-systemTitleBar-restart")).toContainText("Applies after a restart")
   })
 })
-
-/** A toast of the page with `text` */
-function toastWith(page: Page, text: string): Locator {
-  return page.locator("[data-slot=toast]").filter({ hasText: text })
-}
-
-/** Check for Updates… of Help of ☰, as Alt+H opens it */
-async function checkForUpdatesFromMenu(page: Page): Promise<void> {
-  await page.keyboard.press("Alt+KeyH")
-  await page.getByRole("menuitem", { name: "Check for Updates…" }).click()
-}
 
 test.describe("Check for Updates", () => {
   test("should say the app is up to date, offer the downloaded update, and say why its install failed", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -3,6 +3,7 @@
  * (`.idea/vcs.xml`) of the selected project.
  */
 import type { IssueNavigationConfig } from "@/lib/bindings"
+import { logWarning } from "@/lib/errors"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 export interface CompiledIssuePattern {
@@ -36,7 +37,7 @@ export function compileIssuePatterns(config: IssueNavigationConfig | null | unde
       // IntelliJ uses Java regex syntax; `\b` works the same in JavaScript
       compiled.push({ regex: new RegExp(link.issueRegexp, "g"), linkTemplate: link.linkRegexp })
     } catch (error) {
-      console.warn("Failed to compile issue pattern:", link.issueRegexp, error)
+      logWarning(`Cannot read the issue pattern ${link.issueRegexp} of the IntelliJ settings`, error)
     }
   }
   compiledCache.set(config, compiled)
