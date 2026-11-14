@@ -6,7 +6,8 @@
 //!
 //! One `status` of the index of the worktree (read only) names the paths that differ from HEAD; their files go into
 //! the commit as `add` would take them: a file by `hash-object -w --stdin-paths` (the clean filters and the end of line
-//! conversion of its path apply) with the mode of its executable bit, a link by its target, a directory with `.git` as
+//! conversion of its path apply; a tracked file that `add` keeps as it is by the safer autocrlf, `crlf`, by
+//! `--no-filters`) with the mode of its executable bit, a link by its target, a directory with `.git` as
 //! the gitlink of its HEAD, a missing file as a deletion, and an untracked directory (the `normal` mode) by its files
 //! that `ls-files --others --exclude-standard` names; then one `fast-import` writes the commit from the tree of HEAD.
 //! In idea-1 (1.4M files, a 138 MB index) the `add` of one file into a copy of the index took 1.5 s and the
@@ -14,14 +15,18 @@
 //! beside the `status`. A repository whose git does not trust the executable bit or links (`core.fileMode`,
 //! `core.symlinks` false), and a path with a newline, which `--stdin-paths` can't name, take the index copy instead
 
+use crate::cat_file_batch::{BatchEntry, read_objects};
+use crate::commit_files::MAX_BLOB_BYTES;
 use crate::commit_signing::Signing;
 use crate::commit_writer::{EditedCommit, TreeEdit, write_edited_commit};
+use crate::crlf::{crlf_kept_paths, is_crlf_text};
 use crate::lease_slot::LeaseConfig;
 use crate::ref_transaction::RefTransaction;
 use crate::revs::is_object_id;
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::io::Write as _;
+use std::collections::HashSet;
+use std::io::{Read as _, Write as _};
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
@@ -226,18 +231,73 @@ fn file_edits(git: &GitCommandExecutor, worktree: &str, entries: &[StatusEntry])
     return Ok(None);
   }
   if !files.is_empty() {
-    let input: String = files.iter().flat_map(|file| [file.path.as_str(), "\n"]).collect();
-    let ids = git.cmd(&["hash-object", "-w", "--stdin-paths"], worktree).stdin(input.as_bytes()).lines()?;
-    if ids.len() != files.len() {
-      bail!("git hash-object answered {} ids for {} files", ids.len(), files.len());
+    let as_they_are = kept_as_they_are(git, worktree, entries, &files)?;
+    let (raw, filtered): (Vec<HashedFile>, Vec<HashedFile>) = files.into_iter().partition(|file| as_they_are.contains(&file.path));
+    for (files, args) in [
+      (filtered, &["hash-object", "-w", "--stdin-paths"][..]),
+      (raw, &["hash-object", "-w", "--no-filters", "--stdin-paths"][..]),
+    ] {
+      if files.is_empty() {
+        continue;
+      }
+      let input: String = files.iter().flat_map(|file| [file.path.as_str(), "\n"]).collect();
+      let ids = git.cmd(args, worktree).stdin(input.as_bytes()).lines()?;
+      if ids.len() != files.len() {
+        bail!("git hash-object answered {} ids for {} files", ids.len(), files.len());
+      }
+      edits.extend(files.into_iter().zip(ids).map(|(file, id)| FileEdit::Object {
+        path: file.path,
+        mode: file.mode,
+        id,
+      }));
     }
-    edits.extend(files.into_iter().zip(ids).map(|(file, id)| FileEdit::Object {
-      path: file.path,
-      mode: file.mode,
-      id,
-    }));
   }
   Ok(Some(FileEdits(edits)))
+}
+
+/// The tracked files of `files` that `add` stages as they are, though `hash-object`, which reads no index, normalizes
+/// them (`crlf`): a file that holds a CR, whose blob in the index is text with CRLF, under attributes that leave git the
+/// safer autocrlf. One `check-attr` and one `cat-file --batch` of their index blobs (an index blob over
+/// `MAX_BLOB_BYTES` takes the filters); none when no tracked file holds a CR
+fn kept_as_they_are(git: &GitCommandExecutor, worktree: &str, entries: &[StatusEntry], files: &[HashedFile]) -> Result<HashSet<String>> {
+  let tracked: HashSet<&str> = entries.iter().filter(|entry| entry.code != "??").map(|entry| entry.path.as_str()).collect();
+  let root = Path::new(worktree);
+  let with_cr: Vec<&str> = files
+    .iter()
+    .map(|file| file.path.as_str())
+    .filter(|path| tracked.contains(path) && holds_cr(&root.join(path)))
+    .collect();
+  if with_cr.is_empty() {
+    return Ok(HashSet::new());
+  }
+  let kept = crlf_kept_paths(git, worktree, with_cr.iter().copied())?;
+  let paths: Vec<&str> = with_cr.into_iter().filter(|path| kept.contains(*path)).collect();
+  if paths.is_empty() {
+    return Ok(HashSet::new());
+  }
+  let names: Vec<String> = paths.iter().map(|path| format!(":{path}")).collect();
+  let crlf = read_objects(
+    git,
+    worktree,
+    &names,
+    MAX_BLOB_BYTES,
+    |entry| matches!(entry, BatchEntry::Object { kind: "blob", content, .. } if is_crlf_text(&content)),
+  )?;
+  Ok(paths.into_iter().zip(crlf).filter(|(_, crlf)| *crlf).map(|(path, _)| path.to_string()).collect())
+}
+
+/// Whether the file at `path` holds a CR, read in chunks; a file that can't be read holds none, and `hash-object` says
+/// why
+fn holds_cr(path: &Path) -> bool {
+  let Ok(mut file) = std::fs::File::open(path) else { return false };
+  let mut buffer = vec![0; 64 << 10];
+  loop {
+    match file.read(&mut buffer) {
+      Ok(0) | Err(_) => return false,
+      Ok(count) if memchr::memchr(b'\r', &buffer[..count]).is_some() => return true,
+      Ok(_) => {}
+    }
+  }
 }
 
 /// Sort `paths` by what their files are: a deletion, a link and a gitlink (`rev-parse HEAD` in it) are edits, a file is

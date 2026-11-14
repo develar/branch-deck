@@ -137,6 +137,39 @@ fn the_commit_of_a_worktree_is_what_add_all_stages_from_its_files_or_a_copy_of_i
   assert!(leftover.is_empty(), "the copy goes with its directory: {leftover:?}");
 }
 
+/// A tracked file whose blob holds CRLF, edited under `text=auto`, keeps its CRLF in what `add` stages (the safer
+/// autocrlf), though `hash-object` normalizes it: the commit from the files takes it as it is (`--no-filters`), with one
+/// `check-attr` and one `cat-file` of its index blob more. A file under `text` and a new file take the conversion, as
+/// `add` does
+#[test]
+fn a_crlf_blob_edited_under_text_auto_keeps_its_crlf_as_add_does() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Add files", &[("win.txt", "one\r\ntwo\r\n"), ("strict.crlf", "one\r\ntwo\r\n")]);
+  repo.create_commit("Set the line ends", ".gitattributes", "*.txt text=auto eol=lf\n*.crlf text eol=lf\n");
+  for file in ["win.txt", "strict.crlf", "new.txt"] {
+    std::fs::write(repo.path().join(file), "one\r\ntwo\r\nthree\r\n").unwrap();
+  }
+  let expected = added_tree(&repo);
+
+  let git = counting();
+  let written = commit(&git, &repo, &LeaseConfig::default());
+  assert_eq!(written.tree, expected);
+  let blob = |file: &str| {
+    repo
+      .git_executor()
+      .cmd(&["cat-file", "blob", &format!("{}:{file}", written.commit)], repo.path_str())
+      .bytes()
+      .unwrap()
+  };
+  assert_eq!(blob("win.txt"), b"one\r\ntwo\r\nthree\r\n");
+  assert_eq!(blob("strict.crlf"), b"one\ntwo\nthree\n");
+  assert_eq!(blob("new.txt"), b"one\ntwo\nthree\n");
+  assert_processes(
+    &git,
+    &[("cat-file", 1), ("check-attr", 1), ("fast-import", 1), ("hash-object", 2), ("status", 1), ("update-ref", 1)],
+  );
+}
+
 /// A clean worktree is HEAD after one status; the index copy takes more paths than `PATHSPEC_ADD_MAX` in one add of
 /// every path
 #[test]

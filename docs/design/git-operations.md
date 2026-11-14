@@ -2735,7 +2735,10 @@ tree of a client (`brd-host run`) are one function, `git_ops::worktree_snapshot:
 the commit on HEAD of what `git add --all` would stage, without a write of the index. One `status` of the index, read
 only, names the paths; their files become blobs (`hash-object -w --stdin-paths`, which applies the clean filters and
 the end of line of each path), links, gitlinks and deletions, and one `fast-import` writes the commit from the tree of
-HEAD. The `status` lists untracked files in the configured mode (`UntrackedFiles`): yonderd forced `normal`, and in
+HEAD. `hash-object` reads no index, so a tracked file that `add` keeps as it is by the safer autocrlf (`crlf`: its blob
+in the index is text with CRLF, under `text=auto`, `-text` or no `text` and `eol`) is hashed with `--no-filters`: one
+`check-attr` of the tracked files that hold a CR and one `cat-file --batch` of their index blobs, none when no tracked
+file holds one. The `status` lists untracked files in the configured mode (`UntrackedFiles`): yonderd forced `normal`, and in
 idea-1, which configures `all`, a `status` with `normal` walked every directory in 41 s, with `all` it took 2 s.
 yonder built the tree in a copy of the index instead: an add of the paths and a `write-tree`. Measured on 2026-10-28
 in a lease of idea-1 (1.4M files, a 138 MB index, load 60–80), median seconds:
