@@ -947,6 +947,21 @@ flowchart TD
   before), a warm one 0.3–0.9 s with outliers to 2.9 s under the load; the walk 0.05–0.3 s warm. accio answers more
   roots than the walk (a `go.mod`, a `pyproject.toml`, JetBrains/accio#782 for those in test data), which a sync would
   not need: Kotlin's `internal`, a Rust crate and a TypeScript package end where the walk says.
+
+  Measured again the same day with the accio of answers `modules` 1, `moves` 2 (built from JetBrains/accio main with
+  the `final` renames, the proven `references --at` and the tsconfig paths), at trees no query had asked, load average
+  46–49:
+
+  | Distance | Paths | accio first / second / third | `cat-file` of the trees |
+  |---|---|---|---|
+  | 2 | 261 | 10.71 / 0.42 / 0.44 s | 0.45 s |
+  | 9 | 203 | 2.48 / 0.87 / 0.69 s | 1.40 s (cold pack) |
+  | 44 | 98 | 4.31 / 0.52 / 0.35 s | 0.06 s |
+  | 149 | 104 | 3.37 / 0.53 / 0.32 s | 0.06 s |
+  | 449 | 76 | 5.73 / 0.94 / 0.64 s | 0.26 s |
+
+  The first query at a new tree took 2.5–10.7 s, a warm one 0.3–0.9 s: still seconds where a sync has the 0.45 s of
+  an unchanged sync in all, so the trial-check keeps its walk.
 - **More checks of a branch's tree beside those of decision 15** (`unimplemented_member`, `non_exhaustive_when`):
   the branch's tree has a class that doesn't override an abstract member of its one supertype while HEAD does, or a
   `when` over an enum without `else` that lacks a branch HEAD has for an entry the tree declares. The oracle is the
