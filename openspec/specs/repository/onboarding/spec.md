@@ -1502,6 +1502,13 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
   session before runs: the waiting request is answered with nothing done
   [@test] crates/repository-model/src/session_test.rs (`a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_the_run_ended`)
 
+#### Scenario: A run across a lease change marks nothing
+- **GIVEN** a run of the session began under one lease of the slot
+- **WHEN** the slot is returned and leased again before the run ended
+- **THEN** the run marks no worktree synced (the session writes the mark, only under the lease the run began under), so
+  the session of the new lease does not sync of itself; a run under one lease throughout marks it
+  [@test] crates/repository-model/src/session_test.rs (`a_run_marks_the_worktree_synced_only_under_the_lease_it_began_under`)
+
 #### Scenario: A stamp of a new lease during a check
 - **GIVEN** a check of the inputs of a focus of the session under the lease before is in flight, and no run
 - **WHEN** the stamp of the new lease comes
@@ -1520,6 +1527,7 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
   [@test] src/stores/branch-preview.test.ts (`closes when the window takes the view of another session of the repository: a branch of the same name there is another branch`)
   [@test] src/stores/view-rows.test.ts (`forget the confirm of a Force Push, whose accept pushes what the session before held`, `close the Request Review… popover of a branch`, `close the popover of a start and forget the clicks that wait for the plan of one`, `close the Create Pull Request dialog of a branch`)
   [@test] src/stores/branch-table-rows.test.ts (`forgets which side stacks the user collapsed or expanded once the window takes the view of another session`)
+  [@test] scripts/lint-arch.test.mjs (`a store that names what identifies a row forgets the rows of a view of another session, of its test or test-support not`)
   [@test] tests/e2e/onboarding/onboarding.spec.ts (`shows the rows of the new lease of a slot an agent leased again under the window, none of them selected, expanded or focused as the row of the same name of the lease before was`)
 
 #### Scenario: A rewrite asked on the rows of the lease before

@@ -92,11 +92,12 @@
 // The rows the main window shows are of one session of its repository: under the view of another (a slot of a lease
 // pool leased again, `installAnother` of src/model/store.ts) a row of the same name is another branch, so what a store
 // held of a row goes (`forgetRows`, src/stores/view-rows.ts):
-// - `row-store`: a module of src (its tests and test-support aside) that creates a store (`createStore`) and names a
-//   branch (`branchName`) without forgetting the rows (`onRowsForgotten`): a confirm, a popover, a form or a dialog of a
-//   branch of the rows before would show on the row of the same name and act on what the session before held. A store
-//   that only projects the view (its answers come anew with the view of another session) or is keyed by what a commit
-//   is (a tip, a robot) is an entry of ALLOWLIST that says so.
+// - `row-store`: a module of src (its tests and test-support aside) that creates a store (`createStore`) and names what
+//   identifies a row (`ROW_KEYS`: a branch by its name, the root of a stack, the subject of a landing) without forgetting
+//   the rows (`onRowsForgotten`): a confirm, a popover, a form, a dialog or a choice of a row of the rows before would
+//   show on the row of the same name and act on what the session before held. A store that only projects the view (its
+//   answers come anew with the view of another session), is keyed by what a commit is (a tip, a robot) or holds no row
+//   is an entry of ALLOWLIST that says so.
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`), of a write a test polls
 // (`e2e-remote-poll`, with the exact `count` of its findings in the file) and of a store of the view (`row-store`;
@@ -141,6 +142,21 @@ export const ALLOWLIST = [
     reason: "the commit map of a running robot by the robot and the tip it took: what a commit is, the same under any lease",
   },
   { file: "src/hooks/useStackIndependence.ts", rule: "row-store", reason: "a count of resets; the answers are keyed by the branch and its tip, what a commit is" },
+  { file: "src/stores/unapplied-branches.ts", rule: "row-store", reason: "the unapplied branches of the view: installAnother resets them with the table (resetUnappliedBranches)" },
+  { file: "src/stores/landed.ts", rule: "row-store", reason: "the landed report of the session, which the view of the other session projects anew" },
+  { file: "src/stores/review-requests.ts", rule: "row-store", reason: "the review requests the session lists, which the snapshot of the other session replaces" },
+  { file: "src/stores/robot-stats.ts", rule: "row-store", reason: "the Safe Push statistics of the repository, of no row" },
+  { file: "src/stores/commit-files.ts", rule: "row-store", reason: "the changed files of a commit by its id, what a commit is" },
+  { file: "src/stores/activity.ts", rule: "row-store", reason: "the log of what ran in the repository, its entries name branches but are no rows" },
+  { file: "src/stores/branch-filter.ts", rule: "row-store", reason: "the text of the filter of the table, of no row" },
+  { file: "src/stores/indicators.ts", rule: "row-store", reason: "the surfaces that started an operation of the session, by the operation, which the view of the session ends" },
+  { file: "src/stores/update-project.ts", rule: "row-store", reason: "the run of Update Project of the repository, of no row" },
+  {
+    file: "src/hooks/useBranchSuggestions.ts",
+    rule: "row-store",
+    reason: "the names suggested for the commits of an inline form, by the commits, what a commit is; the form goes with forgetRows",
+  },
+  { file: "src/hooks/useSettledLayout.ts", rule: "row-store", reason: "the layouts the page settled, by the key of an element, of no row" },
   {
     file: "tests/e2e/next-step/next-step.spec.ts",
     rule: "e2e-remote-poll",
@@ -496,7 +512,9 @@ export const START_TRUNCATED_MODULE = "src/components/shared/StartTruncatedText.
 const ROW_HOLDING = /^src\/(?!test-support\/)(?!.*\.test\.tsx?$)/
 // a store created (`createStore` of zustand), a branch named, and the forget of the rows
 const STORE_CREATED = /(?<![\w$.])createStore\s*(?:<[^(]*>)?\s*\(/
-const BRANCH_NAMED = /(?<![\w$])branchName(?![\w$])/
+// what identifies a row of the branch table: a branch (`branchName`, `branch`, the `name` of a row or a tip), the root
+// of a stack (`root`, `stackRoot`), the subject of a landing (`subject`), a key of a row (`branchKey`, `rowKey`)
+const ROW_KEYS = /(?<![\w$])(?:branchName|branch|name|root|stackRoot|subject|branchKey|rowKey)(?![\w$])/
 const ROWS_FORGOTTEN = /(?<![\w$.])onRowsForgotten\s*\(/
 /** A direction of rtl: `dir="rtl"`, `dir={wide ? "rtl" : undefined}`, `direction: "rtl"`, `[direction:rtl]` */
 const RTL = /\bdir\s*=\s*(?:["'`]rtl["'`]|\{[^}\n]*["'`]rtl["'`])|\bdirection\s*:\s*["'`]?rtl\b|\[direction:rtl\]/
@@ -668,7 +686,7 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
       problems.push({ ...at, rule: "resize-observer" })
     }
   })
-  if (ROW_HOLDING.test(file) && BRANCH_NAMED.test(text) && !ROWS_FORGOTTEN.test(text)) {
+  if (ROW_HOLDING.test(file) && ROW_KEYS.test(text) && !ROWS_FORGOTTEN.test(text)) {
     const created = STORE_CREATED.exec(text)
     if (created !== null) {
       const line = text.slice(0, created.index).split("\n").length

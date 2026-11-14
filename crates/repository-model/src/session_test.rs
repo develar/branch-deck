@@ -634,6 +634,15 @@ struct TestEnvironment {
   syncs_on_focus: bool,
   config_prefix: Option<String>,
   facts: Arc<HostFacts>,
+  leases: Arc<TestLeases>,
+}
+
+/// The epoch of the worktrees (`NotASlot` by default), and the lease the next run moves its slot to as it begins (an agent
+/// returns the slot and leases it again while the run runs)
+#[derive(Default)]
+struct TestLeases {
+  epoch: Mutex<WorktreeEpoch>,
+  leased_again_in_run: Mutex<Option<WorktreeEpoch>>,
 }
 
 /// What the landing needs answer (nothing, by default) with the landed commits of each computation, and whether the view
@@ -647,6 +656,10 @@ struct HostFacts {
 
 impl SessionEnvironment for TestEnvironment {
   fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup> {
+    let leased_again = self.leases.leased_again_in_run.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(epoch) = leased_again {
+      *self.leases.epoch.lock().unwrap_or_else(PoisonError::into_inner) = epoch;
+    }
     Ok(RunSetup {
       options: SyncOptions::default(),
       prefix: self.config_prefix.clone().unwrap_or_else(|| key.prefix.clone()),
@@ -662,6 +675,10 @@ impl SessionEnvironment for TestEnvironment {
 
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     self.syncs_on_focus
+  }
+
+  fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
+    self.leases.epoch.lock().unwrap_or_else(PoisonError::into_inner).clone()
   }
 
   fn landing_needs(&self, _key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs> {
@@ -737,6 +754,33 @@ fn branch_names(view: &RepositoryView) -> Vec<&str> {
   let mut names: Vec<&str> = view.order.iter().map(String::as_str).collect();
   names.sort_unstable();
   names
+}
+
+/// The session marks the worktree synced, not the sync, and only under the lease the run began under: a slot an agent
+/// returned and leased again while the run ran is a worktree this run did not sync, whose return took the mark of the
+/// lease before, so no mark of the run reaches the new lease; a run under one lease throughout marks it
+#[tokio::test]
+async fn a_run_marks_the_worktree_synced_only_under_the_lease_it_began_under() {
+  let repo = ahead_of_origin(&["(auth) Add auth"]);
+  let key = SessionKey {
+    worktree: repo.path_str().to_string(),
+    prefix: "test".to_string(),
+  };
+  let leases = Arc::new(TestLeases::default());
+  *leases.epoch.lock().unwrap() = lease("lease-a");
+  *leases.leased_again_in_run.lock().unwrap() = Some(lease("lease-b"));
+  let environment = TestEnvironment {
+    leases: Arc::clone(&leases),
+    ..TestEnvironment::default()
+  };
+  let (sessions, _clock) = with_environment(GitCommandExecutor::new(), environment);
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "no mark of a run across two leases");
+  assert!(snapshot(&sessions, &key).await.order.contains(&"auth".to_owned()), "the run built its table all the same");
+
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  assert!(sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "a run under one lease marks it");
 }
 
 /// Two worktrees of one repository are two sessions, each with the table of its own HEAD

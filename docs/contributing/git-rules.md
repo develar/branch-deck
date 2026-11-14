@@ -219,11 +219,14 @@ and decide no admission there; `brd` touches
 succeeded, of the app or of `brd`, names its branch prefix in the mark of its worktree (`branch-deck/synced.d/` in the
 git directory the `.git` of the worktree names, a file per prefix named by its hash and holding it, so no write reads
 another and a prefix of any length is marked; the file of lines of a build before,
-`branch-deck/synced`, is read and moved by the next mark): only `sync_core::synced_mark::mark_synced` writes it, at the end of a
-successful `sync_branches`, through a temporary file and a rename, no git; only the hosts of the app's sessions read it
-(`SessionHost::synced_before` of the session's prefix, without git); only a lease slot takes it out, as it goes back
-(`finish_return` of a return, a takeover and a reclaim, first, so one that fails after it leaves none) and as a get
-reuses it (`move_reused_slot`), with `forget_synced` (`fs_retry`). Beside it, the landed
+`branch-deck/synced`, is read and moved by the next mark): only `sync_core::synced_mark::mark_synced` writes it, through a
+temporary file and a rename, no git: at the end of a successful `sync_branches` of `brd`, and after a successful run of a
+session of the app (`GitSessionHost::run`, `SyncOptions::marks_synced` off), only while the slot holds the lease the run
+began under; only the hosts of the app's sessions read it (`SessionHost::synced_before` of the session's prefix, without
+git); only a lease slot takes it out, with every other file of the lease in the git directory of the slot
+(`lease_state::LEASE_FILES`: the landed state too), as it goes back (`finish_return` of a return, a takeover and a
+reclaim, first, so one that fails after it leaves none) and as a get reuses it (`move_reused_slot`), with
+`forget_lease_state` (`fs_retry`). Beside it, the landed
 state of the worktree (`branch-deck/landed.json`, `sync_core::landed`): written by the update check of a sync
 (`record_sync`) and by Update Project, its undo and a dismiss (`record_update` and the others under `landed.lock`), each
 through a temporary file and a rename. A start records what it sends before

@@ -75,6 +75,7 @@ use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::review_fetch::prune_review_refs;
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_core::sync_inputs::{SyncInputs, read_sync_inputs};
+use sync_core::synced_mark::mark_synced;
 use sync_utils::clock::{Clock, Wait};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
@@ -1586,22 +1587,35 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
   fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun {
     let (git, environment, key) = (self.git_of(key), Arc::clone(&self.environment), key.clone());
     Box::pin(async move {
+      // the epoch of the worktree as the run begins: its mark is written only under it
       let setup = {
         let (environment, key) = (Arc::clone(&environment), key.clone());
-        tokio::task::spawn_blocking(in_current_span(move || environment.run_setup(&key))).await
+        tokio::task::spawn_blocking(in_current_span(move || (environment.epoch(&key), environment.run_setup(&key)))).await
       };
-      let RunSetup { options, prefix } = setup
-        .map_err(|error| ApiError::internal(format!("The sync preparation task failed: {error}")))?
-        .map_err(|error| environment.api_error(error))?;
+      let (began_under, setup) = setup.map_err(|error| ApiError::internal(format!("The sync preparation task failed: {error}")))?;
+      let RunSetup { mut options, prefix } = setup.map_err(|error| environment.api_error(error))?;
       if prefix != key.prefix {
         return Err(prefix_changed(&key.prefix, &prefix));
       }
+      options.marks_synced = false;
       // the remote statuses and the landing report among the events are kept for the table
       let collector = RemoteStatusCollector::new(reporter);
       let reporter = environment.reporter(&key, Arc::new(collector.clone()));
       let report = sync_branches(&git, &key.worktree, &key.prefix, reporter, options)
         .await
         .map_err(|error| environment.api_error(error))?;
+      // the worktree was synced, the mark says so, but of a slot leased again during the run, whose return took the mark
+      // of the lease before: this run synced no worktree of the new lease
+      let (mark, marked) = (report.synced_mark.clone(), (Arc::clone(&environment), key.clone()));
+      let _ = tokio::task::spawn_blocking(in_current_span(move || {
+        let (environment, key) = marked;
+        if environment.epoch(&key) == began_under {
+          mark_synced(&mark, &key.prefix);
+        } else {
+          warn!(worktree = %key.worktree, "The slot of the worktree holds another lease since the sync began: no mark of it");
+        }
+      }))
+      .await;
       let table = BranchTable::from_report(&key.prefix, &report, &collector.take_statuses(), &collector.take_landing());
       Ok(SyncedTable { report, table })
     })

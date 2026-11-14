@@ -2246,11 +2246,18 @@ index for the dry run of the files, and the guards, none of which a return may t
 Reachability stays the fast path, and decides alone without a recorded branch and when the branch is gone; the output
 names the check (`landed_check`) and the proof of each commit found landed (`landed`). The proofs cost the processes of
 the pick and about twenty more, only when `log` found commits (`a_lease_return_whose_commit_landed_by_the_ladder`).
-The slot keeps its git directory across its leases, so the return takes out the mark a sync left there, and so does
-a get that reuses a free slot, which a return of an older build may have left marked (`branch-deck/synced.d/`, "The first
-sync"; `forget_synced` first of `finish_return`, also of a takeover and a reclaim, and of `move_reused_slot`;
+The slot keeps its git directory across its leases, so the return takes out everything a lease left there, and so
+does a get that reuses a free slot, which a return of an older build may have left with them: the files of the lease,
+listed once (`sync_core::lease_state::LEASE_FILES`: the mark of a sync, `branch-deck/synced.d/` and the file of a build
+before, "The first sync", and the landed state, `branch-deck/landed.json`), their locks kept (`forget_lease_state`
+first of `finish_return`, also of a takeover and a reclaim, and of `move_reused_slot`;
+`a_new_lease_of_a_slot_inherits_nothing_the_lease_before_left_in_its_git_directory`,
 `a_return_takes_out_the_mark_of_a_sync_in_the_lease`, `a_takeover_that_fails_leaves_no_mark_of_a_sync_in_the_slot`):
-the next lease is a worktree no sync built anything for, and a window that opens it shows the Ready to Sync card.
+the next lease is a worktree no sync built anything for, a window that opens it shows the Ready to Sync card, and
+nothing landed is reported of a branch it never had. A run of a session that began under one lease and ended under
+another marks nothing: the session writes the mark, not the sync, only under the epoch the run began under
+(`GitSessionHost::run`, `a_run_marks_the_worktree_synced_only_under_the_lease_it_began_under`), as the return took the
+mark of the lease before and this run synced no worktree of the new one.
 
 **The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`, `domain_types::worktree_epoch::WorktreeEpoch`): the
 path stays too, and the app keeps what it records of a worktree by its path. The epoch is `Lease` with the id of the

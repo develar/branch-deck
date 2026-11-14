@@ -459,6 +459,51 @@ fn a_return_takes_out_the_mark_of_a_sync_in_the_lease() {
   assert!(!sync_core::synced_mark::synced_before(&path, PREFIX));
 }
 
+/// Every file a lease leaves in the git directory of its slot (`lease_state::LEASE_FILES`: the mark of a sync, the landed
+/// state, where each branch was at the last sync and a report of what landed not dismissed yet) goes with the return,
+/// and with the get of a free slot that still has them: the next lease of the slot inherits none of them
+#[test_log::test]
+fn a_new_lease_of_a_slot_inherits_nothing_the_lease_before_left_in_its_git_directory() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  // what a lease leaves, named here apart from the list the return goes by, so a file the list lacks fails
+  let lease_files = [sync_core::synced_mark::SYNCED_DIR, sync_core::synced_mark::SYNCED_FILE, sync_core::landed::STATE_FILE];
+  let leave = || {
+    for file in lease_files {
+      let at = slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", file]);
+      let at = Path::new(at.trim());
+      std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+      if file == sync_core::synced_mark::SYNCED_DIR {
+        std::fs::create_dir_all(at).unwrap();
+        std::fs::write(at.join("prefix"), PREFIX).unwrap();
+      } else {
+        std::fs::write(at, "of the lease before").unwrap();
+      }
+    }
+  };
+  let left = || {
+    lease_files
+      .iter()
+      .filter(|file| {
+        let at = slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", file]);
+        Path::new(at.trim()).exists()
+      })
+      .map(|file| (*file).to_owned())
+      .collect::<Vec<_>>()
+  };
+  leave();
+  assert_eq!(left().len(), lease_files.len());
+  fixture.give_back(&path);
+  assert_eq!(path_of(&fixture.get(&[])), path, "the same slot again");
+  assert_eq!(left(), Vec::<String>::new(), "the return took them out");
+
+  // a free slot a return of an older build left them in: the get takes them out too
+  fixture.give_back(&path);
+  leave();
+  assert_eq!(path_of(&fixture.get(&[])), path);
+  assert_eq!(left(), Vec::<String>::new(), "the get took them out");
+}
+
 /// The epoch of a worktree is the lease its slot holds now (`worktree_epoch`): what the app recorded of the slot by its
 /// path under one lease is of another epoch once the slot is returned and leased again, so it counts as absent; the
 /// main checkout, which is no slot, has none

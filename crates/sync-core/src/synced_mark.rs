@@ -99,26 +99,6 @@ fn dir_of(mark: &Path) -> PathBuf {
   mark.with_file_name(Path::new(SYNCED_DIR).file_name().unwrap_or_default())
 }
 
-/// Takes the mark out of the worktree whose top level is `worktree`, of this build and of a build before: a lease slot
-/// that goes back to its pool (`brd lease return`), whose git directory the next lease of the slot gets, which no sync
-/// built anything for yet
-///
-/// # Errors
-/// The removal of the mark failed
-pub fn forget_synced(worktree: &Path) -> std::io::Result<()> {
-  let Some(git_dir) = git_dir_of(worktree) else {
-    return Ok(());
-  };
-  match fs_retry::remove_dir_all(git_dir.join(SYNCED_DIR)) {
-    Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
-    _ => {}
-  }
-  match fs_retry::remove_file(git_dir.join(SYNCED_FILE)) {
-    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-    removed => removed,
-  }
-}
-
 /// Removes `path`, a file gone already being no failure; a failure is only logged
 fn remove(path: &Path, what: &str) {
   match fs_retry::remove_file(path) {

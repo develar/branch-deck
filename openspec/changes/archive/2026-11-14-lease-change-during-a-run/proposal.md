@@ -21,4 +21,11 @@ new lease.
 - A rewrite names the epoch of the view its table was seen in (`TableWitness::epoch`), and one of another epoch than the
   session's is `plan_changed` (`Sessions::view_version`). Every other intent is planned again and runs only on its
   fingerprint, so it has no plan of the new lease before its first sync.
-- Capability `repository/onboarding`: the requirement of a window on a slot leased again.
+- The session marks the worktree synced, not the sync (`SyncOptions::marks_synced` off, `SyncReport::synced_mark`), and
+  only under the epoch the run began under (`GitSessionHost::run` reads it before and after): a run across a lease
+  change marked the slot of the new lease synced, which then synced of itself.
+- Every file a lease leaves in the git directory of its slot is listed once (`lease_state::LEASE_FILES`: the mark of a
+  sync and the landed state) and forgotten at the end of the lease (`forget_lease_state`, which replaces
+  `forget_synced`), so a new lease inherits none, the landed state too.
+- `row-store` keys on what identifies a row (`ROW_KEYS`), not on `branchName` alone.
+- Capabilities `repository/onboarding` (a window on a slot leased again) and `cli/lease` (what a lease leaves).

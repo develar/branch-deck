@@ -23,6 +23,8 @@
 //! - `branch_processor`: the build of one virtual branch, then its ref move with compare-and-swap and its remote status
 //! - `repo_facts`: `RepoFacts`, what a sync reads once at its start: the baseline, HEAD, the branches under the prefix
 //! - `sync_inputs`: what a sync reads (`read_sync_inputs`), so that a focus syncs only when it changed
+//! - `lease_state`: what the git directory of a worktree keeps of its lease, which a slot of a lease pool forgets as the
+//!   lease ends.
 //! - `synced_mark`: the mark a sync that succeeded leaves in the worktree, which tells a session of the app that it was
 //!   synced before, also by `brd`
 //! - `grouping`: the grouping of a sync without its builds, for the reads of `bd`
@@ -110,6 +112,7 @@ pub mod github_repository;
 pub mod grouping;
 pub mod issue_navigation;
 pub mod landed;
+pub mod lease_state;
 pub mod moved_remote;
 pub mod parked;
 pub mod patronus;
@@ -167,6 +170,8 @@ mod git_setup_test;
 mod github_repository_test;
 #[cfg(test)]
 mod issue_groups_test;
+#[cfg(test)]
+mod lease_state_test;
 #[cfg(test)]
 mod move_commits_test;
 #[cfg(test)]

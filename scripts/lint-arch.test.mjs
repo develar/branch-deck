@@ -211,11 +211,15 @@ test("an allowlist entry needs its reason and a finding to hold, and only a time
   ])
 })
 
-test("a store that names a branch forgets the rows of a view of another session, of its test or test-support not", () => {
+test("a store that names what identifies a row forgets the rows of a view of another session, of its test or test-support not", () => {
   const holding = ['import { createStore } from "zustand/vanilla"', "export const confirmStore = createStore<{ branchName: string | null }>(() => ({ branchName: null }))"]
   const rules = (file, lines) => findProblems(file, lines.join("\n")).map(problem => `${problem.line} ${problem.rule}`)
   assert.deepEqual(rules("src/stores/confirm.ts", holding), ["2 row-store"])
   assert.deepEqual(rules("src/hooks/useConfirm.ts", holding), ["2 row-store"])
+  // keyed by the name of a row, the root of a stack, the subject of a landing: the same
+  for (const key of ["name", "root", "subject", "branch", "stackRoot"]) {
+    assert.deepEqual(rules("src/stores/held.ts", [`const heldStore = createStore<{ ${key}: string | null }>(() => ({ ${key}: null }))`]), ["1 row-store"], key)
+  }
   assert.deepEqual(rules("src/stores/confirm.ts", [...holding, "onRowsForgotten(() => confirmStore.setState({ branchName: null }))"]), [])
   // a store of no branch, a branch named without a store, a test, test-support: nothing
   assert.deepEqual(rules("src/stores/zoom.ts", ["const zoomStore = createStore(() => ({ zoom: 1 }))"]), [])

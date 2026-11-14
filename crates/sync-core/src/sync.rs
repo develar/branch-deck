@@ -93,6 +93,10 @@ pub struct SyncOptions {
   /// `remote -v` lists, so a Space URL rewritten to the path would not reach the sync. `None` everywhere else: Patronus
   /// knows the repositories on Space (`LandingRemote::on_space`)
   pub test_patronus: Option<bool>,
+  /// The sync names its prefix in the mark of the worktree once it succeeded (`synced_mark`), as `brd sync` does; the
+  /// app's session marks the worktree itself (`SyncReport::synced_mark`), only while the slot of a lease pool holds the
+  /// lease the run began under, as a slot leased again during the run is a worktree this run did not sync
+  pub marks_synced: bool,
 }
 
 impl Default for SyncOptions {
@@ -106,6 +110,7 @@ impl Default for SyncOptions {
       config: None,
       facts: None,
       test_patronus: None,
+      marks_synced: true,
     }
   }
 }
@@ -297,6 +302,9 @@ pub struct SyncReport {
   /// The commit the branches without a parent are built on, as the sync read it; `None` without branches. A trial
   /// build after the sync starts from it without reading it again
   pub base: Option<BuildBase>,
+  /// The mark of the worktree the sync names its prefix in once it succeeded (`synced_mark::SYNCED_FILE` in its git
+  /// directory), for a caller that marks it itself (`SyncOptions::marks_synced` off)
+  pub synced_mark: std::path::PathBuf,
   /// The GitHub repository of the branches, as the sync read it with the remotes (`LandingRemote::github`): a command
   /// after the sync takes it instead of reading the Space settings again
   pub github: Option<GitHubRepository>,
@@ -587,6 +595,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     companion_needs: BTreeMap::new(),
     retry: false,
     base: None,
+    synced_mark: facts.synced_mark(),
     github: landing.github.repository().and_then(GitHubRepository::of_full_name),
   };
   progress.send(SyncEvent::BranchesGrouped {
@@ -1020,6 +1029,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     config,
     facts: command_facts,
     test_patronus,
+    marks_synced,
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
@@ -1250,7 +1260,9 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   report.companion_needs = detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
   // the worktree was synced: a session of the app opened later, or one that hears the stamp of `brd`, syncs of itself
-  mark_synced(&synced_mark, branch_prefix);
+  if marks_synced {
+    mark_synced(&synced_mark, branch_prefix);
+  }
   Ok(report)
 }
 

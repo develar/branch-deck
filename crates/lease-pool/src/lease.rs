@@ -40,7 +40,7 @@ use std::fmt;
 use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use sync_core::synced_mark::forget_synced;
+use sync_core::lease_state::forget_lease_state;
 use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
@@ -2294,10 +2294,10 @@ pub(crate) fn move_reused_slot(
   workers: CheckoutWorkers,
   report: &dyn Fn(GetStep),
 ) -> Result<()> {
-  // a slot returned before its return took the mark of a sync out keeps it in its git directory (`synced_mark`): the
-  // new lease is a worktree no sync built anything for
-  if let Err(error) = forget_synced(Path::new(slot)) {
-    warn!(slot, "cannot take the mark of a sync out of the slot: {error}");
+  // a slot returned by a build that left what a lease keeps in its git directory (`lease_state`: the mark of a sync, the
+  // landed state): the new lease is a worktree no sync built anything for
+  if let Err(error) = forget_lease_state(Path::new(slot)) {
+    warn!(slot, "cannot take what the lease before left out of the slot: {error}");
   }
   match move_clean_slot(git_executor, slot, commit, workers)? {
     SlotMove::Kept | SlotMove::Switched => branch.map_or(Ok(()), |branch| attach_new_branch(git_executor, slot, branch, commit)),
@@ -3065,12 +3065,12 @@ fn finish_return(
   clean: Option<CleanOverrides>,
   trash: &Trash,
 ) -> Result<FinishedReturn> {
-  // the next lease of the slot is a worktree no sync built anything for (`synced_mark`): a window that opens it shows
-  // the Ready to Sync card, never syncs it of itself. First, so a return, a takeover or a reclaim that fails after it
-  // leaves no mark either (a takeover that fails gives the slot back, free). As the clean rules, it never fails the
-  // return
-  if let Err(error) = forget_synced(Path::new(path)) {
-    warn!(slot = %path, "cannot take the mark of a sync out of the slot: {error}");
+  // the next lease of the slot is a worktree no sync built anything for (`lease_state`: the mark of a sync, the landed
+  // state): a window that opens it shows the Ready to Sync card, never syncs it of itself, and nothing landed is
+  // reported of a branch it never had. First, so a return, a takeover or a reclaim that fails after it leaves none
+  // either (a takeover that fails gives the slot back, free). As the clean rules, it never fails the return
+  if let Err(error) = forget_lease_state(Path::new(path)) {
+    warn!(slot = %path, "cannot take what the lease left out of the slot: {error}");
   }
   if let Some(untracked) = discard {
     discard_slot_changes(git_executor, path, untracked)?;

@@ -1189,6 +1189,14 @@ slot at its commit. A get that reuses a free slot MUST take out the mark too (an
 - **THEN** the new lease has no mark: a window that opens it shows the Ready to Sync card
   [@test] crates/bd-lease/src/lease_test.rs (`a_return_takes_out_the_mark_of_a_sync_in_the_lease`)
 
+#### Scenario: Everything a lease left in the git directory of the slot
+- **GIVEN** a lease left every file of its own in the git directory of its slot (`lease_state::LEASE_FILES`: the mark of
+  a sync, of this build and of the build before, and the landed state)
+- **WHEN** the lease is returned and the slot leased again, or a get reuses a free slot that still has them
+- **THEN** the new lease inherits none of them, and their locks stay
+  [@test] crates/bd-lease/src/lease_test.rs (`a_new_lease_of_a_slot_inherits_nothing_the_lease_before_left_in_its_git_directory`)
+  [@test] crates/sync-core/src/lease_state_test.rs (`every_file_of_the_lease_goes_and_the_locks_stay`)
+
 #### Scenario: A reclaim and a takeover that fails
 - **GIVEN** a sync in an idle lease marked its worktree synced
 - **WHEN** `brd lease reclaim --idle` returns it, or a get takes it over and its return fails, which gives the slot back
