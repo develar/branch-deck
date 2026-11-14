@@ -18,6 +18,7 @@ import type { FileRows, FoldRow, LineRow, NoteRow, Row, RowPlace } from "@/lib/d
 import { blobText } from "@/lib/diff/view-files"
 import { wrapBreaks } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
+import { observeSize } from "@/lib/observe-size"
 import { describeRenamedName, formatHiddenMatches, presentRemark } from "@/presenters/diff-marks"
 import type { OtherFile, RemarkFacts } from "@/presenters/diff-marks"
 import type { BlobTextEntry } from "@/stores/blob-texts"
@@ -385,7 +386,7 @@ export class DiffPainter {
     for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
       scroller.addEventListener(type, follow, { passive: true })
     }
-    const resize = new ResizeObserver(() => this.scheduleUpdate())
+    const resize = observeSize(() => this.scheduleUpdate())
     resize.observe(scroller)
     if (scrollParent !== null) {
       resize.observe(scrollParent)

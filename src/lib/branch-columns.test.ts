@@ -37,34 +37,8 @@ interface Item {
 
 function item(width: number): Item {
   const it: Item = { width, element: {} as Element }
-  it.element = { getBoundingClientRect: () => ({ width: it.width }), parentNode: null } as unknown as Element
+  it.element = { getBoundingClientRect: () => ({ width: it.width }) } as unknown as Element
   return it
-}
-
-/** The observer of the changes of a view: the test tells the records of a commit by hand (`commit`) */
-class FakeMutationObserver {
-  static current: FakeMutationObserver | null = null
-
-  constructor(private readonly callback: MutationCallback) {
-    FakeMutationObserver.current = this
-  }
-
-  observe(): void {}
-
-  disconnect(): void {}
-
-  /** A commit of React changed the content of `elements` */
-  commit(...elements: Element[]): void {
-    this.callback(
-      elements.map(target => ({ target }) as unknown as MutationRecord),
-      this as unknown as MutationObserver,
-    )
-  }
-}
-
-/** The next task, after which a rendering update is over */
-function nextTask(): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, 0))
 }
 
 /** The observer's report of the elements as they are laid out now */
@@ -123,33 +97,6 @@ describe("ColumnRegistry", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
-  })
-
-  it("lets an item a commit resizes in the rendering update of a report go at once, and measures and observes it in the next task", async () => {
-    // WebKit renders a commit of React that waited in a microtask after the observer's callback in the same rendering
-    // update: an item it resized after its report would be an observation that update skips, a ResizeObserver loop
-    vi.stubGlobal("MutationObserver", FakeMutationObserver)
-    const { registry, view } = registryOfReportedRoot()
-    const status = item(61)
-    registry.observe(status.element, "state")
-    report(status)
-    expect(view.variables.get("--bd-track-state")).toBe("61px")
-
-    status.width = 83
-    FakeMutationObserver.current!.commit(status.element)
-    // no observation of it is left for the rendering update to skip, and nothing is written there
-    expect(FakeResizeObserver.current!.reported.has(status.element)).toBe(false)
-    expect(view.variables.get("--bd-track-state")).toBe("61px")
-    await nextTask()
-    expect(view.variables.get("--bd-track-state")).toBe("83px")
-    expect(FakeResizeObserver.current!.reported.has(status.element)).toBe(true)
-
-    // after the rendering update a commit is the observer's to report, as any change
-    status.width = 90
-    FakeMutationObserver.current!.commit(status.element)
-    expect(view.variables.get("--bd-track-state")).toBe("83px")
-    renderingUpdate()
-    expect(view.variables.get("--bd-track-state")).toBe("90px")
   })
 
   it("writes no track before the observer measured an item, then every track at once", () => {

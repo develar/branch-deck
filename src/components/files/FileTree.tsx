@@ -40,6 +40,7 @@ import { fileActionTarget, getVisibleRows, isTreeHeading } from "@/lib/file-tree
 import type { FileTreeAlso, FileTreeCommit, FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
+import { observeSize } from "@/lib/observe-size"
 import type { ReviewPlace } from "@/lib/review-place"
 import { describeToRead, formatToRead } from "@/presenters/diff-marks"
 import { presentRowFacts } from "@/presenters/review-plan"
@@ -445,7 +446,7 @@ function stickBelowStepRow(block: HTMLDivElement | null): (() => void) | undefin
   if (block === null || block === undefined || row === null || row === undefined) {
     return undefined
   }
-  const observer = new ResizeObserver(() => block.style.setProperty("--tree-step-row", `${row.offsetHeight}px`))
+  const observer = observeSize(() => block.style.setProperty("--tree-step-row", `${row.offsetHeight}px`))
   observer.observe(row)
   return () => observer.disconnect()
 }

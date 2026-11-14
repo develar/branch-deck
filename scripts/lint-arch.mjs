@@ -4,6 +4,8 @@
 //   searched (`includes`, `startsWith`, `endsWith`, `match`, `indexOf`, a regex `test`) or switched on. The words are
 //   `.message` (also `["message"]`), `getErrorDetails(…)`, `describeError(…)`, `String(error)`, and a name bound to
 //   one of them (`const { message } = result.error`, `const text = getErrorDetails(error)`);
+//   An `ErrorEvent` of the engine is no error of the app: `event.message` of the listener of src/lib/page-errors.ts,
+//   which tells a ResizeObserver loop by the only words the engine gives it, passes (`ENGINE_EVENT_MODULE`);
 // - `error-kind`: `CommandErrorKind` or the `kind` of an error (`error.kind`, `result.error.kind`), the type the
 //   error had before `ApiError`; the `kind` of a tagged union (a robot's failure, a diff row) is no error;
 // - `route-error-code`: a `routeCommandError` of an e2e test without the code its error answers.
@@ -82,6 +84,10 @@
 // right (the folders of the Files tree, 1.8.0):
 // - `rtl-cut`: a `dir` of `"rtl"` or a `direction` of rtl (`direction: "rtl"`, `[direction:rtl]`) in src (its tests
 //   aside) outside `StartTruncatedText.tsx`.
+// Every `ResizeObserver` of the page is made by `observeSize` (src/lib/observe-size.ts, docs/contributing/frontend.md, "A
+// flushSync in the delivery of a ResizeObserver"), which lets an element a change resized in the rendering update of its
+// report go, so no observer of ours makes a ResizeObserver loop:
+// - `resize-observer`: a `new ResizeObserver` in src (its tests aside) outside `observe-size.ts`.
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`) and of a write a test polls
 // (`e2e-remote-poll`, with the exact `count` of its findings in the file; `EXCEPTED_RULES`): every other rule holds
@@ -445,6 +451,16 @@ const FOCUS_REMOVING = /^outline-(?:none|hidden)$/
 /** The ring colour or a ring offset under any variant: the colour of the focus is the token's */
 const RING_COLOUR = /^(?:ring|inset-ring|outline|border(?:-[trblxyse])?|bg|text|shadow|decoration|fill|stroke)-ring(?:\/|$)|^ring-offset-/
 
+/** The module whose listener reads the words of an `ErrorEvent` of the engine (`message-control`) */
+export const ENGINE_EVENT_MODULE = "src/lib/page-errors.ts"
+/** The words of an engine's `ErrorEvent` in its listener */
+const ENGINE_EVENT_WORDS = /\bevent\.message\b/
+
+/** The one module that makes a `ResizeObserver` of the page */
+export const SIZE_OBSERVER_MODULE = "src/lib/observe-size.ts"
+/** A `ResizeObserver` made: `new ResizeObserver(`, `new window.ResizeObserver(` */
+const NEW_RESIZE_OBSERVER = /\bnew\s+(?:(?:window|globalThis)\.)?ResizeObserver\b/
+
 /** The sources whose paths are cut from their start only by `StartTruncatedText`: the page, its tests aside */
 const CUTTING = /^src\/(?!.*\.test\.tsx?$)/
 /** The one component that sets the direction of a path */
@@ -579,7 +595,7 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
   }
   lines.forEach((line, index) => {
     const at = { file, line: index + 1, text: source.split("\n")[index].trim() }
-    if (controlled.test(line)) {
+    if (controlled.test(line) && !(file === ENGINE_EVENT_MODULE && ENGINE_EVENT_WORDS.test(line))) {
       problems.push({ ...at, rule: "message-control" })
     }
     if (ERROR_KIND.test(line)) {
@@ -614,6 +630,9 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     }
     if (CUTTING.test(file) && file !== START_TRUNCATED_MODULE && RTL.test(line)) {
       problems.push({ ...at, rule: "rtl-cut" })
+    }
+    if (CUTTING.test(file) && file !== SIZE_OBSERVER_MODULE && NEW_RESIZE_OBSERVER.test(line)) {
+      problems.push({ ...at, rule: "resize-observer" })
     }
   })
   if (PRESENTING.test(file)) {

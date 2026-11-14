@@ -3,7 +3,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { APP_COMMAND_CALLERS, START_TRUNCATED_MODULE, STARTUP_MODULES, findProblems, lintArchitecture, readRegistry } from "./lint-arch.mjs"
+import {
+  APP_COMMAND_CALLERS,
+  ENGINE_EVENT_MODULE,
+  SIZE_OBSERVER_MODULE,
+  START_TRUNCATED_MODULE,
+  STARTUP_MODULES,
+  findProblems,
+  lintArchitecture,
+  readRegistry,
+} from "./lint-arch.mjs"
 
 /** The rules each line of `source` breaks, by line */
 function rulesOf(source) {
@@ -551,4 +560,28 @@ test("the component of a cut path, a left-to-right direction, a comment and a te
   const source = ['<bdi dir="ltr">{path}</bdi>', '<span dir="auto">{name}</span>', '// dir="rtl" in a comment', 'const word = "rtl"'].join("\n")
   assert.deepEqual(findProblems("src/components/Example.tsx", source), [])
   assert.deepEqual(findProblems("src/components/Example.test.tsx", '<span dir="rtl" />'), [])
+})
+
+test("a ResizeObserver of the page is made only by observeSize", () => {
+  const source = ["const resize = new ResizeObserver(measure)", "const other = new window.ResizeObserver(() => {})"].join("\n")
+  assert.deepEqual(
+    findProblems("src/components/Example.tsx", source).map(problem => `${problem.line} ${problem.rule}`),
+    ["1 resize-observer", "2 resize-observer"],
+  )
+  assert.deepEqual(findProblems(SIZE_OBSERVER_MODULE, "new ResizeObserver((entries, observer) => callback(entries, observer))"), [])
+  assert.deepEqual(findProblems("src/lib/example.test.ts", 'vi.stubGlobal("ResizeObserver", class extends ResizeObserver {})'), [])
+  assert.deepEqual(findProblems("src/components/Example.tsx", "const resize = observeSize(measure) // new ResizeObserver in a comment"), [])
+})
+
+test("the listener of the page's errors tells a ResizeObserver loop by the words of the engine's event, no other module", () => {
+  const line = "if (event.error === null && event.message === RESIZE_LOOP) {"
+  assert.deepEqual(findProblems(ENGINE_EVENT_MODULE, line), [])
+  assert.deepEqual(
+    findProblems("src/lib/example.ts", line).map(problem => problem.rule),
+    ["message-control"],
+  )
+  assert.deepEqual(
+    findProblems(ENGINE_EVENT_MODULE, 'if (error.message === "Locked") {').map(problem => problem.rule),
+    ["message-control"],
+  )
 })

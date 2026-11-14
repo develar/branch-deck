@@ -4,6 +4,7 @@ import { useAppCommand } from "@/hooks/useAppCommand"
 import type { ActivityFilter, ActivityTarget } from "@/lib/activity-window"
 import { openActivityWindow } from "@/lib/activity-window-link"
 import { isKeyboardInput, watchInputModality } from "@/lib/input-modality"
+import { observeSize } from "@/lib/observe-size"
 import { MIN_ISLANDS_WIDTH } from "@/lib/zoom"
 import { closeActivityPanel, isActivityPanelOpen, openActivityPanel } from "@/stores/activity-panel"
 import { useSelectedProjectPath } from "@/stores/repository"
@@ -40,7 +41,7 @@ export function useActivityPanel(area: RefObject<HTMLElement | null>): boolean {
     if (element === null) {
       return
     }
-    const observer = new ResizeObserver(() => setWidth(element.offsetWidth))
+    const observer = observeSize(() => setWidth(element.offsetWidth))
     observer.observe(element)
     return () => observer.disconnect()
   }, [area])

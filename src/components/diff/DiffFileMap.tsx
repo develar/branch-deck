@@ -6,6 +6,7 @@ import { fileMapBand, fileMapScale, fileMapSectionAt, fileMapThumb, fileMapTicks
 import type { FileMapSection } from "@/lib/diff/file-map"
 import type { DiffLayout } from "@/lib/diff/layout"
 import { logError } from "@/lib/errors"
+import { observeSize } from "@/lib/observe-size"
 
 /** A section of the view as the map shows it and its hover names it */
 export interface FileMapEntry extends FileMapSection {
@@ -105,7 +106,7 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
     const observe = (element: HTMLDivElement, area: HTMLDivElement) => {
       const measure = () => setSize({ width: area.clientWidth, height: area.clientHeight, view: element.clientHeight })
       measure()
-      const resize = new ResizeObserver(measure)
+      const resize = observeSize(measure)
       resize.observe(area)
       resize.observe(element)
       let resolution = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)

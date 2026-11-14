@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { FieldGroup } from "@/components/layout/FieldGroup"
 import { logError } from "@/lib/errors"
 import { pathForms, resolveHomeDir, tildePath } from "@/lib/home-path"
+import { observeSize } from "@/lib/observe-size"
 import { formatRelativeTime } from "@/lib/time"
 import { hasFolderDialog } from "@/lib/title-bar"
 import { projectSections } from "@/presenters/repository-links"
@@ -248,7 +249,7 @@ function FittedPath({ path, onCut }: { path: string; onCut: (isCut: boolean) => 
     }
     // before the first paint
     refit()
-    const observer = new ResizeObserver(fit)
+    const observer = observeSize(fit)
     observer.observe(room)
     document.fonts.addEventListener("loadingdone", refit)
     return () => {

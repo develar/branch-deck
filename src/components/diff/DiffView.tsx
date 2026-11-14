@@ -58,6 +58,7 @@ import { visualLineCount } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
 import type { MenuItem } from "@/lib/menu"
 import { isMenuKey, openMenuByKey } from "@/lib/menu-key"
+import { observeSize } from "@/lib/observe-size"
 import { isMac } from "@/lib/platform"
 import { formatCollapse } from "@/presenters/collapse"
 import { fileNameAmong } from "@/presenters/diff-marks"
@@ -66,8 +67,8 @@ import { blobTextsStore, putDerivedText, requestBlobTexts } from "@/stores/blob-
 import type { BlobTextEntry } from "@/stores/blob-texts"
 import { useAppSettings } from "@/stores/settings/appSettings"
 import { MIN_SPLIT_RATIO, setDiffSplitRatio, useDiffLigatures, useDiffSplitRatio } from "@/stores/settings/diff-view-settings"
-import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 import "./diff-view.css"
+import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
 /*
  * The file cards of a view with headers (docs/design/diff-view.md, "File cards"), as IntelliJ's combined diff: a gap of
@@ -1503,7 +1504,7 @@ export function DiffView({
     void document.fonts.load(ROWS_FONT).then(measure, measure)
     const resolution = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
     resolution.addEventListener("change", measure)
-    const resize = new ResizeObserver(([entry]) => {
+    const resize = observeSize(([entry]) => {
       setWidth(entry?.contentRect.width ?? 0)
       setViewHeight(entry?.contentRect.height ?? 0)
     })

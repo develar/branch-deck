@@ -5,6 +5,7 @@ import { CommitHeader } from "@/components/commit/CommitHeader"
 import type { CommitHeaderProps } from "@/components/commit/CommitHeader"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { CardCommit } from "@/lib/commit"
+import { observeSize } from "@/lib/observe-size"
 
 export interface CommitCardProps {
   commit: CardCommit
@@ -82,7 +83,7 @@ function ScrollingCard({ header, body }: { header: ReactNode; body: ReactNode })
       const next = { scrolled: root.scrollTop > 0, more: root.scrollTop + root.clientHeight < root.scrollHeight - 1 }
       setEdges(current => (current.scrolled === next.scrolled && current.more === next.more ? current : next))
     }
-    const observer = new ResizeObserver(update)
+    const observer = observeSize(update)
     observer.observe(root)
     observer.observe(content)
     root.addEventListener("scroll", update, { passive: true })

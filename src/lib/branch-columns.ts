@@ -7,7 +7,8 @@
  * the view; every item of the track is at least that wide. A track that no row fills is 0 wide, its gutter too. The
  * label of a column heading a group of tracks is a minimum of the group.
  */
-import { nextTask, observedAbove, ReportGuard } from "@/lib/report-guard"
+import type { SizeObserver } from "@/lib/observe-size"
+import { observeSize } from "@/lib/observe-size"
 
 export const BRANCH_TRACKS = ["commits", "state", "pr", "landed", "push", "step", "more"] as const
 export type BranchTrack = (typeof BRANCH_TRACKS)[number]
@@ -91,10 +92,10 @@ export class ColumnRegistry {
    * of the root comes with every item's of that rendering update)
    */
   private readonly unconfirmed = new Set<Element>()
-  private readonly observer: ResizeObserver | null =
+  private readonly observer: SizeObserver | null =
     typeof ResizeObserver === "undefined"
       ? null
-      : new ResizeObserver(entries => {
+      : observeSize(entries => {
           let resized = false
           let rootReported = false
           for (const entry of entries) {
@@ -127,47 +128,11 @@ export class ColumnRegistry {
           if (resized) {
             this.write()
           }
-          this.guard.reported()
         })
-  /** The items a change resized in the rendering update of a report, measured at once (`ReportGuard`) */
-  private readonly guard = new ReportGuard(touched => this.recheck(touched))
-  private readonly reobserved = new Set<Element>()
-
-  /**
-   * The items among `touched` leave the observer at once, so the rendering update of the report has no observation of
-   * them left to skip, and are measured, written and observed anew in the next task: a write in the rendering update
-   * would resize what other observers watch (a popup at a row) in their own delivery
-   */
-  private recheck(touched: readonly Node[]): void {
-    const observer = this.observer
-    if (observer === null) {
-      return
-    }
-    const resized = observedAbove(touched, element => this.items.has(element))
-    for (const element of resized) {
-      observer.unobserve(element)
-      this.reobserved.add(element)
-    }
-    if (resized.size === 0) {
-      return
-    }
-    nextTask(() => {
-      for (const element of this.reobserved) {
-        const item = this.items.get(element)
-        if (item !== undefined) {
-          item.width = element.getBoundingClientRect().width
-          observer.observe(element, { box: "border-box" })
-        }
-      }
-      this.reobserved.clear()
-      this.write()
-    })
-  }
 
   setRoot(root: HTMLElement | null): void {
     if (this.root !== null) {
       this.observer?.unobserve(this.root)
-      this.guard.disconnect()
     }
     this.root = root
     this.written.clear()
@@ -177,7 +142,6 @@ export class ColumnRegistry {
     // (the content box, as a container query compares)
     if (root !== null) {
       this.observer?.observe(root)
-      this.guard.watch(root)
     }
     this.write()
   }
@@ -250,7 +214,6 @@ export class ColumnRegistry {
       this.observer?.unobserve(element)
       this.items.delete(element)
       this.unconfirmed.delete(element)
-      this.reobserved.delete(element)
       // the widest item may be gone: once for the rows a collapse removes together
       if (!this.scheduled) {
         this.scheduled = true
