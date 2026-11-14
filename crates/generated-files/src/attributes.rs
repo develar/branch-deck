@@ -1,35 +1,12 @@
-//! The files that the git attributes mark generated: `linguist-generated` (the convention of GitHub, which folds them in
-//! a pull request too) or `-diff` (which `binary` implies)
+//! The git attributes that mark a file generated: `linguist-generated` (the convention of GitHub, which folds them in a
+//! pull request too) or `-diff` (which `binary` implies). The rule alone: git reads the attributes
+//! (`git_ops::generated`, one `check-attr` for all the paths)
 
-use crate::names::is_lock_file;
-use anyhow::Result;
-use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::attributes::read_attributes;
-use std::collections::HashSet;
-use tracing::instrument;
+/// The attributes the rule reads, as a `check-attr` asks for them
+pub const GENERATED_ATTRIBUTES: [&str; 2] = ["linguist-generated", "diff"];
 
-/// The paths that the attributes of the tree-ish `source` mark `linguist-generated` or `-diff`, from one
-/// `check-attr --source=<source>` for all of them; none without paths
-#[instrument(skip(git, paths))]
-pub fn attribute_generated_paths<'a>(git: &GitCommandExecutor, repository: &str, source: &str, paths: impl IntoIterator<Item = &'a str>) -> Result<HashSet<String>> {
-  let mut generated = HashSet::new();
-  for attribute in read_attributes(git, repository, Some(source), &["linguist-generated", "diff"], paths)? {
-    if matches!(
-      (attribute.attribute.as_str(), attribute.value.as_str()),
-      ("linguist-generated", "set" | "true") | ("diff", "unset")
-    ) {
-      generated.insert(attribute.path);
-    }
-  }
-  Ok(generated)
-}
-
-/// The paths that are lock files, or that the attributes of `source` mark generated: what `brd commits` and
-/// `brd status` leave out. The lock files need no process
-#[instrument(skip(git, paths))]
-pub fn generated_paths<'a>(git: &GitCommandExecutor, repository: &str, source: &str, paths: impl IntoIterator<Item = &'a str>) -> Result<HashSet<String>> {
-  let (locks, others): (Vec<&str>, Vec<&str>) = paths.into_iter().partition(|path| is_lock_file(path));
-  let mut generated = attribute_generated_paths(git, repository, source, others)?;
-  generated.extend(locks.into_iter().map(str::to_string));
-  Ok(generated)
+/// Whether `attribute` with `value` (`set`, `unset`, `unspecified` or its value, as `check-attr` prints it) marks a file
+/// generated
+pub fn marks_generated(attribute: &str, value: &str) -> bool {
+  matches!((attribute, value), ("linguist-generated", "set" | "true") | ("diff", "unset"))
 }

@@ -11,6 +11,7 @@ use crate::commit_writer::{
   EditedCommit, NewParent, RawCommit, STALE_TEMP_REF_AGE, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenCommits, WrittenEdit, WrittenStore, current_committer,
   discard_temp_refs, parse_raw_commit, sweep_stale_temp_refs, write_edited_commit, write_store_commits,
 };
+use crate::generated::generated_of;
 use crate::landed_pairing::{LandedCandidate, LandedDrop, PathLines, interdiffs};
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::paths::{ChangedPath, changed_paths, commits_touching};
@@ -27,6 +28,7 @@ use crate::word_resolve::{RESOLVE_VERSION, ResolveMode};
 use anyhow::{Result, anyhow, bail};
 use bstr::BStr;
 use domain_types::update_project::UpdateCommit;
+use generated_files::generated_by::GeneratedBy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -123,6 +125,10 @@ pub struct ConflictFile {
   /// The commit's path of a `RenameRename`
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub commit_path: Option<String>,
+  /// Why the file is generated (`generated::generated_of`, when the round opens): only its generator resolves it, so the
+  /// round never merges its text and the agent takes a side, then runs the generator
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub generated_by: Option<GeneratedBy>,
 }
 
 impl ConflictFile {
@@ -2036,13 +2042,30 @@ fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
       stage.id = object.id;
     }
   }
-  let conflict = RoundConflict {
+  let mut conflict = RoundConflict {
     commit: commit.clone(),
     onto: state.tip.clone(),
     files,
     merge_tree: merge.tree,
   };
   let objects = read_round_objects(git_executor, repo_path, &conflict)?;
+  // why a file is generated, by its name, its attributes and the headers of its sides
+  let sides: Vec<(&str, Vec<&[u8]>)> = conflict
+    .files
+    .iter()
+    .map(|file| {
+      let texts = [&file.before, &file.onto, &file.commit]
+        .into_iter()
+        .flatten()
+        .filter_map(|stage| objects.blobs.get(&stage.id).map(Vec::as_slice))
+        .collect();
+      (file.path.as_str(), texts)
+    })
+    .collect();
+  let generated = generated_of(git_executor, repo_path, &sides)?;
+  for (file, generated_by) in conflict.files.iter_mut().zip(generated) {
+    file.generated_by = generated_by;
+  }
   let base_label = conflict.base_label();
   let labels = conflict.labels(&base_label);
   let unreadable: Vec<String> = conflict
@@ -2210,6 +2233,7 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
       mode,
       renamed_from,
       commit_path: None,
+      generated_by: None,
     });
   }
   for [from, onto_path, commit_path] in rename_pairs {
@@ -2262,6 +2286,7 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
       mode,
       renamed_from: Some(String::from_utf8(from.to_vec())?),
       commit_path: Some(String::from_utf8(commit_path.to_vec())?),
+      generated_by: None,
     });
   }
   if !unsupported.is_empty() {

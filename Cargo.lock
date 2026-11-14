@@ -709,7 +709,6 @@ dependencies = [
  "commit-clustering",
  "domain-policy",
  "domain-types",
- "generated-files",
  "git-executor",
  "git-ops",
  "github",
@@ -783,6 +782,7 @@ dependencies = [
  "clap",
  "commit-rules",
  "domain-types",
+ "generated-files",
  "git-executor",
  "git-ops",
  "history-rewrite",
@@ -2666,15 +2666,10 @@ dependencies = [
 name = "generated-files"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "git-executor",
- "git-ops",
  "pretty_assertions",
  "schemars 1.2.3",
  "serde",
  "specta",
- "test-utils",
- "tracing",
 ]
 
 [[package]]
@@ -2788,6 +2783,7 @@ dependencies = [
  "bstr",
  "dashmap",
  "domain-types",
+ "generated-files",
  "git-executor",
  "gix-validate",
  "line-diff",
@@ -8572,6 +8568,7 @@ dependencies = [
  "commit-rules",
  "domain-types",
  "file-diffs",
+ "generated-files",
  "git-executor",
  "git-ops",
  "history-rewrite",

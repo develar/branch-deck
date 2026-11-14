@@ -32,6 +32,7 @@ targets:
   - crates/commit-clustering/src/hub_files.rs
   - crates/generated-files/src/attributes.rs
   - crates/generated-files/src/names.rs
+  - crates/git-ops/src/generated.rs
   - crates/bd-cli/src/schema.rs
   - crates/bd-core/src/version.rs
   - crates/bd-core/build.rs

@@ -19,6 +19,8 @@ object-cache = { path = "../object-cache" }
 file-diffs = { path = "../file-diffs" }
 # the commit rules a pick checks the messages it lands by
 commit-rules = { path = "../commit-rules" }
+# why a file of a round or of the finish is generated (`GeneratedBy`)
+generated-files = { path = "../generated-files" }
 anyhow.workspace = true
 tracing.workspace = true
 thiserror.workspace = true

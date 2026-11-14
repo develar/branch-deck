@@ -175,7 +175,9 @@ A round (`state: conflict`, `session`):
   edit), `before` (the commit's parent), `onto` (the new parent: the baseline and the commits replayed so far),
   `commit` (the commit's version), `markers` (blocks left), `upstream_commits` (who changed it upstream), `hint`.
   `rename_rename` has `renamed_from` (the base name) and `commit_path` (the commit's name); `--take` and `--delete`
-  accept any of the three names.
+  accept any of the three names. `generated_by` (a lock file by its name, `linguist-generated` by its attributes, or
+  the `line` of the header that names its generator): a generated file, which brd never merges by words; never edit
+  it: take a side, then after the update run its generator and commit what it changed as `fixup! <subject>`.
   `session.marker_labels` names the ids after the markers. `session.blocked_paths`: local changes that will block the
   finish (the first 100, all 101 rather than one left out; `blocked_paths_omitted` counts the rest). `session.next`
   is the command that continues. A round prints only its own files; `brd update --status` adds the rounds resolved so
@@ -211,7 +213,10 @@ for an empty commit) and per file `how` (edited, onto, commit, deleted; words fo
 with `words` on the round) with `dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side's change
 that the result lost; a round of --landed has `landed_as` and `local_only` instead. Report each resolution to the
 user, these lines first. `verify.paths` names the files whose result no side had as it is (edited, commit, deleted,
-words): build, and run the tests of these files; a rename_to resolution names its written path. Without `verify`, the build is enough. On a failure commit the fix
+words): build, and run the tests of these files; a rename_to resolution names its written path. `verify.regenerate`
+names the generated files that the local commits and the baseline both changed, with `generated_by`, also after an
+update without a conflict: run their generators, then build and commit what changed as `fixup! <subject>` of the
+commit that changed the file. Without `verify`, the build is enough. On a failure commit the fix
 as `fixup! <subject>` and run `brd fold`, or take the update back with `brd undo <undo_token>`.
 
 `uncommitted_overlap` at the finish (exit 4) keeps the session: once the user moved those files, run

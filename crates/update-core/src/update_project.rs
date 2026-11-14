@@ -3,13 +3,14 @@
 //! check that every sync runs against the last fetched state are `baseline`.
 
 use crate::resolve_copies::{Materialize, prepare_dir};
-use crate::resolve_session::{DroppedCommit, SessionOutcome, ViewDetail, own_session, start_resolve, view_session, with_empty_drops, with_subjects};
+use crate::resolve_session::{DroppedCommit, SessionOutcome, ViewDetail, own_session, regenerate_files, start_resolve, view_session, with_empty_drops, with_subjects};
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::managed_branch_kind;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
+use git_ops::generated::GeneratedFile;
 use git_ops::landed_pairing::{LandedDrop, LandedReads};
 use git_ops::revs::{Worktree, current_worktree, is_object_id, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
@@ -126,11 +127,16 @@ pub fn update_project_with(git_executor: &GitCommandExecutor, repo_path: &str, o
 }
 
 /// What `brd update` did: an update as the app's, with every local commit it dropped and its subject and proof (those the
-/// replay left out because the upstream proves it has them, and those the replay dropped as empty, `landed`), or a
+/// replay left out because the upstream proves it has them, and those the replay dropped as empty, `landed`) and the
+/// generated files that its local commits and the upstream both changed (`regenerate`, the generator runs again), or a
 /// step of a resolve session
 #[derive(Debug)]
 pub enum BdUpdate {
-  Update { result: Box<UpdateProjectResult>, dropped: Vec<DroppedCommit> },
+  Update {
+    result: Box<UpdateProjectResult>,
+    dropped: Vec<DroppedCommit>,
+    regenerate: Vec<GeneratedFile>,
+  },
   Session(Box<SessionOutcome>),
 }
 
@@ -237,6 +243,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
         landed: Vec::new(),
       }),
       dropped: Vec::new(),
+      regenerate: Vec::new(),
     });
   }
   // a conflict that starts a session: its first round (the replays up to the conflict the check found, the merge, the
@@ -322,11 +329,16 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     };
     record_landed_update(git_executor, repo_path, &report, &grouping)
   });
-  // what `bd` lists of the drops: the app shows `landed`
-  let dropped = if applied.is_some() && matches!(resolve, Resolve::Yes { .. }) {
-    with_empty_drops(with_subjects(git_executor, repo_path, plan.landed_drops()), &landed)
-  } else {
-    Vec::new()
+  // what `bd` lists of the drops and of the generated files: the app shows `landed`
+  let (dropped, regenerate) = match &applied {
+    Some(applied) if matches!(resolve, Resolve::Yes { .. }) => {
+      let UpdateCheck { base, head, upstream_head, .. } = &plan.check;
+      (
+        with_empty_drops(with_subjects(git_executor, repo_path, plan.landed_drops()), &landed),
+        regenerate_files(git_executor, repo_path, base, head, upstream_head, &applied.new_head),
+      )
+    }
+    _ => (Vec::new(), Vec::new()),
   };
   Ok(BdUpdate::Update {
     result: Box::new(UpdateProjectResult {
@@ -335,6 +347,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       landed,
     }),
     dropped,
+    regenerate,
   })
 }
 

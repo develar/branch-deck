@@ -8,7 +8,7 @@ use clap::builder::RangedU64ValueParser;
 use commit_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
-use generated_files::attributes::generated_paths;
+use git_ops::generated::generated_paths;
 use history_rewrite::autosquash::{FixupKind, plan_autosquash};
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::commit_ids::{ResolvedIds, resolve_commit_ids};

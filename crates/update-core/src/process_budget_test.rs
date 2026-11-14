@@ -3,8 +3,8 @@
 //! that runs fewer processes lowers the numbers here; one that runs more has to say why.
 
 use crate::resolve_session::unapply_branch_suggestion;
-use crate::update_project::update_project_test::{path, setup};
-use crate::update_project::{UpdateProjectParams, update_project_core};
+use crate::update_project::update_project_test::{Setup, path, setup};
+use crate::update_project::{BdUpdate, UpdateOptions, UpdateProjectParams, update_and_resolve, update_project_core};
 use domain_types::update_project::UpdateState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::LockWait;
@@ -69,19 +69,45 @@ fn an_update() {
   assert_processes(&git, &with_fetch(UPDATE));
 }
 
-/// Update Project of the app after its fetch (the `FetchBaseline` of its operation, `operations::update`): the same
-/// update without the fetch, the network before it holds HEAD
-#[test]
-fn an_update_after_its_fetch() {
+/// The local commit and the upstream change of `an_update`, fetched
+fn fetched_update() -> Setup {
   let fixture = setup();
   fixture.clone.create_commit("(auth) Add login", "login.txt", "login\n");
   fixture.upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   fixture.clone.git(&["fetch", "--quiet", "origin"]);
+  fixture
+}
+
+/// Update Project of the app after its fetch (the `FetchBaseline` of its operation, `operations::update`): the same
+/// update without the fetch, the network before it holds HEAD
+#[test]
+fn an_update_after_its_fetch() {
+  let fixture = fetched_update();
   let git = counting();
   run_update(&git, &fixture.clone, false);
   // the processes of `an_update` without the fetch: the time of the last fetch is that of `FETCH_HEAD` in the
   // directories read at the start
   assert_processes(&git, UPDATE);
+}
+
+/// `brd update` of the rebase of `an_update_after_its_fetch` (`update_and_resolve`): the same update after the look for
+/// a resolve session of the worktree (one `cat-file` of its ref, none), and after the move the generated files that the
+/// local commit and the upstream both changed, for `verify.regenerate`: two `diff-tree`, the paths of each side since the
+/// merge base, and none in common, so neither `check-attr` nor `cat-file` follows
+#[test]
+fn a_bd_update_reads_the_generated_files_both_sides_changed() {
+  let fixture = fetched_update();
+  let git = counting();
+  let options = UpdateOptions {
+    fetch: false,
+    lock_wait: LockWait::default(),
+    onto: None,
+  };
+  let BdUpdate::Update { result, regenerate, .. } = update_and_resolve(&git, path(&fixture.clone), options, None).unwrap() else {
+    panic!("a clean update started a resolve session");
+  };
+  assert!(result.applied.is_some() && regenerate.is_empty(), "{result:?} {regenerate:?}");
+  assert_processes(&git, &with_added_processes(UPDATE, &[("cat-file", 1), ("diff-tree", 2)]));
 }
 
 #[cfg(any(unix, windows))]

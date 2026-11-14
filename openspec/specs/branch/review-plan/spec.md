@@ -15,6 +15,7 @@ targets:
   - crates/generated-files/src/header.rs
   - crates/generated-files/src/attributes.rs
   - crates/generated-files/src/generated_by.rs
+  - crates/git-ops/src/generated.rs
   - crates/review-plan/src/links.rs
   - crates/review-plan/src/dependencies.rs
   - crates/review-plan/src/registrations.rs
@@ -1362,7 +1363,7 @@ its name, a lock file of a package manager (`Cargo.lock`, `pnpm-lock.yaml`, `go.
 #### Scenario: The attributes of the head
 - **WHEN** the attributes of the head of the range mark a path `linguist-generated` or `-diff`
 - **THEN** the file is `generated`, read by one `check-attr --source=<head>` for the paths no name marks
-  [@test] crates/generated-files/src/attributes_test.rs (`the_attributes_of_the_revision_mark_generated_files_and_a_lock_file_is_one_by_its_name`)
+  [@test] crates/git-ops/src/generated_test.rs (`the_attributes_of_the_revision_mark_generated_files_and_a_lock_file_is_one_by_its_name`)
 
 ### Requirement: Mechanical Changes: A generated file is told by its header
 

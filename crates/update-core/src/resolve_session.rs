@@ -10,10 +10,12 @@ use anyhow::{Result, anyhow};
 use domain_types::conflict::ResolvedFileSummary;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
+use generated_files::generated_by::GeneratedBy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::commit_utils::get_commits_info;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
+use git_ops::generated::{GeneratedFile, merged_generated_files};
 use git_ops::landed_pairing::{Interdiff, LandedDrop, LandedProof, interdiffs};
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
@@ -143,6 +145,8 @@ pub struct FileView {
   pub renamed_from: Option<String>,
   /// The commit's path of a rename/rename
   pub commit_path: Option<String>,
+  /// Why the file is generated: only its generator resolves it
+  pub generated_by: Option<GeneratedBy>,
   /// The upstream commits since the merge base that changed the file, newest first
   pub upstream_commits: Vec<UpdateCommit>,
 }
@@ -200,6 +204,9 @@ pub enum SessionOutcome {
     /// The local commits now on the upstream
     replayed: u32,
     landed: Vec<LandedBranch>,
+    /// The generated files that the local commits and the upstream both changed (`merged_generated_files`): their
+    /// generator runs again
+    regenerate: Vec<GeneratedFile>,
   },
   /// Every commit is replayed, but local changes sit on paths the finish writes; the session is kept
   Blocked { view: SessionView, paths: Vec<String> },
@@ -296,6 +303,7 @@ fn view_state(
         edited,
         renamed_from: file.renamed_from.clone(),
         commit_path: file.commit_path.clone(),
+        generated_by: file.generated_by.clone(),
         upstream_commits: upstream.remove(&file.path).unwrap_or_default(),
       }
     })
@@ -769,6 +777,7 @@ fn outcome(
         record_landed_update(git_executor, repo_path, &report, grouping)
       };
       let replayed = count(git_executor, repo_path, &new_head, &state.upstream_head)?;
+      let regenerate = regenerate_files(git_executor, repo_path, &state.base, &previous_head, &state.upstream_head, &new_head);
       let mut view = view_state(git_executor, repo_path, state, None, None, ViewDetail::Full)?;
       view.dropped = with_empty_drops(std::mem::take(&mut view.dropped), &landed);
       view.dropped_count = view.dropped.len();
@@ -778,9 +787,19 @@ fn outcome(
         new_head,
         replayed,
         landed,
+        regenerate,
       })
     }
   }
+}
+
+/// The generated files an applied update of `head` (onto `upstream_head`, from their merge base `base`) to `new_head`
+/// brought together (`merged_generated_files`), read after the update is done: a failure is logged, not returned
+pub(crate) fn regenerate_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, head: &str, upstream_head: &str, new_head: &str) -> Vec<GeneratedFile> {
+  merged_generated_files(git_executor, repo_path, base, head, upstream_head, new_head).unwrap_or_else(|e| {
+    warn!(error = %format!("{e:#}"), "can't find the generated files the update changed on both sides");
+    Vec::new()
+  })
 }
 
 /// The commits of the rounds that resolved themselves by words, as an update check reports them, with their subjects

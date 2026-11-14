@@ -56,6 +56,7 @@ fn file(key: usize, path: &str) -> ConflictFile {
     mode: String::new(),
     renamed_from: None,
     commit_path: None,
+    generated_by: None,
   }
 }
 
@@ -539,6 +540,7 @@ fn a_rename_rename_round_round_trips_in_state_version_three() {
       mode: "100644".to_string(),
       renamed_from: Some("base.txt".to_string()),
       commit_path: Some("commit.txt".to_string()),
+      generated_by: None,
     }],
   });
   let encoded = serde_json::to_value(&state).unwrap();

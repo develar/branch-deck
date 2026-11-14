@@ -503,7 +503,8 @@ generated when:
 - its name is a lock file: `Cargo.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `go.sum`,
   `poetry.lock`, `Gemfile.lock` and the others in `LOCK_FILES` (`crates/generated-files/src/names.rs`);
 - or the attributes of HEAD mark it `linguist-generated` or `-diff` (which `binary` implies). One
-  `git check-attr --source=HEAD --stdin -z` process checks all paths (`crates/generated-files/src/attributes.rs`).
+  `git check-attr --source=HEAD --stdin -z` process checks all paths (`crates/git-ops/src/generated.rs`, the rule of
+  `crates/generated-files/src/attributes.rs`).
 
 Other generated files, such as bindings or snapshots, count until `.gitattributes` marks them, e.g.
 `src/lib/bindings.ts linguist-generated`.
@@ -944,7 +945,9 @@ beside another fetch of the baseline (the app's, another agent's) it waits for t
 - `state` is `up_to_date`, `fast_forward` or `rebase`; `replayed` and `undo_token` come only with a change. `dropped`
   names each local commit the update dropped, with its `proof` (`patch_id`, `replayed`, `changed_lines`, `empty`; in a
   resolve session also `landed` and `user`), and `dropped_count` counts them. `landed` lists the local commits the
-  baseline has, by branch. `verify.paths` names the files to build and test after a resolution.
+  baseline has, by branch. `verify.paths` names the files to build and test after a resolution; `verify.regenerate`
+  the generated files that the local commits and the baseline both changed (`path`, `generated_by`), also without a
+  conflict: their generator runs again, and what it changes is committed as a `fixup!`.
 - An output or an error with `ask_user: true` waits for the user's decision: `reasons` of the output, `message` of the
   error. brd asks only for a decision of the user, and an agent asks only then.
 - `resolved` lists the local commits whose conflict of git the update resolved by words (`branchdeck.resolveByWords`,
@@ -1006,6 +1009,9 @@ the contract is the spec. The mechanics behind it:
 - A round that resolves by words resolves itself (see "Resolve by words" in [Git Operations](../design/git-operations.md)):
   it counts in `round`, and `session.resolved` of every round lists it, so the number of the open round is never a
   surprise. Its resolution has `words`, and its files `how: "words"`.
+- A generated file (by its name, its attributes `linguist-generated` or `-diff`, or the header a tool wrote) is never
+  resolved by words: its round names why (`generated_by` of the file) and its `hint` says to take a side, then run the
+  generator after the update and commit its output as a `fixup!`; the finish names it in `verify.regenerate`.
 - A refusal names the round and its commit and changes nothing: the round stays open, and the copies keep the edits;
   `edited` per file says whether a copy differs from brd's merge result.
 - A round whose commit has a twin in the baseline (a candidate: the same author, author time and subject, but no

@@ -8,7 +8,7 @@ use crate::merge_conflict::{ConflictContext, build_complete_conflict_info, confl
 use crate::merge_memo::{CherryCommits, MergeMemo, MergeOutcome, MergeTrees};
 use crate::revs::is_object_id;
 use crate::tree_id_cache::TreeIdCache;
-use crate::word_resolve::{ResolveMode, Resolved, WordResolveOutcome, resolve_by_words};
+use crate::word_resolve::{ResolveMode, Resolved, WordResolveOutcome, WordScope, resolve_by_words};
 use domain_types::conflict::MergeConflictInfo;
 use domain_types::{BranchError, BranchSyncStatus};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -149,7 +149,7 @@ pub fn perform_fast_cherry_pick_with_context(
       memo.remember_merge(trees, &MergeOutcome::Conflict { files: files.clone() });
     }
     if resolve == ResolveMode::On {
-      let outcome = resolve_by_words(git_executor, repo_path, &merge).map_err(CopyCommitError::Other)?;
+      let outcome = resolve_by_words(git_executor, repo_path, &merge, WordScope::AllTexts).map_err(CopyCommitError::Other)?;
       let remembered = match &outcome {
         WordResolveOutcome::Resolved(resolution) => WordResolutionResult::Resolved {
           tree: resolution.tree.clone(),

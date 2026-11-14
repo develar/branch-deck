@@ -1,6 +1,7 @@
 //! The local commits of an update replayed onto the upstream, a commit whose conflict of git resolves by its words
 //! (`word_resolve`) committed with the result (docs/design/git-operations.md, "Resolve by words"): the update check and
-//! the rounds of `brd update` take the same rule as the sync.
+//! the rounds of `brd update` take the same rule as the sync, but for the generated files (`WordScope::HandWritten`):
+//! their conflict stays a round, which only their generator resolves.
 //!
 //! - **Commit by commit only where needed.** `git replay` replays each run of commits that applies; a binary search
 //!   finds the commit that conflicts, which the words resolve or the replay stops at.
@@ -12,7 +13,7 @@ use crate::commit_signing::Signing;
 use crate::commit_writer::{EditedCommit, TreeEdit, WrittenEdit, discard_temp_refs, read_raw_commits, write_edited_commit};
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::replay::{RunsReplay, first_conflict_in_runs, replay_of};
-use crate::word_resolve::{RESOLVE_VERSION, WordResolution, WordResolveOutcome, resolve_by_words};
+use crate::word_resolve::{RESOLVE_VERSION, WordResolution, WordResolveOutcome, WordScope, resolve_by_words};
 use anyhow::{Result, anyhow, bail};
 use domain_types::conflict::ResolvedFileSummary;
 use domain_types::update_project::UpdateResolvedCommit;
@@ -76,7 +77,8 @@ pub(crate) fn resolve_commit_onto(git_executor: &GitCommandExecutor, repo_path: 
   resolve_merge_onto(git_executor, repo_path, commit, onto, committer, &merge)
 }
 
-/// `resolve_commit_onto` of a merge the caller ran already (`merge-tree --write-tree -z` with its messages)
+/// `resolve_commit_onto` of a merge the caller ran already (`merge-tree --write-tree -z` with its messages); a generated
+/// file never resolves (`WordScope::HandWritten`)
 pub(crate) fn resolve_merge_onto(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -85,7 +87,7 @@ pub(crate) fn resolve_merge_onto(
   committer: &str,
   merge: &MergeTreeOutput,
 ) -> Result<Option<WordsResolved>> {
-  let WordResolveOutcome::Resolved(resolution) = resolve_by_words(git_executor, repo_path, merge)? else {
+  let WordResolveOutcome::Resolved(resolution) = resolve_by_words(git_executor, repo_path, merge, WordScope::HandWritten)? else {
     return Ok(None);
   };
   let raw = read_raw_commits(git_executor, repo_path, &[commit])?

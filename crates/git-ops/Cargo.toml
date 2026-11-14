@@ -16,6 +16,8 @@ sync-utils = { path = "../sync-utils" }
 line-diff.workspace = true
 # the merge of three texts that its words resolve (`merge_model::merge_texts`, `compose::compose_merge`)
 text-diff = { path = "../text-diff" }
+# the files nobody writes by hand: never resolved by words in an update, regenerated after it (`generated`)
+generated-files = { path = "../generated-files" }
 
 # Core utilities (shared via workspace)
 anyhow.workspace = true

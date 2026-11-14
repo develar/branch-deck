@@ -17,6 +17,8 @@ update-core = { path = "../update-core" }
 # `[commit] check` of .branchdeck.toml and the rules it names
 commit-rules = { path = "../commit-rules" }
 domain-types = { path = "../domain-types" }
+# why a file of a round or of `verify.regenerate` is generated, in the schema of the output
+generated-files = { path = "../generated-files", features = ["schemars"] }
 sync-utils = { path = "../sync-utils" }
 anyhow.workspace = true
 clap = { version = "4.6", features = ["derive"] }

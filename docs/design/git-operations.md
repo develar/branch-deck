@@ -1653,16 +1653,17 @@ needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 |---|---|
 | Start | the check of "Update project" conflicted before the lock, and the session replays its `ReplayPlan`: the local commits without the proven ones, in runs, and the candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer). Everything up to the state runs before the lock, on the HEAD and the upstream of the check (`prepare_session_start`, a `PreparedStart`); under it the mark and the witness of the update (`recheck_update`), then the state and the copies (`PreparedStart::start`); a witness that missed releases the lock, checks and opens the round once more without it and takes the lock for the witness again. The view of the round is read after the release |
 | Find the conflict | at the start, the first conflict of the check: one `replay` per run of the commits before it, and its round opens without a search (a commit before it that the words resolve conflicts on the way and is searched). After a resolution, one `replay` per run of the rest, and in the first that conflicts a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`, each probe from the longest clean prefix: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
-| Resolve by words | with `branchdeck.resolveByWords` on, the merge of the round (below) resolved by words: one `check-attr`, one `cat-file --batch` and one `fast-import`; a resolved commit is a round that resolves itself, and the search goes on after it ("Resolve by words") |
-| Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`), the stage blobs and the original side blobs of rename/rename pairs, which also writes the copies |
+| Resolve by words | with `branchdeck.resolveByWords` on, the merge of the round (below) resolved by words: one `check-attr`, one `cat-file --batch` and one `fast-import`; a resolved commit is a round that resolves itself, and the search goes on after it; a generated file never resolves ("Resolve by words") |
+| Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`), the stage blobs and the original side blobs of rename/rename pairs, which also writes the copies; one `check-attr` of the attributes that mark a generated file (`linguist-generated`, `-diff`) for the paths their name does not call generated: why each file is generated (`generated_by` of the file in `state.json`, `git_ops::generated::generated_of`: its name, its attributes, the header of a stage blob) |
 | The copies | one `log -1 --patch-with-stat` for `commit.patch`, one `log` of the upstream commits of the files, and the check of every sync for `blocked_paths` (two `diff-tree`, `rev-parse --git-path index`, `cat-file --batch-check -Z`, `hash-object --stdin-paths`) |
 | The state | one `fast-import` of the state commit on a temporary ref, one `update-ref --stdin` (create or CAS, the temporary ref deleted) |
 | `--continue` | one `cat-file --batch` of HEAD and the session, the guards (2); one `cat-file --batch -Z` of the round's objects for the checks; one `fast-import` writes the resolved commit (`M 040000 <merge tree> ""`, then `M`/`D` per path, author and message of `c`, the fixed committer) and `ls`s its tree and its parent's; one `replay` of the rest, a binary search only when it exits with 1; then the next round as above, or the finish |
 
 Measured on a middle round of a fixture with three local commits, `--continue` runs 20 git processes after the 3 of
 brd's own start: 2 replays, 5 for `blocked_paths`, 1 `merge-tree`, 2 `cat-file -Z`, 2 `fast-import`, 1 `update-ref`, 2
-`log`, 2 guards, the lock and the session read. The plan's estimate of about 9 plus the replays is not reached; the
-check for `blocked_paths` is the largest share.
+`log`, 2 guards, the lock and the session read; a round that opens reads the attributes of a generated file too (one
+`check-attr` more). The plan's estimate of about 9 plus the replays is not reached; the check for `blocked_paths` is
+the largest share.
 
 - **Fixed committer.** Every commit the session writes, by `replay` (`GIT_COMMITTER_NAME`, `_EMAIL`, `_DATE`) and by
   `fast-import`, has the committer and the date of the session start. So the same input gives the same ids: a rerun
@@ -1731,6 +1732,17 @@ check for `blocked_paths` is the largest share.
 - **`verify`.** At exit 0, `verify.paths` names the files to build and test: the paths of the rounds that did not drop
   their commit, with `how` edited, commit, deleted or words, and the files of the commits that an update resolved by
   words. A file taken from `onto` is the upstream's, tested there. The words are in it because nobody saw their merge.
+  `verify.regenerate` names the generated files that the local commits (`base..HEAD`) and the upstream
+  (`base..upstream`) both changed, each to another blob, and that the new HEAD keeps, with `generated_by`
+  (`git_ops::generated::merged_generated_files`): whatever wrote such a file in the new HEAD (git's clean merge, a side
+  taken, an edit), no run of its generator did, so it can be stale without a conflict, as the second output of a
+  generator whose first one conflicted. It runs after the move and the release of the lock, for every update of
+  `brd update` that applies, at once or at the finish: two `diff-tree` (none for a fast-forward), and with files
+  changed on both sides one `check-attr --source=<new head>` and one `cat-file --batch` of their texts for the header;
+  a failure leaves the list out. The app's Update Project reads none of it.
+- **A generated file.** Its round names why it is generated (`generated_by`: `name`, `attribute`, or `header` with the
+  line that names the generator) and its `hint` says to take a side, never to edit its text, then to run the generator
+  after the update and commit what it changed as `fixup! <subject>`; the finish names it in `verify.regenerate`.
 - **Blocked paths early.** Each round prints `blocked_paths`: the local changes on the paths that the upstream changed
   since the merge base and that differ between HEAD and the upstream, found with the cheaper check of every sync. The
   agent asks the user about them before it resolves; the finish runs the exact check.
@@ -2938,7 +2950,9 @@ cherry-pick stays the conflict of git.
   that changed the mode wins; two other changes stay a conflict), only `CONFLICT (contents)` messages, the `merge`
   attribute unspecified, set or `text` (as git finds it for a merge: `check-attr` without `--source`), and UTF-8 text
   without NUL on every side. An add/add (no stage 1), a modify/delete, a rename/rename, a rename/delete, a
-  file/directory and a binary file (`CONFLICT (binary)`, also by `merge=binary`) stay conflicts.
+  file/directory and a binary file (`CONFLICT (binary)`, also by `merge=binary`) stay conflicts. The resolve takes a
+  scope (`WordScope`): the sync resolves every text (`AllTexts`), the update only those people write (`HandWritten`,
+  below).
 - **The merge.** `merge_texts` of the stages (left: stage 2, ours, the target; base: stage 1; right: stage 3, theirs,
   the commit) under `Default`, without a deadline, so that every machine resolves alike; the size limits of the
   engine (`MAX_INNER_LINES`, `MAX_INNER_BYTES`) still hold, and a file over them stays a conflict. Every block must
@@ -2956,7 +2970,8 @@ cherry-pick stays the conflict of git.
   the repository). The blobs and the trees exist only once the commit that holds them is written.
 - **The count.** The conflicts of a file are those of git: the `<<<<<<<` lines of the file with the markers.
 - **Processes.** One `check-attr` and one `cat-file --batch` (the stages, the files with the markers, the trees),
-  none when a path fails before; the merges stop at the first file that does not resolve.
+  none when a path fails before; the merges stop at the first file that does not resolve. In the update the same
+  `check-attr` reads the attributes of a generated file too.
 - **`RESOLVE_VERSION`** names the way of the resolve: bump it when the merge, the resolve or the composition can give
   another result.
 
@@ -3003,6 +3018,14 @@ In Update Project and `brd update`, with the same setting (`crates/git-ops/src/w
   that resolves itself: it counts in `round`, its resolution has `words` and the outcome `words` per path, and the
   replay goes on. The agent sees only the rounds that do not resolve. `start_session` gets the mode with the check,
   `continue_session` from the config at each step.
+- **A generated file stays a conflict** (`WordScope::HandWritten`): a file that `generated-files` calls generated, by
+  its name (a lock file, a minified file, a source map, a snapshot), by its attributes as git finds them for a merge
+  (`linguist-generated`, `-diff`, read in the `check-attr` of the merge attribute) or by the header a tool wrote into a
+  side (`generated_by::generated_by`), is `NotResolved::Generated`: the check stops at its commit, and its round opens.
+  A merge of words cannot see the conflict of a generated file: the upstream added an entry that refers to a name the
+  local commit renamed on another line, the words keep both, and the file no longer loads. Its resolution is the
+  output of its generator on the merged inputs, never a merge of its text. The sync keeps the words for the copies of a
+  virtual branch (`AllTexts`).
 - **The cost.** A check that conflicts in a commit whose words do not resolve replays the prefixes once more: one
   binary search, which names the first conflict; the session opens its round there without a search of its own. The
   trial without the words is unchanged.
@@ -3750,7 +3773,7 @@ and the `rewritten` ones, each against its own parent:
 | 9. Usages | one `accio references --no-build --format json --limit 100 --ref <head> --at <place>…` of every removal and change, no git: the lines they split by are those of the pair (step 15); asked once the pair is read, at once with step 6b, since it needs no module | through `Lenient`: a failed query leaves the entries without usages and `index_note` says why; no accio, or no usable index (`available: false` of `--no-build`, its reason the note), is a note too, never an index build; a cancel of the caller cancels the plan. A usage is a hit in code that a type or an import ties to the declaration: no declaration, `import` or `doc` hit (`NOT_USES`), a hit only the name ties (`resolved: name`) counted apart as `by_name`, and of a type whose constructors are its only change only a `call` (a Kotlin `class Sub : Type(…)` too) and a `supertype` hit (a Java `extends Type`). A usage on a line the commits changed at the head, a call by any line up to its `end_line`, is `inside` (`pair.rs`: the hunks of a file one commit changes, the blocks of its first blob against its last for one that several change, every line of an added file); left outside, a call of a change of the parameters or constructors alone that `fits` the new form and whose every argument binds a parameter of the same name and type as before is `still_bound`, any other `outside`, the first 5 of those kept by path and line; the card ranks by `outside` (`fan_in.rs`) |
 | 10. Order | none | the summaries of step 7 of each kept file as the last reviewed commit leaves it, the declarations of each against the uses of the others with the evidence of the symbol dependencies (`file_links`, trial-check); Tarjan's components placed in topological order, the first in the tree first, a cycle in tree order, then each test right after its subject (`order.rs`); the links it read are the links after the commits |
 | 11. Links | none | `file_links` again on the summaries of step 7 of each file before the first commit that changes it, at its path then; per pair of files `added`, `removed` or `kept`, across modules when the modules of step 6b differ (`links.rs`) |
-| 12. Generated files, hunk text | one `check-attr --source=<head> --stdin -z` of the changed paths that no name marks generated (`attribute_generated_paths` of `generated-files`) | a file generated by its name (a lock file, a minified file, a source map) or its attributes reads no text; of the others, the old and new blobs of the modified and renamed files (`hunk_blobs`) and the new blob of every other file still there and the blob a deletion removed (`header_blobs`), for the header a tool wrote: from the memory of `FileDiffs` when step 6 read them in this process, else from the second batch of step 7, which then runs for them alone in a repository with no manifest, with the same text either way (up to the 8 MiB of `MAX_BLOB_BYTES`, an invalid UTF-8 sequence replaced), so the plan does not depend on what the object cache holds; the text makes the generated files by their header (`generated_of`), the mechanical kinds and the repeated edits, none of a generated file |
+| 12. Generated files, hunk text | one `check-attr --source=<head> --stdin -z` of the changed paths that no name marks generated (`git_ops::generated::attribute_generated_paths`, the rule of `generated-files`) | a file generated by its name (a lock file, a minified file, a source map) or its attributes reads no text; of the others, the old and new blobs of the modified and renamed files (`hunk_blobs`) and the new blob of every other file still there and the blob a deletion removed (`header_blobs`), for the header a tool wrote: from the memory of `FileDiffs` when step 6 read them in this process, else from the second batch of step 7, which then runs for them alone in a repository with no manifest, with the same text either way (up to the 8 MiB of `MAX_BLOB_BYTES`, an invalid UTF-8 sequence replaced), so the plan does not depend on what the object cache holds; the text makes the generated files by their header (`generated_of`), the mechanical kinds and the repeated edits, none of a generated file |
 | 13. Dependencies, UI texts | none | the `*.iml`, plugin descriptors, `Cargo.toml` and `package.json` before the first commit that changes each and after the last (`manifest_blobs`), from the memory of `FileDiffs` or the second batch of step 7, as the hunk text; their entries parsed (`quick-xml`, `toml`, `serde_json`), paired by kind, name and table: `added`, `removed`, `changed` for a new version or scope, `newModule` for a build file added or deleted; whether only the entries changed (`dependencies.rs`); the message bundles (a `*.properties` file in a `messages` directory or named `*Bundle` or `*Messages`) the same way, before and after (`bundle_blobs`): the keys they add, remove or change, read as Java reads them, are the texts of the UI (`texts.rs`) |
 | 14. Files | none | per changed file its link counts, its mechanical kind (generated with why, by name, a build file that changed only in its entries, or the text of every hunk), its repeated edit (a hunk key of 3 or more files), the summed `outside` usages of its removed or changed API (`breaks`), and `untested` when a source file changed with no test that names its stem (`files.rs`) |
 | 15. Pair and units | one `cat-file --batch` of the first and last blobs of the files that several commits change, for those the memory of the diffs and the `file_diff` store lack (`FileDiffs::blocks_of`); none when no file is changed twice | the blocks of each changed file from before the commits to after them, under `Default` (`pair.rs`: the hunks of a file one commit changes); cut into the units (`units.rs`, [Review Units](../../openspec/specs/branch/review-units/spec.md)) by the summaries of step 7 (`spanned_declarations`), the hunk text of step 12 and the kinds and groups of step 14: every block in one unit, in the order of step 10; a body changed in renamed names alone that the index has not proven is told so (`ReviewUnit::renamed`, `renamed_uses.rs`), from the marks of the reading, again with its answer; a declaration renamed so is one unit with its old name (`ReviewUnit::renamed_from`, `DeclaredRenames`), the story told again where the answer of the index changed the pairs |
