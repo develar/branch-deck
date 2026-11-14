@@ -21,6 +21,7 @@ const KEYED = new Set([
   "githubLayers",
   "reviewGroups",
   "approvalLanding",
+  "reviewStacks",
   "operations",
 ])
 

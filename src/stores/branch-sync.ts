@@ -27,6 +27,7 @@ import type {
   Reason,
   RepositoryLink,
   ReviewerGroupView,
+  ReviewStackApproval,
   RobotAttention,
   RunningOperation,
   StackBranchAlong,
@@ -347,6 +348,12 @@ export interface BranchSyncState {
    */
   approvalLanding: Readonly<Record<string, ApprovalLanding>>
   /**
+   * Approve N Pull Requests of each stack a review window shows, by `review-stack:<top>`, as Rust decides it
+   * (`RepositoryView.reviewStacks`, `domain_policy::stack_approval`): the layers it approves on the heads the window
+   * shows, those approved already, and whether it can run; a stack no window fetched is not listed
+   */
+  reviewStacks: Readonly<Record<string, ReviewStackApproval>>
+  /**
    * The operations of the remote that run or wait in the session, by id (`RepositoryView.operations`, written by
    * `operations::registry`): the moves of rows they make are laid over the nodes (`src/presenters/running-move.ts`)
    */
@@ -363,11 +370,23 @@ export const NO_OPERATIONS: BranchSyncState["operations"] = {}
 
 /**
  * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
- * `nextSteps`, `actions`, `attention`, `githubLayers`, `reviewGroups`, `approvalLanding`), its operations and its route
+ * `nextSteps`, `actions`, `attention`, `githubLayers`, `reviewGroups`, `approvalLanding`, `reviewStacks`), its operations and its route
  */
 export const NO_SUBJECT_PARTS: Pick<
   BranchSyncState,
-  "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "githubLayers" | "reviewGroups" | "approvalLanding" | "operations" | "route"
+  | "pushes"
+  | "openPullRequests"
+  | "lands"
+  | "landedStates"
+  | "nextSteps"
+  | "actions"
+  | "attention"
+  | "githubLayers"
+  | "reviewGroups"
+  | "approvalLanding"
+  | "reviewStacks"
+  | "operations"
+  | "route"
 > = {
   pushes: {},
   openPullRequests: {},
@@ -379,6 +398,7 @@ export const NO_SUBJECT_PARTS: Pick<
   githubLayers: {},
   reviewGroups: {},
   approvalLanding: {},
+  reviewStacks: {},
   operations: NO_OPERATIONS,
   route: null,
 }
@@ -431,7 +451,7 @@ export function useBranchSync<T>(selector: (state: BranchSyncState) => T): T {
 // ---- narrow subscriptions: a change wakes only the hooks of what it changed ----
 
 /** The fields of the state that are records by a key (a branch, a subject), whose entries keep their objects while a patch leaves them */
-type EntryField = "branches" | "nextSteps" | "actions" | "reviewGroups" | "approvalLanding" | "openPullRequests" | "stackBranches" | "pushes" | "landedStates"
+type EntryField = "branches" | "nextSteps" | "actions" | "reviewGroups" | "approvalLanding" | "reviewStacks" | "openPullRequests" | "stackBranches" | "pushes" | "landedStates"
 type EntryOf<F extends EntryField> = BranchSyncState[F][string]
 type Listener = () => void
 

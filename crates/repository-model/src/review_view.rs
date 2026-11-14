@@ -5,7 +5,9 @@
 //! the sections, and the ones the review windows show that no listing has any more; `review_groups_of` the reviewer
 //! groups of each pull request a review window shows by `pull:<number>` (`domain_policy::reviewer_groups`, of the
 //! readiness `request:<number>` and the GitHub login of the app's sign-in); `approval_landing_of` what an approval of
-//! each counts for where Patronus merges (`domain_policy::approval_landing`). All are derived with every patch.
+//! each counts for where Patronus merges (`domain_policy::approval_landing`); `review_stacks_of` Approve N Pull Requests
+//! of each stack a review window shows by `review-stack:<top>` (`domain_policy::stack_approval`). All are derived with
+//! every patch.
 
 use crate::action_view::{FrameReads, reads_cached_frame};
 use crate::facts::FactStore;
@@ -15,12 +17,13 @@ use domain_policy::approval_landing::approval_landing;
 use domain_policy::landing_node::is_users_move;
 use domain_policy::reviewer_groups::reviewer_groups;
 use domain_policy::reviews::{ReviewsFacts, is_returned, sections};
+use domain_policy::stack_approval::{LayerFacts, stack_approval};
 use domain_types::actions::ActionState;
 use domain_types::next_step::NextStepView;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::pull_request::PullRequestState;
 use domain_types::review_request::{ReviewInvolvement, ReviewRequest};
-use domain_types::session::{ApprovalLanding, ReviewerGroupView, ReviewsView, request_of_readiness_key};
+use domain_types::session::{ApprovalLanding, ReviewStackApproval, ReviewerGroupView, ReviewsView, request_of_readiness_key};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The key of the actions of the pull request `number` in `RepositoryView::actions`
@@ -114,6 +117,36 @@ fn pulls_to_review<'a>(facts: &'a FactStore, reviews: &'a ReviewsView) -> Vec<(&
   let windows = fact.windows().map(|(request, involvement)| (request, involvement.as_ref()));
   let mut seen = BTreeSet::new();
   requests.chain(sections).chain(windows).filter(|(request, _)| seen.insert(request.number)).collect()
+}
+
+/// The key of Approve N Pull Requests of the stack of `top` in `RepositoryView::review_stacks`
+#[must_use]
+pub fn review_stack_key(top: u32) -> String {
+  format!("review-stack:{top}")
+}
+
+/// Approve N Pull Requests of every stack a review window shows by `review-stack:<top>`
+/// (`domain_policy::stack_approval::stack_approval`): over the heads its last fetch brought and the user's approvals of
+/// each layer; it waits on a frame nobody checked yet, as Approve does
+#[must_use]
+pub fn review_stacks_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, ReviewStackApproval> {
+  let fact = &facts.review_requests;
+  let cached = reads_cached_frame(state, facts, FrameReads::Reviews);
+  fact
+    .fetched_stacks()
+    .map(|(top, layers)| {
+      let layers: Vec<LayerFacts<'_>> = layers
+        .iter()
+        .map(|layer| LayerFacts {
+          number: layer.request.number,
+          head: layer.head,
+          approved: fact.approved(layer.request),
+          own: layer.own,
+        })
+        .collect();
+      (review_stack_key(top), stack_approval(&layers, cached))
+    })
+    .collect()
 }
 
 /// The reviewer groups of every pull request whose readiness the session has (`request:<number>`, while a review window

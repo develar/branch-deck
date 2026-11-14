@@ -51,6 +51,7 @@
     "approve",
     "safe-push-pull-request",
     "request-changes",
+    "approve-stack",
     "show-branch",
     "remove-from-reviews",
     "open-unknown-start",
@@ -298,6 +299,12 @@
       {
         "code": "approved",
         "commit": "0123456789abcdef"
+      }
+    ],
+    [
+      "approve-stack",
+      {
+        "code": "stackApproved"
       }
     ],
     [

@@ -25,7 +25,7 @@ import { useSubjectPlan } from "@/hooks/useReviewPlan"
 import { useReviewPosition } from "@/hooks/useReviewPosition"
 import { SelectReviewFileContext, linkNavigator } from "@/hooks/useSelectReviewFile"
 import type { ReviewLink } from "@/hooks/useSelectReviewFile"
-import type { ApprovalLanding, RangeReadingView, ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest, StackReading } from "@/lib/bindings"
+import type { ApprovalLanding, RangeReadingView, ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest, ReviewStackApproval, StackReading } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -38,17 +38,17 @@ import { ownerPaths, reviewFilterChips, reviewOwnerMarks } from "@/lib/review-ow
 import type { ReviewOwners } from "@/lib/review-owners"
 import { planFacts } from "@/lib/review-plan-answer"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
-import { getReviewRequestActions } from "@/lib/review-request-actions"
+import { getReviewRequestActions, getStackApprovalItem } from "@/lib/review-request-actions"
 import { formatStackMeta, formatStackTitle } from "@/lib/review-requests"
 import { useRowPart } from "@/model/store"
 import { describeUnproven, formatReading, formatStackReading } from "@/presenters/range-reading"
 import { presentMap } from "@/presenters/review-map"
 import { withCommitTitles } from "@/presenters/review-steps"
-import { joinApprovalScope, presentApprovalLanding, presentApprovalScope } from "@/presenters/reviews"
+import { joinApprovalScope, presentApprovalLanding, presentApprovalScope, presentStackApprovalLanding } from "@/presenters/reviews"
 import { useBranchSync } from "@/stores/branch-sync"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import type { ReviewFetch } from "@/stores/review-fetch"
-import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
+import type { ReviewAction, ShownLayer, SubmittedReview } from "@/stores/review-requests"
 import { getReviewBusy } from "@/stores/review-requests"
 
 /** What the review of a pull request shows and does, from the session of the review window (`PullRequestReviewWindow`) */
@@ -120,6 +120,19 @@ export interface ReviewStackView {
   readonly summary: StackReading | null
   /** Approves the head of a layer with nothing to read from the list of the layers */
   readonly approveLayer: (request: ReviewRequest, commitId: string) => Promise<boolean>
+  /**
+   * Approve N Pull Requests as Rust decides it over the heads of the fetch (`RepositoryView.reviewStacks`); undefined
+   * until the session has the fetch of the stack
+   */
+  readonly approval: ReviewStackApproval | undefined
+  /** What an approval of each layer counts for where Patronus merges (`RepositoryView.approvalLanding`), by its place */
+  readonly landings: readonly (ApprovalLanding | undefined)[]
+  /** Approve N Pull Requests of the stack runs or waits */
+  readonly approving: boolean
+  /** A write of a layer runs (its review, or Approve N Pull Requests, which holds the review of each layer) */
+  readonly layerBusy: boolean
+  /** Approve N Pull Requests: every layer on the head the window shows, but those approved on it */
+  readonly approveStack: (layers: readonly ShownLayer[]) => Promise<boolean>
 }
 
 export interface ReviewStackLayerView {
@@ -192,6 +205,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   }
   const requestChangesRef = useRef<HTMLButtonElement>(null)
   const approveRef = useRef<HTMLButtonElement>(null)
+  const approveStackRef = useRef<HTMLButtonElement>(null)
   const safePushRef = useRef<HTMLButtonElement>(null)
   // the description in the overview, which "Description" of the changes shows: by the serial of its click
   const descriptionRef = useRef<HTMLElement>(null)
@@ -372,6 +386,31 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     },
     "window",
   )
+  // Approve N Pull Requests of a stack: every layer on the head the window shows, from All Changes and from a layer
+  const shownLayers = stack === undefined ? null : shownLayersOf(stack)
+  const approveStackItem =
+    stack === undefined
+      ? null
+      : getStackApprovalItem({
+          approval: stack.approval,
+          layerCount: stack.layers.length,
+          waiting: shownLayers?.kind === "waiting" ? shownLayers.reason : null,
+          busy: stack.approving || stack.layerBusy,
+          words,
+          landing: presentStackApprovalLanding(stack.layers.map(({ request }, at) => ({ number: request.number, landing: stack.landings[at] }))),
+          onApprove: () => {
+            if (shownLayers?.kind === "shown") {
+              void stack.approveStack(shownLayers.layers)
+            }
+          },
+        })
+  const approveStackEnabled = approveStackItem !== null && approveStackItem.disabled !== true
+  // opened from the menu of the header of the stack: the focus on it once the window can approve
+  useEffect(() => {
+    if (intent === "approveStack" && approveStackEnabled) {
+      approveStackRef.current?.focus()
+    }
+  }, [intent, approveStackEnabled])
 
   /** What Escape does inside the review; false when it is the close of the window */
   const handleEscape = (): boolean => {
@@ -399,9 +438,20 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
       }
       return
     }
-    // a key of a text field, or with a modifier (⌥↑/⌥↓ of the commit column); the form of an action is open: its keys
-    // are its own
-    if (event.defaultPrevented || hasKeyModifier(event) || isTypingTarget(event) || isRequestingChanges || isConfirmingSafePush) {
+    // a key of a text field; the form of an action is open: its keys are its own
+    if (event.defaultPrevented || isTypingTarget(event) || isRequestingChanges || isConfirmingSafePush) {
+      return
+    }
+    // ⇧A: Approve N Pull Requests of a stack, as its button
+    if (approveStackItem !== null && event.code === "KeyA" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault()
+      if (approveStackItem.disabled !== true) {
+        approveStackItem.onSelect(FROM_MENU)
+      }
+      return
+    }
+    // a key with a modifier (⌥↑/⌥↓ of the commit column)
+    if (hasKeyModifier(event)) {
       return
     }
     // the physical keys, in any keyboard layout; the actions of the pull request work in both views
@@ -459,6 +509,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     onNext: nextOf(host) === null ? null : () => showRequest(nextOf(host)!),
     actions,
     source: host.source,
+    approveStack: approveStackItem,
   }
   const top = (
     <div className="flex min-w-0 flex-col">
@@ -654,6 +705,10 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
             commitId={reviewedCommit.id}
             requestChangesRef={requestChangesRef}
             approveRef={approveRef}
+            approveStack={approveStackItem}
+            approveStackRef={approveStackRef}
+            approveStackPending={stack?.approving === true}
+            approveStackPrimary={stack !== undefined && stack.layer === null}
             safePushRef={safePushRef}
             isRequestingChanges={isRequestingChanges}
             onRequestingChangesChange={setRequestingChanges}
@@ -713,6 +768,24 @@ function nextOf(host: PullRequestReviewHost): number | null {
     next++
   }
   return next < host.requests.length ? next : null
+}
+
+/**
+ * The layers of the stack on the heads the window shows, the bottom first, which Approve N Pull Requests approves; why
+ * there are none yet: the stack is fetched, or a head could not be fetched (the review shows another commit there)
+ */
+function shownLayersOf(stack: ReviewStackView): { readonly kind: "shown"; readonly layers: readonly ShownLayer[] } | { readonly kind: "waiting"; readonly reason: string } {
+  const layers: ShownLayer[] = []
+  for (const { request, range } of stack.layers) {
+    if (range === null) {
+      return { kind: "waiting", reason: "Wait until the stack is fetched: an approval is on the commits you saw" }
+    }
+    if (range.headState === "missing") {
+      return { kind: "waiting", reason: `The commit #${request.number} shows could not be fetched: the approval would be on another one` }
+    }
+    layers.push({ request, commit: range.head })
+  }
+  return { kind: "shown", layers }
 }
 
 /**

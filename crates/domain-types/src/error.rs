@@ -637,6 +637,7 @@ pub enum OperationKind {
   DisableAutoMerge,
   CloseLandedPullRequests,
   SubmitReview,
+  ApproveStack,
   SetIssueState,
   ForgetStart,
   Rewrite,

@@ -2,7 +2,7 @@ import type { MergeConflictInfo, ReviewCommit, ReviewRequest } from "@/lib/bindi
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import type { ReviewSource } from "@/lib/pull-request-review"
-import type { ReviewIntent } from "@/lib/review-request-actions"
+import type { ReviewIntent, StackReviewIntent } from "@/lib/review-request-actions"
 import type { KeptKind } from "@/lib/review-target"
 
 /** `__INIT_DATA__` of the `conflicting-files` sub-window (opened from ConflictingFileListCard) */
@@ -157,6 +157,6 @@ export interface PullRequestStackReviewWindowData extends ReviewWindowOpen {
   bottom: number
   /** The layers when it opened, the bottom first: the window shows them until its fetch answers */
   layers: ReviewRequest[]
-  /** "review" (D on the header of the stack): the changes at once */
-  intent: "review" | null
+  /** "review" (D on the header of the stack): the changes at once; "approveStack": Approve N Pull Requests focused */
+  intent: StackReviewIntent | null
 }

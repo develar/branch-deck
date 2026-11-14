@@ -9,6 +9,7 @@ import {
   joinApprovalScope,
   presentApprovalLanding,
   presentApprovalScope,
+  presentStackApprovalLanding,
   returnedTexts,
   reviewEntryTexts,
   reviewMark,
@@ -204,5 +205,21 @@ describe("presentApprovalLanding", () => {
     expect(joinApprovalScope(layer, "Counts for Design")).toBe(`${layer}. Counts for Design`)
     expect(joinApprovalScope(null, "Counts for Design")).toBe("Counts for Design")
     expect(joinApprovalScope(null, null)).toBeNull()
+  })
+})
+
+describe("presentStackApprovalLanding", () => {
+  it("says Patronus counts the bottom for its own Safe Push and the layers above once each goes into the target, nothing without Patronus", () => {
+    const once = { kind: "onceIntoTarget", base: "auth", target: "master" } as const
+    expect(
+      presentStackApprovalLanding([
+        { number: 301, landing: { kind: "ownSafePush" } },
+        { number: 302, landing: once },
+        { number: 303, landing: once },
+      ]),
+    ).toBe("Patronus counts #301 for its own Safe Push, #302 and #303 once each goes into master")
+    expect(presentStackApprovalLanding([{ number: 302, landing: once }])).toBe("Patronus counts #302 once it goes into master")
+    expect(presentStackApprovalLanding([{ number: 301, landing: { kind: "ownSafePush" } }])).toBeNull()
+    expect(presentStackApprovalLanding([{ number: 301, landing: undefined }])).toBeNull()
   })
 })

@@ -7,8 +7,9 @@
 //! and an error leaves with the id. `prepare` asks the family of an intent for its plan,
 //! and `execute` runs it on the plan its caller accepted: a start (`execute_land`, `land_execute::execute`), a restart
 //! and a cancel of a robot (`robot`), a retarget of a pull request, the creation of one and a review request
-//! (`pull_request`), the closes (`close`), a review (`review`), the state of an issue (`issue`), a push (`push`: of a
-//! branch alone, of a stack, up to a commit, of an unapplied branch, of the stack branch of a whole stack), a rewrite
+//! (`pull_request`), the closes (`close`), a review and Approve N Pull Requests of a stack (`review`), the state of an
+//! issue (`issue`), a push (`push`: of a branch alone, of a stack, up to a commit, of an unapplied branch, of the stack
+//! branch of a whole stack), a rewrite
 //! (`rewrite`), the fetch of the baseline, Update Project and the dismissal of what landed (`update`) and the fetch of
 //! a review (`review_fetch`). A start
 //! reserves what its plan lands (`Resource::Lands`), the refs
@@ -113,6 +114,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. } => Ok(close::prepare_close(sessions, key, &intent).await),
     Intent::DisableAutoMerge { number } => Ok(auto_merge::prepare_disable(sessions, key, number).await),
     Intent::SubmitReview { .. } => review::review_plan(&intent).map(Some),
+    Intent::ApproveStack { .. } => review::prepare_approve_stack(sessions, key, &intent).await,
     Intent::SetIssueState { .. } => issue::issue_plan(&intent).map(Some),
     Intent::Push(push) => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),
     Intent::ForgetStart { .. } => forget::forget_plan(&intent).map(Some),
@@ -148,6 +150,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::execute_close(registry, key, intent, accepted, services, events).await,
     Intent::DisableAutoMerge { number } => auto_merge::execute_disable(registry, key, number, accepted, services, events).await,
     intent @ Intent::SubmitReview { .. } => Box::pin(review::execute_review(registry, key, intent, accepted, services, events)).await,
+    intent @ Intent::ApproveStack { .. } => Box::pin(review::execute_approve_stack(registry, key, intent, accepted, services, events)).await,
     intent @ Intent::SetIssueState { .. } => issue::execute_issue(registry, key, intent, accepted, services, events).await,
     Intent::Push(push) => Box::pin(push::execute_push(registry, key, push, accepted, services, events)).await,
     intent @ Intent::ForgetStart { .. } => forget::execute_forget(registry, key, intent, accepted, events).await,
@@ -176,7 +179,7 @@ const fn frame_reads(intent: &Intent) -> Option<FrameReads> {
     | Intent::ClosePullRequest { .. }
     | Intent::DisableAutoMerge { .. } => Some(FrameReads::Landing),
     Intent::RestartRobot { .. } | Intent::CancelRobot { .. } => Some(FrameReads::Robots),
-    Intent::SubmitReview { .. } => Some(FrameReads::Reviews),
+    Intent::SubmitReview { .. } | Intent::ApproveStack { .. } => Some(FrameReads::Reviews),
     _ => None,
   }
 }
@@ -338,7 +341,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::LinkStack { .. }) => pull_request::pull_request_request(intent, Some(planned)),
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::close_request(intent, Some(plan)),
     Intent::DisableAutoMerge { number } => auto_merge::disable_request(*number),
-    intent @ Intent::SubmitReview { number, .. } => review::review_request(intent, *number),
+    intent @ (Intent::SubmitReview { .. } | Intent::ApproveStack { .. }) => review::review_request(intent),
     intent @ Intent::SetIssueState { key, .. } => issue::issue_request(intent, key),
     intent @ Intent::ForgetStart { .. } => forget::forget_request(intent),
     Intent::Rewrite(rewrite) => rewrite_request(prefix, rewrite),

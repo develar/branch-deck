@@ -343,6 +343,8 @@ function failureTitle(intent: Intent, subject: string): string {
       return intent.landing.by === "robot" ? "Cannot close the pull requests of the merged robot" : "Cannot close the pull requests that landed"
     case "submitReview":
       return `Cannot review pull request #${intent.number}`
+    case "approveStack":
+      return `Cannot approve the stack of #${intent.top}`
     case "setIssueState":
       return `Cannot change ${intent.key}`
     case "forgetStart":

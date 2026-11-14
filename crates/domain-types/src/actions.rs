@@ -96,6 +96,9 @@ pub enum ActionId {
   /// Approve and Safe Push, or the Safe Push alone after an approval of the head
   SafePushPullRequest,
   RequestChanges,
+  /// Approve N Pull Requests of a stack a review window shows (Review Stack): every layer on the head the window shows,
+  /// but those the user approved on it already
+  ApproveStack,
   /// The branch of the table an own pull request is of
   ShowBranch,
   /// A pull request the user added by its link leaves Reviews
@@ -109,7 +112,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 55] = [
+  pub const ALL: [Self; 56] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -161,6 +164,7 @@ impl ActionId {
     Self::Approve,
     Self::SafePushPullRequest,
     Self::RequestChanges,
+    Self::ApproveStack,
     Self::ShowBranch,
     Self::RemoveFromReviews,
     Self::OpenUnknownStart,
@@ -324,6 +328,8 @@ pub enum ActionBlocker {
   Approved {
     commit: String,
   },
+  /// The user approved every pull request of the stack on the head the review window shows
+  StackApproved,
   /// The branch Patronus pushes into for the baseline is known after the first sync
   TargetUnread,
   /// The baseline is no branch of origin, which Patronus pushes into

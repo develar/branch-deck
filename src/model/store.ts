@@ -45,6 +45,7 @@ import type {
   RepositoryLink,
   RepositoryView,
   ReviewerGroupView,
+  ReviewStackApproval,
   StackBranchUpdate,
   SyncAnswer,
   SyncReason,
@@ -660,6 +661,9 @@ function projectView(
   }
   if (changes === null || Object.keys(changes.approvalLanding ?? {}).length > 0 || (changes.removedApprovalLanding?.length ?? 0) > 0) {
     update.approvalLanding = next.approvalLanding ?? {}
+  }
+  if (changes === null || Object.keys(changes.reviewStacks ?? {}).length > 0 || (changes.removedReviewStacks?.length ?? 0) > 0) {
+    update.reviewStacks = next.reviewStacks ?? {}
   }
   if (changes === null || Object.keys(changes.operations ?? {}).length > 0 || (changes.removedOperations?.length ?? 0) > 0) {
     update.operations = next.operations
@@ -1363,10 +1367,12 @@ interface RowParts {
   readonly reviewGroups: readonly ReviewerGroupView[]
   /** What an approval of a pull request to review counts for where Patronus merges (`RepositoryView.approvalLanding`, `pull:<number>`) */
   readonly approvalLanding: ApprovalLanding
+  /** Approve N Pull Requests of a stack a review window shows (`RepositoryView.reviewStacks`, `review-stack:<top>`) */
+  readonly reviewStack: ReviewStackApproval
 }
 
 /** The record of the store that keeps each part of the rows */
-const ROW_PARTS = { landing: "nextSteps", actions: "actions", reviewGroups: "reviewGroups", approvalLanding: "approvalLanding" } as const satisfies {
+const ROW_PARTS = { landing: "nextSteps", actions: "actions", reviewGroups: "reviewGroups", approvalLanding: "approvalLanding", reviewStack: "reviewStacks" } as const satisfies {
   readonly [P in keyof RowParts]: keyof BranchSyncState
 }
 

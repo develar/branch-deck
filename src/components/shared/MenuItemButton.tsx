@@ -5,6 +5,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { MenuItem } from "@/lib/menu"
+import { kbdLabel } from "@/lib/menu"
 import { cancelIntent } from "@/model/intents"
 import { presentStopWaiting } from "@/presenters/lock-wait"
 import { useIndicatorClaim, useSurfaceBusy, useSurfaceOperation } from "@/stores/indicators"
@@ -64,8 +65,9 @@ export function MenuItemButton({
   const busy = useSurfaceBusy(surface)
   const stopWaiting = presentStopWaiting(useSurfaceOperation(surface), cancelIntent)
   const running = pending || busy !== null
-  const key = item.kbds?.at(-1)
-  const kbd = key !== undefined && <Kbd className={cn(variant === "default" && PRIMARY_KBD_CLASS_NAME, narrow !== undefined && "hidden @4xl:inline-flex")}>{key.toUpperCase()}</Kbd>
+  // a key with a modifier says both (⇧A); a plain key in capitals
+  const key = item.kbds === undefined || item.kbds.length === 0 ? undefined : item.kbds.length === 1 ? item.kbds[0]!.toUpperCase() : item.kbds.map(kbdLabel).join("")
+  const kbd = key !== undefined && <Kbd className={cn(variant === "default" && PRIMARY_KBD_CLASS_NAME, narrow !== undefined && "hidden @4xl:inline-flex")}>{key}</Kbd>
   const Icon = item.icon
   const label = busy === null ? item.label : `${busy}…`
   const onClick = () => item.onSelect({ surface: surface ?? null })
@@ -104,7 +106,7 @@ export function MenuItemButton({
       <TooltipTrigger render={<span className="inline-flex" />}>{button}</TooltipTrigger>
       <TooltipContent className="flex max-w-xs items-center gap-2">
         {description}
-        {item.description === undefined && key !== undefined && <Kbd>{key.toUpperCase()}</Kbd>}
+        {item.description === undefined && key !== undefined && <Kbd>{key}</Kbd>}
       </TooltipContent>
     </Tooltip>
   )

@@ -154,10 +154,10 @@ pub async fn execute_review_stack_fetch(registry: &Registry, key: &SessionKey, t
         .collect(),
     });
     if let Ok(stack) = &stack {
-      // the head each layer shows: the session asks the readiness of each pull request at it
-      for layer in &stack.layers {
-        sessions.review_fetched(key, layer.request.number, layer.range.head.clone()).await;
-      }
+      // the head each layer shows: the session asks the readiness of each pull request at it, and decides Approve N Pull
+      // Requests of the stack on them
+      let layers = stack.layers.iter().map(|layer| (layer.request.number, layer.range.head.clone())).collect();
+      sessions.review_stack_fetched(key, top, layers).await;
     }
     Ok(fetch_outcome(guard.id(), hosts, top, stack.map(|stack| OperationResult::ReviewStack(Box::new(stack)))))
   })

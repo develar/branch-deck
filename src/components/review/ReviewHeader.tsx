@@ -36,6 +36,8 @@ export interface ReviewToolbarProps {
   source: ReviewSource
   /** The name of the list when it is no list of the main window: "Stack", whose layers ↑/↓ walk */
   list?: string
+  /** Approve N Pull Requests of a stack, which "⋯" offers too; null for a pull request */
+  approveStack?: MenuItem | null
 }
 
 /**
@@ -60,8 +62,12 @@ export function ReviewNavigation({
   )
 }
 
-/** Open on GitHub and "⋯" (the copy actions), the window-level actions before the decisions at the end of the title bar */
-export function ReviewToolbarActions({ request, actions }: Pick<ReviewToolbarProps, "request" | "actions">) {
+/**
+ * Open on GitHub and "⋯" (of a stack Approve N Pull Requests, then the copy actions), the window-level actions before the
+ * decisions at the end of the title bar
+ */
+export function ReviewToolbarActions({ request, actions, approveStack = null }: Pick<ReviewToolbarProps, "request" | "actions" | "approveStack">) {
+  const groups = [...(approveStack === null ? [] : [[approveStack]]), [actions.copyLink, actions.copyBranchName]]
   return (
     <>
       <MenuItemAction item={actions.openPullRequest} label="GitHub" data-testid="review-open-pull-request" />
@@ -75,7 +81,7 @@ export function ReviewToolbarActions({ request, actions }: Pick<ReviewToolbarPro
           <TooltipContent>More actions</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-auto min-w-36">
-          <DropdownMenuItems groups={[[actions.copyLink, actions.copyBranchName]]} />
+          <DropdownMenuItems groups={groups} />
         </DropdownMenuContent>
       </DropdownMenu>
     </>

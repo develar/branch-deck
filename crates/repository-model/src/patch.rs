@@ -15,8 +15,8 @@ use domain_types::operation::{OperationId, RunningOperation};
 use domain_types::pull_request::PullRequestView;
 use domain_types::session::{
   ApprovalLanding, ArchivedChanges, BranchChange, BranchPush, BranchRemote, BranchStructure, BranchSync, BranchView, CommitSync, Fact, FactsChanges, FactsView, GitHubLayer,
-  NEWS_KEPT, News, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, ReviewerGroupView, ReviewsView, RobotAttention, RobotsChange, RobotsView,
-  SyncState, TableChanges, TableHeader, TableSections, Version, ViewPatch,
+  NEWS_KEPT, News, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, ReviewStackApproval, ReviewerGroupView, ReviewsView, RobotAttention,
+  RobotsChange, RobotsView, SyncState, TableChanges, TableHeader, TableSections, Version, ViewPatch,
 };
 use domain_types::stack::StackBranchUpdate;
 use std::collections::BTreeMap;
@@ -134,6 +134,8 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     removed_review_groups,
     approval_landing,
     removed_approval_landing,
+    review_stacks,
+    removed_review_stacks,
     reviews,
     patronus,
     route,
@@ -173,6 +175,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   apply_keyed(&mut view.github_layers, github_layers, &removed_github_layers);
   apply_keyed(&mut view.review_groups, review_groups, &removed_review_groups);
   apply_keyed(&mut view.approval_landing, approval_landing, &removed_approval_landing);
+  apply_keyed(&mut view.review_stacks, review_stacks, &removed_review_stacks);
   apply_keyed(&mut view.operations, operations, &removed_operations);
   set_if_some(&mut view.undo, undo);
   set_if_some(&mut view.reviews, reviews);
@@ -270,6 +273,8 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     removed_review_groups: _,
     approval_landing: _,
     removed_approval_landing: _,
+    review_stacks: _,
+    removed_review_stacks: _,
     operations,
     removed_operations,
     undo,
@@ -443,6 +448,7 @@ pub(crate) struct Now<'a> {
   pub(crate) github_layers: &'a BTreeMap<String, GitHubLayer>,
   pub(crate) review_groups: &'a BTreeMap<String, Vec<ReviewerGroupView>>,
   pub(crate) approval_landing: &'a BTreeMap<String, ApprovalLanding>,
+  pub(crate) review_stacks: &'a BTreeMap<String, ReviewStackApproval>,
   /// In the order they were admitted
   pub(crate) operations: Vec<&'a RunningOperation>,
   pub(crate) undo: Option<&'a OperationId>,
@@ -476,6 +482,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
   let (github_layers, removed_github_layers) = diff_keyed(&last.github_layers, now.github_layers);
   let (review_groups, removed_review_groups) = diff_keyed(&last.review_groups, now.review_groups);
   let (approval_landing, removed_approval_landing) = diff_keyed(&last.approval_landing, now.approval_landing);
+  let (review_stacks, removed_review_stacks) = diff_keyed(&last.review_stacks, now.review_stacks);
   let (operations, removed_operations) = operations_change(&last.operations, &now.operations);
   let (last_archived, archived) = (&last.sections.archived, &now.sections.archived);
   let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
@@ -515,6 +522,8 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
     removed_review_groups,
     approval_landing,
     removed_approval_landing,
+    review_stacks,
+    removed_review_stacks,
     operations,
     removed_operations,
     undo: (last.undo.as_ref() != now.undo).then(|| now.undo.cloned()),
@@ -554,6 +563,7 @@ pub fn diff_views(from: &RepositoryView, to: &RepositoryView) -> ViewPatch {
     github_layers: &to.github_layers,
     review_groups: &to.review_groups,
     approval_landing: &to.approval_landing,
+    review_stacks: &to.review_stacks,
     operations: to.operations.values().collect(),
     undo: to.undo.as_ref(),
     reviews: &to.reviews,

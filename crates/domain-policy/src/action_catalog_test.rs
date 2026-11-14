@@ -42,10 +42,11 @@ const fn code_index(blocker: &ActionBlocker) -> usize {
     ActionBlocker::Busy { .. } => 19,
     ActionBlocker::Cached => 20,
     ActionBlocker::NoOpenPullRequest { .. } => 21,
+    ActionBlocker::StackApproved => 22,
   }
 }
 
-const CODES: usize = 22;
+const CODES: usize = 23;
 
 /// What the page reads: every id, the blockers with the action each is an example of, the actions that open a row form
 #[derive(Serialize)]
@@ -134,6 +135,7 @@ fn examples() -> Vec<(ActionId, ActionBlocker)> {
     ),
     (ActionId::Approve, ActionBlocker::OwnPullRequest),
     (ActionId::Approve, ActionBlocker::Approved { commit: s("0123456789abcdef") }),
+    (ActionId::ApproveStack, ActionBlocker::StackApproved),
     (ActionId::SafePushPullRequest, ActionBlocker::TargetUnread),
     (ActionId::SafePushPullRequest, ActionBlocker::NoTarget),
     (
@@ -232,6 +234,7 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::Approve
       | ActionId::SafePushPullRequest
       | ActionId::RequestChanges
+      | ActionId::ApproveStack
       | ActionId::ShowBranch
       | ActionId::RemoveFromReviews
       | ActionId::OpenUnknownStart

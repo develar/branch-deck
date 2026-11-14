@@ -13,6 +13,7 @@ import { MenuItemButton, PRIMARY_KBD_CLASS_NAME } from "@/components/shared/Menu
 import { KeyHint } from "@/components/shared/PreviewDialogFrame"
 import type { ReviewRequest } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
+import type { MenuItem } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { readReviewDraft, writeReviewDraft } from "@/lib/review-draft"
 import type { ReviewRequestActions } from "@/lib/review-request-actions"
@@ -56,6 +57,13 @@ export interface ReviewDecisionsProps {
   commitId: string | null
   requestChangesRef: RefObject<HTMLButtonElement | null>
   approveRef: RefObject<HTMLButtonElement | null>
+  /** Approve N Pull Requests of a stack (Review Stack, ⇧A), before Approve; null for a pull request */
+  approveStack?: MenuItem | null
+  approveStackRef?: RefObject<HTMLButtonElement | null>
+  /** It runs: its spinner */
+  approveStackPending?: boolean
+  /** It is the primary: All Changes of the stack, where Approve of one layer is not offered */
+  approveStackPrimary?: boolean
   safePushRef: RefObject<HTMLButtonElement | null>
   isRequestingChanges: boolean
   onRequestingChangesChange: (open: boolean) => void
@@ -67,14 +75,17 @@ export interface ReviewDecisionsProps {
 
 /**
  * The decisions on the pull request, the primary last: Request Changes… (R), Approve and Safe Push… (M) where Patronus
- * merges, and Approve (A), the primary. Once the user approved the commit, "Approved" says so and Safe Push…, the next
- * step, is the primary. They end the title bar of the window: in a narrow one the keys hide and Request Changes… is its
+ * merges, of a stack Approve N Pull Requests (⇧A), and Approve (A), the primary; on All Changes of a stack, where
+ * Approve of one layer is not offered, Approve N Pull Requests is. Once the user approved the commit, "Approved" says so
+ * and Safe Push…, the next step, is the primary. They end the title bar of the window: in a narrow one the keys hide and Request Changes… is its
  * icon. Disabled (a write runs, the commit of another request loads), a decision keeps the focus: its form gives it
  * back as it closes, else the focus fell to the page and the keys of the review stopped.
  */
 export function ReviewDecisions(props: ReviewDecisionsProps) {
   const { request, actions, busy, commitId, requestChangesRef, approveRef, safePushRef } = props
+  const { approveStack = null, approveStackRef, approveStackPending = false, approveStackPrimary = false } = props
   const safePushNext = actions.approved && actions.safePush !== null && actions.safePush.disabled !== true
+  const stackPrimary = approveStack !== null && approveStackPrimary
   return (
     <div className="ml-2 flex items-center gap-2" data-testid="review-decisions">
       <MenuItemButton
@@ -120,13 +131,25 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
           />
         </>
       )}
+      {approveStack !== null && (
+        <MenuItemButton
+          item={approveStack}
+          ref={approveStackRef}
+          variant={stackPrimary ? "default" : "outline"}
+          size="sm"
+          narrow="key"
+          pending={approveStackPending}
+          focusableWhenDisabled
+          data-testid="review-approve-stack"
+        />
+      )}
       {actions.approved ? (
         <ApprovedBadge description={actions.approve.description} />
       ) : (
         <MenuItemButton
           item={actions.approve}
           ref={approveRef}
-          variant="default"
+          variant={stackPrimary ? "outline" : "default"}
           size="sm"
           narrow="key"
           pending={busy === "approve"}

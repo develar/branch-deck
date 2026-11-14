@@ -1,8 +1,8 @@
 // @spec openspec/specs/repository/review-requests/spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
-import type { ActionBlocker, ActionId, ActionState } from "@/lib/bindings"
+import type { ActionBlocker, ActionId, ActionState, ReviewStackApproval } from "@/lib/bindings"
 import type { ReviewRequestActionContext } from "@/lib/review-request-actions"
-import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
+import { getReviewRequestActions, getStackApprovalItem, reviewRequestMenu } from "@/lib/review-request-actions"
 import { REVIEWED_COMMIT as HEAD, reviewRequest, reviewRequestActionContext } from "@/test-support/review-request"
 
 vi.mock("@/lib/clipboard", () => ({ copyText: async () => {} }))
@@ -106,5 +106,41 @@ describe("getReviewRequestActions", () => {
     ])
     // a surface without them offers none
     expect(getReviewRequestActions(reviewRequest(7), context({ actions }), "rowMenu").showBranch).toBeNull()
+  })
+})
+
+describe("getStackApprovalItem", () => {
+  const words = { operations: {}, named: {} }
+  const approval = (approves: number[], approved: number[], reason: ActionBlocker | null = null): ReviewStackApproval => ({
+    approves: approves.map(number => ({ number, commit: `head-${number}` })),
+    approved,
+    action: { id: "approve-stack", availability: reason === null ? { kind: "enabled" } : { kind: "disabled", reason } },
+  })
+  const item = (patch: Partial<Parameters<typeof getStackApprovalItem>[0]>) =>
+    getStackApprovalItem({ approval: approval([301, 303], [302]), layerCount: 3, waiting: null, busy: false, words, landing: null, onApprove: () => {}, ...patch })
+
+  it("counts the layers Rust approves on the heads the window shows, names the ones it skips, and waits for the heads and a write", () => {
+    expect(item({})).toMatchObject({
+      label: "Approve 2 Pull Requests",
+      kbds: ["shift", "a"],
+      disabled: false,
+      description: "#302 is approved on the commit the window shows: skipped",
+    })
+    expect(item({ approval: approval([303], []) })).toMatchObject({ label: "Approve 1 Pull Request", disabled: false, description: undefined })
+    expect(item({ landing: "Patronus counts #301 for its own Safe Push, #302 and #303 once each goes into master" }).description).toBe(
+      "#302 is approved on the commit the window shows: skipped. Patronus counts #301 for its own Safe Push, #302 and #303 once each goes into master",
+    )
+    expect(item({ approval: undefined })).toMatchObject({
+      label: "Approve 3 Pull Requests",
+      disabled: true,
+      description: "Wait until the stack is fetched: an approval is on the commits you saw",
+    })
+    expect(item({ waiting: "The commit #302 shows could not be fetched" })).toMatchObject({ disabled: true, description: "The commit #302 shows could not be fetched" })
+    expect(item({ busy: true })).toMatchObject({ disabled: true, description: "Wait for GitHub to answer" })
+    expect(item({ approval: approval([], [301, 302, 303], { code: "stackApproved" }) })).toMatchObject({
+      label: "Approve 3 Pull Requests",
+      disabled: true,
+      description: "You approved every pull request of the stack on the commits it shows",
+    })
   })
 })

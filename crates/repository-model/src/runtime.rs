@@ -169,6 +169,13 @@ pub(crate) enum Message {
     head: String,
     reply: oneshot::Sender<Version>,
   },
+  /// The fetch of the stack of `top` brought `layers`, the bottom first, each with its head; `reply` gets the version of
+  /// the view after its patch
+  ReviewStackFetched {
+    top: u32,
+    layers: Vec<(u32, String)>,
+    reply: oneshot::Sender<Version>,
+  },
   /// What the read ahead says of waiting requests (`Sessions::review_readings`); `reply` gets the version of the view
   /// after its patch
   ReviewReadings {
@@ -750,6 +757,11 @@ impl Actor {
       }
       Message::ReviewFetched { number, head, reply } => {
         self.facts.review_requests.fetched(number, head);
+        self.flush();
+        let _ = reply.send(self.version());
+      }
+      Message::ReviewStackFetched { top, layers, reply } => {
+        self.facts.review_requests.stack_fetched(top, layers);
         self.flush();
         let _ = reply.send(self.version());
       }

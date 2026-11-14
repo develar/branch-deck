@@ -87,6 +87,8 @@
 //! - `stack`: the stacks of a table: the declared parent (D8), the branch a branch is built on, the ancestors by
 //!   effective base, the children and the descendants, the main line, the whole stack of a branch by declared parent
 //!   (`whole_stack_of`), its branches as a sentence names them and what is left of it to land (`whole_stack_rest`)
+//! - `stack_approval`: Approve N Pull Requests of a stack a review window shows, the layers it approves and skips
+//!   (`stack_approval`), and which of them the heads GitHub shows at the write refuse (`head_checks`)
 
 pub mod actions;
 pub mod admission;
@@ -121,6 +123,7 @@ pub mod reviews;
 pub mod robot_match;
 pub mod row_status;
 pub mod stack;
+pub mod stack_approval;
 
 #[cfg(test)]
 mod action_catalog_test;
@@ -184,5 +187,7 @@ mod reviews_test;
 mod robot_match_test;
 #[cfg(test)]
 mod row_status_test;
+#[cfg(test)]
+mod stack_approval_test;
 #[cfg(test)]
 mod stack_test;

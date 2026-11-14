@@ -266,7 +266,11 @@ is not stacked") once it got the lock.
 - **The review of a pull request**: Approve, Request Changes and Approve and Safe Push are an operation of the session
   in Rust (`SubmitReview` of `operations::review`, holding the review of the pull request: a second write of it waits,
   the same one joins); `getReviewBusy` reads them from `RepositoryView.operations`, for the review list and the review
-  window, each from its own session.
+  window, each from its own session. Approve N Pull Requests of a stack (`ApproveStack`) holds the review of every
+  layer, so an Approve of one layer waits for it: its plan is an approval of each layer on the head the window showed
+  but those the session knows approved on it (`domain_policy::stack_approval`, decided again once admitted), and GitHub's
+  head of every layer is read before the first write; the layer whose head moved and the layers above it are skipped
+  with the reason, the layers below it approved, since a stack lands bottom up, each layer with what it is built on.
 
 The next step reads the operation of the view on its row (`busyOf`, `useRowOperation`): the slot's own action runs
 (`running`, a retarget), the others wait with its busy state, but an action that writes another field of the pull

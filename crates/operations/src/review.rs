@@ -10,6 +10,13 @@
 //! once, so the reviewed request leaves the list. The operation holds the review of the pull request
 //! (`PullRequestField::Review`): a second write of the same pull request waits for it; the same one joins it. Nothing
 //! of it reads the facts of the session: its plan is the intent's.
+//!
+//! Approve N Pull Requests of a stack a review window shows (`Intent::ApproveStack`, "Review window: Approve N Pull
+//! Requests approves every layer the window shows") holds the review of every layer: its plan is an approval of each
+//! layer on the head the window showed, but those the session knows the user approved on it
+//! (`domain_policy::stack_approval`); before the first write GitHub's head of every layer is read again (one `GET
+//! pulls/<n>` each, side by side), and the layer whose head moved, with every layer above it, is skipped with the
+//! reason by its number (`plan_changed`), the layers below it approved.
 
 use crate::engine::{check_admitted, outcome_of, run};
 use crate::events::EventSink;
@@ -19,9 +26,12 @@ use crate::pull_request::{github_of, write_plan};
 use crate::registry::{Answer, OperationRequest, Registry, RunningGuard};
 use crate::robot_start::{CommentStart, NoRobot, RobotWait, github_request_failure, start_by_comment};
 use domain_policy::refresh::PATRONUS_REVIEWED_ROBOT_WAIT;
+use domain_policy::stack_approval::{LayerCheck, LayerFacts, head_checks, stack_approval};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, StartRoute};
-use domain_types::operation::{EffectRecord, EffectStatus, Intent, NewsKey, OperationResult, OperationStep, Plan, PullRequestField, Resource, ReviewResult, StartComment};
+use domain_types::operation::{
+  EffectRecord, EffectStatus, Intent, NewsKey, OperationResult, OperationStep, Plan, PullRequestField, Resource, ReviewResult, ReviewedLayer, StartComment,
+};
 use domain_types::patronus::{PatronusCommandSubject, PatronusPushMode, PatronusRobot};
 use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::session::{FactFamily, FactRefreshReason};
@@ -32,7 +42,7 @@ use remote_facts::pull_request_writes::{read_pull_request_head, submit_pull_requ
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::service_sources::ServiceHost;
 use repository_model::session::{SessionKey, Sessions};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
 use tracing::{Instrument, instrument};
@@ -71,17 +81,166 @@ pub fn review_plan(intent: &Intent) -> Result<Plan, ApiError> {
   Ok(write_plan(intent.clone(), effects, Vec::new(), Some(*number), [], []))
 }
 
-/// What a review asks the registry for: the review of its pull request (a second write of it waits, the same joins)
-pub(crate) fn review_request(intent: &Intent, number: u32) -> OperationRequest {
+/// What a review asks the registry for: the review of each pull request it writes (a second write of one waits, the
+/// same intent joins); of Approve N Pull Requests every layer of the stack
+pub(crate) fn review_request(intent: &Intent) -> OperationRequest {
+  let numbers = match intent {
+    Intent::SubmitReview { number, .. } => vec![*number],
+    Intent::ApproveStack { layers, .. } => layers.iter().map(|layer| layer.number).collect(),
+    _ => Vec::new(),
+  };
   OperationRequest {
     intent: intent.clone(),
-    resources: vec![Resource::PullRequest {
-      number,
-      field: PullRequestField::Review,
-    }],
+    resources: numbers
+      .into_iter()
+      .map(|number| Resource::PullRequest {
+        number,
+        field: PullRequestField::Review,
+      })
+      .collect(),
     step: OperationStep::Writing,
     moves: Vec::new(),
   }
+}
+
+/// The plan of Approve N Pull Requests (`Intent::ApproveStack`) over `known`, each layer of the intent as the session
+/// knows it: an approval of each layer it approves (`domain_policy::stack_approval`), the bottom first, on the head the
+/// window showed; a layer approved on that head, or the user's own, is no effect
+///
+/// # Errors
+/// `invalid_arguments` for another intent, or a stack without layers
+pub fn approve_stack_plan(intent: &Intent, known: &[LayerFacts<'_>]) -> Result<Plan, ApiError> {
+  let Intent::ApproveStack { layers, .. } = intent else {
+    return Err(ApiError::new(ErrorCode::InvalidArguments, "No approval of a stack of pull requests"));
+  };
+  if layers.is_empty() {
+    return Err(ApiError::new(ErrorCode::InvalidArguments, "A stack to approve has layers"));
+  }
+  let effects = stack_approval(known, false)
+    .approves
+    .into_iter()
+    .map(|layer| PlannedEffect::SubmitReview {
+      number: layer.number,
+      verdict: PullRequestReviewEvent::Approve,
+      commit: layer.commit,
+    })
+    .collect();
+  Ok(write_plan(intent.clone(), effects, Vec::new(), None, [], []))
+}
+
+/// The plan of Approve N Pull Requests in the session of `key` (`approve_stack_plan`), each layer with the user's
+/// approval of it the session has; `None` for a session that is not open
+///
+/// # Errors
+/// As `approve_stack_plan`
+pub async fn prepare_approve_stack(sessions: &Sessions, key: &SessionKey, intent: &Intent) -> Result<Option<Plan>, ApiError> {
+  let Intent::ApproveStack { layers, .. } = intent else {
+    return approve_stack_plan(intent, &[]).map(Some);
+  };
+  let layers = layers.clone();
+  let known = sessions
+    .read(key, move |_, facts| {
+      let fact = &facts.review_requests;
+      layers
+        .iter()
+        .map(|layer| {
+          let request = fact.pull_request(layer.number);
+          (
+            layer.clone(),
+            request.and_then(|request| fact.approved(request)).map(str::to_owned),
+            fact.is_own(layer.number),
+          )
+        })
+        .collect::<Vec<_>>()
+    })
+    .await;
+  let Some(known) = known else { return Ok(None) };
+  let facts: Vec<LayerFacts<'_>> = known
+    .iter()
+    .map(|(layer, approved, own)| LayerFacts {
+      number: layer.number,
+      head: &layer.commit,
+      approved: approved.as_deref(),
+      own: *own,
+    })
+    .collect();
+  approve_stack_plan(intent, &facts).map(Some)
+}
+
+/// Runs Approve N Pull Requests (`Intent::ApproveStack`) in the session of `key` on the plan its caller accepted: planned
+/// again once admitted, GitHub's head of every layer read side by side, then the approval of each layer of the plan
+/// bottom first, each refused by its number where a head moved (`domain_policy::stack_approval::head_checks`); a
+/// refused review of one layer stops none of the others. A read of the heads that fails approves nothing
+///
+/// # Errors
+/// An invalid intent, a changed plan, no GitHub repository of the requests, a read of a head that failed
+#[instrument(skip_all, fields(top))]
+pub async fn execute_approve_stack(registry: &Registry, key: &SessionKey, intent: Intent, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
+  let Intent::ApproveStack { top, layers } = &intent else {
+    return Err(ApiError::new(ErrorCode::InvalidArguments, "No approval of a stack of pull requests"));
+  };
+  tracing::Span::current().record("top", top);
+  let sessions = registry.sessions();
+  run(registry, key, review_request(&intent), events, async |guard| {
+    let plan = prepare_approve_stack(sessions, key, &intent)
+      .await?
+      .ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, "The repository has no session to review in"))?;
+    check_admitted(guard, &accepted, &plan)?;
+    if plan.effects.is_empty() {
+      return Ok(outcome_of(guard.id().clone(), Vec::new(), None, None, OperationResult::None));
+    }
+    let (github, repository) = review_github(sessions, services, key).await?;
+    guard.step(OperationStep::Checking);
+    let heads = read_heads(&github, &key.worktree, &repository, layers).await.map_err(review_failure)?;
+    let checks: HashMap<u32, LayerCheck> = layers.iter().map(|layer| layer.number).zip(head_checks(layers, &heads)).collect();
+    let review = Review {
+      guard,
+      sessions,
+      services,
+      key,
+      github,
+      repository,
+      result: ReviewResult::default(),
+      version: None,
+    };
+    let mut records = Vec::with_capacity(plan.effects.len());
+    for effect in plan.effects {
+      let status = match &effect {
+        PlannedEffect::SubmitReview { number, verdict, commit } => match checks.get(number) {
+          Some(LayerCheck::Approve) => review.submit(*number, *verdict, commit, None).await,
+          Some(LayerCheck::Moved { head }) => refused(format!("The head of #{number} moved from {} to {} since you reviewed it", short_id(commit), short_id(head))),
+          Some(LayerCheck::BelowMoved { below }) => refused(format!("#{number} is built on #{below}, whose head moved since you reviewed it")),
+          None => EffectStatus::Skipped { reason: None },
+        },
+        _ => EffectStatus::Skipped { reason: None },
+      };
+      records.push(EffectRecord::new(effect, status));
+    }
+    Ok(outcome_of(guard.id().clone(), records, None, None, OperationResult::None))
+  })
+  .await
+}
+
+/// A layer the heads refuse: skipped with the reason, by its number
+fn refused(message: String) -> EffectStatus {
+  EffectStatus::Skipped {
+    reason: Some(ApiError::new(ErrorCode::PlanChanged, message)),
+  }
+}
+
+/// GitHub's head of each of `layers` now, in their order: one `GET pulls/<n>` each, side by side
+async fn read_heads(github: &Arc<GitHubService>, repository_path: &str, repository: &GitHubRepository, layers: &[ReviewedLayer]) -> Result<Vec<String>, GitHubWriteError> {
+  let mut reads = tokio::task::JoinSet::new();
+  for (index, layer) in layers.iter().enumerate() {
+    let (github, repository_path, repository, number) = (Arc::clone(github), repository_path.to_owned(), repository.clone(), layer.number);
+    reads.spawn(async move { (index, read_pull_request_head(&github, &repository_path, &repository, number).await) }.in_current_span());
+  }
+  let mut heads = vec![String::new(); layers.len()];
+  while let Some(read) = reads.join_next().await {
+    let (index, head) = read.map_err(|error| GitHubWriteError::Refused(format!("The read of a head of the stack stopped: {error}")))?;
+    heads[index] = head?;
+  }
+  Ok(heads)
 }
 
 /// Runs the review `intent` in the session of `key` on the plan its caller accepted: admitted over the operations of the
@@ -95,7 +254,7 @@ pub async fn execute_review(registry: &Registry, key: &SessionKey, intent: Inten
   let plan = review_plan(&intent)?;
   let number = plan.pull_request.unwrap_or_default();
   let sessions = registry.sessions();
-  run(registry, key, review_request(&intent, number), events, async |guard| {
+  run(registry, key, review_request(&intent), events, async |guard| {
     check_admitted(guard, &accepted, &plan)?;
     let (github, repository) = review_github(sessions, services, key).await?;
     let mut review = Review {

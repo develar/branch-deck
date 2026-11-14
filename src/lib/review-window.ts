@@ -7,7 +7,7 @@ import { logError, notifyError } from "@/lib/errors"
 import type { ReviewSource } from "@/lib/pull-request-review"
 import { keptBranchName } from "@/lib/review-actions"
 import { reviewGroupsOf } from "@/lib/review-groups"
-import type { ReviewIntent } from "@/lib/review-request-actions"
+import type { ReviewIntent, StackReviewIntent } from "@/lib/review-request-actions"
 import { reviewSubjectName, reviewWindowTitle } from "@/lib/review-reuse"
 import { chainTarget } from "@/lib/review-target"
 import { REVIEW_WINDOW } from "@/lib/window-label"
@@ -226,10 +226,11 @@ export async function openPullRequestReview(repositoryPath: string, request: Rev
 /**
  * Reviews a stack of requests of Your Turn (`layers`, the bottom first, as its row has them) in one review window
  * (Review Stack): all of its changes and each layer apart, the decisions of the layer chosen; with `intent` "review" (D
- * on the header of the stack) the changes at once. The window fetches the stack itself, keyed by its top. Main window
+ * on the header of the stack) the changes at once, with "approveStack" (Approve N Pull Requests… of its menu) the focus on
+ * Approve N Pull Requests once the stack is fetched. The window fetches the stack itself, keyed by its top. Main window
  * only: it marks its layers read.
  */
-export async function openPullRequestStackReview(repositoryPath: string, layers: readonly ReviewRequest[], intent: "review" | null): Promise<boolean> {
+export async function openPullRequestStackReview(repositoryPath: string, layers: readonly ReviewRequest[], intent: StackReviewIntent | null): Promise<boolean> {
   const bottom = layers[0]
   const top = layers.at(-1)
   if (bottom === undefined || top === undefined) {

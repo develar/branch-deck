@@ -250,7 +250,7 @@ pub fn on_cached_frame<'a>(table: bool, facts: impl IntoIterator<Item = &'a Fact
 /// The actions that write the remote: a push, a start (a robot's, a push into the target, a merge of the pull request
 /// and its auto-merge), a restart or a cancel of a robot, a pull request, its base and its close, a review request, a
 /// review
-const REMOTE: [ActionId; 23] = [
+const REMOTE: [ActionId; 24] = [
   ActionId::SafePush,
   ActionId::SafePushWithProfile,
   ActionId::DryRun,
@@ -274,6 +274,7 @@ const REMOTE: [ActionId; 23] = [
   ActionId::Approve,
   ActionId::SafePushPullRequest,
   ActionId::RequestChanges,
+  ActionId::ApproveStack,
 ];
 
 /// `actions` as a frame nobody checked offers them (`cached`): every remote action waits for the first sync and the

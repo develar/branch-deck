@@ -195,6 +195,11 @@ export function formatStackTitle(size: number): string {
   return `Stack of ${size} pull requests`
 }
 
+/** "Approve 3 Pull Requests", "Approve 1 Pull Request": Approve N Pull Requests of a stack, by how many it approves */
+export function formatApproveStack(count: number): string {
+  return count === 1 ? "Approve 1 Pull Request" : `Approve ${count} Pull Requests`
+}
+
 /**
  * "#979–#991 · alice": the start of the muted meta of a stack, its bottom and its top, then its author, or "3 authors"
  * when several opened its layers

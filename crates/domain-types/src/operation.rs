@@ -76,6 +76,11 @@ pub enum Intent {
     body: Option<String>,
     then_land: bool,
   },
+  /// Approve N Pull Requests of the stack of `top` a review window shows (Review Stack): an approval of each of
+  /// `layers`, the bottom first, on the head the window showed it at, but of those the user approved on it already
+  /// (`domain_policy::stack_approval`). GitHub's head of every layer is read first: a layer whose head moved since, and
+  /// every layer above it, is refused by its number, the layers below it are approved
+  ApproveStack { top: u32, layers: Vec<ReviewedLayer> },
   /// The YouTrack issue `key` goes into `state` (Mark Fixed; its undo the same intent, back to the value it had, while it
   /// is in `expected`); without `expected`, only an open issue changes
   SetIssueState { key: String, state: String, expected: Option<String> },
@@ -127,6 +132,7 @@ impl Intent {
       Self::DisableAutoMerge { .. } => OperationKind::DisableAutoMerge,
       Self::CloseLandedPullRequests { .. } => OperationKind::CloseLandedPullRequests,
       Self::SubmitReview { .. } => OperationKind::SubmitReview,
+      Self::ApproveStack { .. } => OperationKind::ApproveStack,
       Self::SetIssueState { .. } => OperationKind::SetIssueState,
       Self::ForgetStart { .. } => OperationKind::ForgetStart,
       Self::Rewrite(_) => OperationKind::Rewrite,
@@ -159,6 +165,16 @@ impl Intent {
       _ => None,
     }
   }
+}
+
+/// A layer of a stack of pull requests to review as a review window showed it: its pull request and the head it showed
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewedLayer {
+  pub number: u32,
+  /// The head the fetch of the window brought, which the user saw
+  pub commit: String,
 }
 
 /// A push of a subject: of a branch, the stack branch of a whole stack, an unapplied branch (`PushScope::Unapplied`)

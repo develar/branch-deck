@@ -57,6 +57,7 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
       vec![FactNeed::PullRequests]
     }
     Intent::SubmitReview { .. }
+    | Intent::ApproveStack { .. }
     | Intent::SetIssueState { .. }
     | Intent::ForgetStart { .. }
     | Intent::Rewrite(_)

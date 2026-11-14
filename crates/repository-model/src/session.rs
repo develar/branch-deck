@@ -502,6 +502,14 @@ impl Sessions {
     self.ask(key, |reply| Message::ReviewFetched { number, head, reply }).await
   }
 
+  /// The fetch of the stack of `top` brought `layers` (the bottom first, each with its head) into the review refs of the
+  /// open session of `key` (`ReviewRequestsFact::stack_fetched`): the heads of its pull requests as `review_fetched`
+  /// records them, and the stack, which Approve N Pull Requests is decided on while a window shows it. Answers the
+  /// version of the view after its patch; `None` for a session that is not open
+  pub async fn review_stack_fetched(&self, key: &SessionKey, top: u32, layers: Vec<(u32, String)>) -> Option<Version> {
+    self.ask(key, |reply| Message::ReviewStackFetched { top, layers, reply }).await
+  }
+
   /// What the read ahead says of waiting requests of the open session of `key` (`ReviewReadingsFact::answer`): an
   /// answer of a head or a base the listing no longer names is kept but shows nothing. Answers the version of the view
   /// after its patch; `None` for a session that is not open

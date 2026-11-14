@@ -1,8 +1,10 @@
-import { CheckIcon, CopyIcon, GitMergeIcon, GitPullRequestIcon, LinkIcon, MessageSquareDiffIcon, UserCheckIcon } from "lucide-react"
-import type { ActionId, ActionState, ReviewRequest } from "@/lib/bindings"
+import { CheckCheckIcon, CheckIcon, CopyIcon, GitMergeIcon, GitPullRequestIcon, LinkIcon, MessageSquareDiffIcon, UserCheckIcon } from "lucide-react"
+import type { ActionId, ActionState, ReviewRequest, ReviewStackApproval } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import { formatApproveStack } from "@/lib/review-requests"
+import { joinNames } from "@/lib/text"
 import { findAction, formatActionBlocker, presentAction } from "@/presenters/actions"
 import type { OperationWords } from "@/presenters/operations"
 import type { ReviewAction } from "@/stores/review-requests"
@@ -19,8 +21,14 @@ import type { ReviewAction } from "@/stores/review-requests"
  */
 export type ReviewActionSurface = "rowMenu" | "window"
 
-/** What an open of the window asks for: a write offered at once, or the review of the changes (D on the row) */
-export type ReviewIntent = "approve" | "safePush" | "requestChanges" | "review"
+/**
+ * What an open of the window asks for: a write offered at once, or the review of the changes (D on the row); of a stack
+ * Approve N Pull Requests, its button focused once the stack is fetched
+ */
+export type ReviewIntent = "approve" | "safePush" | "requestChanges" | "review" | "approveStack"
+
+/** What an open of Review Stack asks for: the changes at once (D on the header of the stack), Approve N Pull Requests */
+export type StackReviewIntent = Extract<ReviewIntent, "review" | "approveStack">
 
 /** The commit the user reviewed, or why there is none yet */
 export type ReviewedCommit = { readonly id: string } | { readonly id: null; readonly reason: string }
@@ -173,4 +181,57 @@ export function reviewRequestMenu(actions: ReviewRequestActions): MenuItemGroups
     groups.push([actions.removeFromReviews])
   }
   return groups
+}
+
+/** What Approve N Pull Requests of a stack in its review window reads (Review Stack) */
+export interface StackApprovalContext {
+  /**
+   * As Rust decides it over the heads the fetch of the window brought (`RepositoryView.reviewStacks`,
+   * `review-stack:<top>`, `domain_policy::stack_approval`); undefined until the session has the fetch of the stack
+   */
+  readonly approval: ReviewStackApproval | undefined
+  /** The layers the window shows: the count before Rust says which it approves */
+  readonly layerCount: number
+  /** Why the window has no heads to approve on yet (the stack is fetched, its fetch failed, a head could not be fetched); null once it has */
+  readonly waiting: string | null
+  /** Approve N Pull Requests of the stack, or a review of one of its layers, runs */
+  readonly busy: boolean
+  /** The operations of the session as the window has them (`useOperationWords`) */
+  readonly words: OperationWords
+  /** What the approvals count for where Patronus merges (`presentStackApprovalLanding`); null without Patronus */
+  readonly landing: string | null
+  readonly onApprove: () => void
+}
+
+/**
+ * Approve N Pull Requests of the stack (the button beside Approve, its item in the window's menu, ⇧A): the layers Rust
+ * approves on the heads the window shows, disabled with the reason while the window has none, while a write runs, or as
+ * Rust refuses it (every layer approved on its head); the layers approved already are named, they are skipped
+ */
+export function getStackApprovalItem(context: StackApprovalContext): MenuItem {
+  const { approval } = context
+  const approves = approval?.approves.length ?? 0
+  const reason = approval?.action.availability.kind === "disabled" ? approval.action.availability.reason : null
+  const refused =
+    context.waiting ??
+    (context.busy
+      ? "Wait for GitHub to answer"
+      : approval === undefined
+        ? "Wait until the stack is fetched: an approval is on the commits you saw"
+        : reason === null
+          ? null
+          : formatActionBlocker("approve-stack", reason, { ...context.words, subject: "the stack" }))
+  const skipped = approval?.approved.map(number => `#${number}`) ?? []
+  const skips = skipped.length === 0 ? null : `${joinNames(skipped)} ${skipped.length === 1 ? "is" : "are"} approved on the commit the window shows: skipped`
+  // the reason it waits, else what it skips and what Patronus counts the approvals for: information only
+  const said = [skips, context.landing].filter(it => it !== null).join(". ")
+  return {
+    id: "approve-stack",
+    label: formatApproveStack(approves === 0 ? context.layerCount : approves),
+    icon: CheckCheckIcon,
+    kbds: ["shift", "a"],
+    disabled: refused !== null,
+    description: refused ?? (said === "" ? undefined : said),
+    onSelect: context.onApprove,
+  }
 }

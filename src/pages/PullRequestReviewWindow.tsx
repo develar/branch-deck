@@ -21,7 +21,7 @@ import { useRowPart } from "@/model/store"
 import { useBranchSync } from "@/stores/branch-sync"
 import { reviewFetchKey, reviewStackFetchKey, startReviewFetch, startReviewStackFetch, stopReviewFetch, useReviewFetch } from "@/stores/review-fetch"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
-import { getReviewBusy, reviewRequestsStore, submitReview } from "@/stores/review-requests"
+import { approveStack, getReviewBusy, isApprovingStack, reviewRequestsStore, submitReview } from "@/stores/review-requests"
 import { reviewRowsOf, reviewsStore } from "@/stores/reviews"
 import type { ReviewRows } from "@/stores/reviews"
 
@@ -176,6 +176,13 @@ export function PullRequestStackReviewWindow({ data, back }: { data: ShownStack;
   const index = layers.findIndex(it => it.request.number === layer)
   const request = layers[index]?.request ?? layers.at(-1)?.request ?? data.layers.at(-1)!
   const writes = useRequestWrites(repositoryPath, request)
+  // Approve N Pull Requests of the stack, as Rust decides it on the heads of the fetch, and whether a write of a layer runs
+  const approval = useRowPart(`review-stack:${top}`, "reviewStack")
+  const approvalLanding = useBranchSync(state => state.approvalLanding)
+  const operations = useBranchSync(state => state.operations)
+  const reviewBusy = getReviewBusy(operations)
+  const approving = isApprovingStack(operations, top)
+  const layerBusy = layers.some(it => reviewBusy[it.request.number] !== undefined)
   // what each layer leaves to read, in one read of all of them once the stack is fetched
   const readingRanges = fetchedLayers === null ? null : layers.flatMap(it => (it.range === null ? [] : [readingRange(it.range, it.request)]))
   const readings = useRangeReadings(repositoryPath, readingRanges !== null && readingRanges.length === layers.length ? readingRanges : null)
@@ -225,6 +232,11 @@ export function PullRequestStackReviewWindow({ data, back }: { data: ShownStack;
       readings: readings?.readings ?? null,
       summary: readings?.stack ?? null,
       approveLayer: (target, commitId) => submitReview(repositoryPath, target, "approve", commitId, null, WINDOW_REVIEW_FEEDBACK),
+      approval,
+      landings: layers.map(it => approvalLanding[`pull:${it.request.number}`]),
+      approving,
+      layerBusy,
+      approveStack: shown => approveStack(repositoryPath, top, shown, WINDOW_REVIEW_FEEDBACK),
     },
     showRequest: next => {
       const target = layers[next]

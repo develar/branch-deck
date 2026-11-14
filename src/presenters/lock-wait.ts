@@ -42,6 +42,7 @@ const KIND_WORDS: Record<OperationKind, string> = {
   disable_auto_merge: "cancel of an auto-merge",
   close_landed_pull_requests: "close of the pull requests a robot landed",
   submit_review: "review of a pull request",
+  approve_stack: "approval of a stack of pull requests",
   set_issue_state: "change of the state of an issue",
   forget_start: "forget of a start",
   rewrite: "rewrite",

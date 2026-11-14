@@ -2,7 +2,7 @@ import type { ReviewRequest } from "@/lib/bindings"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import { formatShortHash } from "@/lib/hash"
 import type { ReviewSource } from "@/lib/pull-request-review"
-import type { ReviewIntent } from "@/lib/review-request-actions"
+import type { ReviewIntent, StackReviewIntent } from "@/lib/review-request-actions"
 import { formatWholeStack } from "@/lib/whole-stack"
 import type {
   BranchReviewWindowData,
@@ -67,7 +67,7 @@ export type ReviewOpenRequest = { readonly repositoryPath: string } & (
       readonly kind: "pullRequestStack"
       readonly top: number
       /** "review" (D on the header of the stack): a place */
-      readonly intent: "review" | null
+      readonly intent: StackReviewIntent | null
     }
 )
 

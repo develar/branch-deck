@@ -144,6 +144,7 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     Intent::DisableAutoMerge { number } => (format!("the cancel of the auto-merge of pull request #{number}"), "cancel it again"),
     Intent::CloseLandedPullRequests { .. } => ("the closes of the landed pull requests".to_string(), "close them again"),
     Intent::SubmitReview { number, .. } => (format!("the review of pull request #{number}"), "review it again"),
+    Intent::ApproveStack { top, .. } => (format!("the approval of the stack of pull request #{top}"), "approve it again"),
     Intent::SetIssueState { key, .. } => (format!("the state of {key}"), "set it again"),
     Intent::ForgetStart { op } => (format!("the forget of start {op}"), "forget it again"),
     Intent::Rewrite(rewrite) => (

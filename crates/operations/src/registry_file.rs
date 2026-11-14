@@ -682,6 +682,7 @@ const fn kind_words(kind: OperationKind) -> &'static str {
     OperationKind::DisableAutoMerge => "cancel of an auto-merge",
     OperationKind::CloseLandedPullRequests => "close of the pull requests a robot landed",
     OperationKind::SubmitReview => "review of a pull request",
+    OperationKind::ApproveStack => "approval of a stack of pull requests",
     OperationKind::SetIssueState => "change of the state of an issue",
     OperationKind::ForgetStart => "forget of a start",
     OperationKind::Rewrite => "rewrite",

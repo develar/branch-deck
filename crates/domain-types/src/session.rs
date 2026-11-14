@@ -25,7 +25,7 @@ use crate::landed::LandedBranch;
 use crate::landing::{LandDecisions, Landed, LandedPullRequest};
 use crate::landing_route::{LandingRemote, LandingRoute};
 use crate::next_step::NextStepView;
-use crate::operation::{OperationId, RunningOperation};
+use crate::operation::{OperationId, ReviewedLayer, RunningOperation};
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, MergeMethods, PullRequest, PullRequestAvailability, PullRequestView, ViewerPermission};
 use crate::range_reading::{RequestReading, StackRowReading};
@@ -457,6 +457,11 @@ pub struct RepositoryView {
   /// known, and for an own pull request
   #[serde(default)]
   pub approval_landing: BTreeMap<String, ApprovalLanding>,
+  /// Approve N Pull Requests of each stack a review window shows by `review-stack:<top>`, as
+  /// `domain_policy::stack_approval` decides it over the heads the fetch of the window brought and the user's approvals:
+  /// the layers it approves, those approved already, and whether it can run. A stack no window fetched is not listed
+  #[serde(default)]
+  pub review_stacks: BTreeMap<String, ReviewStackApproval>,
   /// The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them
   pub operations: BTreeMap<OperationId, RunningOperation>,
   /// The rewrite of this process whose Undo the session offers, by the operation its outcome named (`Outcome::undo`):
@@ -528,6 +533,19 @@ pub enum ApprovalLanding {
   /// the target counts the approval until its base is the target. The approval stays with the pull request, not with its
   /// head; then its Safe Push counts it for all it lands, the layers below it not yet landed too
   OnceIntoTarget { base: String, target: String },
+}
+
+/// Approve N Pull Requests of a stack a review window shows (`RepositoryView::review_stacks`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewStackApproval {
+  /// The layers it approves, the bottom first, each on the head the window shows
+  pub approves: Vec<ReviewedLayer>,
+  /// The layers the user approved on the head the window shows: skipped, never approved again
+  pub approved: Vec<u32>,
+  /// Whether it can run now (`ActionId::ApproveStack`)
+  pub action: ActionState,
 }
 
 /// The robot of a subject that needs the user (`RepositoryView::attention`)
@@ -1411,6 +1429,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_approval_landing: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub review_stacks: BTreeMap<String, ReviewStackApproval>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_review_stacks: Vec<String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub operations: BTreeMap<OperationId, RunningOperation>,

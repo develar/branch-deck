@@ -1,14 +1,15 @@
 use crate::facts::{FactResult, FactStore, RobotsRead};
 use crate::readiness_facts::ReadinessAnswer;
 use crate::review_request_facts::review_request_facts_test::{at, available};
-use crate::review_view::{approval_landing_of, pull_key, review_actions_of, review_groups_of, reviews_view};
+use crate::review_view::{approval_landing_of, pull_key, review_actions_of, review_groups_of, review_stack_key, review_stacks_of, reviews_view};
 use crate::table::TableState;
 use crate::table::table_test::grouping;
 use domain_types::SyncEvent;
 use domain_types::actions::{ActionBlocker, ActionId, Availability};
 use domain_types::fixtures::{missing_approvals, review_request};
+use domain_types::operation::ReviewedLayer;
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusReviewRequirement, PatronusRobotsResult, ReviewReadiness};
-use domain_types::pull_request::{GitHubAuthStatus, PullRequestAvailability};
+use domain_types::pull_request::{GitHubAuthStatus, PullRequestAvailability, PullRequestReviewEvent, ReviewerState};
 use domain_types::review_request::{LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewSearch, ReviewsAnswer};
 use domain_types::session::{ApprovalLanding, Demand, PullRequestsView, ReviewSectionKind};
 use domain_types::sign_in::AuthStatus;
@@ -228,6 +229,56 @@ fn the_view_has_the_reviewer_groups_of_a_pull_request_a_review_window_shows() {
 
   ask(&mut facts, &Demand::default());
   assert_eq!(summary(&facts), [], "the window closed");
+}
+
+/// Approve N Pull Requests of a stack a review window shows is decided by `review-stack:<top>` on the heads its fetch
+/// brought (openspec/specs/repository/review-requests/spec.md, "Review window: Approve N Pull Requests approves every layer
+/// the window shows"): a layer GitHub says the user approved on that head is skipped, one approved from the app since
+/// too, a layer shown on an older head than the listing names is approved on the one shown; the window closed, it goes
+#[test]
+fn the_view_decides_approve_n_pull_requests_of_a_stack_on_the_heads_its_fetch_brought() {
+  let state = synced();
+  let mut facts = FactStore::new();
+  let approved_7 = ReviewRequest {
+    reviewed_commit: Some("head-7".to_owned()),
+    reviewed_state: Some(ReviewerState::Approved),
+    ..with_head(7, "master")
+  };
+  facts
+    .review_requests
+    .answer(at(1), available(vec![approved_7, with_head(8, "branch-7"), with_head(9, "branch-8")]));
+  facts.review_requests.demand(&Demand {
+    review_windows: vec![7, 8, 9],
+    ..Demand::default()
+  });
+  assert_eq!(review_stacks_of(&state, &facts), BTreeMap::new(), "no fetch of the stack yet");
+
+  let layers = vec![(7, "head-7".to_owned()), (8, "head-8".to_owned()), (9, "old-9".to_owned())];
+  facts.review_requests.stack_fetched(9, layers);
+  let layer = |number: u32, commit: &str| ReviewedLayer {
+    number,
+    commit: commit.to_owned(),
+  };
+  let approval = &review_stacks_of(&state, &facts)[&review_stack_key(9)];
+  assert_eq!(
+    (approval.approves.clone(), approval.approved.clone()),
+    (vec![layer(8, "head-8"), layer(9, "old-9")], vec![7])
+  );
+  assert_eq!((approval.action.id, &approval.action.availability), (ActionId::ApproveStack, &Availability::Enabled));
+
+  facts.review_requests.submitted(8, PullRequestReviewEvent::Approve, "head-8".to_owned());
+  facts.review_requests.submitted(9, PullRequestReviewEvent::Approve, "old-9".to_owned());
+  let done = &review_stacks_of(&state, &facts)[&review_stack_key(9)];
+  assert_eq!((done.approves.clone(), done.approved.clone()), (Vec::new(), vec![7, 8, 9]));
+  assert_eq!(
+    done.action.availability,
+    Availability::Disabled {
+      reason: ActionBlocker::StackApproved
+    }
+  );
+
+  facts.review_requests.demand(&Demand::default());
+  assert_eq!(review_stacks_of(&state, &facts), BTreeMap::new(), "the window closed");
 }
 
 const NOT_REQUIRED: PatronusReviewRequirement = PatronusReviewRequirement {

@@ -359,3 +359,25 @@ export function joinApprovalScope(landing: string | null, groups: string | null)
   const parts = [landing, groups].filter(it => it !== null)
   return parts.length === 0 ? null : parts.join(". ")
 }
+
+/** A layer of a stack Approve N Pull Requests approves, with what Rust says its approval counts for where Patronus merges */
+export interface StackLayerLanding {
+  readonly number: number
+  /** `RepositoryView.approvalLanding` of `pull:<number>`; undefined without Patronus */
+  readonly landing: ApprovalLanding | undefined
+}
+
+/**
+ * What Approve N Pull Requests counts for where Patronus merges (openspec/specs/repository/review-requests/spec.md, "Review
+ * window: Approve N Pull Requests approves every layer the window shows"): "Patronus counts #301 for its own Safe Push,
+ * #302 and #303 once each goes into master"; nothing while no layer waits to go into the target, nor without Patronus
+ */
+export function presentStackApprovalLanding(layers: readonly StackLayerLanding[]): string | null {
+  const own = layers.filter(({ landing }) => landing?.kind === "ownSafePush").map(({ number }) => `#${number}`)
+  const later = layers.flatMap(({ number, landing }) => (landing?.kind === "onceIntoTarget" ? [{ number, target: landing.target }] : []))
+  if (later.length === 0) {
+    return null
+  }
+  const once = `${joinNames(later.map(({ number }) => `#${number}`))} once ${later.length === 1 ? "it goes" : "each goes"} into ${later[0]!.target}`
+  return own.length === 0 ? `Patronus counts ${once}` : `Patronus counts ${joinNames(own)} for its own Safe Push, ${once}`
+}

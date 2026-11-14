@@ -100,6 +100,7 @@ pub fn ops(view: &RepositoryView, changes: &TableChanges) -> Vec<Value> {
     changes.approval_landing.keys(),
     &changes.removed_approval_landing,
   );
+  ops.keyed("reviewStacks", &view.review_stacks, changes.review_stacks.keys(), &changes.removed_review_stacks);
   ops.keyed("operations", &view.operations, changes.operations.keys(), &changes.removed_operations);
   ops.part(changes.order.is_some(), "order", &view.order);
   ops.part(changes.undo.is_some(), "undo", &view.undo);

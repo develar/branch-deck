@@ -50,6 +50,7 @@ const KEYED_PARTS = {
   githubLayers: "removedGithubLayers",
   reviewGroups: "removedReviewGroups",
   approvalLanding: "removedApprovalLanding",
+  reviewStacks: "removedReviewStacks",
   operations: "removedOperations",
 } as const satisfies Partial<Record<keyof RepositoryView, keyof TableChanges>>
 

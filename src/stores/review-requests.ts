@@ -22,10 +22,11 @@ import { describeRobot, openRobotUrl } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import type { ReviewFeedback, ReviewSource } from "@/lib/pull-request-review"
 import { reviewToastActionLabel } from "@/lib/pull-request-review"
-import type { ReviewIntent } from "@/lib/review-request-actions"
+import type { ReviewIntent, StackReviewIntent } from "@/lib/review-request-actions"
 import { approvedCommitOf } from "@/lib/review-request-actions"
 import { describeNewRequests, describeReview, mergeReviewRequests, reviewRequestKey } from "@/lib/review-requests"
 import { showRepository } from "@/lib/show-repository"
+import { joinNames } from "@/lib/text"
 import { runFailure, runIntent } from "@/model/intents"
 import { getRowPart, refreshSessionFacts } from "@/model/store"
 import { recordReviewRequest } from "@/stores/activity"
@@ -161,9 +162,19 @@ export function getReviewBusy(operations: Readonly<Record<string, RunningOperati
   for (const { intent, step } of Object.values(operations)) {
     if (intent.kind === "submitReview") {
       busy[intent.number] = intent.verdict === null || (intent.thenLand && step.kind === "starting") ? "safePush" : intent.verdict
+    } else if (intent.kind === "approveStack") {
+      // Approve N Pull Requests holds the review of every layer
+      for (const layer of intent.layers) {
+        busy[layer.number] = "approve"
+      }
     }
   }
   return busy
+}
+
+/** Whether Approve N Pull Requests of the stack of `top` runs or waits in the session (`ApproveStack`, `RepositoryView.operations`) */
+export function isApprovingStack(operations: Readonly<Record<string, RunningOperation>>, top: number): boolean {
+  return Object.values(operations).some(({ intent }) => intent.kind === "approveStack" && intent.top === top)
 }
 
 // ---- the facts ----
@@ -344,7 +355,7 @@ export function openReviewRequest(repositoryPath: string, number: number, intent
  * Reviews the stack of requests `numbers` of Your Turn (the bottom first, every layer of its row, also those a filter
  * hides) in one review window (Review Stack); "review" (D on its header) shows its changes at once
  */
-export function openReviewStack(repositoryPath: string, numbers: readonly number[], intent: "review" | null = null): void {
+export function openReviewStack(repositoryPath: string, numbers: readonly number[], intent: StackReviewIntent | null = null): void {
   if (repositoryPath !== currentRepositoryPath()) {
     return
   }
@@ -417,6 +428,69 @@ export async function submitReview(
   }
   tellReviewed(repositoryPath, request, event, commitId, feedback)
   return true
+}
+
+/** A layer of a stack as the review window shows it: its pull request and the head the window fetched */
+export interface ShownLayer {
+  readonly request: ReviewRequest
+  readonly commit: string
+}
+
+/**
+ * Approve N Pull Requests of the stack of `top` (`ApproveStack`): every layer of `layers` (the bottom first, as the window
+ * shows them) on the head it shows, but those the user approved on it already. GitHub's head of every layer is read
+ * first: the layer whose head moved and every layer above it are refused by their numbers, in one error toast, the
+ * layers below it approved, in one toast "Approved #301 and #302" of the stack, which opens its top. Resolves to whether
+ * every layer it was asked to approve is approved.
+ */
+export async function approveStack(repositoryPath: string, top: number, layers: readonly ShownLayer[], feedback: ReviewFeedback): Promise<boolean> {
+  const intent: Intent = { kind: "approveStack", top, layers: layers.map(({ request, commit }) => ({ number: request.number, commit })) }
+  const run = await runIntent(repositoryPath, intent)
+  if (run.kind !== "ran") {
+    feedback.error(`Cannot approve the stack of #${top}`, runFailure(run, NO_REVIEW))
+    return false
+  }
+  const byNumber = new Map(layers.map(layer => [layer.request.number, layer]))
+  const approved: ShownLayer[] = []
+  const refused: { readonly number: number; readonly error: unknown }[] = []
+  for (const { effect, status } of run.outcome.effects) {
+    if (effect.kind !== "submitReview") {
+      continue
+    }
+    const layer = byNumber.get(effect.number)
+    if (status.kind === "done" && layer !== undefined) {
+      approved.push(layer)
+    } else if (status.kind === "failed") {
+      refused.push({ number: effect.number, error: status.error })
+    } else if (status.kind === "skipped" && status.reason != null) {
+      refused.push({ number: effect.number, error: status.reason })
+    }
+  }
+  if (approved.length > 0) {
+    tellStackApproved(repositoryPath, top, approved, feedback)
+  }
+  if (refused.length > 0) {
+    feedback.error(`Cannot approve ${joinNames(refused.map(({ number }) => `#${number}`))}`, refused[0]!.error)
+  }
+  return refused.length === 0
+}
+
+/** The approvals of a stack are in: one toast of the stack, each layer read and reviewed as its own approval would be */
+function tellStackApproved(repositoryPath: string, top: number, approved: readonly ShownLayer[], feedback: ReviewFeedback): void {
+  const numbers = approved.map(({ request }) => `#${request.number}`)
+  const topRequest = approved.find(({ request }) => request.number === top)?.request ?? approved.at(-1)!.request
+  feedback.toast({
+    key: toastKeys.review(repositoryPath, top),
+    title: `Approved ${joinNames(numbers)}`,
+    description: approved.length === 1 ? approved[0]!.request.title : `${approved.length} pull requests of the stack`,
+    target: { kind: "pullRequest", url: topRequest.url },
+  })
+  for (const { request } of approved) {
+    markRead(repositoryPath, request)
+  }
+  update(repositoryPath, entry => ({
+    reviewed: { ...entry.reviewed, ...Object.fromEntries(approved.map(({ request, commit }) => [request.number, { event: "approve" as const, commitId: commit }])) },
+  }))
 }
 
 /** The review of the user is in: the next state of the toast of the request, before the request it closes leaves */
@@ -527,7 +601,7 @@ export interface ReviewWindowConnection {
   /** Shows the request in the window, opened or reused */
   readonly open: (repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, source: ReviewSource) => void
   /** Shows a stack of requests in the window (Review Stack), its layers the bottom first */
-  readonly openStack: (repositoryPath: string, layers: readonly ReviewRequest[], intent: "review" | null) => void
+  readonly openStack: (repositoryPath: string, layers: readonly ReviewRequest[], intent: StackReviewIntent | null) => void
   /** The rows of a list other than Your Turn the window walks (Reviews) */
   readonly rowsOf: (repositoryPath: string, source: ReviewSource) => readonly ReviewRequest[]
 }

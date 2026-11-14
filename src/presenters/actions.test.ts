@@ -62,6 +62,7 @@ describe("the actions Rust offers", () => {
       "Landed in origin/master",
       "Your own pull request: GitHub takes no review of its author",
       "You approved 01234567",
+      "You approved every pull request of the stack on the commits it shows",
       "Reading the branch Patronus pushes into…",
       "Patronus pushes into a branch of origin: the baseline is none",
       "#101 merges into release/253: Patronus would merge it there, not into master",

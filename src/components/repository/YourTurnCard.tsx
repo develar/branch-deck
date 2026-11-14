@@ -310,6 +310,7 @@ export function YourTurnBody({ requests, returned, repositoryPath, filterText = 
                   tabStop={group.key === tabStop}
                   onOpenChange={open => setStackOpen(group.key, open)}
                   onReview={() => openReviewStack(repositoryPath, group.numbers)}
+                  onApprove={() => openReviewStack(repositoryPath, group.numbers, "approveStack")}
                 />
                 {isOpen(group.key) && group.layers.map(layer => requestRow(layer, true))}
               </Fragment>

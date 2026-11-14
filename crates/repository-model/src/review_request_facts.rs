@@ -12,7 +12,8 @@
 //! with a comment, the reviews the user submitted from the app (`submitted`, until a listing says GitHub has them) and
 //! the last pull request of every number a listing named, for the review windows that show one no listing has any more.
 //!
-//! The head each review fetch of a window brought (`fetched`, by number, while a window shows it) makes the ask of the
+//! The head each review fetch of a window brought (`fetched`, by number, while a window shows it; the layers of a stack by
+//! its top, `fetched_stacks`, which Approve N Pull Requests is decided on) makes the ask of the
 //! readiness of its pull request (`readiness_asks`, openspec/specs/branch/patronus/spec.md, "The readiness of a request"): the
 //! head the listing names once it is fetched, with its head branch, its reviewers and its author; only a pull request
 //! into the default branch is asked.
@@ -27,6 +28,16 @@ use domain_types::review_request::{AnsweredRequest, LinkedAnswer, ReviewEntry, R
 use domain_types::session::{Demand, Fact, FactState, NewsEvent, ReviewRequestsView, request_readiness_key};
 use std::collections::{BTreeMap, BTreeSet};
 use sync_core::github_repository::GitHubRepository;
+
+/// A layer of a stack a review window shows, as its last fetch brought it (`ReviewRequestsFact::fetched_stacks`)
+#[derive(Clone, Copy, Debug)]
+pub struct FetchedLayer<'a> {
+  pub request: &'a ReviewRequest,
+  /// The user's own pull request
+  pub own: bool,
+  /// The head the fetch brought, which the window shows
+  pub head: &'a str,
+}
 
 /// The review requests of a session
 #[derive(Clone, Debug, Default)]
@@ -51,6 +62,8 @@ pub struct ReviewRequestsFact {
   windows: Vec<u32>,
   /// The head the last review fetch of each pull request a window shows brought, by number
   fetched: BTreeMap<u32, String>,
+  /// The layers the last fetch of each stack a window shows brought (Review Stack), the bottom first, by its top
+  fetched_stacks: BTreeMap<u32, Vec<u32>>,
 }
 
 impl ReviewRequestsFact {
@@ -159,6 +172,7 @@ impl ReviewRequestsFact {
     // the head of a window that closed goes; one fetched before the demand of its window came stays
     let closed: Vec<u32> = self.windows.iter().filter(|number| !demand.review_windows.contains(number)).copied().collect();
     self.fetched.retain(|number, _| !closed.contains(number));
+    self.fetched_stacks.retain(|top, _| !closed.contains(top));
     self.windows.clone_from(&demand.review_windows);
   }
 
@@ -166,6 +180,35 @@ impl ReviewRequestsFact {
   /// the session knows. Kept while a window shows the pull request
   pub fn fetched(&mut self, number: u32, head: String) -> bool {
     self.fetched.insert(number, head.clone()) != Some(head)
+  }
+
+  /// The fetch of the stack of `top` brought `layers`, the bottom first, each with its head; whether it changed what the
+  /// session knows. Kept while a window shows the top
+  pub fn stack_fetched(&mut self, top: u32, layers: Vec<(u32, String)>) -> bool {
+    let numbers: Vec<u32> = layers.iter().map(|(number, _)| *number).collect();
+    let mut changed = self.fetched_stacks.insert(top, numbers.clone()) != Some(numbers);
+    for (number, head) in layers {
+      changed |= self.fetched(number, head);
+    }
+    changed
+  }
+
+  /// The stacks the review windows show as their last fetch brought them, by top: each layer's pull request as a listing
+  /// named it last, whether it is the user's own, and the head the fetch brought; a layer no listing named is left out
+  pub fn fetched_stacks(&self) -> impl Iterator<Item = (u32, Vec<FetchedLayer<'_>>)> {
+    self.fetched_stacks.iter().map(|(top, numbers)| {
+      let layers = numbers
+        .iter()
+        .filter_map(|number| {
+          Some(FetchedLayer {
+            request: self.pull_request(*number)?,
+            own: self.is_own(*number),
+            head: self.fetched.get(number)?,
+          })
+        })
+        .collect();
+      (*top, layers)
+    })
   }
 
   /// The pull requests of `windows` (the review windows now) into the default branch, by number, each with the ask of
@@ -266,6 +309,12 @@ impl ReviewRequestsFact {
     head.seq = self.reviews.seq;
     head.observed_at = self.reviews.observed_at;
     (head, self.reviews.value.as_ref(), self.reviews_checked_at)
+  }
+
+  /// Whether the pull request `number` is the user's own, as the last listing that named it said
+  #[must_use]
+  pub fn is_own(&self, number: u32) -> bool {
+    matches!(self.remembered.get(&number), Some((_, Some(ReviewInvolvement::Authored { .. }))))
   }
 
   /// The pull request `number` as the last listing that named it had it: what a review of it fetches

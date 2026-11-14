@@ -1,7 +1,7 @@
 import { Fragment, memo } from "react"
 import type { MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
-import { ChevronDownIcon, ChevronRightIcon, ExternalLinkIcon, FileDiffIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
+import { CheckCheckIcon, ChevronDownIcon, ChevronRightIcon, ExternalLinkIcon, FileDiffIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
@@ -25,7 +25,7 @@ import { isMac } from "@/lib/platform"
 import { openPullRequest } from "@/lib/pull-request"
 import type { ReviewSource } from "@/lib/pull-request-review"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
-import { SHOWN_LABELS, formatRequestMeta, formatStackMeta, formatStackTitle, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
+import { SHOWN_LABELS, formatApproveStack, formatRequestMeta, formatStackMeta, formatStackTitle, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
 import { openBranchReviewWindow } from "@/lib/review-window"
 import { cutList } from "@/lib/text"
 import { useRowPart } from "@/model/store"
@@ -257,6 +257,8 @@ export interface ReviewStackHeaderProps {
   onOpenChange: (open: boolean) => void
   /** Review Stack: all of its changes and each layer in one review window */
   onReview: () => void
+  /** Approve N Pull Requests…: Review Stack with its approval of every layer focused, since an approval is on what the user saw */
+  onApprove: () => void
 }
 
 /**
@@ -265,9 +267,10 @@ export interface ReviewStackHeaderProps {
  * the base of its bottom when it is not the default branch), how long its longest waiting layer waits. A click, Enter
  * and → show its layers under it, ← hides them; collapsed it is one row of the card. Review Stack opens the stack in one
  * review window: the button on hover, D, and its menu (the right click, the context menu key, Shift+F10), which also
- * shows or hides the layers
+ * shows or hides the layers and offers Approve N Pull Requests…, which opens the window for it: an approval is on the
+ * heads the user saw
  */
-export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, layers, size, open, unread, tabStop, onOpenChange, onReview }: ReviewStackHeaderProps) {
+export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, layers, size, open, unread, tabStop, onOpenChange, onReview, onApprove }: ReviewStackHeaderProps) {
   const bottom = layers[0]!
   const oldest = layers.reduce((first, layer) => (layer.waitingSince < first.waitingSince ? layer : first))
   const additions = layers.reduce((sum, layer) => sum + layer.additions, 0)
@@ -275,6 +278,7 @@ export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, lay
   const Chevron = open ? ChevronDownIcon : ChevronRightIcon
   const menu: MenuItemGroups = [
     [{ id: "review-stack", label: "Review Stack", icon: FileDiffIcon, kbds: ["d"], onSelect: onReview }],
+    [{ id: "approve-stack", label: `${formatApproveStack(size)}…`, icon: CheckCheckIcon, onSelect: onApprove }],
     [
       {
         id: "toggle-stack",

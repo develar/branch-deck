@@ -72,6 +72,8 @@ function runningWords(intent: Intent, resources: readonly Resource[] = []): read
         : ["Closing the pull requests that landed", "the close of the pull requests that landed"]
     case "submitReview":
       return [`Reviewing #${intent.number}`, `a review of #${intent.number}`]
+    case "approveStack":
+      return [`Approving the stack of #${intent.top}`, `the approval of the stack of #${intent.top}`]
     case "setIssueState":
       return [`Setting ${intent.key} to ${intent.state}`, `a change of the state of ${intent.key}`]
     case "forgetStart":
