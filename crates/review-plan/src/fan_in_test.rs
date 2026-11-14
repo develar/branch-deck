@@ -269,6 +269,11 @@ impl SymbolIndex for Counts {
       ..MovesAnswer::default()
     }))
   }
+
+  /// The modules of the trees of the test repository, never counted among the queries asked
+  fn modules(&self, repository_root: &str, paths: &[String], revision: &str) -> anyhow::Result<Option<file_diffs::accio::ModulesAnswer>> {
+    Ok(Some(crate::test_support::declared_modules(repository_root, paths, revision)))
+  }
 }
 
 /// A declaration of `path` named `name` the commits put in another order among those of its owner, from its lines `old`

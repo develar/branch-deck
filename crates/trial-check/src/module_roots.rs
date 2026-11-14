@@ -1,9 +1,9 @@
 //! Where the modules of source files begin: the nearest directory above a file that holds a build file. Kotlin's and
 //! C#'s `internal` (a .NET assembly, a `*.csproj`) and a Rust crate end there, and a TypeScript alias of `tsconfig.json` starts there. Read from the
 //! tree of the revision the caller names: HEAD for the commits ahead of the baseline (it has their newest structure), the
-//! head of a reviewed range for its review plan (a pull request is not checked out, and the module it adds is in no tree
-//! but its own), with one `cat-file --batch` of every directory above the files: the paths go on stdin, so the length of
-//! a command line never limits them.
+//! head of a reviewed range for the summaries of its review plan (a pull request is not checked out), with one
+//! `cat-file --batch` of every directory above the files: the paths go on stdin, so the length of a command line never
+//! limits them. The modules a review plan shows are accio's (`review_plan::modules::DeclaredRoots`).
 
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -19,8 +19,6 @@ const MODULE_FILES: [&str; 6] = ["BUILD.bazel", "BUILD", "build.gradle", "build.
 struct DirFacts {
   /// An `*.iml`, a `*.csproj` or a file of `MODULE_FILES`
   module: bool,
-  /// The name of its module by its `*.iml`: the shortest stem (`intellij.air` beside `intellij.air.tests`)
-  iml: Option<String>,
   /// The blob of its `Cargo.toml`
   cargo: Option<String>,
   /// `package.json` is there
@@ -94,19 +92,6 @@ impl ModuleRoots {
     self.nearest(path, |facts| facts.package)
   }
 
-  /// The root of whatever module `path` is in: the nearest of `module_of`, `crate_of` and `package_of`
-  pub fn root_of(&self, path: &str) -> Option<&str> {
-    [self.module_of(path), self.crate_of(path), self.package_of(path)]
-      .into_iter()
-      .flatten()
-      .max_by_key(|root| root.len())
-  }
-
-  /// The name of the JPS module whose `*.iml` is in `dir`
-  pub fn iml_of(&self, dir: &str) -> Option<&str> {
-    self.dirs.get(dir)?.iml.as_deref()
-  }
-
   /// The `tsconfig*.json` files of the directory nearest above `path` that has any: (path, blob)
   pub fn tsconfigs_of(&self, path: &str) -> Vec<(String, &str)> {
     let Some(dir) = self.nearest(path, |facts| !facts.tsconfigs.is_empty()) else {
@@ -134,16 +119,6 @@ fn join(dir: &str, name: &str) -> String {
   if dir.is_empty() { name.to_string() } else { format!("{dir}/{name}") }
 }
 
-/// A file whose directory is the root of a module: an `*.iml`, a `*.csproj`, a Bazel, Gradle or Maven build file, a
-/// `Cargo.toml` or a `package.json`
-pub fn is_module_file(name: &str) -> bool {
-  let extension = name.rsplit_once('.').map(|(_, extension)| extension);
-  extension.is_some_and(|extension| extension.eq_ignore_ascii_case("iml") || extension.eq_ignore_ascii_case("csproj"))
-    || MODULE_FILES.contains(&name)
-    || name == "Cargo.toml"
-    || name == "package.json"
-}
-
 fn facts_of(entries: &[TreeEntry]) -> DirFacts {
   let mut facts = DirFacts::default();
   for entry in entries.iter().filter(|entry| entry.mode.starts_with("100")) {
@@ -151,11 +126,6 @@ fn facts_of(entries: &[TreeEntry]) -> DirFacts {
     let extension = name.rsplit_once('.').map(|(_, extension)| extension);
     if extension.is_some_and(|extension| extension.eq_ignore_ascii_case("iml") || extension.eq_ignore_ascii_case("csproj")) || MODULE_FILES.contains(&name) {
       facts.module = true;
-    }
-    if let Some(stem) = name.strip_suffix(".iml")
-      && facts.iml.as_ref().is_none_or(|known| stem.len() < known.len())
-    {
-      facts.iml = Some(stem.to_string());
     }
     if name == "Cargo.toml" {
       facts.cargo = Some(entry.id.clone());

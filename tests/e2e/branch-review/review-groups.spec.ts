@@ -1,10 +1,9 @@
 // @spec openspec/specs/branch/review-tour/spec.md
-import { writeFileSync } from "node:fs"
-import path from "node:path"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { writeFixtureIndex } from "../helpers/marks-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
-import { openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { answerPlayerModules, openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `review_modules` template: the branch `media` of a plugin `player`, its second commit a large step that adds the
@@ -39,7 +38,7 @@ async function answerDescriptor(repo: TestRepositoryBuilder, syncAndWaitForBranc
   await syncAndWaitForBranches()
   const head = await repo.revision(virtualBranch("media"))
   const surfaces = surface === undefined ? {} : { [`${head}:${ROOT}/view.gui.media`]: surface }
-  writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ descriptors: { [`${head}:${DESCRIPTOR}`]: line }, surface: surfaces }))
+  writeFixtureIndex(repo.path, { descriptors: { [`${head}:${DESCRIPTOR}`]: line }, surface: surfaces })
 }
 
 test.describe("Review groups", () => {
@@ -49,6 +48,7 @@ test.describe("Review groups", () => {
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupRepo("review_modules")
       turnOnReviewPlan(repo)
+      await answerPlayerModules(repo, syncAndWaitForBranches)
       const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
       const { tree } = reviewSidebar(window)
       const rows = () => tree.getByRole("treeitem").evaluateAll(items => items.map(item => `${item.getAttribute("aria-level")} ${item.getAttribute("aria-label")}`))
@@ -157,6 +157,7 @@ test.describe("Review groups", () => {
   }) => {
     const repo = await setupRepo("review_modules")
     turnOnReviewPlan(repo)
+    await answerPlayerModules(repo, syncAndWaitForBranches)
     const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
     const { tree } = reviewSidebar(window)
     const row = (name: string) => tree.getByRole("treeitem", { name, exact: true })
@@ -190,6 +191,7 @@ test.describe("Review groups", () => {
   }) => {
     const repo = await setupRepo("review_modules")
     turnOnReviewPlan(repo)
+    await answerPlayerModules(repo, syncAndWaitForBranches)
     const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
     const rows = window.getByTestId("review-map").getByTestId("review-map-module")
     await expect(rows).toHaveCount(3)
@@ -216,6 +218,7 @@ test.describe("Review groups", () => {
   }) => {
     const repo = await setupRepo("review_modules")
     turnOnReviewPlan(repo)
+    await answerPlayerModules(repo, syncAndWaitForBranches)
     await answerDescriptor(repo, syncAndWaitForBranches, [REGISTRY_KEY])
     const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
 
@@ -234,6 +237,7 @@ test.describe("Review groups", () => {
   }) => {
     const repo = await setupRepo("review_modules")
     turnOnReviewPlan(repo)
+    await answerPlayerModules(repo, syncAndWaitForBranches)
     const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
     const bundle = `${ROOT}/view.gui/resources/messages/PlayerBundle.properties`
 
@@ -268,6 +272,7 @@ test.describe("Review groups", () => {
   }) => {
     const repo = await setupRepo("review_modules")
     turnOnReviewPlan(repo)
+    await answerPlayerModules(repo, syncAndWaitForBranches)
     await answerDescriptor(repo, syncAndWaitForBranches, [])
     const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
 
@@ -304,6 +309,7 @@ test.describe("Review groups", () => {
   }) => {
     const repo = await setupRepo("review_modules")
     turnOnReviewPlan(repo)
+    await answerPlayerModules(repo, syncAndWaitForBranches)
     // accio: the class the descriptor of the new module registers enters it
     const registration = {
       file: DESCRIPTOR,

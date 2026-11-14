@@ -6,12 +6,12 @@
 //!   the first commit that changes it, at its path then, named by its last path.
 //! - **Per pair of files** (`from` uses `to`): `Added` when it links only after the commits, `Removed` only before,
 //!   `Kept` both; the symbols and lines are those of the side it links on, after the commits for a kept link.
-//! - **Across modules** when the nearest module root above the two files differs: an `*.iml`, a Bazel, Gradle or Maven
-//!   build file, a `Cargo.toml` or a `package.json` (`ModuleRoots::root_of`), read at the head reviewed: a pull request
-//!   is not checked out.
+//! - **Across modules** when the modules of the two files differ (`DeclaredRoots::root_of`): the roots accio's `modules`
+//!   answers at the head reviewed, not of the checkout (a pull request is not checked out).
 //! - A deleted file, a file the summaries don't read and a degraded one link nothing on that side.
 
 use crate::files::ChangedFile;
+use crate::modules::DeclaredRoots;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use trial_check::symbol_dependencies::{SymbolLink, file_links};
@@ -67,8 +67,9 @@ struct Sides {
 }
 
 /// The links between `files` (`files::changed_files`): those of `after` (the uses of `order::review_order`) against
-/// the uses of the files before the commits; sorted by the file that uses, then the file that declares
-pub(crate) fn link_files(input: &SymbolInput, files: &[ChangedFile<'_>], after: &[SymbolLink]) -> Vec<FileLink> {
+/// the uses of the files before the commits, across modules by `roots`; sorted by the file that uses, then the file
+/// that declares
+pub(crate) fn link_files(input: &SymbolInput, files: &[ChangedFile<'_>], after: &[SymbolLink], roots: &DeclaredRoots) -> Vec<FileLink> {
   let before_files: Vec<(&str, &str)> = files.iter().filter_map(|file| Some((file.first_path, file.before?))).collect();
   // the path before the commits -> the last path
   let last_path: HashMap<&str, &str> = files.iter().filter(|file| file.before.is_some()).map(|file| (file.first_path, file.path)).collect();
@@ -99,7 +100,7 @@ pub(crate) fn link_files(input: &SymbolInput, files: &[ChangedFile<'_>], after: 
         (false, true) => (LinkState::Removed, before),
         (false, false) => (LinkState::Kept, after),
       };
-      let cross_module = input.roots.root_of(from) != input.roots.root_of(to);
+      let cross_module = roots.root_of(from).0 != roots.root_of(to).0;
       FileLink {
         from: from.to_string(),
         to: to.to_string(),

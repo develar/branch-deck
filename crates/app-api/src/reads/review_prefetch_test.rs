@@ -172,9 +172,14 @@ fn waits_of(event: &ReviewPlanEvent) -> Option<PlanWait> {
   }
 }
 
-/// The stages of a reading that asks the index its usages alone, then its plan, all at `head`
+/// The stages of a reading that asks the index its usages alone, then its plan, all at `head`: the plan of git
+/// before the index answered, without the modules and then with them
 fn staged(head: &str) -> Plans {
-  vec![(head.to_string(), Some(PlanWait::Index)), (head.to_string(), None)]
+  vec![
+    (head.to_string(), Some(PlanWait::Index)),
+    (head.to_string(), Some(PlanWait::Index)),
+    (head.to_string(), None),
+  ]
 }
 
 /// A repository of the prefix `jane` that reads review plans: its `master` declares `fun <name>(x: Int)` in
@@ -497,8 +502,9 @@ async fn a_window_that_joins_a_reading_gets_each_stage_it_published_then_the_pla
     fixture.index.tests_held.store(false, Ordering::SeqCst);
   };
   let (first, second, ()) = tokio::join!(first, second, released);
-  let stages = vec![(head.clone(), Some(PlanWait::Index)), (head.clone(), Some(PlanWait::Tests)), (head, None)];
-  assert_eq!((first, second), (stages.clone(), stages));
+  // the window that joined gets the latest stage of the plan of git, the one with the modules
+  let joined = vec![(head.clone(), Some(PlanWait::Index)), (head.clone(), Some(PlanWait::Tests)), (head.clone(), None)];
+  assert_eq!((first, second), ([vec![(head, Some(PlanWait::Index))], joined.clone()].concat(), joined));
   assert_eq!(fixture.asked().len(), 1, "one reading");
   // only the plan the reading answered is kept: the one a window that opens it again gets, whole
   let again = fixture.ask("review-3", "auth").await;
@@ -539,7 +545,11 @@ async fn a_window_that_waited_for_a_superseded_reading_reads_the_plan_itself() {
   let (first, (second, newer)) = tokio::join!(first, others);
   assert_eq!(first.unwrap_err().code, ErrorCode::Canceled);
   let before: Vec<Option<PlanWait>> = superseded.events.lock().unwrap().iter().map(waits_of).collect();
-  assert_eq!(before, [Some(PlanWait::Index)], "the plan of git alone, sent before the window asked another");
+  assert_eq!(
+    before,
+    [Some(PlanWait::Index), Some(PlanWait::Index)],
+    "the plan of git alone, without the modules and with them, sent before the window asked another"
+  );
   assert_eq!(fixture.index.killed.load(Ordering::SeqCst), 1, "the query of the superseded reading is killed");
   assert_eq!(second, [vec![(auth.clone(), Some(PlanWait::Index))], staged(&auth)].concat());
   assert_eq!(newer, staged(&docs));

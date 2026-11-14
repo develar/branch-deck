@@ -72,6 +72,10 @@ impl SymbolIndex for Descriptors {
         .collect(),
     ))
   }
+
+  fn modules(&self, repository_root: &str, paths: &[String], revision: &str) -> anyhow::Result<Option<file_diffs::accio::ModulesAnswer>> {
+    crate::test_support::DeclaredModules.modules(repository_root, paths, revision)
+  }
 }
 
 const PLUGIN: &str = "plugin/resources/META-INF/plugin.xml";

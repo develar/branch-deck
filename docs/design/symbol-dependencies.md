@@ -868,7 +868,8 @@ flowchart TD
 - `crates/trial-check/src/symbol_scan.rs`: the summaries through the cache, the crate names and the TypeScript aliases;
   the mode (`branchdeck.symbols`, `SymbolMode`) is `crates/sync-core/src/config_snapshot.rs`.
 - `crates/trial-check/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
-  TypeScript packages).
+  TypeScript packages); the review plan shows accio's modules (`accio modules`), not these (see "accio's modules for
+  the module roots of a sync" below).
 - `crates/trial-check/src/symbol_dependencies.rs`: the `Order` edges with their evidence, what a use needs
   (`resolve_use`; a Rust member, static or instance, through its owner type in `resolve_rust`, decision 18), the entries of a member key and their origins (`member_entries` by `same_entry` and `same_form`,
   `steps_of` and `lineage`, the older forms judged by `older_form` with `Site.older`, those of a function only for a use
@@ -917,6 +918,35 @@ flowchart TD
 - **The entities two commits change as features of P** (the functions and types around their hunks): Why not: in the
   IDF-weighted Jaccard of `brd suggest` a shared function adds 0.1–0.2 to P, short of the threshold, and commits of
   one function already share its file. `brd commits --symbol-stats` still counts the pairs (`entity_pairs`).
+- **accio's modules for the module roots of a sync** (`accio modules --no-build --ref <tree> --paths-from -`, which the
+  review plan reads its modules from since 2026-11-14): the roots, crates and packages of `FileCtx::module_root` and
+  `crate_root` (`symbol_dependencies.rs`) from the index instead of the walk of `module_roots`. Why not: a sync checks
+  a new tree after every rewrite (HEAD, a trial), and the first query at a tree costs seconds where the walk costs a
+  `cat-file` of tens of milliseconds and an unchanged sync of idea-1 0.45 s in all ([Measurements](#measurements),
+  2026-11-14). The trial-check keeps its walk.
+
+  Measured 2026-11-14 on idea-1 (read only, its index at 555666a1e5, the installed accio 0.29.0, load average 30–35):
+  the source files of the 50 commits before a commit of the first-parent chain at a distance from the index's commit,
+  three runs of `accio modules` one after another, then one `cat-file --batch` of the trees above the same files (what
+  `ModuleRoots::read` runs):
+
+  | Distance | Paths | accio first / second / third | `cat-file` of the trees |
+  |---|---|---|---|
+  | 0 (the index's commit) | 266 | 1.68 / 0.50 / 0.34 s | 0.22 s |
+  | 1 | 267 | 0.40 / 0.34 / 0.67 s | 1.26 s (cold pack) |
+  | 4 | 246 | 3.22 / 0.74 / 0.90 s | 1.34 s (cold pack) |
+  | 14 | 155 | 3.49 / 0.67 / 0.77 s | 1.12 s (cold pack) |
+  | 29 | 152 | 4.97 / 0.97 / 1.72 s | 1.85 s (cold pack) |
+  | 59 | 95 | 3.24 / 0.31 / 0.32 s | 0.05 s |
+  | 99 | 226 | 4.11 / 0.56 / 0.53 s | 0.10 s |
+  | 199 | 437 | 3.82 / 0.32 / 0.32 s | 0.08 s |
+  | 299 | 208 | 3.75 / 0.60 / 0.67 s | 0.16 s |
+  | 699 | 318 | 5.92 / 0.37 / 2.90 s | 0.30 s |
+
+  The first query at a tree, the one a sync after a rewrite asks, takes 1.7–5.9 s (0.4 s one commit from a tree asked
+  before), a warm one 0.3–0.9 s with outliers to 2.9 s under the load; the walk 0.05–0.3 s warm. accio answers more
+  roots than the walk (a `go.mod`, a `pyproject.toml`, JetBrains/accio#782 for those in test data), which a sync would
+  not need: Kotlin's `internal`, a Rust crate and a TypeScript package end where the walk says.
 - **More checks of a branch's tree beside those of decision 15** (`unimplemented_member`, `non_exhaustive_when`):
   the branch's tree has a class that doesn't override an abstract member of its one supertype while HEAD does, or a
   `when` over an enum without `else` that lacks a branch HEAD has for an entry the tree declares. The oracle is the

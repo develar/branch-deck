@@ -10,7 +10,7 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
-import { THEME_ITEM, commitTwoTasks, expectHeadingCard, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { THEME_ITEM, answerPlayerModules, commitTwoTasks, expectHeadingCard, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import {
   NOW,
   availableReviewRequests,
@@ -638,7 +638,7 @@ test.describe("Review window", () => {
     // the branch `media` of the `review_modules` template as a pull request: a new module, two changed ones
     const repo = await setupRepo("review_modules", { reviewRequests: availableReviewRequests([reviewRequest("media", 301, 1, { title: "Play the media embeds inline" })]) })
     turnOnReviewPlan(repo)
-    await syncAndWaitForBranches()
+    await answerPlayerModules(repo, syncAndWaitForBranches)
     const { window, review } = await openRequestReview(page, 301)
     // the rows of the map in place of the files: the new module first, its badge leading the line under it in the rail
     const shape = review.getByTestId("review-shape")

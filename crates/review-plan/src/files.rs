@@ -62,7 +62,6 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 use trial_check::diff_scan::CommitDiff;
-use trial_check::module_roots::is_module_file;
 
 /// Why a change of a file is mechanical: the review folds it into one group at the end
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -136,6 +135,29 @@ pub struct FileFacts {
   /// Its directory below the folders the files of its module share (`ModuleShape::directories`, all of its levels):
   /// `ui/embeds` of `src/ui/embeds/View.kt` and of `testSrc/ui/embeds/ViewTest.kt`; "" when that is its own directory
   pub folder: String,
+}
+
+/// The names of the build files accio's `modules` reads a module from (its `kind_of`), beside an `*.iml` and a
+/// `*.csproj`: Bazel, Gradle, Maven, Cargo, npm, Go and Python
+const MODULE_FILES: [&str; 11] = [
+  "BUILD.bazel",
+  "BUILD",
+  "MODULE.bazel",
+  "build.gradle",
+  "build.gradle.kts",
+  "pom.xml",
+  "Cargo.toml",
+  "package.json",
+  "go.mod",
+  "pyproject.toml",
+  "setup.py",
+];
+
+/// A build file of a module, by its name (`MODULE_FILES`, an `*.iml`, a `*.csproj`): what the role of a file and the
+/// markers of a module list read, never where a module is (accio's `modules`, `modules::DeclaredRoots`)
+pub(crate) fn is_module_file(name: &str) -> bool {
+  let extension = name.rsplit_once('.').map(|(_, extension)| extension);
+  extension.is_some_and(|extension| extension.eq_ignore_ascii_case("iml") || extension.eq_ignore_ascii_case("csproj")) || MODULE_FILES.contains(&name)
 }
 
 /// What names a module the commits add or delete: the directory of its build file, and the name of its `*.iml`

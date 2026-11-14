@@ -3,7 +3,7 @@ use crate::fan_in_test::Counts;
 use crate::groups::GroupKind;
 use crate::stages_test::{HeldTests, staged};
 use crate::steps::StepTests;
-use crate::test_support::{plan_of, plan_of_range, range};
+use crate::test_support::{fixture_modules, plan_of, plan_of_range, range};
 use crate::{PlanWait, ReviewPlan};
 use file_diffs::accio::{FixtureIndex, ReachingTest, TestClass, TestReach};
 use pretty_assertions::assert_eq;
@@ -251,7 +251,8 @@ fn the_groups_that_hold_the_code_asked_wait_for_their_tests() {
     (GroupKind::Module, true),
     (GroupKind::Mechanical, false),
   ];
-  assert_eq!(stages, [(PlanWait::Index, asked.clone()), (PlanWait::Tests, asked)]);
+  // the plan of git, sent before the modules answered, has no module to cut the step by
+  assert_eq!(stages, [(PlanWait::Index, Vec::new()), (PlanWait::Index, asked.clone()), (PlanWait::Tests, asked)]);
   let step = &plan.steps.steps[1];
   assert!(step.groups.iter().all(|group| group.tested.answered && !group.tested.awaited), "{:?}", step.groups);
   assert!(step.tests.answered && !step.tests.awaited);
@@ -300,7 +301,7 @@ fn a_new_module_names_what_enters_it_and_its_group_starts_with_their_files() {
   });
   std::fs::write(
     std::path::Path::new(repo.path_str()).join(".git/branch-deck-accio.json"),
-    serde_json::json!({ "surface": { format!("{head}:gui/media"): surface } }).to_string(),
+    serde_json::json!({ "surface": { format!("{head}:gui/media"): surface }, "modules": fixture_modules(&repo, &[&base, &head]) }).to_string(),
   )
   .unwrap();
   let plan = plan_of(&repo, Some(&FixtureIndex), &range(&repo, &base, &head)).unwrap();
@@ -386,7 +387,12 @@ fn a_plan_whose_entries_the_budget_of_accio_cut_short_is_not_final() {
   let (base, head) = media_range(&repo, 3, classes("gui/media/testSrc/b", "b", "PlayerTest", 1, None), false);
   let fixture = repo.path().join(".git/branch-deck-accio.json");
   let plan_with = |surface: serde_json::Value| {
-    std::fs::write(&fixture, serde_json::json!({ "surface": { format!("{head}:gui/media"): surface } }).to_string()).unwrap();
+    let modules = fixture_modules(&repo, &[&base, &head]);
+    std::fs::write(
+      &fixture,
+      serde_json::json!({ "surface": { format!("{head}:gui/media"): surface }, "modules": modules }).to_string(),
+    )
+    .unwrap();
     let plan = plan_of(&repo, Some(&FixtureIndex), &range(&repo, &base, &head)).unwrap();
     let entries = plan.modules.iter().find(|module| module.root == "gui/media").unwrap().entries.clone().unwrap();
     (entries.complete, entries.cut, plan.is_final())

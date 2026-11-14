@@ -1,16 +1,16 @@
 //! The modules of a review (openspec/specs/branch/review-plan/spec.md, "Modules"): the shape of a change before any of its words,
 //! which modules it adds, changes or deletes, how large each part is, and what each newly uses.
 //!
-//! - **The module of a file** is the nearest directory above it with a build file at the head reviewed
-//!   (`ModuleRoots::root_of`: an `*.iml`, a `*.csproj`, a Bazel, Gradle or Maven build file, a `Cargo.toml`, a
-//!   `package.json`), or of a module the commits delete, whose build file only the base has; the root of the
-//!   repository (`""`) for a file under none.
-//! - **Its state**: `Added` when the commits add a build file at its root, `Deleted` when they delete one and the head
-//!   has none there, else `Changed`.
-//! - **Its name**: of its `*.iml`, its crate, else the name a dependency change gives its build file, else its
-//!   directory; `(root)` for the root. **Its label**, where the review names it: the shortest suffix of its root that
-//!   no other module of the review shares, of two directories at least when its last has no `.`, `-` or `_` (`shared/code`,
-//!   not `code`; `view.gui.media` and `review-plan` alone).
+//! - **The module of a file** is the root accio's `modules` answers for its path at the head reviewed (the nearest
+//!   directory above it whose build files declare a module: JPS, Bazel, Cargo, npm, Go, Python, Maven, Gradle,
+//!   .NET), or the deeper root it answers at the base, a module the commits delete; the root of the repository
+//!   (`""`) for a file under none, and for every file without both answers (`DeclaredRoots`).
+//! - **Its state**: `Deleted` when its root is of the base alone, `Added` when it is of the head alone (no file of it has
+//!   that root at the base), else `Changed`.
+//! - **Its name**: the name its build files give it (its `*.iml`, its crate, its package, …), else the name a dependency
+//!   change gives its build file, else its directory; `(root)` for the root. **Its label**, where the review names it:
+//!   the shortest suffix of its root that no other module of the review shares, of two directories at least when its
+//!   last has no `.`, `-` or `_` (`shared/code`, not `code`; `view.gui.media` and `review-plan` alone).
 //! - **Its files** by role: `build` (the build model, a manifest, the list of a module: `MechanicalKind::BuildModel` and
 //!   `ModuleList`), `prose` (Markdown and the like), `tests` (the test paths of `files::test_subject`), `code` (a
 //!   language `code_symbols` parses), the rest `resources`; its lines added and removed over the range, as
@@ -28,16 +28,19 @@
 
 use crate::dependencies::{AddedManifest, DependencyChange, DependencyChangeKind, DependencyKind, is_manifest};
 use crate::entries::ModuleEntries;
-use crate::files::{ChangedFile, MechanicalKind, is_build_model, test_subject};
+use crate::fan_in::ask_index;
+use crate::files::{ChangedFile, MechanicalKind, is_build_model, is_module_file, test_subject};
 use crate::links::FileLink;
 use crate::pair::PairBlocks;
+use anyhow::Result;
 use code_symbols::language::language_of;
 use domain_types::range_reading::FileRole;
+use file_diffs::accio::{DeclaredModule, ModulesAnswer, SymbolIndex};
 use file_diffs::service::compare_tree_paths;
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use trial_check::module_roots::{ModuleRoots, is_module_file};
+use sync_utils::span::in_current_span;
 
 /// What the commits do to a module
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -161,13 +164,105 @@ enum Role {
   Prose,
 }
 
+/// The roots of the modules of the changed files of a review, as accio's `modules` answers them at the head reviewed
+/// and at the base: none, every file of the root of the repository, without both answers (no accio, no index, an accio
+/// that gives another revision of the answer, `MODULES_ANSWER`)
+#[derive(Debug, Default)]
+pub(crate) struct DeclaredRoots {
+  /// Path -> the root of its module at the head, `None` outside every one
+  head: HashMap<String, Option<String>>,
+  /// Path -> the root of its module at the base
+  base: HashMap<String, Option<String>>,
+  /// Root -> what declares a module there, at the head, else at the base
+  declared: HashMap<String, DeclaredModule>,
+}
+
+impl DeclaredRoots {
+  /// The roots of `paths` at `head` and at `base`, one accio process of each side, at once
+  pub(crate) fn ask(index: Option<&dyn SymbolIndex>, repository_path: &str, base: &str, head: &str, paths: &[String]) -> Result<Self> {
+    if paths.is_empty() || index.is_none() {
+      return Ok(Self::default());
+    }
+    let ask = |revision: &str| ask_index(index, |lenient| lenient.modules(repository_path, paths, revision));
+    let (head, base) = std::thread::scope(|scope| {
+      let base = scope.spawn(in_current_span(|| ask(base)));
+      let head = ask(head);
+      (head, base.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the modules panicked"))))
+    });
+    Ok(match (head?, base?) {
+      (Ok(head), Ok(base)) => {
+        // a build file accio could not read whole declares what it read of it: the answer is still the modules
+        for (side, answer) in [("head", &head), ("base", &base)].into_iter().filter(|(_, answer)| !answer.complete) {
+          tracing::debug!(side, note = answer.note.as_deref().unwrap_or_default(), "the modules of a side are not complete");
+        }
+        Self::of(head, base)
+      }
+      (head, base) => {
+        let why = head.err().or_else(|| base.err()).unwrap_or_default();
+        tracing::debug!(why, "no modules: the index answered them of one side or of none");
+        Self::default()
+      }
+    })
+  }
+
+  /// The roots of the two answers
+  fn of(head: ModulesAnswer, base: ModulesAnswer) -> Self {
+    let roots = |answer: &ModulesAnswer| -> HashMap<String, Option<String>> { answer.paths.iter().map(|path| (path.path.clone(), path.root.clone())).collect() };
+    let (head_roots, base_roots) = (roots(&head), roots(&base));
+    let mut declared: HashMap<String, DeclaredModule> = base.modules.into_iter().map(|module| (module.root.clone(), module)).collect();
+    declared.extend(head.modules.into_iter().map(|module| (module.root.clone(), module)));
+    Self {
+      head: head_roots,
+      base: base_roots,
+      declared,
+    }
+  }
+
+  /// The root of the module of `path`, a changed file, and whether it is of the base alone: the root at the head, else
+  /// the root at the base where that one is deeper, which the head has no module at (a module the commits delete)
+  pub(crate) fn root_of(&self, path: &str) -> (&str, bool) {
+    let head = self.head.get(path).and_then(Option::as_deref);
+    match self.base.get(path).and_then(Option::as_deref) {
+      Some(base) if head.is_none_or(|head| head != base && is_under(base, head)) => (base, true),
+      _ => (head.unwrap_or(""), false),
+    }
+  }
+
+  /// `path` has `root` for the root of its module at the base
+  fn of_base(&self, path: &str, root: &str) -> bool {
+    self.base.get(path).and_then(Option::as_deref) == Some(root)
+  }
+
+  /// `path` has `root` for the root of its module at the head
+  fn of_head(&self, path: &str, root: &str) -> bool {
+    self.head.get(path).and_then(Option::as_deref) == Some(root)
+  }
+
+  /// The name the build files at `root` give its module: of its `*.iml`, its crate, its package, its Maven, Gradle,
+  /// .NET, Go or Python project
+  fn name_of(&self, root: &str) -> Option<&str> {
+    let module = self.declared.get(root)?;
+    [
+      &module.jps,
+      &module.cargo,
+      &module.npm,
+      &module.maven,
+      &module.gradle,
+      &module.msbuild,
+      &module.go,
+      &module.python,
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|block| block.name.as_deref())
+  }
+}
+
 /// What `module_shapes` reads
 pub(crate) struct ModulesInput<'a> {
   pub changed: &'a [ChangedFile<'a>],
-  /// The module structure at the head, `None` without a summary read
-  pub roots: Option<&'a ModuleRoots>,
-  /// Crate directory -> crate name
-  pub crates: Option<&'a HashMap<String, String>>,
+  /// The roots of the modules of `changed`
+  pub roots: &'a DeclaredRoots,
   /// By the place of each file of `changed`
   pub mechanical: &'a [Option<MechanicalKind>],
   pub pairs: &'a [PairBlocks],
@@ -180,20 +275,13 @@ pub(crate) struct ModulesInput<'a> {
 /// The modules of the files of a review, in their order
 pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
   let changed = input.changed;
-  // the roots of the modules the commits delete: their build files are in no tree of the head
+  let root_of = |path: &str| -> String { input.roots.root_of(path).0.to_string() };
+  // the roots of the modules the commits delete: of the base alone
   let deleted_roots: HashSet<&str> = changed
     .iter()
-    .filter(|file| file.deleted && is_module_file(file_name(file.path)))
-    .map(|file| directory_of(file.path))
+    .map(|file| input.roots.root_of(file.path))
+    .filter_map(|(root, deleted)| deleted.then_some(root))
     .collect();
-  let root_of = |path: &str| -> String {
-    let head = input.roots.and_then(|roots| roots.root_of(path)).unwrap_or("");
-    let deleted = deleted_roots.iter().copied().filter(|root| is_under(path, root)).max_by_key(|root| root.len());
-    match deleted {
-      Some(deleted) if deleted.len() > head.len() => deleted.to_string(),
-      _ => head.to_string(),
-    }
-  };
   let roots: Vec<String> = changed.iter().map(|file| root_of(file.path)).collect();
   // the roots in tree order, each once
   let mut distinct: Vec<&str> = roots.iter().map(String::as_str).collect::<HashSet<_>>().into_iter().collect();
@@ -206,7 +294,7 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
       root: root.to_string(),
       name: name_of(root, input),
       label,
-      state: state_of(root, changed, &deleted_roots),
+      state: state_of(root, changed, input.roots, &deleted_roots),
       files: ModuleFiles::default(),
       additions: 0,
       deletions: 0,
@@ -562,17 +650,16 @@ pub(crate) fn labels_of(roots: &[&str]) -> Vec<String> {
     .collect()
 }
 
-/// The name of the module at `root`: its `*.iml`, its crate, the module a dependency change gives a build file at its
-/// root, else its directory
+/// The name of the module at `root`: the one its build files give it, the module a dependency change gives a build file
+/// at its root, else its directory
 fn name_of(root: &str, input: &ModulesInput<'_>) -> String {
   if root.is_empty() {
     return "(root)".to_string();
   }
   input
     .roots
-    .and_then(|roots| roots.iml_of(root))
+    .name_of(root)
     .map(str::to_string)
-    .or_else(|| input.crates.and_then(|crates| crates.get(root)).cloned())
     .or_else(|| {
       input
         .dependencies
@@ -583,12 +670,13 @@ fn name_of(root: &str, input: &ModulesInput<'_>) -> String {
     .unwrap_or_else(|| file_name(root).to_string())
 }
 
-/// `Added` when the commits add a build file at `root`, `Deleted` when they delete one and the head has no module there
-fn state_of(root: &str, changed: &[ChangedFile<'_>], deleted_roots: &HashSet<&str>) -> ModuleState {
-  let build_files = || changed.iter().filter(|file| directory_of(file.path) == root && is_module_file(file_name(file.path)));
-  if deleted_roots.contains(root) && build_files().all(|file| file.deleted) {
+/// `Deleted` when `root` is of the base alone, `Added` when the head declares a module there and no file of it has that
+/// root at the base
+fn state_of(root: &str, changed: &[ChangedFile<'_>], roots: &DeclaredRoots, deleted_roots: &HashSet<&str>) -> ModuleState {
+  let files = || changed.iter().filter(|file| roots.root_of(file.path).0 == root);
+  if deleted_roots.contains(root) {
     ModuleState::Deleted
-  } else if build_files().any(|file| file.before.is_none() && !file.deleted && file.changes.first().is_some_and(|change| change.status == 'A')) {
+  } else if files().all(|file| roots.of_head(file.path, root) && !roots.of_base(file.path, root)) {
     ModuleState::Added
   } else {
     ModuleState::Changed

@@ -1,11 +1,12 @@
 //! The plan in stages (`review_plan_of`, openspec/specs/branch/review-plan/spec.md, "In the App: A fact of the plan
-//! shows when its query answered"): the plan of git alone before the index is asked, then the plan with every answer
-//! but the tests of the steps while that query still runs, then the plan whole
+//! shows when its query answered"): the plan of git alone before the index answered, then with its modules, then the
+//! plan with every answer but the tests of the steps while that query still runs, then the plan whole
 
 use crate::api::BreakVerdict;
 use crate::fan_in_test::{Counts, reordered};
 use crate::files::MechanicalKind;
-use crate::test_support::{PREFIX, range};
+use crate::modules::ModuleState;
+use crate::test_support::{DeclaredModules, ModulesBy, PREFIX, add_media, range};
 use crate::units::UnitKind;
 use crate::{PlanSources, PlanWait, ReviewPlan, ReviewPlanParams, resolve_subject, review_plan_of};
 use diff_marks::index::Order;
@@ -52,6 +53,10 @@ impl SymbolIndex for HeldTests<'_> {
     let released = self.release.lock().unwrap_or_else(PoisonError::into_inner).recv_timeout(Duration::from_secs(60));
     anyhow::ensure!(released != Err(mpsc::RecvTimeoutError::Timeout), "the tests were never released");
     self.inner.tests(repository_root, declarations, given, revision)
+  }
+
+  fn modules(&self, repository_root: &str, paths: &[String], revision: &str) -> anyhow::Result<Option<file_diffs::accio::ModulesAnswer>> {
+    self.inner.modules(repository_root, paths, revision)
   }
 }
 
@@ -165,6 +170,7 @@ fn the_plan_shows_the_usages_while_the_tests_of_its_steps_are_asked() {
     stages,
     [
       (PlanWait::Index, waiting(BreakVerdict::Pending, &[])),
+      (PlanWait::Index, waiting(BreakVerdict::Pending, &[])),
       (PlanWait::Tests, waiting(BreakVerdict::Breaks, &[2])),
     ]
   );
@@ -183,7 +189,8 @@ fn the_plan_shows_the_usages_while_the_tests_of_its_steps_are_asked() {
 }
 
 /// A range without tests asks the index nothing of them, so its plan has no stage of its tests, however fast the
-/// usages answer: one stage before the index is asked, no step waiting, then the plan whole
+/// usages answer: the stages before the index answered (without the modules, then with them), no step waiting, then
+/// the plan whole
 #[test]
 fn a_range_without_tests_has_no_stage_of_its_tests() {
   let repo = TestRepo::new();
@@ -196,19 +203,14 @@ fn a_range_without_tests_has_no_stage_of_its_tests() {
   let index = Counts::of(&[(changed.as_str(), 2)]);
 
   let (stages, plan) = staged(&repo, &index, &range(&repo, &base, &head), shown, |_| {});
-  assert_eq!(
-    stages,
-    [(
-      PlanWait::Index,
-      Shown {
-        verdict: BreakVerdict::Pending,
-        outside: Vec::new(),
-        awaited: false,
-        answered: false,
-        proof: Vec::new(),
-      }
-    )]
-  );
+  let before = || Shown {
+    verdict: BreakVerdict::Pending,
+    outside: Vec::new(),
+    awaited: false,
+    answered: false,
+    proof: Vec::new(),
+  };
+  assert_eq!(stages, [(PlanWait::Index, before()), (PlanWait::Index, before())]);
   assert_eq!(index.tested(), Vec::<String>::new());
   let after = shown(&plan);
   assert_eq!((after.verdict, after.outside, after.awaited, after.answered), (BreakVerdict::Breaks, vec![2], false, true));
@@ -227,7 +229,7 @@ fn a_moved_declaration_is_read_in_the_plan_of_git_and_folded_once_the_index_says
   let index = Counts::of(&[]).with_reordered(vec![reordered("src/a/Store.kt", "one", [3, 5], [11, 13], Order::Free)]);
   let kinds = |plan: &ReviewPlan| plan.units.iter().map(|unit| unit.kind.clone()).collect::<Vec<_>>();
   let (stages, plan) = staged(&repo, &index, &range(&repo, &base, &head), kinds, |_| {});
-  assert_eq!(stages, [(PlanWait::Index, vec![UnitKind::Behaviour])]);
+  assert_eq!(stages, [(PlanWait::Index, vec![UnitKind::Behaviour]), (PlanWait::Index, vec![UnitKind::Behaviour])]);
   assert_eq!(
     kinds(&plan),
     [UnitKind::Mechanical {
@@ -241,4 +243,40 @@ fn a_moved_declaration_is_read_in_the_plan_of_git_and_folded_once_the_index_says
   let (_, plan) = staged(&repo, &index, &range(&repo, &head, &added), kinds, |_| {});
   assert_eq!(kinds(&plan), [UnitKind::Added]);
   assert_eq!(index.moves_asked(), 1);
+}
+
+/// The plan of git does not wait for the modules, the first query of the index a new tree waits for (seconds, cold): it
+/// is sent before they answered with no module and no file of one, then again with them while the index is asked what
+/// enters the module the change adds, then whole
+#[test]
+fn the_plan_of_git_is_sent_before_the_modules_answered() {
+  let repo = TestRepo::new();
+  let (base, head) = add_media(&repo);
+  let (release, held) = mpsc::channel();
+  let held = Mutex::new(held);
+  // the modules held until the plan of git releases them, one release for each side; the timeout is a guard against a
+  // hang of a plan that waits for them, never the wait of a passing run
+  let index = ModulesBy(|repository_root: &str, paths: &[String], revision: &str| {
+    let released = held.lock().unwrap_or_else(PoisonError::into_inner).recv_timeout(Duration::from_secs(60));
+    anyhow::ensure!(released != Err(mpsc::RecvTimeoutError::Timeout), "the modules were never released");
+    DeclaredModules.modules(repository_root, paths, revision)
+  });
+  let modules = |plan: &ReviewPlan| -> (Vec<(String, ModuleState)>, usize) {
+    (
+      plan.modules.iter().map(|module| (module.root.clone(), module.state)).collect(),
+      plan.files.iter().filter(|facts| facts.module.is_some()).count(),
+    )
+  };
+
+  let mut released = false;
+  let (stages, plan) = staged(&repo, &index, &range(&repo, &base, &head), modules, |_| {
+    if !released {
+      release.send(()).unwrap();
+      release.send(()).unwrap();
+      released = true;
+    }
+  });
+  let answered = vec![("media".to_string(), ModuleState::Added), ("gui".to_string(), ModuleState::Changed)];
+  assert_eq!(stages, [(PlanWait::Index, (Vec::new(), 0)), (PlanWait::Index, (answered.clone(), 3))]);
+  assert_eq!(modules(&plan), (answered, 3));
 }

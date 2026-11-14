@@ -298,7 +298,8 @@ fn prints_the_texts_of_the_ui() {
     "{output}"
   );
   let place = usize::try_from(module.as_u64().unwrap()).unwrap();
-  assert_eq!(output["modules"][place]["label"], json!("gui"));
+  // the modules are accio's (`accio modules`), and the repository has no index: its files are of the root
+  assert_eq!(output["modules"][place]["label"], json!("(root)"));
   let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["review_plan"], &schema["outputs"]["review_plan"], &output, "review_plan");
 }

@@ -183,7 +183,7 @@ export function answerStoreRename(repositoryPath: string, { outside = false }: {
 }
 
 /** Writes `answers` into the fixture of the index of the repository (`FixtureIndex`), beside what it holds already */
-function writeFixtureIndex(repositoryPath: string, answers: Record<string, unknown>): void {
+export function writeFixtureIndex(repositoryPath: string, answers: Record<string, unknown>): void {
   const file = path.join(repositoryPath, ".git", "branch-deck-accio.json")
   const held = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>) : {}
   writeFileSync(file, JSON.stringify({ ...held, ...answers }))

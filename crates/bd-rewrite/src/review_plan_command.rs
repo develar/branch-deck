@@ -192,7 +192,8 @@ pub struct ReviewPlanOutput {
   /// dependencies of a `package.json`), and the build files they add or delete (`newModule`): by build file in tree
   /// order, then by kind and name. A new version or scope is one `changed` entry
   pub dependencies: Vec<DependencyChange>,
-  /// The modules of the changed files (the nearest directory above each with a build file at the head, `""` for none):
+  /// The modules of the changed files (the root accio's `modules` answers for each at the head, or the deeper root at
+  /// the base of a module the commits delete; `""` for none, and for every file without both answers):
   /// one the commits add first (`state`), then the most changed lines of code and tests; each with its `name`, its
   /// `label`, its `files` by role, its lines, its `directories`, the modules it newly `uses` (the links the commits add,
   /// by their place in `links`, and whether a build file `declared` it), those that newly use it (`usedBy`), the plugin

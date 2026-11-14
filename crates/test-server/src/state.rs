@@ -276,6 +276,10 @@ impl file_diffs::accio::SymbolIndex for FixtureSearch<'_> {
   fn moves(&self, repository_root: &str, base: &str, head: &str) -> anyhow::Result<Option<diff_marks::index::MovesAnswer>> {
     file_diffs::accio::FixtureIndex.moves(repository_root, base, head)
   }
+
+  fn modules(&self, repository_root: &str, paths: &[String], revision: &str) -> anyhow::Result<Option<file_diffs::accio::ModulesAnswer>> {
+    file_diffs::accio::FixtureIndex.modules(repository_root, paths, revision)
+  }
 }
 
 pub struct TestRepository {

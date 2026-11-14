@@ -1,7 +1,8 @@
 use crate::ReviewPlan;
 use crate::files::MechanicalKind;
 use crate::modules::{ModuleFiles, ModuleState, labels_of};
-use crate::test_support::plan_of_range;
+use crate::test_support::{DeclaredModules, ModulesBy, add_media, branch, mark, plan_by_accio, plan_of, plan_of_range, range};
+use file_diffs::accio::SymbolIndex;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -28,12 +29,10 @@ fn module_of_files(plan: &ReviewPlan) -> Vec<(&str, &str)> {
 
 const IML: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<module type=\"JAVA_MODULE\" version=\"4\">\n  <component name=\"NewModuleRootManager\">\n    <orderEntry type=\"module\" module-name=\"intellij.gui\" />\n  </component>\n</module>\n";
 
-/// A module the commits add comes first, with its files by role, its lines and what it newly uses: the module of
-/// another file of the change its code links to, declared by its `*.iml` too; the plugin descriptor that adds it as
-/// content names it, and the list of the module directories that adds its line is its wiring
-#[test]
-fn a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses() {
-  let repo = TestRepo::new();
+/// The commits of `repo` that add the module `gui/media` beside `gui`: its `*.iml`, its `BUILD.bazel`, its code, tests
+/// and bundle, a use of the code of `gui`, the plugin descriptor that holds it as content and the list of the module
+/// directories; (base, head)
+fn add_the_player(repo: &TestRepo) -> (String, String) {
   let base = repo.create_commit_with_files(
     "Add the GUI",
     &[
@@ -68,6 +67,16 @@ fn a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly
       ),
     ],
   );
+  (base, head)
+}
+
+/// A module the commits add comes first, with its files by role, its lines and what it newly uses: the module of
+/// another file of the change its code links to, declared by its `*.iml` too; the plugin descriptor that adds it as
+/// content names it, and the list of the module directories that adds its line is its wiring
+#[test]
+fn a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses() {
+  let repo = TestRepo::new();
+  let (base, head) = add_the_player(&repo);
   let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(
     modules(&plan),
@@ -119,6 +128,45 @@ fn a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly
     let list = plan.files.iter().find(|facts| facts.path == path).unwrap();
     assert_eq!(list.mechanical, Some(MechanicalKind::ModuleList), "{path}");
   }
+}
+
+/// The modules of a review are those the accio of this machine answers for the base and the head (`accio modules`):
+/// the same roots, names and states as the index of these tests gives (`test_support::declared_modules`), a Python
+/// project accio declares among them. Nothing is asked on a machine without an accio that answers them
+#[test]
+fn the_modules_of_a_review_are_those_accio_answers() {
+  let repo = TestRepo::new();
+  let (base, _) = add_the_player(&repo);
+  let head = repo.create_commit_with_files(
+    "Add the scripts",
+    &[
+      ("tools/pyproject.toml", "[project]\nname = \"tools\"\n"),
+      ("tools/scripts/report.py", "def report():\n    pass\n"),
+    ],
+  );
+  let Some(plan) = plan_by_accio(&repo, &base, &head) else {
+    eprintln!("no accio that answers modules on this machine: nothing asked");
+    return;
+  };
+  let expected = plan_of_range(&repo, &base, &head);
+  assert_eq!(modules(&plan), modules(&expected));
+  assert_eq!(module_of_files(&plan), module_of_files(&expected));
+  assert!(modules(&plan).contains(&("tools", "tools", "tools", ModuleState::Added)), "{:?}", modules(&plan));
+}
+
+/// A module is of the roots accio answers at the two sides, not of the build files the commits touch: one whose build
+/// file the commits rename is changed, and without both answers every file is of the root of the repository
+#[test]
+fn a_module_is_added_or_deleted_by_the_roots_of_the_two_sides() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add the GUI", &[("gui/BUILD", "# gui\n"), ("gui/src/Box.kt", "class Box\n")]);
+  repo.git(&["mv", "gui/BUILD", "gui/BUILD.bazel"]);
+  std::fs::write(repo.path().join("gui/src/Box.kt"), "class Box(val size: Int)\n").unwrap();
+  repo.git(&["add", "-A"]);
+  let head = repo.commit_with(&["-m", "Rename the build file"], &[]);
+  assert_eq!(modules(&plan_of_range(&repo, &base, &head)), [("gui", "gui", "gui", ModuleState::Changed)]);
+  let unanswered = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  assert_eq!(modules(&unanswered), [("", "(root)", "(root)", ModuleState::Changed)]);
 }
 
 /// A list that adds a line naming no module the commits add or delete is real work, and so is one whose module came
@@ -284,4 +332,66 @@ fn the_lines_of_a_file_several_commits_change_are_the_engines_count_of_its_pair(
   let blocks: u32 = engine.blocks.iter().map(|block| block.new_end - block.new_start).sum();
   assert_eq!((engine.additions, engine.deletions, blocks), (5, 3, 6), "a block holds the empty last line");
   assert_eq!((tests.additions, tests.deletions), (5, 3));
+}
+
+/// Where the index answers the modules of one side alone, of the head or of the base, none answering or failing,
+/// every file is of the root of the repository, changed: no side stands in for the other
+#[test]
+fn the_modules_of_one_side_alone_put_every_file_at_the_root() {
+  let repo = TestRepo::new();
+  let (base, head) = add_media(&repo);
+  assert_eq!(
+    modules(&plan_of_range(&repo, &base, &head)),
+    [("media", "media", "media", ModuleState::Added), ("gui", "gui", "gui", ModuleState::Changed)]
+  );
+  for (answered, fails) in [(&head, false), (&head, true), (&base, false), (&base, true)] {
+    let index = ModulesBy(|repository_root: &str, paths: &[String], revision: &str| {
+      if revision == answered.as_str() {
+        DeclaredModules.modules(repository_root, paths, revision)
+      } else if fails {
+        anyhow::bail!("accio failed at {revision}")
+      } else {
+        Ok(None)
+      }
+    });
+    let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+    let side = if answered == &head { "head" } else { "base" };
+    assert_eq!(modules(&plan), [("", "(root)", "(root)", ModuleState::Changed)], "{side}, the other fails: {fails}");
+    assert!(plan.files.iter().all(|facts| facts.module == Some(0)), "{side}, the other fails: {fails}");
+  }
+}
+
+/// Since Your Review whose carry conflicts reads the new and the rewritten commits alone, each against its parent: their
+/// modules are compared with the reviewed tip, so a module the reviewer read is changed, not added again
+#[test]
+fn since_the_review_whose_carry_conflicts_compares_the_modules_with_the_reviewed_tip() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Add readme", &[("README.md", "readme\n"), ("shared.txt", "one\n")]);
+  repo.git(&["switch", "-q", "-c", "jane/virtual/auth"]);
+  let player = |shared: &str| {
+    for (path, content) in [("media/BUILD.bazel", "# media\n"), ("media/src/Player.kt", "class Player\n"), ("shared.txt", shared)] {
+      std::fs::create_dir_all(repo.path().join(path).parent().unwrap()).unwrap();
+      std::fs::write(repo.path().join(path), content).unwrap();
+    }
+    repo.git(&["add", "-A"]);
+    repo.commit_with(
+      &["-m", "(auth) Add the player"],
+      &[("GIT_AUTHOR_DATE", "1700000100 +0000"), ("GIT_COMMITTER_DATE", "1700000100 +0000")],
+    )
+  };
+  player("two\n");
+  mark(&repo);
+  // the baseline changes the line the review changed, and the branch is carried onto it by hand: the carry conflicts
+  repo.git(&["switch", "-q", "master"]);
+  repo.create_commit_with_files("Change shared", &[("shared.txt", "three\n")]);
+  repo.git(&["switch", "-q", "-C", "jane/virtual/auth"]);
+  player("two three\n");
+  repo.create_commit_with_files("(auth) Play a clip", &[("media/src/Player.kt", "class Player(val clip: String)\n")]);
+
+  let plan = plan_of(&repo, Some(&DeclaredModules), &branch(&repo, true)).unwrap();
+  assert!(plan.interdiff.as_ref().is_some_and(|interdiff| interdiff.scope.is_none()), "{:?}", plan.interdiff);
+  assert_eq!(
+    modules(&plan),
+    [("media", "media", "media", ModuleState::Changed), ("", "(root)", "(root)", ModuleState::Changed)]
+  );
 }

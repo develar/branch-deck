@@ -501,7 +501,7 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
   assert!(!tested(&plan).unreached.contains(&"isEmpty"), "{:?}", plan.steps);
 
   // without accio: no step knows its tests
-  let plan = plan_of_range(&repo, &base, &head);
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
   assert_eq!(tested(&plan), Tested::default());
   assert!(plan.steps.steps.iter().all(|step| !step.tests.answered));
   assert_eq!(plan.index_note.as_deref(), Some(NO_ACCIO));

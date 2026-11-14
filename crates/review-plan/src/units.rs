@@ -230,7 +230,7 @@ impl FreeOrder {
 }
 
 /// The units of a pair (`review_units`)
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct PairUnits {
   pub(crate) units: Vec<ReviewUnit>,
   /// The paths whose commits change a test inside them

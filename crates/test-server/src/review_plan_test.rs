@@ -79,16 +79,19 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
   let subject = json!({ "kind": "branch", "name": branch, "base": base });
   let params = json!({ "repositoryPath": path, "subject": subject, "sinceReviewed": true });
   let (events, answer) = plan_events(&client, addr, &params).await;
-  // the plan without the usages while the index is asked, then whole: the range has no test, so no plan waits for
-  // the tests of its steps
+  // the plan without the usages while the index is asked, first without its modules too, then whole: the range has no
+  // test, so no plan waits for the tests of its steps
   let waits: Vec<(&Value, &Value)> = events.iter().map(|event| (&event["kind"], &event["waits"])).collect();
   assert_eq!(
     (waits, &answer["status"]),
-    (vec![(&json!("plan"), &json!("index")), (&json!("plan"), &json!(null))], &json!("ok")),
+    (
+      vec![(&json!("plan"), &json!("index")), (&json!("plan"), &json!("index")), (&json!("plan"), &json!(null))],
+      &json!("ok")
+    ),
     "{events:?}"
   );
   assert_eq!(events[0]["plan"]["api"][0]["usages"], Value::Null, "{events:?}");
-  let plan = &events[1]["plan"];
+  let plan = &events[2]["plan"];
   let interdiff = &plan["interdiff"];
   assert_eq!(
     (

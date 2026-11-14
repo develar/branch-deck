@@ -12,6 +12,9 @@
 //! pairs of their places on its standard input; only an accio that says it answers them (`accio versions`,
 //! `RENAMES_ANSWER`) is asked. And which declarations it moved whole to another file or under other owners: `accio
 //! moves --base <revision> --ref <revision>`, one process for the subject, asked of an accio of `MOVES_ANSWER` alone.
+//! A review plan reads the module of each changed file from the build files of a revision (openspec/specs/branch/review-plan/spec.md,
+//! "Modules"): `accio modules --ref <revision> --paths-from -`, the paths on its standard input, asked of an accio of
+//! `MODULES_ANSWER` alone.
 //! The answers of the index a diff decides by, and how accio counts its columns, are the
 //! contract of `diff_marks::index`, which the marks of a subject read.
 //!
@@ -66,6 +69,10 @@ pub const SURFACE_ANSWER: u32 = 2;
 /// whose `moved` and `reordered` say the same words by the words of the declarations. An accio of another revision is
 /// not asked
 pub const MOVES_ANSWER: u32 = 2;
+/// The revision of the answer of `accio modules` this reader was written for (`answers.modules` of `accio versions`):
+/// its fields are only ever added (`module_graph::ModulesAnswer` of accio), so an accio of another revision, or one
+/// without it, is not asked
+pub const MODULES_ANSWER: u32 = 1;
 /// The moves `accio moves` lists at most: more make its answer not `complete`, and the rest are read as no move
 const MOVES_LIMIT: &str = "500";
 /// The tests a lookup answers at most, per declaration: the given tests of a change reach one declaration by the
@@ -442,6 +449,66 @@ pub struct SurfaceUse {
   pub test: bool,
 }
 
+/// The modules of some paths at a revision as their build files declare them (`accio modules --paths`, accio's
+/// `module_graph::ModulesAnswer`, whose fields are only ever added): the root of the nearest module above each path, and
+/// the record of each such root
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct ModulesAnswer {
+  /// Every build file was read whole; else `note` says which were not
+  #[serde(default)]
+  pub complete: bool,
+  #[serde(default)]
+  pub note: Option<String>,
+  /// One record per root of the paths asked, sorted by root
+  #[serde(default)]
+  pub modules: Vec<DeclaredModule>,
+  /// Each path asked, in their order, with the root of the nearest module at or above it
+  #[serde(default)]
+  pub paths: Vec<PathModule>,
+}
+
+/// A path and the root of its module (`ModulesAnswer::paths`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct PathModule {
+  pub path: String,
+  /// The directory of the nearest module at or above it, `""` for the root of the repository; `None` outside every one
+  #[serde(default)]
+  pub root: Option<String>,
+}
+
+/// The modules one directory declares, a block for each build system that declares one there: what a review names a
+/// module by (`ModulesAnswer::modules`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DeclaredModule {
+  /// `""` for the root of the repository
+  pub root: String,
+  /// Its `*.iml`, by the file's stem
+  #[serde(default)]
+  pub jps: Option<ModuleBlock>,
+  /// Its `Cargo.toml`, by `[package] name` as written; none for a virtual workspace
+  #[serde(default)]
+  pub cargo: Option<ModuleBlock>,
+  #[serde(default)]
+  pub npm: Option<ModuleBlock>,
+  #[serde(default)]
+  pub maven: Option<ModuleBlock>,
+  #[serde(default)]
+  pub gradle: Option<ModuleBlock>,
+  #[serde(default)]
+  pub msbuild: Option<ModuleBlock>,
+  #[serde(default)]
+  pub go: Option<ModuleBlock>,
+  #[serde(default)]
+  pub python: Option<ModuleBlock>,
+}
+
+/// The block of one build system of a module: the name its file gives it, where it gives one
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct ModuleBlock {
+  #[serde(default)]
+  pub name: Option<String>,
+}
+
 /// A plugin descriptor at a revision as the platform's reader reads it (`accio parse --descriptor --resolve`, one JSON
 /// line per path, `plugin_xml::dump_line` of accio, whose fields are only ever added): what it registers, and each class
 /// it names resolved in the index at that revision
@@ -706,6 +773,12 @@ pub trait SymbolIndex: Send + Sync {
   fn moves(&self, _repository_root: &str, _base: &str, _head: &str) -> Result<Option<MovesAnswer>> {
     Ok(None)
   }
+
+  /// The module of each of `paths` in the tree of `revision`, as its build files declare it, asked in one process;
+  /// `None` when the index answers no modules (an accio of another answer revision, a fixture without them)
+  fn modules(&self, _repository_root: &str, _paths: &[String], _revision: &str) -> Result<Option<ModulesAnswer>> {
+    Ok(None)
+  }
 }
 
 /// accio has no usable index of the repository (`--no-build` answered `available: false`): why, with a format mismatch
@@ -748,6 +821,7 @@ struct Answers {
   renames: Option<u32>,
   surface: Option<u32>,
   moves: Option<u32>,
+  modules: Option<u32>,
 }
 
 /// What an executable says of itself, asked once of each build of it: again once its file is another one, by its
@@ -847,6 +921,11 @@ impl AccioCli {
     self.answers().moves == Some(MOVES_ANSWER)
   }
 
+  /// Whether this accio answers `modules` as this reader reads it (`MODULES_ANSWER`), as `answers_renames` asks it
+  pub fn answers_modules(&self) -> bool {
+    self.answers().modules == Some(MODULES_ANSWER)
+  }
+
   /// The revisions of the answers of this accio, from `accio versions`, asked once of each build of it (`OfBuild`);
   /// none of an accio without them and of one whose `versions` fails
   fn answers(&self) -> Answers {
@@ -865,6 +944,7 @@ impl AccioCli {
         renames: revision("renames"),
         surface: revision("surface"),
         moves: revision("moves"),
+        modules: revision("modules"),
       }
     })
   }
@@ -977,6 +1057,15 @@ impl AccioSearch<'_> {
     entries.into_iter().map(|entry| serde_json::from_value(entry).context("the answer of accio")).collect()
   }
 
+  /// `IndexUnavailable` when the one object of an answer says accio has no usable index of the repository
+  fn available(&self, answer: &serde_json::Value) -> Result<()> {
+    if answer.get("available").and_then(serde_json::Value::as_bool) == Some(false) {
+      let note = answer.get("note").and_then(serde_json::Value::as_str).unwrap_or("accio has no index of this repository");
+      return Err(IndexUnavailable(index_unavailable_note(note, &self.accio.executable)).into());
+    }
+    Ok(())
+  }
+
   /// The standard output of `command`, given `stdin`, run until it answers; `SearchCanceled` once the search is
   /// canceled, an error with what accio printed when it fails
   fn run(&self, command: &mut Command, stdin: Option<Vec<u8>>) -> Result<Vec<u8>> {
@@ -1061,12 +1150,7 @@ impl SymbolIndex for AccioSearch<'_> {
     // `--root`: the paths are of the repository, whatever the directory the app runs in
     command.args(["parse", "--descriptor", "--resolve", "--no-build", "--project", repository_root, "--root", repository_root]);
     command.args(["--ref", revision, "--files-from", "-"]);
-    let listed = paths.iter().fold(String::new(), |mut listed, path| {
-      listed.push_str(path);
-      listed.push('\n');
-      listed
-    });
-    let stdout = self.run(&mut command, Some(listed.into_bytes()))?;
+    let stdout = self.run(&mut command, Some(lines(paths)))?;
     let mut descriptors = stdout
       .split(|byte| *byte == b'\n')
       .filter(|line| !line.is_empty())
@@ -1160,12 +1244,43 @@ impl SymbolIndex for AccioSearch<'_> {
     command.args(["--base", base, "--ref", head, "--limit", MOVES_LIMIT]);
     let stdout = self.run(&mut command, None)?;
     let answer: serde_json::Value = serde_json::from_slice(&stdout).context("the answer of accio")?;
-    if answer.get("available").and_then(serde_json::Value::as_bool) == Some(false) {
-      let note = answer.get("note").and_then(serde_json::Value::as_str).unwrap_or("accio has no index of this repository");
-      return Err(IndexUnavailable(index_unavailable_note(note, &self.accio.executable)).into());
-    }
+    self.available(&answer)?;
     serde_json::from_value(answer).context("the answer of accio").map(Some)
   }
+
+  /// `accio modules --no-build --ref <revision> --paths-from -`, a path a line on its standard input: every path of a
+  /// side in one process. An accio that does not answer them as this reader reads them is not started
+  fn modules(&self, repository_root: &str, paths: &[String], revision: &str) -> Result<Option<ModulesAnswer>> {
+    if paths.is_empty() {
+      return Ok(Some(ModulesAnswer::default()));
+    }
+    if !self.accio.answers_modules() {
+      return Ok(None);
+    }
+    let mut command = windowless_command_at(&self.accio.executable, self.priority);
+    command.args(["modules", "--no-build", "--format", "json", "--project", repository_root]);
+    command.args(["--ref", revision, "--paths-from", "-"]);
+    let stdout = self.run(&mut command, Some(lines(paths)))?;
+    let answer: serde_json::Value = serde_json::from_slice(&stdout).context("the answer of accio")?;
+    self.available(&answer)?;
+    let answer: ModulesAnswer = serde_json::from_value(answer).context("the answer of accio")?;
+    if answer.paths.len() != paths.len() {
+      bail!("accio answered {} paths for {}", answer.paths.len(), paths.len());
+    }
+    Ok(Some(answer))
+  }
+}
+
+/// `items`, one a line, as the standard input of accio
+fn lines(items: &[String]) -> Vec<u8> {
+  items
+    .iter()
+    .fold(String::new(), |mut listed, item| {
+      listed.push_str(item);
+      listed.push('\n');
+      listed
+    })
+    .into_bytes()
 }
 
 /// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer;
@@ -1230,6 +1345,12 @@ impl<'a> Lenient<'a> {
     self.answered(self.index.surface(repository_root, modules, revision))
   }
 
+  /// The module of each of `paths` at `revision`, as `SymbolIndex::modules`: `None` when the index answers none or the
+  /// query failed (`error` says why)
+  pub fn modules(&self, repository_root: &str, paths: &[String], revision: &str) -> Result<Option<ModulesAnswer>> {
+    self.answered(self.index.modules(repository_root, paths, revision))
+  }
+
   /// Why accio has no usable index of the repository, as accio words it: none while no query was told so
   pub fn unavailable(&self) -> Option<String> {
     self.unavailable.lock().unwrap_or_else(PoisonError::into_inner).clone()
@@ -1267,7 +1388,9 @@ impl<'a> Lenient<'a> {
 /// lacks is `missing`), the answer of `surface` of each `<full commit id>:<module>` (a module it lacks unknown, not
 /// `complete`; none without any), the answer of `renames` of each pair by the place of its old declaration (a pair
 /// it lacks `unavailable` and final; none without any), the answer of `moves` whatever the trees (none without it),
-/// or the `error` every query fails with; a repository without the file has no index
+/// the modules each `<full commit id>` declares, which `modules` answers the nearest of for each path (a revision it
+/// lacks declares none; none without any), or the `error` every query fails with; a repository without the file has
+/// no index
 pub struct FixtureIndex;
 
 #[derive(Deserialize)]
@@ -1290,6 +1413,9 @@ struct Fixture {
   /// The answer of `moves`, whatever the trees
   #[serde(default)]
   moves: Option<MovesAnswer>,
+  /// The modules the tree of each `"<full commit id>"` declares
+  #[serde(default)]
+  modules: std::collections::HashMap<String, Vec<DeclaredModule>>,
   error: Option<String>,
 }
 
@@ -1390,6 +1516,36 @@ impl SymbolIndex for FixtureIndex {
 
   fn moves(&self, repository_root: &str, _base: &str, _head: &str) -> Result<Option<MovesAnswer>> {
     Ok(Self::read(repository_root)?.and_then(|fixture| fixture.moves))
+  }
+
+  fn modules(&self, repository_root: &str, paths: &[String], revision: &str) -> Result<Option<ModulesAnswer>> {
+    // a fixture that names no modules answers none, as an accio without the command
+    Ok(Self::read(repository_root)?.filter(|fixture| !fixture.modules.is_empty()).map(|mut fixture| {
+      let declared = fixture.modules.remove(revision).unwrap_or_default();
+      let nearest = |path: &str| {
+        declared
+          .iter()
+          .filter(|module| module.root.is_empty() || path.strip_prefix(module.root.as_str()).is_some_and(|rest| rest.starts_with('/')))
+          .max_by_key(|module| module.root.len())
+      };
+      let found: Vec<Option<&DeclaredModule>> = paths.iter().map(|path| nearest(path)).collect();
+      let mut modules: Vec<DeclaredModule> = found.iter().flatten().map(|module| (*module).clone()).collect();
+      modules.sort_by(|a, b| a.root.cmp(&b.root));
+      modules.dedup_by(|a, b| a.root == b.root);
+      ModulesAnswer {
+        complete: true,
+        note: None,
+        paths: paths
+          .iter()
+          .zip(&found)
+          .map(|(path, module)| PathModule {
+            path: path.clone(),
+            root: module.map(|module| module.root.clone()),
+          })
+          .collect(),
+        modules,
+      }
+    }))
   }
 }
 

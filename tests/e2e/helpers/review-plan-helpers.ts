@@ -2,6 +2,8 @@ import { appendFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
+import { writeFixtureIndex } from "./marks-helpers"
+import { virtualBranch } from "./push-helpers"
 import { openReviewWindow } from "./review-window-helpers"
 import { openLinkedSubWindow } from "./sub-window-helpers"
 import { nextAnswer } from "./sync-helpers"
@@ -17,6 +19,20 @@ import { expectClosed } from "./wait-helpers"
 export function turnOnReviewPlan(repo: TestRepositoryBuilder): void {
   // `git config branchdeck.reviewExperimental true` in a terminal: the next sync reads it, and it wins over the global
   appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
+}
+
+/**
+ * accio's modules (`accio modules`) of the `review_modules` template in the fixture of its index, at the base and the
+ * head of the branch `media` the sync builds: the plugin, `shared/code` and `view.gui` the base declares, and the
+ * module `view.gui.media` the head adds
+ */
+export async function answerPlayerModules(repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<unknown>): Promise<void> {
+  await syncAndWaitForBranches()
+  const head = await repo.revision(virtualBranch("media"))
+  const base = await repo.revision(`${virtualBranch("media")}~2`)
+  const module = (directory: string, name: string) => ({ root: `plugins/player/${directory}`, jps: { name } })
+  const kept = [module("plugin", "intellij.player.plugin"), module("shared/code", "intellij.player.shared.code"), module("view.gui", "intellij.player.view.gui")]
+  writeFixtureIndex(repo.path, { modules: { [base]: kept, [head]: [...kept, module("view.gui.media", "intellij.player.view.gui.media")] } })
 }
 
 /** The sidebar of a review with the plan: the tree, a commit row of it by its subject, and the rows of the column above it */

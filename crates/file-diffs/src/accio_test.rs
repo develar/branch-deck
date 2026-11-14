@@ -703,6 +703,53 @@ fn an_accio_that_answers_no_moves_as_they_are_read_is_not_asked() {
   assert!(error.is::<IndexUnavailable>(), "{error:#}");
 }
 
+/// The modules of the paths of a side are read in one process, `accio modules --no-build --ref <revision>
+/// --paths-from -`, the paths on its standard input, and only of an accio that says it answers them as this reader
+/// reads them (`MODULES_ANSWER`): one without the answer, of another revision or whose `versions` fails answers none, its
+/// `modules` never started. One without an index of the repository answers no index
+#[test]
+fn the_modules_of_a_side_are_read_in_one_process_of_an_accio_that_answers_them() {
+  let canceled = || false;
+  let paths = ["gui/media/src/Player.kt".to_string(), "README.md".to_string()];
+  for versions in [r#"{"answers":{"moves":2}}"#, r#"{"answers":{"modules":2}}"#, "not json"] {
+    let dir = tempfile::tempdir().unwrap();
+    let started = dir.path().join("started");
+    let accio = fake_accio_with_versions(dir.path(), &started, versions, "exit 2");
+    assert!(!accio.answers_modules(), "{versions}");
+    assert_eq!(accio.search(&canceled).modules(ROOT, &paths, "head").unwrap(), None, "{versions}");
+    assert!(!started.exists(), "{versions}");
+  }
+  let dir = tempfile::tempdir().unwrap();
+  let (started, args, stdin) = (dir.path().join("started"), dir.path().join("args"), dir.path().join("stdin"));
+  let answer = r#"{"total":1,"complete":true,"quality":"exact","modules":[{"root":"gui/media","jps":{"name":"intellij.gui.media","manifest":"gui/media/intellij.gui.media.iml","deps":[]},"bazel":{"build":"gui/media/BUILD.bazel","targets":[]}}],"paths":[{"path":"gui/media/src/Player.kt","root":"gui/media"},{"path":"README.md","root":null}]}"#;
+  let accio = fake_accio_with_versions(
+    dir.path(),
+    &started,
+    r#"{"answers":{"modules":1}}"#,
+    &format!("echo \"$@\" > {}\ncat > {}\nprintf '%s' '{answer}'", shell_path(&args), shell_path(&stdin)),
+  );
+  let modules = accio.search(&canceled).modules(ROOT, &paths, "head").unwrap().unwrap();
+  assert_eq!(
+    std::fs::read_to_string(&args).unwrap().trim(),
+    format!("modules --no-build --format json --project {ROOT} --ref head --paths-from -")
+  );
+  assert_eq!(std::fs::read_to_string(&stdin).unwrap(), "gui/media/src/Player.kt\nREADME.md\n");
+  let roots: Vec<(&str, Option<&str>)> = modules.paths.iter().map(|path| (path.path.as_str(), path.root.as_deref())).collect();
+  assert_eq!(roots, [("gui/media/src/Player.kt", Some("gui/media")), ("README.md", None)]);
+  assert_eq!(modules.modules[0].jps.as_ref().and_then(|jps| jps.name.as_deref()), Some("intellij.gui.media"));
+  assert!(modules.complete);
+  let dir = tempfile::tempdir().unwrap();
+  let started = dir.path().join("started");
+  let accio = fake_accio_with_versions(
+    dir.path(),
+    &started,
+    r#"{"answers":{"modules":1}}"#,
+    r#"printf '%s' '{"available":false,"note":"no index of this repository"}'"#,
+  );
+  let error = accio.search(&canceled).modules(ROOT, &paths, "head").unwrap_err();
+  assert!(error.is::<IndexUnavailable>(), "{error:#}");
+}
+
 /// What an executable says of itself is asked once of each build of it: again once its file is another, and every
 /// time while there is no file to tell a build by
 #[test]

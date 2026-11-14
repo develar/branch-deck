@@ -10,6 +10,7 @@ import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { copiedByKey, deletedParts, diffRows } from "../helpers/diff-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
+import { virtualBranch } from "../helpers/push-helpers"
 import { openPlanWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
 import { openReviewWindow } from "../helpers/review-window-helpers"
@@ -844,10 +845,16 @@ test.describe("The review plan in the branch review", () => {
       },
       1704124800,
     )
-    // the only use of `helper` is in Base.kt, which this change updates
+    // the only use of `helper` is in Base.kt, which this change updates; accio's modules: the head of the branch the sync
+    // builds declares the module of `b.iml`, the base none
+    await syncAndWaitForBranches()
+    const head = await repo.revision(virtualBranch("plan"))
     writeFileSync(
       path.join(repo.path, ".git", "branch-deck-accio.json"),
-      JSON.stringify({ references: { [HELPER]: [{ file: "src/Base.kt", line: 1, column: 31, snippet: "helper(value)", kind: "call", resolved: "typed" }] } }),
+      JSON.stringify({
+        references: { [HELPER]: [{ file: "src/Base.kt", line: 1, column: 31, snippet: "helper(value)", kind: "call", resolved: "typed" }] },
+        modules: { [head]: [{ root: "src/b", jps: { name: "b" } }] },
+      }),
     )
     const window = await openPlanWindow(page, syncAndWaitForBranches)
     const tree = window.getByRole("tree", { name: "Changed files" })

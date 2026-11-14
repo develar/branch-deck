@@ -1,6 +1,6 @@
 use crate::ReviewPlan;
 use crate::links::{FileLink, LinkState, LinkedSymbol};
-use crate::test_support::{plan_of, range};
+use crate::test_support::{DeclaredModules, plan_of, range};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -10,7 +10,7 @@ fn plan_of_change(base: &[(&str, &str)], files: &[(&str, &str)]) -> ReviewPlan {
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files("Add files", base);
   let head = repo.create_commit_with_files("Change files", files);
-  plan_of(&repo, None, &range(&repo, &base, &head)).unwrap()
+  plan_of(&repo, Some(&DeclaredModules), &range(&repo, &base, &head)).unwrap()
 }
 
 /// Each link: (from, to, across modules, new between modules)
@@ -118,7 +118,7 @@ fn a_renamed_file_links_at_its_new_path() {
   std::fs::write(repo.path().join("src/a/User.kt"), "package a\n\nimport b.Store\n\nclass User(val store: Store?)\n").unwrap();
   repo.git(&["add", "-A"]);
   let head = repo.commit_with(&["-m", "Move the store"], &[]);
-  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  let plan = plan_of(&repo, Some(&DeclaredModules), &range(&repo, &base, &head)).unwrap();
   let states: Vec<(&str, &str, LinkState)> = plan.links.iter().map(|link| (link.from.as_str(), link.to.as_str(), link.state)).collect();
   assert_eq!(states, [("src/a/User.kt", "src/b/Stores.kt", LinkState::Kept)]);
 }
@@ -138,6 +138,6 @@ fn the_links_of_a_head_that_is_not_checked_out_cross_the_module_it_adds() {
     ],
   );
   repo.git_executor().execute_command(&["update-ref", "--no-deref", "HEAD", &base], repo.path_str()).unwrap();
-  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  let plan = plan_of(&repo, Some(&DeclaredModules), &range(&repo, &base, &head)).unwrap();
   assert_eq!(crossing(&plan), [("gui/media/src/b/Player.kt", "gui/src/a/Box.kt", true, true)]);
 }

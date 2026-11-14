@@ -2,7 +2,7 @@ use crate::ReviewPlan;
 use crate::api::{ApiChangeKind, FormChange};
 use crate::fan_in_test::{Counts, reordered};
 use crate::files::MechanicalKind;
-use crate::test_support::{indexed_by_accio, plan_of, range};
+use crate::test_support::{plan_by_accio, plan_of, range};
 use crate::units::{OtherReason, ReviewUnit, UnitKind};
 use diff_marks::index::Order;
 use file_diffs::accio::SymbolIndex;
@@ -730,13 +730,10 @@ fn a_moved_declaration_is_folded_only_where_the_index_says_its_place_has_no_mean
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files("Add", &before.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
   let head = repo.create_commit_with_files("Move", &after.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
-  let Some((accio, _env)) = indexed_by_accio(&repo) else {
+  let Some(plan) = plan_by_accio(&repo, &base, &head) else {
     eprintln!("no accio that answers moves on this machine: nothing asked");
     return;
   };
-  let canceled = || false;
-  let search = accio.search(&canceled);
-  let plan = plan_of(&repo, Some(&search), &range(&repo, &base, &head)).unwrap();
 
   let (mut folded, mut read): (Vec<&str>, Vec<(&str, &str)>) = (Vec::new(), Vec::new());
   for (kind, name, slices) in units(&plan) {

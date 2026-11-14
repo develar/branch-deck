@@ -6151,7 +6151,8 @@ export type Plan = {
 export type PlanWait = 
 /**
  *  Every answer of the index: no entry of its API has usages yet (`BreakVerdict::Pending`), no file counts `breaks`,
- *  it has no registrations, no new module what enters it, and no step the tests that reach its code
+ *  it has no registrations, no new module what enters it, and no step the tests that reach its code; the first such
+ *  plan has no module and no file of one either (accio's `modules` is asked beside git)
  */
 "index" | 
 /**
