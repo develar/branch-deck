@@ -1,6 +1,7 @@
 use crate::projects::{selected_project, synced_before};
 use crate::service::SettingsService;
 use domain_types::settings::SettingsPatch;
+use domain_types::worktree_epoch::WorktreeEpoch;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -42,34 +43,48 @@ fn a_project_was_synced_before_when_its_state_has_the_time_of_a_sync() {
   assert!(!synced_before(&service, "/work/c"));
 }
 
+/// The epochs of the worktrees as a test sets them, by path: a string is the epoch of a slot, `null` a path outside a
+/// pool, a path not named an epoch the files could not tell
+fn epochs_of(service: &SettingsService) -> std::sync::Arc<std::sync::Mutex<Value>> {
+  let epochs = std::sync::Arc::new(std::sync::Mutex::new(json!({})));
+  let current = std::sync::Arc::clone(&epochs);
+  service.set_worktree_epochs(move |path| match current.lock().unwrap().get(path) {
+    Some(Value::String(epoch)) => WorktreeEpoch::Lease(epoch.clone()),
+    Some(_) => WorktreeEpoch::NotASlot,
+    None => WorktreeEpoch::Unknown,
+  });
+  epochs
+}
+
+/// The window of the repository at `path` records a sync of it, as `recordSynced` writes it
+fn record_sync(service: &SettingsService, path: &str) -> domain_types::settings::SettingsChange {
+  let entry = json!({ path: { "lastSyncTime": 1_700_000_000_000_u64, "lastBranchCount": 3 } });
+  service
+    .set(
+      SettingsPatch::Fields {
+        key: "repositoryState".to_owned(),
+        fields: entry.as_object().unwrap().clone(),
+      },
+      "main",
+    )
+    .unwrap()
+}
+
 /// What a sync recorded of a slot of a lease pool is of the lease of then (`EPOCH_FIELD`, which the writer names in each
 /// entry it writes): once the slot holds another lease the entry is of an earlier one, so Rust reads no sync of it and
 /// no window gets it, whichever read comes first; an entry of a path outside a pool stays, as does one of the lease now
 #[test]
 fn an_entry_of_another_epoch_of_its_worktree_is_forgotten_before_the_key_leaves_the_writer() {
   let (_directory, service) = service_with(&[]);
-  let epochs = std::sync::Arc::new(std::sync::Mutex::new(json!({ "/pool/1/repo": "lease-a" })));
-  let current = std::sync::Arc::clone(&epochs);
-  service.set_worktree_epochs(move |path| current.lock().unwrap().get(path).and_then(Value::as_str).map(str::to_owned));
-  let synced = |path: &str| {
-    let entry = json!({ path: { "lastSyncTime": 1_700_000_000_000_u64, "lastBranchCount": 3 } });
-    service
-      .set(
-        SettingsPatch::Fields {
-          key: "repositoryState".to_owned(),
-          fields: entry.as_object().unwrap().clone(),
-        },
-        "main",
-      )
-      .unwrap()
-  };
-  let change = synced("/pool/1/repo");
+  let epochs = epochs_of(&service);
+  *epochs.lock().unwrap() = json!({ "/pool/1/repo": "lease-a", "/work/checkout": null });
+  let change = record_sync(&service, "/pool/1/repo");
   assert_eq!(change.value["/pool/1/repo"]["epoch"], "lease-a", "the writer names the epoch the entry was written under");
-  synced("/work/checkout");
+  record_sync(&service, "/work/checkout");
   assert!(synced_before(&service, "/pool/1/repo") && synced_before(&service, "/work/checkout"));
 
   // the slot was returned and leased again
-  *epochs.lock().unwrap() = json!({ "/pool/1/repo": "lease-b" });
+  *epochs.lock().unwrap() = json!({ "/pool/1/repo": "lease-b", "/work/checkout": null });
   let (version, snapshot) = service.snapshot();
   assert_eq!(snapshot["repositoryState"].as_object().unwrap().keys().collect::<Vec<_>>(), ["/work/checkout"]);
   let forgotten = service.changes_since(version - 1);
@@ -81,7 +96,35 @@ fn an_entry_of_another_epoch_of_its_worktree_is_forgotten_before_the_key_leaves_
   assert!(synced_before(&service, "/work/checkout"));
 
   // a sync of the new lease is of it
-  synced("/pool/1/repo");
+  record_sync(&service, "/pool/1/repo");
   assert!(synced_before(&service, "/pool/1/repo"));
   assert_eq!(service.value("repositoryState")["/pool/1/repo"]["epoch"], "lease-b");
+}
+
+/// An epoch the files could not tell (a state of the pool this build cannot parse, a read during a rename) decides
+/// nothing: the entry of the slot stays with the epoch it names, in memory and on disk after a save, a write meanwhile
+/// keeps that epoch rather than dropping it, and once the read works again the entry is of the lease it was recorded
+/// under, as before
+#[test]
+fn an_entry_whose_epoch_cannot_be_read_stays_as_it_is_and_on_disk() {
+  let directory = tempfile::tempdir().unwrap();
+  let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::from_hours(1)).unwrap();
+  let epochs = epochs_of(&service);
+  *epochs.lock().unwrap() = json!({ "/pool/1/repo": "lease-a" });
+  record_sync(&service, "/pool/1/repo");
+
+  // the read of the pool fails
+  *epochs.lock().unwrap() = json!({});
+  let (_, snapshot) = service.snapshot();
+  assert_eq!(snapshot["repositoryState"]["/pool/1/repo"]["epoch"], "lease-a");
+  assert!(synced_before(&service, "/pool/1/repo"));
+  let change = record_sync(&service, "/pool/1/repo");
+  assert_eq!(change.value["/pool/1/repo"]["epoch"], "lease-a", "a write keeps the epoch the entry names");
+  service.flush().unwrap();
+  let saved: Value = serde_json::from_str(&std::fs::read_to_string(directory.path().join("repository-state.json")).unwrap()).unwrap();
+  assert_eq!(saved["repositoryState"]["/pool/1/repo"]["epoch"], "lease-a", "{saved}");
+
+  // the read works again: the same lease
+  *epochs.lock().unwrap() = json!({ "/pool/1/repo": "lease-a" });
+  assert!(synced_before(&service, "/pool/1/repo"));
 }

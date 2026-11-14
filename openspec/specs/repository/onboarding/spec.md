@@ -1403,9 +1403,9 @@ patch of the old one never shows under the name of another repository, and Sync 
 ### Requirement: Before the first sync: What the app keeps of a slot of a lease pool is of its lease
 
 What the app keeps of a worktree by its path MUST be of the epoch it was recorded under (`worktree_epoch`: the lease a
-slot of a lease pool holds now, none outside a pool), and a record of another epoch MUST count as absent: the entry of
-`repositoryState`, which the writer forgets before the key leaves it, the frame of the session, which seeds nothing, and
-a session kept idle, which a window that comes back does not join.
+slot of a lease pool holds now), and a record of another known epoch MUST count as absent: the entry of
+`repositoryState`, which the writer forgets, the frame of the session, which seeds nothing, and a session kept idle,
+which a window that comes back does not join. An epoch the files cannot tell MUST decide nothing.
 
 #### Scenario: The epoch of a slot
 - **WHEN** a slot is leased, returned and leased again
@@ -1431,6 +1431,14 @@ a session kept idle, which a window that comes back does not join.
 - **THEN** the Ready to Sync card shows, no sync runs, and the header says no "Last synced"
 - **AND** a slot the app synced under the lease it holds syncs as the window opens it, "Last synced" in the header
   [@test] tests/e2e/onboarding/onboarding.spec.ts (`shows the Ready to Sync card for a slot of the lease pool the app synced under an earlier lease, and no Last synced`, `syncs a slot of the lease pool the app synced under its lease now when the window opens it, and says when`)
+
+#### Scenario: An epoch the files cannot tell
+- **GIVEN** the app recorded a sync of a slot under its lease
+- **WHEN** the state of the pool cannot be read or parsed
+- **THEN** the entry stays, in memory and on disk, and a write meanwhile keeps the epoch it names
+- **AND** the frame seeds nothing then and is saved under the epoch it names, and a session kept idle stays
+  [@test] crates/app-settings/src/projects_test.rs (`an_entry_whose_epoch_cannot_be_read_stays_as_it_is_and_on_disk`)
+  [@test] crates/repository-model/src/session_test.rs (`a_frame_keeps_its_epoch_while_the_epoch_of_the_worktree_cannot_be_read`, `a_kept_session_stays_while_the_epoch_of_the_worktree_cannot_be_read`)
 
 ### Requirement: Repository problems: Browse opens the folder dialog of the system
 

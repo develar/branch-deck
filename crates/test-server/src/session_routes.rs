@@ -171,7 +171,7 @@ impl SessionEnvironment for TestSessionEnvironment {
   }
 
   /// The lease the slot of the worktree holds now, as the app's host reads it (`lease_pool::epoch::worktree_epoch`)
-  fn epoch(&self, key: &SessionKey) -> Option<String> {
+  fn epoch(&self, key: &SessionKey) -> domain_types::worktree_epoch::WorktreeEpoch {
     lease_pool::epoch::worktree_epoch(std::path::Path::new(&key.worktree))
   }
 
@@ -626,11 +626,10 @@ pub async fn build_warm_start(Path(id): Path<String>, State(state): State<Arc<Ap
     .await
     .map_err(|error| fixture_failed("sync before the frame", &error))?;
   let of = key.clone();
+  let epoch = lease_pool::epoch::worktree_epoch(std::path::Path::new(&of.worktree));
   let frame = state
     .sessions
-    .read(&key, move |table, facts| {
-      frame_of(&of, lease_pool::epoch::worktree_epoch(std::path::Path::new(&of.worktree)).as_deref(), table, facts)
-    })
+    .read(&key, move |table, facts| frame_of(&of, epoch.recorded().flatten(), table, facts))
     .await
     .ok_or_else(|| fixture_failed("build the frame", &ApiError::internal("The session closed while the frame was built")))?;
   let rows = frame.table.order.len();

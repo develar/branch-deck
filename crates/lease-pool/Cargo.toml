@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 sync-core = { path = "../sync-core" }
+domain-types = { path = "../domain-types" }
 history-rewrite = { path = "../history-rewrite" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }

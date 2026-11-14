@@ -173,8 +173,9 @@ sequenceDiagram
     the load moves them (`SettingsFile::take_repository_state`; a value the state file has for the repository wins) and
     saves the state file within the debounce; `settings.json` loses them with its next save, not before. An entry is
     of the epoch of its worktree ([Git Operations](git-operations.md), "The epoch of a worktree"): the writer names it in
-    each entry it writes (`epoch`, never the page's) and forgets an entry of another epoch, one of an earlier lease of a
-    slot of a lease pool, before the key leaves it.
+    each entry it writes (`epoch`, never the page's) and forgets an entry of another known epoch, one of an earlier
+    lease of a slot of a lease pool, before the key leaves it; an epoch the files could not tell forgets nothing and
+    keeps the epoch the entry names. The epochs are read before the mutex of the writer is taken.
     **Rationale**: A sync runs on every focus that changed what it reads, and every Update Project learns its step
     times: in `settings.json` each would rewrite the file `brd` reads beside it, and the user's settings would follow the
     churn of the syncs. A fetch (every Update Project) and a sync that hides the Landed island are as routine. The

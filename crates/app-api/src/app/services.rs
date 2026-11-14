@@ -25,6 +25,7 @@ use domain_types::cli_tools::CliTool;
 use domain_types::error::{ApiError, HolderTool};
 use domain_types::review_request::{LinkedPullRequest, ReviewRequest};
 use domain_types::sign_in::Account;
+use domain_types::worktree_epoch::WorktreeEpoch;
 use domain_types::youtrack::YouTrackAuthStatus;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -194,7 +195,7 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
   }
 
   /// The lease the slot of the worktree holds now, read without git
-  fn epoch(&self, key: &SessionKey) -> Option<String> {
+  fn epoch(&self, key: &SessionKey) -> WorktreeEpoch {
     lease_pool::epoch::worktree_epoch(Path::new(&key.worktree))
   }
 

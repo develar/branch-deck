@@ -3922,6 +3922,7 @@ name = "lease-pool"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "domain-types",
  "fs-walk",
  "git-executor",
  "git-ops",

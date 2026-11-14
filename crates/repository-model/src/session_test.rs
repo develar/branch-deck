@@ -24,6 +24,7 @@ use domain_types::session::{
   BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, Version, ViewPatch,
 };
 use domain_types::stack::BlockReason;
+use domain_types::worktree_epoch::WorktreeEpoch;
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -86,8 +87,8 @@ struct ScriptedHost {
   /// The frame a session that opens reads, and whether its worktree was synced before
   frame: Mutex<Option<CachedSession>>,
   synced_before: Mutex<bool>,
-  /// The epoch of every worktree (`SessionHost::epoch`): the lease of a slot of a pool; none by default
-  epoch: Mutex<Option<String>>,
+  /// The epoch of every worktree (`SessionHost::epoch`): the lease of a slot of a pool; `NotASlot` by default
+  epoch: Mutex<WorktreeEpoch>,
   /// The frames the sessions saved, in order, and a notice of each
   saves: Mutex<Vec<CachedSession>>,
   saved: Notify,
@@ -260,7 +261,7 @@ impl SessionHost for ScriptedHost {
     *self.synced_before.lock().unwrap()
   }
 
-  fn epoch(&self, _key: &SessionKey) -> Option<String> {
+  fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
     self.epoch.lock().unwrap().clone()
   }
 
@@ -2074,7 +2075,7 @@ async fn a_frame_of_another_prefix_or_schema_seeds_nothing() {
     ..auth_frame()
   };
   for frame in [other_prefix, other_schema] {
-    let host = host_of(frame, None);
+    let host = host_of(frame, WorktreeEpoch::NotASlot);
     let (_sessions, view) = first_view(&host).await;
     assert!(!view.cached);
     assert_eq!(view.order, Vec::<String>::new());
@@ -2083,11 +2084,16 @@ async fn a_frame_of_another_prefix_or_schema_seeds_nothing() {
 }
 
 /// A host whose worktree was not synced before, its frame `frame`, its epoch `epoch`
-fn host_of(frame: CachedSession, epoch: Option<&str>) -> Arc<ScriptedHost> {
+fn host_of(frame: CachedSession, epoch: WorktreeEpoch) -> Arc<ScriptedHost> {
   let host = Arc::new(ScriptedHost::with_frame(Some(frame)));
   *host.synced_before.lock().unwrap() = false;
-  *host.epoch.lock().unwrap() = epoch.map(str::to_owned);
+  *host.epoch.lock().unwrap() = epoch;
   host
+}
+
+/// The epoch of a slot that holds the lease `id`
+fn lease(id: &str) -> WorktreeEpoch {
+  WorktreeEpoch::Lease(id.to_owned())
 }
 
 /// Sessions on `host` and the view of a window that subscribes to the session of `/repo`
@@ -2110,7 +2116,7 @@ fn frame_of_lease(epoch: &str) -> CachedSession {
 /// frames a session saves are of its epoch
 #[tokio::test]
 async fn a_frame_of_an_earlier_lease_of_the_slot_seeds_nothing() {
-  let host = host_of(frame_of_lease("lease-a"), Some("lease-b"));
+  let host = host_of(frame_of_lease("lease-a"), lease("lease-b"));
   let (sessions, view) = first_view(&host).await;
   assert!(!view.cached);
   assert_eq!(view.order, Vec::<String>::new());
@@ -2121,7 +2127,7 @@ async fn a_frame_of_an_earlier_lease_of_the_slot_seeds_nothing() {
   assert_eq!(host.saved(1).await[0].epoch.as_deref(), Some("lease-b"));
 
   // the frame of the lease of now seeds
-  let (_sessions, view) = first_view(&host_of(frame_of_lease("lease-b"), Some("lease-b"))).await;
+  let (_sessions, view) = first_view(&host_of(frame_of_lease("lease-b"), lease("lease-b"))).await;
   assert!(view.cached);
   assert_eq!(view.order, ["auth"]);
 }
@@ -2131,7 +2137,7 @@ async fn a_frame_of_an_earlier_lease_of_the_slot_seeds_nothing() {
 /// the lease before seeds nothing; under the same lease it joins the kept one
 #[tokio::test]
 async fn a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens_a_new_one() {
-  let host = host_of(frame_of_lease("lease-a"), Some("lease-a"));
+  let host = host_of(frame_of_lease("lease-a"), lease("lease-a"));
   let (sessions, _clock) = scripted(&host);
   let key = key("/repo");
   let (first, view) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
@@ -2141,11 +2147,39 @@ async fn a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens
   assert_eq!(kept.version.epoch, view.version.epoch, "the same lease joins the kept session");
   sessions.unsubscribe(again);
 
-  *host.epoch.lock().unwrap() = Some("lease-b".to_owned());
+  *host.epoch.lock().unwrap() = lease("lease-b");
   let (_, fresh) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   assert_ne!(fresh.version.epoch, view.version.epoch, "another session");
   assert!(!fresh.cached);
   assert_eq!(fresh.order, Vec::<String>::new());
+}
+
+/// An epoch the files could not tell (a state of the pool this build cannot parse, a read during a rename) decides
+/// nothing of the frame: it seeds nothing then, as it may be of another lease, and the frames the session saves keep the
+/// epoch the frame of the worktree names, so the next start under that lease seeds from them
+#[tokio::test]
+async fn a_frame_keeps_its_epoch_while_the_epoch_of_the_worktree_cannot_be_read() {
+  let host = host_of(frame_of_lease("lease-a"), WorktreeEpoch::Unknown);
+  let (sessions, view) = first_view(&host).await;
+  assert!(!view.cached, "no seed under an epoch the files could not tell");
+  host.push(auth_built(), Ok(report(false, &[])));
+  sessions.sync(&key("/repo"), SyncReason::Manual).wait().await.unwrap();
+  assert_eq!(host.saved(1).await[0].epoch.as_deref(), Some("lease-a"));
+}
+
+/// A session kept idle is closed for a window that comes back only when two known epochs differ: an epoch the files
+/// could not tell keeps it, so a failed read costs no sync of a session opened anew
+#[tokio::test]
+async fn a_kept_session_stays_while_the_epoch_of_the_worktree_cannot_be_read() {
+  let host = host_of(frame_of_lease("lease-a"), lease("lease-a"));
+  let (sessions, _clock) = scripted(&host);
+  let key = key("/repo");
+  let (first, view) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  sessions.unsubscribe(first);
+  *host.epoch.lock().unwrap() = WorktreeEpoch::Unknown;
+  let (_, kept) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  assert_eq!(kept.version.epoch, view.version.epoch, "the same session");
+  assert_eq!(kept.order, ["auth"]);
 }
 
 /// The start of the app opens the session of the prefix the git config names now: a frame its worktree saved under

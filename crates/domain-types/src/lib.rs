@@ -52,6 +52,8 @@
 //! - `update`: the update of the app
 //! - `update_project`: Update Project, the check of the branch against its upstream and the applied update
 //! - `upstream_commit`: a commit of the baseline that carries the user's work
+//! - `worktree_epoch`: the epoch of a worktree, the lease a slot of a lease pool holds, under which the app keeps what it
+//!   records of the worktree by its path
 //! - `youtrack`: the YouTrack sign-in and issues
 
 use crate::commit::Commit;
@@ -102,6 +104,7 @@ pub mod stack;
 pub mod update;
 pub mod update_project;
 pub mod upstream_commit;
+pub mod worktree_epoch;
 pub mod youtrack;
 
 /// Status of a branch synchronization operation.

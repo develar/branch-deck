@@ -2246,18 +2246,28 @@ sync"; `forget_synced` first of `finish_return`, also of a takeover and a reclai
 `a_return_takes_out_the_mark_of_a_sync_in_the_lease`, `a_takeover_that_fails_leaves_no_mark_of_a_sync_in_the_slot`):
 the next lease is a worktree no sync built anything for, and a window that opens it shows the Ready to Sync card.
 
-**The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`): the path stays too, and the app keeps what it records
-of a worktree by its path. The epoch is the id of the lease the slot holds now (`returned <n>` of a free slot, by the
-number of its last return; none for a worktree that is no slot), read without git from the `.git` file of the worktree,
-its admin directory and the state of the pool, and every record of the app by path is of the epoch it was recorded
-under; one of another epoch is of an earlier lease and counts as absent. The writer of the settings names the epoch in
-each entry of `repositoryState` it writes (`EPOCH_FIELD`; the host gives it the function, `give_worktree_epochs`) and
-forgets an entry of another epoch before the key leaves it (`snapshot`, `changes_since`, `value`, the change of a
-`set`), so `synced_before`, "Last synced", the room of the loading table and the settled layout are of the lease now. A
-frame names its epoch and seeds only a session of it (`CachedSession::seeds`), and a window that comes back to a session
-kept idle under another epoch gets a new session (`Sessions::close_of_another_epoch`, one read of the state of the pool
-per subscription; `a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens_a_new_one`). The id, not the
-time of the lease: a get, a return and a get within one second are two epochs.
+**The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`, `domain_types::worktree_epoch::WorktreeEpoch`): the
+path stays too, and the app keeps what it records of a worktree by its path. The epoch is `Lease` with the id of the
+lease the slot holds now (`returned <n>` of a free slot, by the number of its last return), `NotASlot` for a worktree
+that is no slot (the main checkout, a worktree of `git worktree add`, a path that is no git worktree), and `Unknown` when
+a file that tells could not be read or parsed. It is read without git and without the lock of the pool: the `.git` file
+of the worktree, its admin directory and the state of the pool, which every writer replaces by a rename, and of that
+state only the path of each slot and the id of its lease or its last return (a state a later build wrote, with a state
+of a lease or a field this build does not know, still tells it). The slots of a state are kept by the identity of the
+file (size, time, inode) and what a worktree names by that of its `.git` file: an unchanged slot of an unchanged pool is
+two `stat` calls, about 5 µs on this Mac, and a first read with the parse of the pool of idea-1 (16 KB, 15 slots) 1 to
+8 ms under load. Every record of the app by path is of the epoch it was recorded under, and one that names another known
+epoch is of an earlier lease and counts as absent (`WorktreeEpoch::outdates`); `Unknown` decides nothing, so a failed
+read never forgets a record. The writer of the settings names the epoch in each entry of `repositoryState` it writes
+(`EPOCH_FIELD`; the host gives it the function, `give_worktree_epochs`), an entry under `Unknown` keeping the epoch it
+names, and forgets an entry of another known epoch before the key leaves it (`snapshot`, `changes_since`, `value`, the
+change of a `set`), the epochs read before its mutex is taken; an entry that names no epoch (a path outside a pool) stays.
+So `synced_before`, "Last synced", the room of the loading table and the settled layout are of the lease now. A frame
+names its epoch and seeds only a session of the same known epoch (`CachedSession::seeds`); under `Unknown` it seeds
+nothing and the session saves its frames under the epoch the frame names. A window that comes back to a session kept
+idle under another known epoch gets a new session (`Sessions::close_of_another_epoch`, one read per subscription;
+`a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens_a_new_one`), never under `Unknown`. The id,
+not the time of the lease: a get, a return and a get within one second are two epochs.
 
 Takeover: on 2026-10-29 a get cloned a new slot of idea-1, 16 GB and more than 15 minutes of checkout, while six
 slots of the pool had a `ready` lease of a dead holder, four of them with nothing unlanded: the get only named them

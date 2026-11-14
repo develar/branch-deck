@@ -63,6 +63,7 @@ use domain_types::repository_view::PatronusView;
 use domain_types::review_request::ReviewRequest;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, FactState, FactsChanges, RepositoryView, SyncReason, SyncState, SyncStep, Version};
 use domain_types::stack::BlockReason;
+use domain_types::worktree_epoch::WorktreeEpoch;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -382,8 +383,9 @@ struct Actor {
   /// The last fetch of each remote branch whose pull request showed a head it lacked
   moved: MovedFetches,
   frames: FrameSaves,
-  /// The epoch of the worktree as the host said when the session opened (`SessionHost::epoch`): the frames it saves are
-  /// of it, and a window that comes back to the session under another one opens a new session (`Sessions::subscribe_from`)
+  /// The epoch the frames of the session are saved under: the one of its worktree as the host said when it opened
+  /// (`SessionHost::epoch`), or, for an epoch the files could not tell, the one the frame of the worktree names, so a
+  /// failed read relabels no frame
   epoch: Option<String>,
   /// The worktree was synced before, as the host said when the session opened (`SessionHost::synced_before`), or later
   /// to a focus or a stamp: it syncs when it opens and when a window watches it anew
@@ -436,11 +438,16 @@ impl Actor {
     let Ok((worktree_epoch, frame, synced_before)) = opened else {
       return;
     };
-    self.life.opened_under(worktree_epoch.clone());
     self.synced_before = synced_before;
     let epoch = self.view.version().epoch;
-    let seeds = preloaded.or(frame).filter(|frame| frame.seeds(&self.key, worktree_epoch.as_deref()));
-    self.epoch = worktree_epoch;
+    let frame = preloaded.or(frame);
+    self.epoch = match worktree_epoch.recorded() {
+      Some(recorded) => recorded.map(str::to_owned),
+      None => frame.as_ref().and_then(|frame| frame.epoch.clone()),
+    };
+    // a frame seeds only under a known epoch of it: one the files could not tell may be of another lease
+    let seeds = frame.filter(|frame| worktree_epoch.recorded().is_some_and(|now| frame.seeds(&self.key, now)));
+    self.life.opened_under(worktree_epoch);
     if let Some(frame) = seeds {
       (self.state, self.facts) = frame.seed();
       self.state.synced = self.synced();
@@ -1365,9 +1372,9 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   fn save_frame(&self, _frame: &CachedSession) {}
 
   /// The epoch of the worktree of `key` (`SessionHost::epoch`): `lease_pool::epoch::worktree_epoch` in the app and the
-  /// E2E server; none by default. Blocking
-  fn epoch(&self, _key: &SessionKey) -> Option<String> {
-    None
+  /// E2E server; `NotASlot` by default. Blocking
+  fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
+    WorktreeEpoch::NotASlot
   }
 
   /// A sync of `key` committed `table` (`SessionHost::table_committed`): the app reads ahead the review plans its
@@ -1471,7 +1478,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
     self.environment.save_frame(frame);
   }
 
-  fn epoch(&self, key: &SessionKey) -> Option<String> {
+  fn epoch(&self, key: &SessionKey) -> WorktreeEpoch {
     self.environment.epoch(key)
   }
 

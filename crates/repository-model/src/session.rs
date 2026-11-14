@@ -41,6 +41,7 @@ use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
 use domain_types::review_request::{ReviewEntry, ReviewRequest};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewPatch};
+use domain_types::worktree_epoch::WorktreeEpoch;
 use history_rewrite::commit_grouper::{GroupingInputs, group_of};
 use history_rewrite::store_lines::StoreLines;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -205,11 +206,11 @@ pub trait SessionHost: Send + Sync + 'static {
   fn save_frame(&self, _frame: &CachedSession) {}
 
   /// The epoch of the worktree of `key` (`lease_pool::epoch::worktree_epoch`: the lease a slot of a lease pool holds
-  /// now; none outside a pool): a frame of another epoch seeds nothing, and a session kept under another one is of an
-  /// earlier lease of the slot, whose path the next lease keeps. Blocking: the runtime calls it on the blocking pool,
-  /// with `frame`. None by default
-  fn epoch(&self, _key: &SessionKey) -> Option<String> {
-    None
+  /// now): a frame of another epoch seeds nothing, and a session kept under another one is of an earlier lease of the
+  /// slot, whose path the next lease keeps; an epoch the files could not tell (`Unknown`) decides neither. Blocking:
+  /// the runtime calls it on the blocking pool, with `frame`. `NotASlot` by default
+  fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
+    WorktreeEpoch::NotASlot
   }
 
   /// A sync of `key` succeeded and committed `table`, its tips and its baseline (not a retry, not a deferred or failed
@@ -275,7 +276,7 @@ pub(crate) struct SessionLife {
   last_active: AtomicU64,
   clock: Arc<dyn Clock>,
   /// The epoch of the worktree the session opened under (`SessionHost::epoch`), once its actor read it
-  epoch: OnceLock<Option<String>>,
+  epoch: OnceLock<WorktreeEpoch>,
 }
 
 impl SessionLife {
@@ -292,12 +293,12 @@ impl SessionLife {
   }
 
   /// The actor read the epoch of the worktree as the session opened
-  pub(crate) fn opened_under(&self, epoch: Option<String>) {
+  pub(crate) fn opened_under(&self, epoch: WorktreeEpoch) {
     let _ = self.epoch.set(epoch);
   }
 
   /// The epoch of the worktree the session opened under; none before its actor read it
-  fn epoch(&self) -> Option<&Option<String>> {
+  fn epoch(&self) -> Option<&WorktreeEpoch> {
     self.epoch.get()
   }
 
@@ -647,7 +648,8 @@ impl Sessions {
 
   /// Closes the open session of `key` when it opened under another epoch of its worktree than the epoch now
   /// (`SessionHost::epoch`): it is of an earlier lease of a slot of a lease pool, kept idle while the slot went back and
-  /// was leased again, so a window that comes back opens a new one, as for a worktree it never showed
+  /// was leased again, so a window that comes back opens a new one, as for a worktree it never showed. Only two known
+  /// epochs that differ close it: an epoch the files could not tell, then or now, keeps the session
   async fn close_of_another_epoch(&self, key: &SessionKey) {
     let Some(opened) = self.lock().get(key).and_then(|entry| entry.life.epoch().cloned()) else {
       return;
@@ -656,7 +658,7 @@ impl Sessions {
     let Ok(now) = tokio::task::spawn_blocking(in_current_span(move || host.epoch(&of))).await else {
       return;
     };
-    if now == opened {
+    if !matches!((opened.recorded(), now.recorded()), (Some(then), Some(now)) if then != now) {
       return;
     }
     let mut entries = self.lock();

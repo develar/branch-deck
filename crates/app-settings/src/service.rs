@@ -30,17 +30,20 @@
 //!
 //! An entry of `repositoryState` is of the epoch of its worktree (`lease_pool::epoch::worktree_epoch`, which the host
 //! gives, `set_worktree_epochs`): a slot of a lease pool keeps its path from one lease to the next. A write of an entry
-//! names the epoch it was written under (`EPOCH_FIELD`, which no window writes), and an entry of another epoch is of an
-//! earlier lease: the writer forgets it before the key leaves it (`snapshot`, `changes_since`, `value`, the change of a
-//! `set`), so neither Rust nor a window reads it.
+//! names the epoch it was written under (`EPOCH_FIELD`, which no window writes), and an entry of another known epoch is
+//! of an earlier lease: the writer forgets it before the key leaves it (`snapshot`, `changes_since`, `value`, the change
+//! of a `set`), so neither Rust nor a window reads it. An epoch the files could not tell (`WorktreeEpoch::Unknown`)
+//! forgets nothing and stamps nothing anew: the entry keeps the epoch it names. The epochs are read before the mutex of
+//! the writer is taken, never under it.
 
 use crate::file::{REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile, lock_directory};
 use crate::merge::{Unsaved, changed_keys};
 use crate::watch::{Changed, watch};
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsChange, SettingsPatch};
+use domain_types::worktree_epoch::WorktreeEpoch;
 use notify::RecommendedWatcher;
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
@@ -65,7 +68,7 @@ pub const EPOCH_ORIGIN: &str = "epoch";
 pub const EPOCH_FIELD: &str = "epoch";
 
 /// The epoch of the worktree at a path (`lease_pool::epoch::worktree_epoch`), which the host gives the writer
-pub type WorktreeEpochs = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+pub type WorktreeEpochs = Arc<dyn Fn(&str) -> WorktreeEpoch + Send + Sync>;
 
 /// A save of the settings file that failed
 #[derive(Debug, Clone, thiserror::Error)]
@@ -379,15 +382,13 @@ impl SettingsService {
   /// file of its key follows within the debounce. A value of a field Rust knows that is invalid is refused and changes
   /// nothing
   pub fn set(&self, mut patch: SettingsPatch, origin: &str) -> Result<SettingsChange, SettingsError> {
-    let epochs = self.epochs();
-    if let Some(epochs) = &epochs {
-      stamp_epochs(&mut patch, epochs);
-    }
+    let now = (patch.key() == REPOSITORY_STATE_KEY).then(|| self.epochs_now(written_paths(&patch))).flatten();
     let mut state = self.shared.lock();
     let key = patch.key().to_owned();
     // the change carries the whole key: without the entries of an earlier lease, forgotten first
-    if key == REPOSITORY_STATE_KEY {
-      forget_other_epochs(&mut state, epochs.as_ref());
+    if let Some(now) = &now {
+      forget_other_epochs(&mut state, now);
+      stamp_epochs(&mut patch, now, &state);
     }
     let file = StoreFile::of(&key);
     let fields = match &patch {
@@ -420,7 +421,7 @@ impl SettingsService {
 
   /// The epochs of the worktrees the entries of `repositoryState` are of (`lease_pool::epoch::worktree_epoch`): from now
   /// a write of an entry names its epoch, and an entry of another epoch is forgotten before the key leaves the writer
-  pub fn set_worktree_epochs(&self, epochs: impl Fn(&str) -> Option<String> + Send + Sync + 'static) {
+  pub fn set_worktree_epochs(&self, epochs: impl Fn(&str) -> WorktreeEpoch + Send + Sync + 'static) {
     *self.shared.epochs.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(epochs));
   }
 
@@ -428,11 +429,30 @@ impl SettingsService {
     self.shared.epochs.lock().unwrap_or_else(PoisonError::into_inner).clone()
   }
 
-  /// The state, the entries of `repositoryState` of another epoch of their worktree forgotten
+  /// The epoch now of each path an entry of `repositoryState` names an epoch for, and of `written`, the paths a patch
+  /// writes: read without the mutex, which the writer holds again only to apply them; none without the epochs
+  fn epochs_now(&self, written: Vec<String>) -> Option<HashMap<String, WorktreeEpoch>> {
+    let epochs = self.epochs()?;
+    let mut paths: BTreeSet<String> = stamped_paths(&self.shared.lock());
+    paths.extend(written);
+    Some(
+      paths
+        .into_iter()
+        .map(|path| {
+          let epoch = epochs(&path);
+          (path, epoch)
+        })
+        .collect(),
+    )
+  }
+
+  /// The state, the entries of `repositoryState` of another known epoch of their worktree forgotten
   fn current(&self) -> MutexGuard<'_, State> {
-    let epochs = self.epochs();
+    let now = self.epochs_now(Vec::new());
     let mut state = self.shared.lock();
-    if forget_other_epochs(&mut state, epochs.as_ref()) {
+    if let Some(now) = &now
+      && forget_other_epochs(&mut state, now)
+    {
       self.shared.wake.notify_one();
     }
     state
@@ -743,40 +763,78 @@ fn read_file(shared: &Shared, file: StoreFile) -> Option<SettingsFile> {
     .flatten()
 }
 
-/// Names in each entry of `repositoryState` that `patch` writes (the fields of a window, the whole value of a fixture of
-/// the E2E server) the epoch of its worktree now (`EPOCH_FIELD`, removed for a path outside a pool): the page never
-/// writes it, so its entries are always of the epoch they were written under
-fn stamp_epochs(patch: &mut SettingsPatch, epochs: &WorktreeEpochs) {
-  let entries = match patch {
-    SettingsPatch::Fields { key, fields } if key == REPOSITORY_STATE_KEY => fields,
+/// The entries of `repositoryState` that `patch` writes (the fields of a window, the whole value of a fixture of the E2E
+/// server), mutable
+fn written_entries(patch: &mut SettingsPatch) -> Option<&mut Map<String, Value>> {
+  match patch {
+    SettingsPatch::Fields { key, fields } if key == REPOSITORY_STATE_KEY => Some(fields),
     SettingsPatch::Value {
       key,
       value: Value::Object(entries),
-    } if key == REPOSITORY_STATE_KEY => entries,
-    _ => return,
-  };
-  for (path, entry) in entries.iter_mut() {
-    if let Value::Object(entry) = entry {
-      match epochs(path) {
-        Some(epoch) => entry.insert(EPOCH_FIELD.to_owned(), Value::String(epoch)),
-        None => entry.remove(EPOCH_FIELD),
-      };
-    }
+    } if key == REPOSITORY_STATE_KEY => Some(entries),
+    _ => None,
   }
 }
 
-/// Removes from `repositoryState` each entry written under another epoch of its worktree than its epoch now, as a change
-/// of the writer (`EPOCH_ORIGIN`) that the next save writes; whether it removed one
-fn forget_other_epochs(state: &mut State, epochs: Option<&WorktreeEpochs>) -> bool {
-  let Some(epochs) = epochs else {
-    return false;
+/// The paths whose entries of `repositoryState` `patch` writes
+fn written_paths(patch: &SettingsPatch) -> Vec<String> {
+  match patch {
+    SettingsPatch::Fields { key, fields } if key == REPOSITORY_STATE_KEY => fields.keys().cloned().collect(),
+    SettingsPatch::Value {
+      key,
+      value: Value::Object(entries),
+    } if key == REPOSITORY_STATE_KEY => entries.keys().cloned().collect(),
+    _ => Vec::new(),
+  }
+}
+
+/// The epoch an entry of `repositoryState` names
+fn epoch_of(entry: &Value) -> Option<&str> {
+  entry.get(EPOCH_FIELD).and_then(Value::as_str)
+}
+
+/// The paths whose entries of `repositoryState` name an epoch
+fn stamped_paths(state: &State) -> BTreeSet<String> {
+  match state.repository_state_file.content.other.get(REPOSITORY_STATE_KEY) {
+    Some(Value::Object(entries)) => entries.iter().filter(|(_, entry)| epoch_of(entry).is_some()).map(|(path, _)| path.clone()).collect(),
+    _ => BTreeSet::new(),
+  }
+}
+
+/// Names in each entry of `repositoryState` that `patch` writes the epoch of its worktree now, from `now`
+/// (`EPOCH_FIELD`, removed for a path outside a pool): the page never writes it, so its entries are always of the epoch
+/// they were written under. An entry whose epoch is unknown keeps the one the writer has of it, so a failed read stamps
+/// nothing anew
+fn stamp_epochs(patch: &mut SettingsPatch, now: &HashMap<String, WorktreeEpoch>, state: &State) {
+  let stored = state.repository_state_file.content.other.get(REPOSITORY_STATE_KEY);
+  let Some(entries) = written_entries(patch) else {
+    return;
   };
+  for (path, entry) in entries.iter_mut() {
+    let Value::Object(entry) = entry else {
+      continue;
+    };
+    let epoch = match now.get(path).and_then(WorktreeEpoch::recorded) {
+      Some(recorded) => recorded.map(str::to_owned),
+      None => stored.and_then(|stored| stored.get(path)).and_then(epoch_of).map(str::to_owned),
+    };
+    match epoch {
+      Some(epoch) => entry.insert(EPOCH_FIELD.to_owned(), Value::String(epoch)),
+      None => entry.remove(EPOCH_FIELD),
+    };
+  }
+}
+
+/// Removes from `repositoryState` each entry written under an epoch of its worktree that `now` knows to be another
+/// (`WorktreeEpoch::outdates`), as a change of the writer (`EPOCH_ORIGIN`) that the next save writes; an entry that names
+/// no epoch, whose epoch is unknown, or which `now` has not read (written since), stays. Whether it removed one
+fn forget_other_epochs(state: &mut State, now: &HashMap<String, WorktreeEpoch>) -> bool {
   let Some(Value::Object(entries)) = state.repository_state_file.content.other.get_mut(REPOSITORY_STATE_KEY) else {
     return false;
   };
   let stale: Vec<String> = entries
     .iter()
-    .filter(|(path, entry)| entry.get(EPOCH_FIELD).and_then(Value::as_str).map(str::to_owned) != epochs(path))
+    .filter(|(path, entry)| now.get(*path).is_some_and(|epoch| epoch.outdates(epoch_of(entry))))
     .map(|(path, _)| path.clone())
     .collect();
   if stale.is_empty() {

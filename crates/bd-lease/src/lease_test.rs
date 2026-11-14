@@ -7,7 +7,9 @@ use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::beside_a_held_sync;
 use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, gone_process, repo_on_baseline, repo_with_baseline, run_json};
 use bd_core::context::Environment;
+use domain_types::worktree_epoch::WorktreeEpoch;
 use git_executor::git_command_executor::GitCommandExecutor;
+use lease_pool::epoch::worktree_epoch;
 use lease_pool::landed_work::{LandedCommit, Proof};
 use lease_pool::lease::GetStep;
 use pretty_assertions::assert_eq;
@@ -465,20 +467,49 @@ fn the_epoch_of_a_slot_is_its_lease_and_changes_with_each_return_and_get() {
   let fixture = Fixture::new();
   let got = fixture.get(&[]);
   let path = path_of(&got);
-  let first = lease_pool::epoch::worktree_epoch(Path::new(&path));
-  assert_eq!(first.as_deref(), got["lease_id"].as_str());
+  let first = worktree_epoch(Path::new(&path));
+  assert_eq!(first, WorktreeEpoch::Lease(got["lease_id"].as_str().unwrap().to_owned()));
 
   fixture.give_back(&path);
-  let free = lease_pool::epoch::worktree_epoch(Path::new(&path));
-  assert!(free.is_some() && free != first, "{free:?}");
+  let free = worktree_epoch(Path::new(&path));
+  assert!(matches!(&free, WorktreeEpoch::Lease(epoch) if epoch.starts_with("returned ")), "{free:?}");
 
   let again = fixture.get(&[]);
   assert_eq!(path_of(&again), path, "the same slot again");
-  let second = lease_pool::epoch::worktree_epoch(Path::new(&path));
-  assert_eq!(second.as_deref(), again["lease_id"].as_str());
+  let second = worktree_epoch(Path::new(&path));
+  assert_eq!(second, WorktreeEpoch::Lease(again["lease_id"].as_str().unwrap().to_owned()));
   assert!(second != first && second != free);
 
-  assert_eq!(lease_pool::epoch::worktree_epoch(fixture.repo.path()), None, "the main checkout is no slot");
+  assert_eq!(worktree_epoch(fixture.repo.path()), WorktreeEpoch::NotASlot, "the main checkout is no slot");
+}
+
+/// The epoch reads only what it needs of the state of the pool: a state a later build wrote, with a state of a lease
+/// and fields this build does not know, still tells the lease of the slot; a state that cannot be parsed tells nothing
+/// (`Unknown`), never that the slot is no slot, so nothing the app recorded of the slot is forgotten for it
+#[test_log::test]
+fn the_epoch_reads_a_state_of_a_later_build_and_is_unknown_for_one_it_cannot_parse() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&[]);
+  let path = path_of(&got);
+  let lease = WorktreeEpoch::Lease(got["lease_id"].as_str().unwrap().to_owned());
+  let state = std::fs::read_to_string(fixture.state_file()).unwrap();
+  let mut later: Value = serde_json::from_str(&state).unwrap();
+  later["slots"][0]["lease"]["state"] = json!("a_state_of_a_later_build");
+  later["slots"][0]["a_field_of_a_later_build"] = json!(true);
+  write_state(&fixture, &serde_json::to_string(&later).unwrap());
+  assert_eq!(worktree_epoch(Path::new(&path)), lease);
+
+  write_state(&fixture, &state[..state.len() / 2]);
+  assert_eq!(worktree_epoch(Path::new(&path)), WorktreeEpoch::Unknown);
+  write_state(&fixture, &state);
+  assert_eq!(worktree_epoch(Path::new(&path)), lease);
+}
+
+/// Replaces the state of the pool of `fixture` with `text` by a rename, as every writer of the pool does
+fn write_state(fixture: &Fixture, text: &str) {
+  let temporary = fixture.state_file().with_extension("next");
+  std::fs::write(&temporary, text).unwrap();
+  std::fs::rename(&temporary, fixture.state_file()).unwrap();
 }
 
 /// The `status` of the pool writes the slot's index: after a get and its return, a `status` that may not write (the
