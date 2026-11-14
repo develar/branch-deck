@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use sync_utils::page_writes::PageWrite;
 
 /// Longer than any test: a save happens only by a flush or a drop
 const NEVER: Duration = Duration::from_hours(1);
@@ -111,6 +112,33 @@ fn two_origins_that_patch_two_fields_of_one_key_at_once_keep_both() {
   let stored = read(&path);
   assert_eq!(stored["appSettings"]["activityPanel"], json!({ "step": 199 }));
   assert_eq!(stored["appSettings"]["reviewSidebar"], json!({ "step": 199 }));
+}
+
+/// The writes numbered 1 and 2 of one key of the Settings page arrive in reverse order, as the close of Settings sends
+/// the edit a field queued while the write before it still runs: 2 is applied and 1 is superseded, changing nothing;
+/// the page of the window loaded again counts from 1, which no number of the page before supersedes
+#[test]
+fn an_older_write_of_a_key_of_the_page_is_superseded_and_changes_nothing() {
+  let (_directory, service) = opened(NEVER);
+  let write = |page: u64, seq: u32| PageWrite {
+    window: "settings".to_owned(),
+    page: format!("settings-{page}"),
+    seq,
+  };
+  let newer = service
+    .set_in_order(app_fields(json!({ "globalUserBranchPrefix": "second" })), "settings", &write(1, 2))
+    .unwrap();
+  assert!(newer.is_some());
+  let older = service
+    .set_in_order(app_fields(json!({ "globalUserBranchPrefix": "first" })), "settings", &write(1, 1))
+    .unwrap();
+  assert_eq!(older, None, "superseded");
+  assert_eq!(service.snapshot().1["appSettings"]["globalUserBranchPrefix"], "second");
+
+  let loaded_again = service
+    .set_in_order(app_fields(json!({ "globalUserBranchPrefix": "third" })), "settings", &write(2, 1))
+    .unwrap();
+  assert_eq!(loaded_again.map(|change| change.value["globalUserBranchPrefix"].clone()), Some(json!("third")));
 }
 
 #[test]

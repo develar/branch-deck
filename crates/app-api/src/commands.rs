@@ -286,9 +286,10 @@ macro_rules! for_each_command {
       app(PageJournal) json clear_activity(params: domain_types::activity::ClearActivityParams) -> () = $crate::app::activity::clear_activity;
 
       /// Applies the change of the calling window to the settings and sends it to every window (`settings_changed`, with the
-      /// window's label as its origin); answers the change, whose version the window has applied then. The file follows
-      /// within the debounce of the writer. A value of a field Rust reads that is invalid is refused and changes nothing
-      app(SettingsWriter) window set_setting(params: $crate::app::settings::SetSettingParams) -> domain_types::settings::SettingsChange = $crate::app::settings::set_setting;
+      /// window's label as its origin); answers the change, whose version the window has applied then, or null for a write
+      /// older than one of the same key of the page that the writer applied (its `seq`), which changes nothing. The file
+      /// follows within the debounce of the writer. A value of a field Rust reads that is invalid is refused and changes nothing
+      app(SettingsWriter) window set_setting(params: $crate::app::settings::SetSettingParams) -> Option<domain_types::settings::SettingsChange> = $crate::app::settings::set_setting;
 
       /// The changes the calling window gets that came after `since`, the version of the snapshot its page started from: a
       /// change made while the page loaded reached no listener. The main window's page asks once it listens (its init script
@@ -299,10 +300,12 @@ macro_rules! for_each_command {
       /// bases, and the output bases of gone slots, as `brd lease trim` does (the Disk window)
       app(LeasePools) json trim_pools(params: $crate::app::disk::TrimPoolsParams) -> $crate::app::disk::TrimSummary = $crate::app::disk::trim_pools;
 
-      /// Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
-      /// read again. A write of the branch prefix keeps the git prefix the read found for the repository's later commands
-      /// (`BranchPrefixes`); a global one forgets the prefix of every other repository, which may take it
-      app(SettingsWriter) json set_repository_config(params: $crate::app::repository_config::SetRepositoryConfigParams) -> sync_core::repository_config::RepositoryConfig = $crate::app::repository_config::set_repository_config;
+      /// Writes one key to the local config of the repository, or to the global config of the user, through the one writer
+      /// of the file, and answers the settings read again; null for a write older than one of the same key of the page that
+      /// the writer decided (its `seq`), which writes nothing. A write of the branch prefix keeps the git prefix the read
+      /// found for the repository's later commands (`BranchPrefixes`); a global one forgets the prefix of every other
+      /// repository, which may take it
+      app(SettingsWriter) window set_repository_config(params: $crate::app::repository_config::SetRepositoryConfigParams) -> Option<sync_core::repository_config::RepositoryConfig> = $crate::app::repository_config::set_repository_config;
 
       /// Adds a companion repository of the repository, or removes it: `branchdeck.companion.<name>.path` there and
       /// `branchdeck.primary` in the companion, as `brd companion` writes them; answers the settings read again

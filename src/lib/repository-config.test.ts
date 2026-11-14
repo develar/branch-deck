@@ -159,12 +159,12 @@ describe("the rows of a repository", () => {
 
   it("titles a failed write by what it changes", () => {
     expect(repositoryName("/home/jane/app/")).toBe("app")
-    expect(writeErrorTitle({ key: "githubRepository", value: "acme/app" }, "C:\\repo\\app")).toBe("Cannot change the GitHub repository of app")
-    expect(writeErrorTitle({ key: "pushSizeLimit", value: "200M" }, "/repo/app")).toBe("Cannot change the push size limit of app")
-    expect(writeErrorTitle({ key: "agentLease", value: null }, "/repo/app")).toBe("Cannot change where agents work in app")
-    expect(writeErrorTitle({ key: "agentSubjectBranch", value: true }, "/repo/app")).toBe("Cannot change how agents write commit subjects in app")
-    expect(writeErrorTitle({ key: "agentPullRequest", value: true }, "/repo/app")).toBe("Cannot change whether agents open pull requests in app")
-    expect(writeErrorTitle({ key: "landing", value: "push" }, "/repo/app")).toBe("Cannot change how app lands into master")
+    expect(writeErrorTitle("githubRepository", "C:\\repo\\app")).toBe("Cannot change the GitHub repository of app")
+    expect(writeErrorTitle("pushSizeLimit", "/repo/app")).toBe("Cannot change the push size limit of app")
+    expect(writeErrorTitle("agentLease", "/repo/app")).toBe("Cannot change where agents work in app")
+    expect(writeErrorTitle("agentSubjectBranch", "/repo/app")).toBe("Cannot change how agents write commit subjects in app")
+    expect(writeErrorTitle("agentPullRequest", "/repo/app")).toBe("Cannot change whether agents open pull requests in app")
+    expect(writeErrorTitle("landing", "/repo/app")).toBe("Cannot change how app lands into master")
     expect(globalWriteErrorTitle("pushSizeLimit")).toBe("Cannot change the push size limit of every repository")
     expect(globalWriteErrorTitle("agentLease")).toBe("Cannot change where agents work in every repository")
     expect(globalWriteErrorTitle("resolveByWords")).toBe("Cannot change how every repository resolves conflicts by words")

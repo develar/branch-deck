@@ -4792,16 +4792,30 @@ no operation.
   the reason (`GLOBAL_PUSH_ROUTE_REASON`), and its global write is refused. The answer is the settings read again, and the main window gets `repository_config_changed`
   (`{repositoryPath, key}`) to sync (`branchdeck.reviewExperimental` too: the view takes the flag from a sync); the agent
   keys and the push size limit sync nothing.
-- **Writes at once**: the app writes one config file at a time (a mutex per file in `run_config_write`: the local one
-  by the repository's path, the global one), so a prefix saved on blur and a switch flipped right after do not race for
-  `config.lock`; a lock that another process holds (`brd describe`, a `git config` of the user, a write of another
-  worktree; `git config` exits with 255) is tried again with a growing pause for up to a second, which git 2.56 also
-  does itself and 2.54 and 2.55 do not (`two_writes_at_once_both_succeed`,
-  `a_write_waits_for_a_config_lock_another_process_holds`, `a_write_fails_on_a_config_lock_that_stays`). Two writes
-  that overlap answer in any order, and the older answer may lack the newer write: every answer of the settings, of a
-  read and of a write, carries `seq`, the config writes of the process before its read (`CONFIG_WRITES`, one counter
-  for the local and the global files, counted after each write while its file's mutex is held, read before the
-  config), and the page shows an answer only if its `seq` is not smaller than the one shown (`newer`,
+- **Writes at once**: the app writes each config file through its one writer (`app_api::app::config_writer`): a task
+  per file, the common git directory of the repository (every worktree writes the same `config`) or the global config,
+  that runs the writes of Settings and of the companions one after the other in the order they came, so a prefix saved
+  on blur and a switch flipped right after never race for `config.lock`, and no lock is held across git
+  (`two_writes_of_different_keys_at_once_are_both_on_disk`: the writes at once cost the git processes of the same
+  writes one by one, no write tried again). A lock is then another process's (`brd describe`, a `git config` of the
+  user; `git config` exits with 255): tried again with a growing pause for up to a second, which git 2.56 also does
+  itself and 2.54 and 2.55 do not, then an error that says another git holds the lock
+  (`a_write_waits_for_a_config_lock_another_process_holds`, `a_write_fails_on_a_config_lock_that_stays`).
+- **The order of the writes of a page**: a write of a page of Settings names its page and its number among the writes
+  of that page (`order`, `nextWriteOrder` of `src/lib/field-writes.ts`: an id the page drew at its load, one count from
+  1), and the writer of the file applies it only when it is newer than the last write of its key of that page it
+  decided (`sync_utils::page_writes`; the key is the scope and the config key); an older one answers null and writes
+  nothing. So the close of Settings sends an edit at once while the write before it of the same field still runs, and
+  the newer value stays whichever comes first (`an_older_write_of_a_key_of_the_page_is_superseded_and_writes_nothing`).
+  The page names itself, not the host (`Call::page`, which a host renews only when it hears of a load): a window
+  loaded again or opened again under its label is another page, whose first write no number of the page before
+  supersedes (the second Settings window of an e2e test was refused so while the e2e server kept the page of the first),
+  and the writes of two pages of a window apply in the order they come. The writer of the settings orders `set_setting`
+  the same way (`SettingsService::set_in_order`, by the settings key).
+- **Answers out of order**: two writes that overlap answer in any order, and the older answer may lack the newer
+  write: every answer of the settings, of a read and of a write, carries `seq`, the config writes of the process
+  before its read (`CONFIG_WRITES`, one counter for the local and the global files, counted after each write, read
+  before the config), and the page shows an answer only if its `seq` is not smaller than the one shown (`newer`,
   `src/lib/repository-config.ts`), so no answer read before a write takes it back and no second read follows.
 - **Global write**: `set_repository_config` with `scope: "global"` (`WriteScope`, local when omitted) writes the same
   key to the user's global config instead: `git config --global --replace-all`, or `--unset-all`, with the same

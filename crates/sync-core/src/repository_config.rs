@@ -19,10 +19,9 @@ use domain_types::landing_route::{LANDING_CONFIG_KEY, LandingSetting};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::git_common_dir;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
@@ -719,15 +718,6 @@ const CONFIG_LOCKED_EXIT_CODE: i32 = 255;
 /// long itself; 2.54 and 2.55 fail at once
 const CONFIG_LOCK_WAIT: Duration = Duration::from_secs(1);
 
-/// One mutex per config file this process writes (the local config by the repository's path, the global one by an
-/// empty key): two writes of the app (a prefix saved on blur, then a switch) run one after the other instead of racing
-/// for `config.lock`. A writer of another process is waited for up to `CONFIG_LOCK_WAIT`
-fn config_file_writes(key: &str) -> Arc<Mutex<()>> {
-  static WRITES: LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = LazyLock::new(Mutex::default);
-  let mut writes = WRITES.lock().unwrap_or_else(PoisonError::into_inner);
-  Arc::clone(writes.entry(key.to_string()).or_default())
-}
-
 /// The writes of a config file (`run_config_write`) this process has made: one counter for the local and the global
 /// files, as an answer of the settings of a repository holds both
 static CONFIG_WRITES: AtomicU32 = AtomicU32::new(0);
@@ -739,15 +729,14 @@ fn config_writes() -> u32 {
 }
 
 /// `git config <file option> --replace-all <key> <value>`, or `--unset-all` for `None`: a key that is not set is no
-/// error to unset. One write of the file at a time in this process, and a file that another process holds locked is
-/// tried again for about a second; a write done counts in `CONFIG_WRITES` before the next write of the file starts
+/// error to unset. The app writes a file one write at a time through its one writer of the file
+/// (`app_api::app::config_writer`), so a lock of the file is another process's (`brd describe`, a `git config` of the
+/// user): tried again for about a second, then an error that says so; a write done counts in `CONFIG_WRITES`
 fn run_config_write(git: &GitCommandExecutor, repository_path: &str, file: &str, config_key: &str, value: Option<&str>) -> Result<()> {
   let args: Vec<&str> = match value {
     Some(value) => vec!["config", file, "--replace-all", config_key, value],
     None => vec!["config", file, "--unset-all", config_key],
   };
-  let file_writes = config_file_writes(if file == "--global" { "" } else { repository_path });
-  let _write = file_writes.lock().unwrap_or_else(PoisonError::into_inner);
   let deadline = Instant::now() + CONFIG_LOCK_WAIT;
   let mut wait = Duration::from_millis(10);
   loop {
@@ -757,8 +746,15 @@ fn run_config_write(git: &GitCommandExecutor, repository_path: &str, file: &str,
       CONFIG_WRITES.fetch_add(1, Ordering::Release);
       return Ok(());
     }
-    if exit_code != CONFIG_LOCKED_EXIT_CODE || Instant::now() + wait > deadline {
+    if exit_code != CONFIG_LOCKED_EXIT_CODE {
       bail!("git config {config_key} failed: {output}");
+    }
+    if Instant::now() + wait > deadline {
+      bail!(
+        "Cannot write {config_key}: another git process held the lock of the config file (config.lock) for more than {} s: {}",
+        CONFIG_LOCK_WAIT.as_secs(),
+        output.trim()
+      );
     }
     std::thread::sleep(wait);
     wait = (wait * 2).min(Duration::from_millis(200));

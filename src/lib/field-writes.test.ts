@@ -2,36 +2,42 @@
 // blur, Enter and the close of the window saves it
 import { describe, expect, it, vi } from "vite-plus/test"
 import { FieldWrites } from "@/lib/field-writes"
+import type { WriteAnswer } from "@/lib/field-writes"
 
 /** Writes the test answers, each recording its value as it starts: `answer(true)` takes the last one */
-function recordedWrites(): { written: string[]; write: (value: string) => () => Promise<boolean>; answer: (taken: boolean) => void } {
+function recordedWrites(): { written: string[]; write: (value: string) => () => Promise<WriteAnswer>; answer: (taken: boolean) => void } {
   const written: string[] = []
-  let last: (taken: boolean) => void = () => {}
+  let last: (answer: WriteAnswer) => void = () => {}
   return {
     written,
     write: value => () => {
       written.push(value)
-      return new Promise<boolean>(resolve => {
+      return new Promise<WriteAnswer>(resolve => {
         last = resolve
       })
     },
-    answer: taken => last(taken),
+    answer: taken => last(answerOf(taken)),
   }
 }
 
+/** The answer of a write the backend took, or one it refused */
+function answerOf(taken: boolean): WriteAnswer {
+  return taken ? "taken" : { failed: "refused" }
+}
+
 /** A write the test answers: `answer(true)` takes it */
-function heldWrite(): { write: () => Promise<boolean>; calls: () => number; answer: (taken: boolean) => void } {
+function heldWrite(): { write: () => Promise<WriteAnswer>; calls: () => number; answer: (taken: boolean) => void } {
   let calls = 0
-  let answer: (taken: boolean) => void = () => {}
+  let answer: (answer: WriteAnswer) => void = () => {}
   return {
     write: () => {
       calls++
-      return new Promise<boolean>(resolve => {
+      return new Promise<WriteAnswer>(resolve => {
         answer = resolve
       })
     },
     calls: () => calls,
-    answer: taken => answer(taken),
+    answer: taken => answer(answerOf(taken)),
   }
 }
 
@@ -147,7 +153,7 @@ describe("the writes of the typing of a field", () => {
     const failing = writes.save(
       "acme/one",
       "",
-      () => new Promise<boolean>((_resolve, reject) => (fail = reject)),
+      () => new Promise<WriteAnswer>((_resolve, reject) => (fail = reject)),
       () => {},
     )
     const { written, write, answer } = recordedWrites()
@@ -157,5 +163,46 @@ describe("the writes of the typing of a field", () => {
     answer(true)
     await expect(failing).rejects.toThrow("the link broke")
     await expect(queued).rejects.toThrow("the link broke")
+  })
+
+  it("writes the value of the close at once beside the write that runs, the newer one taken whichever answers first, and resolves with the failure a write answered", async () => {
+    const writes = new FieldWrites()
+    const blurWrite = heldWrite()
+    const taken: string[] = []
+    const blur = writes.save("acme/one", "", blurWrite.write, value => taken.push(value))
+    const { written, write, answer } = recordedWrites()
+    // an edit queued behind the write of the blur, then the close: its value goes at once, the edit queued before it never
+    void writes.save("acme/two", "", write("acme/two"), value => taken.push(value))
+    const close = writes.save("acme/three", "", write("acme/three"), value => taken.push(value), true)
+    expect(written).toEqual(["acme/three"])
+    answer(true)
+    // the older write answers last: the backend applied it before the newer one, which the field holds
+    blurWrite.answer(true)
+    expect(await close).toBeNull()
+    await blur
+    expect(taken).toEqual(["acme/three"])
+    expect(written).toEqual(["acme/three"])
+
+    // a close while the write of the same value runs writes nothing more; a refused write is the failure of the save
+    const enter = heldWrite()
+    const saving = writes.save("acme/four", "", enter.write, () => {})
+    const closing = writes.save("acme/four", "", enter.write, () => {}, true)
+    enter.answer(false)
+    expect(await closing).toEqual({ failed: "refused" })
+    expect(await saving).toEqual({ failed: "refused" })
+    expect(enter.calls()).toBe(1)
+  })
+
+  it("takes nothing of a write the backend superseded, and tells no failure of it", async () => {
+    const writes = new FieldWrites()
+    const taken: string[] = []
+    const superseded = writes.save(
+      "acme/one",
+      "",
+      () => Promise.resolve<WriteAnswer>("superseded"),
+      value => taken.push(value),
+    )
+    expect(await superseded).toBeNull()
+    expect(taken).toEqual([])
   })
 })

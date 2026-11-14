@@ -129,6 +129,7 @@ function GitHubRepositoryRow({ config, scoped }: { config: RepositoryConfig | nu
     normalize: typing => typing.trim(),
     invalidReason: value => (isValidGitHubRepository(value) ? null : invalidGitHubRepositoryReason(value)),
     write: value => scoped.write({ key: "githubRepository", value }),
+    notSaved: scoped.notSaved("githubRepository", "landing"),
   })
   return (
     <ScopedConfigRow<string | null>
@@ -172,6 +173,7 @@ function PushSizeLimitRow({ config, scoped }: { config: RepositoryConfig | null;
     normalize: typing => typing.trim(),
     invalidReason: value => (isValidPushSizeLimit(value) ? null : invalidPushSizeLimitReason(value)),
     write: value => scoped.write({ key: "pushSizeLimit", value }),
+    notSaved: scoped.notSaved("pushSizeLimit", "landing"),
   })
   return (
     <ScopedConfigRow<string | null>
@@ -189,6 +191,7 @@ function PushSizeLimitRow({ config, scoped }: { config: RepositoryConfig | null;
           label="Push size limit"
           placeholder={scope === "all" ? DEFAULT_PUSH_SIZE_LIMIT : (every ?? DEFAULT_PUSH_SIZE_LIMIT)}
           disabled={fieldDisabled}
+          focusKey="pushSizeLimit"
           className="w-32"
         />
       )}

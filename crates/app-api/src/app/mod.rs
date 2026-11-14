@@ -5,7 +5,8 @@
 //!   (openspec/specs/repository/activity/spec.md).
 //! - `settings`: a change of the settings of a window, and the changes a page catches up with
 //!   (docs/design/distributed-settings.md).
-//! - `repository_config`: a write of Settings → Repository, the `branchdeck.*` git config (openspec/specs/repository/settings/spec.md).
+//! - `repository_config`: a write of Settings → Repository, the `branchdeck.*` git config (openspec/specs/repository/settings/spec.md),
+//!   through the one writer of each config file (`config_writer`).
 //! - `sign_in`: the sign-ins of the app's accounts (openspec/specs/repository/github-sign-in/spec.md).
 //! - `mark_reviewed`: Mark Reviewed of the review window of a branch, its reviewed refs (openspec/specs/branch/review-plan/spec.md).
 //!
@@ -23,6 +24,7 @@ pub mod activity;
 pub mod agent_cli;
 pub mod air_launch;
 pub mod cli_tools;
+pub mod config_writer;
 pub mod desktop;
 pub mod disk;
 pub mod mark_reviewed;

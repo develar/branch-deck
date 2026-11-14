@@ -7,6 +7,7 @@
 use crate::api_error::{api_error, no_branch_prefix};
 use crate::app::air_launch::AirWatches;
 use crate::app::cli_tools::CliToolsState;
+use crate::app::config_writer::ConfigWriters;
 use crate::app::windows::SubWindowState;
 use crate::operation::run_blocking;
 use crate::reads::conflict_fix::ConflictFixSearch;
@@ -83,6 +84,8 @@ pub struct AppContext {
   pub cli_tools: CliToolsState,
   /// The watches of the sessions that Start in Air started, by window
   pub air_watches: Arc<AirWatches>,
+  /// The one writer of each git config file the app writes (`config_writer`)
+  pub config_writers: Arc<ConfigWriters>,
   /// The runtime of what a command leaves running after it answered: the deadlines of the windows built hidden
   pub runtime: tokio::runtime::Handle,
 }

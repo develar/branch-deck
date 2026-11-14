@@ -319,6 +319,13 @@ of the primary and `branchdeck.primary` in the local config of the companion, th
 another repository's config); and the branch descriptions of `brd describe`
 ([Repository settings](../design/git-operations.md#repository-settings)).
 
+The app writes each config file through its one writer (`app_api::app::config_writer`): a task per file (the common git
+directory of the repository, every worktree of which writes the same `config`, or the global config) that runs the
+writes one after the other in the order they came, never a lock held across git; a write of a page of Settings names
+its number (`seq`) and is applied only when newer than the last write of its key of that page (`sync_utils::page_writes`),
+an older one answering null. A `config.lock` is then another process's: the write tries again for about a second and
+fails with an error that says the lock is held (`run_config_write`).
+
 ## GitHub credentials
 
 The only git of the GitHub token chain is `git credential fill` (`crates/github/src/token.rs`),

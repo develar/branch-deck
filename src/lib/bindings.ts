@@ -304,10 +304,11 @@ export const commands = {
 	clearActivity: (params: ClearActivityParams) => typedError<null, ApiError>(__TAURI_INVOKE("clear_activity", { params })),
 	/**
 	 *  Applies the change of the calling window to the settings and sends it to every window (`settings_changed`, with the
-	 *  window's label as its origin); answers the change, whose version the window has applied then. The file follows
-	 *  within the debounce of the writer. A value of a field Rust reads that is invalid is refused and changes nothing
+	 *  window's label as its origin); answers the change, whose version the window has applied then, or null for a write
+	 *  older than one of the same key of the page that the writer applied (its `seq`), which changes nothing. The file
+	 *  follows within the debounce of the writer. A value of a field Rust reads that is invalid is refused and changes nothing
 	 */
-	setSetting: (params: SetSettingParams) => typedError<SettingsChange, ApiError>(__TAURI_INVOKE("set_setting", { params })),
+	setSetting: (params: SetSettingParams) => typedError<SettingsChange | null, ApiError>(__TAURI_INVOKE("set_setting", { params })),
 	/**
 	 *  The changes the calling window gets that came after `since`, the version of the snapshot its page started from: a
 	 *  change made while the page loaded reached no listener. The main window's page asks once it listens (its init script
@@ -320,11 +321,13 @@ export const commands = {
 	 */
 	trimPools: (params: TrimPoolsParams) => typedError<TrimSummary, ApiError>(__TAURI_INVOKE("trim_pools", { params })),
 	/**
-	 *  Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
-	 *  read again. A write of the branch prefix keeps the git prefix the read found for the repository's later commands
-	 *  (`BranchPrefixes`); a global one forgets the prefix of every other repository, which may take it
+	 *  Writes one key to the local config of the repository, or to the global config of the user, through the one writer
+	 *  of the file, and answers the settings read again; null for a write older than one of the same key of the page that
+	 *  the writer decided (its `seq`), which writes nothing. A write of the branch prefix keeps the git prefix the read
+	 *  found for the repository's later commands (`BranchPrefixes`); a global one forgets the prefix of every other
+	 *  repository, which may take it
 	 */
-	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("set_repository_config", { params })),
+	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig | null, ApiError>(__TAURI_INVOKE("set_repository_config", { params })),
 	/**
 	 *  Adds a companion repository of the repository, or removes it: `branchdeck.companion.<name>.path` there and
 	 *  `branchdeck.primary` in the companion, as `brd companion` writes them; answers the settings read again
@@ -8916,10 +8919,20 @@ export type SetRepositoryConfigParams = {
 	change: RepositoryConfigChange,
 	/**  The local config when omitted */
 	scope?: WriteScope,
+	/**
+	 *  The page of the write and its number among the writes of that page (`nextWriteOrder`): an older write of the key of
+	 *  the same page than one the writer decided writes nothing. A write without one is applied in the order it came
+	 */
+	order?: WriteOrder | null,
 };
 
 export type SetSettingParams = {
 	patch: SettingsPatch,
+	/**
+	 *  The page of the write and its number among the writes of that page (`nextWriteOrder`): an older write of the key of
+	 *  the same page than one the writer applied changes nothing. A write without one is applied in the order it came
+	 */
+	order?: WriteOrder | null,
 };
 
 /**
@@ -10928,6 +10941,15 @@ export type WordResolutionSummary = {
 	 *  the counts only. The conflict view merges the commit again for them (`get_file_merges`)
 	 */
 	files: ResolvedFileSummary[],
+};
+
+/**
+ *  What orders a write of a page among the writes of that page (`sync_utils::page_writes`): the id the page drew at its
+ *  load, and the number of the write from 1 at that load
+ */
+export type WriteOrder = {
+	page: string,
+	seq: number,
 };
 
 /**  The config file a write of Settings goes to */

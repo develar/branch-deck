@@ -5,6 +5,8 @@ import type { StoreApi } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
 import type { SettingsChange, SettingsPatch } from "@/lib/bindings"
 import { logError, notifyError } from "@/lib/errors"
+import { nextWriteOrder } from "@/lib/field-writes"
+import type { WriteAnswer } from "@/lib/field-writes"
 import { stableStringify } from "@/lib/stable-stringify"
 import { isMainWindow } from "@/lib/window-label"
 
@@ -47,12 +49,20 @@ interface KeySync {
   readonly patchOf: (value: unknown) => SettingsPatch | null
   /** The value the store had after the last change it sent or took */
   known: unknown
-  /** The patch the writer has not answered yet; the next one waits for its answer, so the writer gets them in order */
+  /**
+   * The newest patch the writer has not answered yet; the next one waits for its answers, so the writer gets them in
+   * order, but for the close of Settings, which sends the changes queued behind it at once (`whenSettingWritten`)
+   */
   sent: SettingsPatch | null
+  /** The patches sent and not answered yet, and the number of the newest (`nextWriteOrder`) */
+  inFlight: number
+  newestSeq: number
+  /** What the writer answered the newest patch sent */
+  newestAnswer: WriteAnswer
   /** The local changes made while `sent` is unanswered, merged into one patch */
   queued: SettingsPatch | null
-  /** Who waits for the writer to answer every local change (`whenSettingWritten`): whether it took the last one */
-  readonly waiting: Array<(taken: boolean) => void>
+  /** Who waits for the writer to answer every local change (`whenSettingWritten`): its answer of the last one */
+  readonly waiting: Array<(answer: WriteAnswer) => void>
 }
 
 /** The value of a key as the writer has it, with the version of the change that gave it (the snapshot's first) */
@@ -176,31 +186,52 @@ function accept(change: SettingsChange): void {
   }
 }
 
-/** Sends `patch` of `sync` to the writer; the answer takes it, then the changes queued meanwhile go as the next one */
+/**
+ * Sends `patch` of `sync` to the writer, numbered among the writes of the page (`nextWriteOrder`); the answer takes it, and
+ * once every patch sent answered the changes queued meanwhile go as the next one. The writer supersedes a patch older
+ * than one of the key it applied (null, no error): only the close of Settings sends one beside another, holding it
+ */
 function send(sync: KeySync, patch: SettingsPatch): void {
+  const order = nextWriteOrder()
+  const seq = order.seq
   sync.sent = patch
-  const answered = (change: SettingsChange | null, error?: unknown): void => {
-    sync.sent = null
-    if (change === null) {
+  sync.inFlight += 1
+  sync.newestSeq = seq
+  const answered = (answer: WriteAnswer, change: SettingsChange | null): void => {
+    sync.inFlight -= 1
+    if (seq === sync.newestSeq) {
+      sync.newestAnswer = answer
+    }
+    if (typeof answer === "object") {
       // refused or lost, so the value the store shows goes back to the writer's
-      notifyError("Cannot change the settings", error)
-    } else {
+      notifyError("Cannot change the settings", answer.failed)
+    } else if (change !== null) {
       accept(change)
     }
+    if (sync.inFlight > 0) {
+      return
+    }
+    sync.sent = null
     const queued = sync.queued
     sync.queued = null
     if (queued !== null) {
       send(sync, queued)
     } else {
       for (const waiter of sync.waiting.splice(0)) {
-        waiter(change !== null)
+        waiter(sync.newestAnswer)
       }
     }
     refresh(sync)
   }
-  void commands.setSetting({ patch }).then(
-    result => (result.status === "ok" ? answered(result.data) : answered(null, result.error)),
-    (error: unknown) => answered(null, error),
+  void commands.setSetting({ patch, order }).then(
+    result => {
+      if (result.status === "error") {
+        answered({ failed: result.error }, null)
+      } else {
+        answered(result.data === null ? "superseded" : "taken", result.data)
+      }
+    },
+    (error: unknown) => answered({ failed: error }, null),
   )
 }
 
@@ -220,17 +251,25 @@ function changedLocally(sync: KeySync): void {
 }
 
 /**
- * Resolves once the writer answered every change this window made of `key` so far, with whether it took the last one:
- * a field of Settings saved as the window closes waits for its write (`saveBeforeClose`); at once without one
+ * Resolves once the writer answered every change this window made of `key` so far, with its answer of the last one: a
+ * field of Settings saved as the window closes waits for its write (`saveBeforeClose`); at once without one. With `now`
+ * (the close of the window), the changes queued behind a patch the writer has not answered go at once, merged with it,
+ * so the writer applies them whichever of the two comes first
  */
-export function whenSettingWritten(key: string): Promise<boolean> {
+export function whenSettingWritten(key: string, now = false): Promise<WriteAnswer> {
   const sync = syncs.get(key)
   if (sync === undefined || (sync.sent === null && sync.queued === null)) {
-    return Promise.resolve(true)
+    return Promise.resolve("taken")
   }
-  return new Promise(resolve => {
+  const answer = new Promise<WriteAnswer>(resolve => {
     sync.waiting.push(resolve)
   })
+  if (now && sync.sent !== null && sync.queued !== null && caughtUp) {
+    const patch = mergePatch(sync.sent, sync.queued)
+    sync.queued = null
+    send(sync, patch)
+  }
+  return answer
 }
 
 /**
@@ -367,6 +406,9 @@ export function createPersistentStore(key: string, { schema, isArray, isMainOnly
     },
     known: initialValue,
     sent: null,
+    inFlight: 0,
+    newestSeq: 0,
+    newestAnswer: "taken",
     queued: null,
     waiting: [],
   }

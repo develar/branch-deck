@@ -104,6 +104,7 @@ function RepositoryPrefixRow({ config, scoped }: { config: RepositoryConfig | nu
     normalize: normalizeBranchPrefix,
     invalidReason: value => (isValidBranchPrefix(value) ? null : INVALID_PREFIX_TEXT),
     write: value => scoped.write({ key: "branchPrefix", value }),
+    notSaved: scoped.notSaved("branchPrefix", "branches"),
   })
   const inherited = setting?.fallbackValue ?? ""
   return (

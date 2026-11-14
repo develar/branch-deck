@@ -7,7 +7,8 @@
 //! - the grammars of a commit: `commit_subject`, `commit_body` (its Markdown: `markdown_table`, `markdown_inline`,
 //!   `markdown_comments`), `code_spans` (the code in a line of prose), `issue_pattern`
 //! - an operation: `operation_id` (its ULID), `operation_tally` (what it cost), `clock` (the clock of its timers),
-//!   `span` (the span of its caller on another thread), `single_flight` (one read for every caller of the same key)
+//!   `span` (the span of its caller on another thread), `single_flight` (one read for every caller of the same key),
+//!   `page_writes` (the order of the writes of the pages, which a writer applies only newest first)
 //! - the values as a setting or a service writes them: `git_bool`, `host_ref_name`, `list_cut`, `size`, `timestamp`
 
 pub mod atomic_file;
@@ -27,6 +28,7 @@ mod markdown_inline;
 mod markdown_table;
 pub mod operation_id;
 pub mod operation_tally;
+pub mod page_writes;
 pub mod paths;
 pub mod private_file;
 pub mod process_scan;
@@ -55,6 +57,8 @@ mod list_cut_test;
 mod operation_id_test;
 #[cfg(test)]
 mod operation_tally_test;
+#[cfg(test)]
+mod page_writes_test;
 #[cfg(test)]
 mod paths_test;
 #[cfg(test)]

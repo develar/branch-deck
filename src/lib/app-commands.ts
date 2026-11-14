@@ -19,6 +19,8 @@ export type AppCommand =
   | "zoom"
   | "install_agent_cli"
   | "check_for_updates"
+  // a save of a field the close of Settings could not finish, which the main window tells (`settings-close.ts`)
+  | "settings_not_saved"
 
 const handlers = new Map<AppCommand, (payload: unknown) => void>()
 

@@ -236,10 +236,10 @@ export function withAppPrefix(setting: ConfigSetting<string | null>, appPrefix: 
   }
 }
 
-/** The title of a failed write, in the words of the change (ux-writing: "Cannot <verb> <object>") */
-export function writeErrorTitle(change: RepositoryConfigChange, repositoryPath: string): string {
+/** The title of a failed write of `key`, in the words of the change (ux-writing: "Cannot <verb> <object>") */
+export function writeErrorTitle(key: RepositoryConfigKey, repositoryPath: string): string {
   const name = repositoryName(repositoryPath)
-  switch (change.key) {
+  switch (key) {
     case "symbols":
       return `Cannot change the symbol dependencies of ${name}`
     case "githubRepository":

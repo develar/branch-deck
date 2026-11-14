@@ -49,6 +49,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use sync_utils::page_writes::{PageWrite, PageWrites};
 use sync_utils::span::in_current_span;
 use tracing::{debug, warn};
 
@@ -237,6 +238,8 @@ struct State {
   /// The error of the last failed save; a pass whose saves all succeed ends the streak
   last_error: Option<SaveError>,
   shutdown: bool,
+  /// The last write of each key of the pages of the windows (`set_in_order`)
+  page_writes: PageWrites,
 }
 
 impl State {
@@ -402,13 +405,35 @@ impl SettingsService {
   /// Apply `patch` from `origin` to the settings in memory and answer the change for the windows; the save of the
   /// file of its key follows within the debounce. A value of a field Rust knows that is invalid is refused and changes
   /// nothing
-  pub fn set(&self, mut patch: SettingsPatch, origin: &str) -> Result<SettingsChange, SettingsError> {
-    let bounded = matches!(patch.key(), REPOSITORY_STATE_KEY | RECENT_PROJECTS_KEY);
-    let now = bounded.then(|| self.epochs_now(written_paths(&patch))).flatten();
+  pub fn set(&self, patch: SettingsPatch, origin: &str) -> Result<SettingsChange, SettingsError> {
+    let now = self.epochs_of(&patch);
+    let state = self.shared.lock();
+    self.apply_locked(state, patch, origin, now.as_ref())
+  }
+
+  /// `set` of a write of a page (`write`, its number among the writes of that page): applied only when it is newer than
+  /// the last write of its key of that page (`PageWrites`), else `None` and nothing changes, as the newer value is there
+  pub fn set_in_order(&self, patch: SettingsPatch, origin: &str, write: &PageWrite) -> Result<Option<SettingsChange>, SettingsError> {
+    let now = self.epochs_of(&patch);
     let mut state = self.shared.lock();
+    if !state.page_writes.applies(write, patch.key()) {
+      return Ok(None);
+    }
+    self.apply_locked(state, patch, origin, now.as_ref()).map(Some)
+  }
+
+  /// The epochs of the worktrees a patch of a key bound to them writes (the entries of `repositoryState`, the collapsed
+  /// stacks of the recent projects), read before the lock of the writer
+  fn epochs_of(&self, patch: &SettingsPatch) -> Option<EpochsNow> {
+    let bounded = matches!(patch.key(), REPOSITORY_STATE_KEY | RECENT_PROJECTS_KEY);
+    bounded.then(|| self.epochs_now(written_paths(patch))).flatten()
+  }
+
+  /// `set` under `state`, the lock of the writer, which it lets go before it wakes the writer
+  fn apply_locked(&self, mut state: MutexGuard<'_, State>, mut patch: SettingsPatch, origin: &str, now: Option<&EpochsNow>) -> Result<SettingsChange, SettingsError> {
     let key = patch.key().to_owned();
     // the change carries the whole key: without what an earlier lease left in it, forgotten first
-    if let Some(now) = &now {
+    if let Some(now) = now {
       if key == REPOSITORY_STATE_KEY {
         forget_other_epochs(&mut state, now);
       } else {

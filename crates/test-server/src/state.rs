@@ -97,6 +97,7 @@ impl AppState {
       sub_windows: std::sync::Arc::default(),
       cli_tools: app_api::app::cli_tools::CliToolsState::default(),
       air_watches: std::sync::Arc::default(),
+      config_writers: std::sync::Arc::default(),
       runtime: tokio::runtime::Handle::current(),
     }
   }

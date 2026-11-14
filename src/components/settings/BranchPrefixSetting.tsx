@@ -9,7 +9,8 @@ import { commands } from "@/lib/bindings"
 import type { ResolvedBranchPrefix } from "@/lib/bindings"
 import { appPrefixOf, INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { FieldWrites } from "@/lib/field-writes"
-import { repositoryName } from "@/lib/repository-config"
+import type { WriteFailure } from "@/lib/field-writes"
+import { globalWriteErrorTitle, repositoryName } from "@/lib/repository-config"
 import { onSettingFieldKey } from "@/lib/setting-field"
 import { saveBeforeClose } from "@/lib/settings-close"
 import { openSettings } from "@/lib/settings-window"
@@ -53,25 +54,27 @@ export function BranchPrefixSetting() {
     }
   }, [draft, writes])
 
-  const save = (): Promise<void> => {
+  const save = (now: boolean): Promise<WriteFailure | null> => {
     if (draft === null || invalid) {
-      return Promise.resolve()
+      return Promise.resolve(null)
     }
     return writes.save(
       prefix,
       saved,
       () => {
         setGlobalUserBranchPrefix(prefix === "" ? undefined : prefix)
-        return whenSettingWritten("appSettings")
+        return whenSettingWritten("appSettings", now)
       },
       // an edit typed while the write ran stays, and is written after it
       value => setDraft(current => (current !== null && normalizeBranchPrefix(current) === value ? null : current)),
+      now,
     )
   }
 
-  // a window closed while the field holds valid typing saves it first
-  const saveOnClose = useEffectEvent(() => save())
-  useEffect(() => saveBeforeClose(() => saveOnClose()), [])
+  // a window closed while the field holds valid typing saves it first, at once; the main window tells a save it could
+  // not finish
+  const saveOnClose = useEffectEvent(() => save(true))
+  useEffect(() => saveBeforeClose(saveOnClose, () => ({ title: globalWriteErrorTitle("branchPrefix"), target: { page: "branches", scope: "all", focus: "branchPrefix" } })), [])
 
   return (
     <div className="flex flex-col gap-1.5" data-testid="setting-branch-prefix">
@@ -79,8 +82,8 @@ export function BranchPrefixSetting() {
         <Input
           value={value}
           onChange={event => setDraft(event.target.value)}
-          onBlur={() => void save()}
-          onKeyDown={event => onSettingFieldKey(event, () => void save(), draft === null ? null : () => setDraft(null))}
+          onBlur={() => void save(false)}
+          onKeyDown={event => onSettingFieldKey(event, () => void save(false), draft === null ? null : () => setDraft(null))}
           placeholder={globalPrefix || "your-name"}
           aria-label="Branch prefix"
           aria-invalid={invalid || undefined}

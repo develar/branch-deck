@@ -8,6 +8,7 @@ import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-
 import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, nextAnswer, pressSyncHeld, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { windowCalls } from "../helpers/title-bar-helpers"
+import { openToast } from "../helpers/toast-helpers"
 import { holdNextAnswer, recordCommand, routeCommandError, openTooltip } from "../helpers/wait-helpers"
 
 /** The repository's name, as the page and its errors say it */
@@ -171,6 +172,21 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
     await expect(toast).toContainText("could not lock config file .git/config: File exists")
     await expect(symbols.getByRole("button", { name: "Report Only" })).toHaveAttribute("aria-pressed", "false")
     await expect(symbols.getByRole("button", { name: "On", exact: true })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  test("should tell a write that fails as the window closes in the main window, whose Open Settings shows the field again", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot change the GitHub repository of .*: git config branchdeck\.githubRepository failed$/)
+    const repo = await setupRepo("simple")
+    const window = await openRepositoryLanding(page)
+    await routeCommandError(window, "set_repository_config", { code: "internal", message: "git config branchdeck.githubRepository failed" })
+    await row(window, "githubRepository").getByRole("textbox", { name: "GitHub repository" }).fill("acme/app")
+    await emitTauriEvent(window, "tauri://close-requested")
+    await expect.poll(() => windowCalls(window)).toContain("destroy")
+    // the window is gone, its toast with it: the main window tells the failure, and its action opens the field
+    const toast = openToast(page, `Cannot change the GitHub repository of ${nameOf(repo.path)}`)
+    await expect(toast).toContainText("git config branchdeck.githubRepository failed")
+    await toast.getByRole("button", { name: "Open Settings" }).click()
+    await expectSettingsOpened(page, { page: "landing", scope: "repository", focus: "githubRepository" }, 2)
   })
 
   test("should keep a prefix saved while a mode's write runs, when the mode's older answer comes last", async ({ page, setupRepo }) => {
@@ -371,16 +387,21 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
     return values.map(value => ({ repositoryPath: path, change: { key: "githubRepository", value }, scope: "local" }))
   }
 
-  test("should write an edit typed during the write of a blur once that write answered, when the window closes", async ({ page, setupRepo }) => {
+  test("should write an edit typed during the write of a blur at once when the window closes, beside that write, and keep the edit", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple")
     const window = await openRepositoryLanding(page)
     const writes = recordWrites(window)
     const { release } = await editDuringTheWriteOfABlur(window)
-    // ⌘W while the first write waits for its answer: the close waits for it, then writes the edit
+    // ⌘W while the first write waits for its answer: the close writes the edit at once, then waits for both answers
     await emitTauriEvent(window, "tauri://close-requested")
+    await expect.poll(() => writes.length).toBe(2)
+    expect(writes).toEqual(writtenInOrder(repo.path))
+    expect(await windowCalls(window)).not.toContain("destroy")
     release()
     await expect.poll(() => windowCalls(window)).toContain("destroy")
-    expect(writes).toEqual(writtenInOrder(repo.path))
+    // the writer applied the newer write last: Settings opened again shows the edit as the value of the repository
+    const again = await openRepositoryLanding(page)
+    await expect(row(again, "githubRepository").getByRole("textbox", { name: "GitHub repository" })).toHaveValue("acme/two")
   })
 
   test("should write an edit typed and entered during the write of a blur once that write answered, and keep it in the field", async ({ page, setupRepo }) => {

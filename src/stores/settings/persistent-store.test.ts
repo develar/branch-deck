@@ -2,12 +2,15 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import { z } from "zod"
 import type { SettingsChange, SettingsPatch } from "@/lib/bindings"
-import { acceptSettingsChanges, createPersistentStore, onWriterChange } from "@/stores/settings/persistent-store"
+import { acceptSettingsChanges, createPersistentStore, onWriterChange, whenSettingWritten } from "@/stores/settings/persistent-store"
 import type { EventHandler } from "@/test-support/settings-writer-mock"
 
 interface SetCall {
   patch: SettingsPatch
-  answer: (change: SettingsChange | { error: string }) => Promise<void>
+  /** The number of the write among the writes of the page */
+  seq: number
+  /** The writer's answer: the change, an error, or null for a write it superseded */
+  answer: (change: SettingsChange | { error: string } | null) => Promise<void>
 }
 
 const { sets, listeners, errors, loadChanges } = vi.hoisted(() => {
@@ -35,12 +38,13 @@ vi.mock("@/lib/window-label", () => ({ windowLabel: "review", isMainWindow: fals
 vi.mock("@/lib/errors", async () => (await import("@/test-support/settings-writer-mock")).settingsWriterMocks.errors(errors))
 vi.mock("@/lib/bindings", () => ({
   commands: {
-    setSetting: ({ patch }: { patch: SettingsPatch }) =>
+    setSetting: ({ patch, order }: { patch: SettingsPatch; order: { seq: number } }) =>
       new Promise(resolve => {
         sets.push({
           patch,
+          seq: order.seq,
           answer: async change => {
-            resolve("error" in change ? { status: "error", error: { message: change.error } } : { status: "ok", data: change })
+            resolve(change !== null && "error" in change ? { status: "error", error: { message: change.error } } : { status: "ok", data: change })
             // the page takes the answer in a microtask
             await Promise.resolve()
             await Promise.resolve()
@@ -90,6 +94,24 @@ describe("persistent store", () => {
     await lastSet().answer({ version: 11, key: "order", value: { a: "2", b: true }, origin: "review" })
     store.setState({ a: "default" })
     expect(lastSet().patch).toEqual({ kind: "fields", key: "order", fields: { a: null } })
+  })
+
+  it("sends the changes queued behind an unanswered patch at once with it when the window closes, numbered after it, so the writer supersedes the older", async () => {
+    const store = objectStore("closing")
+    store.setState({ a: "1" })
+    store.setState({ b: true })
+    const first = lastSet()
+    expect(first.patch).toEqual({ kind: "fields", key: "closing", fields: { a: "1" } })
+    const written = whenSettingWritten("closing", true)
+    const closing = lastSet()
+    expect(closing.patch).toEqual({ kind: "fields", key: "closing", fields: { a: "1", b: true } })
+    expect(closing.seq).toBeGreaterThan(first.seq)
+    // the newer comes first and is applied; the older then is superseded, which is no failure
+    await closing.answer({ version: 20, key: "closing", value: { a: "1", b: true }, origin: "review" })
+    await first.answer(null)
+    expect(await written).toBe("taken")
+    expect(store.getState()).toMatchObject({ a: "1", b: true })
+    expect(errors).not.toContain("Cannot change the settings")
   })
 
   it("keeps the field of its own change the writer has not answered when another window's change of the key arrives", async () => {

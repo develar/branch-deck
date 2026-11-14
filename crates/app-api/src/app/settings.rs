@@ -4,6 +4,7 @@
 //! from `sub_window_loaded`)
 
 use crate::api_error::api_error;
+use crate::app::config_writer::page_write;
 use crate::context::AppContext;
 use crate::events::settings_changed;
 use crate::operation::operation;
@@ -11,7 +12,7 @@ use crate::transport::Call;
 use app_settings::service::SettingsService;
 use app_settings::windows::window_changes_since;
 use domain_types::error::ApiError;
-use domain_types::settings::{SettingsChange, SettingsPatch};
+use domain_types::settings::{SettingsChange, SettingsPatch, WriteOrder};
 use lease_pool::epoch::worktree_epoch;
 use serde::Deserialize;
 use specta::Type;
@@ -29,18 +30,29 @@ pub fn give_worktree_epochs(settings: &SettingsService) {
 #[serde(rename_all = "camelCase")]
 pub struct SetSettingParams {
   pub patch: SettingsPatch,
+  /// The page of the write and its number among the writes of that page (`nextWriteOrder`): an older write of the key of
+  /// the same page than one the writer applied changes nothing. A write without one is applied in the order it came
+  #[serde(default)]
+  #[specta(optional)]
+  pub order: Option<WriteOrder>,
 }
 
 /// Applies the change of the window of `call` to the settings, its label the origin of the change, and sends it to every
-/// window that gets its key; answers the change
-#[instrument(skip_all, fields(window = %call.window, key = params.patch.key()))]
-pub async fn set_setting(ctx: &AppContext, call: &Call, params: SetSettingParams) -> Result<SettingsChange, ApiError> {
+/// window that gets its key; answers the change, `None` for a write of the page older than one of its key the writer
+/// applied (`SettingsService::set_in_order`), which changes nothing
+#[instrument(skip_all, fields(window = %call.window, key = params.patch.key(), order = ?params.order))]
+pub async fn set_setting(ctx: &AppContext, call: &Call, params: SetSettingParams) -> Result<Option<SettingsChange>, ApiError> {
   operation(async move {
-    let change = ctx
-      .settings
-      .set(params.patch, call.window.as_str())
-      .map_err(|e| api_error(anyhow::Error::new(e).context("Cannot change the settings")))?;
-    settings_changed(&*ctx.events, &change);
+    let SetSettingParams { patch, order } = params;
+    let origin = call.window.as_str();
+    let applied = match order {
+      Some(order) => ctx.settings.set_in_order(patch, origin, &page_write(call, order)),
+      None => ctx.settings.set(patch, origin).map(Some),
+    };
+    let change = applied.map_err(|e| api_error(anyhow::Error::new(e).context("Cannot change the settings")))?;
+    if let Some(change) = &change {
+      settings_changed(&*ctx.events, change);
+    }
     Ok(change)
   })
   .await

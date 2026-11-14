@@ -23,6 +23,7 @@ import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
 import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { notifyError } from "@/lib/errors"
+import type { SettingsNotSavedMessage } from "@/lib/settings-close"
 import { SETTINGS_WINDOW, SETTINGS_WINDOW_SIZE } from "@/lib/settings-window"
 import type { SettingsTarget } from "@/lib/settings-window"
 import { openSubWindow } from "@/lib/window-management"
@@ -148,6 +149,10 @@ export function IndexPage() {
   // "Settings…" (⌘,) of every window and the buttons that open a page of it: only this window opens it, with the
   // current settings as its snapshot
   useAppCommand<SettingsTarget | null>("open_settings", target => openSettingsWindow(target ?? {}))
+  // a save of a field the close of Settings could not finish: the toast outlives the window, Open Settings on the field
+  useAppCommand<SettingsNotSavedMessage>("settings_not_saved", ({ title, description, target }) =>
+    notifyError(title, description, { children: "Open Settings", onClick: () => openSettingsWindow(target) }),
+  )
   // a write of Settings → Repository: the sync, the branch prefix, the pull requests it changes
   useRepositoryConfigChanges()
   // startup update check and the "Check for Updates…" menu item

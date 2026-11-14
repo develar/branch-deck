@@ -2,19 +2,22 @@ import { useState } from "react"
 import type { RepositoryConfig, RepositoryConfigChange, WriteScope } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { nextWriteOrder } from "@/lib/field-writes"
+import type { WriteAnswer } from "@/lib/field-writes"
 
 export interface ConfigWrite {
   /** A write runs: its controls are disabled */
   writing: boolean
-  /** Writes `change` to `scope`; a failure is a toast titled `errorTitle`. True once the backend answered the settings */
-  write: (change: RepositoryConfigChange, scope: WriteScope, errorTitle: string) => Promise<boolean>
+  /** Writes `change` to `scope`; a failure is a toast titled `errorTitle`. What the backend answered */
+  write: (change: RepositoryConfigChange, scope: WriteScope, errorTitle: string) => Promise<WriteAnswer>
 }
 
 /**
  * A write of one `branchdeck.*` key of the repository at `path` (`set_repository_config`), to `scope` (the local config
- * when none): the answer is the settings read again, handed to `showWritten`; a failure is a toast titled `errorTitle`.
- * True once the backend answered the settings. The one call of the command, for Settings → Repository and the settings
- * that one value of the global config gives every repository (`useConfigWrite`)
+ * when none), numbered among the writes of the page (`nextWriteOrder`): the answer is the settings read again, handed to
+ * `showWritten`; none for a write a newer one of the key superseded (`superseded`, no error); a failure is a toast titled
+ * `errorTitle`. The one call of the command, for Settings → Repository and the settings that one value of the global
+ * config gives every repository (`useConfigWrite`)
  */
 export function writeRepositoryConfig(
   path: string,
@@ -22,19 +25,22 @@ export function writeRepositoryConfig(
   scope: WriteScope | undefined,
   errorTitle: string,
   showWritten: (answer: RepositoryConfig) => void,
-): Promise<boolean> {
-  return commands.setRepositoryConfig({ repositoryPath: path, change, ...(scope !== undefined && { scope }) }).then(
+): Promise<WriteAnswer> {
+  return commands.setRepositoryConfig({ repositoryPath: path, change, ...(scope !== undefined && { scope }), order: nextWriteOrder() }).then(
     result => {
       if (result.status === "error") {
         notifyError(errorTitle, result.error)
-        return false
+        return { failed: result.error }
+      }
+      if (result.data === null) {
+        return "superseded"
       }
       showWritten(result.data)
-      return true
+      return "taken"
     },
     (error: unknown) => {
       notifyError(errorTitle, error)
-      return false
+      return { failed: error }
     },
   )
 }

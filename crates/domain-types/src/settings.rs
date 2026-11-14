@@ -237,6 +237,16 @@ impl SettingsPatch {
   }
 }
 
+/// What orders a write of a page among the writes of that page (`sync_utils::page_writes`): the id the page drew at its
+/// load, and the number of the write from 1 at that load
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct WriteOrder {
+  pub page: String,
+  pub seq: u32,
+}
+
 /// A change the writer applied, which every window gets (`settings_changed`): `value` is the whole key after the patch
 /// (`null` when the key is gone), `version` its place in the order of the writer, `origin` who asked for it (a window
 /// label, `rust`), so a window knows its own echo

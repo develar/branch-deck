@@ -520,7 +520,7 @@ fn a_repository_lock_lives_across_no_call_of_the_network() {
 // such a name too. As above, a call of git inside a function the scope calls is not followed.
 
 /// The std mutexes whose turn is the git itself: an exemption names its file, reason and count as above
-const EXEMPT_STD_GUARDS: [Exemption; 4] = [
+const EXEMPT_STD_GUARDS: [Exemption; 3] = [
   Exemption {
     path: "crates/branch-integration/src/archive.rs",
     hits: 2,
@@ -530,11 +530,6 @@ const EXEMPT_STD_GUARDS: [Exemption; 4] = [
     path: "crates/sync-core/src/cache_memo.rs",
     hits: 1,
     reason: "the mutex owns the one `cat-file --batch-check` process of the memo: its guard is the turn on that pipe",
-  },
-  Exemption {
-    path: "crates/sync-core/src/repository_config.rs",
-    hits: 1,
-    reason: "one write of a config file at a time in this process: its guard is the turn of the write",
   },
   Exemption {
     path: "crates/bd-core/src/context.rs",
