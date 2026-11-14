@@ -21,7 +21,7 @@ code-tokens = { path = "../code-tokens" }
 # the specs as their formats define them (OpenSpec's, IntelliJ's `*.spec.md`): the rules of a new spec, the `[@test]`
 # lines of a change, a link's path by its format's rule; psi-syntax's reader, which accio's records share (accio's
 # decision 2026-11-10-specs-parsed-by-spec-syntax), a revision of develar/psi-syntax, its public mirror
-spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316" }
+spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 object-cache = { path = "../object-cache" }
 # the blocks of the diffs, and accio for the fan-in, the tests and the descriptors (`SymbolIndex`, `Lenient`)
 file-diffs = { path = "../file-diffs" }

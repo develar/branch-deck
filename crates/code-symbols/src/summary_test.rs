@@ -6,7 +6,7 @@ use crate::test_support::{check_golden, declaration, summarize, summary_of};
 
 /// The value for the parsers and rules of this build. A change of `RULES_VERSION` or of the psi-syntax revision changes
 /// it: replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 3_899_279_239;
+const EXTRACTOR_VERSION: u32 = 3_367_846_191;
 
 #[test]
 fn every_fixture_matches_its_golden_file() {

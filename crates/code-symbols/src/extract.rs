@@ -59,7 +59,7 @@ pub fn summarize(language: Language, path: &str, source: &[u8]) -> FileSummary {
 /// `Cargo.toml`, those of `code-tokens` too, which the version of the tokens is keyed by
 /// (`code_tokens::tokens_version`)
 /// (`the_psi_syntax_revision_is_the_one_cargo_builds`)
-pub const PSI_SYNTAX_REVISION: &str = "2c8d63c1498e0b837050952d4b95fc24af8af316";
+pub const PSI_SYNTAX_REVISION: &str = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9";
 
 /// A stable hash of the rules and the parsers of this build: a cached summary is valid only for the same value. FNV-1a
 /// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax that reads it, so it is the same
