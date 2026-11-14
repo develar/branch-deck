@@ -90,20 +90,29 @@ host run one at a time, whatever their repository, and the other runs go as befo
 - **What is heavy** is the repository's to say: `heavy` of `[host]` lists the patterns of its heavy commands
   (`cargo nextest run*--workspace*`, `pnpm e2e*`), `*` any characters, matched against the words of the command after
   a leading `env` and its assignments. `brd-host run --heavy` marks a command that no pattern names. No flag marks a
-  run light: an agent that forgets a flag, and `bt --host`, which passes none, still wait, and a single E2E spec waits
-  too, since it is the run that a heavy neighbour fails.
+  run light: an agent that forgets a flag still waits, and a single E2E spec waits too, since it is the run that a
+  heavy neighbour fails. `bt --host` passes no flag, so a bt run is heavy only once its repository names it in
+  `heavy`; the IntelliJ monorepo decides that on its own, since every bt there is a Bazel build of every core.
 - **The client decides**, from `[host]` of the commit it ships, which it reads for the outputs anyway, and sends
   `RunSpec::heavy`. The agent reads `[host]` only after the lend and the pack, so a decision there would move the pack
   before the lend, and a run would wait for a pack without a slot while a Homebrew upgrade of git holds its
   host-object calls.
+- **An older agent** refuses every run of a commit with `heavy`, a light one too, as an unknown key of `[host]`. The
+  client knows both the table and the features of the agent, so it refuses before the start with `bad_config` and
+  names `brd-host upgrade`; a `--heavy` run of a commit without the key runs on such an agent beside the others.
 - **The heavy turn** (`lease_pool::host_turn`) is the queue of the host slots with one place for the whole host:
-  `~/.cache/brd-host/heavy.json`, the holder and the tickets of the waiting runs, each with the pid of its supervisor.
-  A heavy run takes the turn before its lend, in the phase `heavy`, so it holds no slot while it waits and the runs
-  that are not heavy keep every slot. Its wait is the wait for a slot: looks of 2 s, so a cancel ends it, a watch of
-  the table and a look every 5 s, and a line at once and once a minute with the holder, the runs ahead and the time
-  left. It gives the turn back after its give-back, so the processes that it left are gone first. A killed
-  supervisor holds nothing: the next run takes the turn of a gone holder at its next look. A wait past 2 h ends with
-  `heavy_timeout`.
+  `~/.cache/brd-host/heavy/heavy.json`, the holder and the tickets of the waiting runs, each with the pid of its
+  supervisor, and the schema of the table, which a supervisor of another build refuses rather than misread. A heavy
+  run takes the turn before its lend, in the phase `heavy`, so it holds no slot while it waits and the runs that are
+  not heavy keep every slot. Its wait is the wait for a slot: looks of 2 s, so a cancel ends it, one watch of the
+  directory of the table for the whole wait, which holds nothing else, a look every 5 s, and a line at once and once
+  a minute with the holder, the runs ahead and the time left. It gives the turn back after its give-back, so the
+  processes that it left are gone first. A killed supervisor holds nothing: the next run takes the turn of a gone
+  holder at its next look. A wait past 2 h ends with `heavy_timeout`, and the run then goes nowhere else: a local run
+  is the run under load that the turn keeps from failing.
+- **A client that a signal stops** cancels its run: SIGTERM and SIGHUP count as Ctrl+C, so a tool that kills an
+  agent's call at its timeout leaves no run waiting for the turn and running for nobody. A SIGKILL cannot be caught;
+  the run goes on until `brd-host cancel`.
 - **`brd-host runs`** names the holder and each waiting run with their times, the first thing an agent reads before
   it starts a heavy run.
 
@@ -205,8 +214,8 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
 7. **Decision**: The heavy runs of a host take one turn, and the repository names them in `heavy` of `[host]`; a flag
    only adds a run (2026-11-14).
    **Rationale**: Overlapping heavy runs made agents fix flakes that did not exist. A flag of each run alone would be
-   forgotten, and `bt --host` passes none. A pattern list is an explicit value of the repository, not a detection from
-   its state, and the default of a command it does not name is the behaviour before.
+   forgotten. A pattern list is an explicit value of the repository, not a detection from its state, and the default
+   of a command it does not name is the behaviour before.
 8. **Decision**: An unknown key of `[host]` names the keys of the build and the updates of both ends (2026-11-14).
    **Rationale**: Both ends refuse an unknown key, so a typo never drops a step. A new key then fails each run of an
    older end; its message says so, and a repository adds the key only after both ends know it.
@@ -224,6 +233,12 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
 - A run that is not heavy still runs beside a heavy one: a `cargo nextest run -p <crate>` compiles beside a full suite.
 - The command of a killed supervisor lives on until the keeper or a waiting lend gives its slot back, up to a minute,
   beside the next heavy run.
+- The holder of the turn waits for a slot of its repository while all of them are lent, up to an hour, and the heavy
+  runs of the other repositories wait behind it although their slots are free. Only runs that are not heavy hold those
+  slots then (one heavy run at a time), four of them at once by default, and they are short; a run that took a slot
+  first and the turn after would hold a slot idle for every heavy run in the queue instead.
+- The wait for a slot starts a watch of the lend table at each of its looks of 2 s, where the wait for the turn keeps
+  one for its whole wait.
 
 - A slot serves several checkouts. Ignored outputs of another branch stay, and a tool that trusts timestamps can build
   stale output. The same risk exists today within one checkout.

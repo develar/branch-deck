@@ -74,6 +74,12 @@ impl Home {
     self.cache_dir().join("upgrade.lock")
   }
 
+  /// The heavy turn of the host (`lease_pool::host_turn`): `~/.cache/brd-host/heavy/`, with `heavy.json` and its lock
+  /// only
+  pub fn heavy_dir(&self) -> PathBuf {
+    self.cache_dir().join("heavy")
+  }
+
   /// The fingerprints of the prepare steps per host slot (`prepare::Prepared`): `~/.cache/brd-host/slots/`
   pub fn slots_dir(&self) -> PathBuf {
     self.cache_dir().join("slots")

@@ -10,7 +10,9 @@ publish = false
 # the crate is empty and needs none
 [target.'cfg(unix)'.dependencies]
 # Ctrl+C of a run (`interrupt`)
-ctrlc.workspace = true
+# SIGTERM and SIGHUP too (`termination`): a client that a tool or a closed terminal stops cancels its run, rather than
+# leave it to wait for its slot or the heavy turn and to run for nobody
+ctrlc = { workspace = true, features = ["termination"] }
 # the identity, the pinned channel, the protocol, the refusal codes and `[host]` of a commit
 host-link = { path = "../host-link" }
 # the git of the client in process: the snapshot, the thin pack, the blob of `[host]` and the apply (`git`)

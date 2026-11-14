@@ -243,7 +243,7 @@ impl Code {
       Self::HeavyTimeout => (
         "heavy_timeout",
         ExitRule::Always(Exit::NotRun),
-        "The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it.",
+        "The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. Run it there again later, not where the client runs.",
       ),
       Self::LeaseFailed => ("lease_failed", ExitRule::Always(Exit::NotRun), "The lend failed. The message has the error of the pool."),
       Self::OldGit => (

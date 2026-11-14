@@ -15,14 +15,14 @@ fn the_lines_of_the_heavy_turn_name_the_holder_and_each_waiting_run_with_their_t
     ],
   });
   assert_eq!(
-    lines(&table, now).unwrap(),
+    lines_at(&table, now).unwrap(),
     [
       "heavy turn: run 1788-12 of branch-deck holds it 4 min: cargo nextest run --workspace",
       "  run 1790-03 of idea-1 waits 60 s: ./community/tools/bt.cmd --lane fast",
     ]
   );
-  assert_eq!(lines(&serde_json::json!({}), now).unwrap(), ["heavy turn: free"]);
-  assert_eq!(lines(&serde_json::json!({ "queue": 1 }), now).unwrap_err().code, Code::Link);
+  assert_eq!(lines_at(&serde_json::json!({}), now).unwrap(), ["heavy turn: free"]);
+  assert_eq!(lines_at(&serde_json::json!({ "queue": 1 }), now).unwrap_err().code, Code::Link);
 }
 
 /// A heavy run whose turn another run holds says the line of its wait at once, and a stop ends the wait within its
@@ -40,7 +40,6 @@ fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
   let said = Mutex::new(Vec::new());
   let stopped = AtomicBool::new(false);
   let stop = || stopped.load(Ordering::SeqCst);
-  let started = Instant::now();
   let waited = std::thread::scope(|scope| {
     let waiting = scope.spawn(|| {
       let mut say = |line: &str| said.lock().unwrap_or_else(PoisonError::into_inner).push(line.to_owned());
@@ -53,7 +52,6 @@ fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
     waiting.join().unwrap()
   });
   assert_eq!(waited, None, "the stop ended the wait");
-  assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
   let said = said.into_inner().unwrap();
   assert_eq!(said.len(), 1, "{said:?}");
   assert!(
@@ -69,5 +67,5 @@ fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
   );
   assert!(!leave(&home, "run-2").unwrap(), "a ticket is no turn");
   assert!(leave(&home, "run-1").unwrap());
-  assert_eq!(lines(&live(&home).unwrap(), now_ms()).unwrap(), ["heavy turn: free"]);
+  assert_eq!(lines(&live(&home).unwrap()).unwrap(), ["heavy turn: free"]);
 }

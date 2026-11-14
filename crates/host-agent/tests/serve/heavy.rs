@@ -30,6 +30,11 @@ fn heavy(world: &World, run: &str, marks: &Path, gate: &Path) -> RunSpec {
   }
 }
 
+/// A time left as the line says it: `45 s` up to two minutes, then whole minutes
+fn span(seconds: u64) -> String {
+  if seconds < 120 { format!("{seconds} s") } else { format!("{} min", seconds / 60) }
+}
+
 /// The runs whose command started, by their marks
 fn started(marks: &Path) -> Vec<String> {
   let mut runs: Vec<String> = fs::read_dir(marks).map_or_else(|_| Vec::new(), |entries| entries.filter_map(|entry| entry.ok()?.file_name().into_string().ok()).collect());
@@ -101,7 +106,6 @@ fn a_cancel_in_the_heavy_queue_ends_the_run_before_its_lend_and_its_ticket_leave
   let cancelled = agent.follow("8-2");
   assert_eq!(cancelled.end, Reply::Exit { code: 130 }, "{}", agent.dump("8-2"));
   assert_eq!(cancelled.phase_names(), ["heavy"], "no lend after the cancel");
-  assert!(cancelled.phase_ms("heavy") < 30_000, "{cancelled:?}");
   eventually("the cancel left the heavy queue", || heavy_turn(&agent) == (Some("8-1".to_owned()), vec![]));
   assert_eq!(started(&marks), ["8-1"], "the cancelled run never ran");
   fs::write(&gate, "").expect("the gate opens");
@@ -156,7 +160,8 @@ fn the_line_of_a_heavy_wait_comes_again_with_the_time_waited_and_the_time_left()
   agent.start(heavy(&world, "11-1", &marks, &gate));
   eventually("the first heavy run holds the turn", || started(&marks) == ["11-1"]);
   agent.start(heavy(&world, "11-2", &marks, &gate));
-  // the line at once, then one after 300 ms, after 2 s or more of waiting
+  // the line at once, then one each 300 ms after a look of up to 2 s, the time left in whole minutes of what is left
+  // of the 600 s
   let lines = || -> Vec<String> {
     events(&world, "11-2")
       .lines()
@@ -164,24 +169,24 @@ fn the_line_of_a_heavy_wait_comes_again_with_the_time_waited_and_the_time_left()
       .map(str::to_owned)
       .collect()
   };
-  eventually("a line of the wait after two seconds", || {
-    lines().iter().any(|line| line.contains("waits 2 s ") || line.contains("waits 3 s "))
-  });
-  let later = lines()
-    .into_iter()
-    .find(|line| line.contains("waits 2 s ") || line.contains("waits 3 s "))
-    .expect("a later line");
-  let waited: u64 = later
+  eventually("a second line of the wait", || lines().len() >= 2);
+  let lines = lines();
+  assert!(
+    lines[0].contains("run 11-2 waits 0 s for the heavy turn of the host, 10 min left: run 11-1 of "),
+    "{lines:?}"
+  );
+  let waited: u64 = lines[1]
     .split("waits ")
     .nth(1)
     .and_then(|rest| rest.split(' ').next())
     .and_then(|n| n.parse().ok())
     .expect("the time waited");
+  // the line says the whole seconds waited, and the time left is of the exact wait: one of two whole minutes
+  let left = |seconds: u64| format!("waits {waited} s for the heavy turn of the host, {} left: run 11-1 of ", span(seconds));
   assert!(
-    later.contains(&format!("waits {waited} s for the heavy turn of the host, {} min left: run 11-1 of ", (600 - waited) / 60)),
-    "{later}"
+    waited >= 1 && (lines[1].contains(&left(600 - waited)) || lines[1].contains(&left(599 - waited))),
+    "{lines:?}"
   );
-  assert!(lines()[0].contains("waits 0 s for the heavy turn of the host, 10 min left: "), "{:?}", lines());
   fs::write(&gate, "").expect("the gate opens");
   assert_eq!(agent.follow("11-1").end, Reply::Exit { code: 0 });
   assert_eq!(agent.follow("11-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("11-2"));

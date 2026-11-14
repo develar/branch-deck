@@ -13,9 +13,13 @@
 //!
 //! An unknown key or a value of the wrong shape in `[host]` is a [`ConfigError`], so a typo never drops a step. An
 //! unknown key says that it can be a key of a later Branch Deck, and how to update brd-host, since both ends refuse a
-//! key that their build predates. The other tables of `.branchdeck.toml` are not the agent's, and they stay unread.
+//! key that their build predates; the keys that a build knows are the fields of its serde types ([`fields_of`]). A key
+//! that an older agent refuses names the feature of an agent that reads it ([`RepoConfig::needs_features`]), so the
+//! client refuses before the start. The other tables of `.branchdeck.toml` are not the agent's, and they stay unread.
 
+use crate::proto::feature;
 use serde::Deserialize;
+use serde::de::Visitor;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Component, Path};
@@ -26,20 +30,14 @@ pub const FILE: &str = ".branchdeck.toml";
 /// The table of `FILE` for the remote runs
 pub const TABLE: &str = "host";
 
-/// The keys of `[host]` that this build knows
-const HOST_KEYS: [&str; 4] = ["outputs", "heavy", "env", "prepare"];
-/// The keys of a table of `[host.env]` that this build knows
-const ENV_KEYS: [&str; 4] = ["prepend", "append", "port", "unset"];
-/// The keys of a step of `[[host.prepare]]` that this build knows
-const STEP_KEYS: [&str; 4] = ["name", "run", "inputs", "creates"];
-
 /// The content of `[host]`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RepoConfig {
   /// Paths relative to the slot root: files or directories.
   pub outputs: Vec<String>,
   /// The patterns of the heavy commands, in the order of the file: `*` matches any characters, the rest is literal.
-  pub heavy: Vec<String>,
+  /// `None` without the key, as a commit that an agent before heavy runs reads.
+  pub heavy: Option<Vec<String>>,
   /// The variables in the order of their names.
   pub env: Vec<(String, EnvValue)>,
   pub prepare: Vec<Step>,
@@ -51,7 +49,13 @@ impl RepoConfig {
   /// matches `env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts` and `pnpm e2e-up`, `pnpm test` only `pnpm test`
   pub fn heavy_entry(&self, command: &[String]) -> Option<&str> {
     let line = heavy_line(command);
-    self.heavy.iter().find(|pattern| glob_matches(pattern, &line)).map(String::as_str)
+    self.heavy.iter().flatten().find(|pattern| glob_matches(pattern, &line)).map(String::as_str)
+  }
+
+  /// The features of the agent that reads this table: an agent without one refuses every run of the commit with
+  /// `bad_config`, as an unknown key, so the client refuses before the start. `heavy` needs `feature::HEAVY`, even empty
+  pub fn needs_features(&self) -> Vec<&'static str> {
+    self.heavy.as_ref().map(|_| feature::HEAVY).into_iter().collect()
   }
 }
 
@@ -158,7 +162,7 @@ struct RawConfig {
   #[serde(default)]
   outputs: Vec<String>,
   #[serde(default)]
-  heavy: Vec<String>,
+  heavy: Option<Vec<String>>,
   #[serde(default)]
   env: BTreeMap<String, toml::Value>,
   #[serde(default)]
@@ -203,22 +207,70 @@ pub fn parse_branchdeck(text: &str) -> Result<Option<RepoConfig>, ConfigError> {
 /// Checks that `[host]`, each table of `[host.env]` and each step of `[[host.prepare]]` have only the keys of this build.
 /// An unknown key can be a typo, or a key of a later Branch Deck: the message says both, and how to update brd-host
 fn check_keys(host: &toml::Table) -> Result<(), String> {
-  unknown_key(host, &HOST_KEYS, "")?;
+  unknown_key(host, fields_of::<RawConfig>(), "")?;
   if let Some(toml::Value::Table(env)) = host.get("env") {
     for (name, value) in env {
       if let toml::Value::Table(table) = value {
-        unknown_key(table, &ENV_KEYS, &format!("env.{name}."))?;
+        unknown_key(table, fields_of::<EnvTable>(), &format!("env.{name}."))?;
       }
     }
   }
   if let Some(toml::Value::Array(steps)) = host.get("prepare") {
     for step in steps {
       if let toml::Value::Table(table) = step {
-        unknown_key(table, &STEP_KEYS, "prepare.")?;
+        unknown_key(table, fields_of::<Step>(), "prepare.")?;
       }
     }
   }
   Ok(())
+}
+
+/// The fields of the struct `T` as its derive of `Deserialize` names them to a deserializer: the keys of its table that
+/// this build knows, so the check of the keys and serde never differ
+fn fields_of<'de, T: Deserialize<'de>>() -> &'static [&'static str] {
+  let mut fields: &'static [&'static str] = &[];
+  // the derive hands the fields to `deserialize_struct`, which keeps them and ends the deserialization
+  let _ = T::deserialize(FieldsOf(&mut fields));
+  fields
+}
+
+/// A deserializer that only keeps the fields of the struct that asks it for one
+struct FieldsOf<'a>(&'a mut &'static [&'static str]);
+
+/// The end of a deserialization by `FieldsOf`
+#[derive(Debug)]
+struct Kept;
+
+impl fmt::Display for Kept {
+  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    formatter.write_str("the fields of the struct are kept")
+  }
+}
+
+impl std::error::Error for Kept {}
+
+impl serde::de::Error for Kept {
+  fn custom<T: fmt::Display>(_: T) -> Self {
+    Self
+  }
+}
+
+impl<'de> serde::Deserializer<'de> for FieldsOf<'_> {
+  type Error = Kept;
+
+  fn deserialize_any<V: Visitor<'de>>(self, _: V) -> Result<V::Value, Kept> {
+    Err(Kept)
+  }
+
+  fn deserialize_struct<V: Visitor<'de>>(self, _: &'static str, fields: &'static [&'static str], _: V) -> Result<V::Value, Kept> {
+    *self.0 = fields;
+    Err(Kept)
+  }
+
+  serde::forward_to_deserialize_any! {
+    bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf option unit unit_struct
+    newtype_struct seq tuple tuple_struct map enum identifier ignored_any
+  }
 }
 
 fn unknown_key(table: &toml::Table, known: &[&str], within: &str) -> Result<(), String> {
@@ -236,7 +288,7 @@ fn check(raw: RawConfig) -> Result<RepoConfig, String> {
   for output in &raw.outputs {
     check_path("outputs", output)?;
   }
-  if raw.heavy.iter().any(|pattern| pattern.trim().is_empty()) {
+  if raw.heavy.iter().flatten().any(|pattern| pattern.trim().is_empty()) {
     return Err("`heavy` has an empty pattern".to_owned());
   }
   let mut env = Vec::with_capacity(raw.env.len());

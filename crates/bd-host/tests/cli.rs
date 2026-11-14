@@ -343,32 +343,37 @@ fn the_report_goes_to_its_descriptor_on_every_way_out() {
   assert_eq!(report_of(&path)["refusal"]["code"].as_str(), Some("usage"));
 }
 
-#[test]
-fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
-  let world = World::new();
-  let _agent = world.serve();
-  // One `sleep` until the cancel, where a loop of short ones started a process every 50 ms: SIGINT reaches the group,
-  // so `sleep` dies of it and sh runs the trap. The trap makes the end of the command certain: without it, sh goes on
-  // when SIGINT comes while it reaps a child that has exited 0, as it takes the signal as handled by its child. A failed
-  // test leaves the command for at most 60 s
-  let script = "trap 'exit 130' INT; echo started; sleep 60";
+/// Starts `brd-host run` of a command that waits for SIGINT up to 60 s, and answers once its first line came. One `sleep`
+/// until the cancel, where a loop of short ones started a process every 50 ms: SIGINT reaches the group, so `sleep` dies
+/// of it and sh runs the trap. The trap makes the end of the command certain: without it, sh goes on when SIGINT comes
+/// while it reaps a child that has exited 0, as it takes the signal as handled by its child. A failed test leaves the
+/// command for at most 60 s
+fn start_a_run_that_waits(world: &World, stderr: Stdio) -> Child {
   let mut run = world
     .command()
-    .args(["run", ALIAS, "--head", "--", "/bin/sh", "-c", script])
+    .args(["run", ALIAS, "--head", "--", "/bin/sh", "-c", "trap 'exit 130' INT; echo started; sleep 60"])
     .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
+    .stderr(stderr)
     .spawn()
     .expect("a run");
   let mut first = String::new();
   BufReader::new(run.stdout.take().expect("the stdout")).read_line(&mut first).expect("the first line");
   assert_eq!(first, "started\n", "serve: {}", world.serve_log());
+  run
+}
+
+#[test]
+fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
+  let world = World::new();
+  let _agent = world.serve();
+  let run = start_a_run_that_waits(&world, Stdio::piped());
 
   let runs = world.bd_host(&["runs", ALIAS, "--json"]);
   assert_eq!(runs.status.code(), Some(0), "{}", text(&runs.stderr));
   let listed: Value = serde_json::from_slice(&runs.stdout).expect("JSON");
   let id = listed["runs"][0]["run"].as_str().expect("the run that goes on").to_owned();
   assert_eq!(listed["runs"][0]["exit"], Value::Null, "{listed}");
-  assert_eq!(listed["heavy"], json!({ "queue": [] }), "a run that is not heavy takes no turn: {listed}");
+  assert_eq!(listed["heavy"], json!({ "schema": 1, "queue": [] }), "a run that is not heavy takes no turn: {listed}");
   let text_runs = world.bd_host(&["runs", ALIAS]);
   assert!(text(&text_runs.stdout).starts_with(&format!("{id}  running  checkout-")), "{}", text(&text_runs.stdout));
   assert!(text(&text_runs.stdout).ends_with("\nheavy turn: free\n"), "{}", text(&text_runs.stdout));
@@ -408,6 +413,120 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   assert_eq!(refused.status.code(), Some(255));
   let refused: Value = serde_json::from_slice(&refused.stdout).expect("JSON");
   assert_eq!(refused["refusal"]["code"].as_str(), Some("no_host"), "{refused}");
+}
+
+/// SIGTERM to a client counts as Ctrl+C: a tool that stops the client after its timeout cancels the run on the host,
+/// and the client follows its output to the end, rather than leave the run going for nobody
+#[test]
+fn sigterm_to_the_client_cancels_the_run_on_the_host() {
+  let world = World::new();
+  let _agent = world.serve();
+  let mut run = world
+    .command()
+    .args([
+      "run",
+      ALIAS,
+      "--head",
+      "--",
+      "/bin/sh",
+      "-c",
+      "trap 'echo interrupted; exit 130' INT; echo started; sleep 60",
+    ])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .expect("a run");
+  let mut stdout = BufReader::new(run.stdout.take().expect("the stdout"));
+  let mut first = String::new();
+  stdout.read_line(&mut first).expect("the first line");
+  assert_eq!(first, "started\n", "serve: {}", world.serve_log());
+  let pid = run.id().to_string();
+  assert!(Command::new("kill").args(["-TERM", &pid]).status().expect("kill").success());
+  let mut rest = String::new();
+  stdout.read_to_string(&mut rest).expect("the rest of the stdout");
+  let ended = run.wait_with_output().expect("the client ended");
+  let stderr = text(&ended.stderr);
+  assert_eq!(ended.status.code(), Some(130), "the command ended on the SIGINT of the cancel: {stderr}");
+  assert_eq!(rest, "interrupted\n", "{stderr}");
+  assert!(stderr.contains("brd-host: Ctrl+C, SIGTERM or SIGHUP: cancelling the run "), "{stderr}");
+}
+
+/// SIGTERM to `brd-host follow` leaves the follow at once with 130, as Ctrl+C does, and the run goes on on the host: a
+/// follow that an agent started in the background and stopped never hangs
+#[test]
+fn sigterm_to_a_follow_leaves_it_and_the_run_goes_on() {
+  let world = World::new();
+  let _agent = world.serve();
+  let mut run = start_a_run_that_waits(&world, Stdio::null());
+  let runs: Value = serde_json::from_slice(&world.bd_host(&["runs", ALIAS, "--json"]).stdout).expect("JSON");
+  let id = runs["runs"][0]["run"].as_str().expect("the run").to_owned();
+  let mut follow = world
+    .command()
+    .args(["follow", ALIAS, &id])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .expect("a follow");
+  let mut stdout = BufReader::new(follow.stdout.take().expect("the stdout of the follow"));
+  let mut line = String::new();
+  stdout.read_line(&mut line).expect("the first line of the follow");
+  assert_eq!(line, "started\n");
+  assert!(Command::new("kill").args(["-TERM", &follow.id().to_string()]).status().expect("kill").success());
+  let left = follow.wait_with_output().expect("the follow ended");
+  let stderr = text(&left.stderr);
+  assert_eq!(left.status.code(), Some(130), "{stderr}");
+  assert!(
+    stderr.contains(&format!(
+      "brd-host: interrupted: Ctrl+C, SIGTERM or SIGHUP left the follow of the run {id}, which goes on on {ALIAS}"
+    )),
+    "{stderr}"
+  );
+  let listed: Value = serde_json::from_slice(&world.bd_host(&["runs", ALIAS, "--json"]).stdout).expect("JSON");
+  assert_eq!(listed["runs"][0]["exit"], Value::Null, "the run goes on: {listed}");
+  assert_eq!(world.bd_host(&["cancel", ALIAS, &id]).status.code(), Some(0));
+  assert_eq!(run.wait().expect("the run ended").code(), Some(130));
+}
+
+/// SIGTERM to a command whose request goes on on the host without it (`trim`, `upgrade`) ends it at once with 130 and
+/// says what goes on there, while its connection waits for a host that never answers
+#[test]
+fn sigterm_ends_a_trim_or_an_upgrade_at_once_and_says_what_goes_on_on_the_host() {
+  let world = World::new();
+  // a host that accepts the connection and never answers the handshake
+  let silent = std::net::TcpListener::bind("127.0.0.1:0").expect("a listener");
+  let address = silent.local_addr().expect("its address");
+  let host_file = json!({
+    "alias": "silent",
+    "fingerprint": Identity::generate().expect("an identity").fingerprint().to_string(),
+    "port": address.port(),
+    "hostname": "127.0.0.1",
+    "addresses": [address.to_string()],
+    "repo": world.repo.path_str(),
+  });
+  let hosts = world.home.path().join(".config/brd-host/hosts");
+  fs::create_dir_all(&hosts).expect("the hosts directory");
+  fs::write(hosts.join("silent.json"), host_file.to_string()).expect("the host file");
+  for (command, said) in [
+    ("trim", "brd-host: Ctrl+C, SIGTERM or SIGHUP ends this process; the trim goes on on the host"),
+    (
+      "upgrade",
+      "brd-host: Ctrl+C, SIGTERM or SIGHUP ends this process; the host goes on with an upgrade whose binary came whole",
+    ),
+  ] {
+    let child = world
+      .command()
+      .args([command, "silent"])
+      .stdout(Stdio::null())
+      .stderr(Stdio::piped())
+      .spawn()
+      .expect(command);
+    let _connection = silent.accept().expect("the command connects");
+    assert!(Command::new("kill").args(["-TERM", &child.id().to_string()]).status().expect("kill").success());
+    let ended = child.wait_with_output().expect("the command ended");
+    let stderr = text(&ended.stderr);
+    assert_eq!(ended.status.code(), Some(130), "{command}: {stderr}");
+    assert!(stderr.contains(said), "{command}: {stderr}");
+  }
 }
 
 #[test]
@@ -477,7 +596,7 @@ fn runs_shows_who_holds_the_heavy_turn_and_who_waits_for_how_long() {
     "{stderr}"
   );
   assert!(stderr.contains("brd-host: phases: heavy "), "{stderr}");
-  wait_until("the turn is free", || heavy() == json!({ "queue": [] }));
+  wait_until("the turn is free", || heavy() == json!({ "schema": 1, "queue": [] }));
 }
 
 #[test]

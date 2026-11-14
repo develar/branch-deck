@@ -364,7 +364,11 @@ fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> 
     }
     Ok(Some(TurnAnswer::Queued(queue))) => Err(Refusal::new(
       Code::HeavyTimeout,
-      format!("no heavy turn for {} s; giving up: {}", wait.as_secs(), turn::timeout_line(&spec.run, &queue, waited)),
+      format!(
+        "no heavy turn for {} s; giving up: {}. Run it on this host again later, not on the client, whose load fails the tests of a heavy run: `brd-host runs` names the heavy runs",
+        wait.as_secs(),
+        turn::timeout_line(&spec.run, &queue, waited)
+      ),
     )),
     Err(refusal) => Err(refusal),
   }

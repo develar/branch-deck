@@ -62,13 +62,19 @@ A Mac host stays awake while a client talks to it and while a run goes on.
 
 The host runs its heavy runs one at a time, whatever their repository: two full test suites at once both slow down
 until their tests fail on timeouts, which are no flakes. A run is heavy when a pattern of `heavy` of `[host]` of the
-commit matches its command, or with `--heavy`; `bt --host` needs no flag. A heavy run says
+commit matches its command, or with `--heavy`. `bt --host` passes no flag: a bt run is heavy only once its repository
+names `./community/tools/bt.cmd …` in `heavy`, and the IntelliJ monorepo decides that on its own. A heavy run says
 `brd-host: a heavy run by …`, then waits for the heavy turn before it takes a slot, with a line at once and once a
 minute: `brd-host: run <run> waits 3 min for the heavy turn of the host, 117 min left: run <run> of <repo> holds it
 4 min (<command>), 1 run ahead: …`. That is a wait, not a hang: never cancel and rerun it locally for it, and never
 treat a test that failed on a timeout beside another heavy run as a flake to fix. `brd-host runs <host>` names the
-holder and each waiting run with their times. After 2 h the run refuses with `heavy_timeout` (exit 75). A run that is
-not heavy runs at once.
+holder and each waiting run with their times. After 2 h the run refuses with `heavy_timeout` (exit 75): never run it
+locally then, as under the load of this machine its tests fail on timeouts; read `brd-host runs <host>` and run it
+again later. A run that is not heavy runs at once.
+
+A heavy run can wait long, so start it in the background (`run_in_background` of a coding agent) and follow its
+output, rather than in a call that a tool kills at its timeout. SIGTERM and SIGHUP cancel the run on the host as Ctrl+C
+does; SIGKILL leaves it going: `brd-host cancel <host> <run>` then.
 
 `bt --host <host> <the usual bt args>` runs a test of the IntelliJ monorepo the same way. It runs the committed HEAD
 only and refuses a dirty tree. The new run directories of `out/bt-runs` come back.
@@ -108,7 +114,8 @@ A host has the agent only: no Branch Deck app and no `brd` binary. Never install
 `brd lease` on a host through `brd-host run`. Below `branchdeck.leaseMinFree` of the host the agent frees space by
 itself, once a minute: the trash, the free slots past `branchdeck.leaseMaxSlots`, then the build output and the free
 slots below the limit, as a `brd lease get` does. `brd-host trim <host> [--max <n>] [--plan]` deletes the free slots past
-the limit now, as `brd lease trim` does there; `brd-host disk <host>` shows what a trim deletes next. An agent without
+the limit now, as `brd lease trim` does there; `brd-host disk <host>` shows what a trim deletes next. Ctrl+C, SIGTERM or SIGHUP
+ends `trim` and `upgrade` at once (130); the host goes on with the request it has. An agent without
 the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 
 ## Exit codes
@@ -116,7 +123,8 @@ the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 | Exit | Meaning | What to do |
 |---|---|---|
 | The code of the command | The command ran to its end. | Read the output as for a local run. |
-| 75 | The host did not run the command: a refusal before the start, such as `unreachable`, `behind`, `slot_timeout` or `heavy_timeout`. | Run the command locally. |
+| 75 | The host did not run the command: a refusal before the start, such as `unreachable`, `behind` or `slot_timeout`. | Run the command locally. |
+| 75 with `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | Never locally: `brd-host runs <host>`, then run it again later. |
 | 130 | Ctrl+C before the command, or a second Ctrl+C. | Before the command, nothing ran. After a second Ctrl+C, the run goes on: `brd-host follow <host> <run>` shows its end. |
 | 255 with `unknown_run` | The run started and is gone on the host. Whether its command ran is unknown. | Never rerun it locally on your own. Tell the user. |
 | 255, any other | The link broke after the start, the fetch or the changes failed, or a request other than a run failed. | Read the message. A lost run goes on: `brd-host follow`. |
@@ -130,7 +138,8 @@ The run lives on the host, not on the connection. A lost link connects again, wi
 output follows from the last line it showed. After 10 min without a reply the client exits with 255 and names the
 command that follows the run.
 
-- `brd-host follow <host> <run>` follows a run from its first line. Ctrl+C leaves, and the run goes on.
+- `brd-host follow <host> <run>` follows a run from its first line. Ctrl+C, SIGTERM or SIGHUP leaves at once (130), and the
+  run goes on, so stopping a follow in the background is safe.
 - `brd-host cancel <host> <run>` asks the host to interrupt a run. `follow` shows its end.
 - Ctrl+C in `brd-host run` cancels the run on the host and shows the output to its end. A second Ctrl+C leaves at once.
 - `brd-host fetch <host> <run> [--fetch <dir>]` copies the files of a run whose copy failed (`fetch_failed`). Run it in
@@ -199,7 +208,7 @@ A refusal says `brd-host: <code>: <message>` on stderr. Give the message to the 
 | `no_host` | This machine has no host file for the alias: the host was never set up from here. |
 | `schema` | The agent speaks another protocol. Ask the user for `brd-host upgrade <host>`. |
 | `lease_failed`, `slot_timeout` | The host lent no slot. Exit 75: run locally, or try again later. |
-| `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. Exit 75: `brd-host runs <host>`, then try again later. |
+| `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. Exit 75, but never run it locally: `brd-host runs <host>`, then run it again later. |
 | `local_changes` | `--head` or `bt --host` with uncommitted or untracked changes. Commit first. |
 | `git_failed` | A local git call failed: the snapshot, the candidates or the pack. Exit 75: run locally. |
 | `old_git` | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. Exit 75. Give the message to the user. |

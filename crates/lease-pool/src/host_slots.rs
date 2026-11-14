@@ -314,7 +314,7 @@ pub(crate) fn host_slot_number(git_common_dir: &Path, lease: &crate::lease::Leas
 }
 
 /// Now, in Unix milliseconds
-pub(crate) fn now_ms() -> u64 {
+pub fn now_ms() -> u64 {
   SystemTime::now()
     .duration_since(UNIX_EPOCH)
     .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))

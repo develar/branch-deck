@@ -349,7 +349,7 @@ the content that the table names.
 | Agent | `~/.config/brd-host/agent/identity.crt`, `identity.key` | The certificate and the key of the agent |
 | Agent | `~/.config/brd-host/agent/clients` | The allow list: one `<64 hex> <name>` line per client |
 | Agent | `~/.cache/brd-host/runs/<run>/` | `spec.json`, `events.log`, `exit.json`, `supervisor.log`, `outputs/`, `changes.patch` |
-| Agent | `~/.cache/brd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared`, `heavy.json` and `heavy.lock` (the heavy turn of the host) |
+| Agent | `~/.cache/brd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared`, `heavy/heavy.json` and `heavy/heavy.lock` (the heavy turn of the host, in a directory of its own) |
 | Agent | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist`, `~/Library/Logs/brd-host.log` | The LaunchAgent and its log |
 | Checkout | `<git dir>/branch-deck/host/runs/<run>.json`, `<run>.patch` | The run record and the patch of `--apply` |
 
@@ -541,7 +541,7 @@ of the pack MUST go to `base:<affinity>`.
 
 A run MUST be heavy with `--heavy`, else when a pattern of `heavy` of `[host]` of the shipped commit matches its
 command, and its `Start` MUST carry `heavy`. Its line MUST say why it is heavy. An agent without the feature `heavy`
-MUST get the run with a line that names `brd-host upgrade <alias>`.
+MUST get no run of a commit whose `[host]` has `heavy`: the client refuses before the start.
 
 #### Scenario: A heavy run
 - **WHEN** a run starts with `--heavy`, or the first pattern of `heavy` that matches its command is `<pattern>`
@@ -554,10 +554,18 @@ MUST get the run with a line that names `brd-host upgrade <alias>`.
   [@test] crates/host-link/src/proto_test.rs (`a_heavy_run_and_the_heavy_turn_are_optional_fields_within_the_schema`)
 
 #### Scenario: An agent without the feature heavy
-- **WHEN** a heavy run starts on an agent whose hello has no feature `heavy`
+- **WHEN** a `--heavy` run of a commit without `heavy` in `[host]` starts on an agent whose hello has no feature `heavy`
 - **THEN** the client says `brd-host: the agent on <alias> predates heavy runs, so this one runs beside the others:
   `brd-host upgrade <alias>` sends this build`, and the run goes on as one that is not heavy
   [@test] crates/host-client/src/run_test.rs (`a_run_is_heavy_by_a_pattern_of_its_commit_or_by_heavy_and_says_why`)
+
+#### Scenario: A commit with heavy and an agent without the feature
+- **WHEN** a run, heavy or not, of a commit whose `[host]` has `heavy`, even empty, starts on an agent whose hello has no
+  feature `heavy`, which would refuse every run of that commit
+- **THEN** the client refuses before `Start` with `bad_config` (exit 75): `the agent on <alias> predates `heavy` of
+  [host] of .branchdeck.toml, so it refuses every run of this commit: `brd-host upgrade <alias>` sends this build`
+  [@test] crates/host-client/src/run_test.rs (`a_commit_with_heavy_on_an_agent_before_heavy_runs_refuses_before_the_start`)
+  [@test] crates/host-link/src/config_test.rs (`the_known_keys_are_the_fields_of_serde_and_heavy_needs_its_feature`)
 
 ### Requirement: run: Ctrl+C before the start runs nothing on the host
 
@@ -570,8 +578,8 @@ Ctrl+C before `Start` MUST run nothing on the host and exit 130 (`interrupted`).
 
 ### Requirement: run: Ctrl+C after the start cancels the run and follows it
 
-Ctrl+C after `Start` MUST send `Cancel` and stop the pack, and the output follows to the end of the run. A `Cancel`
-whose connection fails MUST connect again for up to 120 s.
+Ctrl+C after `Start` MUST send `Cancel` and stop the pack, and the output follows to the end of the run; SIGTERM and
+SIGHUP MUST count as Ctrl+C. A `Cancel` whose connection fails MUST connect again for up to 120 s.
 
 #### Scenario: Ctrl+C after Start
 - **WHEN** the user presses Ctrl+C after `Start`
@@ -583,6 +591,12 @@ whose connection fails MUST connect again for up to 120 s.
 - **WHEN** the connection of a `Cancel` fails
 - **THEN** it connects again for up to 120 s
   [@test] crates/host-client/src/run_test.rs (`a_failed_cancel_connects_again`)
+
+#### Scenario: SIGTERM after Start
+- **WHEN** a tool or a closed terminal sends the client SIGTERM or SIGHUP after `Start`
+- **THEN** the client sends `Cancel` as for Ctrl+C, says `brd-host: Ctrl+C, SIGTERM or SIGHUP: cancelling the run …`, and
+  follows the output to the end of the run
+  [@test] crates/bd-host/tests/cli.rs (`sigterm_to_the_client_cancels_the_run_on_the_host`)
 
 ### Requirement: run: A second Ctrl+C stops the follow at once
 
@@ -940,8 +954,8 @@ last one. Only a heavy run has `heavy`, and only a run that waited for an upgrad
 ### Requirement: follow, cancel, fetch, forget, runs: follow shows a run from its first line
 
 `brd-host follow <alias> <run>` MUST follow the output of a run from its first line, with the bytes of each stream as
-`run` writes them, and exit with the exit code of the command at its end. Ctrl+C MUST leave the follow, and the run
-goes on.
+`run` writes them, and exit with the exit code of the command at its end. The first Ctrl+C, SIGTERM or SIGHUP MUST leave
+the follow at once with 130, and the run goes on.
 
 #### Scenario: A follow of a run
 - **WHEN** `brd-host follow <alias> <run>` runs
@@ -952,8 +966,11 @@ goes on.
   [@test] crates/host-client/src/run_test.rs (`the_output_sink_gets_the_bytes_of_each_stream`)
 
 #### Scenario: Ctrl+C during a follow
-- **WHEN** the user presses Ctrl+C during `brd-host follow`
-- **THEN** the follow leaves, and the run goes on on the host
+- **WHEN** the user presses Ctrl+C during `brd-host follow`, or a tool sends it SIGTERM or SIGHUP
+- **THEN** the follow leaves at once with 130 and `interrupted: Ctrl+C, SIGTERM or SIGHUP left the follow of the run <run>, which
+  goes on on <alias>: `brd-host follow <alias> <run>` follows it again`, sends no cancel, and the run goes on on the host
+  [@test] crates/host-client/src/run_test.rs (`ctrl_c_leaves_a_follow_and_the_run_goes_on`)
+  [@test] crates/bd-host/tests/cli.rs (`sigterm_to_a_follow_leaves_it_and_the_run_goes_on`)
 
 ### Requirement: follow, cancel, fetch, forget, runs: cancel interrupts a run on the host
 
@@ -1310,6 +1327,16 @@ returned longest ago first, with their Bazel output bases, and the output bases 
 - **AND** a host slot stays
   [@test] crates/bd-host/tests/cli.rs (`trim_plans_and_deletes_the_free_slots_of_the_host`)
 
+### Requirement: trim: A signal ends trim at once, and the trim goes on on the host
+
+The first Ctrl+C, SIGTERM or SIGHUP MUST end `brd-host trim` at once with 130 and the line `brd-host: Ctrl+C, SIGTERM or SIGHUP
+ends this process; the trim goes on on the host`.
+
+#### Scenario: SIGTERM during a trim
+- **WHEN** `brd-host trim <alias>` gets SIGTERM while it waits for the host
+- **THEN** it ends at once with 130 and says that the trim goes on on the host
+  [@test] crates/bd-host/tests/cli.rs (`sigterm_ends_a_trim_or_an_upgrade_at_once_and_says_what_goes_on_on_the_host`)
+
 ### Requirement: trim: --plan names what would go and deletes nothing
 
 `--plan` MUST name what would go and delete nothing.
@@ -1482,6 +1509,16 @@ nothing when the agent runs that build already, unless `--force`.
 - **THEN** `upgrade` sends nothing, unless `--force`
   [@test] crates/host-client/src/upgrade_test.rs (`upgrade_sends_this_executable_once_and_refuses_another_platform`)
 
+### Requirement: upgrade: A signal ends upgrade at once, and the host keeps a binary that came whole
+
+The first Ctrl+C, SIGTERM or SIGHUP MUST end `brd-host upgrade` at once with 130 and the line `brd-host: Ctrl+C, SIGTERM or
+SIGHUP ends this process; the host goes on with an upgrade whose binary came whole`.
+
+#### Scenario: SIGTERM during an upgrade
+- **WHEN** `brd-host upgrade <alias>` gets SIGTERM while it waits for the host
+- **THEN** it ends at once with 130 and says that the host goes on with an upgrade whose binary came whole
+  [@test] crates/bd-host/tests/cli.rs (`sigterm_ends_a_trim_or_an_upgrade_at_once_and_says_what_goes_on_on_the_host`)
+
 ### Requirement: upgrade: A host that is not macOS refuses the upgrade
 
 An `upgrade` of a host that is not macOS MUST refuse with `agent_failed`.
@@ -1623,9 +1660,9 @@ A run that lost its supervisor changes no file, so the follow MUST look at it at
 
 ### Requirement: serve: Heavy runs take the heavy turn of the host one at a time
 
-Before its lend, a heavy run MUST take the heavy turn of the host (`lease_pool::host_turn`), one table for every
-repository, in the phase `heavy`, and wait for it up to 2 h first come first, its line at once and once a minute; it
-MUST give it back after its give-back. A run that is not heavy MUST take no turn.
+Before its lend, a heavy run MUST take the heavy turn of the host (`lease_pool::host_turn`), one table of its schema
+for every repository, in the phase `heavy`, and wait for it up to 2 h first come first, with one watch and its line at
+once and once a minute; it MUST give it back after its give-back. A run that is not heavy MUST take no turn.
 
 #### Scenario: Two heavy runs and one that is not heavy
 - **WHEN** a heavy run holds the turn, a second heavy run starts, and a run that is not heavy starts
@@ -1633,7 +1670,7 @@ MUST give it back after its give-back. A run that is not heavy MUST take no turn
 - **AND** the run that is not heavy runs beside the first at once
 - **AND** the first gives the turn back after the give-back of its slot
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_the_host_run_one_at_a_time_and_a_run_that_is_not_heavy_goes_beside_them`)
-  [@test] crates/lease-pool/src/host_turn_test.rs (`heavy_runs_take_the_turn_one_at_a_time_first_come_first`, `a_waiting_run_takes_the_turn_once_the_holder_leaves`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`heavy_runs_take_the_turn_one_at_a_time_first_come_first`, `a_waiting_run_takes_the_turn_once_the_holder_leaves`, `a_holder_holds_the_turn_from_the_moment_it_took_it`)
 
 #### Scenario: The line of the wait
 - **WHEN** a heavy run waits for the turn
@@ -1659,8 +1696,14 @@ MUST give it back after its give-back. A run that is not heavy MUST take no turn
 
 #### Scenario: No turn within 2 h
 - **WHEN** a heavy run gets no turn within 2 h
-- **THEN** it ends with `heavy_timeout` and the line of its wait, and its ticket leaves the queue
+- **THEN** it ends with `heavy_timeout`, the line of its wait and the advice to run it on the host again later, not on
+  the client, and its ticket leaves the queue
   [@test] crates/host-agent/tests/serve/heavy.rs (`a_heavy_run_that_waits_past_its_time_ends_with_heavy_timeout`)
+
+#### Scenario: A table of another schema
+- **WHEN** `heavy.json` has a schema other than the one of this build, or none, as an agent of another build wrote it
+- **THEN** each take, leave and read of the turn refuses, and the run ends with `agent_error`, never with a free turn
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_table_of_another_schema_refuses`)
 
 ### Requirement: serve: The supervisor lends a slot and waits for one up to 1 h
 
@@ -1929,7 +1972,7 @@ keys of this build, and that a later Branch Deck may know it with the updates of
 - **THEN** the message is `.branchdeck.toml [host]: unknown key `<key>`: a typo, or a key of a later Branch Deck than
   this brd-host, which knows <its keys>; `brd install` updates brd-host on this Mac, and `brd-host upgrade <alias>` the
   agent of a host`
-  [@test] crates/host-link/src/config_test.rs (`an_unknown_key_names_itself_the_keys_of_this_build_and_the_update_of_brd_host`)
+  [@test] crates/host-link/src/config_test.rs (`an_unknown_key_names_itself_the_keys_of_this_build_and_the_update_of_brd_host`, `the_known_keys_are_the_fields_of_serde_and_heavy_needs_its_feature`)
 
 ### Requirement: The environment of a run and `[host]`: heavy names the commands of the heavy runs
 
@@ -2101,7 +2144,7 @@ Each code MUST be one variant of the refusal type of `host-link`, with its name 
 | `pack_failed` | 75 | The agent cannot land the pack: no pack, or git refused it. |
 | `pack_missing` | 75 | The pack of the commit did not come within 30 min, or sent no chunk for 2 min. |
 | `slot_timeout` | 75 | The run got no host slot within an hour. |
-| `heavy_timeout` | 75 | The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. |
+| `heavy_timeout` | 75 | The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. Run it there again later, not where the client runs. |
 | `lease_failed` | 75 | The lend failed. The message has the error of the pool. |
 | `old_git` | 75 | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. The message is the hint of Branch Deck. |
 | `checkout_failed` | 75 | The commit cannot be checked out in the slot. |

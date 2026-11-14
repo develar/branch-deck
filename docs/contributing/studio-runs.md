@@ -40,13 +40,16 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
 - **Heavy runs take turns**: a run that `heavy` of `[host]` names, or one with `--heavy`, waits until no other heavy
   run of the Studio goes, whatever its repository, so two full suites never slow each other into timeouts. Its wait
   says `brd-host: run … waits … for the heavy turn of the host, … left: run … holds it …` at once and once a minute:
-  a wait, not a hang. `brd-host runs studio` names the holder and the waiting runs; a wait past 2 h exits 75
-  (`heavy_timeout`). A run that is not heavy goes at once.
+  a wait, not a hang. `brd-host runs studio` names the holder and the waiting runs. A wait past 2 h exits 75
+  (`heavy_timeout`): never run it here then, as this Mac's load is what fails its tests; run it on the Studio again
+  later. A run that is not heavy goes at once. Start a heavy run in the background (`run_in_background`) and follow
+  its output: SIGTERM and SIGHUP of the client cancel the run there, as Ctrl+C does, so the 10 min timeout of a
+  foreground call would cancel it.
 - **The disk of the Studio**: the Studio has no app and no `brd`; never put either there. Its agent frees space by
   itself below `branchdeck.leaseMinFree` there; `brd-host disk studio` shows the pools, `brd-host trim studio --plan`
   what a trim would delete, and `brd-host trim studio` deletes it, after the user agrees.
 - **Exit codes**: the command's own; 75 when the Studio did not run it (unreachable, a refusal before the command):
-  run the same command here then; 130 after Ctrl+C, which cancels the run there.
+  run the same command here then, but never after `heavy_timeout`; 130 after Ctrl+C, which cancels the run there.
   `brd-host schema` lists every refusal code with its exit code.
 - **Output**: stdout is only the stdout of the command, byte for byte, when the agent of the Studio is not older than
   the local brd-host. stderr has the lines of brd-host, and the run ends with `brd-host: phases: … command …, total …`:

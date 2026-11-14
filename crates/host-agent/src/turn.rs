@@ -1,35 +1,39 @@
 //! The heavy turn of the host for the heavy runs (`lease_pool::host_turn`; openspec/specs/cli/host/spec.md, "serve: Heavy
 //! runs take the heavy turn of the host one at a time"; docs/design/host-runs.md, "Heavy runs"). The table is
-//! `~/.cache/brd-host/heavy.json`, one for every repository of the host.
+//! `~/.cache/brd-host/heavy/heavy.json`, one for every repository of the host, in a directory of its own, so the watch
+//! of a wait sees no event of the logs of the runs.
 //!
 //! - A supervisor of a heavy run takes the turn before its lend ([`take`], with its own pid: the turn lasts as long as
 //!   the supervisor). Its wait is the wait for a host slot ([`slots::wait_in_looks`]): looks of 2 s, so a cancel ends
-//!   it, and the line of the wait once a minute (`lease_pool::host_runs::turn_line`).
+//!   it, one watch of the table for the whole wait, and the line of the wait once a minute
+//!   (`lease_pool::host_runs::turn_line`).
 //! - On every way out, after the give-back of its slot, the supervisor leaves the turn ([`leave`]): it gives the turn
 //!   back, or its ticket leaves the queue.
 //! - `Reply::Runs` carries the table without the gone runs ([`live`]), and `brd-host runs` says it ([`lines`])
 
 use crate::home::Home;
+use crate::run::epoch_ms;
 use crate::slots::{self, Look};
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_runs::{run_of_repo, span_since, turn_line};
-use lease_pool::host_turn::{HeavyTurn, TurnAnswer, TurnParams, TurnQueue, TurnRequest, read_live, take as take_turn, take_waiting};
+use lease_pool::host_turn::{HeavyTurn, RECHECK, TurnAnswer, TurnParams, TurnQueue, TurnRequest, read_live, take as take_turn, take_waiting, watch};
 use std::path::Path;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime};
 use sync_utils::process_scan::process_started;
 
 /// The wait for the lock of the table of the heavy turn
 const LOCK_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Now, in Unix milliseconds
-pub fn now_ms() -> u64 {
-  SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+const fn params(dir: &Path) -> TurnParams<'_> {
+  TurnParams {
+    dir,
+    lock_timeout: LOCK_TIMEOUT,
+    recheck: RECHECK,
+  }
 }
 
-const fn params(dir: &Path) -> TurnParams<'_> {
-  TurnParams { dir, lock_timeout: LOCK_TIMEOUT }
+fn now_ms() -> u64 {
+  epoch_ms(SystemTime::now())
 }
 
 /// Takes the heavy turn of the host for the heavy run `run` of `repo`, which this process runs, waiting up to `wait`
@@ -54,8 +58,10 @@ pub(crate) fn take(
     repo,
     command,
   };
-  let dir = home.cache_dir();
+  let dir = home.heavy_dir();
   let params = params(&dir);
+  // the watch starts before the first look, so no change between a look and the wait after it is lost
+  let watched = watch(&params);
   let refused = |error: anyhow::Error| Refusal::new(Code::AgentError, format!("cannot take the heavy turn of the host: {error:#}"));
   let started = Instant::now();
   let line = |queue: &TurnQueue, waited: Duration| turn_line(run, queue, waited, wait.saturating_sub(waited), now_ms());
@@ -63,7 +69,7 @@ pub(crate) fn take(
     TurnAnswer::Taken => return Ok(Some(TurnAnswer::Taken)),
     TurnAnswer::Queued(queue) => say(&line(&queue, Duration::ZERO)),
   }
-  let mut look = |chunk: Duration| match take_waiting(&params, &request, chunk).map_err(refused)? {
+  let mut look = |chunk: Duration| match take_waiting(&params, &request, chunk, &watched).map_err(refused)? {
     TurnAnswer::Taken => Ok(Look::Got(())),
     TurnAnswer::Queued(queue) => Ok(Look::Queued(queue)),
   };
@@ -83,20 +89,24 @@ pub(crate) fn timeout_line(run: &str, queue: &TurnQueue, waited: Duration) -> St
 /// The run `run` leaves the heavy turn of the host: it gives the turn back, or its ticket leaves the queue. Answers
 /// whether it held the turn
 pub(crate) fn leave(home: &Home, run: &str) -> Result<bool, Refusal> {
-  lease_pool::host_turn::leave(&params(&home.cache_dir()), run).map_err(|error| Refusal::new(Code::AgentError, format!("cannot leave the heavy turn of the host: {error:#}")))
+  lease_pool::host_turn::leave(&params(&home.heavy_dir()), run).map_err(|error| Refusal::new(Code::AgentError, format!("cannot leave the heavy turn of the host: {error:#}")))
 }
 
 /// The heavy turn of the host without the runs whose process is gone, as JSON for `Reply::Runs`. A table that cannot be
 /// read is none, and the log says why
 pub(crate) fn live(home: &Home) -> Result<serde_json::Value, Refusal> {
-  let table = read_live(&home.cache_dir()).map_err(|error| Refusal::new(Code::AgentError, format!("cannot read the heavy turn of the host: {error:#}")))?;
+  let table = read_live(&home.heavy_dir()).map_err(|error| Refusal::new(Code::AgentError, format!("cannot read the heavy turn of the host: {error:#}")))?;
   serde_json::to_value(table).map_err(|error| Refusal::new(Code::AgentError, format!("cannot write the heavy turn of the host: {error}")))
 }
 
-/// The lines of the heavy turn of a reply of the agent (`Reply::Runs`) at `now_ms`, for `brd-host runs`: who holds it
-/// and for how long, then each run that waits and for how long. A table of another shape refuses with `link`, because
-/// the agent sent it
-pub fn lines(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refusal> {
+/// The lines of the heavy turn of a reply of the agent (`Reply::Runs`) now, for `brd-host runs` ([`lines_at`])
+pub fn lines(table: &serde_json::Value) -> Result<Vec<String>, Refusal> {
+  lines_at(table, now_ms())
+}
+
+/// The lines of the heavy turn of a reply of the agent at `now_ms`: who holds it and for how long, then each run that
+/// waits and for how long. A table of another shape refuses with `link`, because the agent sent it
+fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refusal> {
   let table: HeavyTurn = serde_json::from_value(table.clone()).map_err(|error| Refusal::new(Code::Link, format!("the agent sent a heavy turn of another shape: {error}")))?;
   let mut lines = vec![table.holder.as_ref().map_or_else(
     || "heavy turn: free".to_owned(),

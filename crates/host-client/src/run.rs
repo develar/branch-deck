@@ -12,8 +12,10 @@
 //!    of the host file when the host lacks it.
 //! 2. Reads `[host]` of the commit: the outputs to take back, and whether the run is heavy (`--heavy`, else the first
 //!    pattern of `heavy` that matches the command). Writes the run record (`record`) and starts the run (`Start`), a
-//!    heavy one with `RunSpec::heavy` and its line, and a line that names the upgrade when the agent lacks the feature
-//!    `heavy`. The run lives on the agent, not on the connection. Ctrl+C before this step stops the local work, and
+//!    heavy one with `RunSpec::heavy` and its line. An agent without a feature that `[host]` needs
+//!    (`RepoConfig::needs_features`: `heavy` needs `heavy`) would refuse every run of the commit, so the start refuses
+//!    with `bad_config` before it sends anything; a `--heavy` run of a commit without the key runs on such an agent with
+//!    a line that names the upgrade. The run lives on the agent, not on the connection. Ctrl+C before this step stops the local work, and
 //!    nothing runs on the host. A start whose reply does not come is cancelled, so the host does not wait for its pack.
 //! 3. Follows the output (`Follow`) on a thread of its own from the start on, so the steps of the host show while the
 //!    pack builds. The bytes of each piece of output, with its line end when it has one, go to the output sink as they
@@ -271,6 +273,7 @@ impl Client<'_> {
     } else {
       config.heavy_entry(request.command).map(|pattern| format!("`{pattern}` of [host]"))
     };
+    let needs = config.needs_features();
     let outputs = if options.outputs { config.outputs } else { Vec::new() };
     let record = RunRecord {
       commit: commit.clone(),
@@ -300,7 +303,7 @@ impl Client<'_> {
     files.write(&run, &record).map_err(|refusal| before(refusal, &facts))?;
     facts.run = Some(run.clone());
     // A start whose reply did not come is cancelled, and the checkout of the run waits for a pack that never comes
-    self.start(&mut host, spec).map_err(|refusal| before(refusal, &facts))?;
+    self.start(&mut host, spec, &needs).map_err(|refusal| before(refusal, &facts))?;
     (self.say)(&run_line(&run, alias, &snapshot, &repo, &host.file().repo));
     if let Some(why) = &heavy {
       (self.say)(&format!("brd-host: a heavy run by {why}: on {alias} it waits until no other heavy run goes"));
@@ -506,12 +509,23 @@ impl Client<'_> {
     }
   }
 
-  /// Sends `Start`. A reply that does not come can still leave the run on the agent, so the client cancels it then
-  fn start(&self, host: &mut Host, spec: RunSpec) -> Result<(), Refusal> {
+  /// Sends `Start`, unless the agent lacks a feature of `needs`, which `[host]` of the commit needs: such an agent refuses
+  /// every run of the commit, so the start refuses with `bad_config` (exit 75) and names the upgrade. A reply that does
+  /// not come can still leave the run on the agent, so the client cancels it then
+  fn start(&self, host: &mut Host, spec: RunSpec, needs: &[&str]) -> Result<(), Refusal> {
     let run = spec.run.clone();
     let (mut channel, agent) = host.connect()?;
     if let Some(hint) = another_build_hint(host.alias(), &agent, self.build.sha256.as_deref()) {
       (self.say)(&hint);
+    }
+    if let Some(lacking) = needs.iter().find(|needed| !agent.features.iter().any(|known| known == *needed)) {
+      return Err(Refusal::new(
+        Code::BadConfig,
+        format!(
+          "the agent on {alias} predates `{lacking}` of [host] of .branchdeck.toml, so it refuses every run of this commit: `brd-host upgrade {alias}` sends this build",
+          alias = host.alias()
+        ),
+      ));
     }
     if spec.heavy && !agent.features.iter().any(|known| known == feature::HEAVY) {
       (self.say)(&format!(
@@ -745,14 +759,17 @@ impl Client<'_> {
   }
 
   /// Follows the output of a run up to its end. With `cancel_on_interrupt`, the first Ctrl+C sends `Cancel`, and the
-  /// second one stops the follow. `Watch::stop_follow` stops it from another thread
+  /// second one stops the follow; without it, the first Ctrl+C leaves the follow, and the run goes on.
+  /// `Watch::stop_follow` stops it from another thread
   fn follow(&self, host: &mut Host, run: &str, cancel_on_interrupt: bool, watch: &Watch) -> Ended {
     let watched = host.clone();
     thread::scope(|scope| {
       if cancel_on_interrupt {
         scope.spawn(in_current_span(|| self.watch_interrupts(&watched, run, watch)));
+      } else {
+        scope.spawn(in_current_span(|| self.leave_on_interrupt(watch)));
       }
-      let ended = self.follow_loop(host, run, watch);
+      let ended = self.follow_loop(host, run, cancel_on_interrupt, watch);
       watch.finished.store(true, Ordering::Release);
       ended
     })
@@ -766,7 +783,7 @@ impl Client<'_> {
       let presses = (self.presses)();
       if presses >= 1 && cancel.is_none() {
         (self.say)(&format!(
-          "brd-host: Ctrl+C: cancelling the run {run} on {}; its output follows up to its end. A second Ctrl+C stops the follow",
+          "brd-host: Ctrl+C, SIGTERM or SIGHUP: cancelling the run {run} on {}; its output follows up to its end. A second one stops the follow",
           host.alias()
         ));
         cancel = Some(start_cancel(host.clone(), run.to_owned(), self.timing, Arc::clone(&watch.finished)));
@@ -790,7 +807,18 @@ impl Client<'_> {
     }
   }
 
-  fn follow_loop(&self, host: &mut Host, run: &str, watch: &Watch) -> Ended {
+  /// Reads the Ctrl+C count while a follow without a cancel goes on: the first press stops the follow at once
+  fn leave_on_interrupt(&self, watch: &Watch) {
+    while !watch.finished.load(Ordering::Acquire) {
+      if (self.presses)() >= 1 {
+        watch.stop_follow();
+        return;
+      }
+      thread::sleep(self.timing.interrupt_poll);
+    }
+  }
+
+  fn follow_loop(&self, host: &mut Host, run: &str, cancel_on_interrupt: bool, watch: &Watch) -> Ended {
     let mut state = FollowState {
       offset: 0,
       stdout: Vec::new(),
@@ -803,13 +831,14 @@ impl Client<'_> {
       let once = self.follow_once(host, run, watch, &mut state);
       self.say_open_stderr(&mut state);
       if watch.abandoned.load(Ordering::Acquire) {
+        let alias = host.alias();
         return Ended::Unseen(Refusal::new(
           Code::Interrupted,
-          format!(
-            "a second Ctrl+C stopped the follow of the run {run}; {} has its cancel. `brd-host follow {} {run}` shows its end",
-            host.alias(),
-            host.alias()
-          ),
+          if cancel_on_interrupt {
+            format!("a second Ctrl+C stopped the follow of the run {run}; {alias} has its cancel. `brd-host follow {alias} {run}` shows its end")
+          } else {
+            format!("Ctrl+C, SIGTERM or SIGHUP left the follow of the run {run}, which goes on on {alias}: `brd-host follow {alias} {run}` follows it again")
+          },
         ));
       }
       match once {

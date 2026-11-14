@@ -5,6 +5,7 @@ fn params(dir: &Path) -> TurnParams<'_> {
   TurnParams {
     dir,
     lock_timeout: Duration::from_secs(10),
+    recheck: RECHECK,
   }
 }
 
@@ -118,27 +119,89 @@ fn a_run_that_leaves_the_queue_waits_no_more() {
   assert_eq!(queued(&take(&params, &request("run-3", &command)).unwrap()), (Some("run-1"), vec![]));
 }
 
-/// A wait for the turn ends as the holder gives it back, by the file event of the table, and a wait whose time is up
-/// answers the place in the queue with its ticket kept
+/// A wait for the turn ends as the holder gives it back, by the file event of the table: its look again and its limit
+/// are an hour, which no run reaches, so only the event wakes it. A wait whose time is up answers the place in the
+/// queue with its ticket kept
 #[test]
 fn a_waiting_run_takes_the_turn_once_the_holder_leaves() {
   let dir = tempfile::tempdir().unwrap();
-  let params = params(dir.path());
+  let params = TurnParams {
+    recheck: Duration::from_hours(1),
+    ..params(dir.path())
+  };
   let command = command();
+  let watched = watch(&params);
   assert_eq!(take(&params, &request("run-1", &command)).unwrap(), TurnAnswer::Taken);
-  let answer = take_waiting(&params, &request("run-2", &command), Duration::from_millis(50)).unwrap();
+  let answer = take_waiting(&params, &request("run-2", &command), Duration::ZERO, &watched).unwrap();
   assert_eq!(queued(&answer), (Some("run-1"), vec![]), "the time is up");
   assert_eq!(runs(&read_live(dir.path()).unwrap()), (Some("run-1"), vec!["run-2"]), "the ticket stays");
+  assert!(!leave(&params, "run-2").unwrap(), "the ticket leaves");
 
-  let started = Instant::now();
   let waited = std::thread::scope(|scope| {
-    let waiting = scope.spawn(|| take_waiting(&params, &request("run-2", &command), Duration::from_mins(1)).unwrap());
-    std::thread::sleep(Duration::from_millis(100));
+    let waiting = scope.spawn(|| {
+      let watched = watch(&params);
+      take_waiting(&params, &request("run-2", &command), Duration::from_hours(1), &watched).unwrap()
+    });
+    // the holder leaves once the first look of the wait queued the run, after its watch started
+    while runs(&read_live(dir.path()).unwrap()).1 != ["run-2"] {
+      std::thread::yield_now();
+    }
     assert!(leave(&params, "run-1").unwrap());
     waiting.join().unwrap()
   });
   assert_eq!(waited, TurnAnswer::Taken);
-  assert!(started.elapsed() < WAIT_RECHECK, "the change of the table woke the wait: {:?}", started.elapsed());
+}
+
+/// The time of a holder is from the moment it took the turn, not from the one it joined the queue: a run that waited an
+/// hour holds it for seconds
+#[test]
+fn a_holder_holds_the_turn_from_the_moment_it_took_it() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  let waited_long = request("run-1", &command);
+  let joined = TurnEntry {
+    ticket: Ticket {
+      run: "run-1".to_owned(),
+      pid: waited_long.pid,
+      process_started: waited_long.process_started,
+    },
+    repo: waited_long.repo.to_owned(),
+    command: "cargo nextest run --workspace".to_owned(),
+    since_ms: 1,
+  };
+  write_table(dir.path(), &serde_json::json!({ "schema": 1, "queue": [joined] }));
+  let before = now_ms();
+  assert_eq!(take(&params, &waited_long).unwrap(), TurnAnswer::Taken);
+  let holder = read_live(dir.path()).unwrap().holder.unwrap();
+  assert!(holder.since_ms >= before, "{} is the time it joined the queue", holder.since_ms);
+}
+
+/// A table of another schema, which an agent of another build wrote, refuses every step, and so does one without a
+/// schema: no supervisor reads a turn that it does not know as free
+#[test]
+fn a_table_of_another_schema_refuses() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  for table in [serde_json::json!({ "schema": 2, "queue": [] }), serde_json::json!({ "queue": [] })] {
+    write_table(dir.path(), &table);
+    let refused = take(&params, &request("run-1", &command)).unwrap_err().to_string();
+    assert!(
+      refused.contains("heavy.json has the schema ") && refused.contains(" of another build of brd-host, and this one reads 1"),
+      "{refused}"
+    );
+    leave(&params, "run-1").unwrap_err();
+    read_live(dir.path()).unwrap_err();
+  }
+  std::fs::remove_file(dir.path().join(STATE_FILE)).unwrap();
+  assert_eq!(read_live(dir.path()).unwrap(), HeavyTurn::default(), "no table is the free turn of this schema");
+}
+
+/// Writes `heavy.json` as an agent of any build would
+fn write_table(dir: &Path, table: &serde_json::Value) {
+  std::fs::create_dir_all(dir).unwrap();
+  std::fs::write(dir.join(STATE_FILE), table.to_string()).unwrap();
 }
 
 #[test]

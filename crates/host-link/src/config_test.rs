@@ -31,7 +31,7 @@ run = ["./gradlew", "--version"]
 fn example() -> RepoConfig {
   RepoConfig {
     outputs: vec!["tests/results".to_owned(), "playwright-report".to_owned(), "target/nextest/ci/junit.xml".to_owned()],
-    heavy: vec!["cargo nextest run*--workspace*".to_owned(), "pnpm e2e*".to_owned()],
+    heavy: Some(vec!["cargo nextest run*--workspace*".to_owned(), "pnpm e2e*".to_owned()]),
     env: vec![
       ("CI".to_owned(), EnvValue::Unset),
       ("E2E_PORT".to_owned(), EnvValue::Port(3100)),
@@ -104,14 +104,30 @@ fn an_unknown_key_names_itself_the_keys_of_this_build_and_the_update_of_brd_host
   assert!(env.contains("unknown key `env.A.later`") && env.contains("`brd-host upgrade <alias>`"), "{env}");
 }
 
+/// The keys that the check knows are the fields of the serde types, each in the order of its struct; `heavy`, even
+/// empty, needs an agent with the feature `heavy`, and a table without it needs none
+#[test]
+fn the_known_keys_are_the_fields_of_serde_and_heavy_needs_its_feature() {
+  use super::{EnvTable, RawConfig, fields_of};
+  assert_eq!(fields_of::<RawConfig>(), ["outputs", "heavy", "env", "prepare"]);
+  assert_eq!(fields_of::<EnvTable>(), ["prepend", "append", "port", "unset"]);
+  assert_eq!(fields_of::<Step>(), ["name", "run", "inputs", "creates"]);
+  let needs = |text: &str| parse_branchdeck(text).expect(text).expect("a host table").needs_features();
+  assert_eq!(needs("[host]\nheavy = []\n"), ["heavy"]);
+  assert_eq!(needs("[host]\nheavy = [\"pnpm e2e*\"]\n"), ["heavy"]);
+  assert_eq!(needs("[host]\noutputs = [\"out\"]\n"), Vec::<&str>::new());
+}
+
 /// A pattern of `heavy` matches the words of the command joined by one space, whole, `*` any characters, after a
 /// leading `env` and its assignments; the first pattern that matches names the run
 #[test]
 fn a_heavy_pattern_matches_the_whole_command_line_after_env_and_its_assignments() {
   let config = RepoConfig {
-    heavy: ["cargo nextest run*--workspace*", "pnpm e2e*", "pnpm test", "*bt.cmd --lane *", "pnpm *"]
-      .map(str::to_owned)
-      .to_vec(),
+    heavy: Some(
+      ["cargo nextest run*--workspace*", "pnpm e2e*", "pnpm test", "*bt.cmd --lane *", "pnpm *"]
+        .map(str::to_owned)
+        .to_vec(),
+    ),
     ..RepoConfig::default()
   };
   let entry = |line: &str| config.heavy_entry(&line.split(' ').map(str::to_owned).collect::<Vec<_>>()).map(str::to_owned);

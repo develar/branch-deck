@@ -893,7 +893,10 @@ fn ctrl_c_cancels_the_run_and_follows_it_to_its_end() {
   let (outcome, lines) = run_with_ctrl_c_after_the_follow(&setup);
   assert_eq!(outcome.code, 130);
   assert!(cancelled.load(Ordering::SeqCst));
-  assert!(lines.iter().any(|line| line.starts_with("brd-host: Ctrl+C: cancelling the run")), "{lines:#?}");
+  assert!(
+    lines.iter().any(|line| line.starts_with("brd-host: Ctrl+C, SIGTERM or SIGHUP: cancelling the run")),
+    "{lines:#?}"
+  );
   assert!(lines.contains(&"interrupted".to_owned()), "{lines:#?}");
 }
 
@@ -974,18 +977,21 @@ fn the_pack_builds_after_the_start_and_keeps_its_connection_alive() {
   );
 }
 
+/// A follow of a run that goes on: heartbeats for 10 s, until the client closes the connection
+fn heartbeats_only(_: u64, channel: &mut Channel) {
+  for _ in 0..50 {
+    thread::sleep(Duration::from_millis(200));
+    if channel.send(&Reply::Heartbeat { elapsed_ms: 200 }).is_err() {
+      return;
+    }
+  }
+}
+
 /// A second Ctrl+C stops the follow at once, while the agent only sends heartbeats. The run stays on the host
 #[test]
 fn a_second_ctrl_c_stops_the_follow_at_once() {
   let Commits { repo, head, .. } = two_commits();
-  let (setup, _) = agent_following(repo, known(vec![head]), |_, channel| {
-    for _ in 0..50 {
-      thread::sleep(Duration::from_millis(200));
-      if channel.send(&Reply::Heartbeat { elapsed_ms: 200 }).is_err() {
-        return;
-      }
-    }
-  });
+  let (setup, _) = agent_following(repo, known(vec![head]), heartbeats_only);
   let (count, watcher) = press_after(&setup, "follow", 2);
   let presses = || count.load(Ordering::SeqCst);
   let failure = run_in(&setup, &|_| {}, &presses, &[], RunOptions::default()).unwrap_err();
@@ -993,6 +999,24 @@ fn a_second_ctrl_c_stops_the_follow_at_once() {
   assert_eq!((failure.refusal.code, failure.exit), (Code::Interrupted, Exit::Interrupted));
   assert!(failure.refusal.message.contains("`brd-host follow studio "), "{}", failure.refusal.message);
   assert!(!kinds(&setup).contains(&"forget"));
+}
+
+/// One Ctrl+C (or SIGTERM) leaves a follow at once, while the agent only sends heartbeats: no cancel reaches the host,
+/// and the run goes on there
+#[test]
+fn ctrl_c_leaves_a_follow_and_the_run_goes_on() {
+  let (setup, _) = agent_following(TestRepo::new(), |_| Vec::new(), heartbeats_only);
+  let (count, watcher) = press_after(&setup, "follow", 1);
+  let presses = || count.load(Ordering::SeqCst);
+  let processes = FakeProcesses::default();
+  let refusal = setup.client(&processes, &|_| {}, &presses).follow_run(ALIAS, "1-2").unwrap_err();
+  watcher.join().unwrap();
+  assert_eq!(refusal.code, Code::Interrupted);
+  assert_eq!(
+    refusal.message,
+    format!("Ctrl+C, SIGTERM or SIGHUP left the follow of the run 1-2, which goes on on {ALIAS}: `brd-host follow {ALIAS} 1-2` follows it again")
+  );
+  assert!(!kinds(&setup).contains(&"cancel"), "{:?}", kinds(&setup));
 }
 
 /// A refusal of the agent keeps its code; before the command it exits 75, after it 255. A run that failed on the host
@@ -1123,6 +1147,25 @@ fn a_run_is_heavy_by_a_pattern_of_its_commit_or_by_heavy_and_says_why() {
       ]
     )
   );
+}
+
+/// An agent without the feature `heavy` refuses every run of a commit whose `[host]` has the key, a light one too, so
+/// the client refuses before the start with `bad_config` (exit 75) and names the upgrade; nothing reaches the agent but
+/// the `Have`
+#[test]
+fn a_commit_with_heavy_on_an_agent_before_heavy_runs_refuses_before_the_start() {
+  for config in ["[host]\nheavy = [\"pnpm e2e*\"]\n", "[host]\nheavy = []\n"] {
+    let repo = TestRepo::new();
+    repo.create_commit("Add the config", ".branchdeck.toml", config);
+    let setup = fetching_agent(repo, Vec::new());
+    let failure = run_in(&setup, &|_| {}, &calm, &[], RunOptions::default()).unwrap_err();
+    assert_eq!((failure.refusal.code, failure.exit), (Code::BadConfig, Exit::NotRun), "{config}");
+    assert_eq!(
+      failure.refusal.message,
+      format!("the agent on {ALIAS} predates `heavy` of [host] of .branchdeck.toml, so it refuses every run of this commit: `brd-host upgrade {ALIAS}` sends this build")
+    );
+    assert!(!kinds(&setup).contains(&"start"), "{:?}", kinds(&setup));
+  }
 }
 
 /// The outputs of `[host]` of the shipped commit go into the record, so the fetch takes their files

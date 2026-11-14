@@ -4,20 +4,24 @@
 //! first-come queue, whatever their repository. A run that is not heavy never asks for it.
 //!
 //! The table is the queue of the host slots with one place for the whole host: `heavy.json` with its lock `heavy.lock`
-//! in a directory of the agent (`~/.cache/brd-host/`), not in a repository. The holder and each ticket name the process
-//! of their run (the supervisor), as a lend and a ticket of `host_slots` do, so a gone process leaves the queue and a
-//! gone holder frees the turn for the next run, without a keeper. The lock is a leaf, held only while the table
-//! changes, never across git or another lock. A run that waits watches the directory (`TableWake`) and looks again every
-//! 5 s, as the end of a process makes no file event
+//! in a directory of the agent of its own (`~/.cache/brd-host/heavy/`), not in a repository. The holder and each
+//! ticket name the process of their run (the supervisor), as a lend and a ticket of `host_slots` do, so a gone process
+//! leaves the queue and a gone holder frees the turn for the next run, without a keeper. The lock is a leaf, held only
+//! while the table changes, never across git or another lock. A run that waits watches the directory once for its whole
+//! wait (`TurnWatch`) and looks again every 5 s, as the end of a process makes no file event. The table names its
+//! schema: a table of another schema, which an agent of another build wrote, refuses, so a supervisor of the build
+//! before an upgrade never reads a turn it does not know
 
 use crate::host_slots::{TableWake, Ticket, WAIT_RECHECK, now_ms};
 use crate::state_file::StateFile;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use sync_utils::process_scan::is_running;
 
+/// The schema of `heavy.json` that this build reads and writes
+const SCHEMA: u32 = 1;
 const STATE_FILE: &str = "heavy.json";
 const LOCK_FILE: &str = "heavy.lock";
 /// The files whose change can give a waiting run the turn
@@ -26,8 +30,11 @@ const WAKE_FILES: [&str; 1] = [STATE_FILE];
 const COMMAND_CHARS: usize = 200;
 
 /// The heavy turn of a host
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeavyTurn {
+  /// The schema of the table, `SCHEMA` of this build; a table without one is of no build
+  #[serde(default)]
+  pub schema: u32,
   /// The run that holds the turn
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub holder: Option<TurnEntry>,
@@ -50,6 +57,30 @@ pub struct TurnEntry {
   pub since_ms: u64,
 }
 
+impl Default for HeavyTurn {
+  fn default() -> Self {
+    Self {
+      schema: SCHEMA,
+      holder: None,
+      queue: Vec::new(),
+    }
+  }
+}
+
+impl HeavyTurn {
+  /// The table, or an error when an agent of another build wrote it in another schema
+  fn of_this_schema(&mut self, dir: &Path) -> Result<&mut Self> {
+    if self.schema != SCHEMA {
+      bail!(
+        "{} has the schema {} of another build of brd-host, and this one reads {SCHEMA}",
+        dir.join(STATE_FILE).display(),
+        self.schema
+      );
+    }
+    Ok(self)
+  }
+}
+
 impl TurnEntry {
   fn is_running(&self) -> bool {
     is_running(self.ticket.pid, self.ticket.process_started)
@@ -58,10 +89,24 @@ impl TurnEntry {
 
 /// The directory of the table of a host
 pub struct TurnParams<'a> {
-  /// The directory of `heavy.json`: the cache directory of the agent
+  /// The directory of `heavy.json`, of its lock and of nothing else: `~/.cache/brd-host/heavy/`
   pub dir: &'a Path,
   /// The wait for the lock of the table
   pub lock_timeout: Duration,
+  /// How often a wait looks again without a file event (`RECHECK`): the end of a holder makes none
+  pub recheck: Duration,
+}
+
+/// How often a wait for the turn looks again without a file event, as a lend that waits does
+pub const RECHECK: Duration = WAIT_RECHECK;
+
+/// The watch of the directory of the table for one whole wait: a change of the table wakes the wait
+pub struct TurnWatch(TableWake);
+
+/// The watch of the table of `params`, started before the first look of a wait, so no change between a look and the
+/// wait after it is lost
+pub fn watch(params: &TurnParams<'_>) -> TurnWatch {
+  TurnWatch(TableWake::start(params.dir, &WAKE_FILES))
 }
 
 impl TurnParams<'_> {
@@ -110,6 +155,7 @@ pub struct TurnQueue {
 /// safe); the run's ticket joins the queue; the first run of the queue takes a free turn
 pub fn take(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAnswer> {
   params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
+    let table = table.of_this_schema(params.dir)?;
     table.queue.retain(TurnEntry::is_running);
     if table.holder.as_ref().is_some_and(|holder| !holder.is_running()) {
       table.holder = None;
@@ -143,13 +189,12 @@ pub fn take(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
   })
 }
 
-/// Give the turn to the run of `request` (`take`), waiting up to `timeout` while it is queued. The directory of the
-/// table is watched before the first look, so no change between the look and the wait is lost; without a file event it
-/// looks again every 5 s, since the end of a holder makes none. The answer is the turn, or the place in the queue once
-/// the time is up: the ticket stays while the process lives, and `leave` takes it out
-pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout: Duration) -> Result<TurnAnswer> {
+/// Give the turn to the run of `request` (`take`), waiting up to `timeout` while it is queued, woken by `watch`, which
+/// the caller started before its first look and keeps for its whole wait; without a file event it looks again every
+/// `params.recheck`, since the end of a holder makes none. The answer is the turn, or the place in the queue once the
+/// time is up: the ticket stays while the process lives, and `leave` takes it out
+pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout: Duration, watch: &TurnWatch) -> Result<TurnAnswer> {
   let started = Instant::now();
-  let wake = TableWake::start(params.dir, &WAKE_FILES);
   loop {
     let queued = match take(params, request)? {
       TurnAnswer::Taken => return Ok(TurnAnswer::Taken),
@@ -159,7 +204,7 @@ pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout:
     if waited >= timeout {
       return Ok(TurnAnswer::Queued(queued));
     }
-    wake.wait(timeout.saturating_sub(waited).min(WAIT_RECHECK));
+    watch.0.wait(timeout.saturating_sub(waited).min(params.recheck));
   }
 }
 
@@ -167,6 +212,7 @@ pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout:
 /// turn
 pub fn leave(params: &TurnParams<'_>, run: &str) -> Result<bool> {
   params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
+    let table = table.of_this_schema(params.dir)?;
     table.queue.retain(|entry| entry.ticket.run != run);
     let held = table.holder.as_ref().is_some_and(|holder| holder.ticket.run == run);
     if held {
@@ -180,6 +226,7 @@ pub fn leave(params: &TurnParams<'_>, run: &str) -> Result<bool> {
 /// the queue that `brd-host runs` shows
 pub fn read_live(dir: &Path) -> Result<HeavyTurn> {
   let mut table: HeavyTurn = table_file(dir).read()?;
+  table.of_this_schema(dir)?;
   table.holder = table.holder.filter(TurnEntry::is_running);
   table.queue.retain(TurnEntry::is_running);
   Ok(table)

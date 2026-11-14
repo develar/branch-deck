@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
+use sync_utils::span::in_current_span;
 
 /// The niceness of a run when `--nice` names none: a run of `brd-host` yields the CPU to the runs of `bt --host`
 const DEFAULT_NICE: u8 = 10;
@@ -501,8 +502,10 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
         out.line(&run_line(run));
       }
       match &host.heavy {
-        Some(heavy) => host_agent::turn::lines(heavy, host_agent::turn::now_ms())?.iter().for_each(|line| out.line(line)),
-        None => out.line(&format!("the agent on {alias} predates heavy runs: `brd-host upgrade {alias}` sends this build")),
+        Some(heavy) => host_agent::turn::lines(heavy)?.iter().for_each(|line| out.line(line)),
+        None => out.line(&format!(
+          "the agent on {alias} names no heavy turn: it predates heavy runs (`brd-host upgrade {alias}` sends this build), or its log says why it cannot read it"
+        )),
       }
       Ok(0)
     }
@@ -512,7 +515,7 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
     Command::Trim { alias, max, plan, json } => trim(alias.as_deref(), max, plan, json, out),
     Command::Setup(args) => setup(&args, out),
     Command::Upgrade { alias, binary, force } => {
-      install_interrupt("Ctrl+C ends this process, and the upgrade goes on on the host");
+      end_on_interrupt("Ctrl+C, SIGTERM or SIGHUP ends this process; the host goes on with an upgrade whose binary came whole");
       // the skill is local, so its refresh comes first and does not wait for the host
       if let Some(said) = skill::user_dir().as_deref().and_then(skill::refresh) {
         say(&said);
@@ -646,7 +649,7 @@ fn disk(alias: Option<&str>, fresh: bool, json: bool, out: &Out) -> Result<u8, R
 /// `brd-host trim`: the trim of each host (`each_host`)
 fn trim(alias: Option<&str>, max: Option<usize>, plan: bool, json: bool, out: &Out) -> Result<u8, Refusal> {
   if !plan {
-    install_interrupt("Ctrl+C ends this process, and the trim goes on on the host");
+    end_on_interrupt("Ctrl+C, SIGTERM or SIGHUP ends this process; the trim goes on on the host");
   }
   each_host(
     alias,
@@ -872,6 +875,17 @@ fn run_line(run: &RunInfo) -> String {
 
 fn short(id: &str) -> &str {
   id.get(..12).unwrap_or(id)
+}
+
+/// Installs the handler for a command whose request goes on on the host without this process (`upgrade`, `trim`): the
+/// first Ctrl+C, SIGTERM or SIGHUP says `said` and ends the process with 130 at once, as without a handler
+fn end_on_interrupt(said: &'static str) {
+  install_interrupt(said);
+  std::thread::spawn(in_current_span(move || {
+    interrupt::wait_for_press(&interrupt::presses);
+    say(&format!("brd-host: {said}"));
+    std::process::exit(i32::from(Exit::Interrupted.code()));
+  }));
 }
 
 /// Installs the Ctrl+C handler, and says `without` when it cannot
