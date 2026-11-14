@@ -170,8 +170,8 @@ export async function offerUnstackAfterMove(toastId: string, branches: readonly 
   for (const branchName of branches) {
     const result = await invokeCommand(() => commands.getStackIndependence({ repositoryPath, branchName }))
     if (result.status === "error") {
-      // no offer of the unstack, and the log says why, but of a question the branch left behind (`invalid_plan`: no
-      // stacked branch any more)
+      // no offer of the unstack, and the log says why the check could not answer; an answer that the unstack is no valid
+      // plan (`invalid_plan`: no stacked branch any more, fixups it would strand, a plan refused as asked) is no failure
       if (result.error.code !== "invalid_plan") {
         logError(`Cannot check whether ${branchName} applies alone`, result.error)
       }

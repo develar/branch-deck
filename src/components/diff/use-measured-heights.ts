@@ -25,19 +25,7 @@ export interface MeasuredHeights {
  */
 export function useMeasuredHeights(): MeasuredHeights {
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map())
-  const [observer] = useState(() =>
-    observeSize(entries => {
-      const measured = entries.flatMap(entry => {
-        const block = entry.target
-        // the size as laid out, as the observer reports it: a transform of an ancestor (a dialog that zooms in) is none
-        const box = entry.borderBoxSize[0]
-        return block instanceof HTMLElement && block.dataset.measure !== undefined && block.isConnected
-          ? [[block.dataset.measure, box === undefined ? block.offsetHeight : box.blockSize] as const]
-          : []
-      })
-      flushSync(() => setHeights(previous => merged(previous, measured)))
-    }),
-  )
+  const [observer] = useState(() => observeSize(entries => flushSync(() => setHeights(previous => merged(previous, blockHeights(entries))))))
   // one ref callback for the life of the view: another function would detach and attach every block it measures
   const measure = useCallback(
     (element: HTMLElement | null) => {
@@ -50,6 +38,20 @@ export function useMeasuredHeights(): MeasuredHeights {
     [observer],
   )
   return { heights, measure }
+}
+
+/**
+ * The height of each measured block of `entries` by its key: the size as laid out, the border box the observer reports
+ * (else `offsetHeight`), which a transform of an ancestor (a dialog that zooms in) leaves as it is, never the box drawn
+ * on the screen (`getBoundingClientRect`)
+ */
+export function blockHeights(entries: readonly ResizeObserverEntry[]): (readonly [string, number])[] {
+  return entries.flatMap(entry => {
+    const block = entry.target as HTMLElement
+    const key = block.dataset?.measure
+    const box = entry.borderBoxSize?.[0]
+    return key === undefined || !block.isConnected ? [] : [[key, box === undefined ? block.offsetHeight : box.blockSize] as const]
+  })
 }
 
 /** The heights with the measured ones, the same map when none differs by more than the tolerance */

@@ -112,6 +112,42 @@ test.describe("ResizeObserver loops", () => {
     expectNoLoopOfTheApp(loops)
   })
 
+  // the patch of @base-ui/react (patches/@base-ui__react@1.9.0.patch): Toast.Content sets the height of its toast in the
+  // next frame, never in the delivery of its observers, where its flushSync rendered every update pending then (a loop).
+  // The height is set by measuring the toast with its height auto and back: a change of the style of the toast in the
+  // callback of the observer of its content is the height set in the delivery. A port of the patch that loses that hunk
+  // fails here at every toast, not by the chance of a loop
+  test("should set the height of a toast after the delivery of the observer of its content, never in it @webkit", async ({ page, setupRepo }) => {
+    await page.addInitScript(() => {
+      const probe = { deliveries: 0, styled: [] as string[] }
+      ;(window as unknown as { toastProbe: typeof probe }).toastProbe = probe
+      const styles = new MutationObserver(() => {})
+      styles.observe(document, { subtree: true, attributes: true, attributeFilter: ["style"] })
+      const Original = globalThis.ResizeObserver
+      globalThis.ResizeObserver = class extends Original {
+        constructor(callback: ResizeObserverCallback) {
+          super((entries, observer) => {
+            styles.takeRecords()
+            callback(entries, observer)
+            const ofToasts = styles.takeRecords().filter(record => (record.target as Element).getAttribute("data-slot") === "toast")
+            if (entries.some(entry => entry.target.getAttribute("data-slot") === "toast-content")) {
+              probe.deliveries++
+              probe.styled.push(...ofToasts.map(record => (record.target as Element).getAttribute("style") ?? ""))
+            }
+          })
+        }
+      }
+    })
+    await useTitleBar(page, { ...TITLE_BARS.gnome, checkForUpdates: true })
+    await setupRepo("behind_upstream")
+    await checkForUpdatesFromMenu(page)
+    await expect(toastWith(page, "BranchDeck is up to date")).toBeVisible()
+    const probe = () => page.evaluate(() => (window as unknown as { toastProbe: { deliveries: number; styled: string[] } }).toastProbe)
+    // the observer of the content reported the toast, and set nothing of it as it did
+    await expect.poll(async () => (await probe()).deliveries).toBeGreaterThan(0)
+    expect((await probe()).styled).toEqual([])
+  })
+
   test("should make no loop of the app as the toasts of two checks for updates stack and close @webkit", async ({ page, setupRepo }) => {
     const loops = recordLoops(page)
     await useTitleBar(page, { ...TITLE_BARS.gnome, checkForUpdates: true })

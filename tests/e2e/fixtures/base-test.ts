@@ -145,8 +145,8 @@ const LOG_ERROR_MARK = "[e2e-log-error] "
  * requests it still had fail in WebKit, which is no error of the app (`NETWORK_FAILURE`); any other error of it counts
  */
 const LEAVING_LOG_ERROR_MARK = "[e2e-log-error-leaving] "
-/** What WebKit and Chromium say of a request that failed as its page left: no error of the app */
-const NETWORK_FAILURE = /Load failed|Failed to fetch|Fetch API cannot load .* due to access control checks/
+/** What WebKit says of a request that failed as its page left, its whole message: no error of the app */
+const NETWORK_FAILURE = /(?:^|: )(?:TypeError: )?Load failed$|Fetch API cannot load \S+ due to access control checks\.?$/
 
 /** An error a test declares (`expectErrorLog`), and whether it must come (`allowErrorLog`: it may) */
 interface DeclaredError {

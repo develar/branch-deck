@@ -134,7 +134,7 @@ rules in one line each and links here.
   A single ResizeObserver loop is a warning of the page, which fails no test; a repeated one or a cycle of an observer
   of ours is an error line (docs/contributing/frontend.md, "A flushSync in the delivery of a ResizeObserver"). The page a
   test moves to another window's page (`openSubWindowPage`) tells it leaves, and only a request of it that fails then
-  ("Load failed", "Failed to fetch", "Fetch API cannot load …") counts no error.
+  (WebKit's "Load failed" and "Fetch API cannot load … due to access control checks") counts no error.
   A ResizeObserver loop is found by `E2E_RO_TRACE=1` (`tests/e2e/setup/resize-observers.ts`: the deliveries, the end of
   each callback, the texts that changed in observed elements, what was left pending), under load with
   `E2E_CPU_THROTTLE=6` (Chromium) or many WebKit workers (`--repeat-each 30 --workers 8`).

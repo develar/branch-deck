@@ -46,8 +46,9 @@ export function useStackIndependence(branchName: string, enabled: boolean): Stac
         setAnswer({ key, state })
       }
     }
-    // a failure the popover says is logged too: the log of the app has every check that could not answer, but a question
-    // the branch left behind (`invalid_plan`: it is no stacked branch any more, as an unstack just ran) is no failure
+    // a failure the popover says is logged too: the log of the app has every check that could not answer, but an answer
+    // that the unstack asked about is no valid plan (`invalid_plan`: the branch is no stacked branch any more, as an
+    // unstack just ran, the plan would strand fixups or is refused as asked) is the check's answer, no failure
     commands.getStackIndependence({ repositoryPath: getSelectedProject()?.path ?? "", branchName }).then(
       result => {
         if (result.status === "error" && result.error.code !== "invalid_plan") {

@@ -176,7 +176,8 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   that same rendering update: a ResizeObserver loop. Toast.Content of Base UI 1.9 set the height of its toast so; the
   same patch sets it in the next frame (an issue for upstream is drafted). Every observer of ours is made by
   `observeSize` (src/lib/observe-size.ts, `pnpm lint:arch` `resize-observer`): until the next task after a report, an
-  element a change of its subtree touches leaves its observer and is observed anew, read a frame later; an element let
+  element a change of its subtree touches leaves its observer and is observed anew in the next task, its size read a frame
+  later; an element let
   go so in every frame of a second is a cycle, logged as an error. The page logs a single loop as a warning (a library's
   observer may make one under load) and a repeated one as an error (`src/lib/page-errors.ts`). The WebKit check
   `tests/e2e/resize-loops/` attributes each loop in the test only: one of an observer of ours fails it, one of a
