@@ -5,6 +5,7 @@ import { createStore } from "zustand/vanilla"
 import type {
   ErrorCode,
   ActionState,
+  ApprovalLanding,
   AutosquashPlan,
   BranchError,
   BranchOrigin,
@@ -340,6 +341,12 @@ export interface BranchSyncState {
    */
   reviewGroups: Readonly<Record<string, readonly ReviewerGroupView[]>>
   /**
+   * What an approval of each pull request to review counts for where Patronus merges, by `pull:<number>`, as Rust
+   * decides it (`RepositoryView.approvalLanding`, `domain_policy::approval_landing`): the Safe Push of that pull request
+   * into the target, or once its base is the target; none without Patronus and for an own pull request
+   */
+  approvalLanding: Readonly<Record<string, ApprovalLanding>>
+  /**
    * The operations of the remote that run or wait in the session, by id (`RepositoryView.operations`, written by
    * `operations::registry`): the moves of rows they make are laid over the nodes (`src/presenters/running-move.ts`)
    */
@@ -356,11 +363,11 @@ export const NO_OPERATIONS: BranchSyncState["operations"] = {}
 
 /**
  * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
- * `nextSteps`, `actions`, `attention`, `githubLayers`, `reviewGroups`), its operations and its route
+ * `nextSteps`, `actions`, `attention`, `githubLayers`, `reviewGroups`, `approvalLanding`), its operations and its route
  */
 export const NO_SUBJECT_PARTS: Pick<
   BranchSyncState,
-  "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "githubLayers" | "reviewGroups" | "operations" | "route"
+  "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "githubLayers" | "reviewGroups" | "approvalLanding" | "operations" | "route"
 > = {
   pushes: {},
   openPullRequests: {},
@@ -371,6 +378,7 @@ export const NO_SUBJECT_PARTS: Pick<
   attention: {},
   githubLayers: {},
   reviewGroups: {},
+  approvalLanding: {},
   operations: NO_OPERATIONS,
   route: null,
 }
@@ -423,7 +431,7 @@ export function useBranchSync<T>(selector: (state: BranchSyncState) => T): T {
 // ---- narrow subscriptions: a change wakes only the hooks of what it changed ----
 
 /** The fields of the state that are records by a key (a branch, a subject), whose entries keep their objects while a patch leaves them */
-type EntryField = "branches" | "nextSteps" | "actions" | "reviewGroups" | "openPullRequests" | "stackBranches" | "pushes" | "landedStates"
+type EntryField = "branches" | "nextSteps" | "actions" | "reviewGroups" | "approvalLanding" | "openPullRequests" | "stackBranches" | "pushes" | "landedStates"
 type EntryOf<F extends EntryField> = BranchSyncState[F][string]
 type Listener = () => void
 

@@ -6,6 +6,8 @@ import {
   formatReviewMeta,
   formatReviewsNoMatch,
   pickVisibleEntries,
+  joinApprovalScope,
+  presentApprovalLanding,
   presentApprovalScope,
   returnedTexts,
   reviewEntryTexts,
@@ -187,5 +189,20 @@ describe("presentApprovalScope", () => {
   it("says nothing while the sign-in names no login, rather than no group", () => {
     const unknown = [group("Design", ["a.css"], { yours: null }), group("Air Plugin", ["p.kt"], { yours: null, approved: true })]
     expect(presentApprovalScope(unknown, new Set(["a.css"]))).toBeNull()
+  })
+})
+
+describe("presentApprovalLanding", () => {
+  it("says a layer into another base counts once it goes into the target, the bottom of a stack for its own Safe Push alone", () => {
+    const layer = presentApprovalLanding({ kind: "onceIntoTarget", base: "alice/parts/33-auth", target: "master" }, 302, true)
+    expect(layer).toBe("Counts once it goes into master: Patronus counts the approvals of the pull request a Safe Push starts from")
+    expect(presentApprovalLanding({ kind: "onceIntoTarget", base: "release/253", target: "master" }, 7, false)).toBe(layer)
+    expect(presentApprovalLanding({ kind: "ownSafePush" }, 301, true)).toBe("Counts for the Safe Push of #301 alone, not of the layers above it")
+    // a pull request alone into the target, and without Patronus: nothing beyond its groups
+    expect(presentApprovalLanding({ kind: "ownSafePush" }, 7, false)).toBeNull()
+    expect(presentApprovalLanding(undefined, 302, true)).toBeNull()
+    expect(joinApprovalScope(layer, "Counts for Design")).toBe(`${layer}. Counts for Design`)
+    expect(joinApprovalScope(null, "Counts for Design")).toBe("Counts for Design")
+    expect(joinApprovalScope(null, null)).toBeNull()
   })
 })

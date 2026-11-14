@@ -452,6 +452,11 @@ pub struct RepositoryView {
   /// Patronus, or whose changes need no approval, is not listed
   #[serde(default)]
   pub review_groups: BTreeMap<String, Vec<ReviewerGroupView>>,
+  /// What an approval of each pull request to review counts for by `pull:<number>`, as `domain_policy::approval_landing`
+  /// decides it of its base and the target Patronus pushes into: none where Patronus doesn't merge, before the target is
+  /// known, and for an own pull request
+  #[serde(default)]
+  pub approval_landing: BTreeMap<String, ApprovalLanding>,
   /// The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them
   pub operations: BTreeMap<OperationId, RunningOperation>,
   /// The rewrite of this process whose Undo the session offers, by the operation its outcome named (`Outcome::undo`):
@@ -508,6 +513,21 @@ pub struct ReviewerGroupView {
   /// The user is a member whose approval can count: the GitHub login of the app's sign-in is the group's; `None` while
   /// the sign-in names no login (signed out, or a token of `gh` or the environment), so nobody knows
   pub yours: Option<bool>,
+}
+
+/// What an approval of a pull request to review counts for where Patronus merges (`RepositoryView::approval_landing`,
+/// `domain_policy::approval_landing`): Patronus counts the approvals of the one pull request a Safe Push starts from, into
+/// its base, for all it lands
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ApprovalLanding {
+  /// It goes into the target: the Safe Push started from it counts the approval, for it alone
+  OwnSafePush,
+  /// It goes into `base`, not into `target` (a layer of a stack goes into the branch of the one below): no Safe Push into
+  /// the target counts the approval until its base is the target. The approval stays with the pull request, not with its
+  /// head; then its Safe Push counts it for all it lands, the layers below it not yet landed too
+  OnceIntoTarget { base: String, target: String },
 }
 
 /// The robot of a subject that needs the user (`RepositoryView::attention`)
@@ -1385,6 +1405,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_review_groups: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub approval_landing: BTreeMap<String, ApprovalLanding>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_approval_landing: Vec<String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub operations: BTreeMap<OperationId, RunningOperation>,

@@ -1,7 +1,7 @@
 use crate::facts::{FactResult, FactStore, RobotsRead};
 use crate::readiness_facts::ReadinessAnswer;
 use crate::review_request_facts::review_request_facts_test::{at, available};
-use crate::review_view::{pull_key, review_actions_of, review_groups_of, reviews_view};
+use crate::review_view::{approval_landing_of, pull_key, review_actions_of, review_groups_of, reviews_view};
 use crate::table::TableState;
 use crate::table::table_test::grouping;
 use domain_types::SyncEvent;
@@ -10,7 +10,7 @@ use domain_types::fixtures::{missing_approvals, review_request};
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusReviewRequirement, PatronusRobotsResult, ReviewReadiness};
 use domain_types::pull_request::{GitHubAuthStatus, PullRequestAvailability};
 use domain_types::review_request::{LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewSearch, ReviewsAnswer};
-use domain_types::session::{Demand, PullRequestsView, ReviewSectionKind};
+use domain_types::session::{ApprovalLanding, Demand, PullRequestsView, ReviewSectionKind};
 use domain_types::sign_in::AuthStatus;
 use domain_types::youtrack::YouTrackAuthStatus;
 use pretty_assertions::assert_eq;
@@ -55,7 +55,7 @@ fn with_head(number: u32, base: &str) -> ReviewRequest {
 }
 
 #[test]
-fn the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review() {
+fn the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review_and_what_its_approval_counts_for() {
   let state = synced();
   let mut facts = FactStore::new();
   patronus_answers(&mut facts);
@@ -138,6 +138,25 @@ fn the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_
   assert_eq!(reason(3, ActionId::Approve), Some(Some(ActionBlocker::OwnPullRequest)));
   // a link can be removed
   assert_eq!(reason(4, ActionId::RemoveFromReviews), Some(None));
+
+  // what an approval counts for where Patronus merges: the Safe Push of its own pull request into the target, one into
+  // another base once it goes there, nothing of the own one
+  assert_eq!(
+    approval_landing_of(&state, &facts, &reviews),
+    BTreeMap::from([
+      (pull_key(1), ApprovalLanding::OwnSafePush),
+      (
+        pull_key(2),
+        ApprovalLanding::OnceIntoTarget {
+          base: "release/253".to_owned(),
+          target: "master".to_owned(),
+        }
+      ),
+      (pull_key(4), ApprovalLanding::OwnSafePush),
+    ])
+  );
+  // nothing where Patronus doesn't merge
+  assert_eq!(approval_landing_of(&state, &FactStore::new(), &reviews), BTreeMap::new());
 }
 
 /// The reviewer groups of a pull request a review window shows come of the readiness of `request:<number>` by

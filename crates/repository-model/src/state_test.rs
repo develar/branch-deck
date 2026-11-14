@@ -140,7 +140,7 @@ fn a_patch_carries_the_operations_that_came_changed_or_ended_by_id() {
   let ended = view.diff(&state, &facts).unwrap();
   assert_eq!(ended.changes.removed_operations, [OperationId("a".to_string())]);
   assert_eq!(ended.changes.operations, BTreeMap::new());
-  patches.extend([admitted, stepped, joined, ended]);
+  patches.extend(vec![admitted, stepped, joined, ended]);
   assert_eq!(fold(7, patches).operations, BTreeMap::from([(b.id.clone(), b)]));
   assert_eq!(view.snapshot().operations.len(), 1);
 }

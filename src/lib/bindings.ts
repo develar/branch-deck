@@ -925,6 +925,21 @@ export type AppliedUpdate = {
 	droppedAlreadyUpstream: number,
 };
 
+/**
+ *  What an approval of a pull request to review counts for where Patronus merges (`RepositoryView::approval_landing`,
+ *  `domain_policy::approval_landing`): Patronus counts the approvals of the one pull request a Safe Push starts from, into
+ *  its base, for all it lands
+ */
+export type ApprovalLanding = 
+/**  It goes into the target: the Safe Push started from it counts the approval, for it alone */
+{ kind: "ownSafePush" } | 
+/**
+ *  It goes into `base`, not into `target` (a layer of a stack goes into the branch of the one below): no Safe Push into
+ *  the target counts the approval until its base is the target. The approval stays with the pull request, not with its
+ *  head; then its Safe Push counts it for all it lands, the layers below it not yet landed too
+ */
+{ kind: "onceIntoTarget"; base: string; target: string };
+
 /**  Why the approvals don't hold a Safe Push back (`domain_policy::review::skips_approvals`) */
 export type ApprovalsSkip = 
 /**
@@ -7501,6 +7516,12 @@ export type RepositoryView = {
 	 *  Patronus, or whose changes need no approval, is not listed
 	 */
 	reviewGroups?: { [key in string]: ReviewerGroupView[] },
+	/**
+	 *  What an approval of each pull request to review counts for by `pull:<number>`, as `domain_policy::approval_landing`
+	 *  decides it of its base and the target Patronus pushes into: none where Patronus doesn't merge, before the target is
+	 *  known, and for an own pull request
+	 */
+	approvalLanding?: { [key in string]: ApprovalLanding },
 	/**  The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them */
 	operations: { [key in OperationId]: RunningOperation },
 	/**
@@ -10053,6 +10074,8 @@ export type TableChanges = {
 	removedGithubLayers?: string[],
 	reviewGroups?: { [key in string]: ReviewerGroupView[] },
 	removedReviewGroups?: string[],
+	approvalLanding?: { [key in string]: ApprovalLanding },
+	removedApprovalLanding?: string[],
 	operations?: { [key in OperationId]: RunningOperation },
 	removedOperations?: OperationId[],
 	/**  The rewrite whose Undo the session offers now, `null` for none; absent when it did not change */

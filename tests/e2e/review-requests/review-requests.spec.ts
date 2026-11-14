@@ -1702,7 +1702,8 @@ test.describe("Review Stack", () => {
   })
 
   test("should review all changes of a stack and each layer, and approve the layer shown on its head", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("stacked_chain", { reviewRequests: availableReviewRequests([LAYER_AUTH, LAYER_LOGIN, LAYER_OAUTH]) })
+    // Patronus merges: a Safe Push is of the bottom alone, into master
+    const repo = await setupRepo("stacked_chain", { reviewRequests: availableReviewRequests([LAYER_AUTH, LAYER_LOGIN, LAYER_OAUTH]), patronus: availableRobots() })
     await syncAndWaitForBranches()
     const { reviewPage, review } = await openStackReview(page)
 
@@ -1737,6 +1738,9 @@ test.describe("Review Stack", () => {
     await expect(review.getByTestId("review-commits").getByTestId("review-commit")).toHaveCount(1)
     await expect(review.getByTestId("review-description")).toContainText("The change of login.")
 
+    // a layer into the branch of the one below: Patronus counts its approval once it goes into master
+    expect(await approveDescription(reviewPage, review)).toBe("Counts once it goes into master: Patronus counts the approvals of the pull request a Safe Push starts from")
+
     // Approve: the layer shown, on its head
     await pressDecisionKey(reviewPage, review, "a")
     await expect(reviewPage.locator("[data-slot=toast-title]", { hasText: "Approved #302" })).toBeVisible()
@@ -1748,6 +1752,14 @@ test.describe("Review Stack", () => {
     await reviewPage.keyboard.press("ArrowDown")
     await expect(review.getByRole("heading", { name: "Add the OAuth provider" })).toBeVisible()
     await expect(review.getByTestId("review-dialog-position")).toHaveText("3 of 3")
+
+    // the bottom, into master: its approval counts for its own Safe Push alone
+    await reviewPage.keyboard.press("ArrowUp")
+    await expect(review.getByTestId("review-dialog-position")).toHaveText("2 of 3")
+    await reviewPage.keyboard.press("ArrowUp")
+    await expect(review.getByRole("heading", { name: "Add the auth module" })).toBeVisible()
+    await expect(review.getByTestId("review-dialog-position")).toHaveText("1 of 3")
+    expect(await approveDescription(reviewPage, review)).toBe("Counts for the Safe Push of #301 alone, not of the layers above it")
   })
 })
 

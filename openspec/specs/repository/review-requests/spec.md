@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - crates/domain-types/src/review_request.rs
   - crates/domain-policy/src/review_request_chains.rs
+  - crates/domain-policy/src/approval_landing.rs
   - src/lib/approval-news.ts
   - crates/remote-facts/src/review_requests.rs
   - crates/domain-policy/src/news.rs
@@ -1676,9 +1677,9 @@ its title, its hover the whole verdict; the title of a layer with nothing to rea
 ### Requirement: Review window: The decisions of a stack are those of the layer shown
 
 Approve, Request Changes… and Safe Push… of the title bar MUST act on the layer of the item shown, with that layer's
-actions as Rust decides them (`pull:<number>`: an approval Patronus would not count where the layer goes into another
-branch than its target is refused there, never in the page), on the head of that layer as the fetch of the stack
-answered it. On All Changes they MUST be disabled: "Choose a pull request of the stack".
+actions as Rust decides them (`pull:<number>`: the Safe Push of a layer into another branch than the target is refused
+there, never in the page, and its Approve says when Patronus counts it), on the head of that layer as the fetch of the
+stack answered it. On All Changes they MUST be disabled: "Choose a pull request of the stack".
 
 #### Scenario: Approve a layer
 - **WHEN** the user approves while a layer is shown
@@ -1689,6 +1690,35 @@ answered it. On All Changes they MUST be disabled: "Choose a pull request of the
 - **WHEN** All Changes of a stack is shown
 - **THEN** Approve and Request Changes… are disabled with "Choose a pull request of the stack"
   [@test] tests/e2e/review-requests/review-requests.spec.ts (`should review all changes of a stack and each layer, and approve the layer shown on its head`)
+
+### Requirement: Review window: Approve of a layer says when Patronus counts it
+
+Where Patronus merges the repository, Approve MUST say what the approval counts for in landing, before its groups, as
+Rust decides it of the base and the target (`approvalLanding` of `pull:<number>`, `domain_policy::approval_landing`): a Safe Push
+goes into the base of its pull request and counts the approvals of that pull request alone, on all it lands, whatever
+commit each was on. Approve stays: the approval waits on the pull request until it goes into the target.
+
+#### Scenario: A layer above the bottom
+- **WHEN** the window reviews a stack of three where Patronus merges, the bottom into master, and shows its second layer
+- **THEN** Approve says "Counts once it goes into master: Patronus counts the approvals of the pull request a Safe Push starts from"
+- **AND** Approve approves that pull request alone, on its head
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should review all changes of a stack and each layer, and approve the layer shown on its head`)
+  [@test] crates/domain-policy/src/approval_landing_test.rs (`an_approval_counts_for_the_safe_push_of_its_own_pull_request_into_the_target_and_a_layer_above_once_it_goes_there`)
+  [@test] src/presenters/reviews.test.ts (`says a layer into another base counts once it goes into the target, the bottom of a stack for its own Safe Push alone`)
+
+#### Scenario: The bottom of a stack
+- **WHEN** the window shows the bottom of the stack, into master
+- **THEN** Approve says "Counts for the Safe Push of #301 alone, not of the layers above it"
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should review all changes of a stack and each layer, and approve the layer shown on its head`)
+  [@test] src/presenters/reviews.test.ts (`says a layer into another base counts once it goes into the target, the bottom of a stack for its own Safe Push alone`)
+
+#### Scenario: No Patronus, an own pull request, one alone
+- **WHEN** Patronus doesn't merge the repository, the target is not known yet, or the pull request is the user's own
+- **THEN** the view has nothing of it for the pull request, and Approve says only the groups it counts for
+- **AND** a pull request alone into the target says nothing of it either
+  [@test] crates/domain-policy/src/approval_landing_test.rs (`an_approval_counts_for_the_safe_push_of_its_own_pull_request_into_the_target_and_a_layer_above_once_it_goes_there`)
+  [@test] crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review_and_what_its_approval_counts_for`)
+  [@test] src/presenters/reviews.test.ts (`says a layer into another base counts once it goes into the target, the bottom of a stack for its own Safe Push alone`)
 
 ### Requirement: Review window: A stack is one fetch of its top
 
@@ -2531,8 +2561,7 @@ each time that set changes: a change of the windows and a listing alike.
 
 - Back returns the stack window to All Changes, then, once its layers are read, to its first layer to read: the layer shown is not kept.
 - "Approve N Pull Requests" of a stack (one write that approves every layer on the head the window shows, refusing a
-  layer whose head moved since the fetch, by its number) is not built: each layer is approved on its own. Whether
-  Patronus counts the approval of a layer whose base is not its target is to be checked on a real chain first.
+  layer whose head moved since the fetch, by its number) is not built: each layer is approved on its own.
 - Whether Patronus starts a robot for a `/patronus merge` of someone who is not the author, and whose robot it is
   (the list asks for `owner=me`), is to be checked in a live run; a robot not among the user's is not watched, so its
   merge is told by the pull request, not by the app.

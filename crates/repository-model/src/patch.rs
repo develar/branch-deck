@@ -14,9 +14,9 @@ use domain_types::next_step::NextStepView;
 use domain_types::operation::{OperationId, RunningOperation};
 use domain_types::pull_request::PullRequestView;
 use domain_types::session::{
-  ArchivedChanges, BranchChange, BranchPush, BranchRemote, BranchStructure, BranchSync, BranchView, CommitSync, Fact, FactsChanges, FactsView, GitHubLayer, NEWS_KEPT, News,
-  PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, ReviewerGroupView, ReviewsView, RobotAttention, RobotsChange, RobotsView, SyncState,
-  TableChanges, TableHeader, TableSections, Version, ViewPatch,
+  ApprovalLanding, ArchivedChanges, BranchChange, BranchPush, BranchRemote, BranchStructure, BranchSync, BranchView, CommitSync, Fact, FactsChanges, FactsView, GitHubLayer,
+  NEWS_KEPT, News, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, ReviewerGroupView, ReviewsView, RobotAttention, RobotsChange, RobotsView,
+  SyncState, TableChanges, TableHeader, TableSections, Version, ViewPatch,
 };
 use domain_types::stack::StackBranchUpdate;
 use std::collections::BTreeMap;
@@ -132,6 +132,8 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     landed,
     review_groups,
     removed_review_groups,
+    approval_landing,
+    removed_approval_landing,
     reviews,
     patronus,
     route,
@@ -170,6 +172,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   apply_keyed(&mut view.attention, attention, &removed_attention);
   apply_keyed(&mut view.github_layers, github_layers, &removed_github_layers);
   apply_keyed(&mut view.review_groups, review_groups, &removed_review_groups);
+  apply_keyed(&mut view.approval_landing, approval_landing, &removed_approval_landing);
   apply_keyed(&mut view.operations, operations, &removed_operations);
   set_if_some(&mut view.undo, undo);
   set_if_some(&mut view.reviews, reviews);
@@ -265,6 +268,8 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     removed_github_layers: _,
     review_groups: _,
     removed_review_groups: _,
+    approval_landing: _,
+    removed_approval_landing: _,
     operations,
     removed_operations,
     undo,
@@ -437,6 +442,7 @@ pub(crate) struct Now<'a> {
   pub(crate) attention: &'a BTreeMap<String, RobotAttention>,
   pub(crate) github_layers: &'a BTreeMap<String, GitHubLayer>,
   pub(crate) review_groups: &'a BTreeMap<String, Vec<ReviewerGroupView>>,
+  pub(crate) approval_landing: &'a BTreeMap<String, ApprovalLanding>,
   /// In the order they were admitted
   pub(crate) operations: Vec<&'a RunningOperation>,
   pub(crate) undo: Option<&'a OperationId>,
@@ -469,6 +475,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
   let (attention, removed_attention) = diff_keyed(&last.attention, now.attention);
   let (github_layers, removed_github_layers) = diff_keyed(&last.github_layers, now.github_layers);
   let (review_groups, removed_review_groups) = diff_keyed(&last.review_groups, now.review_groups);
+  let (approval_landing, removed_approval_landing) = diff_keyed(&last.approval_landing, now.approval_landing);
   let (operations, removed_operations) = operations_change(&last.operations, &now.operations);
   let (last_archived, archived) = (&last.sections.archived, &now.sections.archived);
   let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
@@ -506,6 +513,8 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
     removed_github_layers,
     review_groups,
     removed_review_groups,
+    approval_landing,
+    removed_approval_landing,
     operations,
     removed_operations,
     undo: (last.undo.as_ref() != now.undo).then(|| now.undo.cloned()),
@@ -544,6 +553,7 @@ pub fn diff_views(from: &RepositoryView, to: &RepositoryView) -> ViewPatch {
     attention: &to.attention,
     github_layers: &to.github_layers,
     review_groups: &to.review_groups,
+    approval_landing: &to.approval_landing,
     operations: to.operations.values().collect(),
     undo: to.undo.as_ref(),
     reviews: &to.reviews,

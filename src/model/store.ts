@@ -30,6 +30,7 @@ import { Channel } from "@tauri-apps/api/core"
 import type {
   ActionState,
   ApiError,
+  ApprovalLanding,
   BranchChange,
   CachedModel,
   BranchStructure as StructureView,
@@ -656,6 +657,9 @@ function projectView(
   }
   if (changes === null || Object.keys(changes.reviewGroups ?? {}).length > 0 || (changes.removedReviewGroups?.length ?? 0) > 0) {
     update.reviewGroups = next.reviewGroups ?? {}
+  }
+  if (changes === null || Object.keys(changes.approvalLanding ?? {}).length > 0 || (changes.removedApprovalLanding?.length ?? 0) > 0) {
+    update.approvalLanding = next.approvalLanding ?? {}
   }
   if (changes === null || Object.keys(changes.operations ?? {}).length > 0 || (changes.removedOperations?.length ?? 0) > 0) {
     update.operations = next.operations
@@ -1357,10 +1361,14 @@ interface RowParts {
   readonly actions: readonly ActionState[]
   /** The reviewer groups of a pull request a review window shows (`RepositoryView.reviewGroups`, `pull:<number>`) */
   readonly reviewGroups: readonly ReviewerGroupView[]
+  /** What an approval of a pull request to review counts for where Patronus merges (`RepositoryView.approvalLanding`, `pull:<number>`) */
+  readonly approvalLanding: ApprovalLanding
 }
 
 /** The record of the store that keeps each part of the rows */
-const ROW_PARTS = { landing: "nextSteps", actions: "actions", reviewGroups: "reviewGroups" } as const satisfies { readonly [P in keyof RowParts]: keyof BranchSyncState }
+const ROW_PARTS = { landing: "nextSteps", actions: "actions", reviewGroups: "reviewGroups", approvalLanding: "approvalLanding" } as const satisfies {
+  readonly [P in keyof RowParts]: keyof BranchSyncState
+}
 
 /** The part `part` of the row of `subject` as the view holds it now; undefined while the view has none of it */
 export function getRowPart<P extends keyof RowParts>(subject: string, part: P): RowParts[P] | undefined {

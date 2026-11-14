@@ -8,6 +8,9 @@
 //! - `actions`: the actions a branch, a whole stack, a robot or a pull request to review offers and whether each can run
 //!   now, disabled with the reason (`branch_actions`, `stack_actions`, `robot_actions`, `review_actions`), for every
 //!   surface of the app
+//! - `approval_landing`: what an approval of a pull request to review counts for where Patronus merges
+//!   (`approval_landing`): the Safe Push of that pull request alone, into the target; one into another base, a layer of a
+//!   stack, once its base is the target
 //! - `attention`: the robot that needs the user, the failed robot of a branch or a whole stack as it is that nothing else
 //!   holds (`branch_attention`, `stack_attention`), which the landing overview, Attention and the Dock badge count
 //! - `author_claim`: what the author says a pull request is, by a label or the conventional type of its title, from a
@@ -87,6 +90,7 @@
 
 pub mod actions;
 pub mod admission;
+pub mod approval_landing;
 pub mod attention;
 pub mod author_claim;
 pub mod declared_needs;
@@ -122,6 +126,8 @@ pub mod stack;
 mod action_catalog_test;
 #[cfg(test)]
 mod actions_test;
+#[cfg(test)]
+mod approval_landing_test;
 #[cfg(test)]
 mod attention_test;
 #[cfg(test)]

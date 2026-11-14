@@ -3,7 +3,7 @@
  * request by how the user takes part in it, the GitHub search of each section, and who asks in the review window. Rust
  * decides the sections and their order (`domain_policy::reviews`); this module only words them.
  */
-import type { ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSectionKind, ReviewerState } from "@/lib/bindings"
+import type { ApprovalLanding, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSectionKind, ReviewerState } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { formatReturnedMeta } from "@/lib/outgoing-attention"
@@ -334,4 +334,28 @@ export function presentApprovalScope(groups: readonly ApprovalScopeGroup[], open
   }
   const seen = [...files].filter(path => opened.has(path)).length
   return `${counts} · You opened ${seen} of ${yours.length === 1 ? "its" : "their"} ${files.size} ${files.size === 1 ? "file" : "files"}`
+}
+
+/**
+ * What an approval counts for in landing where Patronus merges, as Rust decides it of the base of the pull request
+ * (`RepositoryView.approvalLanding`; openspec/specs/repository/review-requests/spec.md, "Review window: Approve of a layer
+ * says when Patronus counts it"): Patronus counts the approvals of the pull request a Safe Push starts from, into its
+ * base. One into another base than the target "Counts once it goes into master: …"; the layer of a stack into the
+ * target "Counts for the Safe Push of #301 alone, not of the layers above it"; nothing else, nor without Patronus
+ */
+export function presentApprovalLanding(landing: ApprovalLanding | undefined, number: number, inStack: boolean): string | null {
+  switch (landing?.kind) {
+    case "onceIntoTarget":
+      return `Counts once it goes into ${landing.target}: Patronus counts the approvals of the pull request a Safe Push starts from`
+    case "ownSafePush":
+      return inStack ? `Counts for the Safe Push of #${number} alone, not of the layers above it` : null
+    case undefined:
+      return null
+  }
+}
+
+/** What Approve says it counts for: in landing (`presentApprovalLanding`), then for the groups (`presentApprovalScope`) */
+export function joinApprovalScope(landing: string | null, groups: string | null): string | null {
+  const parts = [landing, groups].filter(it => it !== null)
+  return parts.length === 0 ? null : parts.join(". ")
 }

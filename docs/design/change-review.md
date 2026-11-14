@@ -616,6 +616,23 @@ the review.
    and leaves the heading as it was; any other answer (uses outside, another meaning) and any other change of the body
    keep "body changed": more than a proven rename is read.
 
+31. **An approval of a layer counts once it goes into master** (2026-11-14). Your Turn groups a chain of someone else's
+   pull requests into one stack, and Review Stack approves the layer shown; the real case is a chain of 12 in the
+   monorepo, `parts/33-…` into `parts/34-…`, only the bottom into master. Read in the sources of Patronus (8d0c5c42d,
+   `service/service-patronus/services-impl/…/service/`): a Safe Push from a comment goes into the base of its pull
+   request (`github/impl/GitHubCommandExecutorImpl.kt:148`); a base that no protected group of the repository names
+   refuses the start, "does not have checks configured" (`robot/impl/RobotServiceImpl.kt:1646`, `:1470`), and no group
+   of the monorepo names a `parts/…` branch (`settings_global/instances/repositories/UltimateRepositorySettings.kt`). The
+   approvals are those of that pull request alone (`review_check/impl/OwnershipReviewApprovalCheck.kt:113`,
+   `GitHubOwnershipReviewDetailsLoader.kt:16`), checked once at the start on the paths of all it lands, `target..head`
+   (`orchestrator/impl/core/OrchestratorContextBuilder.kt:741`, `:770`), and the latest review of each reviewer counts
+   whatever commit it was on (`GitHubOwnershipReviewDetailsLoader.kt:47`); only GitHub's dismissal of stale reviews
+   takes one back. So the approval of the bottom counts for its own Safe Push and for no layer above it, and the
+   approval of a layer above counts for nothing until its base is master, then for all its Safe Push lands, the layers
+   below it not yet landed too. Approve says so (`domain_policy::approval_landing`) and stays enabled: the approval
+   waits on the pull request. Refusing it, or retargeting the layer, was rejected: the approval is the reviewer's
+   judgement of that layer's own diff, still true once it goes into master, and the base is the author's.
+
 ## Review Rounds
 
 A round of polish: a real review, what looked wrong, the class of the defect, the change that fixed the class.

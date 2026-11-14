@@ -1,7 +1,7 @@
 # Stacks of GitHub
 
 **Status:** Implemented
-**Updated:** 2026-11-13
+**Updated:** 2026-11-14
 **Tags:** [product, stacks, pull-requests, github]
 
 ## Problem
@@ -9,7 +9,8 @@
 A stacked branch's pull request goes into master and holds the commits of the branches it is built on
 ([Landing](landing.md#every-pull-request-goes-into-master)). The reason is Patronus: it merges a pull request into its
 base and counts only the approvals of the pull request that started the robot, so a pull request into a parent's
-branch can never land. On a repository without Patronus (the `pull-request` and `push` routes,
+branch can never land. A chain of someone else's pull requests that Review Stack shows is the same: Approve of a layer
+above the bottom says it counts once the layer goes into master ([Change Review, decision 31](change-review.md#decisions-and-reversals)). On a repository without Patronus (the `pull-request` and `push` routes,
 [Landing Routes](../../openspec/specs/branch/landing-routes/spec.md)) the same rule held for the same reason on plain GitHub: a
 merge lands only into its base, branch protection counts the pull request merged into master, CI often filters on the
 base. The price is the review: the pull request of `oauth` shows the commits of `auth` and `login` too.

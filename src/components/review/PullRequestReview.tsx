@@ -25,7 +25,7 @@ import { useSubjectPlan } from "@/hooks/useReviewPlan"
 import { useReviewPosition } from "@/hooks/useReviewPosition"
 import { SelectReviewFileContext, linkNavigator } from "@/hooks/useSelectReviewFile"
 import type { ReviewLink } from "@/hooks/useSelectReviewFile"
-import type { RangeReadingView, ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest, StackReading } from "@/lib/bindings"
+import type { ApprovalLanding, RangeReadingView, ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest, StackReading } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -44,7 +44,7 @@ import { useRowPart } from "@/model/store"
 import { describeUnproven, formatReading, formatStackReading } from "@/presenters/range-reading"
 import { presentMap } from "@/presenters/review-map"
 import { withCommitTitles } from "@/presenters/review-steps"
-import { presentApprovalScope } from "@/presenters/reviews"
+import { joinApprovalScope, presentApprovalLanding, presentApprovalScope } from "@/presenters/reviews"
 import { useBranchSync } from "@/stores/branch-sync"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import type { ReviewFetch } from "@/stores/review-fetch"
@@ -76,6 +76,11 @@ export interface PullRequestReviewHost {
    * none while it is not known, Patronus doesn't answer, or the pull request goes into another branch
    */
   readonly reviewGroups: readonly ReviewerGroupView[]
+  /**
+   * What an approval of the pull request counts for where Patronus merges, as Rust decides it of its base
+   * (`pull:<number>`, `domain_policy::approval_landing`); undefined without Patronus and for an own pull request
+   */
+  readonly approvalLanding: ApprovalLanding | undefined
   /** The baseline whose `OWNERSHIP` files name the owners of the files; null before a sync of the window's session */
   readonly baselineBranch: string | null
   readonly busy: ReviewAction | undefined
@@ -291,9 +296,10 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     named: null,
   })
   const owners: ReviewOwners = { files: subjectFiles, groups: host.reviewGroups, owners: fileOwners }
-  // what Approve counts for: the user's groups still to approve and their files among all changes of the head, whatever
-  // chip is chosen; nothing while the head is fetched or Patronus hasn't told the groups of it
-  const approvalScope =
+  // what Approve counts for: in landing, as Rust decides it of the base (a layer of a stack counts once it goes into the
+  // target), then the user's groups still to approve and their files among all changes of the head, whatever chip is
+  // chosen; nothing of the groups while the head is fetched or Patronus hasn't told the groups of it
+  const groupsScope =
     rangeFiles === undefined
       ? null
       : presentApprovalScope(
@@ -305,6 +311,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           })),
           openedPaths,
         )
+  const approvalScope = joinApprovalScope(presentApprovalLanding(host.approvalLanding, request.number, stack !== undefined), groupsScope)
 
   /** Shows the overview or the changes; the changes at a file of the rail (of all changes) or at a commit */
   const showTab = (next: ReviewTab, at: { path?: string; item?: string } = {}) => {

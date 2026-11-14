@@ -271,6 +271,7 @@ function useRequestWrites(repositoryPath: string, request: ReviewRequest) {
   const operations = useBranchSync(state => state.operations)
   const actions = useRowPart(`pull:${number}`, "actions")
   const reviewGroups = useRowPart(`pull:${number}`, "reviewGroups") ?? NO_GROUPS
+  const approvalLanding = useRowPart(`pull:${number}`, "approvalLanding")
   const baselineBranch = useBranchSync(state => state.baselineBranch)
 
   const run = (action: ReviewAction, write: () => Promise<boolean>, submittedReview: SubmittedReview | null): Promise<boolean> => {
@@ -293,6 +294,7 @@ function useRequestWrites(repositoryPath: string, request: ReviewRequest) {
     busy: localBusy[number] ?? getReviewBusy(operations)[number],
     actions,
     reviewGroups,
+    approvalLanding,
     baselineBranch,
     close: () => {
       getCurrentWindow()

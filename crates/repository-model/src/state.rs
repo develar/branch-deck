@@ -18,7 +18,7 @@ use crate::action_view::{ActionSources, actions_of};
 use crate::derive::{attention_of, github_layers_of, landed_states_of, landing_route_of, lands_of, next_steps_of, open_pull_requests_of, push_view};
 use crate::facts::FactStore;
 use crate::patch::{Now, apply_changes, changed, changes, diff_views, kept_parts, keyed_facts_change, pull_requests_change, robots_change};
-use crate::review_view::{review_actions_of, review_groups_of, reviews_view};
+use crate::review_view::{approval_landing_of, review_actions_of, review_groups_of, reviews_view};
 use crate::session::SubscriptionId;
 use crate::table::TableState;
 use domain_types::actions::ActionState;
@@ -27,7 +27,8 @@ use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
 use domain_types::pull_request::PullRequestView;
 use domain_types::session::{
-  BranchPush, FactsChanges, FactsView, GitHubLayer, RepositoryView, ReviewerGroupView, ReviewsView, RobotAttention, SyncState, TableChanges, Version, ViewPatch, ViewSubscription,
+  ApprovalLanding, BranchPush, FactsChanges, FactsView, GitHubLayer, RepositoryView, ReviewerGroupView, ReviewsView, RobotAttention, SyncState, TableChanges, Version, ViewPatch,
+  ViewSubscription,
 };
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, RandomState};
@@ -177,6 +178,7 @@ struct Derived {
   attention: BTreeMap<String, RobotAttention>,
   github_layers: BTreeMap<String, GitHubLayer>,
   review_groups: BTreeMap<String, Vec<ReviewerGroupView>>,
+  approval_landing: BTreeMap<String, ApprovalLanding>,
   reviews: ReviewsView,
   route: LandingRoute,
 }
@@ -220,6 +222,8 @@ impl Derived {
     let attention = attention_of(state, facts);
     // the reviewer groups of the pull requests the review windows show, of their readiness
     let review_groups = review_groups_of(facts);
+    // what an approval of each of them counts for where Patronus merges
+    let approval_landing = approval_landing_of(state, facts, &reviews);
     Self {
       syncing,
       pushes,
@@ -231,6 +235,7 @@ impl Derived {
       attention,
       github_layers,
       review_groups,
+      approval_landing,
       reviews,
       route,
     }
@@ -258,6 +263,7 @@ impl Derived {
       attention: &self.attention,
       github_layers: &self.github_layers,
       review_groups: &self.review_groups,
+      approval_landing: &self.approval_landing,
       operations: state.operations().iter().collect(),
       undo: state.offered_undo(),
       reviews: &self.reviews,
@@ -287,6 +293,7 @@ impl Derived {
     view.attention = self.attention;
     view.github_layers = self.github_layers;
     view.review_groups = self.review_groups;
+    view.approval_landing = self.approval_landing;
     view.reviews = self.reviews;
     view.route = self.route;
   }

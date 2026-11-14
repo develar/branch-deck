@@ -4,12 +4,14 @@
 //! review by `pull:<number>` (`domain_policy::actions::review_actions`): every request by name, every pull request of
 //! the sections, and the ones the review windows show that no listing has any more; `review_groups_of` the reviewer
 //! groups of each pull request a review window shows by `pull:<number>` (`domain_policy::reviewer_groups`, of the
-//! readiness `request:<number>` and the GitHub login of the app's sign-in). All are derived with every patch.
+//! readiness `request:<number>` and the GitHub login of the app's sign-in); `approval_landing_of` what an approval of
+//! each counts for where Patronus merges (`domain_policy::approval_landing`). All are derived with every patch.
 
 use crate::action_view::{FrameReads, reads_cached_frame};
 use crate::facts::FactStore;
 use crate::table::TableState;
 use domain_policy::actions::{PullRequestFacts, Target, review_actions};
+use domain_policy::approval_landing::approval_landing;
 use domain_policy::landing_node::is_users_move;
 use domain_policy::reviewer_groups::reviewer_groups;
 use domain_policy::reviews::{ReviewsFacts, is_returned, sections};
@@ -18,7 +20,7 @@ use domain_types::next_step::NextStepView;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::pull_request::PullRequestState;
 use domain_types::review_request::{ReviewInvolvement, ReviewRequest};
-use domain_types::session::{ReviewerGroupView, ReviewsView, request_of_readiness_key};
+use domain_types::session::{ApprovalLanding, ReviewerGroupView, ReviewsView, request_of_readiness_key};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The key of the actions of the pull request `number` in `RepositoryView::actions`
@@ -60,40 +62,58 @@ pub fn review_actions_of(state: &TableState, facts: &FactStore, reviews: &Review
   let target = target(state, facts);
   // the commit a request shows, the branch Patronus pushes into: of the cached frame until fresh answers come
   let cached = reads_cached_frame(state, facts, FrameReads::Reviews);
-  let mut actions = BTreeMap::new();
-  let mut add = |request: &ReviewRequest, involvement: Option<&ReviewInvolvement>| {
-    let key = pull_key(request.number);
-    if actions.contains_key(&key) {
-      return;
-    }
-    let (own, linked, branch) = match involvement {
-      Some(ReviewInvolvement::Authored { branch, .. }) => (true, false, branch.as_deref()),
-      Some(ReviewInvolvement::Linked { .. }) => (false, true, None),
-      _ => (false, false, None),
-    };
-    let facts = PullRequestFacts {
-      number: request.number,
-      head: &request.head_ref_oid,
-      base: &request.base_ref_name,
-      own,
-      linked,
-      branch,
-      approved: fact.approved(request),
-      target,
-      cached,
-    };
-    actions.insert(key, review_actions(&facts));
-  };
-  for request in &fact.view().requests {
-    add(request, None);
-  }
-  for entry in reviews.sections.iter().flat_map(|section| &section.entries) {
-    add(&entry.request, Some(&entry.involvement));
-  }
-  for (request, involvement) in fact.windows() {
-    add(request, involvement.as_ref());
-  }
-  actions
+  pulls_to_review(facts, reviews)
+    .into_iter()
+    .map(|(request, involvement)| {
+      let (own, linked, branch) = match involvement {
+        Some(ReviewInvolvement::Authored { branch, .. }) => (true, false, branch.as_deref()),
+        Some(ReviewInvolvement::Linked { .. }) => (false, true, None),
+        _ => (false, false, None),
+      };
+      let facts = PullRequestFacts {
+        number: request.number,
+        head: &request.head_ref_oid,
+        base: &request.base_ref_name,
+        own,
+        linked,
+        branch,
+        approved: fact.approved(request),
+        target,
+        cached,
+      };
+      (pull_key(request.number), review_actions(&facts))
+    })
+    .collect()
+}
+
+/// What an approval of every pull request to review counts for by `pull:<number>` where Patronus merges the repository
+/// (`domain_policy::approval_landing`): the same pull requests as `review_actions_of`, by the same target their Safe Push
+/// is offered by
+#[must_use]
+pub fn approval_landing_of(state: &TableState, facts: &FactStore, reviews: &ReviewsView) -> BTreeMap<String, ApprovalLanding> {
+  let target = target(state, facts);
+  pulls_to_review(facts, reviews)
+    .into_iter()
+    .filter_map(|(request, involvement)| {
+      let own = matches!(involvement, Some(ReviewInvolvement::Authored { .. }));
+      approval_landing(target, &request.base_ref_name, own).map(|landing| (pull_key(request.number), landing))
+    })
+    .collect()
+}
+
+/// Every pull request to review once, by number, with how the user takes part in it: the requests by name, the pull
+/// requests of `reviews`, and those the review windows show; the first one of a number stands
+fn pulls_to_review<'a>(facts: &'a FactStore, reviews: &'a ReviewsView) -> Vec<(&'a ReviewRequest, Option<&'a ReviewInvolvement>)> {
+  let fact = &facts.review_requests;
+  let requests = fact.view().requests.iter().map(|request| (request, None));
+  let sections = reviews
+    .sections
+    .iter()
+    .flat_map(|section| &section.entries)
+    .map(|entry| (&entry.request, Some(&entry.involvement)));
+  let windows = fact.windows().map(|(request, involvement)| (request, involvement.as_ref()));
+  let mut seen = BTreeSet::new();
+  requests.chain(sections).chain(windows).filter(|(request, _)| seen.insert(request.number)).collect()
 }
 
 /// The reviewer groups of every pull request whose readiness the session has (`request:<number>`, while a review window

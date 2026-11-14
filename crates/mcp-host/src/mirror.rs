@@ -94,6 +94,12 @@ pub fn ops(view: &RepositoryView, changes: &TableChanges) -> Vec<Value> {
   ops.keyed("attention", &view.attention, changes.attention.keys(), &changes.removed_attention);
   ops.keyed("githubLayers", &view.github_layers, changes.github_layers.keys(), &changes.removed_github_layers);
   ops.keyed("reviewGroups", &view.review_groups, changes.review_groups.keys(), &changes.removed_review_groups);
+  ops.keyed(
+    "approvalLanding",
+    &view.approval_landing,
+    changes.approval_landing.keys(),
+    &changes.removed_approval_landing,
+  );
   ops.keyed("operations", &view.operations, changes.operations.keys(), &changes.removed_operations);
   ops.part(changes.order.is_some(), "order", &view.order);
   ops.part(changes.undo.is_some(), "undo", &view.undo);

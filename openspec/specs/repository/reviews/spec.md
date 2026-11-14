@@ -195,7 +195,7 @@ returned own pull requests) MUST lead it as "Waiting for You".
 - **WHEN** the view shows
 - **THEN** Your Turn's rows (the requests by name and the returned own pull requests) lead it as "Waiting for You"
 - **AND** Added by Link, Requested from Your Teams, Reviewed by You and Your Pull Requests follow in that order
-  [@test] crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review`)
+  [@test] crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review_and_what_its_approval_counts_for`)
   [@test] tests/e2e/reviews/reviews.spec.ts (`should show every pull request the user takes part in once, by section, and read them only while the view shows`)
 
 #### Scenario: Added by Link and Requested from Your Teams
@@ -472,7 +472,7 @@ no git of its own.
 - **WHEN** the pull request has another base than the target
 - **THEN** Approve and Safe Push is disabled
   [@test] crates/domain-policy/src/actions_test.rs (`an_approval_of_the_head_is_done_and_the_safe_push_waits_for_the_target_patronus_pushes_into`)
-  [@test] crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review`)
+  [@test] crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review_and_what_its_approval_counts_for`)
 
 ### Requirement: The actions of a pull request: The decisions of an own pull request are disabled
 
@@ -484,7 +484,7 @@ request".
 - **THEN** its decisions are disabled with "Your own pull request"
   [@test] crates/domain-policy/src/actions_test.rs (`a_pull_request_to_review_offers_the_review_the_decisions_and_its_safe_push_into_the_target`)
   [@test] src/lib/review-request-actions.test.ts (`disables the writes of the review until the commit the user saw is there, an approval of the same commit, and an own pull request`)
-  [@test] crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review`)
+  [@test] crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review_and_what_its_approval_counts_for`)
 
 ### Requirement: The actions of a pull request: The review window opened from Reviews walks its rows
 
