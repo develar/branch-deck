@@ -1037,6 +1037,54 @@ fn an_approval_of_the_head_is_done_and_the_safe_push_waits_for_the_target_patron
   );
 }
 
+/// openspec/specs/repository/review-requests/spec.md, "Safe Push of a reviewed pull request: Rust decides it on the branch
+/// Patronus pushes into": a layer of a stack, into the branch of the one below, is offered no Safe Push where Patronus
+/// merges into master (it refuses the base before the start), while its Approve stays and counts once the layer goes
+/// into master, as `approval_landing` says of it; its bottom, into master, has both
+#[test]
+fn a_layer_into_the_branch_below_is_offered_no_safe_push_and_its_approval_counts_once_it_goes_into_the_target() {
+  use crate::actions::{PullRequestFacts, Target, review_actions};
+  use crate::approval_landing::approval_landing;
+  use ActionId::{Approve, RequestChanges, SafePushPullRequest};
+  use domain_types::session::ApprovalLanding;
+  // (number, base): what the Safe Push, Approve and Request Changes of each say, and what its approval counts for
+  let rows = [(301, "master"), (302, "user-name/virtual/auth")].map(|(number, base)| {
+    let facts = PullRequestFacts {
+      number,
+      base,
+      ..pull_request_to_review()
+    };
+    let actions = review_actions(&facts);
+    (
+      number,
+      reason_of(&actions, SafePushPullRequest),
+      reason_of(&actions, Approve),
+      reason_of(&actions, RequestChanges),
+      approval_landing(Target::Branch("master"), base, false),
+    )
+  });
+  assert_eq!(
+    rows,
+    [
+      (301, None, None, None, Some(ApprovalLanding::OwnSafePush)),
+      (
+        302,
+        Some(ActionBlocker::OtherBase {
+          number: 302,
+          base: "user-name/virtual/auth".to_owned(),
+          target: "master".to_owned(),
+        }),
+        None,
+        None,
+        Some(ApprovalLanding::OnceIntoTarget {
+          base: "user-name/virtual/auth".to_owned(),
+          target: "master".to_owned(),
+        }),
+      ),
+    ]
+  );
+}
+
 /// A start whose answer was lost offers Open in Patronus where its robot would be, and Forget This Start, both enabled;
 /// without a place to look, only the forget; an operation that runs offers neither
 #[test]

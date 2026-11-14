@@ -206,9 +206,7 @@
         "code": "nothingBeyond",
         "why": {
           "kind": "askFirst",
-          "names": [
-            "login"
-          ]
+          "names": ["login"]
         }
       }
     ],

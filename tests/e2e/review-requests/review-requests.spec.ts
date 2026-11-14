@@ -957,7 +957,7 @@ test.describe("Review window", () => {
     const rowSafePush = page.getByRole("menuitem", { name: /^Approve and Safe Push…/ })
     await expect(rowSafePush).toHaveAttribute("aria-disabled", "true")
     await rowSafePush.hover()
-    await expect(openTooltip(page)).toHaveText("#103 merges into release/253: Patronus would merge it there, not into master")
+    await expect(openTooltip(page)).toHaveText("Patronus starts a Safe Push only from a pull request into master: #103 goes into release/253")
     await page.keyboard.press("Escape")
     await getReviewRow(page, 101).click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: /^Approve and Safe Push…/ })).not.toHaveAttribute("aria-disabled", "true")
@@ -992,7 +992,7 @@ test.describe("Review window", () => {
     await expect(safePush).toHaveAttribute("data-variant", "default")
     await expect(review.getByTestId("review-approve")).toHaveText("Approved")
 
-    // a pull request into another base than the target: Patronus would merge it there
+    // a pull request into another base than the target: Patronus refuses its Safe Push before the start
     await review.getByTestId("review-dialog-body").focus()
     await reviewPage.keyboard.press("ArrowDown")
     await expect(review.getByRole("heading", { name: "Backport the pool fix" })).toBeVisible()
@@ -1813,6 +1813,27 @@ test.describe("Review Stack", () => {
     await review.getByTestId("review-dialog-body").hover()
     await approveStack.hover()
     await expect(openTooltip(reviewPage)).toHaveText("You approved every pull request of the stack on the commits it shows")
+  })
+
+  test("should offer no Safe Push of a layer into the branch below where Patronus merges, and the Safe Push of the bottom", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_chain", { reviewRequests: availableReviewRequests([LAYER_AUTH, LAYER_LOGIN, LAYER_OAUTH]), patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    const { reviewPage, review } = await openStackReview(page)
+    const safePush = review.getByTestId("review-safe-push")
+
+    // #302 goes into the branch of #301: Patronus refuses its base before the start, its Approve stays
+    await review.getByTestId("review-stack-layer").nth(1).click()
+    await expect(review.getByRole("heading", { name: "Add the login form" })).toBeVisible()
+    await expect(safePush).toBeDisabled()
+    await expect(review.getByTestId("review-approve")).toBeEnabled()
+    await safePush.hover()
+    await expect(openTooltip(reviewPage)).toHaveText("Patronus starts a Safe Push only from a pull request into master: #302 goes into user-name/virtual/auth")
+
+    // the bottom goes into master: its Safe Push is offered
+    await review.getByTestId("review-dialog-body").focus()
+    await reviewPage.keyboard.press("ArrowUp")
+    await expect(review.getByRole("heading", { name: "Add the auth module" })).toBeVisible()
+    await expect(safePush).toBeEnabled()
   })
 
   test("should refuse a layer whose head moved and every layer above it by number, from the menus and by ⇧A", async ({ page, setupRepo, syncAndWaitForBranches }) => {

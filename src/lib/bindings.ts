@@ -504,7 +504,12 @@ export type ActionBlocker =
 { code: "targetUnread" } | 
 /**  The baseline is no branch of origin, which Patronus pushes into */
 { code: "noTarget" } | 
-/**  The pull request goes into another branch than the one Patronus pushes into: Patronus would merge it there */
+/**
+ *  The pull request goes into another branch than the one Patronus pushes into (a layer of a stack goes into the branch
+ *  of the one below): Patronus starts a Safe Push of a pull request into its base and refuses a base no protected group
+ *  names before the start, so none is offered until it goes into the target (`approval_landing`, decision 31 of
+ *  docs/design/change-review.md)
+ */
 { code: "otherBase"; number: number; base: string; target: string };
 
 /**  An action of a branch, of a whole stack or of a robot, by the id its menu item has on every surface */

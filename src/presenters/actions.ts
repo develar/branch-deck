@@ -253,7 +253,7 @@ const BLOCKERS = {
   stackApproved: () => "You approved every pull request of the stack on the commits it shows",
   targetUnread: () => "Reading the branch Patronus pushes into…",
   noTarget: () => "Patronus pushes into a branch of origin: the baseline is none",
-  otherBase: ({ number, base, target }) => `#${number} merges into ${base}: Patronus would merge it there, not into ${target}`,
+  otherBase: ({ number, base, target }) => `Patronus starts a Safe Push only from a pull request into ${target}: #${number} goes into ${base}`,
   busy: ({ op }, _id, words) => `${operationLabel(op, words)}…`,
 } satisfies BlockerFormatters as BlockerFormatters
 

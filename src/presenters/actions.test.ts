@@ -65,7 +65,7 @@ describe("the actions Rust offers", () => {
       "You approved every pull request of the stack on the commits it shows",
       "Reading the branch Patronus pushes into…",
       "Patronus pushes into a branch of origin: the baseline is none",
-      "#101 merges into release/253: Patronus would merge it there, not into master",
+      "Patronus starts a Safe Push only from a pull request into master: #101 goes into release/253",
       "Restarting robot r1…",
     ])
   })

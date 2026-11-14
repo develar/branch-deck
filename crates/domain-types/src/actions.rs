@@ -334,7 +334,10 @@ pub enum ActionBlocker {
   TargetUnread,
   /// The baseline is no branch of origin, which Patronus pushes into
   NoTarget,
-  /// The pull request goes into another branch than the one Patronus pushes into: Patronus would merge it there
+  /// The pull request goes into another branch than the one Patronus pushes into (a layer of a stack goes into the branch
+  /// of the one below): Patronus starts a Safe Push of a pull request into its base and refuses a base no protected group
+  /// names before the start, so none is offered until it goes into the target (`approval_landing`, decision 31 of
+  /// docs/design/change-review.md)
   OtherBase {
     number: u32,
     base: String,

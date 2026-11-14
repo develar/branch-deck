@@ -126,7 +126,7 @@ fn the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_
   };
   // a request by name into the target: everything runs
   assert_eq!(reason(1, ActionId::SafePushPullRequest), Some(None));
-  // into another base Patronus would merge it there
+  // into another base Patronus refuses a Safe Push before its start
   assert_eq!(
     reason(2, ActionId::SafePushPullRequest),
     Some(Some(ActionBlocker::OtherBase {

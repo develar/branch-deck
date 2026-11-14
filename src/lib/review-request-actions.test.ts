@@ -47,7 +47,7 @@ describe("getReviewRequestActions", () => {
     const blocked = getReviewRequestActions(reviewRequest(7), context({ actions: [...OFFERED, ...rust(["safe-push-pull-request", otherBase])] }), "window")
     expect([blocked.safePush?.disabled, blocked.safePush?.description, blocked.safePush?.kbds]).toEqual([
       true,
-      "#7 merges into release/253: Patronus would merge it there, not into master",
+      "Patronus starts a Safe Push only from a pull request into master: #7 goes into release/253",
       ["m"],
     ])
 

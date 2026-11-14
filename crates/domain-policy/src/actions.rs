@@ -691,7 +691,9 @@ pub struct PullRequestFacts<'a> {
 /// The actions of a pull request to review, one list for its row, its menu and the header of its review window:
 /// Review, Approve (done once the user approved its head), the Safe Push Patronus makes of it into the target, Request
 /// Changes, Open Pull Request, then Show Branch of an own one of the table and Remove from Reviews of a linked one. GitHub
-/// takes no review of the author. The window's own state (the commit it shows, a write that runs) lies over them in the
+/// takes no review of the author. A pull request into another base (a layer of a stack) is offered no Safe Push: Patronus
+/// refuses a base no protected group names before the start; its Approve stays and counts once it goes into the target
+/// (`approval_landing`). The window's own state (the commit it shows, a write that runs) lies over them in the
 /// page
 #[must_use]
 pub fn review_actions(facts: &PullRequestFacts<'_>) -> Vec<ActionState> {
