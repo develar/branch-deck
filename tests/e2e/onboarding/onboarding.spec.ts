@@ -110,12 +110,10 @@ test.describe("Onboarding", () => {
     await expectSettingsPrefix(page, "jane")
   })
 
-  test("closes Settings after a while when the save of the prefix typed gets no answer, and the main window tells it, its Open Settings on the field", async ({
+  test("closes Settings after a while when the save of the prefix typed gets no answer, and the main window says it is still saving, its Open Settings on the field", async ({
     page,
     setupRepo,
   }) => {
-    expectErrorLog(page, /^Cannot save the settings before the window closes: no answer in 3000 ms$/)
-    expectErrorLog(page, /^Cannot change the branch prefix of every repository: Branch Deck did not answer within 3 seconds$/)
     const settings = await typePrefixInSettings(page, setupRepo)
     // the writer takes the change but its answer never comes
     const write = await holdNextAnswer(settings, "set_setting")
@@ -124,8 +122,9 @@ test.describe("Onboarding", () => {
     expect(await windowCalls(settings)).not.toContain("destroy")
     await settings.clock.fastForward(CLOSE_SAVE_LIMIT_MS)
     await expect.poll(() => windowCalls(settings)).toContain("destroy")
-    const toast = openToast(page, "Cannot change the branch prefix of every repository")
-    await expect(toast).toContainText("Branch Deck did not answer within 3 seconds")
+    // no failure: Rust may still write it
+    const toast = openToast(page, "Changing the branch prefix of every repository…")
+    await expect(toast).toContainText("Branch Deck has not answered in 3 seconds and may still save the change")
     await toast.getByRole("button", { name: "Open Settings" }).click()
     await expectSettingsOpened(page, { page: "branches", scope: "all", focus: "branchPrefix" }, 2)
   })

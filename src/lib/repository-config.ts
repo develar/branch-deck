@@ -236,57 +236,56 @@ export function withAppPrefix(setting: ConfigSetting<string | null>, appPrefix: 
   }
 }
 
-/** The title of a failed write of `key`, in the words of the change (ux-writing: "Cannot <verb> <object>") */
-export function writeErrorTitle(key: RepositoryConfigKey, repositoryPath: string): string {
-  const name = repositoryName(repositoryPath)
+/**
+ * What a write of `key` changes, of `subject` (the name of a repository, or "every repository" for the global config):
+ * the object of the titles of the write
+ */
+function changedObject(key: RepositoryConfigKey, subject: string): string {
   switch (key) {
     case "symbols":
-      return `Cannot change the symbol dependencies of ${name}`
+      return `the symbol dependencies of ${subject}`
     case "githubRepository":
-      return `Cannot change the GitHub repository of ${name}`
+      return `the GitHub repository of ${subject}`
     case "branchPrefix":
-      return `Cannot change the branch prefix of ${name}`
+      return `the branch prefix of ${subject}`
     case "pushSizeLimit":
-      return `Cannot change the push size limit of ${name}`
+      return `the push size limit of ${subject}`
     case "resolveByWords":
-      return `Cannot change how ${name} resolves conflicts by words`
+      return `how ${subject} resolves conflicts by words`
     case "landing":
-      return `Cannot change how ${name} lands into master`
+      return `how ${subject} lands into master`
     case "agentLease":
-      return `Cannot change where agents work in ${name}`
+      return `where agents work in ${subject}`
     case "agentSubjectBranch":
-      return `Cannot change how agents write commit subjects in ${name}`
+      return `how agents write commit subjects in ${subject}`
     case "agentPullRequest":
-      return `Cannot change whether agents open pull requests in ${name}`
+      return `whether agents open pull requests in ${subject}`
     case "reviewExperimental":
-      return `Cannot change whether ${name} shows the review plan`
+      return `whether ${subject} shows the review plan`
   }
+}
+
+/** The subject of the writes of the global config */
+const EVERY_REPOSITORY = "every repository"
+
+/** The title of a failed write of `key`, in the words of the change (ux-writing: "Cannot <verb> <object>") */
+export function writeErrorTitle(key: RepositoryConfigKey, repositoryPath: string): string {
+  return `Cannot change ${changedObject(key, repositoryName(repositoryPath))}`
 }
 
 /** The title of a failed write of the value of every repository (the global config), in the words of the change */
 export function globalWriteErrorTitle(key: RepositoryConfigKey): string {
-  switch (key) {
-    case "symbols":
-      return "Cannot change the symbol dependencies of every repository"
-    case "githubRepository":
-      return "Cannot change the GitHub repository of every repository"
-    case "branchPrefix":
-      return "Cannot change the branch prefix of every repository"
-    case "pushSizeLimit":
-      return "Cannot change the push size limit of every repository"
-    case "resolveByWords":
-      return "Cannot change how every repository resolves conflicts by words"
-    case "landing":
-      return "Cannot change how every repository lands into master"
-    case "agentLease":
-      return "Cannot change where agents work in every repository"
-    case "agentSubjectBranch":
-      return "Cannot change how agents write commit subjects in every repository"
-    case "agentPullRequest":
-      return "Cannot change whether agents open pull requests in every repository"
-    case "reviewExperimental":
-      return "Cannot change whether every repository shows the review plan"
-  }
+  return `Cannot change ${changedObject(key, EVERY_REPOSITORY)}`
+}
+
+/** The title of a write of `key` that has not answered yet, as progress ("Changing the branch prefix of app…") */
+export function writePendingTitle(key: RepositoryConfigKey, repositoryPath: string): string {
+  return `Changing ${changedObject(key, repositoryName(repositoryPath))}…`
+}
+
+/** The title of a write of the value of every repository that has not answered yet */
+export function globalWritePendingTitle(key: RepositoryConfigKey): string {
+  return `Changing ${changedObject(key, EVERY_REPOSITORY)}…`
 }
 
 /**

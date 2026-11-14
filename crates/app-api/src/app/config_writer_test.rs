@@ -1,9 +1,11 @@
 use crate::app::config_writer::{ConfigWriters, page_write};
+use crate::app::repository_config::write_companion;
 use crate::transport::{Call, PageId, WindowId};
 use domain_types::error::ApiError;
 use domain_types::settings::WriteOrder;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::Arc;
+use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::repository_config::{RepositoryConfig, RepositoryConfigChange, WriteScope, read_repository_config, set_config};
 use test_utils::git_test_utils::{TestRepo, append_config};
 use test_utils::process_budget::{counting, processes};
@@ -114,4 +116,43 @@ async fn an_older_write_of_a_key_of_the_page_is_superseded_and_writes_nothing() 
   // a write without a number is applied in the order it came
   let unordered = write(&writers, &repo, RepositoryConfigChange::BranchPrefix(Some("third".to_owned())), None).await.unwrap();
   assert_eq!(unordered.unwrap().branch_prefix.value.as_deref(), Some("third"));
+}
+
+/// Two spellings of one repository, its path and a symlink to it (`/var/…` and `/private/var/…` on macOS), are one config
+/// file: their writes go to one writer task, one after the other
+#[cfg(unix)]
+#[tokio::test]
+async fn two_spellings_of_one_repository_write_through_one_task() {
+  let repo = TestRepo::new();
+  let links = tempfile::tempdir().unwrap();
+  let link = links.path().join("repo");
+  std::os::unix::fs::symlink(repo.path(), &link).unwrap();
+  let writers = ConfigWriters::default();
+  for path in [repo.path_str().to_owned(), link.to_str().unwrap().to_owned()] {
+    let (git, written) = (repo.git_executor().clone(), path.clone());
+    let config = writers
+      .write(&path, WriteScope::Local, None, move || {
+        set_config(&git, &written, &RepositoryConfigChange::ReviewExperimental(Some(true)), WriteScope::Local)
+      })
+      .await
+      .unwrap();
+    assert!(config.is_some());
+  }
+  assert_eq!(writers.tasks.lock().unwrap().len(), 1, "one task for the config file of both spellings");
+}
+
+/// A companion added from Settings writes the key of the primary in the writer of the primary's config and the
+/// `branchdeck.primary` of the companion in the writer of the companion's, so a write of either repository at once never
+/// races it for `config.lock`
+#[tokio::test]
+async fn a_companion_writes_each_side_in_the_writer_of_its_own_config() {
+  let (app, ci) = (TestRepo::new(), TestRepo::new());
+  let writers = ConfigWriters::default();
+  let config = write_companion(&writers, app.git_executor(), app.path_str(), "ci".to_owned(), Some(ci.path_str().to_owned()))
+    .await
+    .unwrap();
+  assert_eq!(config.companions.iter().map(|it| it.name.as_str()).collect::<Vec<_>>(), ["ci"]);
+  let primary = ConfigSnapshot::read(ci.git_executor(), ci.path_str()).unwrap().primary().map(str::to_owned);
+  assert!(primary.is_some(), "the companion names its primary");
+  assert_eq!(writers.tasks.lock().unwrap().len(), 2, "one writer for each config");
 }

@@ -4793,9 +4793,11 @@ no operation.
   (`{repositoryPath, key}`) to sync (`branchdeck.reviewExperimental` too: the view takes the flag from a sync); the agent
   keys and the push size limit sync nothing.
 - **Writes at once**: the app writes each config file through its one writer (`app_api::app::config_writer`): a task
-  per file, the common git directory of the repository (every worktree writes the same `config`) or the global config,
-  that runs the writes of Settings and of the companions one after the other in the order they came, so a prefix saved
-  on blur and a switch flipped right after never race for `config.lock`, and no lock is held across git
+  per file, the canonical common git directory of the repository (every worktree and every spelling of its path writes
+  the same `config`, `two_spellings_of_one_repository_write_through_one_task`) or the global config, that runs the writes
+  of Settings and of the companions one after the other in the order they came (a companion's `branchdeck.primary` in
+  the writer of the companion's config, `a_companion_writes_each_side_in_the_writer_of_its_own_config`), so a prefix
+  saved on blur and a switch flipped right after never race for `config.lock`, and no lock is held across git
   (`two_writes_of_different_keys_at_once_are_both_on_disk`: the writes at once cost the git processes of the same
   writes one by one, no write tried again). A lock is then another process's (`brd describe`, a `git config` of the
   user; `git config` exits with 255): tried again with a growing pause for up to a second, which git 2.56 also does

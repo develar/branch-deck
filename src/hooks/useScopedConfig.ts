@@ -4,7 +4,7 @@ import type { RepositoryConfigRead } from "@/hooks/useRepositoryConfig"
 import { useSettingsScope } from "@/hooks/useSettingsScope"
 import type { RepositoryConfigChange } from "@/lib/bindings"
 import type { WriteAnswer } from "@/lib/field-writes"
-import { globalWriteErrorTitle, writeErrorTitle } from "@/lib/repository-config"
+import { globalWriteErrorTitle, globalWritePendingTitle, writeErrorTitle, writePendingTitle } from "@/lib/repository-config"
 import type { RepositoryConfigKey } from "@/lib/repository-config"
 import type { SettingNotSaved } from "@/lib/settings-close"
 import type { SettingsPageId } from "@/lib/settings-pages"
@@ -29,10 +29,11 @@ export function useScopedConfig(): ScopedConfig {
   const read = useRepositoryConfig(path)
   const { writing, write } = useConfigWrite(path, read.showWritten)
   const errorTitle = (key: RepositoryConfigKey) => (scope === "all" ? globalWriteErrorTitle(key) : writeErrorTitle(key, path))
+  const pendingTitle = (key: RepositoryConfigKey) => (scope === "all" ? globalWritePendingTitle(key) : writePendingTitle(key, path))
   return {
     read,
     writing,
     write: change => write(change, scope === "all" ? "global" : "local", errorTitle(change.key)),
-    notSaved: (key, page) => ({ title: errorTitle(key), target: { page, scope, focus: key } }),
+    notSaved: (key, page) => ({ title: errorTitle(key), pendingTitle: pendingTitle(key), target: { page, scope, focus: key } }),
   }
 }

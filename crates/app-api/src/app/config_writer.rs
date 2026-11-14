@@ -18,8 +18,9 @@ use domain_types::settings::WriteOrder;
 use git_ops::lease_slot::linked_worktree;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Mutex, PoisonError};
-use sync_core::repository_config::{RepositoryConfig, WriteScope};
+use sync_core::repository_config::WriteScope;
 use sync_utils::page_writes::{PageWrite, PageWrites};
 use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
@@ -30,35 +31,44 @@ pub struct ConfigWriters {
   tasks: Mutex<HashMap<PathBuf, mpsc::UnboundedSender<ConfigJob>>>,
 }
 
-/// A write for the task of a config file: its blocking step, the key it is ordered by among the writes of its page, and
-/// the span of the command that asked for it
+/// A write for the task of a config file: the key it is ordered by among the writes of its page, its run (its blocking
+/// step when it applies, its answer to its caller either way) and the span of the command that asked for it
 struct ConfigJob {
   order: Option<(PageWrite, String)>,
-  write: Box<dyn FnOnce() -> anyhow::Result<RepositoryConfig> + Send>,
+  run: JobRun,
   span: tracing::Span,
-  reply: oneshot::Sender<Result<Option<RepositoryConfig>, ApiError>>,
 }
+
+/// The run of a job: given whether it applies, the future that writes (or not) and answers its caller
+type JobRun = Box<dyn FnOnce(bool) -> JobFuture + Send>;
+type JobFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 impl ConfigWriters {
   /// Runs `write` in the task of the config file `scope` of the repository at `repository_path` writes, after the writes
   /// that came before it; `order`, the write of a page and its key, is applied only when it is newer than the last write
-  /// of that key of its page, else `None`. Answers the settings `write` read again
+  /// of that key of its page, else `None`. Answers what `write` answered (the settings it read again, the write it leaves
+  /// for the config of another repository)
   ///
   /// # Errors
   /// The write failed, or the task of the file went away
-  pub async fn write(
+  pub async fn write<T: Send + 'static>(
     &self,
     repository_path: &str,
     scope: WriteScope,
     order: Option<(PageWrite, String)>,
-    write: impl FnOnce() -> anyhow::Result<RepositoryConfig> + Send + 'static,
-  ) -> Result<Option<RepositoryConfig>, ApiError> {
+    write: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+  ) -> Result<Option<T>, ApiError> {
     let (reply, answer) = oneshot::channel();
+    let run = move |applies: bool| -> JobFuture {
+      Box::pin(async move {
+        let written = if applies { run_blocking(write).await.map(Some) } else { Ok(None) };
+        let _ = reply.send(written);
+      })
+    };
     let job = ConfigJob {
       order,
-      write: Box::new(write),
+      run: Box::new(run),
       span: tracing::Span::current(),
-      reply,
     };
     self.task_of(config_file_of(repository_path, scope)).send(job).map_err(|_gone| gone())?;
     answer.await.map_err(|_gone| gone())?
@@ -91,27 +101,28 @@ pub fn page_write(call: &Call, order: WriteOrder) -> PageWrite {
 async fn serve(mut queue: mpsc::UnboundedReceiver<ConfigJob>) {
   let mut page_writes = PageWrites::default();
   while let Some(job) = queue.recv().await {
-    let ConfigJob { order, write, span, reply } = job;
-    if let Some((write, key)) = &order
-      && !page_writes.applies(write, key)
-    {
-      let _ = reply.send(Ok(None));
-      continue;
-    }
-    let written = run_blocking(write).instrument(span).await;
-    let _ = reply.send(written.map(Some));
+    let ConfigJob { order, run, span } = job;
+    let applies = order.as_ref().is_none_or(|(write, key)| page_writes.applies(write, key));
+    run(applies).instrument(span).await;
   }
 }
 
-/// The config file a write of `scope` of the repository at `repository_path` changes: the global config of the user, or
-/// the `config` of the common git directory, which every worktree of the repository writes (`--local`); the path of the
-/// repository for one whose git directory is not a linked worktree's
+/// The config file a write of `scope` of the repository at `repository_path` changes, canonical, so every spelling of
+/// one repository (`/var/…` and `/private/var/…`, a symlink) is one task: the global config of the user, or the `config`
+/// of the common git directory, which every worktree of the repository writes (`--local`); the `.git` of the repository
+/// for one that is no linked worktree, as given when it cannot be resolved
 fn config_file_of(repository_path: &str, scope: WriteScope) -> PathBuf {
   match scope {
     WriteScope::Global => PathBuf::new(),
     WriteScope::Local => {
       let path = Path::new(repository_path);
-      linked_worktree(path).map_or_else(|| path.join(".git"), |worktree| worktree.git_common_dir)
+      linked_worktree(path).map_or_else(
+        || {
+          let git_dir = path.join(".git");
+          std::fs::canonicalize(&git_dir).unwrap_or(git_dir)
+        },
+        |worktree| worktree.git_common_dir,
+      )
     }
   }
 }

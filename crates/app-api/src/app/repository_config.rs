@@ -4,13 +4,14 @@
 //! (`repository_config_changed`) and acts for the selected repository. Each goes through the one writer of the config
 //! file (`config_writer`), a write of a page of Settings in the order of its number there
 
-use crate::app::config_writer::page_write;
+use crate::app::config_writer::{ConfigWriters, page_write};
 use crate::context::AppContext;
 use crate::events::repository_config_changed;
 use crate::operation::{operation, run_blocking};
 use crate::transport::Call;
 use domain_types::error::ApiError;
 use domain_types::settings::{GitBranchPrefix, WriteOrder};
+use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use sync_core::repository_config::{ConfigScope, RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, set_config};
 use tracing::instrument;
@@ -86,7 +87,7 @@ pub struct SetCompanionParams {
 pub async fn set_companion(ctx: &AppContext, params: SetCompanionParams) -> Result<RepositoryConfig, ApiError> {
   operation(async move {
     let SetCompanionParams { repository_path, name, path } = params;
-    let config = write_companion(ctx, &repository_path, name, path).await?;
+    let config = write_companion(&ctx.config_writers, &ctx.git, &repository_path, name, path).await?;
     repository_config_changed(&*ctx.events, repository_path, RepositoryConfigKey::Companions);
     Ok(config)
   })
@@ -111,19 +112,36 @@ pub async fn add_companion(ctx: &AppContext, params: AddCompanionParams) -> Resu
       return Ok(None);
     };
     let name = sync_core::companions::directory_name(path.trim_end_matches(['/', '\\']));
-    let config = write_companion(ctx, &params.repository_path, name, Some(path)).await?;
+    let config = write_companion(&ctx.config_writers, &ctx.git, &params.repository_path, name, Some(path)).await?;
     repository_config_changed(&*ctx.events, params.repository_path, RepositoryConfigKey::Companions);
     Ok(Some(config))
   })
   .await
 }
 
-/// `sync_core::repository_config::set_companion` through the writer of the config of the repository at
-/// `repository_path`; the write of the `branchdeck.primary` of the companion runs in that task too, beside any writer of
-/// the companion's config, whose lock it waits for as for a writer of another process
-async fn write_companion(ctx: &AppContext, repository_path: &str, name: String, path: Option<String>) -> Result<RepositoryConfig, ApiError> {
-  let (git, repository) = (ctx.git.clone(), repository_path.to_owned());
-  let write = move || sync_core::repository_config::set_companion(&git, &repository, &name, path.as_deref());
-  let config = ctx.config_writers.write(repository_path, WriteScope::Local, None, write).await?;
+/// `sync_core::repository_config::set_companion` through the writers of the configs it changes: the key of the primary
+/// in the writer of the config of the repository at `repository_path`, the `branchdeck.primary` of the companion in the
+/// writer of the companion's, then the settings of the repository read again in its writer
+pub(crate) async fn write_companion(
+  writers: &ConfigWriters,
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  name: String,
+  path: Option<String>,
+) -> Result<RepositoryConfig, ApiError> {
+  let (primary_git, repository) = (git.clone(), repository_path.to_owned());
+  let primary = move || sync_core::repository_config::write_companion_of_primary(&primary_git, &repository, &name, path.as_deref());
+  let side = writers.write(repository_path, WriteScope::Local, None, primary).await?.flatten();
+  if let Some(side) = side {
+    let (side_git, companion) = (git.clone(), side.companion().to_owned());
+    writers
+      .write(&companion, WriteScope::Local, None, move || {
+        sync_core::repository_config::write_companion_side(&side_git, &side)
+      })
+      .await?;
+  }
+  let (read_git, repository) = (git.clone(), repository_path.to_owned());
+  let read = move || sync_core::repository_config::read_repository_config(&read_git, &repository);
+  let config = writers.write(repository_path, WriteScope::Local, None, read).await?;
   config.ok_or_else(|| ApiError::internal("A write without a number is never superseded"))
 }

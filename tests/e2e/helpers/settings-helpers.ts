@@ -71,8 +71,9 @@ export function recordWrites(window: Page): Array<Record<string, unknown>> {
   const writes: Array<Record<string, unknown>> = []
   window.on("request", request => {
     if (request.url().endsWith("/invoke/set_repository_config")) {
-      // the number of each write of the page (`nextWriteSeq`) grows with the order of the requests
-      const { seq: _seq, ...write } = request.postDataJSON() as Record<string, unknown>
+      // the order of each write of the page (`nextWriteOrder`: its page and its number, which grows with the order of the
+      // requests) is the writer's; a test reads what was written
+      const { order: _order, ...write } = request.postDataJSON() as Record<string, unknown>
       writes.push(write)
     }
   })

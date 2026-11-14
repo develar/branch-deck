@@ -10,7 +10,7 @@ import type { ResolvedBranchPrefix } from "@/lib/bindings"
 import { appPrefixOf, INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { FieldWrites } from "@/lib/field-writes"
 import type { WriteFailure } from "@/lib/field-writes"
-import { globalWriteErrorTitle, repositoryName } from "@/lib/repository-config"
+import { globalWriteErrorTitle, globalWritePendingTitle, repositoryName } from "@/lib/repository-config"
 import { onSettingFieldKey } from "@/lib/setting-field"
 import { saveBeforeClose } from "@/lib/settings-close"
 import { openSettings } from "@/lib/settings-window"
@@ -74,7 +74,15 @@ export function BranchPrefixSetting() {
   // a window closed while the field holds valid typing saves it first, at once; the main window tells a save it could
   // not finish
   const saveOnClose = useEffectEvent(() => save(true))
-  useEffect(() => saveBeforeClose(saveOnClose, () => ({ title: globalWriteErrorTitle("branchPrefix"), target: { page: "branches", scope: "all", focus: "branchPrefix" } })), [])
+  useEffect(
+    () =>
+      saveBeforeClose(saveOnClose, () => ({
+        title: globalWriteErrorTitle("branchPrefix"),
+        pendingTitle: globalWritePendingTitle("branchPrefix"),
+        target: { page: "branches", scope: "all", focus: "branchPrefix" },
+      })),
+    [],
+  )
 
   return (
     <div className="flex flex-col gap-1.5" data-testid="setting-branch-prefix">

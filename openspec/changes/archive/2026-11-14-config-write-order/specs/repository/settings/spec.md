@@ -62,10 +62,10 @@ runs is written after it, the one of the close at once.
 
 #### Scenario: A close whose save gets no answer
 - **WHEN** the window closes with typing whose write the writer never answers
-- **THEN** the window is destroyed after 3 s all the same, and the main window tells it: the title of the failure of
-  the write ("Cannot change the branch prefix of every repository"), "Branch Deck did not answer within 3 seconds",
-  and Open Settings, which opens Settings on the field
-  [@test] tests/e2e/onboarding/onboarding.spec.ts (`closes Settings after a while when the save of the prefix typed gets no answer, and the main window tells it, its Open Settings on the field`)
+- **THEN** the window is destroyed after 3 s all the same, and the main window says the write is still running, as Rust
+  may still apply it: "Changing the branch prefix of every repository…", "Branch Deck has not answered in 3 seconds and
+  may still save the change", and Open Settings, which opens Settings on the field; no failure
+  [@test] tests/e2e/onboarding/onboarding.spec.ts (`closes Settings after a while when the save of the prefix typed gets no answer, and the main window says it is still saving, its Open Settings on the field`)
 
 #### Scenario: A close whose save fails
 - **WHEN** the window closes with typing whose write fails
@@ -85,6 +85,12 @@ across git. A `config.lock` of another process MUST be waited for up to a second
 - **WHEN** the app writes two keys of a repository at once
 - **THEN** both are on disk, and no write was tried again for a lock of the other
   [@test] crates/app-api/src/app/config_writer_test.rs (`two_writes_of_different_keys_at_once_are_both_on_disk`)
+
+#### Scenario: One writer for every spelling and for each side of a companion
+- **WHEN** the app writes the config of a repository through two spellings of its path, or adds a companion
+- **THEN** one writer runs the writes of each config file: both spellings through one, the key of the primary in the
+  primary's and the `branchdeck.primary` of the companion in the companion's
+  [@test] crates/app-api/src/app/config_writer_test.rs (`two_spellings_of_one_repository_write_through_one_task`, `a_companion_writes_each_side_in_the_writer_of_its_own_config`)
 
 #### Scenario: A `config.lock` of another process
 - **GIVEN** another process holds `config.lock`
