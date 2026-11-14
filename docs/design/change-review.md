@@ -581,9 +581,16 @@ the review.
    or the deeper root of the base (a module the commits delete); a root of the head alone is added, of both changed, a
    build file renamed included; the name is the one the build files give. Without both answers every file is of the root
    of the repository: accio is installed, no walk of Branch Deck stands in for it. On idea-1 `e8b5bb3dd..008a0a1848`
-   (2801 files) the two agree on 2747 paths at the head; accio is deeper for 54: 24 under the Python project of `pydevd`
-   and 1 under that of `helpersTests` (right), 29 under a `go.mod` of test data, which splits the test data of a module
-   into modules (JetBrains/accio#782, no filter here), and shallower for 2 under `node_modules` (right: a dependency).
+   (2801 files) the two agreed on 2747 paths at the head; accio was deeper for 52: 23 under the Python project of
+   `pydevd` and 1 under that of `helpersTests` (right), 28 under a `go.mod` of test data, which split the test data of a
+   module into modules, and shallower for 2 under `node_modules` (right: a dependency). accio fixed the 28 in its own
+   reader, with no filter here (decision 2026-11-14-fixture-manifest-no-root of accio, JetBrains/accio#782, 0702f80c0,
+   `answers.modules` still 1): a build file read for its name alone in the test data of a JPS module is no root. They
+   answer their module (21 `goland/intellij-go/impl`, 7 `language-server/lsp.test`), and the plan of the range
+   (`brd review-plan --no-cache` with the accio before and after) has 427 modules instead of 441, 38 added instead of 52;
+   of its 270 steps, "the new type system replaces GoForStatementSpecChecker" has 3 groups instead of 7 (the two modules
+   and a mechanical one), "restore the version fixes of a range over an integer or a function" one module instead of 7;
+   its units, concerns, brief and order are the same.
    The two queries run at once with the git reads of the plan (their times below). The base of Since Your Review is the
    start of its scope, and the reviewed tip where its carry conflicts: the plan reads the new and rewritten commits one
    at a time then, and the branch base would add again a module the reviewer read. **The plan of git does not wait for

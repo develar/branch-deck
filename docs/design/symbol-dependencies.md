@@ -955,8 +955,9 @@ flowchart TD
 
   The first query at a tree, the one a sync after a rewrite asks, takes 1.7–5.9 s (0.4 s one commit from a tree asked
   before), a warm one 0.3–0.9 s with outliers to 2.9 s under the load; the walk 0.05–0.3 s warm. accio answers more
-  roots than the walk (a `go.mod`, a `pyproject.toml`, JetBrains/accio#782 for those in test data), which a sync would
-  not need: Kotlin's `internal`, a Rust crate and a TypeScript package end where the walk says.
+  roots than the walk (a `go.mod`, a `pyproject.toml`; none of the test data of a JPS module since
+  JetBrains/accio#782), which a sync would not need: Kotlin's `internal`, a Rust crate and a TypeScript package end
+  where the walk says.
 
   Measured again the same day with the accio of answers `modules` 1, `moves` 2 (built from JetBrains/accio main with
   the `final` renames, the proven `references --at` and the tsconfig paths), at trees no query had asked, load average

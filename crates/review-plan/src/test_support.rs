@@ -56,7 +56,10 @@ pub(crate) fn plan_of_range(repo: &TestRepo, base: &str, head: &str) -> ReviewPl
 /// The modules of `paths` at `revision` as accio answers them for the trees of these tests (`accio modules --paths`):
 /// a directory with an `*.iml`, a `*.csproj`, a Bazel, Cargo, npm, Maven or Gradle build file, a `go.mod` or a
 /// `pyproject.toml` is a module root, named by its shortest `*.iml` stem, else by the `name` of its `Cargo.toml` or
-/// `package.json`. `the_modules_of_a_review_are_those_accio_answers` holds it to the accio of this machine
+/// `package.json`; but a build file read for its name alone (Go, Python, Maven, Gradle, a `*.csproj`) below a test-data
+/// directory (`testData`, `test_data`, `test/data`) of a module whose `*.iml` has content is that module's fixture, no
+/// root (accio's decision 2026-11-14-fixture-manifest-no-root). `the_modules_of_a_review_are_those_accio_answers` and
+/// `a_build_file_in_the_test_data_of_a_module_makes_no_module` hold it to the accio of this machine
 pub(crate) fn declared_modules(repository_root: &str, paths: &[String], revision: &str) -> ModulesAnswer {
   let git = |args: &[&str]| {
     let output = git_command().arg("-C").arg(repository_root).args(args).output().unwrap();
@@ -65,6 +68,8 @@ pub(crate) fn declared_modules(repository_root: &str, paths: &[String], revision
   };
   let files = git(&["ls-tree", "-r", "-z", "--name-only", revision]);
   let mut declared: std::collections::BTreeMap<String, DeclaredModule> = std::collections::BTreeMap::new();
+  // the roots of a JPS module with content, and those of a build file read for more than its name (JPS, Bazel, Cargo, npm)
+  let (mut content, mut read) = (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
   for file in files.split('\0').filter(|file| !file.is_empty()) {
     let (root, name) = file.rsplit_once('/').unwrap_or(("", file));
     let block = |name: Option<String>| Some(ModuleBlock { name });
@@ -80,6 +85,10 @@ pub(crate) fn declared_modules(repository_root: &str, paths: &[String], revision
       ..DeclaredModule::default()
     };
     if let Some(stem) = name.strip_suffix(".iml") {
+      if text().contains("<content ") {
+        content.insert(root.to_string());
+      }
+      read.insert(root.to_string());
       let entry = declared.entry(root.to_string()).or_insert_with(module);
       if entry.jps.as_ref().and_then(|jps| jps.name.as_ref()).is_none_or(|known| stem.len() < known.len()) {
         entry.jps = block(Some(stem.to_string()));
@@ -92,10 +101,17 @@ pub(crate) fn declared_modules(repository_root: &str, paths: &[String], revision
     }
     match name {
       "BUILD.bazel" | "BUILD" => {
+        read.insert(root.to_string());
         declared.entry(root.to_string()).or_insert_with(module);
       }
-      "Cargo.toml" => declared.entry(root.to_string()).or_insert_with(module).cargo = block(quoted(&text(), "name")),
-      "package.json" => declared.entry(root.to_string()).or_insert_with(module).npm = block(quoted(&text(), "\"name\"")),
+      "Cargo.toml" => {
+        read.insert(root.to_string());
+        declared.entry(root.to_string()).or_insert_with(module).cargo = block(quoted(&text(), "name"));
+      }
+      "package.json" => {
+        read.insert(root.to_string());
+        declared.entry(root.to_string()).or_insert_with(module).npm = block(quoted(&text(), "\"name\""));
+      }
       "pom.xml" => declared.entry(root.to_string()).or_insert_with(module).maven = block(None),
       "build.gradle" | "build.gradle.kts" => declared.entry(root.to_string()).or_insert_with(module).gradle = block(Some(root.rsplit('/').next().unwrap_or(root).to_string())),
       "go.mod" => declared.entry(root.to_string()).or_insert_with(module).go = block(None),
@@ -103,6 +119,18 @@ pub(crate) fn declared_modules(repository_root: &str, paths: &[String], revision
       _ => {}
     }
   }
+  let in_test_data = |module: &str, root: &str| {
+    let below = if module.is_empty() {
+      Some(root)
+    } else {
+      root.strip_prefix(module).and_then(|rest| rest.strip_prefix('/'))
+    };
+    below.is_some_and(|below| {
+      let directories: Vec<&str> = below.split('/').collect();
+      directories.iter().any(|directory| matches!(*directory, "testData" | "test_data")) || directories.windows(2).any(|pair| pair == ["test", "data"])
+    })
+  };
+  declared.retain(|root, _| read.contains(root) || !content.iter().any(|module| in_test_data(module, root)));
   let nearest = |path: &str| {
     declared
       .keys()

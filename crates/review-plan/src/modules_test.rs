@@ -154,6 +154,58 @@ fn the_modules_of_a_review_are_those_accio_answers() {
   assert!(modules(&plan).contains(&("tools", "tools", "tools", ModuleState::Added)), "{:?}", modules(&plan));
 }
 
+/// A build file of the test data of a module is a fixture of the module, no module of its own: a module whose `*.iml`
+/// holds its directory as content keeps the files of its `testData` with its code, the `go.mod` of a test case and the
+/// `pyproject.toml` a commit adds to another one among them (JetBrains/accio#782: accio made each a root, so a review
+/// showed a module per test case). The accio of this machine answers it as the index of these tests does; a machine
+/// without an accio that answers the modules asks nothing
+#[test]
+fn a_build_file_in_the_test_data_of_a_module_makes_no_module() {
+  const GO_IML: &str = "<module type=\"JAVA_MODULE\" version=\"4\">\n  <component name=\"NewModuleRootManager\">\n    <content url=\"file://$MODULE_DIR$\">\n      <sourceFolder url=\"file://$MODULE_DIR$/src\" isTestSource=\"false\" />\n      <sourceFolder url=\"file://$MODULE_DIR$/test\" isTestSource=\"true\" />\n    </content>\n  </component>\n</module>\n";
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add the Go support",
+    &[
+      ("go/intellij.go.impl.iml", GO_IML),
+      ("go/src/go/Resolver.kt", "package go\n\nclass Resolver\n"),
+      ("go/test/go/ResolverTest.kt", "package go\n\nclass ResolverTest\n"),
+      ("go/testData/resolve/vendor/go.mod", "module example.com/vendor\n\ngo 1.22\n"),
+      ("go/testData/resolve/vendor/main.go", "package main\n\nfunc main() {}\n"),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Resolve the vendored packages",
+    &[
+      ("go/src/go/Resolver.kt", "package go\n\nclass Resolver(val vendored: Boolean)\n"),
+      ("go/test/go/ResolverTest.kt", "package go\n\nclass ResolverTest {\n  fun vendored() {}\n}\n"),
+      (
+        "go/testData/resolve/vendor/main.go",
+        "package main\n\nimport \"example.com/vendor/lib\"\n\nfunc main() { lib.Run() }\n",
+      ),
+      ("go/testData/resolve/python/pyproject.toml", "[project]\nname = \"case\"\n"),
+      ("go/testData/resolve/python/case.py", "def case():\n    pass\n"),
+    ],
+  );
+  let expected = plan_of_range(&repo, &base, &head);
+  assert_eq!(modules(&expected), [("go", "intellij.go.impl", "go", ModuleState::Changed)]);
+  assert_eq!(
+    module_of_files(&expected),
+    [
+      ("go/src/go/Resolver.kt", "go"),
+      ("go/test/go/ResolverTest.kt", "go"),
+      ("go/testData/resolve/python/case.py", "go"),
+      ("go/testData/resolve/python/pyproject.toml", "go"),
+      ("go/testData/resolve/vendor/main.go", "go"),
+    ]
+  );
+  let Some(plan) = plan_by_accio(&repo, &base, &head) else {
+    eprintln!("no accio that answers modules on this machine: nothing asked");
+    return;
+  };
+  assert_eq!(modules(&plan), modules(&expected));
+  assert_eq!(module_of_files(&plan), module_of_files(&expected));
+}
+
 /// A module is of the roots accio answers at the two sides, not of the build files the commits touch: one whose build
 /// file the commits rename is changed, and without both answers every file is of the root of the repository
 #[test]

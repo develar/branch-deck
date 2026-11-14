@@ -1808,6 +1808,12 @@ Without both answers every file MUST be of the root of the repository, which is 
 - **THEN** the modules of the plan are the roots, names and states its answers give, a Python project among them
   [@test] crates/review-plan/src/modules_test.rs (`the_modules_of_a_review_are_those_accio_answers`)
 
+#### Scenario: The test data of a module
+- **GIVEN** a module whose `*.iml` holds its directory as content, a `go.mod` of a test case below its `testData`
+- **WHEN** a commit changes its code and that test case and adds a `pyproject.toml` to another case, and the accio of this machine answers the modules
+- **THEN** every file is of that module, `changed`: a build file of its test data makes no module
+  [@test] crates/review-plan/src/modules_test.rs (`a_build_file_in_the_test_data_of_a_module_makes_no_module`)
+
 #### Scenario: Without both answers
 - **WHEN** the index answers the modules of neither side, or of one alone, the other answering none or failing
 - **THEN** every file is of the root of the repository (`""`, named and labelled `(root)`), `changed`
