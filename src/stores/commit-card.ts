@@ -1,5 +1,6 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
+import { onRowsForgotten } from "@/stores/view-rows"
 
 /** The open card of a commit row's mark: its list (a `useId` of `CommitList`), its commit, and whether `I` opened it */
 interface OpenCommitCard {
@@ -13,6 +14,9 @@ interface OpenCommitCard {
  * window shows a list per branch, and a card that opens in any of them closes the one of another
  */
 const commitCardStore = createStore<{ readonly card: OpenCommitCard | null }>(() => ({ card: null }))
+
+// the rows are of another session of the repository: the card of a commit of the rows before goes
+onRowsForgotten(() => commitCardStore.setState({ card: null }))
 
 /** The open card of `list`, null while it has none */
 export function useCommitCardOf(list: string): OpenCommitCard | null {

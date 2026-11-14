@@ -2270,8 +2270,19 @@ So `synced_before`, "Last synced", the room of the loading table and the settled
 names its epoch and seeds only a session of the same known epoch (`CachedSession::seeds`); under `Unknown` it seeds
 nothing and the session saves its frames under the epoch the frame names. A window that comes back to a session kept
 idle under another known epoch gets a new session (`Sessions::close_of_another_epoch`, one read per subscription;
-`a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens_a_new_one`), never under `Unknown`. The id,
-not the time of the lease: a get, a return and a get within one second are two epochs.
+`a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens_a_new_one`), never under `Unknown`. A window
+that shows a slot while it goes back and an agent leases it again hears of it by the stamp each `brd lease return` and
+`get` touch: a stamp of a watched session reads the epoch with `synced_before`, and under another known one the session
+opens anew for the new lease by the code of an open (`Actor::reopened`: `Actor::new` and `open`, so its table, its
+facts, its sync scheduler and the state of its frames are what an open makes, the scheduler of the facts hears it close
+and its windows watch it again, and the answer of a read of the lease before applies to it no more), in a new epoch of
+its view; not while a run is in flight. Each window keeps its subscription and gets one patch from the version it holds
+into the new epoch, with no change, which applies to no view: the page reads the snapshot and takes it as the view of
+another session, as on a switch (`installAnother` and `forgetRows` of `src/model/store.ts`), and the mirror of `brd
+mcp` moves to the session as at a change of the prefix (`Server::resync`), so the window shows the Ready to Sync card
+and nothing of the rows of the lease before. The collapsed stacks of a recent project
+are of the epoch too (`COLLAPSED_STACKS_EPOCH_FIELD`): roots of the lease before would collapse stacks of the same
+names of the next. The id, not the time of the lease: a get, a return and a get within one second are two epochs.
 
 Takeover: on 2026-10-29 a get cloned a new slot of idea-1, 16 GB and more than 15 minutes of checkout, while six
 slots of the pool had a `ready` lease of a dead holder, four of them with nothing unlanded: the get only named them

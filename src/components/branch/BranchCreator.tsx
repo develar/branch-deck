@@ -17,6 +17,7 @@ import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
 import { useEffectiveBranchPrefix, useRepository, useSelectedProjectPath, useSessionFailure } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
+import { useRowsGeneration } from "@/stores/view-rows"
 
 /**
  * The branches view of the main window: onboarding, errors and the branch tables. What keeps the repository current (its
@@ -47,6 +48,8 @@ export function BranchCreator() {
   const neverSynced = !useBranchSync(state => state.syncedBefore)
   // the session has not answered yet: no view and no failure, so the page knows neither the card nor the rows
   const awaitsSession = useBranchSync(state => state.viewVersion === null)
+  // the view of another session of the repository: the cards mount anew, so nothing they held of the rows before stays
+  const rowsGeneration = useRowsGeneration()
   // a repository counts as selected as soon as a project is chosen
   const hasRepository = selectedPath !== undefined
   const hasSynced = hasRepository && syncedRepositoryPath === selectedPath
@@ -86,7 +89,7 @@ export function BranchCreator() {
     .filter(Boolean)
     .join("\n")
   return (
-    <div className="flex flex-col gap-2" data-testid="branch-creator-root">
+    <div key={rowsGeneration} className="flex flex-col gap-2" data-testid="branch-creator-root">
       <GitSetupAlert />
 
       {showWelcomeCard && <WelcomeCard hasRepository={hasRepository} />}

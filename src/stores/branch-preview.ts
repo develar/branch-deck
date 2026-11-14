@@ -2,6 +2,7 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { getSelectedProject } from "@/stores/repository"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
+import { onRowsForgotten } from "@/stores/view-rows"
 
 interface BranchPreviewState {
   /** The repository the preview is of: another one selected closes it */
@@ -20,6 +21,10 @@ repositorySettingsStore.subscribe(() => {
     closeBranchPreview()
   }
 })
+
+// and to the session its rows are of: the view of another session of the repository closes it (a slot of a lease pool
+// leased again), as a branch of the same name there is another branch
+onRowsForgotten(() => closeBranchPreview())
 
 export function useBranchPreview(): BranchPreviewState {
   return useStore(branchPreviewStore)

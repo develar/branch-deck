@@ -1,5 +1,6 @@
 use crate::branch_table::BranchTable;
 use crate::facts::{BaselineRefusal, FactResult, Needs, PatronusOf, RobotsDigest, RobotsRead, derive_patronus};
+use crate::patch::PatchRejected;
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::PullRequestWrite;
 use crate::readiness_facts::ReadinessAnswer;
@@ -21,7 +22,7 @@ use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Re
 use domain_types::reason::Reason;
 use domain_types::repository_view::{LandingNeeds, PatronusView};
 use domain_types::session::{
-  BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, Version, ViewPatch,
+  BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, TableChanges, Version, ViewPatch,
 };
 use domain_types::stack::BlockReason;
 use domain_types::worktree_epoch::WorktreeEpoch;
@@ -1351,6 +1352,15 @@ fn heard(events: &mut tokio::sync::mpsc::UnboundedReceiver<SessionEvent>) -> Vec
   kinds
 }
 
+/// Patronus lists one running robot, `auth-robot` of the branch `auth`
+fn auth_robot_listed() -> PatronusRobotsResult {
+  PatronusRobotsResult {
+    availability: PatronusAvailability::Available,
+    robots: vec![robot("auth-robot", Some("auth"), PatronusRobotStatus::Running, 10)],
+    github_repository: None,
+  }
+}
+
 /// The scheduler hears what the facts of a session are asked by: a window watches it, its table is committed, the
 /// robots the poll asks about (those of its branches, on the tips of the table); a read numbers itself when it starts,
 /// its answer reaches the windows as a patch, and the answer of a read of a session that closed meanwhile applies to the
@@ -1369,11 +1379,7 @@ async fn the_reads_of_the_facts_reach_the_windows_and_the_scheduler_hears_what_i
   assert_eq!(heard(&mut events), vec!["watched true", "table committed"]);
 
   let ticket = sessions.begin(&key).await.unwrap();
-  let listed = PatronusRobotsResult {
-    availability: PatronusAvailability::Available,
-    robots: vec![robot("auth-robot", Some("auth"), PatronusRobotStatus::Running, 10)],
-    github_repository: None,
-  };
+  let listed = auth_robot_listed();
   let read = RobotsRead::List { full: true };
   let applied = sessions.apply_facts(&key, ticket, FactResult::Robots { read, result: listed.clone() }).await.unwrap();
   assert_eq!(heard(&mut events), vec![r#"robots ["auth-robot"]"#]);
@@ -2159,6 +2165,58 @@ async fn a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens
   assert_ne!(fresh.version.epoch, view.version.epoch, "another session");
   assert!(!fresh.cached);
   assert_eq!(fresh.order, Vec::<String>::new());
+}
+
+/// A window shows a slot of a lease pool while the slot goes back and an agent leases it again: the stamp of that `brd
+/// lease get` reads the epoch, and the session opens anew for the new lease by the code of an open, in a new epoch of
+/// the view. Its window gets one patch from the version it holds into that epoch, which applies to no view, so the
+/// window reads the snapshot, which has none of the rows of the lease before; the scheduler of the facts hears the
+/// session close and watched again, and the answer of a read of the lease before applies to the session no more. The
+/// first sync of the new worktree is the user's, and an epoch the files could not tell changes nothing
+#[tokio::test]
+async fn a_stamp_under_another_lease_opens_the_session_anew_for_that_lease() {
+  let host = host_of(frame_of_lease("lease-a"), lease("lease-a"));
+  let (sessions, _clock) = scripted(&host);
+  let mut events = sessions.events().unwrap();
+  let key = key("/repo");
+  let window = Window::default();
+  let (_, view) = sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  assert_eq!(view.order, ["auth"]);
+
+  *host.epoch.lock().unwrap() = WorktreeEpoch::Unknown;
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Stamp)).await, Ok(SyncOutcome::Skipped));
+  assert_eq!(snapshot(&sessions, &key).await.order, ["auth"], "an unknown epoch changes nothing");
+
+  *host.epoch.lock().unwrap() = lease("lease-b");
+  let held = snapshot(&sessions, &key).await;
+  let late = sessions.begin(&key).await.unwrap();
+  window.take();
+  heard(&mut events);
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Stamp)).await, Ok(SyncOutcome::Skipped));
+  let now = snapshot(&sessions, &key).await;
+  assert_eq!((now.order.clone(), now.synced, now.cached), (Vec::<String>::new(), false, false));
+  assert_ne!(now.version.epoch, held.version.epoch, "a new epoch of the view: no row of the lease before mixes in");
+  assert_eq!(heard(&mut events), vec!["closed", "watched true"]);
+
+  let patches = window.take();
+  let hand_over = patches.first().expect("the patch into the new epoch");
+  assert_eq!((hand_over.base, hand_over.next.epoch), (held.version, now.version.epoch));
+  assert_eq!(hand_over.changes, TableChanges::default());
+  assert!(
+    matches!(crate::patch::apply_patch(&mut held.clone(), hand_over.clone()), Err(PatchRejected::ForeignEpoch { .. })),
+    "no window applies it: it reads the snapshot"
+  );
+  assert!(patches[1..].iter().all(|patch| patch.base.epoch == now.version.epoch), "{patches:#?}");
+
+  let read = RobotsRead::List { full: true };
+  let listed = auth_robot_listed();
+  assert_eq!(
+    sessions.apply_facts(&key, late, FactResult::Robots { read, result: listed }).await,
+    None,
+    "a read of the lease before"
+  );
+  assert!(snapshot(&sessions, &key).await.facts.robots.robots.is_empty());
+  assert_eq!(host.runs(), 0, "the first sync of the new worktree is the user's");
 }
 
 /// An epoch the files could not tell (a state of the pool this build cannot parse, a read during a rename) decides

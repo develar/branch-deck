@@ -9,8 +9,9 @@
  * a reload of the window installs the same seed and catches up from it again, and the page of the window remembers
  * that it saw a run of that session end (`sessionStorage`, which lives as long as the window), so the first sync ends
  * once in the window. A patch applies only to the view at its base: one of another
- * epoch (the session was opened again) or after a gap asks for the snapshot (`get_snapshot`); one that came before the
- * subscription answered waits for it. A branch record is built again only from the parts a patch changed, so a row
+ * epoch (the session was opened again) or after a gap asks for the snapshot (`get_snapshot`), and a snapshot of another
+ * epoch is the view of another session, under which the window forgets the rows it held (`installAnother`); one that
+ * came before the subscription answered waits for it. A branch record is built again only from the parts a patch changed, so a row
  * that reads an untouched branch does not render again.
  *
  * What a sync shows beyond the table is the page's presentation, derived here: the status texts of the rows, `isSyncing`
@@ -76,6 +77,7 @@ import { getSelectedRepositoryPath, setSessionAnswer } from "@/stores/repository
 import { updateProject } from "@/stores/settings/repositorySettings"
 import { updateRepositoryState } from "@/stores/settings/repositoryState"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
+import { forgetRows } from "@/stores/view-rows"
 
 /** The subscription of the window to the session of one repository */
 interface Session {
@@ -352,12 +354,11 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
       setDemandSubscription(id)
       if (view !== null) {
         if (replaces !== null && view.version.epoch !== replaces.view?.version.epoch) {
-          // the session of another prefix: nothing of the one the window held shows under it, as on a switch
-          opened.view = null
-          opened.toldNews = null
-          resetTable()
+          // the session of another prefix
+          installAnother(opened, view)
+        } else {
+          install(opened, view)
         }
-        install(opened, view)
       } else if (opened.view !== null) {
         // the seed it holds: the patch from it, or nothing when the session sent none since
         if (catchUp !== null) {
@@ -429,7 +430,9 @@ function applyOrRefresh(target: Session, view: RepositoryView, patch: ViewPatch)
   if (patch.next.epoch === at.epoch && patch.next.seq <= at.seq) {
     return
   }
-  if (patch.base.epoch !== at.epoch || patch.base.seq !== at.seq) {
+  // a patch after a gap, or into another epoch: the session opened anew (a slot of a lease pool leased again, whose
+  // patch goes from the version the window holds into the new epoch); `apply_patch` in Rust applies none of them
+  if (patch.base.epoch !== at.epoch || patch.base.seq !== at.seq || patch.next.epoch !== at.epoch) {
     refresh(target)
     return
   }
@@ -459,8 +462,27 @@ function refresh(target: Session): void {
       resubscribe(target)
       return
     }
+    if (target.view !== null && result.data.version.epoch !== target.view.version.epoch) {
+      installAnother(target, result.data)
+      return
+    }
     install(target, result.data)
   })
+}
+
+/**
+ * `view` is of another session of the repository than the view the window holds: the session opened anew (a slot of a
+ * lease pool leased again, an actor that died) or is of another prefix. Nothing of the view before shows under it, as
+ * on a switch: the table goes, the window forgets what it held of the rows (`forgetRows`: the expanded rows, the
+ * focus, the selected branches and commits, the open form, preview and card of a row, the path of a stack), and the
+ * news of the new view were told before the window came
+ */
+function installAnother(target: Session, view: RepositoryView): void {
+  target.view = null
+  target.toldNews = null
+  resetTable()
+  forgetRows()
+  install(target, view)
 }
 
 /** The view of a subscription or a snapshot, then the patches that came meanwhile */
@@ -547,9 +569,12 @@ function projectView(
   const state = branchSyncStore.getState()
   const update: Partial<BranchSyncState> = { viewVersion: next.version, cached: next.cached, syncedBefore: next.synced }
   // a table of this run: a sync of the session committed it (the frame of an earlier run and a session no sync built
-  // have none)
+  // have none); a view without a table has none any more (the session of a slot an agent leased again, which opened
+  // anew)
   if (!next.cached && next.header.head !== "") {
     update.syncedRepositoryPath = repositoryPath
+  } else if (next.header.head === "" && state.syncedRepositoryPath === repositoryPath) {
+    update.syncedRepositoryPath = null
   }
   const running = next.sync.kind === "running"
   const wasRunning = previous?.sync.kind === "running"

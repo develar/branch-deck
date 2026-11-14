@@ -224,10 +224,11 @@ export class TestRepositoryBuilder {
 
   /**
    * Syncs the repository behind the app's back, as `brd sync` in a terminal does: the core of the sync under the prefix
-   * of the session, in no session, so it builds the virtual branches and leaves the mark of a sync in the worktree
+   * of the session, in no session, so it builds the virtual branches and leaves the mark of a sync in the worktree of
+   * the test (`path`: a slot of the lease pool it leased, else the repository)
    */
   async syncOutsideTheApp(): Promise<void> {
-    await this.setFixture("sync-outside", {})
+    await this.setFixture("sync-outside", { path: this.path })
   }
 
   /**

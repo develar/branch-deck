@@ -1457,6 +1457,40 @@ which a window that comes back does not join. An epoch the files cannot tell MUS
 - **THEN** that entry stays: only an entry that still names the epoch it named when the read began is forgotten
   [@test] crates/app-settings/src/projects_test.rs (`an_entry_written_while_its_epoch_was_read_stays`)
 
+#### Scenario: The collapsed stacks of a slot leased again
+- **GIVEN** stacks were collapsed in the table of a slot under its lease
+- **WHEN** the slot holds another lease
+- **THEN** the writer forgets those roots, nothing else of the project, and keeps them under an epoch the files could
+  not tell
+  [@test] crates/app-settings/src/projects_test.rs (`the_collapsed_stacks_of_a_slot_are_forgotten_under_another_lease_and_kept_under_an_unknown_one`)
+
+### Requirement: Before the first sync: A window on a slot leased again shows the new lease
+
+A session a window shows while its slot of a lease pool is leased again MUST open anew for the new lease, in a new
+epoch of its view, and the window MUST show nothing of the rows of the lease before, also of a branch of the same name.
+
+#### Scenario: A window on a slot leased again
+- **GIVEN** a window shows a slot of a lease pool the app synced under its lease
+- **WHEN** the slot goes back and an agent leases it again, and `brd` touches the stamp
+- **THEN** the session opens anew for the new lease by the code of an open, in a new epoch of the view: its table, its
+  facts, its sync scheduler and the state of its frames are what an open makes, and the answer of a read of the remote
+  services of the lease before applies to it no more
+- **AND** each window gets one patch into the new epoch, which applies to no view, and takes the snapshot of the
+  session as the view of another session, with no subscription again: the rows and "Last synced" of the lease before
+  go, and the Ready to Sync card shows
+- **AND** an epoch the files could not tell changes nothing
+  [@test] crates/repository-model/src/session_test.rs (`a_stamp_under_another_lease_opens_the_session_anew_for_that_lease`)
+  [@test] tests/e2e/onboarding/onboarding.spec.ts (`shows the Ready to Sync card in the window of a slot once an agent leased the slot again, without the rows and Last synced of the lease before`)
+
+#### Scenario: The rows of a slot leased again under the window
+- **GIVEN** the user expanded, selected and focused a row of a slot, or opened its preview
+- **WHEN** the window takes the view of the session of a new lease of the slot, whose rows have a branch of the same name
+- **THEN** no row is expanded, selected or focused, and the preview, the inline form, the card of a commit and the path
+  of a stack of the rows before are gone, as on a switch: a branch of the same name of another lease is another branch
+  [@test] src/model/store.test.ts (`takes the view of a session opened anew by its snapshot, from the patch into its epoch, and forgets the rows it held: a branch of the same name is not selected`)
+  [@test] src/stores/branch-preview.test.ts (`closes when the window takes the view of another session of the repository: a branch of the same name there is another branch`)
+  [@test] tests/e2e/onboarding/onboarding.spec.ts (`shows the rows of the new lease of a slot an agent leased again under the window, none of them selected, expanded or focused as the row of the same name of the lease before was`)
+
 ### Requirement: Repository problems: Browse opens the folder dialog of the system
 
 Browse MUST open the folder dialog of the system (`browse_repository` of app-api, `DialogHost`): the folder picked is

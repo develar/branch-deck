@@ -157,3 +157,36 @@ fn an_entry_written_while_its_epoch_was_read_stays() {
   assert_eq!(snapshot["repositoryState"]["/pool/1/repo"]["epoch"], "lease-b", "{snapshot}");
   assert!(synced_before(&service, "/pool/1/repo"));
 }
+
+/// The stack roots collapsed in the table of a slot are of the lease they were collapsed under
+/// (`COLLAPSED_STACKS_EPOCH_FIELD`): once the slot holds another lease the writer forgets them, and nothing else of the
+/// project, so stacks of the same names of the next lease show expanded; an epoch the files could not tell keeps them
+#[test]
+fn the_collapsed_stacks_of_a_slot_are_forgotten_under_another_lease_and_kept_under_an_unknown_one() {
+  let (_directory, service) = service_with(&[]);
+  let epochs = epochs_of(&service);
+  *epochs.lock().unwrap() = json!({ "/pool/1/repo": "lease-a", "/work/checkout": null });
+  let projects = json!([
+    { "path": "/pool/1/repo", "collapsedStacks": ["auth"], "parkedCollapsed": true },
+    { "path": "/work/checkout", "collapsedStacks": ["ui"] },
+  ]);
+  let change = service
+    .set(
+      SettingsPatch::Value {
+        key: "recentProjects".to_owned(),
+        value: projects,
+      },
+      "main",
+    )
+    .unwrap();
+  assert_eq!(change.value[0]["collapsedStacksEpoch"], "lease-a");
+  assert!(change.value[1].get("collapsedStacksEpoch").is_none(), "a path outside a pool names none");
+
+  *epochs.lock().unwrap() = json!({ "/work/checkout": null });
+  assert_eq!(service.snapshot().1["recentProjects"][0]["collapsedStacks"], json!(["auth"]), "kept under an unknown epoch");
+
+  *epochs.lock().unwrap() = json!({ "/pool/1/repo": "lease-b", "/work/checkout": null });
+  let projects = &service.snapshot().1["recentProjects"];
+  assert_eq!(projects[0], json!({ "path": "/pool/1/repo", "parkedCollapsed": true }), "{projects}");
+  assert_eq!(projects[1]["collapsedStacks"], json!(["ui"]));
+}

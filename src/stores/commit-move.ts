@@ -3,6 +3,7 @@ import { createStore } from "zustand/vanilla"
 import type { Commit } from "@/lib/bindings"
 import { selectBranchRange, toggleBranch } from "@/lib/branch-selection"
 import { showMainViewNow } from "@/stores/main-view"
+import { onRowsForgotten } from "@/stores/view-rows"
 
 /** Source key of the unassigned commits list; branch lists use the branch name (never empty). */
 export const UNASSIGNED_SOURCE = ""
@@ -80,6 +81,12 @@ export const commitMoveStore = createStore<CommitMoveState>(() => ({
   reveal: null,
   form: null,
 }))
+
+// the rows are of another session of the repository: no branch and no commit list of the rows before holds the
+// selection, and no reveal, form or drop of commits waits for a row
+onRowsForgotten(() => {
+  commitMoveStore.setState({ selectionOwner: null, selectedBranches: [], branchAnchor: null, isBranchTargetOpen: false, newBranchDrop: null, reveal: null, form: null })
+})
 
 export function useCommitMove<T>(selector: (state: CommitMoveState) => T): T {
   return useStore(commitMoveStore, selector)

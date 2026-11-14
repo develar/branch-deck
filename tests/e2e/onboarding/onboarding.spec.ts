@@ -287,6 +287,46 @@ test.describe("Onboarding", () => {
     await expect(page.getByTestId("last-sync-time")).toHaveCount(0)
   })
 
+  test("shows the Ready to Sync card in the window of a slot once an agent leased the slot again, without the rows and Last synced of the lease before", async ({
+    page,
+    setupRepo,
+  }) => {
+    const repo = await setupRepo("simple", { leaseSlot: "now", syncedAgoMs: SYNCED_AN_HOUR_AGO })
+    await expect(findBranchRow(page, "test-branch")).toBeVisible()
+    await expect(page.getByTestId("last-sync-time")).toBeVisible()
+    // the slot goes back and an agent leases it again, the window still on it: brd touches the stamp after each
+    await repo.leaseSlot(true)
+    await repo.touchStamp()
+    await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+    await expect(findBranchRow(page, "test-branch")).toHaveCount(0)
+    await expect(page.getByTestId("last-sync-time")).toHaveCount(0)
+  })
+
+  test("shows the rows of the new lease of a slot an agent leased again under the window, none of them selected, expanded or focused as the row of the same name of the lease before was", async ({
+    page,
+    setupRepo,
+  }) => {
+    const repo = await setupRepo("simple", { leaseSlot: "now", syncedAgoMs: SYNCED_AN_HOUR_AGO })
+    const row = findBranchRow(page, "test-branch")
+    await expandBranch(page, row)
+    await row.click({ modifiers: ["ControlOrMeta"] })
+    await expect(row).toHaveAttribute("data-selected", "true")
+    await expect(row).toBeFocused()
+    const epoch = await viewEpoch(page)
+
+    // the slot goes back and an agent leases it again, and its brd sync builds the same branch: brd touches the stamp
+    await repo.leaseSlot(true)
+    await repo.syncOutsideTheApp()
+    await repo.touchStamp()
+    await expect.poll(() => viewEpoch(page)).not.toBe(epoch)
+    // the session of the new lease syncs itself, as its worktree was synced before
+    await expect(row).toBeVisible()
+    await expect(row).toHaveAttribute("data-selected", "false")
+    await expect(row).toHaveAttribute("data-state", "closed")
+    await expect(row).not.toBeFocused()
+    await expect(page.locator(":focus")).toHaveCount(0)
+  })
+
   test("forgets the branches of the previous repository on a switch", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
     // the injected store runs first, this script adds to it

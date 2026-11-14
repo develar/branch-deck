@@ -729,10 +729,16 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
   }
   write_test_identity(&state.global_config_of(id))?;
   let store = Arc::new(store);
+  let events = Arc::new(host::TestEvents::default());
+  // a change the writer makes of itself reaches the pages as the app's does (`src-tauri/src/settings.rs`)
+  {
+    let events = Arc::clone(&events);
+    store.on_external_change(move |change| app_api::events::settings_changed(&*events, change));
+  }
   let hosts = state::TestHosts {
     desktop: Arc::new(host::TestDesktop::new(&store, path)),
     settings: store,
-    events: Arc::new(host::TestEvents::default()),
+    events,
     updater: Arc::default(),
     cli_tools: Arc::new(cli_tools_fixtures::CliToolsHost::new(&state.app_data_of(id))),
   };
@@ -858,11 +864,30 @@ pub async fn commit_on_head(
   }
 }
 
+/// The worktree of the test repository `sync_outside_the_app` syncs: a slot of its lease pool it leased
+/// (`disk_fixtures::lease_slot`), else the repository itself
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SyncOutsideFixture {
+  #[serde(default)]
+  path: Option<String>,
+}
+
 /// Syncs the repository behind the app's back, as `brd sync` in a terminal does: the core of the sync
 /// (`sync_branches`) under the prefix the session of the repository is keyed by, in no session, so it writes the
-/// virtual branches, the notes and the mark of a sync in the worktree (`synced_mark`), and no window learns of it
-pub async fn sync_outside_the_app(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, (StatusCode, String)> {
-  let path = remote_fixtures::path_of(&state, &id)?;
+/// virtual branches, the notes and the mark of a sync in the worktree (`synced_mark`), and no window learns of it. The
+/// worktree is the repository, or the slot of its lease pool the fixture names (`path`)
+pub async fn sync_outside_the_app(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(fixture): Json<SyncOutsideFixture>,
+) -> Result<StatusCode, (StatusCode, String)> {
+  let own = remote_fixtures::path_of(&state, &id)?;
+  let path = match fixture.path {
+    None => own,
+    Some(path) if path == own || state.path_to_id.get(&path).is_some_and(|entry| *entry.value() == id) => path,
+    Some(path) => return Err((StatusCode::UNPROCESSABLE_ENTITY, format!("{path} is no worktree of the repository {id}"))),
+  };
   let key = remote_fixtures::session_of(&state, &path).await?;
   let synced = sync_core::sync::sync_branches(&state.git_of(&id), &path, &key.prefix, UnreadEvents, sync_core::sync::SyncOptions::default()).await;
   synced.map(|_report| StatusCode::OK).map_err(|error| {

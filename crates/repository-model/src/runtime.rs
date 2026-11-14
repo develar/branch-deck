@@ -61,7 +61,7 @@ use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
 use domain_types::review_request::ReviewRequest;
-use domain_types::session::{Demand, FactFamily, FactRefreshReason, FactState, FactsChanges, RepositoryView, SyncReason, SyncState, SyncStep, Version};
+use domain_types::session::{Demand, FactFamily, FactRefreshReason, FactState, FactsChanges, RepositoryView, SyncReason, SyncState, SyncStep, TableChanges, Version, ViewPatch};
 use domain_types::stack::BlockReason;
 use domain_types::worktree_epoch::WorktreeEpoch;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
@@ -190,12 +190,20 @@ pub(crate) enum Message {
     reason: SyncReason,
     waiter: Waiter,
   },
-  /// A focus or a stamp of a session that did not sync of itself, once the host said again whether the worktree was
-  /// synced before (`SessionHost::synced_before`: `brd sync` in a terminal may have marked it since the open)
+  /// A focus of a session that did not sync of itself, or a stamp of a watched one, once the host said again whether
+  /// the worktree was synced before (`SessionHost::synced_before`: `brd sync` in a terminal may have marked it since the
+  /// open) and, for a stamp, its epoch (`SessionHost::epoch`: `brd lease return` and `get` touch the stamp too)
   SyncedBeforeRead {
     reason: SyncReason,
     waiter: Waiter,
     synced_before: bool,
+    epoch: Option<WorktreeEpoch>,
+  },
+  /// The stamp of `reason` found the slot of the worktree under another lease: the session opens anew for it
+  /// (`Actor::reopened`), then decides the stamp
+  Reopen {
+    reason: SyncReason,
+    waiter: Waiter,
   },
   /// A change of the table outside a sync; `reply` gets the version of the view after its patch
   Apply {
@@ -258,37 +266,9 @@ pub(crate) fn spawn_actor(
 ) -> (mpsc::UnboundedSender<Message>, oneshot::Receiver<()>) {
   let (mailbox, messages) = mpsc::unbounded_channel();
   let span = info_span!(parent: None, "session", worktree = %key.worktree, prefix = %key.prefix);
-  let view = View::new(new_epoch());
-  let state = TableState::with_prefix(&key.prefix);
   let (saved, frames_saved) = oneshot::channel();
   let frames = span.in_scope(|| FrameSaves::new(&host, saved));
-  let actor = Actor {
-    key,
-    host,
-    life,
-    mailbox: mailbox.downgrade(),
-    state,
-    facts: FactStore::new(),
-    run_seq: Seq::default(),
-    view,
-    scheduler: SyncScheduler::new(),
-    subscribers: Vec::new(),
-    demands: HashMap::new(),
-    events,
-    told_demand: Demand::default(),
-    told_digest: None,
-    told_readiness: ReadinessDigest::default(),
-    told_kept_reviews: Vec::new(),
-    flush_at: None,
-    last_flush: None,
-    held: None,
-    in_flight: None,
-    moved: MovedFetches::default(),
-    frames,
-    epoch: None,
-    synced_before: false,
-    asked: false,
-  };
+  let actor = Actor::new(key, host, life, mailbox.downgrade(), events, frames);
   span.in_scope(|| runtime.spawn(actor.run(messages, frame).in_current_span()));
   (mailbox, frames_saved)
 }
@@ -345,6 +325,14 @@ impl FrameSaves {
       frames,
     }
   }
+
+  /// The saves of a session opened anew in place (`Actor::reopened`): as `new` leaves them, the task of the saves kept
+  const fn reopen(&mut self) {
+    self.keeps = false;
+    self.dirty = false;
+    self.saved_at = None;
+    self.due = false;
+  }
 }
 
 struct Actor {
@@ -396,6 +384,84 @@ struct Actor {
 }
 
 impl Actor {
+  /// The actor of a session that opens: an empty table and no fact at the first version of a new epoch of the view, no
+  /// window, nothing asked; `open` reads what its worktree has. A session opened anew in place (`reopened`) is made by
+  /// it too
+  fn new(key: SessionKey, host: Arc<dyn SessionHost>, life: Arc<SessionLife>, mailbox: mpsc::WeakUnboundedSender<Message>, events: Arc<EventSink>, frames: FrameSaves) -> Self {
+    let state = TableState::with_prefix(&key.prefix);
+    Self {
+      key,
+      host,
+      life,
+      mailbox,
+      state,
+      facts: FactStore::new(),
+      run_seq: Seq::default(),
+      view: View::new(new_epoch()),
+      scheduler: SyncScheduler::new(),
+      subscribers: Vec::new(),
+      demands: HashMap::new(),
+      events,
+      told_demand: Demand::default(),
+      told_digest: None,
+      told_readiness: ReadinessDigest::default(),
+      told_kept_reviews: Vec::new(),
+      flush_at: None,
+      last_flush: None,
+      held: None,
+      in_flight: None,
+      moved: MovedFetches::default(),
+      frames,
+      epoch: None,
+      synced_before: false,
+      asked: false,
+    }
+  }
+
+  /// The slot of the worktree holds another lease than the session is of (`leased_anew`): the session is the session of
+  /// the worktree of that lease from now, made by the code a session opens by (`Actor::new`, `open`), so nothing it held
+  /// of the lease before stays: its table, its facts and the reads of the remote services (the scheduler of the facts
+  /// hears it close and its windows watch it again), its sync scheduler, the state of its frames. Only its windows and
+  /// what they show and need stay. The view of the new open is of a new epoch, so no window mixes the rows of two leases:
+  /// each window gets one patch from the version it holds into that epoch, with no change, which applies to no view
+  /// (`patch::apply_patch`, `applyOrRefresh` of `src/model/store.ts`), so the window reads the snapshot of the session
+  /// and takes it as the view of another session (the page as on a switch, the mirror of `brd mcp` as at its first
+  /// subscription). Then the stamp is decided as by any session (`reason`, `waiter`)
+  async fn reopened(self, reason: SyncReason, waiter: Waiter) -> Self {
+    tracing::info!(worktree = %self.key.worktree, "The slot of the worktree holds another lease: the session opens anew for it");
+    let held = self.view.version();
+    let Self {
+      key,
+      host,
+      life,
+      mailbox,
+      events,
+      mut frames,
+      subscribers,
+      demands,
+      ..
+    } = self;
+    frames.reopen();
+    events.emit(&key, SessionEventKind::Closed);
+    let mut actor = Self::new(key, host, life, mailbox, events, frames);
+    actor.open(None).await;
+    let hand_over = ViewPatch {
+      base: held,
+      next: actor.view.version(),
+      changes: TableChanges::default(),
+    };
+    actor.subscribers = subscribers.into_iter().filter(|(_, subscriber)| subscriber.send(&hand_over).is_ok()).collect();
+    actor.demands = demands;
+    if actor.is_watched() {
+      actor.events.emit(&actor.key, SessionEventKind::Watched(true));
+      actor.tell_digest();
+    }
+    actor.tell_demand();
+    actor.decide_sync(reason, waiter);
+    actor.flush();
+    actor
+  }
+
   async fn run(mut self, mut messages: mpsc::UnboundedReceiver<Message>, frame: Option<CachedSession>) {
     self.open(frame).await;
     loop {
@@ -412,6 +478,10 @@ impl Actor {
       let Some(message) = message else {
         break;
       };
+      if let Message::Reopen { reason, waiter } = message {
+        self = Box::pin(self.reopened(reason, waiter)).await;
+        continue;
+      }
       self.handle(message);
       // a stream of events never starves the patch
       if self.flush_at.is_some_and(|at| at <= Instant::now()) {
@@ -556,6 +626,8 @@ impl Actor {
         let _ = reply.send(self.facts.table_facts(&self.state));
       }
       Message::Read(read) => read(&self.state, &self.facts),
+      // the run loop opens the session anew before it hands any message here
+      Message::Reopen { reason, waiter } => self.decide_sync(reason, waiter),
       Message::Close => {
         // the registry told the scheduler that the session closed
         for _ in self.subscribers.drain(..) {
@@ -695,7 +767,19 @@ impl Actor {
         let _ = reply.send(self.facts.readiness.digest().clone());
       }
       Message::Sync { reason, waiter } => self.request_sync(reason, waiter),
-      Message::SyncedBeforeRead { reason, waiter, synced_before } => {
+      Message::SyncedBeforeRead {
+        reason,
+        waiter,
+        synced_before,
+        epoch,
+      } => {
+        if epoch.is_some_and(|epoch| self.leased_anew(&epoch))
+          && let Some(mailbox) = self.mailbox.upgrade()
+        {
+          // the run loop opens the session anew (`reopened`), which awaits the reads of the open
+          let _ = mailbox.send(Message::Reopen { reason, waiter });
+          return;
+        }
         self.synced_before |= synced_before;
         self.decide_sync(reason, waiter);
         self.flush();
@@ -816,22 +900,34 @@ impl Actor {
     if matches!(reason, SyncReason::Manual | SyncReason::AfterRewrite) {
       self.asked = true;
     }
-    if matches!(reason, SyncReason::Focus | SyncReason::Stamp)
-      && self.is_watched()
-      && !self.syncs_itself()
+    // a stamp of a watched session reads the epoch too: the slot may hold another lease since the open
+    let stamped = reason == SyncReason::Stamp && self.is_watched();
+    if (stamped || reason == SyncReason::Focus && self.is_watched() && !self.syncs_itself())
       && let Some(mailbox) = self.mailbox.upgrade()
     {
       let (host, key) = (Arc::clone(&self.host), self.key.clone());
       tokio::spawn(
         async move {
-          let synced_before = tokio::task::spawn_blocking(in_current_span(move || host.synced_before(&key))).await.unwrap_or(false);
-          let _ = mailbox.send(Message::SyncedBeforeRead { reason, waiter, synced_before });
+          let read = tokio::task::spawn_blocking(in_current_span(move || (host.synced_before(&key), stamped.then(|| host.epoch(&key))))).await;
+          let (synced_before, epoch) = read.unwrap_or((false, None));
+          let _ = mailbox.send(Message::SyncedBeforeRead {
+            reason,
+            waiter,
+            synced_before,
+            epoch,
+          });
         }
         .in_current_span(),
       );
       return;
     }
     self.decide_sync(reason, waiter);
+  }
+
+  /// Whether the slot of the worktree holds another lease than the session is of (`epoch`, two known epochs that
+  /// differ): not while a run is in flight, whose table would land on the worktree of the new lease
+  fn leased_anew(&self, epoch: &WorktreeEpoch) -> bool {
+    self.in_flight.is_none() && matches!((self.life.opened_epoch().recorded(), epoch.recorded()), (Some(then), Some(now)) if then != now)
   }
 
   fn decide_sync(&mut self, reason: SyncReason, waiter: Waiter) {

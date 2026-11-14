@@ -20,6 +20,7 @@ import {
 } from "@/model/store"
 import { authStore } from "@/stores/auth"
 import { branchSyncStore, getBranch, getStackBranch, whenSynced } from "@/stores/branch-sync"
+import { getSelectedBranches, selectBranches } from "@/stores/commit-move"
 import { emptyView, fakeCommit, fakeHead, fakeRemoteStatus, fakeSessions, grouping, OCTOCAT_AUTH } from "@/test-support/fake-sessions"
 
 const { toasts, archived, syncRecords, answers } = vi.hoisted(() => ({
@@ -174,6 +175,24 @@ describe("the view of the session", () => {
     expect(fakeSessions.snapshotCalls).toEqual(["/repo"])
     expect(branchSyncStore.getState().branchOrder).toEqual(["c"])
     expect(getBranch("a")).toBeUndefined()
+  })
+
+  it("takes the view of a session opened anew by its snapshot, from the patch into its epoch, and forgets the rows it held: a branch of the same name is not selected", async () => {
+    await open()
+    const held = await send(grouping("a"))
+    const record = getBranch("a")
+    selectBranches("a", "only", ["a"])
+    expect(getSelectedBranches()).toEqual(["a"])
+    // a slot of a lease pool leased again: the session opened anew in a new epoch, and its patch goes from the version
+    // the window holds into that epoch, with no change, as no view applies it
+    const next: Version = { epoch: 2, seq: 1 }
+    fakeSessions.reopen("/repo", applyViewPatch(emptyView({ epoch: 2, seq: 0 }), { base: { epoch: 2, seq: 0 }, next, changes: grouping("a") }))
+    fakeSessions.deliver("/repo", { base: held, next, changes: {} })
+    await vi.waitFor(() => expect(branchSyncStore.getState().viewVersion).toEqual(next))
+    expect(fakeSessions.snapshotCalls).toEqual(["/repo"])
+    expect(branchSyncStore.getState().branchOrder).toEqual(["a"])
+    expect(getBranch("a")).not.toBe(record)
+    expect(getSelectedBranches()).toEqual([])
   })
 
   it("takes the snapshot when the base of a patch is missing, and drops a patch the snapshot already has", async () => {

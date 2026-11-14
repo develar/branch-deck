@@ -9,6 +9,7 @@
 
 use crate::mcp_socket::context_of_connection;
 use crate::test_support::{create_repository, head, start_test_server_with_state};
+use domain_types::session::{SyncOutcome, SyncReason};
 use mcp_host::server::Connection;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -453,6 +454,81 @@ async fn a_change_of_the_prefix_moves_the_mirror_to_the_session_of_the_new_prefi
   let state = &messages.last().unwrap()["result"]["state"];
   assert_eq!(state["header"]["prefix"], "crew");
   assert_eq!(state["version"]["epoch"], version["epoch"]);
+  ide.end().await;
+}
+
+/// Leases a slot of the pool of the test repository, as an agent's `brd lease get` does, or returns that slot and leases
+/// it again (`again`): the path of the slot (`POST /repositories/{id}/lease-slot`)
+async fn lease_slot(ide: &Ide, again: bool) -> String {
+  let response = reqwest::Client::new()
+    .post(format!("http://{}/repositories/{}/lease-slot", ide.addr, ide.id))
+    .json(&json!({ "again": again }))
+    .send()
+    .await
+    .unwrap();
+  assert!(response.status().is_success(), "{response:?}");
+  response.json::<Value>().await.unwrap()["path"].as_str().unwrap().to_owned()
+}
+
+/// The change of the mirror of `repo` among `messages` whose version, its last op, is of `epoch`
+fn change_into(messages: &[Value], repo: &str, epoch: u32) -> Option<Vec<Value>> {
+  messages.iter().find_map(|message| {
+    let ops = message["params"]["ops"].as_array()?;
+    (message["method"] == "x-air-app/viewChanged" && message["params"]["mirror"] == repo && ops.last()?["value"]["epoch"] == epoch).then(|| ops.clone())
+  })
+}
+
+/// A slot of a lease pool the mirror shows goes back and an agent leases it again: the stamp of that lease opens the
+/// session anew in a new epoch, whose patch applies to no view of the epoch before, so the mirror reads the view of the
+/// session again as at a change of the prefix: one change of every part, none of the rows of the lease before, the
+/// version of the new epoch last. The state of the mirror, which a view that subscribes then gets, is the view of the
+/// session
+#[tokio::test]
+async fn a_slot_leased_again_moves_the_mirror_to_the_view_of_the_new_lease() {
+  let mut ide = Ide::start().await;
+  let slot = lease_slot(&ide, false).await;
+  initialized_with_roots(&mut ide, std::slice::from_ref(&slot)).await;
+  ide.send(&json!({ "jsonrpc": "2.0", "id": 2, "method": "x-air-app/subscribe", "params": { "instance": "main:1", "params": { "repositoryPath": slot } } }));
+  let first = ide.expect(&json!({ "jsonrpc": "2.0", "id": 2, "result": { "mirror": slot, "state": "${any}" } })).await["result"]["state"].clone();
+  let key = crate::remote_fixtures::session_of(&ide.state, &slot).await.unwrap();
+  let synced = ide.state.sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  let rows = ide.state.sessions.get_snapshot(&key).await.unwrap();
+  assert!(!rows.order.is_empty(), "the lease before has rows: {:?}", synced.outcome);
+
+  lease_slot(&ide, true).await;
+  let stamped = ide.state.sessions.sync(&key, SyncReason::Stamp).wait().await.unwrap();
+  assert_eq!(stamped.outcome, SyncOutcome::Skipped, "the first sync of the new lease is the user's");
+  let epoch = ide.state.sessions.get_snapshot(&key).await.unwrap().version.epoch;
+  assert_ne!(json!(epoch), first["version"]["epoch"], "the session opened anew");
+  let mut messages = Vec::new();
+  let ops = loop {
+    messages.push(ide.next().await);
+    if let Some(ops) = change_into(&messages, &slot, epoch) {
+      break ops;
+    }
+  };
+  assert!(ops.iter().all(|op| op["op"] == "part"), "the move replaces every part: {ops:#?}");
+  let part = |name: &str| ops.iter().find(|op| op["part"] == name).map(|op| op["value"].clone());
+  assert_eq!((part("order"), part("branches")), (Some(json!([])), Some(json!({}))), "no row of the lease before");
+  assert!(part("facts").is_some(), "{ops:#?}");
+
+  // a view that subscribes gets the state of the mirror: the view of the session, at the same version
+  for attempt in 3.. {
+    let view = serde_json::to_value(ide.state.sessions.get_snapshot(&key).await.unwrap()).unwrap();
+    let instance = format!("review:{attempt}");
+    ide.send(&json!({ "jsonrpc": "2.0", "method": "x-air-app/viewShown", "params": { "instance": instance, "view": "review", "key": format!("branch:{attempt}"), "params": {} } }));
+    ide.send(&json!({ "jsonrpc": "2.0", "id": attempt, "method": "x-air-app/subscribe", "params": { "instance": instance, "params": { "repositoryPath": slot } } }));
+    let state = ide
+      .expect(&json!({ "jsonrpc": "2.0", "id": attempt, "result": { "mirror": slot, "state": "${any}" } }))
+      .await["result"]["state"]
+      .clone();
+    // a read of the facts of the new lease may change the view between the two reads
+    if state["version"] == view["version"] {
+      assert_eq!(state, view);
+      break;
+    }
+    assert!(attempt < 20, "the mirror never held the version of the session: {state:#}");
+  }
   ide.end().await;
 }
 

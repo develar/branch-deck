@@ -13,8 +13,10 @@
 //!   under a window of its own (`mirror:<path>`), so the close of one view ends no other's mirror; the last
 //!   `x-air-app/unsubscribe` ends it. A subscription again to a mirror brd holds, by another view or by `bd_invoke` of
 //!   `subscribe_view` (a frame holds one view, so the page asks it so), follows the prefix the git config names now: a
-//!   mirror of another prefix moves to the session of the new one in one change of every part. The news a patch brings
-//!   are told by the IDE's notifications (`notices.rs`).
+//!   mirror of another prefix moves to the session of the new one in one change of every part. A patch into another
+//!   epoch of its session (a slot of a lease pool leased again, which opens the session anew) moves the mirror the same
+//!   way, as no patch of another epoch applies to its view. The news a patch brings are told by the IDE's notifications
+//!   (`notices.rs`).
 //! - **Places**: `x-air-app/viewShown` records the params of an instance, `x-air-app/viewHidden` that the IDE hides it,
 //!   `x-air-app/viewClosed` forgets its page and its window (`AppContext::forget_window`); the end of a WebSocket never reaches brd.
 //! - **Roots**: the repositories are the Git roots of the project (`roots/list`, asked at the start and on
@@ -41,6 +43,7 @@ use base64::Engine;
 use domain_types::error::ApiError;
 use domain_types::session::{Demand, RepositoryView, SubscribeViewParams, ViewPatch};
 use domain_types::settings::SettingsPatch;
+use repository_model::patch::PatchRejected;
 use repository_model::session::SubscriptionId;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -94,6 +97,7 @@ impl Connection {
   /// connection is forgotten (`AppContext::forget_windows`): its subscriptions end
   pub async fn serve(self, ctx: Arc<AppContext>, mut incoming: mpsc::UnboundedReceiver<String>) {
     let notices = Arc::new(Notices::new(Arc::clone(&self.link), Arc::clone(&self.instances), Arc::clone(&ctx.settings)));
+    let (resyncs, mut resynced) = mpsc::unbounded_channel();
     let server = Arc::new(Server {
       ctx: Arc::clone(&ctx),
       link: self.link,
@@ -103,8 +107,19 @@ impl Connection {
       bootstrapped: AtomicBool::new(false),
       calls: Mutex::default(),
       mirrors: Mutex::default(),
+      resyncs,
     });
-    while let Some(line) = incoming.recv().await {
+    loop {
+      let line = tokio::select! {
+        line = incoming.recv() => line,
+        Some(resync) = resynced.recv() => {
+          server.resync(&resync).await;
+          continue;
+        }
+      };
+      let Some(line) = line else {
+        break;
+      };
       if line.trim().is_empty() {
         continue;
       }
@@ -172,6 +187,16 @@ struct Server {
   projects: Arc<Projects>,
   /// A page took the settings (`bd_bootstrap`): a change of the roots reaches it as a change of the settings
   bootstrapped: AtomicBool,
+  /// The mirrors whose session sent a patch into another epoch, each with the slot that got it: served between the
+  /// messages of air-ide, so a move of a mirror never runs beside a subscription or another move
+  resyncs: mpsc::UnboundedSender<Resync>,
+}
+
+/// A patch into another epoch of the session of a mirror reached its slot (`MirrorPatches`): the mirror reads the view of
+/// the session anew (`Server::resync`)
+struct Resync {
+  mirror: String,
+  slot: Arc<Mutex<Slot>>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -637,6 +662,37 @@ impl Server {
     if self.ctx.session_key_now(path).await?.prefix == prefix {
       return Ok(());
     }
+    self.move_mirror(path).await
+  }
+
+  /// A patch into another epoch reached the slot of `resync`, which still is the slot of its mirror: the session opened
+  /// anew (a slot of a lease pool leased again), and no patch of it applies to the view of the mirror. The mirror moves to
+  /// the session of the repository now, as at a change of the prefix (`move_mirror`): the view its subscription answers,
+  /// one change of every part, a `version` of another epoch. A session that answers no view ends the mirror, as a session
+  /// that closed does. Nothing for a mirror that moved or ended meanwhile: its slot was replaced
+  async fn resync(&self, resync: &Resync) {
+    let held = locked(&self.mirrors).get(&resync.mirror).is_some_and(|mirror| Arc::ptr_eq(&mirror.slot, &resync.slot));
+    if !held {
+      return;
+    }
+    if let Err(error) = self.move_mirror(&resync.mirror).await {
+      tracing::warn!(%error, mirror = resync.mirror, "the mirror cannot read the view of its session anew");
+      let mut slot = locked(&resync.slot);
+      if matches!(&*slot, Slot::Live(_)) {
+        *slot = Slot::Ended;
+        self.link.notify("x-air-app/viewEnded", json!({ "mirror": resync.mirror, "reason": "sessionClosed" }));
+      }
+    }
+  }
+
+  /// The mirror of `path` moves to the session of the repository the git config names now: a new subscription of that
+  /// session, whose view goes live in one change of every part, after which no patch of the subscription before reaches
+  /// the mirror; the session takes the demand of the mirror, the subscription before loses it. Nothing for a mirror that
+  /// no view holds any more
+  ///
+  /// # Errors
+  /// No session of the repository now: the repository is not accessible, or it has no prefix
+  async fn move_mirror(&self, path: &str) -> Result<(), ApiError> {
     let opened = self.open_session(path).await?;
     let moved = locked(&self.mirrors).get_mut(path).map(|mirror| {
       let left = std::mem::replace(&mut mirror.slot, Arc::clone(&opened.slot));
@@ -671,6 +727,7 @@ impl Server {
       slot: Arc::clone(&slot),
       link: Arc::clone(&self.link),
       notices: Arc::clone(&self.notices),
+      resyncs: self.resyncs.clone(),
     });
     let call = self.ctx.call(mirror_window(path).as_str());
     let args = app_api::commands::subscribe_view::Args {
@@ -871,6 +928,8 @@ struct MirrorPatches {
   slot: Arc<Mutex<Slot>>,
   link: Arc<Link>,
   notices: Arc<Notices>,
+  /// Where a patch into another epoch asks the server to read the view of the session anew (`Server::resync`)
+  resyncs: mpsc::UnboundedSender<Resync>,
 }
 
 impl EventSink<ViewPatch> for MirrorPatches {
@@ -888,6 +947,15 @@ impl EventSink<ViewPatch> for MirrorPatches {
               self.link.notify("x-air-app/viewChanged", json!({ "mirror": self.mirror, "ops": ops }));
             }
             self.notices.tell(view.view(), &self.mirror, &news);
+          }
+          Err(PatchRejected::ForeignEpoch { .. }) => {
+            // the session opened anew: the mirror reads its view, and the patches of the new epoch until then go with
+            // this subscription
+            let resync = Resync {
+              mirror: self.mirror.clone(),
+              slot: Arc::clone(&self.slot),
+            };
+            let _ = self.resyncs.send(resync);
           }
           Err(error) => tracing::warn!(%error, mirror = self.mirror, "a patch of the session does not apply to its mirror"),
         }

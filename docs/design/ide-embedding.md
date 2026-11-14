@@ -166,7 +166,11 @@ sequenceDiagram
   (`MirrorView::parts`, the `version` of another epoch last), before the answer; the subscription of the old session
   ends, none of its patches reaches the mirror after the move, and the new one takes the demand a view set last. So a
   prefix set in a terminal, in Settings or as the app's prefix reaches every view of the mirror, and the channel of the
-  mirror never ends for it.
+  mirror never ends for it. A patch of the session into another epoch (the session opened anew: a slot of a lease pool
+  leased again) moves the mirror the same way (`Server::resync`), as no patch of another epoch applies to its view: the
+  slot that got it asks the server, which serves the request between the messages of air-ide, so a move never runs
+  beside a subscription or another move, and does nothing for a mirror whose slot was replaced meanwhile; a session
+  that answers no view ends the mirror with `sessionClosed`.
 - **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native", checkForUpdates: false,
@@ -244,8 +248,9 @@ sequenceDiagram
     not know) sends the same patch, and the snapshot of its repository is then none until the page subscribes to it
     again, whatever session `brd mcp` holds: the page subscribes again, as when its session went away in the desktop
     app, and the frame opens the view anew. A snapshot of brd would leave the page a subscription that nothing changes.
-    A change to a version of another epoch (the mirror moved to the session of another prefix) is no patch of the view
-    the page holds either: the page asks for the snapshot.
+    A change to a version of another epoch (the mirror moved to the session of another prefix, or to a session opened
+    anew) is no patch of the view the page holds either: the page asks for the snapshot, and takes it as the view of
+    another session, as the desktop page does.
   - **One view for each frame**: Air holds one view for each page connection, so for each frame. A `viewOpen` while
     another runs gets `-32011 viewOpen` at once, one with the params of the view the connection holds answers that
     subscription (`held`, without a state), and one of another view waits up to 1 s for the end of the view held and

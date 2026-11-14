@@ -211,6 +211,33 @@ test.describe("Branch Deck in the IDE", () => {
     expect((await ide.mirrorLog()).map(entry => [entry.instance, entry.kind])).toEqual([["main:1", "subscribed"]])
   })
 
+  test("a slot of a lease pool the main view shows that an agent leased again moves the mirror to the view of the new lease: none of its rows is selected as the row of the same name of the lease before was, and the view subscribed once", async ({
+    page,
+    repo,
+  }) => {
+    await repo.leaseSlot()
+    const ide = await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path })
+    const main = ide.frame("main:1")
+    const row = await syncedFeatureRow(ide)
+    await row.click({ modifiers: ["ControlOrMeta"] })
+    await expect(row).toHaveAttribute("data-selected", "true")
+    const sync = main.getByTestId("sync-button")
+    const epoch = async () => (await sync.getAttribute("data-view-version"))?.split(":")[0]
+    const leased = await epoch()
+    expect(leased).toBeDefined()
+
+    // the slot goes back and an agent leases it again, and its brd sync builds the same branch: brd touches the stamp
+    await repo.leaseSlot(true)
+    await repo.syncOutsideTheApp()
+    await repo.touchStamp()
+    await expect.poll(epoch).not.toBe(leased)
+    // the session of the new lease syncs itself, as its worktree was synced before
+    await expect(row).toBeVisible()
+    await expect(row).toHaveAttribute("data-selected", "false")
+    // one view all along: its mirror moved to the view of the new lease without an end
+    expect((await ide.mirrorLog()).map(entry => [entry.instance, entry.kind])).toEqual([["main:1", "subscribed"]])
+  })
+
   test("a repository without a branch prefix shows the welcome card in the main view, as brd refused its subscription with no_branch_prefix, and Save shows the repository", async ({
     page,
     unprefixed,

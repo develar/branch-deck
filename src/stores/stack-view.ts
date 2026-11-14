@@ -5,6 +5,7 @@ import type { LaneSegmentRow, LaneSegments } from "@/lib/stack-lanes"
 import type { PushUpToStep } from "@/presenters/push"
 import { branchSyncStore, getBranch, getPushOrders } from "@/stores/branch-sync"
 import { getPushHold } from "@/stores/patronus"
+import { onRowsForgotten } from "@/stores/view-rows"
 
 /** The branch whose path the graph shows; `push`: from its push button, which marks the nodes the push sends */
 export interface StackPathTip {
@@ -98,6 +99,10 @@ branchSyncStore.subscribe((state, previous) => {
     update({})
   }
 })
+
+// the rows are of another session of the repository: no row of the rows before is hovered, focused or pinned, as a row of
+// the same name is another branch
+onRowsForgotten(() => update({ hovered: null, focused: null, pinned: null }))
 
 /** The rows of the table changed: the path is laid out over them again */
 export function setStackPathRows(rows: readonly LaneSegmentRow[]) {

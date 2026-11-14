@@ -28,15 +28,16 @@
 //! Each such key is a change of its own (the next version, origin `OTHER_PROCESS_ORIGIN`), which `changes_since`
 //! answers and `on_external_change` tells, as `set` answers a change of a window, so the pages take it the same way.
 //!
-//! An entry of `repositoryState` is of the epoch of its worktree (`lease_pool::epoch::worktree_epoch`, which the host
-//! gives, `set_worktree_epochs`): a slot of a lease pool keeps its path from one lease to the next. A write of an entry
-//! names the epoch it was written under (`EPOCH_FIELD`, which no window writes), and an entry of another known epoch is
-//! of an earlier lease: the writer forgets it before the key leaves it (`snapshot`, `changes_since`, `value`, the change
-//! of a `set`), so neither Rust nor a window reads it. An epoch the files could not tell (`WorktreeEpoch::Unknown`)
+//! An entry of `repositoryState`, and the collapsed stacks of a recent project, are of the epoch of their worktree
+//! (`lease_pool::epoch::worktree_epoch`, which the host gives, `set_worktree_epochs`): a slot of a lease pool keeps its
+//! path from one lease to the next. A write names the epoch it was written under (`EPOCH_FIELD`,
+//! `COLLAPSED_STACKS_EPOCH_FIELD`, which no window writes), and what names another known epoch is of an earlier lease:
+//! the writer forgets it before the key leaves it (`snapshot`, `changes_since`, `value`, the change of a `set`) and
+//! tells the windows (`on_external_change`), so neither Rust nor a window reads it. An epoch the files could not tell (`WorktreeEpoch::Unknown`)
 //! forgets nothing and stamps nothing anew: the entry keeps the epoch it names. The epochs are read before the mutex of
 //! the writer is taken, never under it.
 
-use crate::file::{REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile, lock_directory};
+use crate::file::{RECENT_PROJECTS_KEY, REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile, lock_directory};
 use crate::merge::{Unsaved, changed_keys};
 use crate::watch::{Changed, watch};
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsChange, SettingsPatch};
@@ -67,10 +68,20 @@ pub const EPOCH_ORIGIN: &str = "epoch";
 /// outside a lease pool
 pub const EPOCH_FIELD: &str = "epoch";
 
+/// The field of a recent project that the epoch of its worktree bounds: the stack roots collapsed in its table, roots
+/// of the lease they were collapsed under, which would collapse stacks of the same names of the next lease
+pub const COLLAPSED_STACKS_FIELD: &str = "collapsedStacks";
+
+/// The field of a recent project that names the epoch of its worktree its collapsed stacks were written under
+pub const COLLAPSED_STACKS_EPOCH_FIELD: &str = "collapsedStacksEpoch";
+
 /// The epoch of a path read without the mutex of the writer (`epochs_now`), beside the epoch its entry named when the
 /// read began: an entry written meanwhile (a window of the lease now) is no entry the epoch was read for
 struct EpochNow {
+  /// The epoch the entry of `repositoryState` of the path named
   seen: Option<String>,
+  /// The epoch the collapsed stacks of the recent project of the path named
+  seen_stacks: Option<String>,
   epoch: WorktreeEpoch,
 }
 
@@ -392,13 +403,19 @@ impl SettingsService {
   /// file of its key follows within the debounce. A value of a field Rust knows that is invalid is refused and changes
   /// nothing
   pub fn set(&self, mut patch: SettingsPatch, origin: &str) -> Result<SettingsChange, SettingsError> {
-    let now = (patch.key() == REPOSITORY_STATE_KEY).then(|| self.epochs_now(written_paths(&patch))).flatten();
+    let bounded = matches!(patch.key(), REPOSITORY_STATE_KEY | RECENT_PROJECTS_KEY);
+    let now = bounded.then(|| self.epochs_now(written_paths(&patch))).flatten();
     let mut state = self.shared.lock();
     let key = patch.key().to_owned();
-    // the change carries the whole key: without the entries of an earlier lease, forgotten first
+    // the change carries the whole key: without what an earlier lease left in it, forgotten first
     if let Some(now) = &now {
-      forget_other_epochs(&mut state, now);
+      if key == REPOSITORY_STATE_KEY {
+        forget_other_epochs(&mut state, now);
+      } else {
+        forget_collapsed_stacks(&mut state, now);
+      }
       stamp_epochs(&mut patch, now, &state);
+      stamp_collapsed_stacks(&mut patch, now, &state);
     }
     let file = StoreFile::of(&key);
     let fields = match &patch {
@@ -444,31 +461,58 @@ impl SettingsService {
   /// them; none without the epochs
   fn epochs_now(&self, written: Vec<String>) -> Option<EpochsNow> {
     let epochs = self.epochs()?;
-    let mut seen: BTreeMap<String, Option<String>> = stamped_paths(&self.shared.lock());
+    let mut seen = stamped_paths(&self.shared.lock());
     for path in written {
       seen.entry(path).or_default();
     }
     Some(
       seen
         .into_iter()
-        .map(|(path, seen)| {
+        .map(|(path, (seen, seen_stacks))| {
           let epoch = epochs(&path);
-          (path, EpochNow { seen, epoch })
+          (path, EpochNow { seen, seen_stacks, epoch })
         })
         .collect(),
     )
   }
 
-  /// The state, the entries of `repositoryState` of another known epoch of their worktree forgotten
+  /// The state, the entries of `repositoryState` of another known epoch of their worktree forgotten, which the windows
+  /// hear (`on_external_change`)
   fn current(&self) -> MutexGuard<'_, State> {
     let now = self.epochs_now(Vec::new());
     let mut state = self.shared.lock();
-    if let Some(now) = &now
-      && forget_other_epochs(&mut state, now)
-    {
-      self.shared.wake.notify_one();
+    let Some(now) = &now else {
+      return state;
+    };
+    let forgotten: Vec<&str> = [
+      forget_other_epochs(&mut state, now).then_some(REPOSITORY_STATE_KEY),
+      forget_collapsed_stacks(&mut state, now).then_some(RECENT_PROJECTS_KEY),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if forgotten.is_empty() {
+      return state;
     }
-    state
+    self.shared.wake.notify_one();
+    // the windows hold what was forgotten: they hear each key without it, as a change of another process
+    let changes: Vec<SettingsChange> = forgotten
+      .into_iter()
+      .map(|key| SettingsChange {
+        version: state.changes.get(key).map_or(state.version, |change| change.version),
+        value: key_value(&state, key),
+        key: key.to_owned(),
+        origin: EPOCH_ORIGIN.to_owned(),
+      })
+      .collect();
+    drop(state);
+    let listener = self.shared.on_external_change.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    if let Some(listener) = listener {
+      for change in &changes {
+        listener(change);
+      }
+    }
+    self.shared.lock()
   }
 
   /// Save every change made before now and wait for it; the error of that save when it failed
@@ -560,8 +604,9 @@ impl SettingsService {
   }
 
   /// Call `listener` with each change of another process this writer takes from the file (origin
-  /// `OTHER_PROCESS_ORIGIN`), on the writer thread, in the order of their versions, before the flush that took it returns;
-  /// the caller sends it to the windows as it sends the answer of `set`
+  /// `OTHER_PROCESS_ORIGIN`), on the writer thread, in the order of their versions, before the flush that took it returns,
+  /// and with each forget of the entries of `repositoryState` of another epoch (origin `EPOCH_ORIGIN`), on the thread of
+  /// the read that found them; the caller sends it to the windows as it sends the answer of `set`
   pub fn on_external_change(&self, listener: impl Fn(&SettingsChange) + Send + Sync + 'static) {
     *self.shared.on_external_change.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(listener));
   }
@@ -797,6 +842,16 @@ fn written_paths(patch: &SettingsPatch) -> Vec<String> {
       key,
       value: Value::Object(entries),
     } if key == REPOSITORY_STATE_KEY => entries.keys().cloned().collect(),
+    SettingsPatch::Value {
+      key,
+      value: Value::Array(projects),
+    } if key == RECENT_PROJECTS_KEY => projects
+      .iter()
+      .filter_map(Value::as_object)
+      .filter(|project| project.contains_key(COLLAPSED_STACKS_FIELD))
+      .filter_map(project_path)
+      .map(str::to_owned)
+      .collect(),
     _ => Vec::new(),
   }
 }
@@ -807,11 +862,110 @@ fn epoch_of(entry: &Value) -> Option<&str> {
 }
 
 /// The paths whose entries of `repositoryState` name an epoch
-fn stamped_paths(state: &State) -> BTreeMap<String, Option<String>> {
-  match state.repository_state_file.content.other.get(REPOSITORY_STATE_KEY) {
-    Some(Value::Object(entries)) => entries.iter().filter_map(|(path, entry)| Some((path.clone(), Some(epoch_of(entry)?.to_owned())))).collect(),
-    _ => BTreeMap::new(),
+fn stamped_paths(state: &State) -> BTreeMap<String, (Option<String>, Option<String>)> {
+  let mut paths: BTreeMap<String, (Option<String>, Option<String>)> = BTreeMap::new();
+  if let Some(Value::Object(entries)) = state.repository_state_file.content.other.get(REPOSITORY_STATE_KEY) {
+    for (path, entry) in entries {
+      if let Some(epoch) = epoch_of(entry) {
+        paths.entry(path.clone()).or_default().0 = Some(epoch.to_owned());
+      }
+    }
   }
+  for project in recent_projects(&state.settings_file.content) {
+    if let (Some(path), Some(epoch)) = (project_path(project), project.get(COLLAPSED_STACKS_EPOCH_FIELD).and_then(Value::as_str)) {
+      paths.entry(path.to_owned()).or_default().1 = Some(epoch.to_owned());
+    }
+  }
+  paths
+}
+
+/// The recent projects of `file` (`RECENT_PROJECTS_KEY`), each an object
+fn recent_projects(file: &SettingsFile) -> impl Iterator<Item = &Map<String, Value>> {
+  file
+    .other
+    .get(RECENT_PROJECTS_KEY)
+    .and_then(Value::as_array)
+    .into_iter()
+    .flatten()
+    .filter_map(Value::as_object)
+}
+
+/// The path of a recent project
+fn project_path(project: &Map<String, Value>) -> Option<&str> {
+  project.get("path").and_then(Value::as_str)
+}
+
+/// Names beside the collapsed stacks of each recent project that `patch` writes (the whole list of the page) the epoch
+/// of its worktree now (`COLLAPSED_STACKS_EPOCH_FIELD`, removed for a path outside a pool and for a project without
+/// collapsed stacks); a project whose epoch is unknown keeps the one the writer has of it
+fn stamp_collapsed_stacks(patch: &mut SettingsPatch, now: &EpochsNow, state: &State) {
+  let SettingsPatch::Value {
+    key,
+    value: Value::Array(projects),
+  } = patch
+  else {
+    return;
+  };
+  if key != RECENT_PROJECTS_KEY {
+    return;
+  }
+  let stored: HashMap<&str, &Value> = recent_projects(&state.settings_file.content)
+    .filter_map(|project| Some((project_path(project)?, project.get(COLLAPSED_STACKS_EPOCH_FIELD)?)))
+    .collect();
+  for project in projects.iter_mut().filter_map(Value::as_object_mut) {
+    let Some(path) = project_path(project).map(str::to_owned) else {
+      continue;
+    };
+    let epoch = if project.contains_key(COLLAPSED_STACKS_FIELD) {
+      match now.get(&path).and_then(|now| now.epoch.recorded()) {
+        Some(recorded) => recorded.map(|epoch| Value::String(epoch.to_owned())),
+        None => stored.get(path.as_str()).map(|epoch| (*epoch).clone()),
+      }
+    } else {
+      None
+    };
+    match epoch {
+      Some(epoch) => project.insert(COLLAPSED_STACKS_EPOCH_FIELD.to_owned(), epoch),
+      None => project.remove(COLLAPSED_STACKS_EPOCH_FIELD),
+    };
+  }
+}
+
+/// Removes the collapsed stacks of each recent project written under an epoch of its worktree that `now` knows to be
+/// another, as a change of the writer (`EPOCH_ORIGIN`) that the next save writes; whether it removed any
+fn forget_collapsed_stacks(state: &mut State, now: &EpochsNow) -> bool {
+  let Some(Value::Array(projects)) = state.settings_file.content.other.get_mut(RECENT_PROJECTS_KEY) else {
+    return false;
+  };
+  let mut forgot = false;
+  for project in projects.iter_mut().filter_map(Value::as_object_mut) {
+    let outdated = project_path(project).and_then(|path| now.get(path)).is_some_and(|now| {
+      let kept = project.get(COLLAPSED_STACKS_EPOCH_FIELD).and_then(Value::as_str);
+      now.seen_stacks.as_deref() == kept && now.epoch.outdates(kept)
+    });
+    if outdated {
+      project.remove(COLLAPSED_STACKS_FIELD);
+      project.remove(COLLAPSED_STACKS_EPOCH_FIELD);
+      forgot = true;
+    }
+  }
+  if !forgot {
+    return false;
+  }
+  state.version += 1;
+  let version = state.version;
+  let stored = state.file_mut(StoreFile::Settings);
+  stored.changed = Some(version);
+  stored.unsaved.record(RECENT_PROJECTS_KEY, None, version);
+  state.changes.insert(
+    RECENT_PROJECTS_KEY.to_owned(),
+    KeyChange {
+      version,
+      origin: EPOCH_ORIGIN.to_owned(),
+    },
+  );
+  state.dirty_since.get_or_insert_with(Instant::now);
+  true
 }
 
 /// Names in each entry of `repositoryState` that `patch` writes the epoch of its worktree now, from `now`

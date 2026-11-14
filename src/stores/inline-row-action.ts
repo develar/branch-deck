@@ -2,6 +2,7 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { MergeConflictInfo } from "@/lib/bindings"
 import { useSurfaceBusy } from "@/stores/indicators"
+import { onRowsForgotten } from "@/stores/view-rows"
 
 export type InlineActionType =
   | "issue-reference"
@@ -122,6 +123,13 @@ function returnFocus(branchName: string): void {
     document.querySelector<HTMLElement>(`tr[data-branch-name="${CSS.escape(branchName)}"]`)?.focus({ preventScroll: true })
   })
 }
+
+// the rows are of another session of the repository: the open form goes, and gives the focus back to no row, as a row
+// of the same name is another branch
+onRowsForgotten(() => {
+  focusOrigin = null
+  inlineRowActionStore.setState({ activeInline: null })
+})
 
 // ---- actions ----
 

@@ -275,8 +275,9 @@ pub(crate) struct SessionLife {
   /// When a subscriber or an operation ended last, nanoseconds of the session clock
   last_active: AtomicU64,
   clock: Arc<dyn Clock>,
-  /// The epoch of the worktree the session opened under (`SessionHost::epoch`), once its actor read it
-  epoch: OnceLock<WorktreeEpoch>,
+  /// The epoch of the worktree the session is of (`SessionHost::epoch`): as it opened, or the lease its slot held when a
+  /// stamp found another one and the session opened anew (`Actor::reopened`); `Unknown` before its actor read it
+  epoch: Mutex<Option<WorktreeEpoch>>,
 }
 
 impl SessionLife {
@@ -286,7 +287,7 @@ impl SessionLife {
       operations: AtomicUsize::new(0),
       last_active: AtomicU64::new(0),
       clock,
-      epoch: OnceLock::new(),
+      epoch: Mutex::new(None),
     };
     life.touch();
     life
@@ -294,12 +295,17 @@ impl SessionLife {
 
   /// The actor read the epoch of the worktree as the session opened
   pub(crate) fn opened_under(&self, epoch: WorktreeEpoch) {
-    let _ = self.epoch.set(epoch);
+    *self.epoch.lock().unwrap_or_else(PoisonError::into_inner) = Some(epoch);
   }
 
-  /// The epoch of the worktree the session opened under; none before its actor read it
-  fn epoch(&self) -> Option<&WorktreeEpoch> {
-    self.epoch.get()
+  /// The epoch of the worktree the session is of; none before its actor read it
+  fn epoch(&self) -> Option<WorktreeEpoch> {
+    self.epoch.lock().unwrap_or_else(PoisonError::into_inner).clone()
+  }
+
+  /// The epoch of the worktree the session is of, `Unknown` before its actor read it
+  pub(crate) fn opened_epoch(&self) -> WorktreeEpoch {
+    self.epoch().unwrap_or(WorktreeEpoch::Unknown)
   }
 
   /// The time on the session clock
@@ -651,7 +657,7 @@ impl Sessions {
   /// was leased again, so a window that comes back opens a new one, as for a worktree it never showed. Only two known
   /// epochs that differ close it: an epoch the files could not tell, then or now, keeps the session
   async fn close_of_another_epoch(&self, key: &SessionKey) {
-    let Some(opened) = self.lock().get(key).and_then(|entry| entry.life.epoch().cloned()) else {
+    let Some(opened) = self.lock().get(key).and_then(|entry| entry.life.epoch()) else {
       return;
     };
     let (host, of) = (Arc::clone(&self.host), key.clone());
@@ -662,7 +668,7 @@ impl Sessions {
       return;
     }
     let mut entries = self.lock();
-    if entries.get(key).is_some_and(|entry| entry.life.epoch() == Some(&opened))
+    if entries.get(key).is_some_and(|entry| entry.life.epoch().as_ref() == Some(&opened))
       && let Some(entry) = entries.remove(key)
     {
       tracing::info!(worktree = %key.worktree, prefix = %key.prefix, "The worktree of the session holds another lease: the session opens again");
