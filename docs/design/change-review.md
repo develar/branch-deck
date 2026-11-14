@@ -576,27 +576,33 @@ the review.
 30. **The modules of a review are accio's** (2026-11-14). The module of a file was the nearest directory with a build
    file in a walk of Branch Deck over the trees of the head (`ModuleRoots`, decision 19), its state by the build files
    the commits touched. accio reads the build files of a revision for every tool (`accio modules --paths`, answer
-   revision 1), by the readers of JPS, Bazel, Cargo, npm, Go, Python, Maven, Gradle and MSBuild, so the plan asks it
-   at the head and at the base, one process a side beside the reads of git: the module of a file is its root at the
-   head, or the deeper root of the base (a module the commits delete); a root of the head alone is added, of both
-   changed, a build file renamed included; the name is the one the build files give. Without both answers every file
-   is of the root of the repository: accio is installed, no walk of Branch Deck stands in for it. On idea-1
-   `e8b5bb3dd..008a0a1848` (2801 files) the two agree on 2747 paths at the head; accio is deeper for 54: 24 under the
-   Python projects of `pydevd` and `helpersTests` (right), 29 under a `go.mod` of test data, which splits the test data
-   of a module into modules (JetBrains/accio#782, no filter here), and shallower for 2 under `node_modules` (right: a
-   dependency). A first query at a new tree takes 2–8 s on idea-1 under load, a warm one 0.3–0.9 s, at once with the
-   git reads of the plan. The base of Since Your Review is the start of its scope, and the reviewed tip where its
-   carry conflicts: the plan reads the new and rewritten commits one at a time then, and the branch base would add
-   again a module the reviewer read.
-   **The plan of git does not wait for the modules.** The first cut sent its first stage once both answered. Measured
-   on idea-1 with `brd review-plan --no-cache`, 25-commit ranges of trees accio had not read, at a load of 27–46 on
-   18 CPUs: git read the plan in 1.2–2.7 s, the modules answered cold in 13–52 s, so the first plan came at 15–53 s;
-   warm they answered in 1.0–4.8 s. So the plan of git is sent at once with no module (`PlanWait::Index`), then again
-   with them: the units are read once, and only the concerns, the brief and the steps are told again, which costs
-   0.02–0.5 s on those ranges (the first plan at 1.4–3.1 s cold). On the 2801 files of `e8b5bb3dd..008a0a1848`, at a
-   load of 56–62, git took 22–37 s and the telling 23–50 s each time: the first plan comes no later, the plan with the
-   modules one telling later, of a reading of about 500 s. A plan that tells its story once by which thread ended
-   first was rejected: the stages would depend on the load, and the same range give two kinds of first plan.
+   revision 1), by the readers of JPS, Bazel, Cargo, npm, Go, Python, Maven, Gradle and MSBuild, so the plan asks it at
+   the head and at the base, one process a side beside the reads of git: the module of a file is its root at the head,
+   or the deeper root of the base (a module the commits delete); a root of the head alone is added, of both changed, a
+   build file renamed included; the name is the one the build files give. Without both answers every file is of the root
+   of the repository: accio is installed, no walk of Branch Deck stands in for it. On idea-1 `e8b5bb3dd..008a0a1848`
+   (2801 files) the two agree on 2747 paths at the head; accio is deeper for 54: 24 under the Python project of `pydevd`
+   and 1 under that of `helpersTests` (right), 29 under a `go.mod` of test data, which splits the test data of a module
+   into modules (JetBrains/accio#782, no filter here), and shallower for 2 under `node_modules` (right: a dependency).
+   The two queries run at once with the git reads of the plan (their times below). The base of Since Your Review is the
+   start of its scope, and the reviewed tip where its carry conflicts: the plan reads the new and rewritten commits one
+   at a time then, and the branch base would add again a module the reviewer read. **The plan of git does not wait for
+   the modules.** The first cut sent its first stage once both answered. Measured on idea-1 with `brd review-plan
+   --no-cache`, 25-commit ranges of trees accio had not read, at a load of 27–46 on 18 CPUs: git read the plan in
+   1.2–2.7 s, the modules answered cold in 13–52 s, so the first plan came at 15–53 s; warm they answered in 1.0–4.8 s.
+   So the plan of git is sent at once with no module (`PlanWait::Index`), then again with them: the units are read once,
+   and only the concerns, the brief and the steps are told again, which costs 0.02–0.5 s on those ranges (the first plan
+   at 1.4–3.1 s cold). On the 2801 files of `e8b5bb3dd..008a0a1848`, at a load of 56–62, git took 22–37 s and the
+   telling 23–50 s each time: the first plan comes no later, the plan with the modules one telling later, of a reading
+   of about 500 s. A plan that tells its story once by which thread ended first was rejected: the stages would depend on
+   the load, and the same range give two kinds of first plan. The usages and the moves need no module, so they are asked
+   as soon as git read the plan, beside the modules; the tests, the registrations and the entry points are of the
+   modules (the steps are), so they are asked once those answered. Measured on six other cold 25-commit ranges of
+   `e8b5bb3dd..008a0a1848` at a load of 45–71: while the usages waited for the modules, the plan with them
+   (`PlanWait::Tests`) came 0.2–46 s after the modules answered (46 s where `accio references` was cold: the modules at
+   24 s, that plan at 70 s); asked beside the modules, 0.03–1.8 s after them (a cold usages query answered at 8 s, the
+   modules at 22 s). The plan whole still waits for the tests, asked after the modules, and came at 15–88 s on those
+   ranges.
 
 ## Review Rounds
 
