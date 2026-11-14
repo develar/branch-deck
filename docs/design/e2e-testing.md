@@ -616,7 +616,13 @@ of Tauri: the page runs on its own shim (`src/platform/air/`). The global setup 
 - **The fake IDE** (`openFakeIde` of `fake-host.ts`): one page of the test server's origin (its `/health`, then the
   content of the host page), so its WebSocket to the server is a loopback one. Each view is a frame at the origin of the
   app (`https://branch-deck.air-genui-app.local`), whose files a route of the test serves from `dist-air/` (a path with
-  no file is `index.html`), as `brd mcp` serves them by `resources/read`.
+  no file is `index.html`), as `brd mcp` serves them by `resources/read`. `openFakeIde` and `ide.openView` answer once
+  the page of the frame drew its shell (`ide.started(instance)`: its `sub_window_drawn` through `bd_invoke`, the stage
+  the desktop app counts the content budget of a window from), as the setup of a desktop page waits for its header: the
+  files of the frame, its bootstrap and its first frame take the test's time, not that of an `expect`. Under a load of
+  100 to 170 on the Mac Studio they took 2.1 s at the median and up to 3.9 s, the 5 s of an `expect` that four tests had
+  from the creation of the frame; what an `expect` waits for after the shell, the view of the session and its render,
+  took 0.4 s at the median and 1.1 s at most.
 - **The links**: the frame link is the `AppBridge` of `@modelcontextprotocol/ext-apps` with the extension `x-air-app`
   (`host-page.ts`); the app link is the WebSocket `ws://127.0.0.1:<port>/repositories/<id>/mcp` of the test server, where
   `mcp-host` serves `brd mcp` on the fixture repository. The fake IDE plays `air-ide`: it numbers the instances

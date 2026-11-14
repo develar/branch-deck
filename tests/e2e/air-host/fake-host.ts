@@ -125,12 +125,26 @@ export class FakeIde {
     return this.page.evaluate(it => (window as unknown as { __airHost: { close(instance: string): Promise<void> } }).__airHost.close(it), instance)
   }
 
-  /** The IDE opens the view `view` with `params` (the place of the Settings window, `{data: {page: "tools"}}`): its instance */
-  openView(view: string, params: Record<string, unknown> = {}): Promise<string> {
-    return this.page.evaluate(
+  /**
+   * The IDE opens the view `view` with `params` (the place of the Settings window, `{data: {page: "tools"}}`), and its
+   * frame starts (`started`): its instance
+   */
+  async openView(view: string, params: Record<string, unknown> = {}): Promise<string> {
+    const instance = await this.page.evaluate(
       ([it, given]) => (window as unknown as { __airHost: { open(view: string, params: Record<string, unknown>): Promise<string> } }).__airHost.open(it, given),
       [view, params] as const,
     )
+    await this.started(instance)
+    return instance
+  }
+
+  /**
+   * The page of the frame of `instance` started: it drew its shell (`sub_window_drawn`, the stage the desktop app counts
+   * the content budget of a window from), however long the load of its files and its bootstrap took. What a test waits
+   * for before it reads the frame, as the setup of a desktop page waits for its header: only its view is left to come
+   */
+  started(instance: string): Promise<void> {
+    return this.page.evaluate(it => (window as unknown as { __airHost: { started(instance: string): Promise<void> } }).__airHost.started(it), instance)
   }
 
   /** The IDE hides the place of `instance` (another tab shows): `x-air-app/viewHidden`, its frame stays */
@@ -191,7 +205,10 @@ export async function openFakeIde(
     await host.ready
     await host.open("main")
   })
-  return new FakeIde(page)
+  const ide = new FakeIde(page)
+  // the frame of the main view started: its page drew its shell
+  await ide.started("main:1")
+  return ide
 }
 
 /**

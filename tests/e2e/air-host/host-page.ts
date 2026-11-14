@@ -76,6 +76,21 @@ const calls: HostCall[] = []
 const logs: unknown[] = []
 const refusals: Refusal[] = []
 const mirrorLog: MirrorEntry[] = []
+/**
+ * The instances whose page drew its shell (`sub_window_drawn` through `bd_invoke`, `markWindowShellDrawn`: its files
+ * loaded, its bootstrap answered, its first frame committed): the start of a frame is the test's to wait for, which no
+ * fixed time of an `expect` reaches under load
+ */
+const startedInstances = new Set<string>()
+const startWaiters = new Map<string, Array<() => void>>()
+
+function markStarted(instance: string): void {
+  startedInstances.add(instance)
+  for (const resolve of startWaiters.get(instance) ?? []) {
+    resolve()
+  }
+  startWaiters.delete(instance)
+}
 
 // === The app link: JSON-RPC 2.0 over the WebSocket of the test server ===
 
@@ -397,6 +412,9 @@ function bridgeOf(info: HostView): AppBridge {
         calls.push({ method: params.name, params: { ...params.arguments, instance: info.instance } })
         return { content: [] }
       }
+      if (params.name === "bd_invoke" && params.arguments?.command === "sub_window_drawn") {
+        markStarted(info.instance)
+      }
       const appId = app.peekId()
       appCalls.set(appId, { bridge, frameId: extra.mcpReq.id, progressToken: params._meta?.progressToken as string | number | undefined })
       extra.mcpReq.signal.addEventListener("abort", () => void app.notify("notifications/cancelled", { requestId: appId }))
@@ -620,6 +638,13 @@ const host = {
   },
   views: (): HostView[] => [...views.values()].map(open => ({ ...open.info, title: open.title })),
   open: (view: string, params: Record<string, unknown> = {}) => openView(view, null, params, null),
+  /** Resolves once the page of `instance` drew its shell (`sub_window_drawn`) */
+  started: (instance: string): Promise<void> =>
+    startedInstances.has(instance)
+      ? Promise.resolve()
+      : new Promise(resolve => {
+          startWaiters.set(instance, [...(startWaiters.get(instance) ?? []), resolve])
+        }),
   /** The IDE switches its theme: every frame gets `host-context-changed` */
   setTheme: (next: HostContextTheme) => {
     theme = next
