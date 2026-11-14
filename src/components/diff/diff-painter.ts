@@ -1966,7 +1966,9 @@ export class DiffPainter {
 
   /**
    * The focus is in the view again: the selection the engine cleared as the focus left (`keptSelection`) is put back,
-   * if its rows are still the painted ones. An engine that keeps the selection (Chromium) has nothing to put back
+   * if its rows are still the painted ones, each end at an offset its node still has: a repaint meanwhile may have taken
+   * the children or the text an end counted (WebKit threw "The index is not in the allowed range" at the focus). An
+   * engine that keeps the selection (Chromium) has nothing to put back
    */
   private restoreSelection(): void {
     const kept = this.keptSelection
@@ -1974,7 +1976,8 @@ export class DiffPainter {
     if (kept === null || selection === null || selection.rangeCount > 0) {
       return
     }
-    if (this.root?.contains(kept.anchor) === true && this.root.contains(kept.focus)) {
+    const holds = (node: Node, offset: number) => this.root?.contains(node) === true && offset <= (node instanceof CharacterData ? node.length : node.childNodes.length)
+    if (holds(kept.anchor, kept.anchorOffset) && holds(kept.focus, kept.focusOffset)) {
       selection.setBaseAndExtent(kept.anchor, kept.anchorOffset, kept.focus, kept.focusOffset)
     } else {
       this.keptSelection = null

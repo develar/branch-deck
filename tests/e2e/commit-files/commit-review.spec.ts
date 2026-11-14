@@ -709,6 +709,24 @@ simpleTest.describe("Commit review in Split", () => {
     expect(copied.text.split("\n")).toHaveLength(3)
   })
 
+  // WebKit clears the selection as the focus leaves the diffs, and the painter puts back the ends it kept as the focus
+  // returns; a repaint in between may have taken the nodes of their offsets (here by hand, as no step of a test times it)
+  simpleTest("should drop a selection of the diffs whose text changed while the focus was away, as it comes back @webkit", async ({ page }) => {
+    const window = await openTreeReview(page)
+    const code = window.getByTestId("commit-review-code")
+    const line = code.locator('[data-testid=diff-side][data-side="1"] [data-testid=diff-code][data-side]').nth(1)
+    await expect(line).toBeVisible()
+    await line.selectText()
+    expect((await window.evaluate(() => document.getSelection()?.toString() ?? "")).length).toBeGreaterThan(3)
+    await window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem").first().focus()
+    // the cell the selection was in is painted again without the text it had (here emptied)
+    await line.evaluate(cell => cell.replaceChildren())
+    // the focus is back: no selection past the end of the text (an uncaught error of the page would fail the test)
+    await code.locator("[aria-label='Changes of the commit']").focus()
+    await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
+    expect(await window.evaluate(() => (document.getSelection()?.focusOffset ?? 0) <= (document.getSelection()?.focusNode?.textContent?.length ?? 0))).toBe(true)
+  })
+
   simpleTest("should find a text on both sides of a change in Split", async ({ page }) => {
     const window = await openTreeReview(page)
     const { code, field, count } = await openFind(page, window)

@@ -1774,7 +1774,8 @@ wherever it lands). WebKit clears the selection of the page as the focus goes to
 menu, a list of declarations or usages; `FocusController::clearSelectionIfNeeded`), Chromium keeps it: the painter
 keeps the ends of the selection of the view (`keptSelection`, no selection at all being no gesture of the user) and
 puts them back as the focus returns (`restoreSelection`), so the name a popup opened on is selected again once the
-popup closes and the keys of the code read it. The caret of a field is no selection elsewhere while the name
+popup closes and the keys of the code read it; only at offsets their nodes still have, as a repaint meanwhile may
+have taken the children or the text an end counted (WebKit threw "The index is not in the allowed range" there). The caret of a field is no selection elsewhere while the name
 still waits for its paint: the search a reveal of a hidden file clears moves its caret, under load after the reveal;
 once the name is selected, a click into a field lets it go. A place the review shows before its diffs mount (no diff
 of the subject read yet: the overview alone on the canvas, the changes of a pull request still on their way) waits in
