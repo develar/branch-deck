@@ -775,26 +775,32 @@ that repeats and one of the page's own observers as an error.
 - **WHEN** the engine reports a ResizeObserver loop, whose notifications come in the next frame
 - **THEN** the log of the app has a warning of a loop of the observers of a library; three within five seconds are an error, a loop that repeats however slowly
 - **AND** a loop that left an element of an observer of the page pending is an error at once
-  [@test] src/lib/page-errors.test.ts (`logs a loop of the observers of a library as a warning, and three within five seconds as an error, however slowly they repeat`, `logs loops five seconds apart as warnings`, `logs a loop that left an element of the observers of the page pending as an error at once`)
+- **AND** each kind of line comes once in ten seconds at most, with the count of the loops it left out
+- **AND** the page takes the event of the engine as its own: no console reports the loop as an uncaught error
+  [@test] src/lib/page-errors.test.ts (`logs a loop of the observers of a library as a warning, and three within five seconds as an error, however slowly they repeat`, `logs loops five seconds apart as warnings, one in ten seconds at most with the count of those it left out`, `logs a loop that left an element of the observers of the page pending as an error at once, then once in ten seconds with the count`)
   [@test] src/lib/observe-size.test.ts (`names at a loop the elements of ours resized since their report, or observed with a size and never reported`)
   [@test] tests/e2e/resize-loops/resize-loops.spec.ts (`should attribute a loop to the observer of the app or of a library whose element it left pending`)
 
 #### Scenario: No observer of the page makes a loop
-- **WHEN** a change in the rendering update of a report of an observer of the page resizes an element it observes, no deeper than the elements of the latest report
+- **WHEN** a change in the rendering update of a report of an observer of the page resizes an element it observes, no deeper than the elements of the latest report: a change of its subtree, or of an ancestor's class, style, hidden or children (a view hidden around a table)
 - **THEN** the element leaves its observers at once and is observed anew at the next frame or the next task, whichever comes first
 - **AND** an element deeper than them stays observed, delivered at its depth in that frame, and one let go comes back at once when a report of shallower elements shows it deeper
 - **AND** an element a task after the update resized has its size in the frame that follows
+- **AND** a report of an observer of a library opens the delivery at its depth as one of ours does, so a change of its callback lets an element of ours go; the observer of the library is the engine's class, prototype and methods, with the same entries in the same frames
   [@test] src/lib/observe-size.test.ts (`lets an element a change of the delivery touches go at once, and observes it anew as the delivery ends`, `observes an element a task after the update let go anew in the next frame, when that frame comes before the next task`, `leaves an element deeper than the elements of the latest report observed: the update delivers it at its depth`, `observes an element its report let go anew as a report of shallower elements shows it deeper than they are`, `leaves an element it no longer observes alone`)
+  [@test] src/lib/observe-size.test.ts (`lets an element go that a change of an ancestor resizes in the delivery, and leaves one deeper than the report observed`)
+  [@test] src/lib/observe-size.test.ts (`lets an element of ours go that the callback of a library resizes in its delivery, in a frame without a report of ours`, `takes the depth of a report of a library deeper than ours as the depth of the delivery`, `gives a library the engine's observer: its class, prototype and methods, and its callback the same entries and observer`)
+  [@test] tests/e2e/resize-loops/resize-loops.spec.ts (`should give the observer of a library the engine's class and the same entries in the same frames @webkit`)
   [@test] tests/e2e/resize-loops/resize-loops.spec.ts (`should make no loop of the app in the review of a pull request as its overview, its commits and their cards come and go @webkit`)
   [@test] tests/e2e/resize-loops/resize-loops.spec.ts (`should make no loop of the app as the menu of a row and its submenu open and close @webkit`)
   [@test] tests/e2e/resize-loops/resize-loops.spec.ts (`should make no loop of the app as the toasts of two checks for updates stack and close @webkit`)
   [@test] tests/e2e/resize-loops/resize-loops.spec.ts (`should paint no frame of a review with its overview over its first file as it opens, on a slow CPU`)
 
 #### Scenario: A cycle of an observer of the page
-- **WHEN** an element is let go so in ten frames in a row, resized there by a change of its own
+- **WHEN** an element is let go so in ten of twenty frames (in every frame, in every other), resized there by a change of its own callback
 - **THEN** the log of the app has an error, once while the cycle goes on, however slowly the window renders its frames
-- **AND** an element resized between frames (a drag), or by a change after the update, is no cycle
-  [@test] src/lib/observe-size.test.ts (`logs a cycle once when its own callback resizes an element in its delivery in ten frames in a row`, `counts an element its observers let go in one delivery once, and a frame without it ends the count`, `logs no cycle of an element resized between frames, nor of one let go by a change after the update`)
+- **AND** an element let go three frames apart, one resized between frames (a drag), or one let go by a change after the update, is no cycle
+  [@test] src/lib/observe-size.test.ts (`logs a cycle once when its own callback resizes an element in its delivery in every frame`, `logs a cycle that resizes an element in the delivery of every other frame`, `logs no cycle of an element let go three frames apart, nor of one whose releases a pause of twenty frames parts`, `counts an element its observers let go in one delivery once`, `logs no cycle of an element resized between frames, nor of one let go by a change after the update`)
 
 ### Requirement: Main window: The main window shows on its first frame with content
 

@@ -137,8 +137,9 @@ rules in one line each and links here.
   test moves to another window's page (`openSubWindowPage`) tells it leaves, and only a request of it that fails then
   (WebKit's "Load failed" and "Fetch API cannot load … due to access control checks") counts no error.
   A ResizeObserver loop is found by `E2E_RO_TRACE=1` (`tests/e2e/setup/resize-observers.ts`: the deliveries, the end of
-  each callback, the texts that changed in observed elements, what was left pending), under load with
-  `E2E_CPU_THROTTLE=6` (Chromium) or many WebKit workers (`--repeat-each 30 --workers 8`).
+  each callback, the texts that changed in observed elements, what was left pending; an element our observers let go
+  shows there too, unobserved), under load with `E2E_CPU_THROTTLE=6` (Chromium; alone it runs the page's own weighing
+  of a loop) or many WebKit workers (`--repeat-each 30 --workers 8`).
 - **Remote answers come from the fakes**: Patronus, GitHub and YouTrack are fakes of each test repository behind the
   app's real services; a test sets their fixture (`setPatronus`, `setPullRequests`, `setYouTrack`, …) and asserts what
   the fake got (`getPatronusLog`, `getGitHubLog`, `getYouTrack`). The page before an answer holds it at the fake

@@ -14,11 +14,15 @@ export const LOOP_REPEATS = 3
 export const LOOP_REPEAT_MS = 5000
 
 /**
- * An element of ours resized in the delivery of its own observers, by a change in it, in this many frames in a row is a
- * cycle (its callback resizes it again): frames, not time, so a window that renders slowly (a loaded machine, a window in
- * the background) tells it as well
+ * An element of ours resized in the delivery of its own observers, by a change of its callback, in `CYCLE_RELEASES` of
+ * `CYCLE_FRAMES` frames is a cycle (its callback resizes it again, in every frame or in every other): frames, not time,
+ * so a window that renders slowly (a loaded machine, a window in the background) tells it as well
  */
-export const CYCLE_FRAMES = 10
+export const CYCLE_RELEASES = 10
+export const CYCLE_FRAMES = 20
+
+/** An error of the loops is logged once in this many ms at most, with the count of those since: a loop in every frame is no 60 lines a second */
+export const LOOP_LOG_MS = 10_000
 
 /** The elements of the observers of the page left resized since their report, at a loop the engine reports */
 let pendingOfOurs: () => readonly string[] = () => []

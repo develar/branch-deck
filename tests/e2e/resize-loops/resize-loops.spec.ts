@@ -238,3 +238,55 @@ test.describe("The frames of a review as it opens", () => {
     expect(overlaps).toEqual([])
   })
 })
+
+test.describe("The observers of the libraries", () => {
+  // the page watches the observers a library makes only for the depth of their reports (src/lib/observe-size.ts): the
+  // engine's class, prototype and methods, the same entries in the same frames as an observer made of the engine's own
+  test("should give the observer of a library the engine's class and the same entries in the same frames @webkit", async ({ page, setupRepo }) => {
+    await page.addInitScript(() => {
+      ;(window as unknown as { engineResizeObserver: typeof ResizeObserver }).engineResizeObserver = ResizeObserver
+    })
+    await setupRepo("behind_upstream")
+    const seen = await page.evaluate(async () => {
+      const Engine = (window as unknown as { engineResizeObserver: typeof ResizeObserver }).engineResizeObserver
+      const frame = () => new Promise<number>(resolve => requestAnimationFrame(resolve))
+      let frames = 0
+      const record = (into: string[]) => (entries: ResizeObserverEntry[]) => {
+        into.push(`frame ${frames}: ${entries.map(entry => `${entry.contentRect.width}x${entry.contentRect.height}, border ${entry.borderBoxSize[0]?.inlineSize}`).join("; ")}`)
+      }
+      const box = document.createElement("div")
+      box.style.cssText = "position:absolute;left:0;top:0;width:10px;height:10px;padding:1px"
+      document.body.append(box)
+      const ofEngine: string[] = []
+      const ofLibrary: string[] = []
+      const engine = new Engine(record(ofEngine))
+      const library = new ResizeObserver(record(ofLibrary))
+      engine.observe(box)
+      library.observe(box)
+      for (const width of [20, 30, 40, 50, 60]) {
+        await frame()
+        frames++
+        box.style.width = `${width}px`
+      }
+      for (let count = 0; count < 3; count++) {
+        await frame()
+        frames++
+      }
+      engine.disconnect()
+      library.disconnect()
+      box.remove()
+      return {
+        ofEngine,
+        ofLibrary,
+        global: ResizeObserver !== Engine,
+        prototype: ResizeObserver.prototype === Engine.prototype && Object.getPrototypeOf(library) === Engine.prototype,
+        instance: library instanceof Engine && engine instanceof ResizeObserver,
+        methods: (["observe", "unobserve", "disconnect"] as const).every(name => ResizeObserver.prototype[name] === Engine.prototype[name]),
+      }
+    })
+    expect(seen).toMatchObject({ global: true, prototype: true, instance: true, methods: true })
+    expect(seen.ofLibrary).toEqual(seen.ofEngine)
+    // the first report and at least one of a resize (a loaded machine renders two resizes in one frame)
+    expect(seen.ofEngine.length).toBeGreaterThan(1)
+  })
+})

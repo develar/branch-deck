@@ -10,10 +10,26 @@ interface FakeNode {
   readonly isConnected: boolean
   readonly tagName: string
   getAttribute(name: string): string | null
+  contains(other: FakeNode): boolean
 }
 
 function node(parent: FakeNode | null, testId: string | null = null, nodeType = 1): FakeNode {
-  return { parentNode: parent, nodeType, isConnected: true, tagName: "DIV", getAttribute: name => (name === "data-testid" ? testId : null) }
+  const it: FakeNode = {
+    parentNode: parent,
+    nodeType,
+    isConnected: true,
+    tagName: "DIV",
+    getAttribute: name => (name === "data-testid" ? testId : null),
+    contains: other => {
+      for (let current: FakeNode | null = other; current !== null; current = current.parentNode) {
+        if (current === it) {
+          return true
+        }
+      }
+      return false
+    },
+  }
+  return it
 }
 
 /** An element under `parent`, laid out at `width` × `height`, and a text inside it */
@@ -216,26 +232,37 @@ describe("observeSize", () => {
     expect(ofBlock!.observed.has(block.element)).toBe(true)
   })
 
-  it("logs a cycle once when its own callback resizes an element in its delivery in ten frames in a row", async () => {
-    // frames, not time: a window that renders a frame a second tells the cycle in ten seconds
+  /** A cell its observer widens by a pixel at each report, in its delivery (a cycle), and `others` observers of it more */
+  const widening = async (others = 0) => {
     const logError = vi.fn()
     vi.doMock("@/lib/errors", () => ({ logError }))
     const { observeSize } = await import("@/lib/observe-size")
     const cell = element(body, "cell")
     let width = 100
-    // a registry that widens the cell it measures by a pixel, again at every report
     observeSize(() => {
       width++
       resize(cell.element, width, 20)
       commit(cell.text)
     }).observe(cell.element)
-    const resizeObserver = FakeResizeObserver.all[0]!
-    // the delivery of a frame, ended by the next frame
-    const frame = async () => {
-      resizeObserver.report(cell.element)
-      await microtasks()
+    for (let count = 0; count < others; count++) {
+      observeSize(() => {}).observe(cell.element)
+    }
+    const all = FakeResizeObserver.all
+    // a frame: its delivery, with a report of the cell or none, ended by the next frame
+    const frame = async (reported = true) => {
+      if (reported) {
+        all[0]!.report(cell.element)
+        expect(all.map(resizeObserver => resizeObserver.observed.has(cell.element))).toEqual(all.map(() => false))
+        await microtasks()
+      }
       nextFrame()
     }
+    return { logError, frame }
+  }
+
+  it("logs a cycle once when its own callback resizes an element in its delivery in every frame", async () => {
+    // frames, not time: a window that renders a frame a second tells the cycle in ten seconds
+    const { logError, frame } = await widening()
     for (let count = 0; count < 9; count++) {
       await frame()
     }
@@ -243,7 +270,7 @@ describe("observeSize", () => {
     await frame()
     expect(logError).toHaveBeenCalledTimes(1)
     expect(logError.mock.calls[0]![0]).toBe("A size observer of the page cycles")
-    expect(String(logError.mock.calls[0]![1])).toBe("Error: cell resized in its own delivery in 10 frames in a row")
+    expect(String(logError.mock.calls[0]![1])).toBe("Error: cell resized in its own delivery in 10 of 20 frames")
     // the cycle goes on: logged once
     for (let count = 0; count < 12; count++) {
       await frame()
@@ -251,32 +278,43 @@ describe("observeSize", () => {
     expect(logError).toHaveBeenCalledTimes(1)
   })
 
-  it("counts an element its observers let go in one delivery once, and a frame without it ends the count", async () => {
-    // a diff view has three observers: a change of it in a delivery lets it go from each, which is one frame
-    const logError = vi.fn()
-    vi.doMock("@/lib/errors", () => ({ logError }))
-    const { observeSize } = await import("@/lib/observe-size")
-    const view = element(body, "diff-view")
-    let height = 20
-    observeSize(() => {
-      height++
-      resize(view.element, 100, height)
-      commit(view.text)
-    }).observe(view.element)
-    observeSize(() => {}).observe(view.element)
-    observeSize(() => {}).observe(view.element)
-    const all = FakeResizeObserver.all
-    const frame = async () => {
-      all[0]!.report(view.element)
-      expect(all.map(resizeObserver => resizeObserver.observed.has(view.element))).toEqual([false, false, false])
-      await microtasks()
-      nextFrame()
+  it("logs a cycle that resizes an element in the delivery of every other frame", async () => {
+    // a callback that resizes its element only in the frame after a report of it: let go in every other frame
+    const { logError, frame } = await widening()
+    for (let count = 0; count < 9; count++) {
+      await frame()
+      await frame(false)
+    }
+    expect(logError).not.toHaveBeenCalled()
+    await frame()
+    expect(logError).toHaveBeenCalledTimes(1)
+  })
+
+  it("logs no cycle of an element let go three frames apart, nor of one whose releases a pause of twenty frames parts", async () => {
+    const { logError, frame } = await widening()
+    for (let count = 0; count < 15; count++) {
+      await frame()
+      await frame(false)
+      await frame(false)
+    }
+    for (let count = 0; count < 20; count++) {
+      await frame(false)
     }
     for (let count = 0; count < 9; count++) {
       await frame()
     }
-    // a frame that renders nothing of it
-    nextFrame()
+    for (let count = 0; count < 20; count++) {
+      await frame(false)
+    }
+    for (let count = 0; count < 9; count++) {
+      await frame()
+    }
+    expect(logError).not.toHaveBeenCalled()
+  })
+
+  it("counts an element its observers let go in one delivery once", async () => {
+    // a diff view has three observers: a change of it in a delivery lets it go from each, which is one frame
+    const { logError, frame } = await widening(2)
     for (let count = 0; count < 9; count++) {
       await frame()
     }
@@ -324,6 +362,86 @@ describe("observeSize", () => {
     FakeResizeObserver.all[0]!.report(resized.element, same.element)
     resize(resized.element, 120, 20)
     expect(loopOfOurs()).toEqual(["resized", "fresh"])
+  })
+
+  it("lets an element go that a change of an ancestor resizes in the delivery, and leaves one deeper than the report observed", async () => {
+    // a view hidden around a table in the delivery of a report of its cells resizes them to nothing: a change of the
+    // view, outside the subtree of each cell
+    const { observeSize } = await import("@/lib/observe-size")
+    const view = node(body, "view")
+    const cell = element(node(view), "cell")
+    const deeper = element(node(node(node(view))), "deeper")
+    const observer = observeSize(() => {})
+    observer.observe(cell.element)
+    observer.observe(deeper.element)
+    const resizeObserver = FakeResizeObserver.all[0]!
+    resizeObserver.report(cell.element)
+    commit(view as unknown as Node)
+    await microtasks()
+    expect(resizeObserver.observed.has(cell.element)).toBe(false)
+    // the update takes it in at its depth, in that frame
+    expect(resizeObserver.observed.has(deeper.element)).toBe(true)
+    nextFrame()
+    expect(resizeObserver.observed.has(cell.element)).toBe(true)
+  })
+
+  it("lets an element of ours go that the callback of a library resizes in its delivery, in a frame without a report of ours", async () => {
+    // the observer of a panel of a library renders a change of the view in its callback: the update delivered the panel,
+    // and the view, no deeper, would be an observation it skips
+    const { observeSize } = await import("@/lib/observe-size")
+    const panel = element(body, "panel")
+    const view = element(body, "view")
+    observeSize(() => {}).observe(view.element)
+    const library = new ResizeObserver(() => commit(view.text))
+    library.observe(panel.element)
+    const [ours, theirs] = FakeResizeObserver.all
+    theirs!.report(panel.element)
+    await microtasks()
+    expect(ours!.observed.has(view.element)).toBe(false)
+    nextFrame()
+    expect(ours!.observed.has(view.element)).toBe(true)
+  })
+
+  it("takes the depth of a report of a library deeper than ours as the depth of the delivery", async () => {
+    // ours reported the scroller; the library reports a list deeper inside it and its callback resizes a block between
+    // them: the next iteration takes only what is deeper than the list, so the block leaves our observer
+    const { observeSize } = await import("@/lib/observe-size")
+    const { scroller, block } = scrollerWithBlock()
+    const list = element(node(node(block.element as unknown as FakeNode)), "list")
+    observeSize(() => {}).observe(scroller.element)
+    observeSize(() => {}).observe(block.element)
+    const library = new ResizeObserver(() => commit(block.text))
+    library.observe(list.element)
+    const [ofScroller, ofBlock, theirs] = FakeResizeObserver.all
+    ofScroller!.report(scroller.element)
+    await microtasks()
+    theirs!.report(list.element)
+    await microtasks()
+    expect(ofBlock!.observed.has(block.element)).toBe(false)
+  })
+
+  it("gives a library the engine's observer: its class, prototype and methods, and its callback the same entries and observer", async () => {
+    await import("@/lib/observe-size")
+    expect(globalThis.ResizeObserver).not.toBe(FakeResizeObserver)
+    expect(globalThis.ResizeObserver.prototype).toBe(FakeResizeObserver.prototype)
+    const reports: [ResizeObserverEntry[], ResizeObserver][] = []
+    const library = new ResizeObserver((entries, observer) => reports.push([entries, observer]))
+    expect(library).toBeInstanceOf(FakeResizeObserver)
+    expect(library).toBeInstanceOf(ResizeObserver)
+    expect(Object.getPrototypeOf(library)).toBe(FakeResizeObserver.prototype)
+    // a subclass of the global is a subclass still
+    class Measuring extends ResizeObserver {
+      measured = true
+    }
+    expect(new Measuring(() => {})).toMatchObject({ measured: true })
+    expect(new Measuring(() => {})).toBeInstanceOf(Measuring)
+    const panel = element(body, "panel")
+    library.observe(panel.element)
+    FakeResizeObserver.all[0]!.report(panel.element)
+    expect(reports).toHaveLength(1)
+    expect(reports[0]![0].map(entry => entry.target)).toEqual([panel.element])
+    expect(reports[0]![1]).toBe(library)
+    expect(() => (ResizeObserver as unknown as (callback: ResizeObserverCallback) => void)(() => {})).toThrow(TypeError)
   })
 
   it("leaves an element it no longer observes alone", async () => {

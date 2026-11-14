@@ -7,23 +7,31 @@
  * or above is one it skips, a ResizeObserver loop.
  *
  * - The delivery of an update, from a report of ours to the next task or the next frame, whichever comes first: an
- *   element a change of its subtree touches leaves its observers at once when it is no deeper than the elements of the
- *   latest report (no observation of it is left to skip), and is observed anew as the delivery ends, its size in the next
+ *   element a change touches (of its subtree, or of an ancestor's class, style, hidden or children: a view hidden around
+ *   a table) leaves its observers at once when it is no deeper than the elements of the latest report (no observation
+ *   of it is left to skip), and is observed anew as the delivery ends, its size in the next
  *   report: a frame later for a change of the delivery, as the loop would have it; in its own frame for a change after
  *   the update (a task that ran before the end, as React renders, is followed by the frame that observes it first). A
  *   deeper element stays: the update delivers it at its depth, in the frame of its change. One let go comes back as soon
  *   as a report of shallower elements shows it deeper than they are.
- * - A cycle: an element let go in the delivery of `CYCLE_FRAMES` frames in a row, resized there by a change of its own
- *   (its callback resizes it again), which no loop tells any more, is logged as an error. A drag that resizes it between
- *   frames is no cycle: its size in the delivery is the one it was reported with.
+ * - The observers of the libraries (Base UI, the panels) report through the engine's `ResizeObserver` with one step
+ *   before their callback (`watchTheLibraries`): their report opens the delivery at its depth as one of ours does, so a
+ *   change of their callback that resizes an element of ours lets it go. Passive: theirs is the engine's class, prototype
+ *   and methods, with the same entries in the same frame; no element of theirs is let go or observed anew.
+ * - A cycle: an element let go in the delivery of `CYCLE_RELEASES` of `CYCLE_FRAMES` frames (every frame, every other),
+ *   resized there by a change of its own callback, which no loop tells any more, is logged as an error. A drag that
+ *   resizes it between frames is no cycle: its size in the delivery is the one it was reported with. A cycle that resizes
+ *   its element after the delivery (in a frame callback, a timer) is no loop and is not told: it resizes the element once
+ *   a frame, as an animation, a transition, a drag or a resize of the window does for as long as they last, and no size,
+ *   frame or time tells it from them.
  * - A loop the engine reports anyway: the elements of ours left resized since their report (`pendingOfOurs`), which
  *   src/lib/page-errors.ts logs as an error (src/lib/resize-loops.ts).
  *
- * The observers of the libraries (Base UI, the panels) are theirs, timed as the specification says; a loop of theirs is
- * a warning of the page, repeated an error
+ * A loop of the observers of a library is theirs, timed as the specification says: a warning of the page, repeated an
+ * error
  */
 import { logError } from "@/lib/errors"
-import { attributeLoopsWith, CYCLE_FRAMES } from "@/lib/resize-loops"
+import { attributeLoopsWith, CYCLE_FRAMES, CYCLE_RELEASES } from "@/lib/resize-loops"
 
 /** The mark of an observer made here, which the test wrapper of the observers reads (tests/e2e/setup/resize-observers.ts) */
 export const SIZE_OBSERVER_MARK = Symbol.for("branch-deck.observeSize")
@@ -77,12 +85,20 @@ const released = new Map<Element, Release>()
 /** The frames of the page, counted by `requestAnimationFrame` while a delivery or a cycle is open */
 let frame = 0
 let frameRequested = false
-/** The elements let go in the delivery of the frames up to `frame`, and how many in a row */
-const cycles = new Map<Element, { frame: number; frames: number; logged: boolean }>()
+/** The frames within the last `CYCLE_FRAMES` whose delivery let each element go, and whether its cycle was logged */
+const cycles = new Map<Element, { frames: number[]; logged: boolean }>()
 
 const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(records => settle(records))
+/** What the changes of an observed element and of its subtree are watched for: what can resize it */
+const SUBTREE: MutationObserverInit = { subtree: true, childList: true, characterData: true, attributeFilter: ["class", "style", "hidden"] }
+/** What the changes of an ancestor of an observed element are watched for: its class, style or hidden, its children */
+const ANCESTOR: MutationObserverInit = { childList: true, attributeFilter: ["class", "style", "hidden"] }
+/** The observed elements, watched with their subtree */
+const watchedSubtrees = new WeakSet<Node>()
+/** The ancestors of the observed elements, each watched itself: a view hidden around a table resizes its cells to nothing */
+const watchedAncestors = new WeakSet<Node>()
 
-/** The parent of `node` in the flat tree: the host of a shadow root */
+/** The parent of `node`, or the host of a shadow root: the slot a node is assigned to is not followed, the page has none */
 function parentOf(node: Node): Node | null {
   return node.parentNode ?? (node.nodeType === 11 ? ((node as ShadowRoot).host ?? null) : null)
 }
@@ -150,10 +166,17 @@ function nameOf(element: Element): string {
 
 /** A report of ours with `entries`: the delivery is open, at the depth of its shallowest element */
 function delivered(observer: SizeObserver, entries: readonly ResizeObserverEntry[]): void {
-  let depth = Number.POSITIVE_INFINITY
   for (const entry of entries) {
     const box = entry.borderBoxSize?.[0]
     observer.reported(entry.target, box === undefined ? null : { inline: box.inlineSize, block: box.blockSize })
+  }
+  openDelivery(entries)
+}
+
+/** A report of `entries`, of ours or of a library: the delivery is open at the depth of its shallowest element */
+function openDelivery(entries: readonly ResizeObserverEntry[]): void {
+  let depth = Number.POSITIVE_INFINITY
+  for (const entry of entries) {
     depth = Math.min(depth, depthOf(entry.target))
   }
   if (delivery === null) {
@@ -183,16 +206,26 @@ function afterCallback(): void {
   )
 }
 
-/** The changes `records` tell: in a delivery, an observed element they touch no deeper than its report leaves its observers */
+/**
+ * The changes `records` tell: in a delivery, an observed element they touch no deeper than its report leaves its
+ * observers. Touched: a change in it (its subtree), or of an ancestor of it (its class, style or hidden, its children)
+ */
 function settle(records: readonly MutationRecord[]): void {
   if (delivery === null || records.length === 0) {
     return
   }
   const memo = new Map<Node, Above>()
   const touched = new Map<Element, number>()
-  for (const record of records) {
-    for (const [element, depth] of observedAbove(record.target, memo).observed) {
+  for (const target of new Set(records.map(record => record.target))) {
+    for (const [element, depth] of observedAbove(target, memo).observed) {
       touched.set(element, depth)
+    }
+    if (watchedAncestors.has(target)) {
+      for (const element of observing.keys()) {
+        if (element !== target && !touched.has(element) && target.contains(element)) {
+          touched.set(element, depthOf(element))
+        }
+      }
     }
   }
   for (const [element, depth] of touched) {
@@ -213,10 +246,8 @@ function release(element: Element, depth: number): void {
   if (by.size === 0) {
     return
   }
-  const chain = cycles.get(element)
-  const frames = chain !== undefined && chain.frame === frame - 1 ? chain.frames : 0
   // the frame that makes a cycle is measured (a layout now): resized by a change of its own, not by a drag between frames
-  const resized = delivering && frames + 1 >= CYCLE_FRAMES && resizedSinceReport(element, by)
+  const resized = delivering && recentFrames(element, frame).length + 1 >= CYCLE_RELEASES && resizedSinceReport(element, by)
   released.set(element, { depth, by, frame, inDelivery: delivering, resized })
 }
 
@@ -258,25 +289,33 @@ function observeAgain(element: Element, release: Release): void {
   }
 }
 
-/** `element` was let go in the delivery of `release.frame`: a cycle once so in `CYCLE_FRAMES` frames in a row, resized there */
+/** The frames before `now`, within `CYCLE_FRAMES` of it, whose delivery let `element` go */
+function recentFrames(element: Element, now: number): number[] {
+  return (cycles.get(element)?.frames ?? []).filter(at => at > now - CYCLE_FRAMES && at < now)
+}
+
+/**
+ * `element` was let go in the delivery of `release.frame`: a cycle once so in `CYCLE_RELEASES` of the last `CYCLE_FRAMES`
+ * frames, resized there by a change of its own; logged once while it goes on
+ */
 function countCycle(element: Element, release: Release): void {
-  const chain = cycles.get(element)
-  const frames = chain !== undefined && chain.frame === release.frame - 1 ? chain.frames + 1 : 1
-  if (frames < CYCLE_FRAMES) {
-    cycles.set(element, { frame: release.frame, frames, logged: false })
+  const logged = cycles.get(element)?.logged === true
+  const frames = [...recentFrames(element, release.frame), release.frame]
+  if (frames.length < CYCLE_RELEASES) {
+    cycles.set(element, { frames, logged })
   } else if (release.resized) {
-    if (chain?.logged !== true) {
-      logError("A size observer of the page cycles", new Error(`${nameOf(element)} resized in its own delivery in ${CYCLE_FRAMES} frames in a row`))
+    if (!logged) {
+      logError("A size observer of the page cycles", new Error(`${nameOf(element)} resized in its own delivery in ${frames.length} of ${CYCLE_FRAMES} frames`))
     }
-    cycles.set(element, { frame: release.frame, frames, logged: true })
+    cycles.set(element, { frames, logged: true })
   } else {
     // its size there was the one it was reported with: a change between frames (a drag, a resize of the window)
-    cycles.set(element, { frame: release.frame, frames: 0, logged: false })
+    cycles.set(element, { frames: [], logged: false })
   }
   requestFrame()
 }
 
-/** The next frame is counted and ends the delivery; a cycle that missed a frame is dropped, and frames count while one is open */
+/** The next frame is counted and ends the delivery; an element let go in none of the last frames is dropped, and frames count while one is kept */
 function requestFrame(): void {
   if (frameRequested || typeof requestAnimationFrame === "undefined") {
     return
@@ -287,7 +326,7 @@ function requestFrame(): void {
     frame++
     endDelivery()
     for (const [element, chain] of cycles) {
-      if (chain.frame < frame - 1) {
+      if (chain.frames.every(at => at <= frame - CYCLE_FRAMES)) {
         cycles.delete(element)
       }
     }
@@ -307,6 +346,24 @@ function nextTask(run: () => void): void {
   channel.port2.postMessage(null)
 }
 
+/** The changes of `element` and of its subtree are watched, and those of each ancestor of it itself */
+function watch(element: Element): void {
+  if (mutations === null) {
+    return
+  }
+  if (!watchedSubtrees.has(element)) {
+    // an ancestor watched itself so far takes its subtree too, the options of one observer for one node replaced
+    mutations.observe(element, SUBTREE)
+    watchedSubtrees.add(element)
+  }
+  for (let ancestor = parentOf(element); ancestor !== null && !watchedAncestors.has(ancestor); ancestor = parentOf(ancestor)) {
+    watchedAncestors.add(ancestor)
+    if (!watchedSubtrees.has(ancestor)) {
+      mutations.observe(ancestor, ANCESTOR)
+    }
+  }
+}
+
 /** At a loop the engine reports: the elements of ours it left resized since their report, or observed and never reported */
 function pendingOfOurs(): string[] {
   const names = new Set<string>()
@@ -319,6 +376,39 @@ function pendingOfOurs(): string[] {
 }
 
 attributeLoopsWith(pendingOfOurs)
+
+/**
+ * The global `ResizeObserver`, as the libraries make theirs, is the engine's with one step before each callback: a report
+ * of an observer not made here opens the delivery at its depth. Passive: `new ResizeObserver` makes an instance of the
+ * engine's class (a subclass of it, `new.target`, its own), `ResizeObserver.prototype` and its methods are the engine's,
+ * `instanceof` holds for every instance, and the callback gets the same entries and observer in the same frame
+ */
+function watchTheLibraries(): void {
+  if (typeof ResizeObserver === "undefined" || Reflect.get(ResizeObserver, WATCHED) === true) {
+    return
+  }
+  const Engine = ResizeObserver
+  const Watched = function ResizeObserver(this: unknown, callback: ResizeObserverCallback) {
+    if (new.target === undefined) {
+      throw new TypeError("Failed to construct 'ResizeObserver': Please use the 'new' operator")
+    }
+    const watched: ResizeObserverCallback = (entries, observer) => {
+      if (Reflect.get(observer, SIZE_OBSERVER_MARK) !== true) {
+        openDelivery(entries)
+      }
+      callback(entries, observer)
+    }
+    return Reflect.construct(Engine, [watched], new.target) as ResizeObserver
+  } as unknown as typeof ResizeObserver
+  Object.defineProperty(Watched, "prototype", { value: Engine.prototype })
+  Reflect.set(Watched, WATCHED, true)
+  globalThis.ResizeObserver = Watched
+}
+
+/** The mark of the watched global, so a second copy of this module watches nothing twice */
+const WATCHED = Symbol.for("branch-deck.observeSize.watched")
+
+watchTheLibraries()
 
 /** An observer of the sizes of elements, as a `ResizeObserver` (`observeSize`) */
 export class SizeObserver {
@@ -359,7 +449,7 @@ export class SizeObserver {
       observing.set(element, by)
     }
     by.add(this)
-    mutations?.observe(element, { subtree: true, childList: true, characterData: true, attributeFilter: ["class", "style", "hidden"] })
+    watch(element)
   }
 
   unobserve(element: Element): void {

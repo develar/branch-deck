@@ -177,18 +177,26 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   same patch sets it in the next frame (an issue for upstream is drafted). Every observer of ours is made by
   `observeSize` (src/lib/observe-size.ts, `pnpm lint:arch` `resize-observer`). The update delivers by depth: after a
   report only what is deeper than the elements it reported, so from a report of ours to the next task or the next frame,
-  whichever comes first, an element a change of its subtree touches leaves its observers when it is no deeper than the
+  whichever comes first, an element a change touches (of its subtree, or of an ancestor's class, style, hidden or
+  children: a view hidden around a table) leaves its observers when it is no deeper than the
   elements of the latest report, and is observed anew as that delivery ends (its size a frame later, as the loop would
   give it; a change of a task after the update, a render of React, in the frame that follows). A deeper one stays, the
   update delivers it in that frame; one let go comes back at once when a report of shallower elements shows it deeper.
-  An element let go so in 10 frames in a row (`CYCLE_FRAMES`), resized there by a change of its own, is a cycle, logged
-  as an error: frames, not time, so a window that renders slowly tells it too, and a drag that resizes it between frames
-  is none (a commit lets an element go once, however many of our observers observe it: a diff view has three). The page
-  logs a loop of a library's observers as a warning (one may come under load) and 3 within 5 s as an error
-  (`LOOP_REPEATS`, `LOOP_REPEAT_MS`); a loop that left an element of ours pending is an error at once, so every E2E test
-  fails on one (`src/lib/page-errors.ts`; the thresholds are those of `src/lib/resize-loops.ts`). The WebKit check
-  `tests/e2e/resize-loops/` names the elements of a library's loop in its report. `react-resizable-panels` 4.18 makes
-  no flushSync in its observers.
+  The observers of the libraries go through the engine's own class with one step before their callback, which opens
+  the delivery at the depth of their report as one of ours does (`watchTheLibraries`): the same class, prototype,
+  methods and `instanceof`, the same entries in the same frame, none of their elements let go. An element let go so in
+  10 of 20 frames (`CYCLE_RELEASES`, `CYCLE_FRAMES`: every frame, every other), resized there by a change of its own
+  callback, is a cycle, logged as an error: frames, not time, so a window that renders slowly tells it too, and a drag
+  that resizes it between frames is none (a commit lets an element go once, however many of our observers observe it: a
+  diff view has three). A cycle that resizes its element after the delivery (in a frame callback, a timer) is not
+  caught: it resizes the element once a frame, as an animation, a transition, a drag or a live resize of the window do
+  for as long as they last, and no size, frame or time tells it from them. The page logs a loop of a library's
+  observers as a warning (one may come under load) and 3 within 5 s as an error (`LOOP_REPEATS`, `LOOP_REPEAT_MS`); a
+  loop that left an element of ours pending is an error at once, so every E2E test fails on one; the page cancels the
+  engine's event of a loop, so no console reports it as uncaught; each kind of line
+  comes once in 10 s at most, with the count it left out (`LOOP_LOG_MS`; `src/lib/page-errors.ts`, the thresholds of
+  `src/lib/resize-loops.ts`). The WebKit check `tests/e2e/resize-loops/` names the elements of a library's loop in its
+  report. `react-resizable-panels` 4.18 makes no flushSync in its observers.
 - **A disabled root does not hear the pointer that came**: Base UI listens on the trigger of a disabled tooltip only once
   it is enabled, so a tooltip that got its words with the pointer resting on it (the description of Approve) opened
   only at the next move. The tooltip replays the hover of its trigger as it is enabled (`hoverAgain`), for a pointer

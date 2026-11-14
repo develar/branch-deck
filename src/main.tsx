@@ -1,5 +1,7 @@
 // first: an error of a module after it, of a handler or of a promise nobody awaits reaches the log of the app
 import "@/lib/page-errors"
+// before a library makes an observer: their reports open the delivery of ours (src/lib/observe-size.ts)
+import "@/lib/observe-size"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import "./index.css"
