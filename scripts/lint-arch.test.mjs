@@ -573,15 +573,24 @@ test("a ResizeObserver of the page is made only by observeSize", () => {
   assert.deepEqual(findProblems("src/components/Example.tsx", "const resize = observeSize(measure) // new ResizeObserver in a comment"), [])
 })
 
-test("the listener of the page's errors tells a ResizeObserver loop by the words of the engine's event, no other module", () => {
+test("the listener of the page's errors tells a ResizeObserver loop by the words of the engine's event, that comparison alone", () => {
   const line = "if (event.error === null && event.message === RESIZE_LOOP) {"
   assert.deepEqual(findProblems(ENGINE_EVENT_MODULE, line), [])
   assert.deepEqual(
     findProblems("src/lib/example.ts", line).map(problem => problem.rule),
     ["message-control"],
   )
-  assert.deepEqual(
-    findProblems(ENGINE_EVENT_MODULE, 'if (error.message === "Locked") {').map(problem => problem.rule),
-    ["message-control"],
-  )
+  // any other test of the words of the event, or of an error, in the same module or on the same line
+  for (const other of [
+    'if (error.message === "Locked") {',
+    'if (event.message.includes("ResizeObserver")) {',
+    "if (event.message === OTHER_WORDS) {",
+    "if (event.message === RESIZE_LOOP || error.message === RESIZE_LOOP) {",
+  ]) {
+    assert.deepEqual(
+      findProblems(ENGINE_EVENT_MODULE, other).map(problem => problem.rule),
+      ["message-control"],
+      other,
+    )
+  }
 })

@@ -4,8 +4,9 @@
 //   searched (`includes`, `startsWith`, `endsWith`, `match`, `indexOf`, a regex `test`) or switched on. The words are
 //   `.message` (also `["message"]`), `getErrorDetails(…)`, `describeError(…)`, `String(error)`, and a name bound to
 //   one of them (`const { message } = result.error`, `const text = getErrorDetails(error)`);
-//   An `ErrorEvent` of the engine is no error of the app: `event.message` of the listener of src/lib/page-errors.ts,
-//   which tells a ResizeObserver loop by the only words the engine gives it, passes (`ENGINE_EVENT_MODULE`);
+//   An `ErrorEvent` of the engine is no error of the app: `event.message === RESIZE_LOOP` of the listener of
+//   src/lib/page-errors.ts, which tells a ResizeObserver loop by the only words the engine gives it, passes
+//   (`ENGINE_EVENT_MODULE`), that comparison alone;
 // - `error-kind`: `CommandErrorKind` or the `kind` of an error (`error.kind`, `result.error.kind`), the type the
 //   error had before `ApiError`; the `kind` of a tagged union (a robot's failure, a diff row) is no error;
 // - `route-error-code`: a `routeCommandError` of an e2e test without the code its error answers.
@@ -453,8 +454,8 @@ const RING_COLOUR = /^(?:ring|inset-ring|outline|border(?:-[trblxyse])?|bg|text|
 
 /** The module whose listener reads the words of an `ErrorEvent` of the engine (`message-control`) */
 export const ENGINE_EVENT_MODULE = "src/lib/page-errors.ts"
-/** The words of an engine's `ErrorEvent` in its listener */
-const ENGINE_EVENT_WORDS = /\bevent\.message\b/
+/** The one comparison of the words of an engine's `ErrorEvent` in its listener: with the words of a loop */
+const ENGINE_EVENT_COMPARISON = /\bevent\.message === RESIZE_LOOP\b/g
 
 /** The one module that makes a `ResizeObserver` of the page */
 export const SIZE_OBSERVER_MODULE = "src/lib/observe-size.ts"
@@ -595,7 +596,7 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
   }
   lines.forEach((line, index) => {
     const at = { file, line: index + 1, text: source.split("\n")[index].trim() }
-    if (controlled.test(line) && !(file === ENGINE_EVENT_MODULE && ENGINE_EVENT_WORDS.test(line))) {
+    if (controlled.test(file === ENGINE_EVENT_MODULE ? line.replace(ENGINE_EVENT_COMPARISON, "") : line)) {
       problems.push({ ...at, rule: "message-control" })
     }
     if (ERROR_KIND.test(line)) {
