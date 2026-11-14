@@ -232,12 +232,10 @@ export const test = base.extend({
     const leaving: string[] = []
     const uncaught: Error[] = []
     const consoleErrors: string[] = []
-    // the pages that leave for the page of another window (`openSubWindowPage` tells it), until their next document: a
-    // request of theirs that fails then is no error of the app
+    // the pages that left for the page of another window (`openSubWindowPage` tells it): a request of theirs that fails
+    // as it left is no error of the app, whenever WebKit tells it (it told some after the next document loaded); only
+    // its two messages of a network failure, nothing else of the page
     const leavingPages = new Set<Page>()
-    const followNavigations = (opened: Page) => opened.on("framenavigated", frame => frame === opened.mainFrame() && leavingPages.delete(opened))
-    followNavigations(page)
-    context.on("page", followNavigations)
     context.on("console", message => {
       if (message.type() === "info" && message.text() === "[e2e-leaving]") {
         const from = message.page()
