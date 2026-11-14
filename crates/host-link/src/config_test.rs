@@ -222,11 +222,90 @@ fn an_inner_path_stays_inside_its_base() {
   assert!(!is_inner_path("./out"));
 }
 
-/// The `[host]` of this repository parses, and it names the outputs and the prepare steps of its runs
+/// The `[host]` of this repository parses, and it names the outputs and the prepare steps of its runs, and its heavy
+/// runs: the whole Rust suite however it is written (a filter or a rerun without `-p` builds all of it), clippy of the
+/// workspace, every E2E and Playwright run, the measurements and the release build, and each script of package.json
+/// that runs one of them, also as `pnpm run`. Every script is named heavy or light here, so a new one is classified
+/// before it runs on a host
 #[test]
 fn the_host_table_of_this_repository_parses() {
   let host = parse_branchdeck(include_str!("../../../.branchdeck.toml"))
     .expect("the .branchdeck.toml of the repository")
     .expect("a [host] table");
   assert!(!host.outputs.is_empty() && !host.prepare.is_empty(), "{host:?}");
+  let heavy = |line: &str| host.heavy_entry(&line.split(' ').map(str::to_owned).collect::<Vec<_>>()).is_some();
+  for line in [
+    "cargo nextest run",
+    "cargo nextest run --no-fail-fast",
+    "cargo nextest run --workspace",
+    "cargo nextest run --no-fail-fast --workspace -R latest",
+    "cargo nextest run -E test(/heavy/)",
+    "cargo nextest run --no-fail-fast -E test(/heavy/)",
+    "cargo nextest run -R latest",
+    "cargo clippy --workspace --all-targets --features branch-deck/auto-update -- -D warnings",
+    "pnpm exec playwright test tests/e2e/branch-row.spec.ts",
+    "env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts",
+    "pnpm tauri build --bundles app",
+    "pnpm run tauri build --bundles app",
+  ] {
+    assert!(heavy(line), "{line}");
+  }
+  for line in [
+    "cargo nextest run -p host-link",
+    "cargo nextest run --no-fail-fast -p host-link",
+    "cargo nextest run -p host-link -E test(/heavy/)",
+    "cargo clippy -p host-link",
+    "pnpm tauri dev",
+  ] {
+    assert!(!heavy(line), "{line}");
+  }
+  let package: serde_json::Value = serde_json::from_str(include_str!("../../../package.json")).expect("package.json");
+  let heavy_scripts = [
+    "test:backend",
+    "e2e",
+    "e2e-up",
+    "e2e:webkit",
+    "test",
+    "lint:backend",
+    "fix:backend",
+    "lint",
+    "perf:bd-rebuild",
+    "perf:monorepo",
+    "perf:test-processes",
+    "perf:diff",
+    "perf:eager-js",
+    "perf:table",
+    "screenshots:readme",
+    "install-app",
+  ];
+  let light_scripts = [
+    "dev",
+    "build",
+    "build:air",
+    "test:unit",
+    "test:perf",
+    "setup:e2e",
+    "tauri",
+    "test-server:dev",
+    "lint:js",
+    "lint:typecheck",
+    "lint:frontend",
+    "lint:cpd",
+    "lint:specs",
+    "lint:arch",
+    "lint:e2e-pins",
+    "update-deps",
+    "update-gh-deps",
+  ];
+  let scripts = package["scripts"].as_object().expect("the scripts of package.json");
+  for script in scripts.keys() {
+    let expected = match (heavy_scripts.contains(&script.as_str()), light_scripts.contains(&script.as_str())) {
+      (true, false) => true,
+      (false, true) => false,
+      _ => panic!("name the script {script} of package.json heavy or light here, and add its heavy patterns to .branchdeck.toml"),
+    };
+    for line in [format!("pnpm {script}"), format!("pnpm run {script}")] {
+      assert_eq!(heavy(&line), expected, "{line}");
+    }
+  }
 }

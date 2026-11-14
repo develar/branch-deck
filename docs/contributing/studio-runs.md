@@ -34,8 +34,11 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   the slot this checkout used last, else the one used longest ago; with all four lent, a run waits and says so once a
   minute. Nothing is kept or given back by hand. `brd-host slots studio` shows the lend table.
 - **What this repository asks of the host** is `[host]` of `.branchdeck.toml` in its root: the `outputs` that come back into the same paths here (`tests/results`,
-  `playwright-report`, the nextest junit), `E2E_PORT` per slot, and `pnpm install` when the lockfile or package.json
-  changed. A step and the command run in the login environment of the user there, with 65536 open files and `nice` 10
+  `playwright-report`, the nextest junit), the `heavy` runs (the whole Rust suite, `cargo clippy --workspace`, every
+  E2E and Playwright run, the measurements, the release build, and the scripts of package.json that run them),
+  `E2E_PORT` per slot, and `pnpm install` when the lockfile or package.json changed. A light iteration on the Studio
+  names its crates (`cargo nextest run -p <crate>`, also with `-E` or `-R latest`); `-E` or `-R latest` without `-p`
+  builds the whole workspace and waits in the heavy queue. A step and the command run in the login environment of the user there, with 65536 open files and `nice` 10
   (`--nice <n>`).
 - **Heavy runs take turns**: a run that `heavy` of `[host]` names, or one with `--heavy`, waits until no other heavy
   run of the Studio goes, whatever its repository, so two full suites never slow each other into timeouts. Its wait

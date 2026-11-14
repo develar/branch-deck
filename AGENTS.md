@@ -81,8 +81,7 @@ Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<
   `build.build-dir`: worktrees would overwrite each other's units. The return of a lease applies the clean rules of
   `.branchdeck.toml`.
 - **Disk**: `low_disk_space` (less free than `branchdeck.leaseMinFree`): tell the user, never pass `--min-free 0`.
-- **E2E**: the mock server listens on 3030 in every checkout; when another worktree's server holds it, run
-  `E2E_PORT=3031 pnpm e2e`.
+- **E2E**: the mock server listens on 3030 in every checkout; when another worktree holds it, `E2E_PORT=3031 pnpm e2e`.
 - **Release**: `brd lease return` refuses local changes, a commit that `master` lacks, or a process inside;
   `--confirm-preserved` discards them, so pass it only when they are preserved elsewhere. `brd lease status` lists the
   pool; a worktree of the old Treehouse pool goes back with `treehouse return <path>`.
@@ -97,10 +96,9 @@ failed (record on in the user config); finish with a full run. Why and how: [Che
 `create_commit*` or `commit_with`, `with_history` for many commits; never a `git config` process per key, a sleep, or
 a wall-clock limit an assertion depends on.
 
-**Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
-`pnpm lint:backend` run as `brd-host run studio -- <command>` from the lease ([Studio Runs](docs/contributing/studio-runs.md)):
-this Mac runs several agents at once, and E2E fails on timeouts under that load. `--apply` brings back what a command
-edits; exit code 75: the Studio did not run it, run it here.
+**Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, `pnpm e2e` and `pnpm lint:backend` run
+as `brd-host run studio -- <command>` from the lease, in the background, one at a time there; exit 75 but
+`heavy_timeout`: run it here ([Studio Runs](docs/contributing/studio-runs.md): the wait, `--apply`).
 
 If Homebrew `cargo` comes before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`.
 
@@ -123,7 +121,7 @@ If Homebrew `cargo` comes before rustup in `PATH`, prefix cargo commands with `P
 ```bash
 pnpm run tauri dev        # The full app
 pnpm test:unit            # Vitest
-pnpm e2e                  # Playwright; DEBUG_E2E=1 for the mock server's log; E2E_PORT=3031 on another port
+pnpm e2e                  # Playwright; DEBUG_E2E=1 for the mock server's log
 pnpm lint                 # Every lint:* script; `pnpm exec vp check` is what CI checks first
 ```
 The other scripts and debugging: [Checks → Commands](docs/contributing/checks.md#commands).
@@ -132,8 +130,8 @@ The other scripts and debugging: [Checks → Commands](docs/contributing/checks.
 Mistakes agents made, each a lost session.
 - **One `pnpm e2e` per checkout**, even on two ports: a global setup that runs `pnpm build` empties `dist/` under the
   other run. **`CI=1` does not speed up E2E** (1 worker, 2 retries); a test that fails only under load is a race.
-- **Same-second commits are the same commit**: a replay of a commit onto its own parent within one second writes the
-  identical object. A test that needs a new copy makes the target diverge first or uses `cherry-pick -x`.
+- **Same-second commits are the same commit**: a replay onto its own parent within one second writes the identical
+  object; a test that needs a new copy makes the target diverge first or uses `cherry-pick -x`.
 - **React Compiler and store reads**: a `getState()` read in the render body is memoized and goes stale; take the
   value from a selector ([Frontend Rules → Pitfalls](docs/contributing/frontend.md#pitfalls)).
 - **A kept view runs its effects again** as it shows (`Activity`, `KeepMounted`); WebKit keeps the focus on a hidden
@@ -144,10 +142,8 @@ Mistakes agents made, each a lost session.
 - **zsh does not word-split `$args`**: write the arguments out, use `${=args}`, or `bash -c '…'`.
 - **A stale cargo fingerprint** (an "unresolved import" of a module that exists, a file put back with its old mtime by
   `mv`): `touch` the files and rebuild.
-- **One stash and one rerere cache for every lease** (`refs/stash`, `.git/rr-cache` of the common git dir): a
-  `git stash pop` applies another lease's entry, rerere replays another lease's resolution. Keep work in progress as a
-  WIP commit or a patch in `notes.local/`; the clone sets `rerere.enabled false`
-  ([Working in a Lease → Pitfalls](docs/contributing/leases.md#pitfalls)).
+- **One stash and one rerere cache for every lease** (`refs/stash`, `.git/rr-cache`): keep work in progress as a WIP
+  commit or a patch in `notes.local/` ([Working in a Lease → Pitfalls](docs/contributing/leases.md#pitfalls)).
 - **Throwaway Playwright specs** go into `shots.local/` of the worktree
   ([Writing E2E Tests → Pitfalls](docs/contributing/e2e-tests.md#pitfalls)); delete them before a commit.
 
