@@ -222,7 +222,16 @@ export const REORDER_SUBJECT = "count before the total, the lowest level last"
  * (from 1, both ends included), its kind, its owner and its order, `free` or `matters`
  */
 export function answerReordered(repositoryPath: string, path: string, reordered: readonly (readonly [string, [number, number], [number, number], string, string, string])[]): void {
-  const at = (line: number, endLine: number, name: string, kind: string, parent: string) => ({ file: path, line, end_line: endLine, column: 6, kind, name, parent, language: "kotlin" })
+  const at = (line: number, endLine: number, name: string, kind: string, parent: string) => ({
+    file: path,
+    line,
+    end_line: endLine,
+    column: 6,
+    kind,
+    name,
+    parent,
+    language: "kotlin",
+  })
   writeFixtureIndex(repositoryPath, {
     moves: {
       moved: [],
