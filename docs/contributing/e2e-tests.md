@@ -131,8 +131,9 @@ rules in one line each and links here.
   started still runs misses its error, or logs one after it: wait for the effect, the toast of the refusal
   (`tools-settings.spec.ts`, "Sign In Again"). The repository a test switches to is a real one (`otherRepository`); a
   path git cannot read only where the test checks that state, its line declared ([Logging](../design/e2e-testing.md)).
-  A single ResizeObserver loop is a warning of the page, which fails no test; a repeated one or a cycle of an observer
-  of ours is an error line (docs/contributing/frontend.md, "A flushSync in the delivery of a ResizeObserver"). The page a
+  A ResizeObserver loop of a library's observers is a warning of the page, which fails no test; 3 of them within 5 s,
+  a loop that left an element of an observer of ours pending, and a cycle of ours are error lines
+  (docs/contributing/frontend.md, "A flushSync in the delivery of a ResizeObserver"). The page a
   test moves to another window's page (`openSubWindowPage`) tells it leaves, and only a request of it that fails then
   (WebKit's "Load failed" and "Fetch API cannot load … due to access control checks") counts no error.
   A ResizeObserver loop is found by `E2E_RO_TRACE=1` (`tests/e2e/setup/resize-observers.ts`: the deliveries, the end of

@@ -2,6 +2,8 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
+import { expectOverviewLaidOut } from "../helpers/diff-helpers"
+import { MARKS_SUBJECT, openMarksReview } from "../helpers/marks-helpers"
 import { turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
@@ -12,9 +14,9 @@ import { resizeObservers } from "../setup/resize-observers"
 
 /*
  * The ResizeObserver loops of the views that made them in WebKit under load (docs/contributing/frontend.md, "A flushSync
- * in the delivery of a ResizeObserver"), each attributed in the test only (tests/e2e/setup/resize-observers.ts): a
- * loop of an observer of the app (`observeSize`) fails the test; one of a library's observer (Base UI, the panels) is a
- * warning of its report, with its elements. A single loop is a warning of the page, which no other test fails on
+ * in the delivery of a ResizeObserver"), each attributed (tests/e2e/setup/resize-observers.ts): a loop of an observer of
+ * the app (`observeSize`) fails the test, as it fails any, which the page logs as an error; one of a library's observer
+ * (Base UI, the panels) is a warning of its report, with its elements, which no other test names
  */
 
 /** The loops of `page` from now on, by owner, as the attribution tells them */
@@ -162,5 +164,77 @@ test.describe("ResizeObserver loops", () => {
     await closeToast(available)
     await closeToast(upToDate)
     expectNoLoopOfTheApp(loops)
+  })
+})
+
+/**
+ * The frames of a page as painted, in `window.paintedOverlaps`: each frame an `IntersectionObserver` takes the boxes of
+ * the overview of a review and of its first file anew, which it reads after the observers of that rendering update and
+ * before its paint (a box read in a frame callback would be the layout of a task that ran since the last paint, which
+ * that update may correct); the frames with both, and those where the overview lies on the file
+ */
+function samplePaintedOverlaps(): void {
+  const samples = { frames: 0, overlaps: [] as string[] }
+  ;(window as unknown as { paintedOverlaps: typeof samples }).paintedOverlaps = samples
+  const ofTestId = (entries: readonly IntersectionObserverEntry[], id: string) => entries.find(entry => entry.target.getAttribute("data-testid") === id)?.boundingClientRect
+  const take = (entries: readonly IntersectionObserverEntry[]) => {
+    const frames = new Map<number, IntersectionObserverEntry[]>()
+    for (const entry of entries) {
+      frames.set(entry.time, [...(frames.get(entry.time) ?? []), entry])
+    }
+    for (const frame of frames.values()) {
+      const overview = ofTestId(frame, "diff-view-prologue")
+      const file = ofTestId(frame, "diff-view-file")
+      if (overview !== undefined && file !== undefined && overview.height > 0 && file.height > 0) {
+        samples.frames++
+        if (overview.bottom > file.top + 1) {
+          samples.overlaps.push(`the overview ends at ${Math.round(overview.bottom)}, the file starts at ${Math.round(file.top)}`)
+        }
+      }
+    }
+  }
+  const boxes = new IntersectionObserver(take)
+  const frame = () => {
+    take(boxes.takeRecords())
+    boxes.disconnect()
+    // the overview of the view that shows one, and the first file of that view: a view kept hidden has boxes of 0
+    const overview = [...document.querySelectorAll("[data-testid=diff-view-prologue]")].find(element => element.getClientRects().length > 0)
+    const file = overview?.closest("[data-testid=diff-view]")?.querySelector("[data-testid=diff-view-file]")
+    if (overview !== undefined && file !== null && file !== undefined) {
+      boxes.observe(overview)
+      boxes.observe(file)
+    }
+    requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+}
+
+test.describe("The frames of a review as it opens", () => {
+  // the overview of a review (the heading of its commit) comes above its files by a read of its own and grows its block
+  // after they show; the observer of the block reports it in the frame it grows in, however React rendered it (a task
+  // before the end of the delivery, a commit in it), so no frame paints the overview over the first file
+  // (src/lib/observe-size.ts). Chromium alone: a CPU four times as slow, as a loaded machine's, by its DevTools protocol
+  test("should paint no frame of a review with its overview over its first file as it opens, on a slow CPU", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await page.addInitScript(samplePaintedOverlaps)
+    await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: 4 })
+    await setupRepo("commit_marks")
+    await syncAndWaitForBranches()
+    const { code } = await openMarksReview(page, "ledger", MARKS_SUBJECT)
+    const painted = () => page.evaluate(() => (window as unknown as { paintedOverlaps: { frames: number; overlaps: string[] } }).paintedOverlaps)
+    const overlaps: string[] = []
+    let frames = 0
+    for (let opening = 0; opening < 4; opening++) {
+      if (opening > 0) {
+        await page.reload()
+        await expectOverviewLaidOut(code)
+      }
+      // the frames that settle it
+      await expect.poll(async () => (await painted()).frames).toBeGreaterThan(5)
+      const samples = await painted()
+      frames += samples.frames
+      overlaps.push(...samples.overlaps.map(overlap => `opening ${opening + 1}: ${overlap}`))
+    }
+    expect(frames).toBeGreaterThan(0)
+    expect(overlaps).toEqual([])
   })
 })

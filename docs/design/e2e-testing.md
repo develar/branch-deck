@@ -1082,7 +1082,8 @@ branch at the commit it was pushed up to.
   at the error level (the mock of `plugin:log` tells each line to the test on the console), the uncaught errors of its
   pages and a `console.error` that no logged line goes with fail a green test unless the test declares them
   (`expectErrorLog(page, /…/)`, `allowErrorLog` with its reason for one that may come; `routeCommandError` declares
-  the failure it makes; a single ResizeObserver loop is a warning of the page, no error), and a declaration that matched
+  the failure it makes; a ResizeObserver loop of a library's observers is a warning of the page, no error, unless 3
+  come within 5 s; one that left an element of our observers pending is an error), and a declaration that matched
   nothing fails it as well: before, a ResizeObserver loop of the
   review window lived in master unseen, 51 tests logged errors and 17 more wrote to the console only, of which the
   loop of the toasts and the paths of the page that never reached the log of the app (a failed subscription, sync or

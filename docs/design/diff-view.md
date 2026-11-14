@@ -1304,9 +1304,11 @@ after the layout of that frame and before its paint, and again on every change o
 the load of a font, a disclosure, a title or a body that arrives). It sets the heights with `flushSync`, so the first
 paint already has them. That render takes in every update pending then, so a text that arrived in the same frame (the
 uses of the overview, under load; in WebKit a commit that waited in a microtask) can resize a block again: such a
-block leaves the observer at once and is observed anew in the next task, whose report gives its height a frame later
-(`observeSize`, src/lib/observe-size.ts), as a block resized in the delivery of its own observation is a ResizeObserver
-loop. The height is the size as laid out (the observer's border box), which no transform of a dialog changes. Before its first measure an opening counts 32 px. The layout takes the heights as numbers (`LayoutFile.opening`, the `prologue` and the `epilogue` of `DiffLayout`), so
+block, no deeper than the elements of that report, leaves the observer at once and is observed anew at the next frame
+or task, whichever comes first, whose report gives its height a frame later (`observeSize`, src/lib/observe-size.ts),
+as a block resized in the delivery of its own observation is a ResizeObserver loop. A block a render of React grows in
+a task after the update has its height in the frame that follows, and one that grows in the delivery of the scroller,
+deeper than it, in that same frame. The height is the size as laid out (the observer's border box), which no transform of a dialog changes. Before its first measure an opening counts 32 px. The layout takes the heights as numbers (`LayoutFile.opening`, the `prologue` and the `epilogue` of `DiffLayout`), so
 everything below stays arithmetic: a new height is a new layout, and the painter keeps the anchor across it
 (`setModel`). Only the positions of the blocks depend on the heights, never their sizes, so a measure never asks for
 another in the same frame.

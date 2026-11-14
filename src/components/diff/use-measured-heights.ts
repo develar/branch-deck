@@ -20,8 +20,8 @@ export interface MeasuredHeights {
  * (`flushSync`), so no frame paints a block over the card below it. Only the positions of the blocks depend on the
  * heights, never their sizes. A change in the rendering update of a report that resizes a block after it (that render
  * takes in every update pending then, a text that arrived in the same frame included; WebKit renders a commit that waited
- * in a microtask there) lets the block leave the observer, whose next report a frame later gives its height
- * (`observeSize`): an observation resized in its own delivery would be a ResizeObserver loop
+ * in a microtask there) lets the block leave the observer when the update would skip it, whose next report a frame
+ * later gives its height (`observeSize`): an observation resized in its own delivery would be a ResizeObserver loop
  */
 export function useMeasuredHeights(): MeasuredHeights {
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map())
