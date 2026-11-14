@@ -71,6 +71,9 @@ describe("the story of a review", () => {
   it("words a declaration renamed where the index has not proven it as renamed from its old name, after what else of its form changed", () => {
     const totalOf = unit({ kind: "behaviour" }, "totalOf", [])
     expect(headingText([formatUnitHeading({ ...totalOf, renamedFrom: { old: "sumOf", wait: "notProven" } })])).toBe("totalOf — renamed from sumOf, not proven")
+    // the heading names the rename: the note in its row says no more than its sites
+    expect(formatUnitHeading({ ...totalOf, renamedFrom: { old: "sumOf", wait: "notProven" } }).renamed).toEqual({ old: "sumOf", new: "totalOf" })
+    expect(formatUnitHeading(totalOf).renamed).toBeUndefined()
     expect(headingText([formatUnitHeading({ ...totalOf, renamedFrom: { old: "sumOf", wait: "checking" } })])).toBe("totalOf — renamed from sumOf, checking")
     const shape = unit({ kind: "shape", changes: ["parameters"] }, "totalOf", [])
     expect(headingText([formatUnitHeading({ ...shape, renamedFrom: { old: "sumOf", wait: "notProven" } })])).toBe("totalOf — parameters changed, renamed from sumOf, not proven")

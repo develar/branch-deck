@@ -110,6 +110,8 @@ export interface RenamedWords {
   readonly old: string
   readonly new: string
   readonly sites: string
+  /** The heading of the row names this rename already ("totalOf — renamed from sumOf, not proven"): its sites alone show */
+  readonly named: boolean
 }
 
 /**
@@ -158,7 +160,10 @@ const PROOF_WORDS: Readonly<Record<RenameProof, string>> = {
 const WORDED_RENAMES = 1
 
 export interface RemarkWords {
-  /** What the lines changed in: "Formatting only"; of a move what happened to them: "14 lines moved", "Moved"; of renames "Renamed" */
+  /**
+   * What the lines changed in: "Formatting only"; of a move what happened to them: "14 lines moved", "Moved"; of renames
+   * "Renamed", empty where the heading of the row names the first of them already (`RenamedWords.named`)
+   */
   readonly label: string
   /**
    * Of a note of renames, the renames it words after the label, each with its two spellings and its sites: `total` →
@@ -277,7 +282,7 @@ function reachSentence(reach: ReachWords): string {
  * counts the places of all of them ("Renamed openStore → connectStore · 30 sites in 4 files"); and what its buttons do. A line is named by its number in its
  * text, from 1: the first line of the other end, the blank lines that moved with the move among them
  */
-export function presentRemark(remark: RemarkFacts): RemarkWords {
+export function presentRemark(remark: RemarkFacts, named: readonly { readonly old: string; readonly new: string }[] = []): RemarkWords {
   const [oldStart, oldEnd] = remark.lines[0]!
   const [newStart, newEnd] = remark.lines[1]!
   const first = remark.renames?.renames[0]
@@ -299,13 +304,17 @@ export function presentRemark(remark: RemarkFacts): RemarkWords {
     const more = rest === 0 ? null : { words: `and ${rest} more`, names: counted.map(line).join("\n"), said: `: ${said}` }
     // the owner of declarations that moved under another owner is no rename: the change wrote the new owner in front
     // of their uses
-    const label = renames.every(it => it.declared?.moved != null) ? "Follows a move" : "Renamed"
-    const name = [`${label} ${sentence(told[0]!)}`, ...told.slice(1, shown.length).map(it => `and ${sentence(it)}`), ...(more === null ? [] : [`${more.words}: ${said}`])].join(
-      ", ",
-    )
+    // a rename the heading of the row names already is no more than its sites: "totalOf — renamed from sumOf, not proven · 4 sites"
+    const isNamed = (it: RenamedName) => named.some(known => known.old === it.old && known.new === it.new)
+    const label = isNamed(shown[0]!) ? "" : renames.every(it => it.declared?.moved != null) ? "Follows a move" : "Renamed"
+    const name = [
+      `${label === "" ? "Renamed" : label} ${sentence(told[0]!)}`,
+      ...told.slice(1, shown.length).map(it => `and ${sentence(it)}`),
+      ...(more === null ? [] : [`${more.words}: ${said}`]),
+    ].join(", ")
     return {
       label,
-      renamed: shown.map(it => ({ old: it.old, new: it.new, sites: sitesOf(it) })),
+      renamed: shown.map(it => ({ old: it.old, new: it.new, sites: sitesOf(it), named: isNamed(it) })),
       target: null,
       detail: "",
       more,

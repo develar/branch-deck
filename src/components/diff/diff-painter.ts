@@ -1066,7 +1066,9 @@ export class DiffPainter {
    * declaration has no key, and the menu of the code on its note shows it (`declarationAt`)
    */
   private remark(file: number, note: NoteRow, remark: Remark): Node[] {
-    const { label, renamed, target, detail, more, reach, name, toggle } = presentRemark(this.factsOf(file, remark))
+    // the renames the heading of the row names already: the note says their sites alone
+    const named = (note.heading ?? []).flatMap(part => (part.renamed == null ? [] : [part.renamed]))
+    const { label, renamed, target, detail, more, reach, name, toggle } = presentRemark(this.factsOf(file, remark), named)
     const words = element(toggle === null ? "span" : "button", toggle === null ? "dv-remark" : "dv-remark dv-remark-button", "diff-remark")
     words.dataset.kind = remark.kind
     if (toggle !== null) {
@@ -1084,23 +1086,22 @@ export class DiffPainter {
       }
       words.append(element("span", "dv-remark-chevron"))
     }
-    const text = element("span", "dv-remark-label")
-    text.textContent = label
-    words.append(text)
+    if (label !== "") {
+      const text = element("span", "dv-remark-label")
+      text.textContent = label
+      words.append(text)
+    }
     const said = (className: string, content: string, testId?: string) => {
       const span = element("span", className, testId)
       span.textContent = content
       return span
     }
     for (const [at, rename] of (renamed ?? []).entries()) {
-      // the two spellings of the name in the font of the code, as the name of a heading; the arrow and the sites in the font of the text
-      words.append(
-        at === 0 ? document.createTextNode(" ") : said("dv-remark-detail", " · "),
-        said("dv-remark-name", rename.old),
-        said("dv-remark-detail", " → "),
-        said("dv-remark-name", rename.new),
-        said("dv-remark-detail", ` · ${rename.sites}`),
-      )
+      // the two spellings of the name in the font of the code, as the name of a heading; the arrow and the sites in the
+      // font of the text; of a rename the heading names, the sites alone
+      const before = at === 0 ? (label === "" ? [] : [document.createTextNode(" ")]) : [said("dv-remark-detail", " · ")]
+      const spelled = rename.named ? [] : [said("dv-remark-name", rename.old), said("dv-remark-detail", " → "), said("dv-remark-name", rename.new), said("dv-remark-detail", " · ")]
+      words.append(...before, ...spelled, said("dv-remark-detail", rename.sites))
     }
     const parts: Node[] = [words]
     const reaching = said("dv-remark-detail", ` · ${detail}`)

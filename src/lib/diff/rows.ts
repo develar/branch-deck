@@ -106,6 +106,11 @@ export interface FoldRow {
 export interface HeadingPart {
   readonly name: string | null
   readonly words: string
+  /**
+   * The rename the words say already ("totalOf — renamed from sumOf, not proven"): the note of that rename in the row
+   * of the heading names it no more, only its sites (`presentRemark`); null or absent for a heading of no rename
+   */
+  readonly renamed?: { readonly old: string; readonly new: string } | null
 }
 
 /** The heading of a block, a part for each change it starts */

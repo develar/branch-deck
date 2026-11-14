@@ -14,6 +14,8 @@ targets:
   - crates/bd-rewrite/src/review_plan_command.rs
   - src/presenters/review-units.ts
   - src/presenters/review-story.ts
+  - src/presenters/diff-marks.ts
+  - src/components/diff/diff-painter.ts
   - src/lib/diff/rows.ts
   - src/components/diff/DiffView.tsx
   - src/components/commit/CommitReview.tsx
@@ -613,8 +615,8 @@ before it; a group MUST be a section per file of it.
 
 The heading of a unit with `renamed` MUST word the renames and their wait in place of "body changed" ("balance — only
 renamed sumOf → totalOf, not proven"), of one with `renamed_from` its old name and the wait after what else of its form
-changed ("totalOf — renamed from sumOf, not proven"); the badge of the card of its name MUST say "Renamed, not proven"
-or "Renamed, checking". A unit `behaviour` without either keeps "body changed".
+changed ("totalOf — renamed from sumOf, not proven"), and a note of that rename in its row its sites alone; the badge
+MUST say "Renamed, not proven" or "Renamed, checking". Any other `behaviour` keeps "body changed".
 
 #### Scenario: The heading of a rename no index proved
 - **GIVEN** a review with its plan of a commit that renames a private `sumOf` to `totalOf`, and no index
@@ -631,6 +633,15 @@ or "Renamed, checking". A unit `behaviour` without either keeps "body changed".
 - **AND** "… checking" while the index is asked, and "totalOf — parameters changed, renamed from sumOf, not proven" where its parameters changed too
   [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a body that changed in a rename no index proved says it is the rename, not proven, and a body with more beside it says it changed`)
   [@test] src/presenters/review-units.test.ts (`words a declaration renamed where the index has not proven it as renamed from its old name, after what else of its form changed`)
+
+#### Scenario: The row of a declaration renamed says the rename once
+- **GIVEN** the same review, the block of the declaration of `totalOf` starting with the note of its rename
+- **WHEN** the review shows it
+- **THEN** its row says "totalOf — renamed from sumOf, not proven · 3 sites", the note its sites alone, and a screen reader hears the note in full
+- **AND** in the pull request of the helper "totalOf — renamed from sumOf, not proven · 4 sites"; a note of another rename keeps its two spellings
+  [@test] tests/e2e/commit-files/renamed-names.spec.ts (`a body that changed in a rename no index proved says it is the rename, not proven, and a body with more beside it says it changed`)
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should say of the calls and the declaration of a helper renamed where no index proves it that they are the rename, not proven, as the header says of its file`)
+  [@test] src/presenters/diff-marks.test.ts (`says of a rename the heading of its row names already its sites alone, and names it in full to a screen reader`)
 
 #### Scenario: A pull request that renames a private helper
 - **GIVEN** the review of a pull request whose one commit renames the private `sumOf` of a ledger to `totalOf`, and no index

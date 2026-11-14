@@ -242,10 +242,29 @@ describe("the words of a rename", () => {
   const note = (renames: RenamedName[], open: boolean | null = null, hides: [number, number][] = []) =>
     presentRemark({ kind: "renamed", lines: lines(13, 13, 27, 27), open, move: null, renames: { renames, hides } })
 
+  it("says of a rename the heading of its row names already its sites alone, and names it in full to a screen reader", () => {
+    const renamed: RenamedName = { old: "sumOf", new: "totalOf", sites: 4, proof: "unavailable" }
+    const words = presentRemark({ kind: "renamed", lines: lines(49, 50, 49, 50), open: null, move: null, renames: { renames: [renamed], hides: [] } }, [
+      { old: "sumOf", new: "totalOf" },
+    ])
+    expect(words).toMatchObject({ label: "", renamed: [{ old: "sumOf", new: "totalOf", sites: "4 sites", named: true }], reach: [], name: "Renamed sumOf to totalOf, 4 sites" })
+    // a heading of another rename names nothing of this one
+    expect(note([total])).toMatchObject({ label: "Renamed", renamed: [{ named: false }] })
+    expect(
+      presentRemark({ kind: "renamed", lines: lines(13, 13, 27, 27), open: null, move: null, renames: { renames: [total, count], hides: [] } }, [{ old: "count", new: "size" }]),
+    ).toMatchObject({
+      label: "Renamed",
+      renamed: [
+        { old: "total", named: false },
+        { old: "count", named: true },
+      ],
+    })
+  })
+
   it("says the two spellings of a renamed name and how many places hold it, one site or many", () => {
     expect(note([total])).toEqual({
       label: "Renamed",
-      renamed: [{ old: "total", new: "sum", sites: "12 sites" }],
+      renamed: [{ old: "total", new: "sum", sites: "12 sites", named: false }],
       target: null,
       detail: "",
       more: null,
@@ -359,8 +378,8 @@ describe("the words of a rename", () => {
       name: "Renamed openStore to connectStore, 3 sites in 2 files, all uses in this change",
     })
     // no other file of the subject holds the name: the places of the file, as of any rename
-    expect(note([{ ...declared, sites: 4, across: { sites: 4, files: 1 } }]).renamed).toEqual([{ old: "openStore", new: "connectStore", sites: "4 sites" }])
-    expect(note([{ ...declared, across: null }]).renamed).toEqual([{ old: "openStore", new: "connectStore", sites: "1 site" }])
+    expect(note([{ ...declared, sites: 4, across: { sites: 4, files: 1 } }]).renamed).toEqual([{ old: "openStore", new: "connectStore", sites: "4 sites", named: false }])
+    expect(note([{ ...declared, across: null }]).renamed).toEqual([{ old: "openStore", new: "connectStore", sites: "1 site", named: false }])
     // a counted rename says the same in its line of the hover and to a screen reader
     expect(note([total, count, declared]).more).toEqual({
       words: "and 2 more",

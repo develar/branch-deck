@@ -106,6 +106,11 @@ function formatRenamedFrom(from: RenamedFrom, changed: string | null): string {
   return changed === null ? renamed : `${changed}, ${renamed}`
 }
 
+/** The heading of a declaration renamed (`formatRenamedFrom`), which names its rename: the note of it says no more than its sites */
+function renamedHeading(name: string, from: RenamedFrom, changed: string | null): HeadingPart {
+  return { name, words: formatRenamedFrom(from, changed), renamed: { old: from.old, new: name } }
+}
+
 /**
  * The change of `unit` as the heading of its block words it: its name in the code font and what changed ("open" and
  * "parameters changed", "close" and "body changed", "balance" and "only renamed sumOf → totalOf, not proven", "totalOf"
@@ -117,11 +122,11 @@ export function formatUnitHeading(unit: ReviewUnit): HeadingPart {
   switch (unit.kind.kind) {
     case "shape": {
       const changed = `${joinNames(unit.kind.changes.map(change => FORM_WORDS[change]))} changed`
-      return named(unit.renamedFrom == null ? changed : formatRenamedFrom(unit.renamedFrom, changed))
+      return unit.renamedFrom == null ? named(changed) : renamedHeading(name, unit.renamedFrom, changed)
     }
     case "behaviour":
       if (unit.renamedFrom != null) {
-        return named(formatRenamedFrom(unit.renamedFrom, null))
+        return renamedHeading(name, unit.renamedFrom, null)
       }
       return named(unit.renamed == null ? "body changed" : formatRenamedUses(unit.renamed))
     case "added":

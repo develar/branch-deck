@@ -612,6 +612,10 @@ test.describe("The renames of a diff in a review with its plan", () => {
     await expect(headings.filter({ hasText: "half" })).toHaveText("half — body changed")
     // the declaration of the new name is the one of the old name renamed, one change, not proven
     await expect(headings.filter({ hasText: "totalOf —" })).toHaveText("totalOf — renamed from sumOf, not proven")
+    // its row says the rename once: the note after the heading keeps only the sites, never its two spellings again
+    const declaration = diffRows(code, "note", { hasText: "totalOf —" })
+    await expect(declaration).toHaveText("totalOf — renamed from sumOf, not proven · 3 sites")
+    await expect(remarks(declaration, "renamed")).toHaveText("3 sites")
     await expect(headings.filter({ hasText: "sumOf —" })).toHaveCount(0)
     // the call is read: the old name struck through before the new one, both in the mark of a renamed name
     await expect(renamedNames(code).filter({ hasText: "totalOf" }).first()).toBeVisible()

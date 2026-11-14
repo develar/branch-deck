@@ -8,6 +8,7 @@ import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { diffRows } from "../helpers/diff-helpers"
 import { availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
 import { THEME_ITEM, answerPlayerModules, commitTwoTasks, expectHeadingCard, turnOnReviewPlan } from "../helpers/review-plan-helpers"
@@ -1907,6 +1908,8 @@ test.describe("What a range leaves to read", () => {
     await expect(headings.filter({ hasText: "body changed" })).toHaveCount(0)
     // the helper itself is one declaration renamed, not proven: never a new one beside a removed one
     await expect(headings.filter({ hasText: "totalOf —" })).toHaveText("totalOf — renamed from sumOf, not proven")
+    // its row says the rename once, then the sites of the note
+    await expect(diffRows(window, "note", { hasText: "totalOf —" })).toHaveText("totalOf — renamed from sumOf, not proven · 4 sites")
     await expect(headings.filter({ hasText: /— (new|removed)$/ })).toHaveCount(0)
   })
 
