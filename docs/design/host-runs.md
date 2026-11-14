@@ -237,8 +237,6 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
   runs of the other repositories wait behind it although their slots are free. Only runs that are not heavy hold those
   slots then (one heavy run at a time), four of them at once by default, and they are short; a run that took a slot
   first and the turn after would hold a slot idle for every heavy run in the queue instead.
-- The wait for a slot starts a watch of the lend table at each of its looks of 2 s, where the wait for the turn keeps
-  one for its whole wait.
 
 - A slot serves several checkouts. Ignored outputs of another branch stay, and a tool that trusts timestamps can build
   stale output. The same risk exists today within one checkout.

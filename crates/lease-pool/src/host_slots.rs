@@ -785,15 +785,16 @@ pub const WAIT_PROGRESS: Duration = Duration::from_mins(1);
 /// The files of `branch-deck/` whose change can lend a slot: the table and the pool, whose `ready` leases a lend takes
 const WAKE_FILES: [&str; 2] = [STATE_FILE, crate::lease::POOL_FILE];
 
-/// Lend a slot to the run of `request` (`lend`), waiting up to `timeout` while it is queued, as long as its process
-/// lives. The directory of the table is watched (`notify`) before the first look, so no change between the look and the
-/// wait is lost; the table is replaced by a rename, so the watch is on the directory, and only a change of the table or
-/// of the pool wakes it. Without a file event it looks again every 5 s: the end of a process makes none. A queued run
-/// gives back a slot that no process acts on itself (`abandoned_give_back`: an abandoned lend or give-back, a
-/// quarantine whose processes are gone), under the same CAS as `reclaim`, and looks again at once, rather than waiting
-/// for the next tick of the keeper; a give-back that fails is left to `reclaim`. `progress` hears the queue and the time
-/// waited once a minute. The answer is the lend, or the place in the queue once the time is up: the ticket stays while
-/// the process lives. A process that ended is `ProcessGone`, and its ticket leaves the queue
+/// The watch of the table and the pool of a repository for one whole wait of a lend (`lend_watching`): a wait in short
+/// looks, so a cancel ends it, keeps one watch for all of them rather than one per look
+pub struct LendWatch(TableWake);
+
+/// The watch of the table and the pool of `params`, started before the first look of a wait
+pub fn watch_lends(params: &HostSlotsParams<'_>) -> LendWatch {
+  LendWatch(TableWake::start(params.table().dir(), &WAKE_FILES))
+}
+
+/// `lend_watching` with a watch of its own, for a wait of one call
 pub fn lend_waiting(
   git_executor: &GitCommandExecutor,
   params: &HostSlotsParams<'_>,
@@ -801,8 +802,27 @@ pub fn lend_waiting(
   timeout: Duration,
   progress: &dyn Fn(&Queued, Duration),
 ) -> Result<LendAnswer> {
+  lend_watching(git_executor, params, request, timeout, progress, &watch_lends(params))
+}
+
+/// Lend a slot to the run of `request` (`lend`), waiting up to `timeout` while it is queued, as long as its process
+/// lives. `watch` watches the directory of the table (`notify`), started before the first look of the whole wait, so no
+/// change between a look and the wait after it is lost; the table is replaced by a rename, so the watch is on the
+/// directory, and only a change of the table or of the pool wakes it. Without a file event it looks again every 5 s: the end of a process makes none. A queued run
+/// gives back a slot that no process acts on itself (`abandoned_give_back`: an abandoned lend or give-back, a
+/// quarantine whose processes are gone), under the same CAS as `reclaim`, and looks again at once, rather than waiting
+/// for the next tick of the keeper; a give-back that fails is left to `reclaim`. `progress` hears the queue and the time
+/// waited once a minute. The answer is the lend, or the place in the queue once the time is up: the ticket stays while
+/// the process lives. A process that ended is `ProcessGone`, and its ticket leaves the queue
+pub fn lend_watching(
+  git_executor: &GitCommandExecutor,
+  params: &HostSlotsParams<'_>,
+  request: &LendRequest<'_>,
+  timeout: Duration,
+  progress: &dyn Fn(&Queued, Duration),
+  watch: &LendWatch,
+) -> Result<LendAnswer> {
   let started = Instant::now();
-  let wake = TableWake::start(params.table().dir(), &WAKE_FILES);
   let mut said = started;
   // the slots whose give-back by this wait failed: `reclaim` takes them up
   let mut failed = HashSet::new();
@@ -836,8 +856,17 @@ pub fn lend_waiting(
       said = Instant::now();
     }
     let next_progress = WAIT_PROGRESS.saturating_sub(said.elapsed());
-    wake.wait(timeout.checked_sub(waited).unwrap().min(WAIT_RECHECK).min(next_progress));
+    watch.0.wait(timeout.checked_sub(waited).unwrap().min(WAIT_RECHECK).min(next_progress));
   }
+}
+
+/// The watches of a table that this process started (`TableWake::start`), each a stream of file events of the system
+static WATCHES_STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many watches of a table this process started: a wait in many looks starts one (`LendWatch`, the watch of the
+/// heavy turn), which its tests check
+pub fn watches_started() -> u64 {
+  WATCHES_STARTED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The file events of the table and the pool, for a lend that waits, or of the heavy turn (`host_turn`) for a run that
@@ -853,6 +882,7 @@ impl TableWake {
   /// The watch of `dir`, which a change of one of `files` there wakes
   pub(crate) fn start(dir: &Path, files: &'static [&'static str]) -> Self {
     use notify::Watcher as _;
+    WATCHES_STARTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (sender, events) = std::sync::mpsc::channel();
     let watcher = std::fs::create_dir_all(dir)
       .map_err(notify::Error::io)

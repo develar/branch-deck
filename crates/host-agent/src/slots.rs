@@ -5,8 +5,9 @@
 //!
 //! - A supervisor lends a slot for its run ([`lend`], with its own pid: the lend lasts as long as the supervisor). A
 //!   wait while the slots are lent to other runs goes in short lends of the pool, so a cancel ends it, and the queue
-//!   line goes to the log of the run once a minute (`lease_pool::host_runs::queue_line`). The wait of a heavy run for
-//!   the heavy turn of the host (`turn`) is the same wait ([`wait_in_looks`]).
+//!   line goes to the log of the run once a minute (`lease_pool::host_runs::queue_line`), with one watch of the table
+//!   for the whole wait (`lease_pool::host_slots::watch_lends`). The wait of a heavy run for the heavy turn of the host
+//!   (`turn`) is the same wait ([`wait_in_looks`]).
 //! - On every way out the supervisor gives the slot back ([`give_back`]), which also takes a run that got none out of
 //!   the queue, deletes the ref of its pack, and starts the deferred git maintenance under `branchdeck.leaseMaintenance`.
 //! - [`checkout`] moves the slot of a run to its commit by the diff of the two commits.
@@ -16,7 +17,9 @@ use crate::repo::{Repository, pool_refusal};
 use crate::tuning;
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_runs::queue_line;
-use lease_pool::host_slots::{CheckedOut, HostProcess, Lend, LendAnswer, LendRequest, Queued, checkout as checkout_slot, give_back_run, lend as lend_slot, lend_waiting};
+use lease_pool::host_slots::{
+  CheckedOut, HostProcess, Lend, LendAnswer, LendRequest, Queued, checkout as checkout_slot, give_back_run, lend as lend_slot, lend_watching, watch_lends,
+};
 use std::time::{Duration, Instant};
 use sync_utils::process_scan::process_started;
 
@@ -87,7 +90,9 @@ pub(crate) fn lend(
   let Some(wait) = wait else {
     return lend_slot(&params, &request).map(Some).map_err(refused);
   };
-  let mut look = |chunk: Duration| match lend_waiting(&repo.git, &params, &request, chunk, &|_: &Queued, _: Duration| {}).map_err(refused)? {
+  // one watch of the table for the whole wait, started before its first look
+  let watch = watch_lends(&params);
+  let mut look = |chunk: Duration| match lend_watching(&repo.git, &params, &request, chunk, &|_: &Queued, _: Duration| {}, &watch).map_err(refused)? {
     LendAnswer::Lent(lent) => Ok(Look::Got(lent)),
     LendAnswer::Queued(queued) => Ok(Look::Queued(queued)),
   };
@@ -177,3 +182,7 @@ fn repo_name(repo: &Repository) -> String {
     .file_name()
     .map_or_else(|| repo.path.display().to_string(), |name| name.to_string_lossy().into_owned())
 }
+
+#[cfg(test)]
+#[path = "slots_test.rs"]
+mod slots_test;

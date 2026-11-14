@@ -2541,7 +2541,10 @@ a run never skips a step whose output a give-back of the run before removed. yon
 A lend that waits (`host_slots::lend_waiting`) watches `branch-deck/` of the common dir with `notify` before its first
 look, so a give-back between the look and the wait wakes it: the table is replaced by a rename, so the watch is on the
 directory, and only a change of `host-slots.json` or `leases.json` wakes it (the lock files and the stamp of brd change
-there too). A lend writes the table only when it changed it, so its own write wakes it at most once. The end of a
+there too). A lend writes the table only when it changed it, so its own write wakes it at most once. The supervisor
+waits in looks of 2 s, so a cancel ends its wait, and keeps one watch for all of them (`watch_lends`, `lend_watching`):
+until 2026-11-14 each look started a stream of file events of its own; `lend_waiting` is `lend_watching` with a watch of
+its own. The end of a
 process makes no file event, so a queued lend gives back a slot that no process acts on itself (an abandoned lend or
 give-back, a quarantine whose processes are gone: `abandoned_give_back`, the same step and CAS as `reclaim`), then
 looks again at once. Until 2026-10-31 such a slot waited for the keeper's `reclaim`, up to a minute. A ticket ahead

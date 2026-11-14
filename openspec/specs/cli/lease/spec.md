@@ -2421,7 +2421,8 @@ run's), `Busy` (another process acts on it) or `InvalidConfig` (a bad `branchdec
 `lend_waiting` MUST wait while the run is queued, as long as its process lives, and answer as soon as it gets a slot,
 without a second call. It watches `branch-deck/` of the common dir before its first look, so no give-back between the
 look and the wait is lost, wakes only on a change of `host-slots.json` or `leases.json`, and looks again at least every
-5 s, as the end of a process makes no file event.
+5 s, as the end of a process makes no file event. A wait of many calls MUST keep one watch (`watch_lends`,
+`lend_watching`).
 
 #### Scenario: A slot given back during the wait
 - **WHEN** a slot is given back while a run waits in `lend_waiting`
@@ -2436,6 +2437,11 @@ look and the wait is lost, wakes only on a change of `host-slots.json` or `lease
 #### Scenario: A process that ends while it waits
 - **WHEN** the process of the run ends while it waits
 - **THEN** the answer is `ProcessGone`, and its ticket leaves the queue
+
+#### Scenario: A wait in short looks
+- **WHEN** a supervisor waits for a slot in looks of 2 s, so a cancel ends its wait
+- **THEN** the whole wait starts one watch of the table, before its first look
+  [@test] crates/host-agent/src/slots_test.rs (`a_wait_for_a_slot_keeps_one_watch_of_the_table_for_all_its_looks`)
 
 ### Requirement: Host slots: A waiting lend gives back an abandoned slot itself
 

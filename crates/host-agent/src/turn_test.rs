@@ -1,7 +1,7 @@
 use super::*;
+use lease_pool::host_slots::watches_started;
 use pretty_assertions::assert_eq;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// The lines of `brd-host runs` name who holds the turn and for how long, then each run that waits and for how long; a
 /// free turn says so
@@ -25,8 +25,9 @@ fn the_lines_of_the_heavy_turn_name_the_holder_and_each_waiting_run_with_their_t
   assert_eq!(lines_at(&serde_json::json!({ "queue": 1 }), now).unwrap_err().code, Code::Link);
 }
 
-/// A heavy run whose turn another run holds says the line of its wait at once, and a stop ends the wait within its
-/// look of 2 s, its ticket kept for the end of the run to take out; the run that holds the turn takes it again at once
+/// A heavy run whose turn another run holds says the line of its wait at once, keeps one watch of the table for all the
+/// looks of its wait, and a stop ends the wait, its ticket kept for the end of the run to take out; the run that holds
+/// the turn takes it again at once
 #[test]
 fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
   let dir = tempfile::tempdir().unwrap();
@@ -37,22 +38,14 @@ fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
   let first = take(&home, "run-1", "/r/branch-deck", &command, Duration::from_mins(1), &never, &mut quiet).unwrap();
   assert_eq!(first, Some(TurnAnswer::Taken));
 
-  let said = Mutex::new(Vec::new());
-  let stopped = AtomicBool::new(false);
-  let stop = || stopped.load(Ordering::SeqCst);
-  let waited = std::thread::scope(|scope| {
-    let waiting = scope.spawn(|| {
-      let mut say = |line: &str| said.lock().unwrap_or_else(PoisonError::into_inner).push(line.to_owned());
-      take(&home, "run-2", "/r/idea-1", &command, Duration::from_mins(1), &stop, &mut say).unwrap()
-    });
-    while said.lock().unwrap_or_else(PoisonError::into_inner).is_empty() {
-      std::thread::sleep(Duration::from_millis(10));
-    }
-    stopped.store(true, Ordering::SeqCst);
-    waiting.join().unwrap()
-  });
+  let mut said = Vec::new();
+  let looks = AtomicU32::new(0);
+  // the wait asks `stop` once before each look: two looks of 2 s, then the stop
+  let stop = || looks.fetch_add(1, Ordering::SeqCst) >= 2;
+  let before = watches_started();
+  let waited = take(&home, "run-2", "/r/idea-1", &command, Duration::from_mins(1), &stop, &mut |line| said.push(line.to_owned())).unwrap();
   assert_eq!(waited, None, "the stop ended the wait");
-  let said = said.into_inner().unwrap();
+  assert_eq!(watches_started() - before, 1, "one watch of the table for the whole wait");
   assert_eq!(said.len(), 1, "{said:?}");
   assert!(
     said[0].starts_with("run run-2 waits 0 s for the heavy turn of the host, 60 s left: run run-1 of branch-deck holds it 0 s (pnpm e2e), no run ahead"),
