@@ -17,7 +17,7 @@ history-rewrite = { path = "../history-rewrite" }
 trial-check = { path = "../trial-check" }
 code-symbols = { path = "../code-symbols" }
 # the tokens of a file and the rule "equal by tokens", the grammar of a path
-code-tokens = { path = "../code-tokens" }
+code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 # the specs as their formats define them (OpenSpec's, IntelliJ's `*.spec.md`): the rules of a new spec, the `[@test]`
 # lines of a change, a link's path by its format's rule; psi-syntax's reader, which accio's records share (accio's
 # decision 2026-11-10-specs-parsed-by-spec-syntax), a revision of develar/psi-syntax, its public mirror
@@ -28,13 +28,13 @@ file-diffs = { path = "../file-diffs" }
 # the marks of the diffs what a range leaves to read is proven from (`reading`)
 text-diff = { path = "../text-diff" }
 # the answers of the index a diff decides by (`diff_marks::index`)
-diff-marks = { path = "../diff-marks" }
+diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 # the generated files: by their name, the attributes of the head, the header a tool wrote (`files::generated_of`)
 generated-files = { path = "../generated-files" }
 # the span of the fan-in's threads (`in_current_span`), the grammar of a body and the subject without its prefix
 sync-utils = { path = "../sync-utils" }
 # the blocks of a body that changed since the review (`lcs::diff::build_changes`)
-line-diff = { path = "../line-diff" }
+line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 # the dependency entries of the build files: the `*.iml` and the plugin descriptors, `Cargo.toml`, `package.json`
 quick-xml = "0.42"
 toml = "1.2"

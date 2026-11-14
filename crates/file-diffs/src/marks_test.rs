@@ -1032,7 +1032,7 @@ fn a_file_whose_blocks_cannot_hold_a_run_is_not_parsed() {
   assert_eq!((diff.marks.runs.len(), asked), (0, [1, 1]));
 }
 
-/// The files of the grammars: the test data of `code-symbols` and sources of the marks
+/// The files of the grammars: the test data of `code-symbols` and sources of this crate
 fn corpus() -> Vec<(String, String)> {
   let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
   let mut files = Vec::new();
@@ -1047,7 +1047,7 @@ fn corpus() -> Vec<(String, String)> {
       }
     }
   }
-  files.extend(["../diff-marks/src/marks.rs", "../diff-marks/src/marks_runs.rs", "src/syntax.rs"].map(|path| root.join(path)));
+  files.extend(["src/declarations.rs", "src/model.rs", "src/syntax.rs"].map(|path| root.join(path)));
   files.sort();
   files
     .into_iter()

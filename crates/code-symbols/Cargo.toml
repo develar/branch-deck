@@ -19,7 +19,7 @@ java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad84
 js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
 kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
 # the tokens of a file, and the one parser of each language per thread that every walk of a tree here reads it by
-code-tokens = { path = "../code-tokens", default-features = false }
+code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", default-features = false }
 psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 rust-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }
 starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9", optional = true }

@@ -18,7 +18,7 @@ branch-integration = { path = "../branch-integration" }
 cli-tools = { path = "../cli-tools" }
 file-diffs = { path = "../file-diffs" }
 # the answers of the index a diff decides by (`diff_marks::index`)
-diff-marks = { path = "../diff-marks" }
+diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 github = { path = "../github" }

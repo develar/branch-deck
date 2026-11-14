@@ -12,11 +12,18 @@ it does not let short lines anchor a match, and it compares words over a whole b
 
 ## Solution Overview
 
-The crate `crates/line-diff` is a port of the two-way comparison of IntelliJ Platform to Rust. The license of the
-crate is Apache-2.0, as the license of the source. `crates/line-diff/NOTICE` credits JetBrains. Each ported file
-names its Kotlin or Java source in its first comment. It is a pure function of the texts, without the bindings of the
-app (no `specta`), so another reader of code can take it as it is: the model of a view (`model`), the lines a change
-moved (`moves`, `moves_across`) and the blocks applied to bytes (`apply`) are in it too.
+The crate `line-diff` (`psi-syntax:crates/line-diff`) is a port of the two-way comparison of IntelliJ Platform to
+Rust. The license of the crate is Apache-2.0, as the license of the source; the `NOTICE` of psi-syntax credits
+JetBrains. Each ported file names its Kotlin or Java source in its first comment. It is a pure function of the texts,
+without the bindings of the app (no `specta`): the model of a view (`model`), the lines a change moved (`moves`,
+`moves_across`) and the blocks applied to bytes (`apply`) are in it too. It lives in psi-syntax, with `code-tokens`
+and `diff-marks` above it, so that the diff of Branch Deck and the diff of accio are one implementation (accio's
+decision 2026-11-13-diff-marks-in-psi-syntax): Branch Deck links it by the revision of develar/psi-syntax, the public
+mirror of accio's `psi-syntax/`, that it links the parsers by (`code_symbols::extract::PSI_SYNTAX_REVISION`), and a
+change of it is a commit of accio, then a new revision here. To try one before that, build with every crate of
+psi-syntax Cargo.lock holds (but `lmdb-env`) patched to accio's checkout, one
+`--config 'patch."https://github.com/develar/psi-syntax".<crate>.path="<accio>/psi-syntax/crates/<crate>"'` each:
+cargo rewrites Cargo.lock for it, which goes back before a commit, and CI builds the revision.
 
 `crates/text-diff` is the wire model of the app over it, Branch Deck's own: the types that `src/lib/bindings.ts`
 describes (`specta::Type`) and the `file_diff` store keeps (`text_diff::model`: `TextDiff` with its scopes and its

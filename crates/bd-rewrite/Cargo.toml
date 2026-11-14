@@ -12,10 +12,10 @@ generated-files = { path = "../generated-files", features = ["schemars"] }
 bd-core = { path = "../bd-core" }
 code-symbols = { path = "../code-symbols" }
 # the tokens of a file and the rule "equal by tokens", the grammar of a path
-code-tokens = { path = "../code-tokens" }
+code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 file-diffs = { path = "../file-diffs" }
 # the marks of a diff and the answers of the index they decide by
-diff-marks = { path = "../diff-marks" }
+diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }
 history-rewrite = { path = "../history-rewrite" }
@@ -25,7 +25,7 @@ sync-core = { path = "../sync-core" }
 trial-check = { path = "../trial-check" }
 domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
-line-diff = { path = "../line-diff" }
+line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 text-diff = { path = "../text-diff", features = ["marks"] }
 anyhow.workspace = true
 clap = { version = "4.6", features = ["derive"] }

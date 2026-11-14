@@ -7,8 +7,8 @@ targets:
   - crates/review-plan/src/renamed_uses.rs
   - crates/review-plan/src/pair.rs
   - crates/review-plan/src/whitespace.rs
-  - crates/diff-marks/src/index.rs
-  - crates/line-diff/src/text_lines.rs
+  - psi-syntax:crates/diff-marks/src/index.rs
+  - psi-syntax:crates/line-diff/src/text_lines.rs
   - crates/trial-check/src/declaration_checks.rs
   - crates/file-diffs/src/service.rs
   - crates/bd-rewrite/src/review_plan_command.rs

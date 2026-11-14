@@ -16,7 +16,7 @@ sync-utils = { path = "../sync-utils" }
 object-cache = { path = "../object-cache" }
 file-diffs = { path = "../file-diffs" }
 code-symbols = { path = "../code-symbols" }
-line-diff = { path = "../line-diff" }
+line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 text-diff = { path = "../text-diff" }
 anyhow.workspace = true
 tracing.workspace = true

@@ -41,7 +41,7 @@ history-rewrite = { path = "../history-rewrite" }
 code-symbols = { path = "../code-symbols" }
 domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
-line-diff = { path = "../line-diff" }
+line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 anyhow.workspace = true
 clap = { version = "4.6", features = ["derive"] }
 dirs = "7"

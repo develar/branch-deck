@@ -63,28 +63,6 @@ const RULES_ABOVE_GIT: &str =
 /// which neither `bd` nor the app links
 const HOST_RUNS: &[&str] = &["host-link", "host-client", "host-agent", "bd-host"];
 
-/// The crates of the marks of a diff that are pure functions of two texts (`line-diff`, and above it `code-tokens` and
-/// `diff-marks`): written to move as they are into psi-syntax, the public crates accio reads code with, so that
-/// Branch Deck and accio share one implementation of the marks. They reach no git, no cache, no symbol and no other
-/// crate of Branch Deck, and none of the bindings of its app (`text-diff` describes their types for it)
-const PSI_READY_CRATES: &[&str] = &["line-diff", "code-tokens", "diff-marks"];
-/// What `PSI_READY_CRATES` never reach, also transitively; besides, none of them has an edge of any kind to a crate
-/// of the workspace but each other (`psi_ready_violations`), a crate this list does not name too
-const PSI_READY_FORBIDDEN: &[&str] = &[
-  "git-ops",
-  "git-executor",
-  "object-cache",
-  "code-symbols",
-  "file-diffs",
-  "text-diff",
-  "sync-utils",
-  "specta",
-  TAURI,
-];
-/// Why `PSI_READY_FORBIDDEN`
-const PSI_READY: &str =
-  "the pure crates of the marks of a diff move as they are into psi-syntax: no git, no cache, no symbol of Branch Deck, no crate of its own and no bindings of its app";
-
 /// What `from` never reaches over its normal dependencies, also transitively
 struct Unreachable {
   from: &'static str,
@@ -191,21 +169,6 @@ const UNREACHABLE: &[Unreachable] = &[
       TAURI,
     ],
     why: "what the pools hold on disk is a walk of their directories: no remote service, no check, no operation, no remote run, no Tauri",
-  },
-  Unreachable {
-    from: "line-diff",
-    forbidden: PSI_READY_FORBIDDEN,
-    why: PSI_READY,
-  },
-  Unreachable {
-    from: "code-tokens",
-    forbidden: PSI_READY_FORBIDDEN,
-    why: PSI_READY,
-  },
-  Unreachable {
-    from: "diff-marks",
-    forbidden: PSI_READY_FORBIDDEN,
-    why: PSI_READY,
   },
   Unreachable {
     from: "fs-walk",
@@ -548,25 +511,10 @@ fn violations(graph: &Graph, allowed: &[&Allowed]) -> Vec<String> {
       report.push(format!("  {from} reaches {POLICY} ({}): {RULES_ABOVE_GIT}", path.join(" -> ")));
     }
   }
-  report.extend(psi_ready_violations(graph));
   for (from, package) in graph {
     for dependency in package.dependencies.iter().filter(|dependency| !is_allowed(allowed, from, &dependency.name)) {
       if let Some(rule) = direct_rule(from, dependency) {
         report.push(format!("  {from} depends on {} ({:?}): {rule}", dependency.name, dependency.kind));
-      }
-    }
-  }
-  report
-}
-
-/// The edges of `PSI_READY_CRATES` to a crate of the workspace that is not one of them, of every kind: their tests
-/// move into psi-syntax with them, so a dev-dependency on a crate of Branch Deck breaks the rule as a normal one does
-fn psi_ready_violations(graph: &Graph) -> Vec<String> {
-  let mut report = Vec::new();
-  for from in PSI_READY_CRATES {
-    for dependency in graph.get(*from).into_iter().flat_map(|package| &package.dependencies) {
-      if graph.contains_key(&dependency.name) && !PSI_READY_CRATES.contains(&dependency.name.as_str()) {
-        report.push(format!("  {from} depends on {} ({:?}): {PSI_READY}", dependency.name, dependency.kind));
       }
     }
   }
@@ -692,25 +640,6 @@ fn the_architecture_check_names_the_path_of_a_forbidden_reach() {
   assert_eq!(
     violations(&graph, &[&allowed]),
     ["  domain-types depends on tauri-build (Build): only the app depends on Tauri"]
-  );
-}
-
-#[test]
-fn the_architecture_check_keeps_the_crates_for_psi_syntax_to_each_other() {
-  let graph = graph_of(&[
-    ("diff-marks", "line-diff", Kind::Normal, &[]),
-    ("diff-marks", "serde", Kind::Normal, &[]),
-    ("diff-marks", "test-utils", Kind::Dev, &[]),
-    ("line-diff", "domain-types", Kind::Normal, &[]),
-    ("domain-types", "serde", Kind::Normal, &[]),
-    ("test-utils", "serde", Kind::Normal, &[]),
-  ]);
-  assert_eq!(
-    psi_ready_violations(&graph),
-    [
-      format!("  line-diff depends on domain-types (Normal): {PSI_READY}"),
-      format!("  diff-marks depends on test-utils (Dev): {PSI_READY}")
-    ]
   );
 }
 

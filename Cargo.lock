@@ -1366,12 +1366,12 @@ dependencies = [
 [[package]]
 name = "code-tokens"
 version = "0.1.0"
+source = "git+https://github.com/develar/psi-syntax?rev=94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9#94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9"
 dependencies = [
  "csharp-syntax",
  "java-syntax",
  "js-syntax",
  "kotlin-syntax",
- "pretty_assertions",
  "psi-builder",
  "rust-syntax",
  "starlark-syntax",
@@ -1917,12 +1917,11 @@ checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 [[package]]
 name = "diff-marks"
 version = "0.1.0"
+source = "git+https://github.com/develar/psi-syntax?rev=94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9#94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9"
 dependencies = [
  "code-tokens",
  "line-diff",
- "pretty_assertions",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -4005,14 +4004,12 @@ dependencies = [
 [[package]]
 name = "line-diff"
 version = "0.1.0"
+source = "git+https://github.com/develar/psi-syntax?rev=94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9#94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9"
 dependencies = [
  "fixedbitset",
  "icu_properties",
- "pretty_assertions",
- "proptest",
  "rustc-hash 2.1.3",
  "serde",
- "serde_json",
  "sha1 0.11.0",
 ]
 

@@ -8,16 +8,16 @@ description = "The typed diffs of the files of a commit, a range or the working 
 [dependencies]
 code-symbols = { path = "../code-symbols" }
 # the tokens of a file and the rule "equal by tokens", the grammar of a path
-code-tokens = { path = "../code-tokens" }
+code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 # the marks of a diff, and the answers of the index they decide by
-diff-marks = { path = "../diff-marks" }
+diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 # the names of the generated files, which start collapsed (`collapse_of`)
 generated-files = { path = "../generated-files" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 object-cache = { path = "../object-cache" }
 sync-utils = { path = "../sync-utils" }
-line-diff = { path = "../line-diff" }
+line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 # the merge of three texts (`merge_model`, `compose`) and the wire model of the diffs for the bindings
 text-diff = { path = "../text-diff", features = ["marks"] }
 

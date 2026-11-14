@@ -159,7 +159,7 @@ export async function lateSubjectMarks(page: Page, path: string): Promise<void> 
 /**
  * What the index of the repository answers of the function the store of the `commit_marks` template declares and
  * renamed (`openStore` to `connectStore`, src/Store.kt, used twice in src/Report.kt), as accio answers
- * (`accio renames`, `RenameAnswer` of crates/diff-marks/src/index.rs, final): the fixture of the test server
+ * (`accio renames`, `RenameAnswer` of psi-syntax:crates/diff-marks/src/index.rs, final): the fixture of the test server
  * (`FixtureIndex`), written into the repository at `repositoryPath` before a view asks. Its declaration and its two
  * calls in both trees, every use a place of the rename: a proof. With `outside` a call more of the old name in the
  * old tree, in a file the commit left alone: the rename is proven no more, and the name is used outside the change
