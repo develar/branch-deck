@@ -5,8 +5,11 @@
 //! On Windows `git` on `PATH` is mostly the launcher of Git for Windows (`Git\cmd\git.exe`), which starts the real git
 //! (`mingw64\bin\git.exe`) as its child and waits for it, so a kill of the launcher alone (`TerminateProcess`) leaves even
 //! the real git. Every child goes into a job object of its own when it starts, and a kill ends the job: the child and
-//! every process it started. A child that exits by itself ends nothing: the job has no kill-on-close, and a process that
-//! asks to break away from it (a daemon) may.
+//! every process it started. A child that exits by itself ends nothing: the job has no kill-on-close. The job allows no
+//! breakaway: the MSYS runtime of Git for Windows (its sh, its ssh) asks to break away from a job that allows it for
+//! every program it starts (`spawn.cc`, a workaround for the compatibility job of Windows 7), so an ssh command, a
+//! credential helper, alias or hook that git runs through its sh ended outside the job and outlived the kill. Git asks
+//! for no breakaway itself (`compat/mingw.c`); a program that does fails to start in the job.
 //!
 //! On Unix a kill takes the processes below the child by their parent pids (`process_scan::descendants`) in passes: it
 //! stops the child and each process a pass found (`SIGSTOP`: a stopped process forks no more), waits until each of
@@ -131,12 +134,9 @@ fn stop_all(processes: &[(u32, u64)], deadline: std::time::Instant) {
 mod job {
   use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
   use std::process::Child;
-  use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
-    TerminateJobObject,
-  };
+  use windows_sys::Win32::System::JobObjects::{AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject};
 
-  /// A new job with `child` in it; a process may break away from it only when it asks to, as git's daemons may
+  /// A new job with `child` in it, without limits: no breakaway, no kill-on-close
   pub(super) fn join(child: &Child) -> Option<OwnedHandle> {
     // SAFETY: no security attributes and no name; a non-null result is a handle that nothing else owns
     let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
@@ -145,12 +145,6 @@ mod job {
     }
     // SAFETY: `job` is the open handle just created, owned from here on, and closed when the tree is dropped
     let job = unsafe { OwnedHandle::from_raw_handle(job) };
-    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_BREAKAWAY_OK;
-    let length = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()).ok()?;
-    // SAFETY: the class names the struct and its length, which outlives the call; a failure leaves the job without the
-    // limit, so a child that asks to break away fails to start its daemon, as in a job of the caller's
-    unsafe { SetInformationJobObject(job.as_raw_handle(), JobObjectExtendedLimitInformation, (&raw const limits).cast(), length) };
     // SAFETY: both handles are open: the job's, and the process handle that `child` holds until it is dropped
     let joined = unsafe { AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) };
     (joined != 0).then_some(job)

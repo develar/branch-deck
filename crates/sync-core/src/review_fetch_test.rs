@@ -532,7 +532,9 @@ impl Drop for HangingSsh {
 }
 
 /// A fixture whose origin is an ssh remote that never answers, once it wrote `SSH_STARTED`: it ends by itself only
-/// after two minutes
+/// after two minutes. The ssh command has an option, as a real one often has (`ssh -i ~/.ssh/key`), so git runs it
+/// through its sh (a word of shell syntax does, as the `~` of the short temp path of the Windows runner of CI): on
+/// Windows the sh of Git for Windows asks to break away from the job of git for every program it starts
 fn hanging_fixture() -> (Fixture, HangingSsh) {
   let fixture = fixture();
   let dir = tempfile::tempdir().unwrap();
@@ -540,7 +542,7 @@ fn hanging_fixture() -> (Fixture, HangingSsh) {
   // its pid of the system: on Windows the sh of Git keeps a pid of its own
   let pid_of_shell = if cfg!(windows) { "cat /proc/$$/winpid" } else { "echo $$" };
   let ssh = fake_executable(dir.path(), "ssh", &format!("{pid_of_shell} > '{pid}'\n: > '{started}'\nexec sleep 120"));
-  fixture.local.set_config("core.sshCommand", &shell_path(&ssh)).unwrap();
+  fixture.local.set_config("core.sshCommand", &format!("'{}' -oBatchMode=yes", shell_path(&ssh))).unwrap();
   git(&fixture.local, &["remote", "set-url", "origin", "ssh://git@git.example.com/team/monorepo.git"]);
   let repository = fixture.local.path().to_path_buf();
   (fixture, HangingSsh { dir, repository })

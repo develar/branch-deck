@@ -447,7 +447,10 @@ every process it started (`crates/sync-utils/src/process_tree.rs`, as `sync_util
 its child): an ssh of a remote that does not answer reads no end of its pipes and would run on after git. On Windows
 the kill ends the job object that git was put into when it started: `git` on `PATH` is mostly the launcher of Git for
 Windows (`Git\cmd\git.exe`), which starts the real git as its child, and a kill of the launcher alone would leave that
-git running with its ssh or helper, its lock files and our inherited pipe handles. On Unix the kill takes the processes
+git running with its ssh or helper, its lock files and our inherited pipe handles. The job allows no breakaway: the
+MSYS runtime of Git for Windows asks to break away from a job that allows it for every program it starts, so an ssh
+command with an option, a credential helper or hook that git runs through its sh would end outside the job and outlive
+the kill. On Unix the kill takes the processes
 below git by their parent pids in passes: it stops git and what each pass found (`SIGSTOP`, so nothing forks more),
 waits until each of their threads has stopped (a thread in the middle of a fork finishes it first, while macOS calls the
 process stopped as the signal comes; at most 10 s in all) and scans again until a pass finds nothing new, then kills
