@@ -6,14 +6,14 @@
  * a report it takes only those deeper than the shallowest element it reported, and an observation resized at that depth
  * or above is one it skips, a ResizeObserver loop.
  *
- * - The delivery of an update, from a report of ours to the next task or the next frame, whichever comes first: an
- *   element a change touches (of its subtree, or of an ancestor's class, style, hidden or children: a view hidden around
- *   a table) leaves its observers at once when it is no deeper than the elements of the latest report (no observation
- *   of it is left to skip), and is observed anew as the delivery ends, its size in the next
- *   report: a frame later for a change of the delivery, as the loop would have it; in its own frame for a change after
- *   the update (a task that ran before the end, as React renders, is followed by the frame that observes it first). A
- *   deeper element stays: the update delivers it at its depth, in the frame of its change. One let go comes back as soon
- *   as a report of shallower elements shows it deeper than they are.
+ * - A change in the rendering update, in a callback of an observer (ours or a library's) or in the microtasks right after
+ *   it, can resize any element: the layout is the page's (a block above a view that grows shrinks the view, a view hidden
+ *   around a table empties its cells). On such a change every element of ours no deeper than the elements of the latest
+ *   report leaves its observers at once (no observation of it is left to skip) and is observed anew as the delivery ends,
+ *   at the next task or the next frame, whichever comes first: its size a frame later, as the loop would have it. A
+ *   deeper element stays: the update delivers it at its depth, in the frame of its change; one let go comes back as soon
+ *   as a report of shallower elements shows it deeper than they are. A change after the update (a task, as React renders)
+ *   lets nothing go: the next update delivers it, in its own frame. The page is watched only while a callback runs.
  * - The observers of the libraries (Base UI, the panels) report through the engine's `ResizeObserver` with one step
  *   before their callback (`watchTheLibraries`): their report opens the delivery at its depth as one of ours does, so a
  *   change of their callback that resizes an element of ours lets it go. Passive: theirs is the engine's class, prototype
@@ -64,19 +64,18 @@ interface Release {
   readonly resized: boolean
 }
 
-/** The observed elements at or above a node with their depth, and its own depth */
-interface Above {
-  readonly depth: number
-  readonly observed: readonly (readonly [Element, number])[]
-}
-
 /** The observers made here that observe something */
 const observers = new Set<SizeObserver>()
 /** The observers of each observed element */
 const observing = new Map<Element, Set<SizeObserver>>()
-/** The delivery: the depth of the shallowest element of the latest report of ours; null between deliveries */
-let delivery: { depth: number } | null = null
-/** A callback of ours runs, or the microtasks right after it: a change now is one of the rendering update */
+/**
+ * The delivery: the depth of the shallowest element of the latest report, of ours or of a library, and the depth of each
+ * observed element as it found it; null between deliveries
+ */
+let delivery: { depth: number; readonly depths: Map<Element, number> } | null = null
+/** A callback of an observer runs, or the microtasks right after it: a change now is one of the rendering update */
+let updating = false
+/** That callback is one of ours: a change of it counts toward a cycle */
 let delivering = false
 /** The end of the delivery is asked for */
 let ending = false
@@ -88,15 +87,11 @@ let frameRequested = false
 /** The frames within the last `CYCLE_FRAMES` whose delivery let each element go, and whether its cycle was logged */
 const cycles = new Map<Element, { frames: number[]; logged: boolean }>()
 
+/** The changes of the page while a callback of an observer runs */
 const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(records => settle(records))
-/** What the changes of an observed element and of its subtree are watched for: what can resize it */
-const SUBTREE: MutationObserverInit = { subtree: true, childList: true, characterData: true, attributeFilter: ["class", "style", "hidden"] }
-/** What the changes of an ancestor of an observed element are watched for: its class, style or hidden, its children */
-const ANCESTOR: MutationObserverInit = { childList: true, attributeFilter: ["class", "style", "hidden"] }
-/** The observed elements, watched with their subtree */
-const watchedSubtrees = new WeakSet<Node>()
-/** The ancestors of the observed elements, each watched itself: a view hidden around a table resizes its cells to nothing */
-const watchedAncestors = new WeakSet<Node>()
+/** What can resize an element: a node added or removed, a text, a class, a style, hidden */
+const CHANGES: MutationObserverInit = { subtree: true, childList: true, characterData: true, attributeFilter: ["class", "style", "hidden"] }
+let watching = false
 
 /** The parent of `node`, or the host of a shadow root: the slot a node is assigned to is not followed, the page has none */
 function parentOf(node: Node): Node | null {
@@ -110,25 +105,6 @@ function depthOf(node: Node): number {
     depth++
   }
   return depth
-}
-
-/** The observed elements at or above `node`, memoized across the records of one commit */
-function observedAbove(node: Node, memo: Map<Node, Above>): Above {
-  const chain: Node[] = []
-  let current: Node | null = node
-  let known: Above | undefined
-  while (current !== null && (known = memo.get(current)) === undefined) {
-    chain.push(current)
-    current = parentOf(current)
-  }
-  let above: Above = known ?? { depth: -1, observed: [] }
-  for (let index = chain.length - 1; index >= 0; index--) {
-    const at = chain[index]!
-    const depth = above.depth + 1
-    above = observing.has(at as Element) ? { depth, observed: [...above.observed, [at as Element, depth]] } : { depth, observed: above.observed }
-    memo.set(at, above)
-  }
-  return above
 }
 
 /** The border box of `element` as laid out now, which no transform changes; null without a box */
@@ -180,7 +156,7 @@ function openDelivery(entries: readonly ResizeObserverEntry[]): void {
     depth = Math.min(depth, depthOf(entry.target))
   }
   if (delivery === null) {
-    delivery = { depth }
+    delivery = { depth, depths: new Map() }
     endDeliveryLater()
   } else {
     delivery.depth = depth
@@ -195,42 +171,52 @@ function openDelivery(entries: readonly ResizeObserverEntry[]): void {
   }
 }
 
-/** The changes of a callback, then those of the microtasks it left (a commit of React that waited), are of its delivery */
+/** A callback of an observer begins, `own` one of ours: the page is watched for its changes until it and its microtasks end */
+function beforeCallback(own: boolean): void {
+  updating = true
+  delivering = own
+  if (mutations !== null && !watching && typeof document !== "undefined") {
+    mutations.observe(document.documentElement, CHANGES)
+    watching = true
+  }
+}
+
+/** The changes of a callback, then those of the microtasks it left (a commit of React that waited), are of the update */
 function afterCallback(): void {
   settle(mutations?.takeRecords() ?? [])
   queueMicrotask(() =>
     queueMicrotask(() => {
       settle(mutations?.takeRecords() ?? [])
+      updating = false
       delivering = false
+      if (watching) {
+        mutations?.disconnect()
+        watching = false
+      }
     }),
   )
 }
 
 /**
- * The changes `records` tell: in a delivery, an observed element they touch no deeper than its report leaves its
- * observers. Touched: a change in it (its subtree), or of an ancestor of it (its class, style or hidden, its children)
+ * The page changed (`records`) in the rendering update: every observed element no deeper than the elements of the
+ * latest report leaves its observers, as the change may have resized it
  */
 function settle(records: readonly MutationRecord[]): void {
-  if (delivery === null || records.length === 0) {
+  if (!updating || delivery === null || records.length === 0) {
     return
   }
-  const memo = new Map<Node, Above>()
-  const touched = new Map<Element, number>()
-  for (const target of new Set(records.map(record => record.target))) {
-    for (const [element, depth] of observedAbove(target, memo).observed) {
-      touched.set(element, depth)
+  const { depth, depths } = delivery
+  for (const element of observing.keys()) {
+    if (released.has(element)) {
+      continue
     }
-    if (watchedAncestors.has(target)) {
-      for (const element of observing.keys()) {
-        if (element !== target && !touched.has(element) && target.contains(element)) {
-          touched.set(element, depthOf(element))
-        }
-      }
+    let at = depths.get(element)
+    if (at === undefined) {
+      at = depthOf(element)
+      depths.set(element, at)
     }
-  }
-  for (const [element, depth] of touched) {
-    if (depth <= delivery.depth && !released.has(element)) {
-      release(element, depth)
+    if (at <= depth) {
+      release(element, at)
     }
   }
 }
@@ -346,24 +332,6 @@ function nextTask(run: () => void): void {
   channel.port2.postMessage(null)
 }
 
-/** The changes of `element` and of its subtree are watched, and those of each ancestor of it itself */
-function watch(element: Element): void {
-  if (mutations === null) {
-    return
-  }
-  if (!watchedSubtrees.has(element)) {
-    // an ancestor watched itself so far takes its subtree too, the options of one observer for one node replaced
-    mutations.observe(element, SUBTREE)
-    watchedSubtrees.add(element)
-  }
-  for (let ancestor = parentOf(element); ancestor !== null && !watchedAncestors.has(ancestor); ancestor = parentOf(ancestor)) {
-    watchedAncestors.add(ancestor)
-    if (!watchedSubtrees.has(ancestor)) {
-      mutations.observe(ancestor, ANCESTOR)
-    }
-  }
-}
-
 /** At a loop the engine reports: the elements of ours it left resized since their report, or observed and never reported */
 function pendingOfOurs(): string[] {
   const names = new Set<string>()
@@ -393,10 +361,17 @@ function watchTheLibraries(): void {
       throw new TypeError("Failed to construct 'ResizeObserver': Please use the 'new' operator")
     }
     const watched: ResizeObserverCallback = (entries, observer) => {
-      if (Reflect.get(observer, SIZE_OBSERVER_MARK) !== true) {
-        openDelivery(entries)
+      if (Reflect.get(observer, SIZE_OBSERVER_MARK) === true) {
+        callback(entries, observer)
+        return
       }
-      callback(entries, observer)
+      openDelivery(entries)
+      beforeCallback(false)
+      try {
+        callback(entries, observer)
+      } finally {
+        afterCallback()
+      }
     }
     return Reflect.construct(Engine, [watched], new.target) as ResizeObserver
   } as unknown as typeof ResizeObserver
@@ -423,7 +398,7 @@ export class SizeObserver {
         ? null
         : new ResizeObserver((entries, observer) => {
             delivered(this, entries)
-            delivering = true
+            beforeCallback(true)
             try {
               callback(entries, observer)
             } finally {
@@ -449,7 +424,6 @@ export class SizeObserver {
       observing.set(element, by)
     }
     by.add(this)
-    watch(element)
   }
 
   unobserve(element: Element): void {

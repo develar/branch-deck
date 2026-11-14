@@ -87,6 +87,8 @@ class FakeMutationObserver {
 
   observe(): void {}
 
+  disconnect(): void {}
+
   takeRecords(): MutationRecord[] {
     return this.pending.splice(0)
   }
@@ -186,9 +188,23 @@ describe("observeSize", () => {
     expect(resizeObserver.observed.has(prologue.element)).toBe(true)
   })
 
-  it("observes an element a task after the update let go anew in the next frame, when that frame comes before the next task", async () => {
-    // a render of React in a task that ran before the end of the delivery: the next frame observes the element first, so
-    // that frame's report has the change, and no frame paints the block without its height
+  it("observes an element the delivery let go anew at the next frame, when that frame comes before the next task", async () => {
+    // a loaded machine renders the next frame before the next task: the element is observed again first, so that
+    // frame's report has its size
+    const { observeSize } = await import("@/lib/observe-size")
+    const prologue = element(body, "prologue")
+    observeSize(() => commit(prologue.text)).observe(prologue.element)
+    const resizeObserver = FakeResizeObserver.all[0]!
+    resizeObserver.report(prologue.element)
+    await microtasks()
+    expect(resizeObserver.observed.has(prologue.element)).toBe(false)
+    nextFrame()
+    expect(resizeObserver.observed.has(prologue.element)).toBe(true)
+  })
+
+  it("leaves an element observed that a change after the update resizes: the next update delivers it in its own frame", async () => {
+    // a render of React in a task after the update: no update skips it, so the block keeps its observation, and the
+    // frame that follows reports its height
     const { observeSize } = await import("@/lib/observe-size")
     const prologue = element(body, "prologue")
     observeSize(() => {}).observe(prologue.element)
@@ -197,8 +213,6 @@ describe("observeSize", () => {
     await microtasks()
     commit(prologue.text)
     await microtasks()
-    expect(resizeObserver.observed.has(prologue.element)).toBe(false)
-    nextFrame()
     expect(resizeObserver.observed.has(prologue.element)).toBe(true)
   })
 
@@ -364,19 +378,19 @@ describe("observeSize", () => {
     expect(loopOfOurs()).toEqual(["resized", "fresh"])
   })
 
-  it("lets an element go that a change of an ancestor resizes in the delivery, and leaves one deeper than the report observed", async () => {
-    // a view hidden around a table in the delivery of a report of its cells resizes them to nothing: a change of the
-    // view, outside the subtree of each cell
+  it("lets every element go that a change anywhere in the delivery can resize, and leaves one deeper than the report observed", async () => {
+    // the layout is the page's: a block above the view that grows in the delivery of a report shrinks the view, a view
+    // hidden around a table empties its cells, though neither change is in them
     const { observeSize } = await import("@/lib/observe-size")
     const view = node(body, "view")
     const cell = element(node(view), "cell")
     const deeper = element(node(node(node(view))), "deeper")
-    const observer = observeSize(() => {})
+    const above = node(body, "above")
+    const observer = observeSize(() => commit(above as unknown as Node))
     observer.observe(cell.element)
     observer.observe(deeper.element)
     const resizeObserver = FakeResizeObserver.all[0]!
     resizeObserver.report(cell.element)
-    commit(view as unknown as Node)
     await microtasks()
     expect(resizeObserver.observed.has(cell.element)).toBe(false)
     // the update takes it in at its depth, in that frame

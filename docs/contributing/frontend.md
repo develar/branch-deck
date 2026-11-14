@@ -176,12 +176,14 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   that same rendering update: a ResizeObserver loop. Toast.Content of Base UI 1.9 set the height of its toast so; the
   same patch sets it in the next frame (an issue for upstream is drafted). Every observer of ours is made by
   `observeSize` (src/lib/observe-size.ts, `pnpm lint:arch` `resize-observer`). The update delivers by depth: after a
-  report only what is deeper than the elements it reported, so from a report of ours to the next task or the next frame,
-  whichever comes first, an element a change touches (of its subtree, or of an ancestor's class, style, hidden or
-  children: a view hidden around a table) leaves its observers when it is no deeper than the
-  elements of the latest report, and is observed anew as that delivery ends (its size a frame later, as the loop would
-  give it; a change of a task after the update, a render of React, in the frame that follows). A deeper one stays, the
-  update delivers it in that frame; one let go comes back at once when a report of shallower elements shows it deeper.
+  report only what is deeper than the elements it reported. A change while a callback of an observer runs (ours or a
+  library's) or in the microtasks right after it can resize any element, as the layout is the page's (a block above a
+  view that grows shrinks the view, a view hidden around a table empties its cells), so on one every element of ours no
+  deeper than the elements of the latest report leaves its observers, and is observed anew at the next task or the next
+  frame, whichever comes first (its size a frame later, as the loop would give it). A deeper one stays, the update
+  delivers it in that frame; one let go comes back at once when a report of shallower elements shows it deeper. A change
+  after the update (a task, as React renders) lets nothing go: the next update delivers it in its own frame. The page is
+  watched only while those callbacks run.
   The observers of the libraries go through the engine's own class with one step before their callback, which opens
   the delivery at the depth of their report as one of ours does (`watchTheLibraries`): the same class, prototype,
   methods and `instanceof`, the same entries in the same frame, none of their elements let go. An element let go so in
