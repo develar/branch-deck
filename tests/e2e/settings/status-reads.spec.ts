@@ -21,6 +21,12 @@ interface StatusRead {
  * read, the failure says why with Retry, and Retry reads again until the status answers
  */
 async function expectStatusRead(page: Page, repo: TestRepositoryBuilder, read: StatusRead): Promise<void> {
+  if (read.answer === "authStatus") {
+    // the session of the main window reads the sign-ins as it opens: a hold before that read answered held it too, and
+    // its failure was the main window's, which tells it as an error ("Cannot read the GitHub and YouTrack sign-ins", 5
+    // of 30 runs); the read of the test is the one of the Settings window
+    await expect.poll(async () => (await repo.sessionView())?.facts.auth.state.kind).toBe("fresh")
+  }
   await repo.holdRemoteAnswers({ hold: [read.answer] })
   const settings = await openSettingsWindow(page, { page: read.page })
   const section = settings.getByTestId(`settings-page-${read.page}`)
