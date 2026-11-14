@@ -2132,17 +2132,24 @@ async fn a_frame_of_an_earlier_lease_of_the_slot_seeds_nothing() {
   assert_eq!(view.order, ["auth"]);
 }
 
-/// A session kept idle after its window left (`IDLE_LIMIT`) is of the lease its slot held then: a window that comes back
-/// once the slot was returned and leased again opens a new session, as for a worktree it never showed, whose frame of
-/// the lease before seeds nothing; under the same lease it joins the kept one
-#[tokio::test]
-async fn a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens_a_new_one() {
+/// The session of `/repo` under the lease `lease-a`, seeded from its frame and kept idle as its window left: the host,
+/// the sessions, its key and the view the window had
+async fn kept_under_lease_a() -> (Arc<ScriptedHost>, Sessions, SessionKey, RepositoryView) {
   let host = host_of(frame_of_lease("lease-a"), lease("lease-a"));
   let (sessions, _clock) = scripted(&host);
   let key = key("/repo");
   let (first, view) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   assert_eq!(view.order, ["auth"]);
   sessions.unsubscribe(first);
+  (host, sessions, key, view)
+}
+
+/// A session kept idle after its window left (`IDLE_LIMIT`) is of the lease its slot held then: a window that comes back
+/// once the slot was returned and leased again opens a new session, as for a worktree it never showed, whose frame of
+/// the lease before seeds nothing; under the same lease it joins the kept one
+#[tokio::test]
+async fn a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens_a_new_one() {
+  let (host, sessions, key, view) = kept_under_lease_a().await;
   let (again, kept) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   assert_eq!(kept.version.epoch, view.version.epoch, "the same lease joins the kept session");
   sessions.unsubscribe(again);
@@ -2171,11 +2178,7 @@ async fn a_frame_keeps_its_epoch_while_the_epoch_of_the_worktree_cannot_be_read(
 /// could not tell keeps it, so a failed read costs no sync of a session opened anew
 #[tokio::test]
 async fn a_kept_session_stays_while_the_epoch_of_the_worktree_cannot_be_read() {
-  let host = host_of(frame_of_lease("lease-a"), lease("lease-a"));
-  let (sessions, _clock) = scripted(&host);
-  let key = key("/repo");
-  let (first, view) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
-  sessions.unsubscribe(first);
+  let (host, sessions, key, view) = kept_under_lease_a().await;
   *host.epoch.lock().unwrap() = WorktreeEpoch::Unknown;
   let (_, kept) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   assert_eq!(kept.version.epoch, view.version.epoch, "the same session");

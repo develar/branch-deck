@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test"
+import { CLOSE_SAVE_LIMIT_MS } from "../../../src/lib/settings-close"
 // @spec openspec/specs/repository/onboarding/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
@@ -20,7 +21,7 @@ import {
 } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
-import { recordCommand, routeCommandError, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
+import { holdNextAnswer, recordCommand, routeCommandError, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 /** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
@@ -28,6 +29,14 @@ async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
   const settings = await openSettingsWindow(page, { page: "branches" })
   await expect(settings.getByRole("textbox", { name: "Branch prefix", exact: true })).toHaveValue(prefix)
   await settings.close()
+}
+
+/** Settings → Branches of the repository "simple", "jane" typed as the app's prefix and not saved: the window */
+async function typePrefixInSettings(page: Page, setupRepo: (templateName: string, options: { prepopulateStore: boolean }) => Promise<TestRepositoryBuilder>): Promise<Page> {
+  await setupRepo("simple", { prepopulateStore: true })
+  const settings = await openSettingsWindow(page, { page: "branches" })
+  await settings.getByRole("textbox", { name: "Branch prefix", exact: true }).fill("jane")
+  return settings
 }
 
 /** Types the app's prefix into Settings → Branches and saves it with Enter; the window stays open */
@@ -92,14 +101,23 @@ test.describe("Onboarding", () => {
   })
 
   test("saves the prefix typed in Settings when the window closes, and the window opened again shows it", async ({ page, setupRepo, testStore }) => {
-    await setupRepo("simple", { prepopulateStore: true })
-    const settings = await openSettingsWindow(page, { page: "branches" })
-    await settings.getByRole("textbox", { name: "Branch prefix", exact: true }).fill("jane")
+    const settings = await typePrefixInSettings(page, setupRepo)
     // ⌘W with the typing in the field: the window saves it first, waits for the writer, then goes
     await emitTauriEvent(settings, "tauri://close-requested")
     await expect.poll(() => windowCalls(settings)).toContain("destroy")
     expect(((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
     await expectSettingsPrefix(page, "jane")
+  })
+
+  test("closes Settings after a while when the save of the prefix typed gets no answer, as after a failed save", async ({ page, setupRepo }) => {
+    const settings = await typePrefixInSettings(page, setupRepo)
+    // the writer takes the change but its answer never comes
+    const write = await holdNextAnswer(settings, "set_setting")
+    await emitTauriEvent(settings, "tauri://close-requested")
+    await write.ran
+    expect(await windowCalls(settings)).not.toContain("destroy")
+    await settings.clock.fastForward(CLOSE_SAVE_LIMIT_MS)
+    await expect.poll(() => windowCalls(settings)).toContain("destroy")
   })
 
   test("changes the prefix in Settings on Enter or when the field is left, not on every key", async ({ page, setupRepo, testStore }) => {

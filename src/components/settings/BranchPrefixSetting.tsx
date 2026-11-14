@@ -57,12 +57,9 @@ export function BranchPrefixSetting() {
     if (draft === null || invalid) {
       return Promise.resolve()
     }
-    if (prefix === saved) {
-      setDraft(null)
-      return Promise.resolve()
-    }
     return writes.save(
       prefix,
+      saved,
       () => {
         setGlobalUserBranchPrefix(prefix === "" ? undefined : prefix)
         return whenSettingWritten("appSettings")

@@ -51,12 +51,10 @@ export function useConfigDraft({
     if (typed === null || error !== null || (getSelectedProject()?.path ?? "") !== path) {
       return Promise.resolve()
     }
-    if (typed === shown) {
-      setDraft(null)
-      return Promise.resolve()
-    }
+    // whether there is anything to write is the writes' to say: while one runs, the field shows the value before it
     return writes.save(
       typed,
+      shown,
       () => write(typed === "" ? null : typed),
       // an edit typed while the write ran stays, and is written after it
       value => setDraft(current => (current !== null && normalize(current) === value ? null : current)),

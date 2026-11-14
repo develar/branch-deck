@@ -353,21 +353,21 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
 
   /**
    * Types "acme/one" as the GitHub repository and leaves the field, whose write runs on the server and whose answer is
-   * held, then types "acme/two" meanwhile: the answer of the first write, to release
+   * held, then types `edit` meanwhile ("acme/two" by default): the answer of the first write, to release
    */
-  async function editDuringTheWriteOfABlur(window: Page): Promise<{ field: Locator; release: () => void }> {
+  async function editDuringTheWriteOfABlur(window: Page, edit = "acme/two"): Promise<{ field: Locator; release: () => void }> {
     const field = row(window, "githubRepository").getByRole("textbox", { name: "GitHub repository" })
     await field.fill("acme/one")
     const write = await holdNextAnswer(window, "set_repository_config")
     await field.blur()
     await write.ran
-    await field.fill("acme/two")
+    await field.fill(edit)
     return { field, release: write.release }
   }
 
-  /** The two values written in order, each once */
-  function writtenInOrder(path: string): Array<Record<string, unknown>> {
-    return ["acme/one", "acme/two"].map(value => ({ repositoryPath: path, change: { key: "githubRepository", value }, scope: "local" }))
+  /** The values written in order, each once ("acme/one" and "acme/two" by default; null for the field emptied) */
+  function writtenInOrder(path: string, values: Array<string | null> = ["acme/one", "acme/two"]): Array<Record<string, unknown>> {
+    return values.map(value => ({ repositoryPath: path, change: { key: "githubRepository", value }, scope: "local" }))
   }
 
   test("should write an edit typed during the write of a blur once that write answered, when the window closes", async ({ page, setupRepo }) => {
@@ -393,6 +393,33 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
     expect(writes).toEqual(writtenInOrder(repo.path))
     await expect(field).toHaveValue("acme/two")
     await expect(source(window, "githubRepository")).toHaveText(ownLine(repo.path))
+  })
+
+  test("should keep an edit typed during the write of a blur in the field once that write answered, unsaved", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple")
+    const window = await openRepositoryLanding(page)
+    const writes = recordWrites(window)
+    const { field, release } = await editDuringTheWriteOfABlur(window)
+    await expect(source(window, "githubRepository")).not.toHaveText(ownLine(repo.path))
+    release()
+    // the page took the answer of the first write: the row says the repository has its own value now
+    await expect(source(window, "githubRepository")).toHaveText(ownLine(repo.path))
+    // and leaves the typing of the field as it is: it is no value written
+    await expect(field).toHaveValue("acme/two")
+    expect(writes).toEqual(writtenInOrder(repo.path, ["acme/one"]))
+  })
+
+  test("should write the field emptied and entered during the write of a blur once that write answered, back to no value", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple")
+    const window = await openRepositoryLanding(page)
+    const writes = recordWrites(window)
+    // the field still shows no value while the first write runs: the edit back to it is a change all the same
+    const { field, release } = await editDuringTheWriteOfABlur(window, "")
+    await field.press("Enter")
+    release()
+    await expect.poll(() => writes.length).toBe(2)
+    expect(writes).toEqual(writtenInOrder(repo.path, ["acme/one", null]))
+    await expect(field).toHaveValue("")
   })
 
   test("should show only the value of every repository without a repository, and say how to set the rest", async ({ page, setupRepo }) => {

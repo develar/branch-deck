@@ -1219,9 +1219,9 @@ A field MUST write to the repository the typing began in: a switch of the reposi
 ### Requirement: Scope: A window closed with valid typing saves it first
 
 A window closed with valid typing (⌘W, the close button) MUST save it first: one listener of the window waits for the
-saves the fields registered (`saveBeforeClose`), then destroys the window, a failed save too (it may destroy itself,
-`core:window:allow-destroy`). One change is one write, whichever of a blur, Enter and the close saves it, and no edit is
-lost: one saved while a write runs is written after it.
+saves the fields registered (`saveBeforeClose`) for at most 3 s (`CLOSE_SAVE_LIMIT_MS`), then destroys the window, a
+failed save too (it may destroy itself, `core:window:allow-destroy`). One change is one write, whichever of a blur,
+Enter and the close saves it, and no edit is lost: one saved while a write runs is written after it.
 
 #### Scenario: The window closes with typing
 - **GIVEN** a field holds valid typing
@@ -1248,6 +1248,28 @@ lost: one saved while a write runs is written after it.
   after both
   [@test] src/lib/field-writes.test.ts (`writes an edit saved during a write after it, the latest of such saves, and the save waits for both`)
   [@test] tests/e2e/settings/repository-settings.spec.ts (`should write an edit typed during the write of a blur once that write answered, when the window closes`, `should write an edit typed and entered during the write of a blur once that write answered, and keep it in the field`)
+
+#### Scenario: An edit back to no value during the write of a blur
+- **GIVEN** a field was left with "acme/one", and its write runs
+- **WHEN** the user empties the field and presses Enter before that write answered
+- **THEN** "acme/one" is written, then no value, and the field is empty
+  [@test] src/lib/field-writes.test.ts (`writes a value saved during a write back to the one the field showed before it, which the field still shows then`)
+  [@test] tests/e2e/settings/repository-settings.spec.ts (`should write the field emptied and entered during the write of a blur once that write answered, back to no value`)
+
+#### Scenario: An edit unsaved during the write of a blur
+- **WHEN** the user types another value while the write of a blur runs, and saves nothing
+- **THEN** the field keeps that typing once the write answered, and only the first value is written
+  [@test] tests/e2e/settings/repository-settings.spec.ts (`should keep an edit typed during the write of a blur in the field once that write answered, unsaved`)
+
+#### Scenario: A write that threw
+- **WHEN** a write of a field throws
+- **THEN** its save fails with the error, and the next save of the field writes
+  [@test] src/lib/field-writes.test.ts (`writes again after a write that threw: the save rejects with its error, and the next save of the field writes`)
+
+#### Scenario: A close whose save gets no answer
+- **WHEN** the window closes with typing whose write the writer never answers
+- **THEN** the window is destroyed after 3 s all the same
+  [@test] tests/e2e/onboarding/onboarding.spec.ts (`closes Settings after a while when the save of the prefix typed gets no answer, as after a failed save`)
 
 ### Requirement: Scope: Two writes at once both land
 
