@@ -3394,7 +3394,7 @@ shows it too. The branch the robot ran on landed too: it MUST keep its robot chi
 #### Scenario: The branch the robot ran on
 - **WHEN** the robot merged
 - **THEN** the branch it ran on keeps its robot chip, "Merged"
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on: Merged, no Safe Push and no push`)
 
 ### Requirement: Merged: The branches a merged robot landed offer no Safe Push and no push
 
@@ -3448,7 +3448,7 @@ new one below a tested one, MUST NOT be landed.
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`)
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`, `a_commit_not_synced_yet_is_after_the_landed_ones`)
   [@test] src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed as Rust says it of the branches as they are, also one first seen merged`)
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should leave a commit added below the commit of a merged Safe Push the only work left of its branch, by content`)
 
 #### Scenario: A commit changed since
 - **WHEN** a commit of the branch changed since the robot tested it, or a new one came below a tested one
@@ -4919,7 +4919,7 @@ it: they are work for the remote.
 - **GIVEN** a merged Safe Push landed commits of the branch, and commits were added to it after them
 - **WHEN** the holds of the branch are decided
 - **THEN** the branch is not held: the added commits are the work left for the remote
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should leave a commit added below the commit of a merged Safe Push the only work left of its branch, by content`)
 
 ### Requirement: Pushing into a branch whose Safe Push runs: A landed branch is only left out of the pushes of a stack
 
@@ -5261,7 +5261,7 @@ graph and the count of the island MUST start below it.
   [@test] src/lib/stack-lanes.test.ts (`starts below a root the robot's commit doesn't have: a restack placed it there after the start`)
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_parent_restacked_below_a_running_robot_is_not_in_its_span`)
   [@test] crates/sync-core/src/process_budget_test.rs (`the_span_of_a_running_robot_after_a_restack`)
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold what a running Safe Push took after a restack placed a branch below it, and not that branch`, `should push a branch a restack placed below a running Safe Push from its menu`, `should push a branch a restack placed below a running Safe Push by its key`, `should push a branch a restack placed below a running Safe Push before its pull request`)
 
 ### Requirement: Pushing into a branch whose Safe Push runs: A robot of a temporary ref is asked for its branch
 

@@ -1575,7 +1575,7 @@ reason: a pull request of commits that are in the target has nothing to review.
 - **WHEN** nothing of the branch is left to land
 - **THEN** "Create Pull Request…" is disabled in its menu, its preview and its review window
 - **AND** it says the reason ("Landed in master with oauth", "Merged by Patronus")
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should disable Create Pull Request… of a branch a merged Safe Push landed, in its menu, its preview and its review window: nothing of it is left to review`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should disable Create Pull Request… in the menus of the branches a merged Safe Push landed: nothing of them is left to review`, `should disable Create Pull Request… in the preview of a branch a merged Safe Push landed, and open it of one built on it with work left`, `should disable Create Pull Request… in the review window of a branch a merged Safe Push landed`)
   [@test] crates/domain-policy/src/next_step_test.rs (`row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts`)
   [@test] src/presenters/next-step.test.ts (`row 1: offers nothing, every surface says the reason of the subject: a sync, a failure, no commits, parked, landed`)
 

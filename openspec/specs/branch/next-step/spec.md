@@ -294,7 +294,7 @@ the robot tested against each branch as the table has it (the repository view, a
 - **THEN** the content tells what it landed: the commits the robot tested against each branch as the table has it
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_missing_source_lands_nothing`, `a_commit_added_below_the_robots_commit_is_the_only_work_left`)
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_reworded_commit_below_keeps_the_branches_landed`)
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should leave a commit added below the commit of a merged Safe Push the only work left of its branch, by content`, `should keep the branches a merged Safe Push landed whole landed by content after a change below its commit`)
 
 ### Requirement: The table: The Status cell names who landed the branch until the update
 
@@ -423,7 +423,7 @@ it, its Status cell says so, and it takes the rows of a branch with work: its pu
 - **AND** it takes the rows of a branch with work: its push, its Safe Push
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`)
   [@test] crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`, `a_commit_not_synced_yet_is_after_the_landed_ones`)
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should leave a commit added below the commit of a merged Safe Push the only work left of its branch, by content`)
 
 ### Requirement: The table: A branch with a commit changed since is not landed
 

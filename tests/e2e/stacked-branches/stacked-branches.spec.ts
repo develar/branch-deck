@@ -124,12 +124,62 @@ async function boxOf(locator: Locator): Promise<{ x: number; y: number; width: n
   return box!
 }
 
+/**
+ * stacked_branches on GitHub with no pull request yet (the next one #901), the Safe Push of oauth running on the commit it
+ * took of auth, login and oauth; then docs restacked below auth: the robot lands none of docs
+ */
+async function docsRestackedBelowRunningRobot(
+  page: Page,
+  setupRepo: Parameters<typeof setupTakenRobot>[1],
+  syncAndWaitForBranches: () => Promise<void>,
+): Promise<{ repo: TestRepositoryBuilder; docsRow: Locator }> {
+  const { repo } = await setupTakenRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", robot("oauth", "oauth-robot"), "auth", {
+    pullRequests: { ...availablePullRequests(), nextNumber: 901 },
+  })
+  await expect(findBranchRow(page, "docs").getByTestId("landing-span")).toHaveCount(0)
+  await waitForStepFacts(page.getByTestId("next-step-slot"))
+  await openContextMenu(page, findBranchRow(page, "auth"))
+  await openSubmenu(page, "Stack On…")
+  await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
+  await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@1", "session@2", "login@2", "oauth@3"])
+  return { repo, docsRow: findBranchRow(page, "docs") }
+}
+
 /** oauth-robot of oauth, started on the stack below login and merged into master as the table has it */
 async function mergedOauthRobot(page: Page, setupRepo: Parameters<typeof setupRunningRobot>[1], syncAndWaitForBranches: () => Promise<unknown>): Promise<TestRepositoryBuilder> {
   const running = robot("oauth", "oauth-robot")
   const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", running, "login")
   await mergeRunningRobot(page, repo, running)
   return repo
+}
+
+/** `row`, of the branch a merged Safe Push ran on, says Merged and offers no Safe Push and no push */
+async function expectMergedRow(row: Locator): Promise<void> {
+  await expect(row.getByTestId("patronus-chip")).toHaveAttribute("data-kind", "merged")
+  await expect(row.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
+  await expect(getPushButton(row)).toHaveCount(0)
+}
+
+/** `mergedOauthRobot` on GitHub with no pull request yet: auth and login landed, nothing of them left to review */
+async function mergedOauthRobotOnGitHub(page: Page, setupRepo: Parameters<typeof setupRunningRobot>[1], syncAndWaitForBranches: () => Promise<unknown>): Promise<void> {
+  const running = robot("oauth", "oauth-robot")
+  const repo = await setupRepo("stacked_branches", { patronus: availableRobots(running), pullRequests: availablePullRequests() })
+  await syncAndWaitForBranches()
+  await mergeRunningRobot(page, repo, running)
+  await expect(findBranchRow(page, "auth").getByTestId("landed-with")).toHaveText("Landed with oauth")
+}
+
+/**
+ * `mergedOauthRobot`, then a new commit of auth behind the app's back: the sync rebuilds login and oauth on it, no hash
+ * is the robot's now, so the content tells what it landed
+ */
+async function changedBelowMergedOauthRobot(page: Page, setupRepo: Parameters<typeof setupRunningRobot>[1], syncAndWaitForBranches: () => Promise<unknown>): Promise<void> {
+  const repo = await mergedOauthRobot(page, setupRepo, syncAndWaitForBranches)
+  await expect(findBranchRow(page, "auth").getByTestId("landed-with")).toHaveText("Landed with oauth")
+  await runAndWaitForSync(page, async () => {
+    await repo.commit("(auth) Check the token", { "token.js": "export const token = null\n" }, 1704128400)
+    await page.getByTestId("sync-button").click()
+  })
 }
 
 test.describe("Stacked branches", () => {
@@ -1615,55 +1665,50 @@ test.describe("Stacked branches", () => {
       await expect(openTooltip(page).filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
     })
 
-    test("should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      // on GitHub, no pull request yet
-      const { repo } = await setupTakenRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", robot("oauth", "oauth-robot"), "auth", {
-        pullRequests: { ...availablePullRequests(), nextNumber: 901 },
-      })
-      await expect(findBranchRow(page, "docs").getByTestId("landing-span")).toHaveCount(0)
-      await waitForStepFacts(page.getByTestId("next-step-slot"))
-
-      // docs below auth, after the Safe Push of oauth took its commit: the robot lands none of docs
-      await openContextMenu(page, findBranchRow(page, "auth"))
-      await openSubmenu(page, "Stack On…")
-      await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
-      await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@1", "session@2", "login@2", "oauth@3"])
+    // the hold and each push of a branch placed below a running Safe Push: one test of them all took 40 s under load
+    test("should hold what a running Safe Push took after a restack placed a branch below it, and not that branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const { docsRow } = await docsRestackedBelowRunningRobot(page, setupRepo, syncAndWaitForBranches)
       // auth and login stay held: the robot's commit has their commits, the reason counts them
-      await expect(findBranchRow(page, "auth").getByTestId("landing-span")).toHaveText("lands with oauth")
       const authRow = findBranchRow(page, "auth")
+      await expect(authRow.getByTestId("landing-span")).toHaveText("lands with oauth")
       await openContextMenu(page, authRow)
       const push = page.getByRole("menuitem", { name: /^Push Branch P$/ })
       await expect(push).toHaveAttribute("aria-disabled", "true")
       await push.hover()
       await expect(openTooltip(page).filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
       await page.keyboard.press("Escape")
-      const docsRow = findBranchRow(page, "docs")
+      await expectClosed(page.getByRole("menu"))
+      // docs is free: no "lands with", its next step its own Safe Push, as of any root
       await expect(docsRow.getByTestId("landing-span")).toHaveCount(0)
-      // its next step is its own Safe Push, as of any root
       await expect(docsRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
+    })
 
-      // its push from the menu and by the key pushes it, and so does the push of Create Pull Request; between them its
-      // remote branch goes back to master in a terminal, so each finds its commit to push
-      const unpushed = async () => {
-        await repo.pushInTerminal(virtualBranch("docs"), { revision: "origin/master" })
-        await syncFromMenu(page)
-      }
+    test("should push a branch a restack placed below a running Safe Push from its menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const { repo, docsRow } = await docsRestackedBelowRunningRobot(page, setupRepo, syncAndWaitForBranches)
       await openContextMenu(page, docsRow)
       await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: /^Push Branch \(1\)/ }).click())
       await expectPushedToast(page, "docs")
       expect(await remotePushes(repo)).toEqual([["docs"]])
-      await unpushed()
+    })
+
+    test("should push a branch a restack placed below a running Safe Push by its key", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const { repo, docsRow } = await docsRestackedBelowRunningRobot(page, setupRepo, syncAndWaitForBranches)
+      await expect(docsRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
       await docsRow.focus()
       await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("p"))
-      expect(await remotePushes(repo)).toEqual([["docs"], ["docs"]])
-      await unpushed()
+      await expectPushedToast(page, "docs")
+      expect(await remotePushes(repo)).toEqual([["docs"]])
+    })
+
+    test("should push a branch a restack placed below a running Safe Push before its pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const { repo, docsRow } = await docsRestackedBelowRunningRobot(page, setupRepo, syncAndWaitForBranches)
       await openContextMenu(page, docsRow)
       await clickContextMenuItem(page, "Create Pull Request…")
       const dialog = createPullRequestDialog(page)
       await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("docs → master")
       await runAndWaitForAnswer(page, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
       await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #901" })).toBeVisible()
-      expect(await remotePushes(repo)).toEqual([["docs"], ["docs"], ["docs"]])
+      expect(await remotePushes(repo)).toEqual([["docs"]])
       expect(await gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/virtual/docs", base: "master" })])
     })
 
@@ -1733,32 +1778,22 @@ test.describe("Stacked branches", () => {
       await expect(openTooltip(page).filter({ hasText: reason })).toHaveText(reason)
     })
 
-    test("should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left", async ({
-      page,
-      setupRepo,
-      syncAndWaitForBranches,
-    }) => {
+    // the branch the robot ran on and a change below its commit: one test of both took 40 s under load
+    test("should hold the branch its merged Safe Push ran on: Merged, no Safe Push and no push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // it merged on oauth as the table has it
-      const repo = await mergedOauthRobot(page, setupRepo, syncAndWaitForBranches)
+      await mergedOauthRobot(page, setupRepo, syncAndWaitForBranches)
       await expect(page.locator("[data-slot=toast]").filter({ hasText: "oauth merged into master" })).toBeVisible()
-      const authRow = findBranchRow(page, "auth")
-      const loginRow = findBranchRow(page, "login")
-      const oauthRow = findBranchRow(page, "oauth")
-
       // oauth, the branch it ran on, landed whole too: its row says Merged and offers no Safe Push and no push
-      await expect(oauthRow.getByTestId("patronus-chip")).toHaveAttribute("data-kind", "merged")
-      await expect(oauthRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
-      await expect(getPushButton(oauthRow)).toHaveCount(0)
+      await expectMergedRow(findBranchRow(page, "oauth"))
       await expectLandedActions(page, "oauth", "Merged by Patronus")
-      await expect(authRow.getByTestId("landed-with")).toHaveText("Landed with oauth")
+      await expect(findBranchRow(page, "auth").getByTestId("landed-with")).toHaveText("Landed with oauth")
+    })
 
-      // a new commit of auth behind the app's back: the sync rebuilds login and oauth on it, no hash is the robot's now
-      await runAndWaitForSync(page, async () => {
-        await repo.commit("(auth) Check the token", { "token.js": "export const token = null\n" }, 1704128400)
-        await page.getByTestId("sync-button").click()
-      })
+    test("should leave a commit added below the commit of a merged Safe Push the only work left of its branch, by content", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await changedBelowMergedOauthRobot(page, setupRepo, syncAndWaitForBranches)
       // by content: auth landed but for the new commit, the only work left of it, which its Safe Push sends: the remote
       // lacks auth, its first push is a step of it, in the menu only
+      const authRow = findBranchRow(page, "auth")
       const authChip = authRow.getByTestId("landed-with")
       await expect(authChip).toHaveText("Landed with oauth · 1 commit after it")
       await expect(slotSafePush(page, "auth")).toHaveText("Safe Push")
@@ -1766,18 +1801,20 @@ test.describe("Stacked branches", () => {
       await openContextMenu(page, authRow)
       await expect(page.getByRole("menuitem", { name: "Push Branch (2) P" })).toBeEnabled()
       await page.keyboard.press("Escape")
+      await expectClosed(page.getByRole("menu"))
       await authChip.hover()
       await expect(page.getByTestId("landed-with-after")).toHaveText("1 commit added since, not in master yet")
-      await page.mouse.move(0, 0)
-      // login and oauth, copies of the same changes, landed whole
-      await expect(loginRow.getByTestId("landed-with")).toHaveText("Landed with oauth")
-      await expectLandedActions(page, "login", "Landed in master with oauth")
-      // oauth, rebuilt with the same changes, stays Merged and held (auth above shows the push its new commit needs)
-      await expect(oauthRow.getByTestId("patronus-chip")).toHaveAttribute("data-kind", "merged")
-      await expect(oauthRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
-      await expect(getPushButton(oauthRow)).toHaveCount(0)
       // session, built on auth: its Safe Push lands the new commit of auth with it
       await expect(slotSafePush(page, "session")).toHaveText("Safe Push · 2")
+    })
+
+    test("should keep the branches a merged Safe Push landed whole landed by content after a change below its commit", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await changedBelowMergedOauthRobot(page, setupRepo, syncAndWaitForBranches)
+      // login and oauth, copies of the same changes, landed whole
+      await expect(findBranchRow(page, "login").getByTestId("landed-with")).toHaveText("Landed with oauth")
+      await expectLandedActions(page, "login", "Landed in master with oauth")
+      // oauth, rebuilt with the same changes, stays Merged and held (auth above shows the push its new commit needs)
+      await expectMergedRow(findBranchRow(page, "oauth"))
     })
 
     test("should close by content the pull requests of the branches a Safe Push landed after a change below its commit, not of one with work left", async ({
@@ -1855,7 +1892,8 @@ test.describe("Stacked branches", () => {
       expect((await repo.getPatronusLog()).restarts).toEqual([])
     })
 
-    test("should disable Create Pull Request… of a branch a merged Safe Push landed, in its menu, its preview and its review window: nothing of it is left to review", async ({
+    // the menus, the preview and the review window: one test of them all took 38 s under load
+    test("should disable Create Pull Request… in the menus of the branches a merged Safe Push landed: nothing of them is left to review", async ({
       page,
       setupRepo,
       syncAndWaitForBranches,
@@ -1872,7 +1910,7 @@ test.describe("Stacked branches", () => {
       await page.keyboard.press("Escape")
       await expectClosed(page.getByRole("menu"))
 
-      // it merged: auth and login are in master, oauth is its robot's; session, built on auth, has its own work
+      // it merged: auth and login are in master, oauth is its robot's
       await mergeRunningRobot(page, repo, running)
       await expect(authRow.getByTestId("landed-with")).toHaveText("Landed with oauth")
       for (const [name, reason] of [
@@ -1885,7 +1923,15 @@ test.describe("Stacked branches", () => {
         await page.keyboard.press("Escape")
         await expectClosed(page.getByRole("menu"))
       }
-      // the footer of the preview says it too, and its click opens no dialog
+    })
+
+    test("should disable Create Pull Request… in the preview of a branch a merged Safe Push landed, and open it of one built on it with work left", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      await mergedOauthRobotOnGitHub(page, setupRepo, syncAndWaitForBranches)
+      // the footer of the preview says why, and its click opens no dialog
       let preview = await openBranchPreview(page, "auth")
       const create = preview.getByRole("button", { name: "Create Pull Request…" })
       await expect(create).toHaveAttribute("aria-disabled", "true")
@@ -1896,7 +1942,17 @@ test.describe("Stacked branches", () => {
       await expectClosed(createPullRequestDialog(page))
       await page.keyboard.press("Escape")
       await expectClosed(preview)
-      // and the title bar of its review window
+
+      // session, built on auth, lands without it: its pull request opens from the same footer
+      preview = await openBranchPreview(page, "session")
+      await preview.getByRole("button", { name: "Create Pull Request…" }).click()
+      await expect(createPullRequestDialog(page)).toBeVisible()
+    })
+
+    test("should disable Create Pull Request… in the review window of a branch a merged Safe Push landed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await mergedOauthRobotOnGitHub(page, setupRepo, syncAndWaitForBranches)
+      const authRow = findBranchRow(page, "auth")
+      // the title bar of its review window
       const count = (await getOpenedSubWindows(page)).length
       await openContextMenu(page, authRow)
       await clickContextMenuItem(page, "Review Changes")
@@ -1906,12 +1962,6 @@ test.describe("Stacked branches", () => {
       await expect(reviewCreate).toHaveAttribute("aria-disabled", "true")
       await reviewCreate.hover()
       await expect(openTooltip(reviewPage).filter({ hasText: "Landed in master with oauth" })).toHaveText("Landed in master with oauth")
-      await page.bringToFront()
-
-      // session lands without auth: its pull request opens from the same footer
-      preview = await openBranchPreview(page, "session")
-      await preview.getByRole("button", { name: "Create Pull Request…" }).click()
-      await expect(createPullRequestDialog(page)).toBeVisible()
     })
 
     test("should offer to land only a stacked branch that applies alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {

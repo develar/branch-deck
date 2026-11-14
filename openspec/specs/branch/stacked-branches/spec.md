@@ -1555,7 +1555,7 @@ with", pushes and starts its own Safe Push, and the colour of the robot starts b
 - **WHEN** the table shows
 - **THEN** that branch says no "lands with", pushes and starts its own Safe Push
 - **AND** the colour of the robot starts below it
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold what a running Safe Push took after a restack placed a branch below it, and not that branch`, `should push a branch a restack placed below a running Safe Push from its menu`, `should push a branch a restack placed below a running Safe Push by its key`, `should push a branch a restack placed below a running Safe Push before its pull request`)
 
 ### Requirement: Pull requests: A merged robot closes the pull requests of the ancestors it landed
 
@@ -1576,7 +1576,7 @@ no Safe Push, no Dry Run and no push, nor does the branch it ran on ("Merged").
 - **WHEN** the robot of `oauth` merged, and the update has not archived its branches yet
 - **THEN** the rows of the ancestors it landed say "Landed with oauth" and offer no Safe Push, no Dry Run and no push
 - **AND** the row of `oauth` says "Merged" and offers none of them either
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update`, `should offer no Safe Push or push of the branches a merged Safe Push landed, the menus, S and the preview saying why`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update`, `should offer no Safe Push or push of the branches a merged Safe Push landed, the menus, S and the preview saying why`, `should hold the branch its merged Safe Push ran on: Merged, no Safe Push and no push`)
 
 #### Scenario: The robot of the whole stack merged
 - **WHEN** the robot of the whole stack of `auth` merged, and the update has not archived its branches yet
@@ -1603,7 +1603,7 @@ work left of its branch ("Landed with oauth · 1 commit after it").
 - **GIVEN** a merged Safe Push landed an ancestor
 - **WHEN** a new commit of that ancestor rebuilds the branches built on it
 - **THEN** they stay landed by content, and the ancestor says "Landed with oauth · 1 commit after it"
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should leave a commit added below the commit of a merged Safe Push the only work left of its branch, by content`, `should keep the branches a merged Safe Push landed whole landed by content after a change below its commit`)
 
 ### Requirement: Pull requests: brd safe-push lands a stacked branch with its ancestors
 
