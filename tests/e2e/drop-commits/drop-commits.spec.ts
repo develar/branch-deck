@@ -1,6 +1,6 @@
 // @spec openspec/specs/commit/drop/spec.md
 import type { Locator, Page } from "@playwright/test"
-import { expect, test } from "../fixtures/test-fixtures"
+import { expect, test, expectErrorLog } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchCommitRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { clickContextMenuItem, openContextMenu, selectCommit } from "../helpers/selection-helpers"
@@ -80,6 +80,7 @@ test.describe("Drop commits", () => {
   })
 
   test("should keep the commits and say why when the drop is refused", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot drop the commits: Removing commit 1a2b3c4 conflicts with later commits/)
     await setupRepo("drop_commits")
     await syncAndWaitForBranches()
     const authRow = findBranchRow(page, "auth")

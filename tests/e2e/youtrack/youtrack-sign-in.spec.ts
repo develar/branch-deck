@@ -1,5 +1,5 @@
 // @spec openspec/specs/repository/youtrack/spec.md
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { pendingCommands, openTooltip } from "../helpers/wait-helpers"
 import { completeYouTrackSignIn, issueKeyLink, linkIssuesToYouTrack, openIssue, openYouTrackSettings, youTrackHost, youTrackUrlOf } from "../helpers/youtrack-helpers"
@@ -50,6 +50,7 @@ test.describe("YouTrack sign-in", () => {
   })
 
   test("should cancel the browser sign-in, and paste a token instead", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot sign in to YouTrack: YouTrack rejected the token$/)
     // the user created the token perm-right in Account Security of the YouTrack
     const repo = await setupRepo("issue_links", { youtrack: { tokens: ["perm-right"] } })
     await syncAndWaitForBranches()

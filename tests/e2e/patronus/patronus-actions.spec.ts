@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusProfile, PatronusReviewRequirement, PatronusRobot, PullRequest } from "../../../src/lib/bindings"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import {
   expandBranch,
   expectNothingToPush,
@@ -370,6 +370,7 @@ test.describe("Patronus actions", () => {
   })
 
   test("should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot start the Safe Push of JIRA-456: Nothing was pushed or started: JIRA-456 conflicts with the newest target/)
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
     // the target moved after the last sync with a file the first commit of JIRA-456 adds too: Patronus can't rebase it
     await repo.commitOnRemote("master", {
@@ -1291,6 +1292,7 @@ test.describe("Patronus actions", () => {
     })
 
     test("should say why Patronus refused the comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      expectErrorLog(page, /^Cannot start the Safe Push of JIRA-456: Patronus rejected the comment on pull request #7/)
       const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
       // the bot answers 👎 and says why in a comment of its own
       await repo.setPatronusReplies({ 7: { status: "rejected", reason: "Patronus did not start the robot due to an error. A robot is already running for the branch." } })
@@ -1660,6 +1662,7 @@ test.describe("Patronus actions", () => {
       setupRepo,
       syncAndWaitForBranches,
     }) => {
+      expectErrorLog(page, /^Cannot push branch JIRA-456: Nothing was pushed: A Safe Push of JIRA-456 is running/)
       // the page loaded with no robot; one started since (the IDE, bd), which the page learns of at its next poll
       const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
       await repo.setPatronus(availableRobots(RUNNING))

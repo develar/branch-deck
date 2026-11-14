@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "./fixtures/test-fixtures"
 import { findBranchRow, isBranchProcessing } from "./helpers/branch-helpers"
 import { inlineIssueReference, submitInlineForm, testInputAutoFocus, testEscapeKeyBehavior, testEscapeKeyWithButtonFocus, validateFormError } from "./helpers/inline-form-helpers"
 import { openContextMenu, clickContextMenuItem } from "./helpers/selection-helpers"
@@ -77,6 +77,7 @@ test.describe("Issue Reference Feature", () => {
   })
 
   test("should keep the typed reference when adding it fails", async ({ page }) => {
+    expectErrorLog(page, /^Cannot add GH-123 to test-branch: The branch moved$/)
     // the rewrite of the engine fails, as the session answers a branch that moved since the table the form was opened on
     await routeCommandError(page, "execute", { code: "head_moved", message: "The branch moved", retry: "after_reread" }, { times: 1 })
     await openContextMenu(page, findBranchRow(page, "test-branch"))

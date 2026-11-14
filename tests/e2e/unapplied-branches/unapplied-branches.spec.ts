@@ -1,7 +1,7 @@
 // @spec openspec/specs/branch/unapply/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
-import { test as base, expect } from "../fixtures/test-fixtures"
+import { test as base, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineDeleteConfirmation, submitInlineForm } from "../helpers/inline-form-helpers"
 import { branchOf, expectPushedToRemote, remotePushes } from "../helpers/push-helpers"
@@ -108,6 +108,7 @@ test.describe("Unapplied branches", () => {
   })
 
   test("should keep the branch and say why when the unapply fails, and close the confirmation with Escape", async ({ page }) => {
+    expectErrorLog(page, /^Cannot unapply docs: Uncommitted, staged or untracked files sit on paths the unapply writes: docs\.md$/)
     await openUnapply(page, () => findBranchRow(page, "docs").click({ button: "right" }))
     await page.keyboard.press("Escape")
     await expect(page.getByRole("button", { name: "Unapply Branch" })).toHaveCount(0)
@@ -339,6 +340,7 @@ test.describe("Unapplied branches", () => {
   })
 
   test("should keep an unapplied branch whose reapply conflicts and say why", async ({ page }) => {
+    expectErrorLog(page, /^Cannot reapply docs: .* conflicts with HEAD in docs\.md: nothing was changed$/)
     await unapplyFromMenu(page, "docs")
     // the reapply is the next rewrite of the engine the page runs
     await routeCommandError(

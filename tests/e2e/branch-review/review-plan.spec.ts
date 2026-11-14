@@ -4,7 +4,7 @@ import { writeFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import type { FindDeclarationParams, GetBlobTextsParams } from "../../../src/lib/bindings"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
@@ -223,6 +223,7 @@ test.describe("The review plan in the branch review", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
+    expectErrorLog(page, /^Cannot open src\/main\/App\.kt:9: The head of the review has no such line$/)
     await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
     const window = await openPlanWindow(page, syncAndWaitForBranches)
     const { store, cache } = planRows(window)

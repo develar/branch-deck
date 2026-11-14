@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import type { PatronusProfile, PatronusReviewRequirement } from "../../../src/lib/bindings"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, restOnBranchRow } from "../helpers/branch-helpers"
 import { readClipboard, setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { settledInvokes } from "../helpers/ipc-helpers"
@@ -780,6 +780,7 @@ test.describe("Branch review window", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
+    expectErrorLog(page, /^Cannot push branch login: elsewhere is no longer among the repositories of the main window$/)
     const repo = await setupLoginWithPullRequest(page, setupRepo, syncAndWaitForBranches, { otherRepository: true })
     const opened = await openReviewWindow(page, "login")
     const { repositoryPath } = opened.data

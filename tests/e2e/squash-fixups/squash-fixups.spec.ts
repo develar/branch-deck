@@ -1,6 +1,6 @@
 // @spec openspec/specs/commit/fixups/spec.md
 import type { Locator, Page } from "@playwright/test"
-import { expect, test } from "../fixtures/test-fixtures"
+import { expect, test, expectErrorLog } from "../fixtures/test-fixtures"
 import { branchTree, expandBranch, findBranchRow, getBranchCommitRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { editCommitMessage } from "../helpers/preview-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
@@ -147,6 +147,7 @@ test.describe("Squash fixups", () => {
   })
   // openspec/specs/commit/commit-row/spec.md: the reword in the app checks the fixups as `bd reword` does
   test("should refuse a reword that strands a fixup, and keep the draft", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot edit the commit message: Fixups would fold into another target or none/)
     await setupRepo("fixups")
     await syncAndWaitForBranches()
     const authRow = findBranchRow(page, "auth")

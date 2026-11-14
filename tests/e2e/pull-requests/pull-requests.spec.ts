@@ -1,6 +1,6 @@
 // @spec openspec/specs/branch/pull-requests/spec.md
 import type { Locator, Page } from "@playwright/test"
-import { test as baseTest, expect } from "../fixtures/test-fixtures"
+import { test as baseTest, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getLandingNode, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned, expectGap } from "../helpers/column-helpers"
@@ -371,6 +371,7 @@ test.describe("Pull request chip", () => {
   })
 
   test("should say whom GitHub refused, and keep the dialog when GitHub creates nothing", async ({ page, repo }) => {
+    expectErrorLog(page, /^Cannot create pull request: GitHub doesn't have user-name\/virtual\/feature-auth yet/)
     // a branch GitHub doesn't have yet, and a reviewer who is no collaborator
     await repo.setPullRequests({ ...ALL, missingBranches: ["user-name/virtual/feature-auth"], users: [...USERS, { login: "stranger", name: null }] })
     const dialog = await openDialogAfterPush(page)

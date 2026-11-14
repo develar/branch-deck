@@ -1,7 +1,7 @@
 // @spec openspec/specs/branch/stack-island/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCells, getBranchCommitRows, getBranchDetailsRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { columnLefts, expectColumnAligned } from "../helpers/column-helpers"
@@ -48,6 +48,8 @@ async function expectWholeStackPopoverAt(popover: Locator, slot: Locator): Promi
  */
 async function refuseIslandStarts(page: Page, repo: TestRepositoryBuilder): Promise<{ air: Locator; headerSlot: Locator; popover: Locator }> {
   await repo.refusePatronusStarts("Patronus is restarting")
+  // each test of it starts: the refusal is told and logged
+  expectErrorLog(page, /^Cannot start the (Safe Push|Dry Run) of .*: Patronus is restarting$/)
   const air = island(page, "air")
   return { air, headerSlot: air.getByTestId("stack-island-actions").getByTestId("next-step-slot"), popover: safePushPopover(page) }
 }

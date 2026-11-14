@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
-import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
+import { testWithIssueLinks as test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getPushButton } from "../helpers/branch-helpers"
 import {
   confirmForcePush,
@@ -266,6 +266,8 @@ test.describe("Push button", () => {
   })
 
   test("should refuse a push pressed during a sync that could not build the branch, its virtual branch an older build", async ({ page, issueLinksRepo }) => {
+    expectErrorLog(page, /^Cannot push branch JIRA-456: Nothing was pushed: JIRA-456 is not synced/)
+    expectErrorLog(page, /^Cannot push branch ABC-123: Nothing was pushed: ABC-123 is not synced/)
     // behind the app's back: a commit of JIRA-456 and one of ABC-123 that need a commit of another branch, so the next sync
     // builds neither, and their virtual branches stay builds of the commits before
     await issueLinksRepo.commit("(pool) Add the pool config", { "pool.cfg": "size=10\n", "auth.cfg": "ttl=1\n" }, 1704182400)
@@ -362,6 +364,7 @@ test.describe("Push button", () => {
 
 test.describe("Push size", () => {
   test("should refuse a push over the push size limit before it is sent, saying what it adds, and push once the limit is off", async ({ page }) => {
+    expectErrorLog(page, /^Cannot push branch feature-auth: The push would add 62 B in 1 file, over the push size limit/)
     const window = await openSettingsWindow(page, { page: "landing" })
     const setting = window.getByTestId("setting-pushSizeLimit")
     const field = setting.getByRole("textbox", { name: "Push size limit" })

@@ -120,6 +120,12 @@ rules in one line each and links here.
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command
   directly only to set up a state the user path cannot reach in a test. An error path fails the command with
   `routeCommandError`, not by breaking the repository.
+- **Errors are declared**: a test fails on a line the app logs at the error level (`logError`, `notifyError`, an
+  uncaught error or a ResizeObserver loop of a page) unless it declares it, `expectErrorLog(page, /^Cannot …: …$/)`
+  (`<title>: <error>`), and on a declaration that matched nothing. A helper that makes the failure declares it with
+  it (`refuseIslandStarts`); there is no list of errors allowed everywhere. A test that ends while the operation it
+  started still runs misses its error, or logs one after it: wait for the effect, the toast of the refusal
+  (`tools-settings.spec.ts`, "Sign In Again"). `console.error` alone fails nothing ([Logging](../design/e2e-testing.md)).
 - **Remote answers come from the fakes**: Patronus, GitHub and YouTrack are fakes of each test repository behind the
   app's real services; a test sets their fixture (`setPatronus`, `setPullRequests`, `setYouTrack`, …) and asserts what
   the fake got (`getPatronusLog`, `getGitHubLog`, `getYouTrack`). The page before an answer holds it at the fake

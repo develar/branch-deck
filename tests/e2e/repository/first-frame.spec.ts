@@ -1,5 +1,5 @@
 // @spec openspec/specs/repository/title-bar/spec.md
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { errorLogs } from "../helpers/ipc-helpers"
 import { getSubWindowReadyOpen, getWindowReadyRows, getWindowShell, observeWindowStages } from "../helpers/sub-window-helpers"
@@ -69,6 +69,7 @@ test.describe("The first frame of the main window", () => {
   })
 
   test("should show the main window on the failure of a render that threw, log it, and reload or close the window", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot show the window: /)
     // the first load of the page gets a title bar whose buttons the row cannot read, so the render of the row throws;
     // a reload gets none, as a failure that a reload cures
     await page.addInitScript(() => {
@@ -108,6 +109,7 @@ test.describe("The first frame of the main window", () => {
   })
 
   test("should show the failure of a page that did not load", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot open the page of the window: No page at \/no-such-page$/)
     await setupRepo("NO_REPO", { prepopulateStore: false })
     await expect(page.getByTestId("welcome-card")).toBeVisible()
     // a path that no page has, of the same test repository
@@ -117,6 +119,8 @@ test.describe("The first frame of the main window", () => {
   })
 
   test("should log an error of a script and a rejection that nobody awaits", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Uncaught error of the page: a script threw$/)
+    expectErrorLog(page, /^Unhandled rejection of the page: nobody awaited$/)
     await setupRepo("NO_REPO", { prepopulateStore: false })
     await expect(page.getByTestId("welcome-card")).toBeVisible()
     // a script of the page that throws as it loads, as a module would: an error of a script that the test evaluates

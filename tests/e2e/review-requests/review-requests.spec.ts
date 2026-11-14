@@ -4,7 +4,7 @@ import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import type { PullRequestReviewWindowData, PullRequestStackReviewWindowData } from "../../../src/types/sub-window"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
@@ -793,6 +793,7 @@ test.describe("Review window", () => {
   })
 
   test("should say why a fetch failed and fetch again on Retry", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot fetch pull request #101: GitHub asked for credentials/)
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
     await repo.setReviewRequests(availableReviewRequests([OLD]), "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)")
     const { review } = await openRequestReview(page, 101)
@@ -928,6 +929,7 @@ test.describe("Review window", () => {
   })
 
   test("should say why GitHub refused a review", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot approve pull request #101: Unprocessable Entity: User can only have one pending review per pull request$/)
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
     await repo.answerGitHub("POST", repoPath("pulls", 101, "reviews"), 422, {
       message: "Unprocessable Entity",
@@ -1025,6 +1027,7 @@ test.describe("Review window", () => {
   })
 
   test("should not Safe Push a pull request that got commits since the user reviewed it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot start the Safe Push: #101 has new commits since you reviewed/)
     const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD], "f".repeat(40))
     // from the row's menu: the window opens with the confirmation once the pull request is fetched
     await getReviewRow(page, 101).click({ button: "right" })

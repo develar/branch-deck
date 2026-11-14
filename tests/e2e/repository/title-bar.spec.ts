@@ -1,6 +1,6 @@
 // @spec openspec/specs/repository/title-bar/spec.md
 import type { Page } from "@playwright/test"
-import { expect, test, testWithConflicts } from "../fixtures/test-fixtures"
+import { expect, test, testWithConflicts, expectErrorLog } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_ROW, headerLineProblems, MIN_WINDOW } from "../helpers/header-helpers"
 import { settledIpc } from "../helpers/ipc-helpers"
@@ -496,6 +496,7 @@ test.describe("Main menu", () => {
 
 test.describe("Check for Updates", () => {
   test("should say the app is up to date, offer the downloaded update, and say why its install failed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot install the update: The E2E test server has no updater/)
     await page.setViewportSize(MIN_WINDOW)
     await useTitleBar(page, { ...TITLE_BARS.gnome, checkForUpdates: true })
     const silentCheck = page.waitForResponse(response => response.url().endsWith("/invoke/check_for_updates"))

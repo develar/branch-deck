@@ -1,6 +1,6 @@
 // @spec openspec/specs/repository/setup-attention/spec.md
 import type { Page } from "@playwright/test"
-import { expect, test } from "../fixtures/test-fixtures"
+import { expect, test, expectErrorLog } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
@@ -25,6 +25,7 @@ test.describe("Setup dot", () => {
   })
 
   test("should keep a downloaded update of the app in the dot, not in a toast, and install it from there", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot install the update: The E2E test server has no updater/)
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setAvailableUpdate("1.2.0")
     await page.reload()
@@ -62,6 +63,7 @@ test.describe("Setup dot", () => {
   })
 
   test("should show a failed update check and clear it when Check Again succeeds", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot check for updates: Network unavailable$/)
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setUpdateCheckFailure("Network unavailable")
     const silentCheck = page.waitForResponse(response => response.url().endsWith("/invoke/check_for_updates"))

@@ -1,6 +1,6 @@
 // @spec openspec/specs/repository/cli-tools/spec.md
 // @spec openspec/specs/repository/ide-embedding/spec.md
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
@@ -115,6 +115,7 @@ test.describe("Settings → Tools", () => {
   })
 
   test("should name why brew failed", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot install youtrack: another brew holds its lock/)
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ brew: true, files: { "brew.fail": "Error: A `brew install` process has already locked /opt/homebrew/Cellar" } })
     const window = await openSettingsWindow(page, { page: "tools" })
@@ -189,6 +190,8 @@ test.describe("Settings → Tools", () => {
   })
 
   test("should refuse a TeamCity without the browser sign-in at once, and sign in again from a server's line", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot sign teamcity in: browser sign-in is not available on https:\/\/old\.example$/)
+    expectErrorLog(page, /^Cannot sign teamcity in: browser sign-in is not available on https:\/\/ci\.example$/)
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ installed: [{ tool: "teamcity", version: "1.6.3" }], files: { "teamcity.no-web": "" } })
     const window = await openSettingsWindow(page, { page: "tools" })
@@ -206,6 +209,8 @@ test.describe("Settings → Tools", () => {
     await expect(row.getByTestId("cli-tool-server")).toContainText("expires Jan 3")
     await row.getByTestId("cli-tool-server").getByRole("button", { name: "Sign In Again" }).click()
     await expect.poll(() => repo.getCliToolsLog()).toContain("teamcity auth login --server https://ci.example --web --json --no-input")
+    // this TeamCity has no browser sign-in either: refused again, for its own server
+    await expect(window.locator("[data-slot=toast]", { hasText: "https://ci.example" })).toContainText("browser sign-in is not available on https://ci.example")
   })
 
   test("should sign in to a server whose sign-in failed from the head of its row, its reason a link, and to another server from its form", async ({ page, setupRepo }) => {

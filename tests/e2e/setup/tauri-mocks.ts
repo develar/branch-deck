@@ -14,6 +14,11 @@ export const PAGE_COMMANDS = commands as PageCommand[]
  * the internals the page of the IDE installs too (`@/platform/tauri-page`)
  */
 export const tauriMockScript = (pageCommands: PageCommand[]) => {
+  // the page leaves: a test moves it to the page of another window (`openSubWindowPage`), which the app never does
+  // (each window is a webview of its own); WebKit fails the requests the page still has then ("Load failed")
+  window.addEventListener("beforeunload", () => {
+    ;(window as any).__e2eLeaving = true
+  })
   // Debug logging function - only logs when debug flag is set via window property
   function debug(...args: any[]) {
     // In browser context, check for a window property instead of process.env
@@ -445,9 +450,15 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     },
     "plugin:path": handlePathCommand,
     // the lines of the error level (`LogLevel.Error`, 5), recorded in `__e2eErrorLogs` as `{ line, keyValues }`: what
-    // reached the log of the app
+    // reached the log of the app; told to the test on the console as `[e2e-log-error] <title>: <error>`, on which it
+    // fails unless it declares it (`expectErrorLog` of tests/e2e/fixtures/base-test.ts), and as
+    // `[e2e-log-error-leaving] …` once the page leaves for the page of another window; the stack of the error, if any, on
+    // the lines after it
     "plugin:log": (_cmd: string, payload: any) => {
       if (payload?.level === 5) {
+        const mark = (window as any).__e2eLeaving === true ? "[e2e-log-error-leaving] " : "[e2e-log-error] "
+        const stack = payload.keyValues?.stack ?? payload.keyValues?.component_stack
+        console.info(`${mark}${payload.message}: ${payload.keyValues?.error ?? ""}${stack ? `\n${stack}` : ""}`)
         ;((window as any).__e2eErrorLogs ??= []).push({ line: payload.message, keyValues: payload.keyValues ?? {} })
       }
       return null

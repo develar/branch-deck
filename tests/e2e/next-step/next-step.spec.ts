@@ -1,7 +1,7 @@
 // @spec openspec/specs/branch/next-step/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusProfile, PatronusReviewRequirement, PullRequest } from "../../../src/lib/bindings"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { waitForTransitionsSettled } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
@@ -439,6 +439,7 @@ test.describe("Next step", () => {
   })
 
   test("should keep the dialog, with the reason, when the push would drop commits of the remote branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot create pull request: The remote branch of JIRA-456 has 2 commits that JIRA-456 lacks/)
     const theirs = { remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 2, fastForward: false, remoteTip: "theirs" }
     const repo = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches, { remote: { [BRANCH]: theirs } })
     await slot(page).getByTestId("next-step").click()

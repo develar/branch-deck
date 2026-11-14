@@ -1077,8 +1077,12 @@ branch at the commit it was pushed up to.
   `github=error`, `remote_facts::pull_requests=error`): each failed request of a fake is an answer a fixture scripted
   (a refused start, an unknown robot, a token YouTrack does not know, an expired sign-in, a token GitHub rejects or
   that can't see the repository, a reviewer who is no collaborator), and the page shows it. The console errors and
-  uncaught exceptions of the pages are attached to a failed test only (`page errors` in `base-test.ts`): an
-  error-path test makes the app log its expected errors. `DEBUG_E2E=1` prints the server's debug log and every
+  uncaught exceptions of the pages are attached to a failed test (`page errors` in `base-test.ts`). What the app logs
+  at the error level (the mock of `plugin:log` tells each line to the test on the console) and the uncaught errors of
+  its pages fail a green test unless the test declares them (`expectErrorLog(page, /…/)`, a helper that makes the
+  failure declares it too, `refuseIslandStarts`), and a declaration that matched nothing fails it as well: before, a
+  ResizeObserver loop of the review window lived in master unseen, 51 tests logged errors, and 4 of them were the
+  product's (a loop of the toasts). `DEBUG_E2E=1` prints the server's debug log and every
   console line live. The debug log was 60k lines (23 MB) per run through the pipe that the Playwright main process
   drains: under load the full pipe blocked the server's threads on stdout, and tests timed out waiting for the page
   or a sync

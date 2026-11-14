@@ -1,6 +1,6 @@
 // @spec openspec/specs/commit/squash/spec.md
 import type { Locator, Page } from "@playwright/test"
-import { expect, test, testWithUnassigned } from "../fixtures/test-fixtures"
+import { expect, test, testWithUnassigned, expectErrorLog } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit, shiftSelectCommit } from "../helpers/selection-helpers"
 import { syncFromMenu, runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -54,6 +54,7 @@ test.describe("Squash commits", () => {
   })
 
   test("should refuse to undo a squash after a commit on top", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot undo the squash: Branch master moved/)
     const repo = await setupRepo("issue_split")
     await syncAndWaitForBranches()
     const issueRow = findBranchRow(page, ISSUE)

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { testWithUnassigned, expect } from "../fixtures/test-fixtures"
+import { testWithUnassigned, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import {
   getAIStatusIcon,
   getSuggestionButtons,
@@ -133,6 +133,7 @@ test.describe("Inline Branch Creator - AI Features", () => {
   })
 
   test("should report a failure of Claude", async ({ page, setupUnassignedRepo }) => {
+    expectErrorLog(page, /^Cannot suggest branch names: API Error: 529 Overloaded/)
     await setupUnassignedRepo(aiEnabledWith({ outcome: { status: "error", message: "API Error: 529 Overloaded" } }))
 
     await openBranchCreatorForFirstCommit(page)

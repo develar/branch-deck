@@ -1,10 +1,11 @@
 // @spec openspec/specs/branch/declared-needs/spec.md
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 
 test.describe("Settings → Landing, Companions", () => {
   test("should add a companion repository from the folder dialog, refuse a folder that is no repository, and remove it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot add the companion: .* is no git repository$/)
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
     const window = await openSettingsWindow(page, { page: "landing", scope: "repository" })

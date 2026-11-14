@@ -1,6 +1,6 @@
 // @spec openspec/specs/branch/next-step/spec.md
 import type { Page } from "@playwright/test"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { availableRobots, expectPatronusStarts, startRequest, wholeStackStartRequest } from "../helpers/patronus-helpers"
 import { expectPushedToRemote, pushedBranches, remotePushes } from "../helpers/push-helpers"
@@ -134,6 +134,7 @@ test.describe("Landing needs", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
+    expectErrorLog(page, /^Cannot start the Safe Push of the whole lane-run stack: /)
     // lane-run forks (ui-perf-nightly and lane-docs are built on it): its whole stack lands from its stack branch, and the
     // landing needs of the view are of branches, so the gate of the start checks the whole stack
     const repo = await setupRepo("landing_needs_fork", { patronus: availableRobots() })

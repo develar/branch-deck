@@ -1,6 +1,6 @@
 // @spec openspec/specs/repository/settings/spec.md
 import type { Locator, Page } from "@playwright/test"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { settledIpc } from "../helpers/ipc-helpers"
 import { closeAsTheAnswerLands, expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
@@ -162,6 +162,7 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
   })
 
   test("should tell a failed write in a toast", async ({ page, setupRepo }) => {
+    expectErrorLog(page, /^Cannot change the symbol dependencies of .*: could not lock config file \.git\/config: File exists$/)
     const repo = await setupRepo("simple")
     const window = await openRepositorySettings(page)
     await routeCommandError(window, "set_repository_config", { code: "internal", message: "could not lock config file .git/config: File exists" })

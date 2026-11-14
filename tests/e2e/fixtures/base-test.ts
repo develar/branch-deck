@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test"
+import type { BrowserContext, Locator, Page } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
 
@@ -137,6 +137,45 @@ export function hoverSubmenuTrigger(trigger: Locator, options?: HoverOptions): P
   return plainHover.call(trigger, options)
 }
 
+/** What the mock of `plugin:log` writes to the console before a line of the error level (tests/e2e/setup/tauri-mocks.ts) */
+const LOG_ERROR_MARK = "[e2e-log-error] "
+/**
+ * The same of a page that leaves for the page of another window (`openSubWindowPage`), which the app never does: the
+ * requests it still had fail in WebKit ("Load failed"), and nothing of the app failed
+ */
+const LEAVING_LOG_ERROR_MARK = "[e2e-log-error-leaving] "
+
+/** The errors a test makes the app log (`expectErrorLog`), by the browser context of its pages */
+const declaredErrors = new WeakMap<BrowserContext, RegExp[]>()
+
+/**
+ * Declares an error the test makes the app log, a line `<title>: <error>` of the error level (`logError`, `notifyError`,
+ * an uncaught error of a page, `src/lib/page-errors.ts`) matched by `line`. A test fails on an error of its pages that
+ * no declaration of its own matches, and on a declaration that matched no error: an uncaught error, a ResizeObserver
+ * loop or a failed command of the app never passes unnoticed in a green test, and a declaration stays true
+ */
+export function expectErrorLog(page: Page, line: RegExp): void {
+  const context = page.context()
+  declaredErrors.set(context, [...(declaredErrors.get(context) ?? []), line])
+}
+
+/**
+ * The errors of the pages of a test that its declarations (`expectErrorLog`) don't account for: the lines of the error
+ * level the app logged and the uncaught errors that no line names, logged or of a page that left (one that threw before
+ * `page-errors.ts` loaded), each matched by none, and the declarations that matched none
+ */
+function undeclaredErrors(logged: readonly string[], leaving: readonly string[], uncaught: readonly Error[], declared: readonly RegExp[]): string[] {
+  // a logged line is `<title>: <error>`, its stack on the lines after it, which the failure shows and no declaration reads
+  const lineOf = (logged: string) => logged.split("\n", 1)[0]!
+  // WebKit names a rejection "Unhandled Promise Rejection: TypeError: …", the line of `page-errors.ts` its message alone
+  const named = (error: Error) => [...logged, ...leaving].some(line => line.includes(error.message.replace(/^Unhandled Promise Rejection: /, "").replace(/^\w*Error: /, "")))
+  const lines = [...logged, ...uncaught.filter(error => !named(error)).map(error => `Uncaught: ${error.stack ?? error.message}`)]
+  return [
+    ...lines.filter(line => !declared.some(pattern => pattern.test(lineOf(line)))).map(line => `an error no expectErrorLog declares: ${line}`),
+    ...declared.filter(pattern => !lines.some(line => pattern.test(lineOf(line)))).map(pattern => `an error expectErrorLog declares that never came: ${String(pattern)}`),
+  ]
+}
+
 /**
  * Custom test fixture that automatically sets up Tauri mocks
  */
@@ -144,16 +183,27 @@ export const test = base.extend({
   page: async ({ page, context }, use, testInfo) => {
     refuseSubmenuHovers(page)
     // the console of the pages: every line live with DEBUG_E2E=1; otherwise their errors and uncaught exceptions, attached
-    // to a failed test only, because an error-path test makes the app log its expected errors
+    // to a failed test. The lines the app logged at the error level and the uncaught errors fail the test unless it
+    // declares them (`expectErrorLog`)
     const pageErrors: string[] = []
+    const logged: string[] = []
+    const leaving: string[] = []
+    const uncaught: Error[] = []
     context.on("console", message => {
-      if (process.env.DEBUG_E2E) {
+      if (message.type() === "info" && message.text().startsWith(LOG_ERROR_MARK)) {
+        logged.push(message.text().slice(LOG_ERROR_MARK.length))
+      } else if (message.type() === "info" && message.text().startsWith(LEAVING_LOG_ERROR_MARK)) {
+        leaving.push(message.text().slice(LEAVING_LOG_ERROR_MARK.length))
+      } else if (process.env.DEBUG_E2E) {
         console.log("[Browser]", message.type(), message.text())
       } else if (message.type() === "error") {
         pageErrors.push(message.text())
       }
     })
-    context.on("weberror", error => pageErrors.push(`Uncaught: ${error.error().stack ?? error.error().message}`))
+    context.on("weberror", error => {
+      uncaught.push(error.error())
+      pageErrors.push(`Uncaught: ${error.error().stack ?? error.error().message}`)
+    })
 
     // Set debug flag if environment variable is set
     if (process.env.DEBUG_E2E) {
@@ -192,6 +242,11 @@ export const test = base.extend({
 
     if (testInfo.status !== testInfo.expectedStatus && pageErrors.length > 0) {
       await testInfo.attach("page errors", { body: pageErrors.join("\n"), contentType: "text/plain" })
+    }
+    // a failed test fails on its own error; its log is attached above
+    const undeclared = undeclaredErrors(logged, leaving, uncaught, declaredErrors.get(context) ?? [])
+    if (testInfo.status === testInfo.expectedStatus && undeclared.length > 0) {
+      throw new Error(`The pages of the test logged otherwise than it declares (expectErrorLog):\n${undeclared.join("\n")}`)
     }
   },
 })

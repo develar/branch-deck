@@ -1,6 +1,6 @@
 // @spec openspec/specs/repository/youtrack/spec.md
 import type { Page } from "@playwright/test"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { bringUnderStillPointer, findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, moveClockUntil, pressSyncHeld, releaseHeldSync, waitForTauriListener } from "../helpers/sync-helpers"
@@ -101,6 +101,7 @@ test.describe("YouTrack issue popover", () => {
   )
 
   test("should open on the keyboard focus, and mark the issue of a branch fixed from its menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot mark ABC-123 fixed: ABC-123 is already Duplicate$/)
     const repo = await setUp(page, setupRepo, syncAndWaitForBranches, { issues: [openIssue("JIRA-456"), resolvedIssue("ABC-123", "Duplicate")], signedIn: "signIn" })
     const link = issueKeyLink(page, "ABC-123")
     await expect(link).toHaveAttribute("data-issue-key", "ABC-123")
@@ -204,6 +205,7 @@ test.describe("YouTrack issue popover", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
+    expectErrorLog(page, /^Cannot read the GitHub and YouTrack sign-ins: the fixture fails this read$/)
     // the start can't read the sign-ins: an error that says so, Retry in it
     const repo = await setupRepo("issue_links", { youtrack: OPEN_ISSUES, remoteAnswers: { fail: ["authStatus"] } })
     await linkIssuesToYouTrack(repo, await youTrackUrlOf(repo))

@@ -1,7 +1,7 @@
 // @spec openspec/specs/branch/landing-routes/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { availablePullRequests, gitHubWrites, pullRequest, repoPath } from "../helpers/pull-request-helpers"
 import { holdRemotePushes, virtualBranch } from "../helpers/push-helpers"
@@ -289,6 +289,7 @@ test.describe("Push to master", () => {
   })
 
   test("should say in the words of the server why it refused the push, and ask about it before the next push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    expectErrorLog(page, /^Cannot push JIRA-456 into master: The server refused the push into master/)
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     await repo.refuseRemotePushes("master is protected")
     const before = (await repo.getRemoteBranches())["master"]

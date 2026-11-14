@@ -1,6 +1,6 @@
 // @spec openspec/specs/commit/commit-row/spec.md
 import type { Locator, Page } from "@playwright/test"
-import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
+import { testWithIssueLinks as test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { activityEntry, openActivityWindow } from "../helpers/activity-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
@@ -494,6 +494,7 @@ test.describe("Commit message", () => {
     })
 
     test("should save nothing when the commit changed meanwhile, say so, and close the preview of the commit that is gone", async ({ page, issueLinksRepo: repo }) => {
+      expectErrorLog(page, /^Cannot edit the commit message: What the rewrite was decided on changed before it began/)
       const { preview, editor } = await editPerfCommit(page)
       const hash = await getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: PERF_SUBJECT }).getAttribute("data-row-id")
       await editor.fill(`(${BRANCH}) perf db: increase pool size to 64`)
@@ -574,6 +575,7 @@ test.describe("Commit message", () => {
     })
 
     test("should refuse to undo a reword after the branch moved", async ({ page, issueLinksRepo: repo }) => {
+      expectErrorLog(page, /^Cannot undo the reword: Branch master moved/)
       const { hash } = await rewordPerfCommit(page)
       await page.keyboard.press("Escape")
       // another commit of the branch is reworded in a terminal: HEAD is not what the reword wrote
