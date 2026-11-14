@@ -1,5 +1,80 @@
 # Changelog
 
+## [1.13.0](https://github.com/develar/branch-deck/compare/v1.12.0...v1.13.0) (2026-11-14)
+
+
+### Features
+
+* **diff:** a declaration the index says moved whole is a move between files in another layout too, and the owner in front of its uses follows the move ([58d9f9b](https://github.com/develar/branch-deck/commit/58d9f9b549720aeb3e0f9f49da10f6fe2cb03fca))
+* **diff:** an answer of the index is kept when accio says it is final, and a question asked again asks only the pairs the clock cut ([8f5cae5](https://github.com/develar/branch-deck/commit/8f5cae5fac8e501b21da519ab26d7490598df820))
+* **review-requests:** what each waiting request leaves to read is read ahead ([e9c5079](https://github.com/develar/branch-deck/commit/e9c5079cf5e3da156fac26cef1c778f10ab3d059))
+* **review:** a declaration that moved is folded where the index says its order is free, and the diff names such a move ([0042436](https://github.com/develar/branch-deck/commit/00424363439821ebc7517e5983d97f5872f0a967))
+* **review:** Approve of a layer says when Patronus counts it: once the layer goes into master, the bottom for its own Safe Push alone ([3c2dfb1](https://github.com/develar/branch-deck/commit/3c2dfb1ab7adbd0904d23ac26e1c14fefbc6a8f5))
+* **review:** Review Stack reviews a stack of requests in one window ([c4f9158](https://github.com/develar/branch-deck/commit/c4f9158fbb86ae6dcaeaa57345dd4d625f4cc759))
+* **review:** the modules of a review are those accio reads in the build files of the head and the base ([0baa4eb](https://github.com/develar/branch-deck/commit/0baa4ebabe92b253cc7e6a4f0fb2613196882d02))
+* **review:** what a range leaves to read, in the window, the stack and brd ([8223e69](https://github.com/develar/branch-deck/commit/8223e69b6cd453b741ac0b456c365f9572ed3408))
+* **specs:** a test link and a target name a file of psi-syntax as psi-syntax:crates/&lt;crate&gt;/&lt;path&gt;, read at the revision of Cargo.lock ([cc1c2b1](https://github.com/develar/branch-deck/commit/cc1c2b196aa792b0788bd422902a7c3ed6808b78))
+
+
+### Bug Fixes
+
+* **bd:** every push reads the hold of the view of the branch as it is, and the page gets no landing of the view at all ([cfdb490](https://github.com/develar/branch-deck/commit/cfdb49097a0823c6bbfc7023f9b7cf53ac34d626))
+* **bd:** one function makes the view of the robots, the table and the remote branches as they are, also while it is derived ([27ae3b1](https://github.com/develar/branch-deck/commit/27ae3b1ef5df8a18876a5a127d78301b11df31a1))
+* **bd:** the page reads what landed, the count of a Safe Push and the rest of a whole stack of Rust's answer of the table as it is ([c17dd2d](https://github.com/develar/branch-deck/commit/c17dd2dfac36139370d11662b4708eabf57666c4))
+* **bd:** the stack branch is held of the table and the robots as they are, and nothing only Rust reads goes on the wire ([bc5c3ff](https://github.com/develar/branch-deck/commit/bc5c3ff80052635680f5a462cc36635e89ff7da6))
+* **branch-view:** an item of a column that a commit resizes in the rendering update of a report is measured at once, no ResizeObserver loop in WebKit ([8881728](https://github.com/develar/branch-deck/commit/88817280d828437ec57df7d7cc3de9e8adf2bde6))
+* **diff:** a block the render of the measured heights resized is rendered at once and observed again from the next frame ([b690d15](https://github.com/develar/branch-deck/commit/b690d15e8959463cbfc26f7107f45c2b62c29e4c))
+* **diff:** a stored diff is keyed by the summaries its scopes are read from too ([e8316f8](https://github.com/develar/branch-deck/commit/e8316f81e611a9675e534eb37494cdd3b0dda535))
+* **diff:** the blocks the comparison cut out of one change of formatting are read as one ([788ac8b](https://github.com/develar/branch-deck/commit/788ac8bbfbe036e5e369f12a73df6dbf5aaaff91))
+* **diff:** the height of a view in the scroller of its parent lays out nothing again, and the reads of the rows above wait for them ([0fc6f35](https://github.com/develar/branch-deck/commit/0fc6f35ef941871f1edfe34540b6699fae4622c6))
+* **diff:** the map of the files observes the sizes of its track and the view once, not on every layout of the diffs ([7c4d787](https://github.com/develar/branch-deck/commit/7c4d787c3895f5310db1ba0656c56f6009528af5))
+* **diff:** the selection put back as the focus returns to the diffs only at offsets its nodes still have ([2f2119a](https://github.com/develar/branch-deck/commit/2f2119ad4e04dbb3ef99c4bbd691f45536bccb27))
+* **e2e:** scrollDiffsTo never scrolls past a target painted meanwhile, and leaves it in view ([1a8a625](https://github.com/develar/branch-deck/commit/1a8a625a7933101002b0a1dbed90979bc4fdc213))
+* **ide:** a subscription brd refused reaches the page as its error, the end of a mirror subscribes the page again, and the copy of the contract answers a viewOpen of the held view ([72e4f1b](https://github.com/develar/branch-deck/commit/72e4f1b1ce742f9003c3d7fbf08c624279bc6d4d))
+* **ide:** a subscription that joined a view of the frame whose subscribe failed subscribes anew ([7807619](https://github.com/develar/branch-deck/commit/7807619837a855a303395e693697ab7000dc8757))
+* **lease:** the return of a slot takes the mark of a sync out first, so a takeover that fails after it leaves none ([402e8bb](https://github.com/develar/branch-deck/commit/402e8bb013c0c37bb79eb5863cc3a40100b29996))
+* **page:** a delivery of observeSize ends at the next task or frame and lets go only what the update would skip; a cycle is ten frames in a row, a loop of ours an error ([7b22482](https://github.com/develar/branch-deck/commit/7b2248244a195b4e68551fd000776ef3bfa722b4))
+* **page:** a single ResizeObserver loop is a warning of the log and a repeated one an error, checked in WebKit with the loop attributed in the test ([a3e515e](https://github.com/develar/branch-deck/commit/a3e515e0beaf08c36e1ad3a90f301f35223edefc))
+* **page:** an element a change resizes in the rendering update of its report leaves the observer at once, and is measured in the next task ([5866f52](https://github.com/develar/branch-deck/commit/5866f52dc800f4e15524979dee51abb0f2da0021))
+* **page:** an element its observers let go in one commit counts once toward a cycle of observeSize ([05629e5](https://github.com/develar/branch-deck/commit/05629e58fe55090d7944a20dd47b2e8481e4abda))
+* **page:** every error of the page reaches the log of the app, and a test fails on a console.error it does not declare ([fa7c0c2](https://github.com/develar/branch-deck/commit/fa7c0c2fb1fd614a2ff71b110f724e7d90906b6d))
+* **page:** every ResizeObserver of the page is made by observeSize, which lets an element a change resized in its report go, and logs a cycle ([a6ae324](https://github.com/develar/branch-deck/commit/a6ae3245b9ba37e50bac6c6e19a9a37a08838b0a))
+* **patronus:** a content git fails to tell fails the derivation, a landing holds only the branch as it landed it, and a frame keeps the answers of its table, asked again by the first derivation ([0fae678](https://github.com/develar/branch-deck/commit/0fae678f64f44e50f0593b19dd2e10c85ed806a3))
+* **policy:** a merged robot lands only the commits it took, so new commits under its name are new work, also before a remote status ([5ec7f87](https://github.com/develar/branch-deck/commit/5ec7f87b011d43c4025bf28f28e3f61967974e45))
+* **policy:** a view of another table leaves its branch and whole stack pending, and the whole stack reads what is left of it of the table as it is ([e160fc6](https://github.com/develar/branch-deck/commit/e160fc65b69f9016dbb75ebfed9762410a953566))
+* **policy:** the step names a robot of an earlier state, which the preview keeps with its dot, and a view of an older table lands no commit added since ([1b4e72e](https://github.com/develar/branch-deck/commit/1b4e72eaba91319e09f3f726828f8da37bee9c69))
+* **pull-requests:** Copied keeps the width of Copy Pull Request Link, so the details of the chip stay open under the pointer ([7326f39](https://github.com/develar/branch-deck/commit/7326f39f6ce02cd9afc339718aaeadc4b43027aa))
+* **push:** a file counts once toward the push size limit, by what it adds to the remote's version ([a0e4ed9](https://github.com/develar/branch-deck/commit/a0e4ed905a59d932295093dea5a25f0a16ba63ee))
+* **review-requests:** a label the diff proves wrong is its own warning chip, a stack sums each count in its unit, and the stack column says what each layer leaves to read ([8577de4](https://github.com/develar/branch-deck/commit/8577de41999b31ca702cfe72291f92cc8be2b3f7))
+* **review-requests:** a narrow row gives way in its established order again, the meta first, then the title, then the labels ([3073b39](https://github.com/develar/branch-deck/commit/3073b39c29fa42085aaf2e1318fa9699ac38f5a3))
+* **review-requests:** a row's meta with no room for its number is hidden whole, never a bare "#" ([4f427ed](https://github.com/develar/branch-deck/commit/4f427ed1e8c847c33488623db1a887fa40e6e0c2))
+* **review:** a body changed in a rename no index proved says the rename, not that its body changed ([3d758e5](https://github.com/develar/branch-deck/commit/3d758e558fd3761d59818f980ce15a771e66f480))
+* **review:** a declaration renamed where no index proved it is one unit renamed from its old name, not a new one beside a removed one ([0ee4bba](https://github.com/develar/branch-deck/commit/0ee4bbad996fa8976dcd945242e5844893c66ab4))
+* **review:** a plan told again with its modules folds the wiring of a large step where it stands now, and keeps the reader's folds ([4f050c4](https://github.com/develar/branch-deck/commit/4f050c4aa90fe7301c8a2a0f393fdaddd1b8f519))
+* **review:** a rename waits only for an index of its repository, and a reading without one is final ([e74018f](https://github.com/develar/branch-deck/commit/e74018fccacd2852e9e27c16fd37d9039c4ab019))
+* **review:** the author's word is flagged only by changes of the files the reading proves ([030cb53](https://github.com/develar/branch-deck/commit/030cb5302781df29dbdb499aeea95d7eae297d1b))
+* **review:** what enters a new module is read from the files that resolve it ([b4e6367](https://github.com/develar/branch-deck/commit/b4e6367bbaffff4d1960db844cf917dfac887496))
+* **session:** a failed run without inputs is not repeated on every focus, and a lease that goes back takes the mark of a sync with it ([6947ea5](https://github.com/develar/branch-deck/commit/6947ea5261e66a574263966d31683212e252a134))
+* **session:** a focus and a stamp read one predicate of a session that syncs of itself, which knows of brd sync ([22864dc](https://github.com/develar/branch-deck/commit/22864dc8545bc197225a9adec49c0d9e1866f623))
+* **session:** a focus syncs nothing before the first sync of a repository, which is the user's ([588da89](https://github.com/develar/branch-deck/commit/588da89571208c6e1a731ec013e82a8a565496e9))
+* **session:** a slot leased again under a window opens its session anew in a new epoch, the page forgets the rows of the lease before, and the mirror of brd mcp moves to the new view ([cef855e](https://github.com/develar/branch-deck/commit/cef855e788439522e9f410467bcbb06a1b420f60))
+* **session:** a submodule and a separate git directory are no slot, an entry written while its epoch is read stays, and the parse of a pool is kept by its bytes ([d6f0e35](https://github.com/develar/branch-deck/commit/d6f0e350d21f469a0b098ad780d15b1df4df8eb4))
+* **session:** an epoch of a worktree that cannot be read forgets nothing, and a state of a later build still tells it ([f493c7a](https://github.com/develar/branch-deck/commit/f493c7a7bd5a32357a6c80da5a9687d5ee21c5b2))
+* **session:** the mark of a sync is a file per prefix, last-sync-read takes a ternary for a read, and the e2e of a repository synced before holds its open sync ([6c00fcb](https://github.com/develar/branch-deck/commit/6c00fcb6b8068f5fce762f5b011ece4528b7d353))
+* **session:** the page reads whether the session syncs of itself from its view, and the mark of a sync names its prefix ([2828a8b](https://github.com/develar/branch-deck/commit/2828a8b8fe74b5da88511713e860c49ee9ea3a08))
+* **session:** what the app keeps of a slot of a lease pool by its path is of the lease the slot holds ([dc1ae34](https://github.com/develar/branch-deck/commit/dc1ae34715b95763fa3aa921b9b1c80a4f87d062))
+* **settings:** an edit back to the value shown during a write is written, a write that threw lets the field write again, and a close waits for its saves at most 3 s ([e438320](https://github.com/develar/branch-deck/commit/e4383205b30a3304fc2aa8d0e6b3fb4b4052358c))
+* **settings:** an edit saved while the write of a field runs is written after it, and the prefix of every repository saves when the window closes ([0003404](https://github.com/develar/branch-deck/commit/0003404eb62f7f5e5c5a48132e6859e898bc05b3))
+* **settings:** one change of a field is one write, also when the window closes as the write of its blur answers ([a37840d](https://github.com/develar/branch-deck/commit/a37840d85d8e75f44e8fbe5b998bf0cbad03b798))
+* **ui:** a toast keeps its content at its own height in a box the root clips, so stacking toasts make no ResizeObserver loop ([8e8e3a9](https://github.com/develar/branch-deck/commit/8e8e3a9448ae2c5d9714bf46a7f1c4959ab5ccda))
+* **ui:** every label that says Copied in place holds the width of its words, in one WidestLabel ([40ea807](https://github.com/develar/branch-deck/commit/40ea80775c5d9293d0b1bd5342cfe13a0d8c2a13))
+* **ui:** the toast of Base UI sets its height in the next frame, not with a flushSync in the delivery of its observers ([cedec5b](https://github.com/develar/branch-deck/commit/cedec5b217f7b51e3dad1324e97970ad8d3ad9fb))
+
+
+### Performance Improvements
+
+* **review:** the usages and the moves of a review plan are asked beside the modules, as soon as git read the plan ([6ee880a](https://github.com/develar/branch-deck/commit/6ee880a431abe02143de7b37fec280e5ae1078cd))
+
 ## [1.12.0](https://github.com/develar/branch-deck/compare/v1.11.0...v1.12.0) (2026-11-13)
 
 
