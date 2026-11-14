@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import { PendingSection } from "@/components/shared/PendingSection"
+import { WidestLabel } from "@/components/shared/WidestLabel"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { ChecksState, PullRequest } from "@/lib/bindings"
 import type { PullRequestIconKind } from "@/lib/pull-request"
@@ -167,10 +168,7 @@ function CopyLinkButton({ url }: { url: string }) {
   return (
     <Button variant="outline" size="xs" onClick={() => void copyToClipboard(url)}>
       {isCopied ? <CopyCheckIcon data-icon="inline-start" /> : <LinkIcon data-icon="inline-start" />}
-      {/* the longer words as an invisible pseudo-element in the same cell: it holds the width, and is no text of the button */}
-      <span className="grid before:invisible before:col-start-1 before:row-start-1 before:content-[attr(data-widest)]" data-widest={COPY_LINK}>
-        <span className="col-start-1 row-start-1">{isCopied ? "Copied" : COPY_LINK}</span>
-      </span>
+      <WidestLabel widest={COPY_LINK}>{isCopied ? "Copied" : COPY_LINK}</WidestLabel>
     </Button>
   )
 }

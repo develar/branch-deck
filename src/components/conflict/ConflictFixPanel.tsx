@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { HintList } from "@/components/conflict/ConflictResolutionHint"
 import { Callout } from "@/components/shared/Callout"
 import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
+import { WidestLabel } from "@/components/shared/WidestLabel"
 import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { FixComponent, MergeConflictInfo } from "@/lib/bindings"
@@ -170,7 +171,10 @@ function CopyConflictPrompt({ conflict, branchName, builtOn, owners }: ConflictF
   return (
     <Button size="xs" variant="outline" data-testid="copy-conflict-prompt" disabled={bd === undefined} onClick={() => void copy()}>
       {isCopied ? <CopyCheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
-      {isCopied ? "Copied" : "Copy Prompt for Agent"}
+      <WidestLabel widest={COPY_AGENT_PROMPT}>{isCopied ? "Copied" : COPY_AGENT_PROMPT}</WidestLabel>
     </Button>
   )
 }
+
+/** The words of the copy of the prompt, whose "Copied" holds their width */
+const COPY_AGENT_PROMPT = "Copy Prompt for Agent"

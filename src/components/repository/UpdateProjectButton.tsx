@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { ProgressLine } from "@/components/shared/ProgressLine"
+import { WidestLabel } from "@/components/shared/WidestLabel"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import { useRunProgress } from "@/hooks/useRunProgress"
 import { describeLanding, shortLanding } from "@/lib/landed"
@@ -106,15 +107,7 @@ function UpdateFooterWords({ description, fetchTime, landing }: { description: U
 /** "Updating 62%": the label of a running update, with the width of the widest one, so the header doesn't move per tick */
 function RunLabel({ shown }: { shown: RunningUpdate }) {
   const progress = useRunProgress(shown)
-  return (
-    // the widest label as an invisible pseudo-element in the same cell: it holds the width, and is no text of the button
-    <span
-      className="grid before:invisible before:col-start-1 before:row-start-1 before:content-[attr(data-widest)]"
-      data-widest={shown.run.kind === "fetch" ? "Fetching 99%" : "Updating 99%"}
-    >
-      <span className="col-start-1 row-start-1">{runLabel(shown.run, progress)}</span>
-    </span>
-  )
+  return <WidestLabel widest={shown.run.kind === "fetch" ? "Fetching 99%" : "Updating 99%"}>{runLabel(shown.run, progress)}</WidestLabel>
 }
 
 /** The bar of the whole run along the bottom edge of its button, a sibling of it: inside a button it has no role */

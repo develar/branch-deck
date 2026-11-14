@@ -7,6 +7,7 @@ import { CommitSubject } from "@/components/commit/CommitSubject"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { StartTruncatedText } from "@/components/shared/StartTruncatedText"
+import { WidestLabel } from "@/components/shared/WidestLabel"
 import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
@@ -234,9 +235,12 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
         {/* both prompts name bd: wait until it is known */}
         <Button size="xs" data-testid="copy-agent-prompt" disabled={bd === undefined} onClick={() => void copyPrompt()}>
           {isCopied ? <CopyCheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
-          {isCopied ? "Copied" : "Copy Prompt for Agent"}
+          <WidestLabel widest={COPY_AGENT_PROMPT}>{isCopied ? "Copied" : COPY_AGENT_PROMPT}</WidestLabel>
         </Button>
       </PreviewDialogFooter>
     </PreviewDialogFrame>
   )
 }
+
+/** The words of the copy of the prompt, whose "Copied" holds their width */
+const COPY_AGENT_PROMPT = "Copy Prompt for Agent"

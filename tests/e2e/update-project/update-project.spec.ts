@@ -384,9 +384,11 @@ test.describe("Update Project", () => {
     await expect(dialog).not.toContainText("Add login")
 
     const copy = dialog.getByTestId("copy-agent-prompt")
+    const box = await copy.boundingBox()
     await copy.click()
-    // the button says it in place, no toast
+    // the button says it in place, no toast, in the width of its words: the footer stays as it is
     await expect(copy).toHaveText("Copied")
+    expect(await copy.boundingBox()).toEqual(box)
     await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
     await page.clock.fastForward(2000)
     await expect(copy).toHaveText("Copy Prompt for Agent")

@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ItemSelect } from "@/components/shared/ItemSelect"
 import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
+import { WidestLabel } from "@/components/shared/WidestLabel"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import {
   choiceOf,
@@ -478,13 +479,15 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-/** Copy Prompt: the prompt as edited, "Copied" in place */
+const COPY_PROMPT = "Copy Prompt"
+
+/** Copy Prompt: the prompt as edited, "Copied" in place in the width of Copy Prompt, so the footer stays as it is */
 function CopyPromptButton({ prompt, disabled }: { prompt: string; disabled: boolean }) {
   const { isCopied, copyToClipboard } = useCopyToClipboard()
   return (
     <Button data-testid="start-in-air-copy" variant="ghost" size="xs" disabled={disabled} onClick={() => void copyToClipboard(prompt)}>
       {isCopied ? <CheckIcon data-icon="inline-start" /> : <ClipboardCopyIcon data-icon="inline-start" />}
-      {isCopied ? "Copied" : "Copy Prompt"}
+      <WidestLabel widest={COPY_PROMPT}>{isCopied ? "Copied" : COPY_PROMPT}</WidestLabel>
     </Button>
   )
 }
