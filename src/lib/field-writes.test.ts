@@ -140,4 +140,22 @@ describe("the writes of the typing of a field", () => {
     await again
     expect(held.calls()).toBe(1)
   })
+
+  it("writes the edit queued behind a write that threw, and the save of that write rejects with its error", async () => {
+    const writes = new FieldWrites()
+    let fail: (error: Error) => void = () => {}
+    const failing = writes.save(
+      "acme/one",
+      "",
+      () => new Promise<boolean>((_resolve, reject) => (fail = reject)),
+      () => {},
+    )
+    const { written, write, answer } = recordedWrites()
+    const queued = writes.save("acme/two", "", write("acme/two"), () => {})
+    fail(new Error("the link broke"))
+    await vi.waitFor(() => expect(written).toEqual(["acme/two"]))
+    answer(true)
+    await expect(failing).rejects.toThrow("the link broke")
+    await expect(queued).rejects.toThrow("the link broke")
+  })
 })

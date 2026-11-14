@@ -20,7 +20,8 @@ export class FieldWrites {
    * Writes `value` with `write`, which answers whether the backend took it, unless the field shows it (`shown`) and no
    * write runs; `taken` runs with the value after a write that took it and for a value the field shows, so the field
    * drops its typing, only while the typing is that value. Resolves once the writes that serve the save ended, at once
-   * when none is needed; rejects with an error a write threw, after which the field writes again
+   * when none is needed; rejects with an error a write threw, after the saves queued behind it, and the field writes
+   * again
    */
   save(value: string, shown: string, write: () => Promise<boolean>, taken: (value: string) => void): Promise<void> {
     if (this.running !== null) {
@@ -44,23 +45,35 @@ export class FieldWrites {
     this.written = null
   }
 
-  /** Writes `first`, then each latest save that came meanwhile with another value */
+  /**
+   * Writes `first`, then each latest save that came meanwhile with another value, or with any value after a write that
+   * threw; rejects with the first error a write threw, once the saves queued behind it were written
+   */
   private async run(first: FieldSave): Promise<void> {
+    let failure: { error: unknown } | null = null
     try {
       let current: FieldSave | null = first
       while (current !== null) {
         const save: FieldSave = current
-        if (await save.write()) {
-          this.written = save.value
-          save.taken(save.value)
+        let threw = false
+        try {
+          if (await save.write()) {
+            this.written = save.value
+            save.taken(save.value)
+          }
+        } catch (error: unknown) {
+          threw = true
+          failure ??= { error }
         }
         const next: FieldSave | null = this.next
         this.next = null
-        current = next !== null && next.value !== save.value ? next : null
+        current = next !== null && (threw || next.value !== save.value) ? next : null
       }
     } finally {
       this.running = null
-      this.next = null
+    }
+    if (failure !== null) {
+      throw failure.error
     }
   }
 }

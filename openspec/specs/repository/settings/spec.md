@@ -1263,8 +1263,9 @@ Enter and the close saves it, and no edit is lost: one saved while a write runs 
 
 #### Scenario: A write that threw
 - **WHEN** a write of a field throws
-- **THEN** its save fails with the error, and the next save of the field writes
-  [@test] src/lib/field-writes.test.ts (`writes again after a write that threw: the save rejects with its error, and the next save of the field writes`)
+- **THEN** its save fails with the error, the edit queued behind it is written all the same, and the next save of the
+  field writes
+  [@test] src/lib/field-writes.test.ts (`writes again after a write that threw: the save rejects with its error, and the next save of the field writes`, `writes the edit queued behind a write that threw, and the save of that write rejects with its error`)
 
 #### Scenario: A close whose save gets no answer
 - **WHEN** the window closes with typing whose write the writer never answers
