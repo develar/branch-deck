@@ -53,6 +53,7 @@ use sync_core::sync::SyncReport;
 use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::Clock;
 use sync_utils::commit_subject::subject_of;
+use sync_utils::span::in_current_span;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
@@ -203,6 +204,14 @@ pub trait SessionHost: Send + Sync + 'static {
   /// runtime calls it on the blocking pool, one save of a session at a time. Nothing by default
   fn save_frame(&self, _frame: &CachedSession) {}
 
+  /// The epoch of the worktree of `key` (`lease_pool::epoch::worktree_epoch`: the lease a slot of a lease pool holds
+  /// now; none outside a pool): a frame of another epoch seeds nothing, and a session kept under another one is of an
+  /// earlier lease of the slot, whose path the next lease keeps. Blocking: the runtime calls it on the blocking pool,
+  /// with `frame`. None by default
+  fn epoch(&self, _key: &SessionKey) -> Option<String> {
+    None
+  }
+
   /// A sync of `key` succeeded and committed `table`, its tips and its baseline (not a retry, not a deferred or failed
   /// sync; a sync that changed nothing too). Called on the actor of the session, in the order of the commits and before
   /// the windows get the patch of the table, so it must not block: a host starts what it does on a commit and returns
@@ -265,6 +274,8 @@ pub(crate) struct SessionLife {
   /// When a subscriber or an operation ended last, nanoseconds of the session clock
   last_active: AtomicU64,
   clock: Arc<dyn Clock>,
+  /// The epoch of the worktree the session opened under (`SessionHost::epoch`), once its actor read it
+  epoch: OnceLock<Option<String>>,
 }
 
 impl SessionLife {
@@ -274,9 +285,20 @@ impl SessionLife {
       operations: AtomicUsize::new(0),
       last_active: AtomicU64::new(0),
       clock,
+      epoch: OnceLock::new(),
     };
     life.touch();
     life
+  }
+
+  /// The actor read the epoch of the worktree as the session opened
+  pub(crate) fn opened_under(&self, epoch: Option<String>) {
+    let _ = self.epoch.set(epoch);
+  }
+
+  /// The epoch of the worktree the session opened under; none before its actor read it
+  fn epoch(&self) -> Option<&Option<String>> {
+    self.epoch.get()
   }
 
   /// The time on the session clock
@@ -595,6 +617,7 @@ impl Sessions {
   /// the catch-up when it holds the seed, else the snapshot), then every patch after it. `None` only when the session's
   /// actor is gone
   pub async fn subscribe_from(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>, have: Option<Version>) -> Option<(SubscriptionId, Joined)> {
+    self.close_of_another_epoch(key).await;
     let id = SubscriptionId(self.next_subscription.fetch_add(1, Ordering::SeqCst));
     let (reply, answer) = oneshot::channel();
     self.with_entry(key, |entry| {
@@ -620,6 +643,30 @@ impl Sessions {
       let _ = entry.mailbox.send(Message::Seed(reply));
     });
     answer.await.ok().flatten()
+  }
+
+  /// Closes the open session of `key` when it opened under another epoch of its worktree than the epoch now
+  /// (`SessionHost::epoch`): it is of an earlier lease of a slot of a lease pool, kept idle while the slot went back and
+  /// was leased again, so a window that comes back opens a new one, as for a worktree it never showed
+  async fn close_of_another_epoch(&self, key: &SessionKey) {
+    let Some(opened) = self.lock().get(key).and_then(|entry| entry.life.epoch().cloned()) else {
+      return;
+    };
+    let (host, of) = (Arc::clone(&self.host), key.clone());
+    let Ok(now) = tokio::task::spawn_blocking(in_current_span(move || host.epoch(&of))).await else {
+      return;
+    };
+    if now == opened {
+      return;
+    }
+    let mut entries = self.lock();
+    if entries.get(key).is_some_and(|entry| entry.life.epoch() == Some(&opened))
+      && let Some(entry) = entries.remove(key)
+    {
+      tracing::info!(worktree = %key.worktree, prefix = %key.prefix, "The worktree of the session holds another lease: the session opens again");
+      let _ = entry.mailbox.send(Message::Close);
+      self.events.emit(key, SessionEventKind::Closed);
+    }
   }
 
   /// `subscribe_from` of a window that holds nothing: the snapshot at the subscription, then every patch after it

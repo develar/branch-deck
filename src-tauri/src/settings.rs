@@ -21,9 +21,12 @@ use app_settings::service::SettingsService;
 use std::path::Path;
 use tauri::AppHandle;
 
-/// The writer of the settings files in `app_data_dir`, loaded now (a missing or broken file is the defaults)
+/// The writer of the settings files in `app_data_dir`, loaded now (a missing or broken file is the defaults), with the
+/// epochs of the worktrees (`give_worktree_epochs`)
 pub fn open_settings(app_data_dir: &Path) -> std::io::Result<SettingsService> {
-  SettingsService::open(app_data_dir.to_path_buf())
+  let settings = SettingsService::open(app_data_dir.to_path_buf())?;
+  app_api::app::settings::give_worktree_epochs(&settings);
+  Ok(settings)
 }
 
 /// Tell the main window of a failed save, once per streak of failures (`SettingsService::on_save_error`)

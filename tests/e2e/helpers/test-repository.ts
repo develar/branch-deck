@@ -230,6 +230,18 @@ export class TestRepositoryBuilder {
     await this.setFixture("sync-outside", {})
   }
 
+  /**
+   * Leases a slot of the lease pool of the repository, as an agent's `brd lease get` does, which is the repository of the
+   * test from now (`path`); `again` returns the lease of that slot and leases it again, the same path under a new lease
+   */
+  async leaseSlot(again = false): Promise<void> {
+    const { path } = (await (await this.postFixture("lease-slot", { again })).json()) as { path: string; leaseId: string }
+    if (again && path !== this.path) {
+      throw new Error(`The lease again took another slot: ${path}, not ${this.path}`)
+    }
+    this.path = path
+  }
+
   /** Rewrites the message of a commit behind the app's back (as `git rebase -i` would); returns the new commit id. */
   async reword(commitId: string, message: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/repositories/${this.id}/reword`, {

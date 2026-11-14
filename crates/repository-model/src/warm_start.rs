@@ -15,8 +15,10 @@
 //!   state. No running sync, no operation, no news: a frame is of no process.
 //! - **Where**: the object cache of the repository, store `session_frame`, one frame per worktree (`frame_key`, the
 //!   hash of its path) under the version of the schema (`FRAME_SCHEMA`), so the start reads it without a git process and
-//!   a frame of another schema is never read. The record names its key: a session seeds from it only under the same key
-//!   (`CachedSession::seeds`), so a frame of another prefix seeds nothing.
+//!   a frame of another schema is never read. The record names its key and the epoch of its worktree
+//!   (`lease_pool::epoch::worktree_epoch`, through `SessionHost::epoch`): a session seeds from it only under the same key
+//!   and epoch (`CachedSession::seeds`), so a frame of another prefix seeds nothing, nor one of an earlier lease of a slot
+//!   of a lease pool, whose path the next lease keeps.
 //! - **The seed** (`CachedSession::seed`: `TableState::from_cached`, `FactStore::from_cached`, the table of the last
 //!   sync rebuilt from the rows and the build, `CachedBuild::table`): the table is `cached` until the first sync of
 //!   the session commits, each fact of the frame that stood (`Fresh`, `Stale`, `Cached`) is `Cached` until an answer of
@@ -46,22 +48,26 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
-pub const FRAME_SCHEMA: u32 = 16;
+pub const FRAME_SCHEMA: u32 = 17;
 
 /// The frame of a session (the module's header)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CachedSession {
   pub schema: u32,
   pub key: SessionKey,
+  /// The epoch of the worktree the frame was saved under (`SessionHost::epoch`); none outside a lease pool
+  #[serde(default)]
+  pub epoch: Option<String>,
   pub table: CachedTable,
   pub facts: CachedFacts,
 }
 
 impl CachedSession {
-  /// Whether the session of `key` seeds from the frame: of this schema and of the same worktree and prefix
+  /// Whether the session of `key` under the epoch `epoch` of its worktree seeds from the frame: of this schema, of the
+  /// same worktree and prefix, and of the same epoch (a frame of an earlier lease of a slot is of another worktree)
   #[must_use]
-  pub fn seeds(&self, key: &SessionKey) -> bool {
-    self.schema == FRAME_SCHEMA && self.key == *key
+  pub fn seeds(&self, key: &SessionKey, epoch: Option<&str>) -> bool {
+    self.schema == FRAME_SCHEMA && self.key == *key && self.epoch.as_deref() == epoch
   }
 
   /// The table state and the facts the frame seeds: its rows `cached`, its facts `Cached`, and the table of its last
@@ -284,15 +290,16 @@ pub struct CachedNeeds {
   pub needs: Needs,
 }
 
-/// The frame of the session of `key` with `state` and `facts`: the table as its last sync committed it (while a sync
-/// runs, the one before it) and the facts as they stand
+/// The frame of the session of `key` under the epoch `epoch` of its worktree with `state` and `facts`: the table as its
+/// last sync committed it (while a sync runs, the one before it) and the facts as they stand
 #[must_use]
-pub fn frame_of(key: &SessionKey, state: &TableState, facts: &FactStore) -> CachedSession {
+pub fn frame_of(key: &SessionKey, epoch: Option<&str>, state: &TableState, facts: &FactStore) -> CachedSession {
   let mut table = state.committed_frame();
   table.built = facts.table.value().map(|table| CachedBuild::of(table));
   CachedSession {
     schema: FRAME_SCHEMA,
     key: key.clone(),
+    epoch: epoch.map(str::to_owned),
     table,
     facts: facts.frame(),
   }

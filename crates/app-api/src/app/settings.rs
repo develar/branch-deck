@@ -8,12 +8,22 @@ use crate::context::AppContext;
 use crate::events::settings_changed;
 use crate::operation::operation;
 use crate::transport::Call;
+use app_settings::service::SettingsService;
 use app_settings::windows::window_changes_since;
 use domain_types::error::ApiError;
 use domain_types::settings::{SettingsChange, SettingsPatch};
+use lease_pool::epoch::worktree_epoch;
 use serde::Deserialize;
 use specta::Type;
 use tracing::instrument;
+
+/// Gives the writer of the settings of a host the epochs of the worktrees (`lease_pool::epoch::worktree_epoch`): an entry
+/// of `repositoryState` of a slot of a lease pool is of the lease it was written under, and the writer forgets one of an
+/// earlier lease (`SettingsService::set_worktree_epochs`). The app, `brd mcp` and the E2E server call it as they open
+/// the writer
+pub fn give_worktree_epochs(settings: &SettingsService) {
+  settings.set_worktree_epochs(|path| worktree_epoch(std::path::Path::new(path)));
+}
 
 #[derive(Debug, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

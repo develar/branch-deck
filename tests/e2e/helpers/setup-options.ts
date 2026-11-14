@@ -40,6 +40,14 @@ export const SetupRepoOptionsSchema = z.object({
   syncedByBrd: z.boolean().default(false),
 
   /**
+   * The window opens a slot of the lease pool of the repository (`POST …/lease-slot`, an agent's `brd lease get`), its
+   * path the one of the repository from then on: `"now"` under the lease the setup took, `"again"` under the next one,
+   * after what `syncedAgoMs` recorded of the slot (the slot returned and leased again, the same path)
+   * Default: undefined - the repository itself
+   */
+  leaseSlot: z.enum(["now", "again"]).optional(),
+
+  /**
    * The app starts warm (`src-tauri/src/warm_start.rs`): before the page opens, a sync without a page builds the frame of
    * the repository's session (`POST …/warm-start/build`, before every other fixture, so the first sync of the page
    * meets them), and the start opens the session seeded from it (`GET …/warm-start`), whose seed goes into the page as

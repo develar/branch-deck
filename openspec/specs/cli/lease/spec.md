@@ -1131,6 +1131,18 @@ which holds a power assertion and opens no file.
 - **THEN** they do not work in it, and a command `caffeinate` wraps is a process of its own and counts
   [@test] crates/sync-utils/src/process_scan_test.rs (`the_session_is_the_ancestors_and_their_groups`, `git_maintenance_the_fsmonitor_daemon_and_caffeinate_do_not_work_in_a_directory`)
 
+### Requirement: Get: The epoch of a slot is the lease it holds
+
+The epoch of a worktree (`lease_pool::epoch::worktree_epoch`) MUST be the id of the lease its slot holds, `returned
+<n>` of a free slot by the number of its last return, and none for a worktree that is no slot of a pool; it MUST be
+read without git, from the `.git` file of the worktree and the state of the pool. The app keeps what it records of a
+slot by its path under this epoch ([Onboarding](../../repository/onboarding/spec.md)).
+
+#### Scenario: A slot leased again
+- **WHEN** a slot is leased, returned and leased again
+- **THEN** its epoch is each lease in turn, and that of its return between them; the main checkout has none
+  [@test] crates/bd-lease/src/lease_test.rs (`the_epoch_of_a_slot_is_its_lease_and_changes_with_each_return_and_get`)
+
 ### Requirement: Return: A return frees the lease of the worktree
 
 `brd lease return` MUST free the lease of the worktree of `--workspace` (default: of `-C`, else of the current

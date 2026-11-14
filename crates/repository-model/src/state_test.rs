@@ -325,7 +325,7 @@ async fn a_branch_moved_by_another_process_asks_for_a_retry() {
 /// that table (a channel to a page that went away never fails a send), so it catches up from the seed too
 #[test]
 fn a_seeded_view_is_the_frame_at_the_first_version_and_a_window_that_holds_it_catches_up() {
-  let frame = frame_of(&key(), &synced_state(), &answered_facts());
+  let frame = frame_of(&key(), None, &synced_state(), &answered_facts());
   let (mut state, facts) = frame.seed();
   let mut view = View::seeded(5, &state, &facts);
   let seed = view.snapshot();
@@ -377,7 +377,7 @@ fn the_pull_request_of_a_stack_that_is_no_more_closes_and_waits_for_the_first_sy
   let fresh = View::opened(1, &state, &facts).snapshot();
   assert_eq!(fresh.branches["auth"].structure.whole_stack, None, "auth heads no stack");
   assert_eq!(close(&fresh), Some(Availability::Enabled));
-  let (seeded, seeded_facts) = frame_of(&key(), &state, &facts).seed();
+  let (seeded, seeded_facts) = frame_of(&key(), None, &state, &facts).seed();
   assert_eq!(
     close(&View::seeded(2, &seeded, &seeded_facts).snapshot()),
     Some(Availability::Disabled { reason: ActionBlocker::Cached })

@@ -302,6 +302,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/update", post(updater::set_update))
     .route("/repositories/{id}/host-disks", post(disk_fixtures::set_host_disks))
     .route("/repositories/{id}/lease-slots", post(disk_fixtures::add_lease_slots))
+    .route("/repositories/{id}/lease-slot", post(disk_fixtures::lease_slot))
     .route(
       "/repositories/{id}/cli-tools",
       post(cli_tools_fixtures::set_cli_tools).get(cli_tools_fixtures::get_cli_tools),
@@ -708,7 +709,7 @@ fn copy_template(template: &std::path::Path, repo_dir: &std::path::Path) -> anyh
 const FIXTURE_ORIGIN: &str = "test";
 
 /// A change of the settings by the fixture of a test: the whole value of `key`, `null` removes it
-fn set_fixture_value(store: &app_settings::service::SettingsService, key: &str, value: serde_json::Value) -> Result<(), StatusCode> {
+pub(crate) fn set_fixture_value(store: &app_settings::service::SettingsService, key: &str, value: serde_json::Value) -> Result<(), StatusCode> {
   let patch = domain_types::settings::SettingsPatch::Value { key: key.to_owned(), value };
   store.set(patch, FIXTURE_ORIGIN).map(drop).map_err(|e| {
     tracing::error!(key, error = %e, "the fixture cannot change the settings");
@@ -722,6 +723,7 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
     tracing::error!(error = %e, "cannot start the writer of the settings");
     StatusCode::INTERNAL_SERVER_ERROR
   })?;
+  app_api::app::settings::give_worktree_epochs(&store);
   for (key, value) in values {
     set_fixture_value(&store, key, value.clone())?;
   }
@@ -1012,12 +1014,18 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
     return Err(StatusCode::UNPROCESSABLE_ENTITY);
   };
   state.path_to_id.remove(&repo.path);
+  // the slots of its pool a test opened as the repository (`lease_slot`)
+  let slots: Vec<String> = state.path_to_id.iter().filter(|entry| entry.value() == &id).map(|entry| entry.key().clone()).collect();
+  state.path_to_id.retain(|_, of| of != &id);
   // its windows close: their subscriptions end, their review fetches stop; a window's subscription streams until its
   // session closes, and holds the repository while it does
   repo.context.forget_windows();
   // the event stream of each page ends: a page that outlived its test hears nothing more
   repo.events.close();
   state.sessions.close_worktree(&repo.path);
+  for slot in &slots {
+    state.sessions.close_worktree(slot);
+  }
   state.session_clocks.forget(&repo.path);
   // a sign-in the page left waiting on GitHub would hold the repository until its code expires
   if let Some(host) = repo.existing_remote() {

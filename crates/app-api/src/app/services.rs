@@ -193,6 +193,11 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
     write_frame(&ctx.repository_state.object_cache(&ctx.git, &frame.key.worktree), frame);
   }
 
+  /// The lease the slot of the worktree holds now, read without git
+  fn epoch(&self, key: &SessionKey) -> Option<String> {
+    lease_pool::epoch::worktree_epoch(Path::new(&key.worktree))
+  }
+
   /// The plans of the branches the review windows asked, which the sync moved, read ahead in the background
   fn table_committed(&self, key: &SessionKey, table: &BranchTable) {
     prefetch_after_commit(self.source.context(), key, table);
@@ -203,8 +208,9 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
     read_ahead_requests(self.source.context(), key, requests);
   }
 
-  /// The `lastSyncTime` of the repository in the state the writer of the settings keeps, or the mark a sync left in the
-  /// worktree, which `brd sync` in a terminal leaves too (`synced_mark`)
+  /// The `lastSyncTime` of the repository in the state the writer of the settings keeps, of the epoch of the worktree now
+  /// (the writer forgets an entry of an earlier lease), or the mark a sync left in the worktree, which `brd sync` in a
+  /// terminal leaves too (`synced_mark`)
   fn synced_before(&self, key: &SessionKey) -> bool {
     synced_before(&self.source.context().settings, &key.worktree) || sync_core::synced_mark::synced_before(&key.worktree, &key.prefix)
   }

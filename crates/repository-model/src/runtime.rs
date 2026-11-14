@@ -284,6 +284,7 @@ pub(crate) fn spawn_actor(
     in_flight: None,
     moved: MovedFetches::default(),
     frames,
+    epoch: None,
     synced_before: false,
     asked: false,
   };
@@ -381,6 +382,9 @@ struct Actor {
   /// The last fetch of each remote branch whose pull request showed a head it lacked
   moved: MovedFetches,
   frames: FrameSaves,
+  /// The epoch of the worktree as the host said when the session opened (`SessionHost::epoch`): the frames it saves are
+  /// of it, and a window that comes back to the session under another one opens a new session (`Sessions::subscribe_from`)
+  epoch: Option<String>,
   /// The worktree was synced before, as the host said when the session opened (`SessionHost::synced_before`), or later
   /// to a focus or a stamp: it syncs when it opens and when a window watches it anew
   synced_before: bool,
@@ -425,13 +429,19 @@ impl Actor {
   /// syncs at once (`SyncReason::Open`), with or without a window, so its first sync runs while a window loads
   async fn open(&mut self, preloaded: Option<CachedSession>) {
     let (host, key, read) = (Arc::clone(&self.host), self.key.clone(), preloaded.is_none());
-    let opened = tokio::task::spawn_blocking(in_current_span(move || (read.then(|| host.frame(&key)).flatten(), host.synced_before(&key)))).await;
-    let Ok((frame, synced_before)) = opened else {
+    let opened = tokio::task::spawn_blocking(in_current_span(move || {
+      (host.epoch(&key), read.then(|| host.frame(&key)).flatten(), host.synced_before(&key))
+    }))
+    .await;
+    let Ok((worktree_epoch, frame, synced_before)) = opened else {
       return;
     };
+    self.life.opened_under(worktree_epoch.clone());
     self.synced_before = synced_before;
     let epoch = self.view.version().epoch;
-    if let Some(frame) = preloaded.or(frame).filter(|frame| frame.seeds(&self.key)) {
+    let seeds = preloaded.or(frame).filter(|frame| frame.seeds(&self.key, worktree_epoch.as_deref()));
+    self.epoch = worktree_epoch;
+    if let Some(frame) = seeds {
       (self.state, self.facts) = frame.seed();
       self.state.synced = self.synced();
       self.view = View::seeded(epoch, &self.state, &self.facts);
@@ -451,7 +461,7 @@ impl Actor {
     let frames = &mut self.frames;
     frames.dirty = false;
     frames.saved_at = Some(self.life.now());
-    let frame = frame_of(&self.key, &self.state, &self.facts);
+    let frame = frame_of(&self.key, self.epoch.as_deref(), &self.state, &self.facts);
     // the task ends only after the actor
     let _ = frames.frames.send(Some(Arc::new(frame)));
   }
@@ -1354,6 +1364,12 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   /// Keeps `frame` as the frame of its worktree (`SessionHost::save_frame`); nothing by default. Blocking
   fn save_frame(&self, _frame: &CachedSession) {}
 
+  /// The epoch of the worktree of `key` (`SessionHost::epoch`): `lease_pool::epoch::worktree_epoch` in the app and the
+  /// E2E server; none by default. Blocking
+  fn epoch(&self, _key: &SessionKey) -> Option<String> {
+    None
+  }
+
   /// A sync of `key` committed `table` (`SessionHost::table_committed`): the app reads ahead the review plans its
   /// windows asked whose branches the sync moved (`app_api::reads::review_prefetch`); nothing by default. Not blocking
   fn table_committed(&self, _key: &SessionKey, _table: &BranchTable) {}
@@ -1452,6 +1468,10 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn save_frame(&self, frame: &CachedSession) {
     self.environment.save_frame(frame);
+  }
+
+  fn epoch(&self, key: &SessionKey) -> Option<String> {
+    self.environment.epoch(key)
   }
 
   fn table_committed(&self, key: &SessionKey, table: &BranchTable) {

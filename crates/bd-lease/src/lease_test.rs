@@ -457,6 +457,30 @@ fn a_return_takes_out_the_mark_of_a_sync_in_the_lease() {
   assert!(!sync_core::synced_mark::synced_before(&path, PREFIX));
 }
 
+/// The epoch of a worktree is the lease its slot holds now (`worktree_epoch`): what the app recorded of the slot by its
+/// path under one lease is of another epoch once the slot is returned and leased again, so it counts as absent; the
+/// main checkout, which is no slot, has none
+#[test_log::test]
+fn the_epoch_of_a_slot_is_its_lease_and_changes_with_each_return_and_get() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&[]);
+  let path = path_of(&got);
+  let first = lease_pool::epoch::worktree_epoch(Path::new(&path));
+  assert_eq!(first.as_deref(), got["lease_id"].as_str());
+
+  fixture.give_back(&path);
+  let free = lease_pool::epoch::worktree_epoch(Path::new(&path));
+  assert!(free.is_some() && free != first, "{free:?}");
+
+  let again = fixture.get(&[]);
+  assert_eq!(path_of(&again), path, "the same slot again");
+  let second = lease_pool::epoch::worktree_epoch(Path::new(&path));
+  assert_eq!(second.as_deref(), again["lease_id"].as_str());
+  assert!(second != first && second != free);
+
+  assert_eq!(lease_pool::epoch::worktree_epoch(fixture.repo.path()), None, "the main checkout is no slot");
+}
+
 /// The `status` of the pool writes the slot's index: after a get and its return, a `status` that may not write (the
 /// executor's default) finds the untracked cache filled and opens almost no directory, where a cold index opens all
 #[cfg(unix)]

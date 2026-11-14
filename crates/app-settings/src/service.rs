@@ -27,6 +27,12 @@
 //! and so does a read of the file that its watch asks for (`watch`) when the other process renamed a file over it.
 //! Each such key is a change of its own (the next version, origin `OTHER_PROCESS_ORIGIN`), which `changes_since`
 //! answers and `on_external_change` tells, as `set` answers a change of a window, so the pages take it the same way.
+//!
+//! An entry of `repositoryState` is of the epoch of its worktree (`lease_pool::epoch::worktree_epoch`, which the host
+//! gives, `set_worktree_epochs`): a slot of a lease pool keeps its path from one lease to the next. A write of an entry
+//! names the epoch it was written under (`EPOCH_FIELD`, which no window writes), and an entry of another epoch is of an
+//! earlier lease: the writer forgets it before the key leaves it (`snapshot`, `changes_since`, `value`, the change of a
+//! `set`), so neither Rust nor a window reads it.
 
 use crate::file::{REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile, lock_directory};
 use crate::merge::{Unsaved, changed_keys};
@@ -50,6 +56,16 @@ pub const MAX_RETRY_DELAY: Duration = Duration::from_mins(1);
 
 /// The origin of a change the writer of another process made, which this one read from the file
 pub const OTHER_PROCESS_ORIGIN: &str = "other-process";
+
+/// The origin of the change that forgot the entries of `repositoryState` of another epoch of their worktree
+pub const EPOCH_ORIGIN: &str = "epoch";
+
+/// The field of an entry of `repositoryState` that names the epoch of its worktree it was written under; none for a path
+/// outside a lease pool
+pub const EPOCH_FIELD: &str = "epoch";
+
+/// The epoch of the worktree at a path (`lease_pool::epoch::worktree_epoch`), which the host gives the writer
+pub type WorktreeEpochs = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// A save of the settings file that failed
 #[derive(Debug, Clone, thiserror::Error)]
@@ -287,6 +303,8 @@ struct Shared {
   saved: Condvar,
   on_save_error: Mutex<Option<SaveErrorListener>>,
   on_external_change: Mutex<Option<ChangeListener>>,
+  /// The epochs of the worktrees (`set_worktree_epochs`); none: every path is outside a pool
+  epochs: Mutex<Option<WorktreeEpochs>>,
 }
 
 impl Shared {
@@ -326,6 +344,7 @@ impl SettingsService {
       saved: Condvar::new(),
       on_save_error: Mutex::new(None),
       on_external_change: Mutex::new(None),
+      epochs: Mutex::new(None),
     });
     let writer_shared = Arc::clone(&shared);
     let writer = std::thread::Builder::new()
@@ -359,9 +378,17 @@ impl SettingsService {
   /// Apply `patch` from `origin` to the settings in memory and answer the change for the windows; the save of the
   /// file of its key follows within the debounce. A value of a field Rust knows that is invalid is refused and changes
   /// nothing
-  pub fn set(&self, patch: SettingsPatch, origin: &str) -> Result<SettingsChange, SettingsError> {
+  pub fn set(&self, mut patch: SettingsPatch, origin: &str) -> Result<SettingsChange, SettingsError> {
+    let epochs = self.epochs();
+    if let Some(epochs) = &epochs {
+      stamp_epochs(&mut patch, epochs);
+    }
     let mut state = self.shared.lock();
     let key = patch.key().to_owned();
+    // the change carries the whole key: without the entries of an earlier lease, forgotten first
+    if key == REPOSITORY_STATE_KEY {
+      forget_other_epochs(&mut state, epochs.as_ref());
+    }
     let file = StoreFile::of(&key);
     let fields = match &patch {
       SettingsPatch::Fields { fields, .. } => Some(fields.keys().cloned().collect()),
@@ -389,6 +416,26 @@ impl SettingsService {
       value,
       origin: origin.to_owned(),
     })
+  }
+
+  /// The epochs of the worktrees the entries of `repositoryState` are of (`lease_pool::epoch::worktree_epoch`): from now
+  /// a write of an entry names its epoch, and an entry of another epoch is forgotten before the key leaves the writer
+  pub fn set_worktree_epochs(&self, epochs: impl Fn(&str) -> Option<String> + Send + Sync + 'static) {
+    *self.shared.epochs.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(epochs));
+  }
+
+  fn epochs(&self) -> Option<WorktreeEpochs> {
+    self.shared.epochs.lock().unwrap_or_else(PoisonError::into_inner).clone()
+  }
+
+  /// The state, the entries of `repositoryState` of another epoch of their worktree forgotten
+  fn current(&self) -> MutexGuard<'_, State> {
+    let epochs = self.epochs();
+    let mut state = self.shared.lock();
+    if forget_other_epochs(&mut state, epochs.as_ref()) {
+      self.shared.wake.notify_one();
+    }
+    state
   }
 
   /// Save every change made before now and wait for it; the error of that save when it failed
@@ -424,7 +471,7 @@ impl SettingsService {
   /// The version of the settings and the value of every key, as a window starts with them
   #[must_use]
   pub fn snapshot(&self) -> (u32, Value) {
-    let state = self.shared.lock();
+    let state = self.current();
     let mut values = state.settings_file.content.other.clone();
     values.insert(APP_SETTINGS_KEY.to_owned(), app_value(&state.settings_file.content.app));
     values.extend(state.repository_state_file.content.other.clone());
@@ -435,7 +482,7 @@ impl SettingsService {
   /// comes with `null`
   #[must_use]
   pub fn changes_since(&self, version: u32) -> Vec<SettingsChange> {
-    let state = self.shared.lock();
+    let state = self.current();
     let mut changes: Vec<SettingsChange> = state
       .changes
       .iter()
@@ -454,6 +501,9 @@ impl SettingsService {
   /// The value of `key` as it is now; `null` for a key that is not set
   #[must_use]
   pub fn value(&self, key: &str) -> Value {
+    if key == REPOSITORY_STATE_KEY {
+      return key_value(&self.current(), key);
+    }
     key_value(&self.shared.lock(), key)
   }
 
@@ -691,6 +741,67 @@ fn read_file(shared: &Shared, file: StoreFile) -> Option<SettingsFile> {
     .inspect_err(|error| debug!(file = %shared.path_of(file).display(), %error, "the changed settings file is not read"))
     .ok()
     .flatten()
+}
+
+/// Names in each entry of `repositoryState` that `patch` writes (the fields of a window, the whole value of a fixture of
+/// the E2E server) the epoch of its worktree now (`EPOCH_FIELD`, removed for a path outside a pool): the page never
+/// writes it, so its entries are always of the epoch they were written under
+fn stamp_epochs(patch: &mut SettingsPatch, epochs: &WorktreeEpochs) {
+  let entries = match patch {
+    SettingsPatch::Fields { key, fields } if key == REPOSITORY_STATE_KEY => fields,
+    SettingsPatch::Value {
+      key,
+      value: Value::Object(entries),
+    } if key == REPOSITORY_STATE_KEY => entries,
+    _ => return,
+  };
+  for (path, entry) in entries.iter_mut() {
+    if let Value::Object(entry) = entry {
+      match epochs(path) {
+        Some(epoch) => entry.insert(EPOCH_FIELD.to_owned(), Value::String(epoch)),
+        None => entry.remove(EPOCH_FIELD),
+      };
+    }
+  }
+}
+
+/// Removes from `repositoryState` each entry written under another epoch of its worktree than its epoch now, as a change
+/// of the writer (`EPOCH_ORIGIN`) that the next save writes; whether it removed one
+fn forget_other_epochs(state: &mut State, epochs: Option<&WorktreeEpochs>) -> bool {
+  let Some(epochs) = epochs else {
+    return false;
+  };
+  let Some(Value::Object(entries)) = state.repository_state_file.content.other.get_mut(REPOSITORY_STATE_KEY) else {
+    return false;
+  };
+  let stale: Vec<String> = entries
+    .iter()
+    .filter(|(path, entry)| entry.get(EPOCH_FIELD).and_then(Value::as_str).map(str::to_owned) != epochs(path))
+    .map(|(path, _)| path.clone())
+    .collect();
+  if stale.is_empty() {
+    return false;
+  }
+  for path in &stale {
+    entries.remove(path);
+  }
+  if entries.is_empty() {
+    state.repository_state_file.content.other.remove(REPOSITORY_STATE_KEY);
+  }
+  state.version += 1;
+  let version = state.version;
+  let stored = state.file_mut(StoreFile::RepositoryState);
+  stored.changed = Some(version);
+  stored.unsaved.record(REPOSITORY_STATE_KEY, Some(stale), version);
+  state.changes.insert(
+    REPOSITORY_STATE_KEY.to_owned(),
+    KeyChange {
+      version,
+      origin: EPOCH_ORIGIN.to_owned(),
+    },
+  );
+  state.dirty_since.get_or_insert_with(Instant::now);
+  true
 }
 
 /// Apply `patch` to `file` and answer the whole value of its key after it; on an error `file` is unchanged

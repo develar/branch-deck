@@ -941,7 +941,7 @@ async fn seeded<T>(meanwhile: impl FnOnce(&Fixture) -> T) -> (Fixture, HeldSyncs
   let frame = earlier
     .registry
     .sessions()
-    .read(&earlier.key, move |state, facts| frame_of(&key, state, facts))
+    .read(&earlier.key, move |state, facts| frame_of(&key, None, state, facts))
     .await
     .unwrap();
   let frame: CachedSession = serde_json::from_value(serde_json::to_value(&frame).unwrap()).unwrap();

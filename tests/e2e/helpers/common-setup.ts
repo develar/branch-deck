@@ -25,6 +25,11 @@ export async function setupTestRepository(page: Page, templateName: string, opti
     parsedOptions.syncedAgoMs ??= WARM_START_SYNCED_AGO_MS
   }
 
+  // the repository the window opens is a slot of its lease pool, under the lease of an agent's `brd lease get`
+  if (parsedOptions.leaseSlot !== undefined) {
+    await repoBuilder.leaseSlot()
+  }
+
   // an agent's `brd sync` in a terminal synced the worktree before the window opens: the mark of that sync
   if (parsedOptions.syncedByBrd) {
     await repoBuilder.syncOutsideTheApp()
@@ -103,7 +108,15 @@ export async function setupTestRepository(page: Page, templateName: string, opti
     if (!response.ok) {
       throw new Error(`Failed to set the repository state: ${response.statusText}`)
     }
-    parsedOptions.initialStoreValues.repositoryState = repositoryState
+  }
+  // the slot went back and was leased again: what the app recorded of it is of the lease before
+  if (parsedOptions.leaseSlot === "again") {
+    await repoBuilder.leaseSlot(true)
+  }
+  if (parsedOptions.syncedAgoMs !== undefined && repoBuilder.id && repoBuilder.path) {
+    // the writer's copy, as the build of the window hands it: without an entry of an earlier lease of a slot
+    const stored = await fetch(`${TEST_SERVER_URL}/store/${repoBuilder.id}/repositoryState`)
+    parsedOptions.initialStoreValues.repositoryState = (await stored.json()) as unknown
   }
 
   // the start of the app: the session opened seeded from the frame, its first sync running, and its seed for the page

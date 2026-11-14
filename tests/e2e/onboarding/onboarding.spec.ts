@@ -231,6 +231,26 @@ test.describe("Onboarding", () => {
     await expect(card).toHaveCount(0)
   })
 
+  test("syncs a slot of the lease pool the app synced under its lease now when the window opens it, and says when", async ({ page, setupRepo }) => {
+    // an agent leased the slot, and the app synced it under that lease an hour ago; the open sync of the session is held
+    const repo = await setupRepo("simple", { leaseSlot: "now", syncedAgoMs: SYNCED_AN_HOUR_AGO, remoteAnswers: { hold: ["sync"] }, waitForSync: false })
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    // the sync of an hour ago, while the one of the open is held
+    await expect(page.getByTestId("last-sync-time")).toHaveText(/^Last synced /)
+    await expect(page.getByTestId("ready-to-sync-card")).toHaveCount(0)
+
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await expect(findBranchRow(page, "test-branch")).toBeVisible()
+  })
+
+  test("shows the Ready to Sync card for a slot of the lease pool the app synced under an earlier lease, and no Last synced", async ({ page, setupRepo }) => {
+    // the app synced the slot an hour ago, then the slot went back and an agent leased it again: the same path, another
+    // worktree, whose first sync is the user's
+    await setupRepo("simple", { leaseSlot: "again", syncedAgoMs: SYNCED_AN_HOUR_AGO })
+    await expectNothingRunsBeforeTheFirstSync(page, async () => (await focusWindow(page))?.outcome)
+    await expect(page.getByTestId("last-sync-time")).toHaveCount(0)
+  })
+
   test("forgets the branches of the previous repository on a switch", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
     // the injected store runs first, this script adds to it

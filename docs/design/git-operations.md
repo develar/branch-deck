@@ -2245,6 +2245,19 @@ a get that reuses a free slot, which a return of an older build may have left ma
 sync"; `forget_synced` of `finish_return` and `move_reused_slot`; `a_return_takes_out_the_mark_of_a_sync_in_the_lease`):
 the next lease is a worktree no sync built anything for, and a window that opens it shows the Ready to Sync card.
 
+**The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`): the path stays too, and the app keeps what it records
+of a worktree by its path. The epoch is the id of the lease the slot holds now (`returned <n>` of a free slot, by the
+number of its last return; none for a worktree that is no slot), read without git from the `.git` file of the worktree,
+its admin directory and the state of the pool, and every record of the app by path is of the epoch it was recorded
+under; one of another epoch is of an earlier lease and counts as absent. The writer of the settings names the epoch in
+each entry of `repositoryState` it writes (`EPOCH_FIELD`; the host gives it the function, `give_worktree_epochs`) and
+forgets an entry of another epoch before the key leaves it (`snapshot`, `changes_since`, `value`, the change of a
+`set`), so `synced_before`, "Last synced", the room of the loading table and the settled layout are of the lease now. A
+frame names its epoch and seeds only a session of it (`CachedSession::seeds`), and a window that comes back to a session
+kept idle under another epoch gets a new session (`Sessions::close_of_another_epoch`, one read of the state of the pool
+per subscription; `a_window_that_comes_back_to_a_session_kept_under_an_earlier_lease_opens_a_new_one`). The id, not the
+time of the lease: a get, a return and a get within one second are two epochs.
+
 Takeover: on 2026-10-29 a get cloned a new slot of idea-1, 16 GB and more than 15 minutes of checkout, while six
 slots of the pool had a `ready` lease of a dead holder, four of them with nothing unlanded: the get only named them
 (`idle_leases`), and no user reads the answer of a get an agent ran, so the pool grew by one clone for each dead
@@ -5120,7 +5133,7 @@ the facts within the last 5 s may be lost.
 app's in the object cache of the repository, the E2E server's in the memory of a test repository once its test built
 one, `POST /repositories/{id}/warm-start/build`), unless the opener hands it the frame it read
 (`Sessions::open_seeded`: the start of the app, with the key it resolved now), and the session seeds from it only under
-the same key and schema (`CachedSession::seeds`). The table is `cached` (`RepositoryView.cached`) until a sync of this process commits, the
+the same key, schema and epoch of the worktree (`CachedSession::seeds`, "The epoch of a worktree"). The table is `cached` (`RepositoryView.cached`) until a sync of this process commits, the
 structure of each row and the order of the stack branches derived again, each commit with its identity. Each fact of
 the frame that stood is `Cached` until an answer of this process, and a failure of that first read leaves what a
 failure without an answer leaves (`Unavailable`, the value gone: the robots, the pull requests and the review requests

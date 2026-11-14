@@ -77,12 +77,12 @@ fn a_frame_reads_back_from_the_object_cache_as_it_was_written() {
   let dir = tempfile::tempdir().unwrap();
   let cache = test_utils::process_budget::cache_in(dir.path());
   let state = synced_state();
-  let frame = frame_of(&key(), &state, &answered_facts());
+  let frame = frame_of(&key(), None, &state, &answered_facts());
   write_frame(&cache, &frame);
   let read = read_frame(&cache, "/repo").unwrap();
   // the notes a sync reads with the commits are no part of a view, nor of a frame
   assert_eq!(serde_json::to_value(&read).unwrap(), serde_json::to_value(&frame).unwrap());
-  assert!(read.seeds(&key()));
+  assert!(read.seeds(&key(), None));
   assert_eq!(read_frame(&cache, "/other"), None);
   let identity = |commit: &Commit| (commit.id.clone(), commit.author_email.clone(), commit.author_timestamp, commit.subject.clone());
   let seeded = TableState::from_cached("user", read.table);
@@ -120,7 +120,7 @@ fn a_frame_keeps_what_only_rust_reads_of_the_patronus_view_beside_its_wire() {
   facts.memo = Arc::new(ContentMemo::seeded(content.clone()));
   let dir = tempfile::tempdir().unwrap();
   let cache = test_utils::process_budget::cache_in(dir.path());
-  write_frame(&cache, &frame_of(&key(), &synced_state(), &facts));
+  write_frame(&cache, &frame_of(&key(), None, &synced_state(), &facts));
   let read = read_frame(&cache, "/repo").unwrap();
   let wire = serde_json::to_string(&read.facts.patronus).unwrap();
   for field in ["landedBy", "landedByRobot", "\"hold\"", "\"rest\""] {
@@ -135,26 +135,26 @@ fn a_frame_keeps_what_only_rust_reads_of_the_patronus_view_beside_its_wire() {
 /// seeds nothing
 #[test]
 fn a_frame_seeds_only_the_session_of_its_key_and_schema() {
-  let frame = frame_of(&key(), &synced_state(), &FactStore::new());
+  let frame = frame_of(&key(), None, &synced_state(), &FactStore::new());
   let other_prefix = SessionKey {
     prefix: "other".to_owned(),
     ..key()
   };
-  assert!(frame.seeds(&key()));
-  assert!(!frame.seeds(&other_prefix));
+  assert!(frame.seeds(&key(), None));
+  assert!(!frame.seeds(&other_prefix, None));
   let older = CachedSession {
     schema: FRAME_SCHEMA - 1,
     ..frame
   };
-  assert!(!older.seeds(&key()));
+  assert!(!older.seeds(&key(), None));
 }
 
 /// While a sync runs the frame keeps the table the last sync committed, not the rows the running one builds
 #[test]
 fn a_frame_while_a_sync_runs_keeps_the_table_it_started_from() {
   let mut state = synced_state();
-  let committed = frame_of(&key(), &state, &FactStore::new()).table;
+  let committed = frame_of(&key(), None, &state, &FactStore::new()).table;
   state.begin_sync();
   state.apply(grouping(vec![grouped("auth", &["a3", "a2", "a1"])]));
-  assert_eq!(frame_of(&key(), &state, &FactStore::new()).table, committed);
+  assert_eq!(frame_of(&key(), None, &state, &FactStore::new()).table, committed);
 }

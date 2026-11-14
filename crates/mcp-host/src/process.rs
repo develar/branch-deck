@@ -116,6 +116,7 @@ fn context(connection: &Connection, app_data_dir: Option<PathBuf>) -> std::io::R
   let (sessions, registry) = start_sessions(&services, &runtime, Arc::clone(&events), &git, &repository_state);
   // the one writer of the settings in this process: a change the desktop app saved reaches the views as its own
   let settings = Arc::new(SettingsService::open(app_data_dir.unwrap_or_default())?);
+  app_api::app::settings::give_worktree_epochs(&settings);
   {
     let events = Arc::clone(&events);
     settings.on_save_error(move |error| settings_save_failed(&*events, error.to_string()));

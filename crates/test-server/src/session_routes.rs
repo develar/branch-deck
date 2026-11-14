@@ -170,6 +170,11 @@ impl SessionEnvironment for TestSessionEnvironment {
     }
   }
 
+  /// The lease the slot of the worktree holds now, as the app's host reads it (`lease_pool::epoch::worktree_epoch`)
+  fn epoch(&self, key: &SessionKey) -> Option<String> {
+    lease_pool::epoch::worktree_epoch(std::path::Path::new(&key.worktree))
+  }
+
   /// The `lastSyncTime` of the repository in the store of its test (`syncedAgoMs` of the setup), as the app's writer
   /// keeps it, or the mark a sync left in the worktree (`synced_mark`), as the app's host reads them
   fn synced_before(&self, key: &SessionKey) -> bool {
@@ -623,7 +628,9 @@ pub async fn build_warm_start(Path(id): Path<String>, State(state): State<Arc<Ap
   let of = key.clone();
   let frame = state
     .sessions
-    .read(&key, move |table, facts| frame_of(&of, table, facts))
+    .read(&key, move |table, facts| {
+      frame_of(&of, lease_pool::epoch::worktree_epoch(std::path::Path::new(&of.worktree)).as_deref(), table, facts)
+    })
     .await
     .ok_or_else(|| fixture_failed("build the frame", &ApiError::internal("The session closed while the frame was built")))?;
   let rows = frame.table.order.len();

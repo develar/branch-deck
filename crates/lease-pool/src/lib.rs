@@ -22,6 +22,8 @@
 //!   mapping notes of a sync: the one rule of the return, the takeover and `brd lease reclaim`
 //! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `brd lease clean` apply to a slot, and its
 //!   `pick_requires_check`
+//! - `epoch`: the epoch of a worktree, the lease its slot holds now: a record of the worktree by its path under
+//!   another epoch is of another lease (`worktree_epoch`)
 //! - `check_record`: the green builds and tests a check tool recorded in the git dir of a worktree, by tree, which
 //!   `brd lease pick` reads
 //! - `clone_dir`: a directory tree by APFS clones, the new slot of a get on macOS, without what the clean rules delete
@@ -40,6 +42,7 @@ pub mod agent_workspace;
 mod bazel_servers;
 pub mod check_record;
 pub mod clone_dir;
+pub mod epoch;
 pub mod free_space;
 mod host_brew;
 pub mod host_git;

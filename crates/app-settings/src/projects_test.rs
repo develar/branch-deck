@@ -41,3 +41,47 @@ fn a_project_was_synced_before_when_its_state_has_the_time_of_a_sync() {
   assert!(!synced_before(&service, "/work/b"));
   assert!(!synced_before(&service, "/work/c"));
 }
+
+/// What a sync recorded of a slot of a lease pool is of the lease of then (`EPOCH_FIELD`, which the writer names in each
+/// entry it writes): once the slot holds another lease the entry is of an earlier one, so Rust reads no sync of it and
+/// no window gets it, whichever read comes first; an entry of a path outside a pool stays, as does one of the lease now
+#[test]
+fn an_entry_of_another_epoch_of_its_worktree_is_forgotten_before_the_key_leaves_the_writer() {
+  let (_directory, service) = service_with(&[]);
+  let epochs = std::sync::Arc::new(std::sync::Mutex::new(json!({ "/pool/1/repo": "lease-a" })));
+  let current = std::sync::Arc::clone(&epochs);
+  service.set_worktree_epochs(move |path| current.lock().unwrap().get(path).and_then(Value::as_str).map(str::to_owned));
+  let synced = |path: &str| {
+    let entry = json!({ path: { "lastSyncTime": 1_700_000_000_000_u64, "lastBranchCount": 3 } });
+    service
+      .set(
+        SettingsPatch::Fields {
+          key: "repositoryState".to_owned(),
+          fields: entry.as_object().unwrap().clone(),
+        },
+        "main",
+      )
+      .unwrap()
+  };
+  let change = synced("/pool/1/repo");
+  assert_eq!(change.value["/pool/1/repo"]["epoch"], "lease-a", "the writer names the epoch the entry was written under");
+  synced("/work/checkout");
+  assert!(synced_before(&service, "/pool/1/repo") && synced_before(&service, "/work/checkout"));
+
+  // the slot was returned and leased again
+  *epochs.lock().unwrap() = json!({ "/pool/1/repo": "lease-b" });
+  let (version, snapshot) = service.snapshot();
+  assert_eq!(snapshot["repositoryState"].as_object().unwrap().keys().collect::<Vec<_>>(), ["/work/checkout"]);
+  let forgotten = service.changes_since(version - 1);
+  assert_eq!(
+    forgotten.iter().map(|change| (change.key.as_str(), change.origin.as_str())).collect::<Vec<_>>(),
+    [("repositoryState", "epoch")]
+  );
+  assert!(!synced_before(&service, "/pool/1/repo"));
+  assert!(synced_before(&service, "/work/checkout"));
+
+  // a sync of the new lease is of it
+  synced("/pool/1/repo");
+  assert!(synced_before(&service, "/pool/1/repo"));
+  assert_eq!(service.value("repositoryState")["/pool/1/repo"]["epoch"], "lease-b");
+}

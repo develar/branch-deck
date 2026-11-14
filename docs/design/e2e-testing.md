@@ -125,7 +125,12 @@ sequenceDiagram
    environment reads the writer of the test repository, or the mark a sync left in its worktree, `synced_mark`). A
    worktree `brd` synced is the option `syncedByBrd`: before the other fixtures the server runs the core of the sync in
    no session (`POST /repositories/{id}/sync-outside`, `sync_outside_the_app`), which builds the branches and leaves the
-   mark under the prefix of the session, and the app never synced it (no `lastSyncTime`).
+   mark under the prefix of the session, and the app never synced it (no `lastSyncTime`). A slot of the lease pool of
+   the repository is the option `leaseSlot`: the server leases one in the fake home of the repository
+   (`POST /repositories/{id}/lease-slot`, the real get), names its path as the repository and the selected project, and
+   with `"again"` returns it after `syncedAgoMs` and leases it again, the same path under a new epoch. The setup hands
+   the page the writer's `repositoryState` (`GET /store/{repo}/repositoryState`), as the build of a window does, so an
+   entry of an earlier lease is gone from it.
    **Rationale**: The writer is the app's (`SettingsService`), so the key lands in its own file
    (`repository-state.json`) and the page's later patches of the key apply to the value the writer has; an init script
    that edits `__TAURI_STORE__` changes only what the page starts from.
