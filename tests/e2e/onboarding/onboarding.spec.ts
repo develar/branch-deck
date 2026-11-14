@@ -212,6 +212,25 @@ test.describe("Onboarding", () => {
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
   })
 
+  test("syncs a worktree that brd synced when the window opens it, though the app never synced it: no Ready to Sync card", async ({ page, setupRepo }) => {
+    // an agent's `brd sync` in a terminal synced the worktree; the app never did (no Last synced), and the first sync of
+    // the window's session is held
+    const repo = await setupRepo("behind_upstream", { prepopulateStore: true, syncedByBrd: true, remoteAnswers: { hold: ["sync"] }, waitForSync: false })
+    const sync = page.getByTestId("sync-button")
+    const card = page.getByTestId("ready-to-sync-card")
+
+    // the session syncs as it opens: Sync spins in the header, the table loads where its rows come, no card asks for
+    // the first sync
+    await expect(sync).toHaveAttribute("aria-busy", "true")
+    await expect(page.getByTestId("branch-table-loading")).toBeVisible()
+    await expect(card).toHaveCount(0)
+
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await expect(findBranchRow(page, "feature-auth")).toBeVisible()
+    await expect(sync).toHaveAttribute("data-sync-count", "1")
+    await expect(card).toHaveCount(0)
+  })
+
   test("forgets the branches of the previous repository on a switch", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
     // the injected store runs first, this script adds to it

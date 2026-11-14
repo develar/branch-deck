@@ -433,9 +433,11 @@ impl Actor {
     let epoch = self.view.version().epoch;
     if let Some(frame) = preloaded.or(frame).filter(|frame| frame.seeds(&self.key)) {
       (self.state, self.facts) = frame.seed();
+      self.state.synced = self.synced();
       self.view = View::seeded(epoch, &self.state, &self.facts);
       self.frames.keeps = true;
     } else {
+      self.state.synced = self.synced();
       self.view = View::opened(epoch, &self.state, &self.facts);
     }
     if synced_before {
@@ -679,6 +681,7 @@ impl Actor {
       Message::SyncedBeforeRead { reason, waiter, synced_before } => {
         self.synced_before |= synced_before;
         self.decide_sync(reason, waiter);
+        self.flush();
       }
       Message::Apply { change, reply } => {
         change(&mut self.state);
@@ -1204,6 +1207,8 @@ impl Actor {
     self.facts.review_requests.demand(&self.told_demand);
     // the landings by content the table and the listing show now, with the pull requests they close
     self.facts.tell_landings(&self.state);
+    // whether the session syncs of itself, which the page asks for its Ready to Sync card
+    self.state.synced = self.synced();
     let Some(patch) = self.view.diff(&self.state, &self.facts) else {
       self.tell_digest();
       return;

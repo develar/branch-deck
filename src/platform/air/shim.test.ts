@@ -69,6 +69,20 @@ function pageOn(host: FakeHost): { page: AirPage; tauri: (cmd: string, payload?:
 /** Lets the promises of the page run */
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 
+/**
+ * The page subscribes to `/r` and again while the view of the frame opens, which the second joins: one `subscribe` of
+ * the frame, `opening`, for both
+ */
+async function subscribeTwiceWhileOpening(host: FakeHost, tauri: (cmd: string, payload?: Record<string, unknown>) => Promise<unknown>) {
+  const first = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } })
+  await settle()
+  const opening = host.last()
+  const second = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } }) as Promise<ViewSubscription>
+  await settle()
+  expect(host.subscribes()).toHaveLength(1)
+  return { first, second, opening }
+}
+
 describe("The shim of the page in the IDE", () => {
   it("A command with a channel: the channel gets each call event of the call, in order, before the promise resolves", async () => {
     const host = new FakeHost()
@@ -216,14 +230,9 @@ describe("The shim of the page in the IDE", () => {
   it("A subscription asked while the view of the frame opens gets an answer of brd asked after it: the refusal of that view, asked before a prefix was saved, makes it subscribe anew", async () => {
     const host = new FakeHost()
     const { tauri } = pageOn(host)
-    // the focus of the window asks the subscription again while the repository has no prefix
-    const first = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } })
-    await settle()
-    const opening = host.last()
-    // Save of the welcome card wrote the prefix: the page subscribes again, which joins the view that opens
-    const second = tauri("subscribe_view", { params: { repositoryPath: "/r" }, patches: { onmessage: () => {} } }) as Promise<ViewSubscription>
-    await settle()
-    expect(host.subscribes()).toHaveLength(1)
+    // the focus of the window asks the subscription again while the repository has no prefix; Save of the welcome card
+    // wrote the prefix: the page subscribes again, which joins the view that opens
+    const { first, second, opening } = await subscribeTwiceWhileOpening(host, tauri)
 
     // brd read the config before the prefix: the first is refused, the second subscribes the frame anew
     const refusal = { code: "no_branch_prefix", message: "No branch prefix", details: { prefixSuggestion: "test" }, retry: "no", operation_id: null }
@@ -237,6 +246,16 @@ describe("The shim of the page in the IDE", () => {
     expect((await second).view).toEqual(state)
     // the frame holds the one view it opened: no unsubscribe, no bd_invoke of a subscribe again
     expect(host.posted.map(message => message.method)).toEqual(["x-air-app/subscribe", "x-air-app/subscribe"])
+  })
+
+  it("A subscription that joined a view whose link broke fails with it: only a refusal of brd is an answer of the config as it was", async () => {
+    const host = new FakeHost()
+    const { tauri } = pageOn(host)
+    const { first, second, opening } = await subscribeTwiceWhileOpening(host, tauri)
+    host.fail(opening.id!, -32003, "connectionLost")
+    await expect(first).rejects.toMatchObject({ name: "ApiError", code: "internal", details: { reason: "connectionLost" } })
+    await expect(second).rejects.toMatchObject({ name: "ApiError", code: "internal", details: { reason: "connectionLost" } })
+    expect(host.subscribes()).toHaveLength(1)
   })
 
   it("A switch of the repository before the first answer: the next repository subscribes once the view of the one before answered and was unsubscribed, so the frame holds one view", async () => {

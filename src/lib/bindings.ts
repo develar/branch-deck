@@ -7395,6 +7395,13 @@ export type RepositoryView = {
 	 *  the user
 	 */
 	cached: boolean,
+	/**
+	 *  The session syncs of itself (`Actor::synced` of repository-model): its worktree was synced before under its prefix,
+	 *  by the app or by `brd` (`SessionHost::synced_before`), or a sync of this session committed its table. It syncs then
+	 *  as it opens and as a window watches it anew; while it is false the first sync is the user's, which the Ready to Sync
+	 *  card asks for
+	 */
+	synced: boolean,
 	sync: SyncState,
 	header: TableHeader,
 	/**
@@ -9968,6 +9975,7 @@ export type SyncStep =
  */
 export type TableChanges = {
 	cached?: boolean | null,
+	synced?: boolean | null,
 	sync?: SyncState | null,
 	header?: TableHeader | null,
 	order?: string[] | null,

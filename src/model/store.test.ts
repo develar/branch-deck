@@ -119,6 +119,21 @@ describe("the view of the session", () => {
     expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["a", "b"], syncError: null, syncedRepositoryPath: "/repo" })
   })
 
+  it("says the repository was synced before as its session does: by the view of one synced by the app or by brd, by the patch of the first table", async () => {
+    // a session that never synced: the first sync is the user's (the Ready to Sync card)
+    await open()
+    expect(branchSyncStore.getState().syncedBefore).toBe(false)
+    await send(grouping("a"))
+    expect(branchSyncStore.getState().syncedBefore).toBe(true)
+    closeSession()
+    expect(branchSyncStore.getState().syncedBefore).toBe(false)
+
+    // a worktree a sync of `brd` marked: its session syncs of itself from its first view, whatever the page recorded
+    fakeSessions.views.set("/other", { ...emptyView(), synced: true })
+    await open("/other")
+    expect(branchSyncStore.getState().syncedBefore).toBe(true)
+  })
+
   it("keeps the linked repositories of its header and reuses their list when they do not change", async () => {
     const link: RepositoryLink = { name: "ci", path: "/work/ci", role: "companion", problem: null }
     const view = emptyView()

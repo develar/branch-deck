@@ -227,6 +227,12 @@ export interface BranchSyncState {
   syncedRepositoryPath: string | null
   /** The rows are the frame an earlier run saved (`RepositoryView.cached`), until the first sync of the session commits */
   cached: boolean
+  /**
+   * The repository was synced before, by the app or by `brd`, or a sync of the session committed its table
+   * (`RepositoryView.synced`): its session syncs of itself; while it is false the first sync is the user's (the Ready to
+   * Sync card). False until the session answered
+   */
+  syncedBefore: boolean
   /** The version of the session's view the store holds (`data-view-version`); null without one */
   viewVersion: Version | null
   /**
@@ -378,6 +384,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   syncStep: null,
   syncedRepositoryPath: null,
   cached: false,
+  syncedBefore: false,
   viewVersion: null,
   tableRevision: 0,
   commitsRevision: 0,

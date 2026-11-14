@@ -126,7 +126,11 @@ async fn a_stamp_of_bd_syncs_the_session_a_window_shows() {
   // opened, syncs of itself now
   host.marked.store(true, std::sync::atomic::Ordering::SeqCst);
   touch_stamp(directory.path());
-  syncs.recv().await.unwrap();
+  // a broken rule syncs nothing: the test fails in seconds, not at the timeout of the runner
+  tokio::time::timeout(std::time::Duration::from_secs(20), syncs.recv())
+    .await
+    .expect("a sync after the stamp")
+    .unwrap();
   child.kill().unwrap();
   child.wait().unwrap();
 }

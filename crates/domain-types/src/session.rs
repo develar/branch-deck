@@ -401,6 +401,11 @@ pub struct RepositoryView {
   /// this process commits: its rows show, a remote action waits for that sync (`ActionBlocker::Cached`), no robot needs
   /// the user
   pub cached: bool,
+  /// The session syncs of itself (`Actor::synced` of repository-model): its worktree was synced before under its prefix,
+  /// by the app or by `brd` (`SessionHost::synced_before`), or a sync of this session committed its table. It syncs then
+  /// as it opens and as a window watches it anew; while it is false the first sync is the user's, which the Ready to Sync
+  /// card asks for
+  pub synced: bool,
   pub sync: SyncState,
   pub header: TableHeader,
   /// The names of the branches in the order of the table, as the sync grouped them (newest first); the rows of each
@@ -1299,6 +1304,9 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub cached: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub synced: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub sync: Option<SyncState>,

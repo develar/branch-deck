@@ -122,7 +122,10 @@ sequenceDiagram
 7. **Decision**: A repository synced before is the option `syncedAgoMs` of `setupRepo`: the setup sets the
    `repositoryState` of the repository (its `lastSyncTime`) through the test server's writer (`/store/{repo}/{key}`)
    and injects it, so its session syncs as it opens, as the app's does (`synced_before` of the server's session
-   environment reads the writer of the test repository, or the mark a sync left in its worktree, `synced_mark`).
+   environment reads the writer of the test repository, or the mark a sync left in its worktree, `synced_mark`). A
+   worktree `brd` synced is the option `syncedByBrd`: before the other fixtures the server runs the core of the sync in
+   no session (`POST /repositories/{id}/sync-outside`, `sync_outside_the_app`), which builds the branches and leaves the
+   mark under the prefix of the session, and the app never synced it (no `lastSyncTime`).
    **Rationale**: The writer is the app's (`SettingsService`), so the key lands in its own file
    (`repository-state.json`) and the page's later patches of the key apply to the value the writer has; an init script
    that edits `__TAURI_STORE__` changes only what the page starts from.

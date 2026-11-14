@@ -99,6 +99,7 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
 pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: TableChanges) -> Result<(), PatchRejected> {
   let TableChanges {
     cached,
+    synced,
     sync,
     header,
     order,
@@ -147,6 +148,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
 
   view.version = next;
   set_if_some(&mut view.cached, cached);
+  set_if_some(&mut view.synced, synced);
   set_if_some(&mut view.sync, sync);
   set_if_some(&mut view.header, header);
   set_if_some(&mut view.order, order);
@@ -237,6 +239,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
 pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
   let TableChanges {
     cached,
+    synced,
     sync,
     header,
     order,
@@ -277,6 +280,7 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
   } = changes;
   TableChanges {
     cached: *cached,
+    synced: *synced,
     sync: sync.clone(),
     header: header.clone(),
     order: order.clone(),
@@ -414,6 +418,7 @@ fn apply_pull_requests_change(view: &mut PullRequestsView, change: PullRequestsC
 /// and what it derived of it and its facts (`state::View::diff`); of another view, that view (`diff_views`)
 pub(crate) struct Now<'a> {
   pub(crate) cached: &'a bool,
+  pub(crate) synced: &'a bool,
   pub(crate) sync: &'a SyncState,
   pub(crate) header: &'a TableHeader,
   pub(crate) order: &'a Vec<String>,
@@ -475,6 +480,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
   };
   TableChanges {
     cached: changed(&last.cached, now.cached),
+    synced: changed(&last.synced, now.synced),
     sync: changed(&last.sync, now.sync),
     header: changed(&last.header, now.header),
     order: changed(&last.order, now.order),
@@ -522,6 +528,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
 pub fn diff_views(from: &RepositoryView, to: &RepositoryView) -> ViewPatch {
   let now = Now {
     cached: &to.cached,
+    synced: &to.synced,
     sync: &to.sync,
     header: &to.header,
     order: &to.order,

@@ -15,7 +15,7 @@ import { UnassignedCommitListCard } from "@/components/unassigned/UnassignedComm
 import { markWindowContentReady } from "@/lib/sub-window"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
-import { useEffectiveBranchPrefix, useRepository, useSelectedProjectPath, useSelectedRepositoryState, useSessionFailure } from "@/stores/repository"
+import { useEffectiveBranchPrefix, useRepository, useSelectedProjectPath, useSessionFailure } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 /**
@@ -43,7 +43,10 @@ export function BranchCreator() {
   const sessionFailure = useSessionFailure()
   const hasRecentProjects = useRecentProjects(projects => projects.length > 0)
   const selectedPath = useSelectedProjectPath()
-  const neverSynced = useSelectedRepositoryState("lastSyncTime") === undefined
+  // the session decides whether the repository was synced before, by the app or by `brd` (`RepositoryView.synced`)
+  const neverSynced = !useBranchSync(state => state.syncedBefore)
+  // the session has not answered yet: no view and no failure, so the page knows neither the card nor the rows
+  const awaitsSession = useBranchSync(state => state.viewVersion === null)
   // a repository counts as selected as soon as a project is chosen
   const hasRepository = selectedPath !== undefined
   const hasSynced = hasRepository && syncedRepositoryPath === selectedPath
@@ -70,10 +73,12 @@ export function BranchCreator() {
   }, [hasContent])
   // a sync git refused (a rebase in progress, a detached HEAD) says why where there is no table to show
   const showDeferred = syncDeferred !== null && !isSyncing && !hasError && branchCount === 0 && unassignedCommitCount === 0
-  // a repository synced before syncs when the window opens it: until its rows come, the table loads where it will be,
-  // also during a sync after one that failed or waited for git, and during the first one of another session (a prefix
-  // changed in a terminal) after the window saw a sync end
-  const isLoadingRows = hasRepository && !neverSynced && !hasSynced && !hasError && (isSyncing || !hasContent) && branchCount === 0 && unassignedCommitCount === 0
+  // until the session of the repository answers, the table loads where it will be (the shell of the window has it); a
+  // repository synced before syncs when the window opens it: until its rows come, the table loads, also during a sync
+  // after one that failed or waited for git, and during the first one of another session (a prefix changed in a
+  // terminal) after the window saw a sync end
+  const awaitsAnswer = awaitsSession && sessionFailure === null
+  const isLoadingRows = hasRepository && (awaitsAnswer || !neverSynced) && !hasSynced && !hasError && (isSyncing || !hasContent) && branchCount === 0 && unassignedCommitCount === 0
 
   // a message of several lines (git with its install hint) is a title and its details
   const [errorTitle, ...errorLines] = error?.split("\n") ?? []

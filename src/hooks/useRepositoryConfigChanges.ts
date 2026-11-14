@@ -2,10 +2,9 @@ import { resetStackIndependence } from "@/hooks/useStackIndependence"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import type { RepositoryConfigChanged } from "@/lib/repository-config"
 import { resubscribeSession } from "@/model/store"
-import { syncBranches } from "@/stores/branch-sync"
+import { branchSyncStore, syncBranches } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
-import { getRepositoryState } from "@/stores/settings/repositoryState"
 
 /**
  * The main window after a write of Settings → Repository, → Diffs & Merge, → Landing or → Agents (`repository_config_changed`, sent by the
@@ -19,8 +18,9 @@ export function useRepositoryConfigChanges(): void {
     if (project?.path !== repositoryPath) {
       return
     }
+    // a repository the session syncs of itself (`RepositoryView.synced`); one never synced waits for the user
     const resync = () => {
-      if (getRepositoryState(repositoryPath)?.lastSyncTime !== undefined) {
+      if (branchSyncStore.getState().syncedBefore) {
         void syncBranches("afterRewrite")
       }
     }

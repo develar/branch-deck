@@ -86,6 +86,8 @@ pub struct TableState {
   /// The parts are the frame an earlier run saved, seeded when the session opened, until a sync of this process commits
   /// (`RepositoryView::cached`)
   pub(crate) cached: bool,
+  /// The session syncs of itself (`RepositoryView::synced`), as its actor decides it (`Actor::synced`) before each patch
+  pub(crate) synced: bool,
   /// Branch -> original id -> the index of the commit in `BranchView::commits`
   commit_index: HashMap<String, HashMap<String, usize>>,
   /// The parts when the running sync started, restored when it fails

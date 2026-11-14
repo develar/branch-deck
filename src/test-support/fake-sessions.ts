@@ -71,6 +71,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
   return {
     version,
     cached: false,
+    synced: false,
     sync: { kind: "idle" },
     header: EMPTY_HEADER,
     order: [],
@@ -122,10 +123,14 @@ export function fakeHead(name: string): BranchHead {
   return { name, latestCommitTime: 1, summary: "subject", allCommitsHaveIssueReferences: false, origin: "Prefix" }
 }
 
-/** The changes of a grouping of `names`, each a new branch of one commit, the baseline `origin/master`, on HEAD `head` */
+/**
+ * The changes of a grouping of `names`, each a new branch of one commit, the baseline `origin/master`, on HEAD `head`: a
+ * sync committed the table, so the session syncs of itself from now on (`synced`), as Rust's does
+ */
 export function grouping(...names: string[]): TableChanges {
   const branches: Record<string, BranchChange> = Object.fromEntries(names.map(name => [name, { head: fakeHead(name), commits: [fakeCommit(name)] }]))
   return {
+    synced: true,
     order: names,
     branches,
     header: { ...EMPTY_HEADER, baselineBranch: "origin/master", head: "head" },

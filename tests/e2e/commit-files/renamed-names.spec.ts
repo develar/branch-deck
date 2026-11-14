@@ -370,12 +370,17 @@ test.describe("The quiet runs of a renamed local in the preview of a commit", ()
   test("a note that opens paints the rows of its file once: the height they give the preview lays out nothing again", async ({ page }) => {
     const { ledger } = await openLedgerPreview(page)
     const note = await shownNote(ledger)
-    // every row the painter adds of the line before the use of `sum` in the loop, which stands in both layouts
+    // every paint of the row of the line before the use of `sum` in the loop, which stands in both layouts: a row the
+    // painter adds; one it paints again in place as its tokens arrive (`replaceWith`, one record that removes it too) is
+    // no paint of a layout
     await ledger.evaluate(element => {
       const added: number[] = []
       ;(window as unknown as { __addedRows: number[] }).__addedRows = added
       new MutationObserver(records => {
         for (const record of records) {
+          if (record.removedNodes.length > 0) {
+            continue
+          }
           for (const node of record.addedNodes) {
             if (node instanceof HTMLElement && node.dataset.testid === "diff-row" && (node.textContent ?? "").includes("if (entry.account == account) {")) {
               added.push(Number(node.dataset.row))

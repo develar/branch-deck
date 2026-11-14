@@ -83,6 +83,8 @@ class FrameView {
   state: MirrorState = {}
   /** No subscription joins the view any more: its `unsubscribe` runs, or it ended */
   closing = false
+  /** Its `subscribe` failed with a refusal of brd (`refusalOf`), not with a link that broke */
+  refused = false
   private finish: () => void = () => {}
 
   constructor(
@@ -130,13 +132,19 @@ function decodeBase64(text: string): ArrayBuffer {
  */
 function linkFailure(error: unknown): unknown {
   if (error instanceof FrameLinkError) {
-    const answered = error.error.data?.error
-    if (typeof answered === "object" && answered !== null && typeof (answered as { code?: unknown }).code === "string") {
+    const answered = refusalOf(error)
+    if (answered !== null) {
       return commandError(answered)
     }
     return commandError({ code: "internal", message: error.message, details: { reason: error.reason }, retry: "no", operation_id: null })
   }
   return error
+}
+
+/** The `ApiError` brd answered in the data of a failure of the link, which Air passes on: a refusal of brd; else null */
+function refusalOf(error: unknown): unknown {
+  const answered = error instanceof FrameLinkError ? error.error.data?.error : null
+  return typeof answered === "object" && answered !== null && typeof (answered as { code?: unknown }).code === "string" ? answered : null
 }
 
 /**
@@ -254,9 +262,9 @@ export class AirPage {
    * `subscribe_view`: the mirror of the repository, its state the view and each change of it a patch of the channel. The
    * frame holds one view (`FrameView`): a subscription of the repository it holds joins it and asks `brd mcp` to
    * subscribe again (`bd_invoke` of `subscribe_view`), which moves the mirror to the session of the prefix the git
-   * config names now before it answers, or, when the `subscribe` of the view failed, subscribes anew: every subscription
-   * gets an answer of brd asked after it, as in the desktop app; a subscription of another repository waits until the
-   * view before it ended
+   * config names now before it answers, or, when brd refused the `subscribe` of the view, subscribes anew: every
+   * subscription gets an answer of brd asked after it, as in the desktop app, and a link that broke fails them all; a
+   * subscription of another repository waits until the view before it ended
    */
   private async subscribe(payload: Payload): Promise<ViewSubscription> {
     const params = (payload?.params ?? {}) as { repositoryPath?: string; have?: Version }
@@ -273,14 +281,16 @@ export class AirPage {
       }
       if (held.repositoryPath === repositoryPath && !held.closing) {
         held.pages.set(id, null)
-        // the answer of the view first: brd subscribes the mirror it holds again. Any failure of the view answered a
-        // subscription asked before this one (a refusal of brd under the config as it was then, a prefix saved since; a
-        // link that broke then): this one leaves the view, which Air holds no more, and subscribes anew, so its failure,
-        // if any, is its own
+        // the answer of the view first: brd subscribes the mirror it holds again. A refusal of brd of the view answered a
+        // subscription asked before this one, under the config as it was then (a prefix saved since): this one leaves
+        // the view, which Air holds no more, and subscribes anew; a link that broke is the failure of this one too
         return this.joined(held, id, patches, params, async () => {
           try {
             await held.answered
-          } catch {
+          } catch (error: unknown) {
+            if (!held.refused) {
+              throw error
+            }
             held.pages.delete(id)
             return
           }
@@ -302,6 +312,7 @@ export class AirPage {
         view.version = versionOf(answer.state, { epoch: this.epoch, seq: answer.fromSeq })
       },
       (error: unknown) => {
+        view.refused = refusalOf(error) !== null
         this.end(view)
         throw linkFailure(error)
       },

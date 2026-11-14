@@ -75,6 +75,7 @@ impl MirrorView {
 pub fn ops(view: &RepositoryView, changes: &TableChanges) -> Vec<Value> {
   let mut ops = Ops::default();
   ops.part(changes.cached.is_some(), "cached", &view.cached);
+  ops.part(changes.synced.is_some(), "synced", &view.synced);
   ops.part(changes.sync.is_some(), "sync", &view.sync);
   ops.part(changes.header.is_some(), "header", &view.header);
   ops.keyed("branches", &view.branches, changes.branches.keys(), &changes.removed_branches);

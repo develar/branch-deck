@@ -680,7 +680,7 @@ impl ForeignOperation {
 }
 
 /// The path of the test repository `id`
-fn path_of(state: &AppState, id: &str) -> Result<String, (StatusCode, String)> {
+pub(crate) fn path_of(state: &AppState, id: &str) -> Result<String, (StatusCode, String)> {
   state.repositories.get(id).map(|repo| repo.path.clone()).ok_or_else(unknown_repository)
 }
 

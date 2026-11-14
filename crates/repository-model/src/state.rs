@@ -242,6 +242,7 @@ impl Derived {
     let parts = &state.parts;
     Now {
       cached: &state.cached,
+      synced: &state.synced,
       sync: &state.sync,
       header: &parts.header,
       order: &parts.order,

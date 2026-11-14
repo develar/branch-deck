@@ -32,6 +32,14 @@ export const SetupRepoOptionsSchema = z.object({
   syncedAgoMs: z.number().optional(),
 
   /**
+   * `brd sync` in a terminal synced the worktree before the page opens (`POST …/sync-outside`, before the other
+   * fixtures): its virtual branches and the mark of its sync under the prefix of the session, which syncs as it opens
+   * though the app never synced the repository (no `lastSyncTime`)
+   * Default: false - nothing synced the worktree
+   */
+  syncedByBrd: z.boolean().default(false),
+
+  /**
    * The app starts warm (`src-tauri/src/warm_start.rs`): before the page opens, a sync without a page builds the frame of
    * the repository's session (`POST …/warm-start/build`, before every other fixture, so the first sync of the page
    * meets them), and the start opens the session seeded from it (`GET …/warm-start`), whose seed goes into the page as

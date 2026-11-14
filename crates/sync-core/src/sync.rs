@@ -1250,7 +1250,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   report.companion_needs = detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
   // the worktree was synced: a session of the app opened later, or one that hears the stamp of `brd`, syncs of itself
-  mark_synced(&synced_mark);
+  mark_synced(&synced_mark, branch_prefix);
   Ok(report)
 }
 

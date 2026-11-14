@@ -2240,9 +2240,10 @@ index for the dry run of the files, and the guards, none of which a return may t
 Reachability stays the fast path, and decides alone without a recorded branch and when the branch is gone; the output
 names the check (`landed_check`) and the proof of each commit found landed (`landed`). The proofs cost the processes of
 the pick and about twenty more, only when `log` found commits (`a_lease_return_whose_commit_landed_by_the_ladder`).
-The slot keeps its git directory across its leases, so the return takes out the mark a sync left there
-(`branch-deck/synced`, "The first sync"; `a_return_takes_out_the_mark_of_a_sync_in_the_lease`): the next lease is a
-worktree no sync built anything for, and a window that opens it shows the Ready to Sync card.
+The slot keeps its git directory across its leases, so the return takes out the mark a sync left there, and so does
+a get that reuses a free slot, which a return of an older build may have left marked (`branch-deck/synced`, "The first
+sync"; `forget_synced` of `finish_return` and `move_reused_slot`; `a_return_takes_out_the_mark_of_a_sync_in_the_lease`):
+the next lease is a worktree no sync built anything for, and a window that opens it shows the Ready to Sync card.
 
 Takeover: on 2026-10-29 a get cloned a new slot of idea-1, 16 GB and more than 15 minutes of checkout, while six
 slots of the pool had a `ready` lease of a dead holder, four of them with nothing unlanded: the get only named them
@@ -2707,8 +2708,8 @@ remote>/master`, `/main`, or the local ones) and the branches under the prefix, 
 `origin`. HEAD and the baseline commit are the tips that listing read, `FETCH_HEAD` and the landed state of the
 worktree (`branch-deck/landed.json`, which the update check records) paths in the git directory: no process of their
 own (without the directories, or for a branch without commits, one `rev-parse --git-path FETCH_HEAD --git-path
-branch-deck/landed.json HEAD^{commit} <baseline>^{commit}`). Beside the landed state, a sync that succeeded leaves the
-mark of the worktree once (`branch-deck/synced`, `sync_core::synced_mark`: "The first sync"), no process either. A caller that read HEAD's branch and the remotes for the
+branch-deck/landed.json HEAD^{commit} <baseline>^{commit}`). Beside the landed state, a sync that succeeded names its prefix in the
+mark of the worktree once (`branch-deck/synced`, one prefix per line, `sync_core::synced_mark`: "The first sync"), no process either. A caller that read HEAD's branch and the remotes for the
 same operation passes them (`SyncOptions::facts`, `CommandFacts`: `brd`, from `RepoContext::command_facts`): the guards
 take the branch instead of their `symbolic-ref` and the listing the remotes instead of its `remote -v`; the app's
 session passes none, and its sync reads both. HEAD's branch is passed only when no network call ran since it was read
@@ -5059,9 +5060,9 @@ app sweeps the idle sessions every 30 s on the system clock. The E2E server clos
 test repository when it deletes it (`forget_windows`, `Sessions::close_worktree`, which drops the subscribers at once). The main window has
 no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; at start
 holding the seed of the warm start, `adoptCachedModel`; a switch of the repository or of its prefix is another
-subscription, and the session of a changed prefix syncs as it opens, `useSyncOnOpen`; a `prefix_changed` answer resolves the prefix again, and the user's own Sync of a
-repository never synced, which no sync of an opened repository serves, is asked again of the session of the new
-prefix), applies its patches, asks `sync` (Sync, ⌘R, after a change; ⌘R during a sync asks a `Focus` check after it;
+subscription, and the session of a changed prefix syncs as it opens, `useSyncOnOpen`; a `prefix_changed` answer resolves the prefix again, and the user's own Sync, when the
+session of the new prefix does not sync of itself (its view's `synced`) and so no sync of its open serves it, is asked
+again of it), applies its patches, asks `sync` (Sync, ⌘R, after a change; ⌘R during a sync asks a `Focus` check after it;
 an answer of another epoch than the view's subscribes the window again, once, to the session open now, the table kept
 until its view comes and Sync busy for the requests still in flight, unless the session open now still has the view's
 epoch: then the answer is of a session the window left, the late answer of a prefix it left, and is dropped) and tells
@@ -5159,14 +5160,19 @@ While the table is the frame because its first sync failed or git deferred it, b
 that they wait for, and the error says what to fix.
 
 **The first sync**: a worktree synced before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the
-app's writer keeps, `app_settings::projects::synced_before`, or the mark every sync that succeeds leaves in the git
-directory of the worktree, `branch-deck/synced` of `sync_core::synced_mark`, which `brd sync` leaves too and which is
-read without git) syncs when its session opens (`Open`, with or without a
+app's writer keeps by the path, `app_settings::projects::synced_before`, or the mark of the session's prefix: every
+sync that succeeds, `brd sync` too, names its prefix in the git directory of the worktree, `branch-deck/synced` of
+`sync_core::synced_mark`, one prefix per line, read without git, so a `brd sync --prefix X` marks the session of `X`
+only) syncs when its session opens (`Open`, with or without a
 window), so the first sync of the start runs while the window loads, and so does a session a window watches anew (a
 switch back within `IDLE_LIMIT`; also one a sync of this session committed), which then runs only when what a sync
 reads changed; a window that opens or gains the focus during it is served by it or checks once after it. The page asks
 no sync of its own as it opens (its `syncBranches("open")` is gone, `startup-read` of `pnpm lint:arch`), and records
-the `lastSyncTime` of every run of its session, also of one it did not ask for. A first sync patches only what differs
+the `lastSyncTime` of every run of its session, also of one it did not ask for. Whether the session syncs of itself
+is its view's (`RepositoryView.synced`, `Actor::synced`: synced before, or a sync of it committed a table), patched as
+it changes: the page reads it for the Ready to Sync card, for the sync after a write of Settings and for the Sync asked
+again after `prefix_changed`, never `lastSyncTime`, which only the "Last synced" of the header and of the repository
+selector show (`last-sync-read` of `pnpm lint:arch`). A first sync patches only what differs
 from the frame, and one that leaves the tips of the frame changes each subject in one patch at most: the landing needs
 of the frame stand, and the end of the run waits for the view of its robots ("The sessions and their hosts",
 `HeldEnd`).

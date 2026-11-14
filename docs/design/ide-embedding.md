@@ -254,9 +254,10 @@ sequenceDiagram
     answers), so the shim keeps the one view of the frame (`FrameView`) and the subscriptions of the page share it: one
     of the repository the frame holds joins it and asks `brd mcp` with `bd_invoke` of `subscribe_view`, which moves the
     mirror before it answers, and its answer is the state of the mirror, or nothing when the page holds it at that
-    version (`have`). One that joined a view whose `x-air-app/subscribe` failed (brd refused it, `no_branch_prefix`)
-    subscribes the frame anew: that refusal answered a subscription asked before it, under the config as it was then
-    (a prefix saved meanwhile), and in the desktop app every subscription gets an answer asked after it. One of another
+    version (`have`). One that joined a view whose `x-air-app/subscribe` brd refused (`no_branch_prefix`) subscribes
+    the frame anew: that refusal answered a subscription asked before it, under the config as it was then (a prefix
+    saved meanwhile), and in the desktop app every subscription gets an answer asked after it; a link that broke fails
+    every subscription that joined. One of another
     repository sends its `x-air-app/subscribe` once the view before it answered and was unsubscribed or ended. The last subscription that leaves the view unsubscribes the frame. So the frame never
     subscribes to the view it holds, and no answer is `held`.
   - `src/platform/air/theme.ts`: each variable of the host (`styles.variables`, `com.jetbrains.air/variables`) is set on

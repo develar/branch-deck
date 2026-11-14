@@ -10,9 +10,10 @@ import { onWriterChange, snapshotValueOf } from "@/stores/settings/persistent-st
  * `adoptCachedModel`), and its answer says what the page shows: the view of the session, named by the prefix Rust
  * resolved for it (`TableHeader.prefix`), or why there is none by its code (no branch prefix: the welcome card; no git:
  * the git alert; a repository git cannot read: the error alert). The session syncs a repository synced before as it
- * opens and as a window comes back to it (`synced_before` of its host, the `lastSyncTime` the backend's writer keeps),
- * whether or not Auto-sync on Focus is on, so the page asks for no sync of its own; a repository never synced waits
- * for the Sync of the Ready to Sync card. A switch first forgets the branches of the previous repository, at once: the
+ * opens and as a window comes back to it (`synced_before` of its host: the `lastSyncTime` the backend's writer keeps,
+ * or the mark a sync of `brd` left under its prefix), whether or not Auto-sync on Focus is on, so the page asks for no
+ * sync of its own; a session that does not sync of itself (`RepositoryView.synced`) waits for the Sync of the Ready to
+ * Sync card. A switch first forgets the branches of the previous repository, at once: the
  * session of the new one is another session, whose patches never mix with the late ones of the old
  * (`src/model/store.ts`). A change of the app's prefix (from any window, once the writer has it) subscribes again
  * (`resubscribeSession`): the prefix that names the branches may be another one, which is another session, and Rust

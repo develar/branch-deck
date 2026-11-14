@@ -74,7 +74,7 @@ import { branchSyncStore, NO_SUBJECT_PARTS, useBranchSyncEntry } from "@/stores/
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getSelectedRepositoryPath, setSessionAnswer } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
-import { getRepositoryState, updateRepositoryState } from "@/stores/settings/repositoryState"
+import { updateRepositoryState } from "@/stores/settings/repositoryState"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
 
 /** The subscription of the window to the session of one repository */
@@ -545,7 +545,7 @@ function projectView(
   // the prefix Rust resolved for the subscription names the branches the page shows
   setSessionAnswer(next.header.prefix, null)
   const state = branchSyncStore.getState()
-  const update: Partial<BranchSyncState> = { viewVersion: next.version, cached: next.cached }
+  const update: Partial<BranchSyncState> = { viewVersion: next.version, cached: next.cached, syncedBefore: next.synced }
   // a table of this run: a sync of the session committed it (the frame of an earlier run and a session no sync built
   // have none)
   if (!next.cached && next.header.head !== "") {
@@ -978,6 +978,7 @@ function resetTable(): void {
     syncStep: null,
     syncedRepositoryPath: null,
     cached: false,
+    syncedBefore: false,
     inputsCheckedAt: null,
     viewVersion: null,
     baselineBranch: null,
@@ -1232,7 +1233,8 @@ async function refused(target: Session, reason: SyncReason, error: ApiError, ask
     await resubscribed
     const repositoryPath = target.repositoryPath
     const held = session as Session | null
-    const asksAgain = held?.repositoryPath === repositoryPath && held.failure === null && getRepositoryState(repositoryPath)?.lastSyncTime === undefined
+    // the session of the new prefix syncs as it opens only when it syncs of itself (`RepositoryView.synced`)
+    const asksAgain = held?.repositoryPath === repositoryPath && held.failure === null && held.view?.synced !== true
     return asksAgain ? askAgain() : null
   }
   if (code === "operation_in_progress" || code === "detached_head" || code === "managed_branch") {

@@ -36,7 +36,11 @@
 // - `startup-read`: a command in the start of the main window (`src/main.tsx`, `src/router.ts`) or in the store of the
 //   selected repository (`src/stores/repository.ts`) but those the user asks for (`USER_COMMANDS`), a read of the
 //   prefix outside the Settings window (`commands.resolveBranchPrefix`), or an open sync of the page
-//   (`syncBranches("open")`), in src (its tests aside).
+//   (`syncBranches("open")`), in src (its tests aside);
+// - `last-sync-read`: a read of `lastSyncTime` in src (its tests and test-support aside) outside what shows "Last
+//   synced" (`ConfigurationHeader.tsx`, `RepositorySelector.tsx`) and its schema (`repositoryState.ts`): whether a
+//   repository was synced before is the session's (`RepositoryView.synced`: the time of the app or the mark of a sync of
+//   `brd`), read from the view; a write of the time (`lastSyncTime: syncedAt` of `recordSynced`) passes.
 // The page calls the engine only through its intents (docs/design/rust-domain-authority.md, s14-fence); a command of the
 // app (`app(…)` of crates/app-api/src/commands.rs) has no plan and one calling module:
 // - `intent-call`: an `engine` command of the registry (`commands.execute`, `commands.cancelOperation`) called outside
@@ -167,6 +171,12 @@ const OPEN_SYNC = /\bsyncBranches\(\s*(["'`])open\1/
 const STARTING = /^src\/(?!.*\.test\.tsx?$)/
 /** The window that reads the prefix of its own: Settings */
 const SETTINGS = /^src\/components\/settings\//
+// a read of when the app last synced a repository: its name but as the key of an object it writes (`lastSyncTime:
+// syncedAt`), or a destructuring that renames it
+const LAST_SYNC_READ = /\blastSyncTime\b(?!\s*:)|\{[^}=]*\blastSyncTime\s*:[^}]*\}\s*=/
+/** The sources that may not read it: the page, its tests, test-support and what shows "Last synced" aside */
+const SYNC_DECIDING =
+  /^src\/(?!test-support\/)(?!components\/repository\/(?:ConfigurationHeader|RepositorySelector)\.tsx$)(?!stores\/settings\/repositoryState\.ts$)(?!.*\.test\.tsx?$)/
 
 /** The module of the page that calls the engine (`engine` of the registry): the intents of a repository */
 export const INTENTS_MODULE = "src/model/intents.ts"
@@ -584,6 +594,9 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     }
     if (STARTING.test(file) && startupRead(file, line)) {
       problems.push({ ...at, rule: "startup-read" })
+    }
+    if (SYNC_DECIDING.test(file) && LAST_SYNC_READ.test(line)) {
+      problems.push({ ...at, rule: "last-sync-read" })
     }
     if (PRESENTING.test(file) && STATE_READ.test(line)) {
       problems.push({ ...at, rule: "presenter-state" })

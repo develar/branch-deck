@@ -599,7 +599,7 @@ page mock of the E2E tests installs the same internals of Tauri (`src/platform/t
 
 Air holds one view for each frame, so the shim MUST keep at most one `x-air-app/subscribe` of a frame. A subscription of
 the repository the frame holds joins its view and asks brd to subscribe again (`bd_invoke` of `subscribe_view`), or,
-when the `subscribe` of that view failed, subscribes the frame anew: every subscription gets an answer of brd asked
+when brd refused the `subscribe` of that view, subscribes the frame anew: every subscription gets an answer of brd asked
 after it. One of another repository subscribes once the view before it answered and was unsubscribed or ended.
 
 #### Scenario: A switch of the repository before the first answer
@@ -621,6 +621,12 @@ after it. One of another repository subscribes once the view before it answered 
 - **WHEN** brd refuses the view, as it read the config before the prefix
 - **THEN** the subscription after Save subscribes the frame anew, and brd answers it with the view of the repository
   [@test] src/platform/air/shim.test.ts (`A subscription asked while the view of the frame opens gets an answer of brd asked after it: the refusal of that view, asked before a prefix was saved, makes it subscribe anew`)
+
+#### Scenario: The link of the view breaks while a subscription joined it
+- **GIVEN** a subscription joined the view of the frame while it opened
+- **WHEN** the `subscribe` of that view fails without an answer of brd (the link broke)
+- **THEN** the joined subscription fails with it and subscribes nothing anew
+  [@test] src/platform/air/shim.test.ts (`A subscription that joined a view whose link broke fails with it: only a refusal of brd is an answer of the config as it was`)
 
 ### Requirement: Page: The theme of the IDE maps onto the tokens of the page
 

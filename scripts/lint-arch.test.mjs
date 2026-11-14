@@ -310,6 +310,32 @@ test("a read of the start of the main window is refused: a command of its start 
   assert.deepEqual(rules("tests/e2e/example.spec.ts"), [])
 })
 
+test("a read of the time of the last sync is refused outside what shows Last synced: the session says it synced before", () => {
+  const source = [
+    "const neverSynced = !getRepositoryState(path)?.lastSyncTime",
+    'const lastSyncTime = useSelectedRepositoryState("lastSyncTime")',
+    "const { lastSyncTime } = state",
+    "const { lastSyncTime: at } = state",
+    'const at = state["lastSyncTime"]',
+    // the write of the time, a comment, what the session decides
+    "updateRepositoryState(path, state => ({ ...state, lastSyncTime: syncedAt }))",
+    "// the lastSyncTime of the app",
+    "const neverSynced = !useBranchSync(state => state.syncedBefore)",
+  ].join("\n")
+  const rules = file => findProblems(file, source, { registry: new Map() }).map(problem => `${problem.line} ${problem.rule}`)
+  const reads = [1, 2, 3, 4, 5].map(line => `${line} last-sync-read`)
+  assert.deepEqual(rules("src/components/branch/BranchCreator.tsx"), reads)
+  assert.deepEqual(rules("src/hooks/useRepositoryConfigChanges.ts"), reads)
+  assert.deepEqual(rules("src/model/store.ts"), reads)
+  // what shows Last synced, its schema, a test
+  assert.deepEqual(rules("src/components/repository/ConfigurationHeader.tsx"), [])
+  assert.deepEqual(rules("src/components/repository/RepositorySelector.tsx"), [])
+  assert.deepEqual(rules("src/stores/settings/repositoryState.ts"), [])
+  assert.deepEqual(rules("src/model/store.test.ts"), [])
+  assert.deepEqual(rules("src/test-support/example.ts"), [])
+  assert.deepEqual(rules("tests/e2e/startup/warm-start.spec.ts"), [])
+})
+
 /** A registry of four commands, by the names the bindings give them (`readRegistry`) */
 const REGISTRY = new Map([
   ["execute", { name: "execute", class: "engine" }],

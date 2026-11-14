@@ -216,10 +216,14 @@ directory (`operations::registry_watch`, `notify`, no git): the operations of ot
 and decide no admission there; `brd` touches
 `$GIT_COMMON_DIR/branch-deck/stamp` after every command that succeeded and is no read, in one place
 (`bd-cli::execute`), which syncs the watching sessions (`SyncReason::Stamp`) that sync of themselves. A sync that
-succeeded, of the app or of `brd`, marks its worktree once (`branch-deck/synced` in the git directory of the worktree,
-`sync_core::synced_mark::mark_synced`, through a temporary file and a rename, no git), which only the hosts of the
-app's sessions read (`SessionHost::synced_before`, without git) and only the return of a lease takes out of its slot
-(`forget_synced` in `finish_return`, `fs_retry`). A start records what it sends before
+succeeded, of the app or of `brd`, names its branch prefix in the mark of its worktree (`branch-deck/synced` in the git
+directory of the worktree, one prefix per line): only `sync_core::synced_mark::mark_synced` writes it, at the end of a
+successful `sync_branches`, through a temporary file and a rename, no git; only the hosts of the app's sessions read it
+(`SessionHost::synced_before` of the session's prefix, without git); only a lease slot takes it out, as it goes back
+(`finish_return`) and as a get reuses it (`move_reused_slot`), with `forget_synced` (`fs_retry`). Beside it, the landed
+state of the worktree (`branch-deck/landed.json`, `sync_core::landed`): written by the update check of a sync
+(`record_sync`) and by Update Project, its undo and a dismiss (`record_update` and the others under `landed.lock`), each
+through a temporary file and a rename. A start records what it sends before
 its request goes out; an answer lost after it went out is `EffectStatus::Unknown`, never sent again: its record stays
 `unknown` and holds for every process until a read of Patronus settles it (`operations::reconcile`, at an admission
 and after a list of the robots) or the user forgets it (Forget This Start, `brd operation forget`)

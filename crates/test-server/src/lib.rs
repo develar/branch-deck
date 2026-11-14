@@ -248,6 +248,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/reword", post(reword_commit))
     .route("/repositories/{id}/commit", post(commit_on_head))
     .route("/repositories/{id}/update-outside", post(update_outside_the_app))
+    .route("/repositories/{id}/sync-outside", post(sync_outside_the_app))
     .route("/repositories/{id}/locks/{lock}", post(hold_lock))
     .route("/repositories/{id}/foreign-operation", post(remote_fixtures::set_foreign_operation))
     .route("/repositories/{id}/stamp", post(remote_fixtures::touch_repository_stamp))
@@ -849,6 +850,29 @@ pub async fn commit_on_head(
       tracing::error!("Failed to commit onto HEAD: {e}");
       Err(StatusCode::INTERNAL_SERVER_ERROR)
     }
+  }
+}
+
+/// Syncs the repository behind the app's back, as `brd sync` in a terminal does: the core of the sync
+/// (`sync_branches`) under the prefix the session of the repository is keyed by, in no session, so it writes the
+/// virtual branches, the notes and the mark of a sync in the worktree (`synced_mark`), and no window learns of it
+pub async fn sync_outside_the_app(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, (StatusCode, String)> {
+  let path = remote_fixtures::path_of(&state, &id)?;
+  let key = remote_fixtures::session_of(&state, &path).await?;
+  let synced = sync_core::sync::sync_branches(&state.git_of(&id), &path, &key.prefix, UnreadEvents, sync_core::sync::SyncOptions::default()).await;
+  synced.map(|_report| StatusCode::OK).map_err(|error| {
+    tracing::error!("Failed to sync outside the app: {error:#}");
+    (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}"))
+  })
+}
+
+/// The events of a sync no window shows (`sync_outside_the_app`): a terminal prints them, nothing reads them here
+#[derive(Clone)]
+struct UnreadEvents;
+
+impl domain_types::ProgressReporter for UnreadEvents {
+  fn send(&self, _event: domain_types::SyncEvent) -> anyhow::Result<()> {
+    Ok(())
   }
 }
 

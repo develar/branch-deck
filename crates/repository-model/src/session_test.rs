@@ -349,6 +349,44 @@ async fn a_focus_and_a_stamp_sync_a_worktree_never_synced_only_once_brd_synced_i
   assert_eq!(snapshot(&sessions, &key).await.order, ["auth"]);
 }
 
+/// The view says whether the session syncs of itself (`RepositoryView::synced`), which the page reads for the Ready to
+/// Sync card and never decides itself: false for a worktree never synced; true by the patch of the stamp that read the
+/// mark of a `brd sync`; true in the first view of a session of a worktree synced before; and true by the
+/// patch of the first table a sync of the user committed
+#[tokio::test]
+async fn the_view_says_the_session_syncs_of_itself_once_the_worktree_was_synced() {
+  let host = Arc::new(ScriptedHost::default());
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let key = key("/repo");
+  let window = Window::default();
+  let (_, view) = sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  assert!(!view.synced);
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Stamp)).await, Ok(SyncOutcome::Skipped));
+  assert!(window.take().iter().all(|patch| patch.changes.synced.is_none()));
+
+  *host.synced_before.lock().unwrap() = true;
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Stamp)).await, Ok(SyncOutcome::Synced));
+  let marked: Vec<_> = window.take().iter().filter_map(|patch| patch.changes.synced).collect();
+  assert_eq!(marked, [true]);
+  assert!(snapshot(&sessions, &key).await.synced);
+
+  // another session of a worktree synced before: its first view says so
+  let other = self::key("/other");
+  let (_, view) = sessions.subscribe(&other, Box::new(Window::default())).await.unwrap();
+  assert!(view.synced);
+
+  // a worktree never synced, whose first sync the user asked: the patch of its table says it
+  let host = Arc::new(ScriptedHost::default());
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let window = Window::default();
+  sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  let marked: Vec<_> = window.take().iter().filter_map(|patch| patch.changes.synced).collect();
+  assert_eq!(marked, [true]);
+}
+
 /// A rewrite the user asked is a sync of the user too: after one whose sync failed, which committed no table, a focus of
 /// the session checks what a sync reads as after the user's Sync, and answers the error of that sync while nothing
 /// changed, where it was skipped before
@@ -1818,7 +1856,9 @@ async fn a_window_that_holds_the_seed_catches_up_by_one_patch() {
   let synced = snapshot(&sessions, &key).await;
   let epoch = synced.version.epoch;
 
-  let (state, facts) = frame.seed();
+  // the seed the session made of the frame, of a worktree synced before (`with_frame`)
+  let (mut state, facts) = frame.seed();
+  state.synced = true;
   let mut seed = View::seeded(epoch, &state, &facts).snapshot();
   let have = Some(Version { epoch, seq: 0 });
   let (_, joined) = sessions.subscribe_from(&key, Box::new(Window::default()), have).await.unwrap();

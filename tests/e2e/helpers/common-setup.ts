@@ -25,6 +25,11 @@ export async function setupTestRepository(page: Page, templateName: string, opti
     parsedOptions.syncedAgoMs ??= WARM_START_SYNCED_AGO_MS
   }
 
+  // an agent's `brd sync` in a terminal synced the worktree before the window opens: the mark of that sync
+  if (parsedOptions.syncedByBrd) {
+    await repoBuilder.syncOutsideTheApp()
+  }
+
   // the first sync asks for the pull requests and the Patronus robots
   if (parsedOptions.pullRequests !== undefined) {
     await repoBuilder.setPullRequests(parsedOptions.pullRequests)

@@ -178,7 +178,7 @@ impl SessionEnvironment for TestSessionEnvironment {
       .upgrade()
       .and_then(|state| state.repository(&key.worktree).ok().map(|repository| synced_before(&repository.store, &key.worktree)))
       .unwrap_or(false)
-      || sync_core::synced_mark::synced_before(&key.worktree)
+      || sync_core::synced_mark::synced_before(&key.worktree, &key.prefix)
   }
 
   /// The git of the test repository (`AppState::git_of`): a sync reads the `branchdeck.*` keys of its global config, as

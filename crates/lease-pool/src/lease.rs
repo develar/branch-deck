@@ -2294,6 +2294,11 @@ pub(crate) fn move_reused_slot(
   workers: CheckoutWorkers,
   report: &dyn Fn(GetStep),
 ) -> Result<()> {
+  // a slot returned before its return took the mark of a sync out keeps it in its git directory (`synced_mark`): the
+  // new lease is a worktree no sync built anything for
+  if let Err(error) = forget_synced(Path::new(slot)) {
+    warn!(slot, "cannot take the mark of a sync out of the slot: {error}");
+  }
   match move_clean_slot(git_executor, slot, commit, workers)? {
     SlotMove::Kept | SlotMove::Switched => branch.map_or(Ok(()), |branch| attach_new_branch(git_executor, slot, branch, commit)),
     SlotMove::Refused(reason) => {
