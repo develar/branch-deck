@@ -1,5 +1,5 @@
 //! Commits by id from one `log --no-walk --stdin` (`get_commits_info`; `find_commit` takes an abbreviated id too), and
-//! the ids git computes without a process: the empty tree and the id of a blob.
+//! the ids git computes without a process: the empty tree and the id of a blob, of bytes or of a file as it is.
 
 use crate::commit_list;
 
@@ -10,6 +10,8 @@ use sha1::{Digest, Sha1};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::io::Read;
+use std::path::Path;
 use tracing::instrument;
 
 /// `git log` pretty format for one commit record, parsed by `commit_list::parse_single_commit`.
@@ -77,11 +79,7 @@ pub fn blob_id(object_id: &str, content: &[u8]) -> String {
 #[must_use]
 pub fn object_id_of(object_id: &str, kind: &str, content: &[u8]) -> String {
   fn hex<D: Digest>(header: &[u8], content: &[u8]) -> String {
-    let digest = D::new().chain_update(header).chain_update(content).finalize();
-    digest.iter().fold(String::with_capacity(digest.len() * 2), |mut hex, byte| {
-      let _ = write!(hex, "{byte:02x}");
-      hex
-    })
+    hex_of(D::new().chain_update(header).chain_update(content))
   }
   let header = format!("{kind} {}\0", content.len());
   if object_id.len() == 64 {
@@ -89,4 +87,39 @@ pub fn object_id_of(object_id: &str, kind: &str, content: &[u8]) -> String {
   } else {
     hex::<Sha1>(header.as_bytes(), content)
   }
+}
+
+/// The id of a blob of the bytes of the file at `path` as they are, without the clean filters, in the hash algorithm of
+/// `object_id`, a full id of the same repository: what `hash-object --no-filters` gives, without a process, the file read
+/// in chunks. `None` when its length changed while it was read
+pub fn file_blob_id(object_id: &str, path: &Path) -> std::io::Result<Option<String>> {
+  fn hash<D: Digest>(mut file: std::fs::File, length: u64) -> std::io::Result<Option<String>> {
+    let mut digest = D::new().chain_update(format!("blob {length}\0").as_bytes());
+    let mut buffer = vec![0; 64 << 10];
+    let mut read: u64 = 0;
+    loop {
+      let count = file.read(&mut buffer)?;
+      if count == 0 {
+        break;
+      }
+      read += count as u64;
+      digest.update(&buffer[..count]);
+    }
+    Ok((read == length).then(|| hex_of(digest)))
+  }
+  let file = std::fs::File::open(path)?;
+  let length = file.metadata()?.len();
+  if object_id.len() == 64 {
+    hash::<Sha256>(file, length)
+  } else {
+    hash::<Sha1>(file, length)
+  }
+}
+
+fn hex_of<D: Digest>(digest: D) -> String {
+  let digest = digest.finalize();
+  digest.iter().fold(String::with_capacity(digest.len() * 2), |mut hex, byte| {
+    let _ = write!(hex, "{byte:02x}");
+    hex
+  })
 }

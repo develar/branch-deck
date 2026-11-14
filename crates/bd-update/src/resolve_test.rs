@@ -1033,6 +1033,29 @@ fn local_changes_that_will_block_the_finish_are_named_from_the_start() {
   assert_eq!(checked.get("ask_user"), None, "{checked}");
 }
 
+/// A file that the update writes and that differs from its blob only by the clean filter (committed with CRLF, the
+/// attributes `text=auto eol=lf` after it) is no local change: the session asks the user nothing. A real edit of it is
+#[test_log::test]
+fn a_file_that_differs_from_its_blob_only_by_the_clean_filter_blocks_nothing() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("win.txt", "one\r\ntwo\r\n")]);
+  upstream.create_commit("Normalize the line ends of new files", ".gitattributes", "*.txt text=auto eol=lf\n");
+  git(&clone, &["pull", "-q", "--ff-only"]);
+  clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
+  upstream.create_commit_with_files(
+    "Change line 2 and win.txt upstream",
+    &[("shared.txt", "one\ntheirs\nthree\n"), ("win.txt", "one\r\ntwo\r\nthree\r\n")],
+  );
+  assert_eq!(worktree_status(&clone), "");
+
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!((round.get("ask_user"), round["session"].get("blocked_paths")), (None, None), "{round}");
+
+  write(&clone, "win.txt", "one\r\ntwo, local\r\n");
+  let (_, again) = run_in(&clone, &["update"]);
+  assert_eq!(again["session"]["blocked_paths"], json!(["win.txt"]), "{again}");
+}
+
 #[test_log::test]
 fn the_dir_of_another_worktree_or_session_is_refused_and_a_symlinked_round_is_never_read() {
   let (_upstream, clone) = conflicting_clone();

@@ -698,6 +698,42 @@ fn preview_compares_a_symlink_by_its_target() {
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
 }
 
+/// A clone that holds `win.txt` as it was committed, with CRLF, and the attributes that came after it, `text=auto eol=lf`
+/// (git keeps a blob with CR as it is: the safer autocrlf), and the fetched upstream commit that changes it
+fn crlf_clone() -> Setup {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("win.txt", "one\r\ntwo\r\n"), ("other.txt", "other\n")]);
+  upstream.create_commit("Normalize the line ends of new files", ".gitattributes", "*.txt text=auto eol=lf\n");
+  git(&clone, &["pull", "-q", "--ff-only"]);
+  upstream.create_commit("Change win.txt upstream", "win.txt", "one\r\ntwo\r\nthree\r\n");
+  git(&clone, &["fetch", "-q", "origin"]);
+  Setup { upstream, clone }
+}
+
+/// A file that only the clean filter tells from its blob (committed with CRLF under `eol=lf`) is no local change: the
+/// preview compares its bytes as they are too, and the update applies. A real edit of it still blocks
+#[test]
+fn preview_does_not_block_a_file_that_differs_from_its_blob_only_by_the_clean_filter() {
+  let Setup { upstream: _upstream, clone } = crlf_clone();
+  assert_eq!(status(&clone), "", "git sees no local change");
+  assert_ne!(
+    git(&clone, &["hash-object", "win.txt"]),
+    git(&clone, &["rev-parse", "HEAD:win.txt"]),
+    "the clean filter normalizes the file"
+  );
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
+
+  write(&clone, "win.txt", "one\r\ntwo, local\r\n");
+  assert_eq!(preview(&clone), blocked(&["win.txt"]));
+  write(&clone, "win.txt", "one\r\ntwo\r\n");
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward }, "the same bytes again");
+
+  let result = update(&clone).unwrap();
+  assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
+  assert!(result.applied.is_some(), "{result:?}");
+  assert_eq!(read(&clone, "win.txt"), "one\r\ntwo\r\nthree\r\n");
+  assert_eq!(status(&clone), "");
+}
+
 #[test]
 fn preview_blocks_untracked_and_ignored_files_that_upstream_adds() {
   let Setup { upstream, clone } = setup();

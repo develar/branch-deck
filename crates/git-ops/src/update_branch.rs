@@ -7,7 +7,7 @@
 //! `reapply`) and their undo (`apply_update_undo`, `apply_move_undo_with`).
 
 use crate::commit_signing::{Signing, sign_range};
-use crate::commit_utils::blob_id;
+use crate::commit_utils::{blob_id, file_blob_id};
 use crate::commit_writer::{WrittenCommits, current_committer, write_notes_to_refs};
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
 use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_before_replay, read_landed, with_patch_identical};
@@ -964,8 +964,31 @@ struct LocalProbe {
   index_stamp: Option<FileStamp>,
   /// Per changed path: the blob of its index entry, `None` without one
   index_ids: HashMap<Vec<u8>, Option<String>>,
-  /// Per hashed file: its stamp, when it was hashed and its blob id
-  files: HashMap<Vec<u8>, (FileStamp, SystemTime, String)>,
+  /// Per hashed file: its stamp, when it was hashed and its blob ids
+  files: HashMap<Vec<u8>, HashedFile>,
+}
+
+/// A file the preview hashed
+#[derive(Debug, Clone)]
+struct HashedFile {
+  stamp: FileStamp,
+  read_at: SystemTime,
+  /// Its blob id with the clean filters (`hash-object --stdin-paths`)
+  id: String,
+  /// The blob id of its bytes as they are (`commit_utils::file_blob_id`), read only once `id` differed from the old blob:
+  /// a blob committed with CRLF under `eol=lf` is what the file holds, though its clean filter gives another id
+  raw: Option<String>,
+}
+
+impl HashedFile {
+  /// Whether the file is the blob `old_id`, with the clean filters or as it is; `None` when only the id of its bytes as
+  /// they are can tell, and it is not read yet
+  fn is(&self, old_id: &str) -> Option<bool> {
+    if self.id == old_id {
+      return Some(true);
+    }
+    self.raw.as_ref().map(|raw| raw == old_id)
+  }
 }
 
 impl LocalProbe {
@@ -2034,8 +2057,9 @@ const SYMLINK_MODE: &str = "120000";
 /// - a changed or deleted path is blocked if its index entry differs from the old tree (staged: one
 ///   `cat-file --batch-check` of `:<path>`, a lookup per path, again only once the index file changed), or if its file
 ///   differs (`hash-object --stdin-paths` with the clean filters, only for the files whose stat data changed since
-///   `probe` hashed them). Comparing content, a file that was only touched does not block, without refreshing the
-///   index.
+///   `probe` hashed them), also as it is (`commit_utils::file_blob_id`, the id `hash-object --no-filters` gives, in
+///   process: a blob committed with CRLF under `eol=lf` is the file as it is, though the clean filter normalizes it).
+///   Comparing content, a file that was only touched does not block, without refreshing the index.
 ///
 /// The update itself runs the exact dry run again. Where the two differ (a sparse checkout, an executable bit with
 /// `core.fileMode=false`, a path with a newline), the preview leans to blocked.
@@ -2058,6 +2082,8 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
   read_index_ids(git_executor, repo_path, changed, &tracked, probe)?;
   let mut sparse_checkout: Option<bool> = None;
   let mut to_hash = Vec::new();
+  // the files whose filtered id is not the old blob: the id of their bytes as they are tells
+  let mut as_they_are = Vec::new();
   let mut links = Vec::new();
   for &i in &tracked {
     let c = &changed[i];
@@ -2088,7 +2114,10 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
         }
         let stamp = FileStamp::of(&metadata);
         match probe.files.get(&c.path) {
-          Some((known, read_at, id)) if *known == stamp && known.is_trusted(*read_at) => blocked[i] = *id != c.old_id,
+          Some(file) if file.stamp == stamp && file.stamp.is_trusted(file.read_at) => match file.is(&c.old_id) {
+            Some(is) => blocked[i] = !is,
+            None => as_they_are.push(i),
+          },
           _ => to_hash.push((i, stamp)),
         }
       }
@@ -2106,8 +2135,26 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
     let ids = git_executor.cmd(&["hash-object", "--stdin-paths"], repo_path).stdin(&input).bytes()?;
     let ids = String::from_utf8(ids)?;
     for ((i, stamp), id) in to_hash.into_iter().zip(ids.lines()) {
-      blocked[i] = id != changed[i].old_id;
-      probe.files.insert(changed[i].path.clone(), (stamp, read_at, id.to_string()));
+      if id != changed[i].old_id {
+        as_they_are.push(i);
+      }
+      let file = HashedFile {
+        stamp,
+        read_at,
+        id: id.to_string(),
+        raw: None,
+      };
+      probe.files.insert(changed[i].path.clone(), file);
+    }
+  }
+  // the bytes as they are, hashed in-process (`hash-object --no-filters`): a file that holds the old blob does not block;
+  // one that can't be read, or changes its length meanwhile, does
+  for i in as_they_are {
+    let c = &changed[i];
+    let raw = c.path.to_path().ok().and_then(|file| file_blob_id(&c.old_id, &root.join(file)).ok().flatten());
+    blocked[i] = raw.as_deref() != Some(c.old_id.as_str());
+    if let (Some(raw), Some(file)) = (raw, probe.files.get_mut(&c.path)) {
+      file.raw = Some(raw);
     }
   }
   for i in links {

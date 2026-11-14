@@ -1494,15 +1494,19 @@ Details:
     blocked if its index entry differs from H (staged: one `cat-file --batch-check=%(objectname) -Z` of `:<path>`, a
     binary search per path) or if its file differs from H's blob (`hash-object --stdin-paths`, with the clean
     filters; a symlink by the id of its target, `blob <length>\0<target>` hashed in-process with the algorithm of the
-    repository, `commit_utils::blob_id`). Comparing content, a file that was only touched does not block, and the
-    index is never written.
+    repository, `commit_utils::blob_id`). A file whose filtered id differs is compared as it is too: the id of its
+    bytes without the filters (`commit_utils::file_blob_id`, what `hash-object --no-filters` gives, hashed in-process
+    in chunks); equal to H's blob, the file is what H has and does not block. So a blob committed with CRLF under
+    `text=auto eol=lf`, which the filter normalizes but git keeps as it is (the safer autocrlf of `text=auto`), is no
+    local change, and `brd update` asks the user nothing about it. Comparing content, a file that was only touched does
+    not block, and the index is never written.
     `status`, `diff-files` and `diff-index` take no `--pathspec-from-file`, and as arguments thousands of pathspecs
     are matched against every index entry: `status` with 2,105 pathspecs took 5–12 s on a 50k-file index.
   - **Cache.** Per repository, in memory: the replay outcome (conflict, or the new tip and the changed paths) keyed by
     H, U and the excluded previous tips, and a probe of the local state. The probe keeps the index blobs for one
     index file (git writes a new file, a new inode, on every change) and, per hashed file, its stat data, when it was
-    hashed and its blob, trusted like git's racy check only when the file was modified at least 2 s before it was
-    hashed. An unchanged state therefore costs no replay, no `cat-file` and no `hash-object`, only an `lstat` per
+    hashed and its blob (with the id of its bytes as they are, once read), trusted like git's racy check only when the
+    file was modified at least 2 s before it was hashed. An unchanged state therefore costs no replay, no `cat-file` and no `hash-object`, only an `lstat` per
     changed path; after a fetch only the newly changed paths are read.
   - Its replay sets `GIT_COMMITTER_DATE=@0 +0000`, so a replay after a cache miss writes the same objects again; such
     a plan can't be applied.
@@ -1517,7 +1521,9 @@ Details:
     reports the first 100 paths and counts all (`path_count`). The event of every sync carries the state, so a conflict
     in thousands of files costs the app and `brd` a list of 50, not thousands of paths and file lists per commit.
   - It leans to blocked where the two can differ: a sparse checkout (a missing file then doesn't block), an
-    executable bit with `core.fileMode=false`, a symlink, a path with a newline. A directory that the update replaces
+    executable bit with `core.fileMode=false`, a symlink, a path with a newline. One case leans the other way: a file
+    that holds H's blob as it is, under a filter that `text` without `auto` sets, git calls changed once its stat data
+    changed; the update's exact check then blocks it. A directory that the update replaces
     by a file, or the reverse, is checked by the update's dry run only. The update always runs the exact check
     (`CheckPurpose::Apply`) after its fetch.
 

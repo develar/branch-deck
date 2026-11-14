@@ -1,4 +1,4 @@
-use super::commit_utils::{blob_id, empty_tree, find_commit, get_commits_info};
+use super::commit_utils::{blob_id, empty_tree, file_blob_id, find_commit, get_commits_info};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::fmt::Write;
@@ -150,6 +150,25 @@ fn a_blob_id_is_the_one_of_hash_object() {
         .text()
         .unwrap();
       assert_eq!(blob_id(&tree, content.as_bytes()), expected, "{format} {content:?}");
+    }
+  }
+}
+
+/// The blob id of a file as it is: the bytes on the disk, without the clean filters that `hash-object` applies, in both
+/// hash algorithms; also of a file larger than one chunk
+#[test]
+fn a_file_blob_id_is_the_one_of_hash_object_without_filters() {
+  for format in ["sha1", "sha256"] {
+    let repo = TestRepo::new_empty();
+    repo.git(&["init", "--quiet", &format!("--object-format={format}")]);
+    std::fs::write(repo.path().join(".gitattributes"), "*.txt text=auto eol=lf\n").unwrap();
+    let tree = repo.git(&["write-tree"]);
+    for (name, content) in [("crlf.txt", "one\r\ntwo\r\n".to_string()), ("big.txt", "line\r\n".repeat(30_000))] {
+      let path = repo.path().join(name);
+      std::fs::write(&path, &content).unwrap();
+      let raw = repo.git(&["hash-object", "--no-filters", name]);
+      assert_eq!(file_blob_id(&tree, &path).unwrap(), Some(raw.clone()), "{format} {name}");
+      assert_ne!(repo.git(&["hash-object", name]), raw, "the clean filter normalizes the line ends of {name}");
     }
   }
 }
