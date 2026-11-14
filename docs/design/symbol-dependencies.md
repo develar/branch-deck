@@ -53,6 +53,8 @@ flowchart TD
     D[diff_scan: one log --raw --no-abbrev, blocks] -->|blob ids, hunks| S[symbol_scan]
     R[module_roots: one cat-file of the trees at HEAD] --> S
     S -->|cache misses + Cargo.toml + tsconfig| C[one cat-file --batch of the blobs]
+    C -->|tsconfig extends| E[js_syntax::tsconfig: one cat-file --batch a level of what the chains still lack]
+    E --> S
     C --> P[code_symbols::extract::summarize, one thread per core]
     P -->|not truncated| O[(object cache: blob_summary)]
     O --> S
@@ -865,12 +867,19 @@ flowchart TD
   Starlark (`starlark/summary.rs`): one pass over the PSI, reading it only through `starlark_syntax::psi`, with the
   file kind from the path (`summarize` takes it; `language::summary_key` keys the cache by it, as the same bytes are
   one summary as a `BUILD` and another as a `.bzl`).
-- `crates/trial-check/src/symbol_scan.rs`: the summaries through the cache, the crate names and the TypeScript aliases;
-  the mode (`branchdeck.symbols`, `SymbolMode`) is `crates/sync-core/src/config_snapshot.rs`.
+- `crates/trial-check/src/symbol_scan.rs`: the summaries through the cache, the crate names and the TypeScript aliases
+  (`ts_aliases`): each `tsconfig*.json` of the directories above the files read by `js_syntax::tsconfig::aliases`, as
+  tsc reads it, with its `extends` chain; a configuration a chain names that the batch of the summaries lacks (any but
+  a `tsconfig*.json` above the files) is read in one more `cat-file --batch` a level, by its blob when
+  `ModuleRoots::file_at` lists it, else by its path at the revision, and a name tried that those directories lack
+  (without `.json`) costs nothing; the mode (`branchdeck.symbols`, `SymbolMode`) is `crates/sync-core/src/config_snapshot.rs`.
 - `crates/trial-check/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
   TypeScript packages); the review plan shows accio's modules (`accio modules`), not these (see "accio's modules for
   the module roots of a sync" below).
-- `crates/trial-check/src/symbol_dependencies.rs`: the `Order` edges with their evidence, what a use needs
+- `crates/trial-check/src/symbol_dependencies.rs`: the `Order` edges with their evidence (a TypeScript import names the
+  files of `ts_targets`: a relative specifier from its directory, any other by `Aliases::candidates` of each
+  configuration of the nearest directory with one, the targets of the pattern with the longest prefix, then the
+  specifier under `baseUrl`), what a use needs
   (`resolve_use`; a Rust member, static or instance, through its owner type in `resolve_rust`, decision 18), the entries of a member key and their origins (`member_entries` by `same_entry` and `same_form`,
   `steps_of` and `lineage`, the older forms judged by `older_form` with `Site.older`, those of a function only for a use
   that tells its overloads apart), the keys only present or absent (`KeyState::present`, which follow their files by

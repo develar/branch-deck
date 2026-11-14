@@ -3,10 +3,11 @@
 //! `cat-file --batch` of the blobs the cache misses, parsed in parallel and written back in one transaction. The same
 //! process reads the `Cargo.toml` and `tsconfig*.json` files of the directories above the files (`ModuleRoots`, one
 //! `cat-file --batch` of the trees at HEAD, or at the head a review plan reads), for the names of the crates and the path
-//! aliases of TypeScript. The blobs of a caller join that process (`read_symbol_input_with`).
+//! aliases of TypeScript, each `tsconfig*.json` with its `extends` chain (`js_syntax::tsconfig`). The blobs of a caller
+//! join that process (`read_symbol_input_with`).
 
 use crate::diff_scan::CommitDiff;
-use crate::module_roots::ModuleRoots;
+use crate::module_roots::{FileAt, ModuleRoots};
 use anyhow::Result;
 use code_symbols::extract::{MAX_BYTES, extractor_version, summarize};
 use code_symbols::language::{Language, language_of, summary_key};
@@ -14,6 +15,7 @@ use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::MAX_BLOB_BYTES;
 use git_ops::object_texts::read_blob_bytes;
+use js_syntax::tsconfig::{self, Aliases};
 use object_cache::cache::ObjectCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -51,16 +53,10 @@ pub struct SymbolInput {
   pub roots: ModuleRoots,
   /// Crate directory -> crate name, as Rust code names it (`-` as `_`)
   pub crates: HashMap<String, String>,
-  /// TypeScript path aliases by the directory of their `tsconfig*.json`
-  pub aliases: HashMap<String, TsAliases>,
+  /// The TypeScript path aliases of the `tsconfig*.json` files of each directory (`ts_aliases`), by name, those that
+  /// give a specifier nothing left out
+  pub aliases: HashMap<String, Vec<Aliases>>,
   pub stats: ScanStats,
-}
-
-/// The path aliases of one `tsconfig*.json` (`compilerOptions.paths`, relative to `baseUrl`): pattern -> targets, both
-/// relative to the repository root, with at most one `*` each
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TsAliases {
-  pub paths: Vec<(String, Vec<String>)>,
 }
 
 /// The source blobs of `diffs`, each with its language: the old blob in the language of the old path, the new one in
@@ -160,16 +156,9 @@ pub fn read_symbol_input_with(
       (dir.clone(), name.replace('-', "_"))
     })
     .collect();
-  let aliases: HashMap<String, TsAliases> = tsconfigs
-    .iter()
-    .zip(contents.by_ref().map(parsed_size))
-    .filter_map(|((path, _), content)| {
-      let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
-      Some((dir.to_string(), ts_aliases(dir, &String::from_utf8_lossy(content.as_deref()?))))
-    })
-    .filter(|(_, aliases)| !aliases.paths.is_empty())
-    .collect();
+  let configs: Vec<(String, Option<Vec<u8>>)> = tsconfigs.into_iter().map(|(path, _)| path).zip(contents.by_ref().map(parsed_size)).collect();
   let extra: Vec<Option<Vec<u8>>> = contents.collect();
+  let aliases = ts_aliases(git, repository_path, rev, &roots, configs)?;
   let read_time = started.elapsed();
 
   let parse_started = Instant::now();
@@ -265,96 +254,54 @@ pub(crate) fn crate_name(manifest: &[u8]) -> Option<String> {
   None
 }
 
-/// The aliases of a `tsconfig*.json` in `dir`: `compilerOptions.paths` relative to `baseUrl` (default the directory),
-/// as paths from the repository root. Comments and trailing commas, which `tsc` accepts, are removed first
-pub(crate) fn ts_aliases(dir: &str, text: &str) -> TsAliases {
-  let Ok(config) = serde_json::from_str::<serde_json::Value>(&without_comments(text)) else {
-    return TsAliases::default();
-  };
-  let options = &config["compilerOptions"];
-  let base = normalize(&join(dir, options["baseUrl"].as_str().unwrap_or(".")));
-  let Some(paths) = options["paths"].as_object() else { return TsAliases::default() };
-  TsAliases {
-    paths: paths
-      .iter()
-      .map(|(pattern, targets)| {
-        let targets = targets
-          .as_array()
-          .into_iter()
-          .flatten()
-          .filter_map(|target| Some(normalize(&join(&base, target.as_str()?))))
-          .collect();
-        (pattern.clone(), targets)
-      })
-      .collect(),
-  }
-}
+/// The deepest `extends` chain the reads of `ts_aliases` follow, one pass a level: as deep as `js_syntax::tsconfig`
+/// follows one, whose bound is private (JetBrains/accio#784: export it, then use it here)
+const MAX_EXTENDS: usize = 16;
 
-/// JSON with comments (`//`, `/* */`) and trailing commas made JSON, in one pass that knows the strings
-fn without_comments(text: &str) -> String {
-  let mut out = String::with_capacity(text.len());
-  let mut chars = text.chars().peekable();
-  let mut in_string = false;
-  while let Some(c) = chars.next() {
-    if in_string {
-      out.push(c);
-      if c == '\\' {
-        out.extend(chars.next());
-      } else if c == '"' {
-        in_string = false;
+/// The path aliases of each configuration of `configs` (its path, and its bytes or none), with the `extends` chain tsc
+/// applies (`js_syntax::tsconfig::aliases`), by its directory: the configurations of a directory by name, those that
+/// give a specifier nothing left out. `configs` are the `tsconfig*.json` files of the directories above the files, read
+/// in the batch of the summaries, so a chain of those costs nothing; a name tried that a directory `roots` read lacks (a
+/// name without `.json`) costs nothing either. Any other configuration a chain names is read in one `cat-file --batch`
+/// of what a pass lacks, a pass a level of the chains, wherever it lies: by its blob when a directory `roots` read lists
+/// it (`./base.json` beside the files), else at `rev` by its path
+fn ts_aliases(git: &GitCommandExecutor, repository_path: &str, rev: &str, roots: &ModuleRoots, configs: Vec<(String, Option<Vec<u8>>)>) -> Result<HashMap<String, Vec<Aliases>>> {
+  let mut paths: Vec<String> = configs.iter().filter(|(_, text)| text.is_some()).map(|(path, _)| path.clone()).collect();
+  paths.sort_unstable();
+  let mut texts: HashMap<String, Option<Vec<u8>>> = configs.into_iter().collect();
+  let mut pass = 0;
+  loop {
+    // path -> the name `cat-file` reads it by, of each configuration a chain names that no read has given yet
+    let mut wanted: BTreeMap<String, String> = BTreeMap::new();
+    let mut read = |path: &str| {
+      if let Some(text) = texts.get(path) {
+        return text.clone();
       }
-      continue;
-    }
-    match (c, chars.peek()) {
-      ('/', Some('/')) => while chars.next_if(|&next| next != '\n').is_some() {},
-      ('/', Some('*')) => {
-        chars.next();
-        let mut previous = ' ';
-        for next in chars.by_ref() {
-          if previous == '*' && next == '/' {
-            break;
-          }
-          previous = next;
+      match roots.file_at(path) {
+        FileAt::Blob(blob) => {
+          wanted.insert(path.to_string(), blob.to_string());
         }
-      }
-      ('}' | ']', _) => {
-        // a comma before the closing bracket, with only whitespace (and the comments left out) between
-        let content = out.trim_end().len();
-        if out[..content].ends_with(',') {
-          out.remove(content - 1);
+        FileAt::Unknown => {
+          wanted.insert(path.to_string(), format!("{rev}:{path}"));
         }
-        out.push(c);
+        FileAt::Absent => {}
       }
-      _ => {
-        in_string = c == '"';
-        out.push(c);
-      }
+      None
+    };
+    let mut aliases: HashMap<String, Vec<Aliases>> = HashMap::new();
+    for path in &paths {
+      let Some(config) = tsconfig::aliases(path, &mut read).filter(|config| !config.is_empty()) else {
+        continue;
+      };
+      let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+      aliases.entry(dir.to_string()).or_default().push(config);
     }
-  }
-  out
-}
-
-/// `dir/path`, or `path` from the root
-pub(crate) fn join(dir: &str, path: &str) -> String {
-  if dir.is_empty() || path.starts_with('/') {
-    path.trim_start_matches('/').to_string()
-  } else {
-    format!("{dir}/{path}")
-  }
-}
-
-/// `path` without `.` segments and with each `..` taking the segment before it away; `None`-like `..` above the root
-/// are dropped
-pub(crate) fn normalize(path: &str) -> String {
-  let mut segments: Vec<&str> = Vec::new();
-  for segment in path.split('/') {
-    match segment {
-      "" | "." => {}
-      ".." => {
-        segments.pop();
-      }
-      segment => segments.push(segment),
+    if wanted.is_empty() || pass == MAX_EXTENDS {
+      return Ok(aliases);
     }
+    pass += 1;
+    let names: Vec<String> = wanted.values().cloned().collect();
+    let contents = read_blob_bytes(git, repository_path, &names, MAX_BYTES)?;
+    texts.extend(wanted.into_keys().zip(contents));
   }
-  segments.join("/")
 }

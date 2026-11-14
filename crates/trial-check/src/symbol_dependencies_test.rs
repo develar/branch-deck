@@ -1,11 +1,12 @@
 use crate::diff_scan::CommitDiff;
 use crate::module_roots::ModuleRoots;
 use crate::symbol_dependencies::{Evidence, SymbolGraph, compute_symbol_dependencies};
-use crate::symbol_scan::{SymbolInput, TsAliases};
+use crate::symbol_scan::SymbolInput;
 use code_symbols::extract::summarize;
 use code_symbols::language::{Language, language_of};
 use code_symbols::summary::DeclKind;
 use git_ops::object_texts::TreeEntry;
+use js_syntax::tsconfig::Aliases;
 use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -150,12 +151,12 @@ impl Range {
     self.graph(&roots, &[], &[])
   }
 
-  fn graph(&self, roots: &[(&str, &[TreeEntry])], crates: &[(&str, &str)], aliases: &[(&str, TsAliases)]) -> SymbolGraph {
+  fn graph(&self, roots: &[(&str, &[TreeEntry])], crates: &[(&str, &str)], aliases: &[(&str, Aliases)]) -> SymbolGraph {
     let input = SymbolInput {
       summaries: self.summaries.clone(),
       roots: ModuleRoots::from_entries(roots),
       crates: crates.iter().map(|(dir, name)| ((*dir).to_string(), (*name).to_string())).collect(),
-      aliases: aliases.iter().map(|(dir, aliases)| ((*dir).to_string(), aliases.clone())).collect(),
+      aliases: aliases.iter().map(|(dir, aliases)| ((*dir).to_string(), vec![aliases.clone()])).collect(),
       ..SymbolInput::default()
     };
     compute_symbol_dependencies(&self.commits, &input)
@@ -671,15 +672,44 @@ fn a_typescript_import_by_a_relative_path_or_an_alias_is_an_edge() {
       "src/hooks/useLead.ts",
       Some("import { stackLead as lead } from \"@/lib/stack\";\n\nexport function useLead() {\n  return lead(\"b\");\n}\n"),
     )]);
-  let aliases = TsAliases {
+  let aliases = Aliases {
+    base_url: None,
     paths: vec![("@/*".to_string(), vec!["src/*".to_string()])],
   };
-  let web = [file("package.json"), file("tsconfig.json")];
-  let graph = range.graph(&[("", &web)], &[], &[("", aliases)]);
-  assert_eq!(
-    edges(&graph),
-    [(1, 0, vec![link("stackLead", Evidence::Import)]), (2, 0, vec![link("stackLead", Evidence::Import)])]
-  );
+  assert_eq!(typescript_edges(&range, "", aliases), both_import_the_first());
+}
+
+/// The edges of `range`, whose files are of the package `dir` with a `tsconfig.json` that gives `aliases`
+fn typescript_edges(range: &Range, dir: &str, aliases: Aliases) -> Vec<Edge> {
+  let package = [file("package.json"), file("tsconfig.json")];
+  edges(&range.graph(&[(dir, &package)], &[], &[(dir, aliases)]))
+}
+
+/// Each of the two later commits of a range imports `stackLead`, which the first adds
+fn both_import_the_first() -> Vec<Edge> {
+  vec![(1, 0, vec![link("stackLead", Evidence::Import)]), (2, 0, vec![link("stackLead", Evidence::Import)])]
+}
+
+/// A specifier that no pattern of `paths` takes names the file under `baseUrl`, as tsc reads it; of two patterns that
+/// take it, the one with the longer prefix
+#[test]
+fn a_typescript_import_under_the_base_url_or_by_the_longest_pattern_is_an_edge() {
+  let mut range = Range::default();
+  range
+    .commit(&[("web/src/lib/stack.ts", Some("export function stackLead(name: string): string {\n  return name;\n}\n"))])
+    .commit(&[(
+      "web/src/use.ts",
+      Some("import { stackLead } from \"lib/stack\";\n\nexport const lead = stackLead(\"a\");\n"),
+    )])
+    .commit(&[("web/src/ui.ts", Some("import { stackLead } from \"@/lib/stack\";\n\nexport const ui = stackLead(\"b\");\n"))]);
+  let aliases = Aliases {
+    base_url: Some("web/src".to_string()),
+    paths: vec![
+      ("@/*".to_string(), vec!["web/gone/*".to_string()]),
+      ("@/lib/*".to_string(), vec!["web/src/lib/*".to_string()]),
+    ],
+  };
+  assert_eq!(typescript_edges(&range, "web", aliases), both_import_the_first());
 }
 
 /// The commit that removes a declaration needs the commit that removed its uses: the dangling reference before any

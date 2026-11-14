@@ -29,9 +29,10 @@
 
 use crate::diff_scan::CommitDiff;
 use crate::module_roots::ModuleRoots;
-use crate::symbol_scan::{SymbolInput, TsAliases, join, normalize};
+use crate::symbol_scan::SymbolInput;
 use code_symbols::language::{Family, Language};
 use code_symbols::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, ImportTarget, MemberKind, Parameter, Reach, Reference, Role, Shape, Signature, TypeRef};
+use js_syntax::tsconfig::Aliases;
 use object_cache::commit_diff::FileChange;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -130,7 +131,8 @@ struct FileCtx<'a> {
   namespace: Vec<String>,
   module_root: Option<&'a str>,
   crate_root: Option<&'a str>,
-  aliases: Option<&'a TsAliases>,
+  /// The TypeScript path aliases of the configurations of its directory
+  aliases: &'a [Aliases],
   /// The path of each import of `summary.imports`, as names
   import_paths: Vec<Vec<String>>,
   /// A use resolved as the accessor of a property of the other JVM language (`accessor_names`), else `None`
@@ -307,12 +309,14 @@ impl SymbolInput {
   }
 }
 
-/// The aliases of the nearest `tsconfig*.json` above `path` that has any
-fn aliases_of<'a>(roots: &ModuleRoots, aliases: &'a HashMap<String, TsAliases>, path: &str) -> Option<&'a TsAliases> {
-  roots
+/// The aliases of the `tsconfig*.json` files of the nearest directory above `path` that has any: the directory whose
+/// configuration tsc reads the file by, none when they give a specifier nothing
+fn aliases_of<'a>(roots: &ModuleRoots, aliases: &'a HashMap<String, Vec<Aliases>>, path: &str) -> &'a [Aliases] {
+  let dir = roots
     .tsconfigs_of(path)
-    .iter()
-    .find_map(|(config, _)| aliases.get(config.rsplit_once('/').map_or("", |(dir, _)| dir)))
+    .first()
+    .map(|(config, _)| config.rsplit_once('/').map_or(String::new(), |(dir, _)| dir.to_string()));
+  dir.and_then(|dir| aliases.get(&dir)).map_or(&[], Vec::as_slice)
 }
 
 /// Whether a declaration is the binding of an import that passes no name on: one the use needs beside the declaration
@@ -2597,23 +2601,41 @@ fn binds(alias: Option<u32>, imported: u32, reference: &Reference) -> bool {
   alias.unwrap_or(imported) == reference.name || (reference.role == Role::Import && imported == reference.name)
 }
 
-/// The files a TypeScript import specifier names from `from` (relative, or by a path alias), without extensions
-fn ts_targets(specifier: &str, from: &str, aliases: Option<&TsAliases>) -> Vec<String> {
+/// The files a TypeScript import specifier names from `from`, without extensions: a relative one from its directory,
+/// any other by the path aliases of each configuration of `aliases` as tsc reads them, the targets of its best
+/// pattern and then the specifier under `baseUrl` (`Aliases::candidates`)
+fn ts_targets(specifier: &str, from: &str, aliases: &[Aliases]) -> Vec<String> {
   let dir = from.rsplit_once('/').map_or("", |(dir, _)| dir);
-  let mut bases = Vec::new();
-  if specifier.starts_with("./") || specifier.starts_with("../") {
-    bases.push(normalize(&join(dir, specifier)));
-  } else if let Some(aliases) = aliases {
-    for (pattern, targets) in &aliases.paths {
-      let matched = match pattern.split_once('*') {
-        Some((prefix, suffix)) => specifier.strip_prefix(prefix).and_then(|rest| rest.strip_suffix(suffix)),
-        None => (specifier == pattern).then_some(""),
-      };
-      let Some(matched) = matched else { continue };
-      bases.extend(targets.iter().map(|target| normalize(&target.replacen('*', matched, 1))));
+  let bases: Vec<String> = if specifier.starts_with("./") || specifier.starts_with("../") {
+    vec![normalize(&join(dir, specifier))]
+  } else {
+    aliases.iter().flat_map(|aliases| aliases.candidates(specifier)).collect()
+  };
+  bases.into_iter().map(|base| strip_script_extension(&base).to_string()).collect()
+}
+
+/// `dir/path`, or `path` from the root
+fn join(dir: &str, path: &str) -> String {
+  if dir.is_empty() || path.starts_with('/') {
+    path.trim_start_matches('/').to_string()
+  } else {
+    format!("{dir}/{path}")
+  }
+}
+
+/// `path` without `.` segments and with each `..` taking the segment before it away; a `..` above the root is dropped
+fn normalize(path: &str) -> String {
+  let mut segments: Vec<&str> = Vec::new();
+  for segment in path.split('/') {
+    match segment {
+      "" | "." => {}
+      ".." => {
+        segments.pop();
+      }
+      segment => segments.push(segment),
     }
   }
-  bases.into_iter().map(|base| strip_script_extension(&base).to_string()).collect()
+  segments.join("/")
 }
 
 /// `path` without `.ts`, `.tsx`, `.js`, … and without a trailing `/index`

@@ -16,13 +16,15 @@ sync-utils = { path = "../sync-utils" }
 object-cache = { path = "../object-cache" }
 file-diffs = { path = "../file-diffs" }
 code-symbols = { path = "../code-symbols" }
+# the path aliases of a `tsconfig.json` with its `extends` chain as tsc reads them (`js_syntax::tsconfig`): psi-syntax's
+# reader, which accio's modules read them with too, at the revision of the parsers (`code_symbols::extract::PSI_SYNTAX_REVISION`)
+js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 line-diff = { git = "https://github.com/develar/psi-syntax", rev = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9" }
 text-diff = { path = "../text-diff" }
 anyhow.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 specta = { workspace = true, optional = true }
 regex = "1.13"
 

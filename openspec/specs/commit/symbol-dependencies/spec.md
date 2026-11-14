@@ -18,6 +18,7 @@ targets:
   - crates/code-symbols/src/js/mod.rs
   - crates/code-symbols/src/js/summary.rs
   - crates/trial-check/src/symbol_scan.rs
+  - psi-syntax:crates/js-syntax/src/tsconfig.rs
   - crates/sync-core/src/config_snapshot.rs
   - crates/trial-check/src/symbol_dependencies.rs
   - crates/trial-check/src/module_roots.rs
@@ -1239,7 +1240,9 @@ reads too, so that one answer serves both.
 
 The module roots (the nearest directory with an `*.iml`, a Bazel, Gradle or Maven build file, a `Cargo.toml` or a
 `package.json`), the crate names and the TypeScript path aliases MUST come from HEAD's tree, the directories with one
-`cat-file --batch`, never a command line that lists them.
+`cat-file --batch`, never a command line that lists them. The aliases of a `tsconfig*.json` MUST be those tsc gives it
+with its `extends` chain; a configuration a chain names that the batch of the summaries lacks is read in one more
+`cat-file --batch` a level.
 
 #### Scenario: The nearest directory with a build file
 - **WHEN** a file lies below several directories with build files
@@ -1255,7 +1258,18 @@ The module roots (the nearest directory with an `*.iml`, a Bazel, Gradle or Mave
 #### Scenario: Crate names and path aliases
 - **WHEN** a `Cargo.toml` names its crate and a tsconfig its path aliases
 - **THEN** the scan takes them from HEAD's tree
-  [@test] crates/trial-check/src/symbol_scan_test.rs (`the_name_of_a_crate_and_the_aliases_of_a_tsconfig`)
+  [@test] crates/trial-check/src/symbol_scan_test.rs (`the_name_of_a_crate`, `reads_the_summaries_through_the_cache`)
+
+#### Scenario: A tsconfig that extends another
+- **GIVEN** a `tsconfig.json` with comments and a trailing comma that extends `../tsconfig.base`, one that extends a
+  configuration of a directory above none of the changed files, and one that extends `./base` beside them
+- **WHEN** the scan reads their aliases
+- **THEN** each has the `paths` and `baseUrl` of its chain as tsc applies them, from the root
+- **AND** the first costs no process beside a configuration that extends none, since the `tsconfig*.json` files of
+  the directories above the files are in that batch and a name tried that those directories lack (without `.json`)
+  is no read, and each of the others one `cat-file` more
+  [@test] crates/trial-check/src/symbol_scan_test.rs (`the_aliases_of_a_tsconfig_with_the_chain_it_extends`)
+  [@test] crates/bd-cli/src/process_budget_test.rs (`commits_read_the_configuration_a_tsconfig_extends_in_one_batch_more_but_a_tsconfig_above_the_files`)
 
 ### Requirement: Edges: A use of another commit's declaration with evidence is an edge
 
@@ -1281,6 +1295,12 @@ adds, or a form of it that commit gives (see the entries below), with evidence.
 - **WHEN** a TypeScript commit imports what another commit adds, by a relative path or a path alias
 - **THEN** it is an edge
   [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_typescript_import_by_a_relative_path_or_an_alias_is_an_edge`)
+
+#### Scenario: A TypeScript import under baseUrl or by the longest pattern
+- **WHEN** a TypeScript commit imports what another commit adds by a specifier no pattern takes, which names the file
+  under `baseUrl`, or by one two patterns take
+- **THEN** it is an edge, of the targets of the pattern with the longer prefix
+  [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_typescript_import_under_the_base_url_or_by_the_longest_pattern_is_an_edge`)
 
 ### Requirement: Edges: The evidence that a use means a declaration
 

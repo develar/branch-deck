@@ -221,6 +221,43 @@ fn commits_with_the_prefix_of_the_config() {
   );
 }
 
+/// `brd commits` of a TypeScript change whose `tsconfig.json` extends another configuration: a `tsconfig*.json` of a
+/// directory above the changed file (`../tsconfig.base`, tried as is first, then read as `../tsconfig.base.json`) is in
+/// the batch of the summaries, so the chain costs no process beside a configuration that extends none; any other is
+/// read in one `cat-file` more, by its blob beside the file (`./base.json`) or by its path at HEAD in another directory
+#[test]
+fn commits_read_the_configuration_a_tsconfig_extends_in_one_batch_more_but_a_tsconfig_above_the_files() {
+  let processes = |tsconfig: &str| {
+    let repo = repo_with_baseline(&[
+      ("tsconfig.base.json", "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"web/src/*\"] } } }\n"),
+      ("config/tsconfig.json", "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"../web/src/*\"] } } }\n"),
+      ("web/base.json", "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } } }\n"),
+      ("web/tsconfig.json", tsconfig),
+    ]);
+    commit_each(&repo, [("web/src/a.ts", "export const a = 1;\n".to_string())]);
+    let context = context(&repo);
+    let Command::Commits(args) = Cli::parse_from(["brd", "commits"]).command else {
+      unreachable!("brd commits parses as Command::Commits")
+    };
+    assert_eq!(commits(&context, &args).unwrap().commits.len(), 1);
+    context
+      .git
+      .process_stats()
+      .expect("a counting executor")
+      .by_command()
+      .into_iter()
+      .map(|(subcommand, stats)| (subcommand, stats.count))
+      .collect::<BTreeMap<String, u32>>()
+  };
+  let alone = processes("{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } } }\n");
+  assert_eq!(processes("{ \"extends\": \"../tsconfig.base\" }\n"), alone);
+  for tsconfig in ["{ \"extends\": \"./base.json\" }\n", "{ \"extends\": \"../config/tsconfig.json\" }\n"] {
+    let mut other = processes(tsconfig);
+    *other.get_mut("cat-file").unwrap() -= 1;
+    assert_eq!(other, alone, "{tsconfig}");
+  }
+}
+
 /// `brd commits --mark-stats`: the commits ahead of the baseline as `brd commits` lists them, then each commit as a
 /// view reads it: the list of its files and one read of its blobs. Of a range, its two ends and one walk instead of
 /// the grouping; the range whole is one list and one read
