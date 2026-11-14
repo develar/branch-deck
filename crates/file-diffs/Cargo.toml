@@ -8,9 +8,9 @@ description = "The typed diffs of the files of a commit, a range or the working 
 [dependencies]
 # the summaries, the highlighting and the navigation of a file, and the bindings of its names that the marks ask
 # (`code_symbols::marks_bindings`)
-code-symbols = { path = "../code-symbols", features = ["marks"] }
+code-symbols = { workspace = true, features = ["marks"] }
 # the tokens of a file and the rule "equal by tokens", the grammar of a path
-code-tokens = { workspace = true, default-features = true }
+code-tokens.workspace = true
 # the marks of a diff, and the answers of the index they decide by
 diff-marks.workspace = true
 # the names of the generated files, which start collapsed (`collapse_of`)

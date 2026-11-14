@@ -3,20 +3,20 @@ name: Symbol Dependencies
 description: Requirements for the syntax summaries of the source files the commits change, their cache, and the dependencies by symbols between commits that they give; the measurement that decides whether they order branches.
 style: plain-1
 targets:
-  - crates/code-symbols/src/extract.rs
-  - crates/code-symbols/src/summary.rs
-  - crates/code-symbols/src/language.rs
-  - crates/code-symbols/src/summary_builder.rs
-  - crates/code-symbols/src/jvm.rs
-  - crates/code-symbols/src/java/summary.rs
-  - crates/code-symbols/src/kotlin/summary.rs
-  - crates/code-symbols/src/csharp/summary.rs
+  - psi-syntax:crates/code-symbols/src/extract.rs
+  - psi-syntax:crates/code-symbols/src/summary.rs
+  - psi-syntax:crates/code-symbols/src/language.rs
+  - psi-syntax:crates/code-symbols/src/summary_builder.rs
+  - psi-syntax:crates/code-symbols/src/jvm.rs
+  - psi-syntax:crates/code-symbols/src/java/summary.rs
+  - psi-syntax:crates/code-symbols/src/kotlin/summary.rs
+  - psi-syntax:crates/code-symbols/src/csharp/summary.rs
   - crates/trial-check/src/dotnet_resolution.rs
-  - crates/code-symbols/src/starlark/summary.rs
+  - psi-syntax:crates/code-symbols/src/starlark/summary.rs
   - crates/trial-check/src/bazel_resolution.rs
-  - crates/code-symbols/src/rust/summary.rs
-  - crates/code-symbols/src/js/mod.rs
-  - crates/code-symbols/src/js/summary.rs
+  - psi-syntax:crates/code-symbols/src/rust/summary.rs
+  - psi-syntax:crates/code-symbols/src/js/mod.rs
+  - psi-syntax:crates/code-symbols/src/js/summary.rs
   - crates/trial-check/src/symbol_scan.rs
   - psi-syntax:crates/js-syntax/src/tsconfig.rs
   - crates/sync-core/src/config_snapshot.rs
@@ -70,17 +70,17 @@ imports and re-exports), its declarations with their kind, containers and reach,
 #### Scenario: The summaries of the fixtures
 - **WHEN** a fixture of each language is summarized
 - **THEN** its package, imports, declarations and references are those of its golden file
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 #### Scenario: A Rust use is an import
 - **WHEN** a Rust file has a `use`
 - **THEN** the summary holds the import, and it binds the name
-  [@test] crates/code-symbols/src/rust_test.rs (`a_rust_use_binds_the_name`)
+  [@test] psi-syntax:crates/code-symbols/src/rust_test.rs (`a_rust_use_binds_the_name`)
 
 #### Scenario: TypeScript imports and re-exports
 - **WHEN** a TypeScript file imports and re-exports names
 - **THEN** the summary holds them as imports
-  [@test] crates/code-symbols/src/js/summary_test.rs (`imports`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`imports`)
 
 ### Requirement: Summaries: References leave out comments, strings, local names, labels and keys
 
@@ -90,15 +90,15 @@ interpolations), locally bound names, labels and keys.
 #### Scenario: A word in a comment
 - **WHEN** a word of a KDoc comment is the name of a declaration
 - **THEN** it is no reference
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_word_in_kdoc_is_no_reference`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_word_in_kdoc_is_no_reference`)
 
 #### Scenario: Locally bound names
 - **WHEN** a name is bound locally (a local `val`, a parameter, a pattern's variable, a local function, a query's
   range variable, a local of top-level statements, the name of a class expression)
 - **THEN** a use of it is no reference
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_local_val_shadows_and_is_no_reference`)
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`locals_parameters_patterns_and_query_variables_are_bound`, `top_level_statements_bind_their_locals`)
-  [@test] crates/code-symbols/src/js/summary_test.rs (`a_class_expression_binds_its_name`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_local_val_shadows_and_is_no_reference`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`locals_parameters_patterns_and_query_variables_are_bound`, `top_level_statements_bind_their_locals`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`a_class_expression_binds_its_name`)
 
 #### Scenario: Interpolations, labels and keys
 - **WHEN** a string has an interpolation, or the code has a label or a key
@@ -116,23 +116,23 @@ component of a record (a public field).
 - **WHEN** a Java file has an annotated vararg (`Object @NotNull ... params`), an annotated receiver parameter or an
   annotated supertype
 - **THEN** the vararg is a parameter, the receiver parameter is none, and the supertype is a supertype
-  [@test] crates/code-symbols/src/java/summary_test.rs (`an_annotated_vararg_is_a_parameter`, `an_annotated_receiver_parameter_is_no_parameter`, `an_annotated_supertype_is_a_supertype`)
+  [@test] psi-syntax:crates/code-symbols/src/java/summary_test.rs (`an_annotated_vararg_is_a_parameter`, `an_annotated_receiver_parameter_is_no_parameter`, `an_annotated_supertype_is_a_supertype`)
 
 #### Scenario: Case labels
 - **WHEN** a `switch` has `case null, default` or a guarded record pattern
 - **THEN** the `default` names nothing and a case label is a pattern or a constant
-  [@test] crates/code-symbols/src/java/summary_test.rs (`the_default_of_a_case_label_is_no_name`, `a_case_label_is_a_pattern_or_a_constant`)
+  [@test] psi-syntax:crates/code-symbols/src/java/summary_test.rs (`the_default_of_a_case_label_is_no_name`, `a_case_label_is_a_pattern_or_a_constant`)
 
 #### Scenario: Imports
 - **WHEN** a Java file has a module import or comments inside an import
 - **THEN** the module import imports no name, and the import with comments is read as IntelliJ reads it
-  [@test] crates/code-symbols/src/java/summary_test.rs (`a_module_import_imports_no_name`, `an_import_with_comments_inside`)
+  [@test] psi-syntax:crates/code-symbols/src/java/summary_test.rs (`a_module_import_imports_no_name`, `an_import_with_comments_inside`)
 
 #### Scenario: A qualified super, a compact source file and a record's vararg
 - **WHEN** a Java file has `Outer.super::m`, is a compact source file, or has a vararg component of a record
 - **THEN** the method reference is read, the compact source file declares at the top level, and the vararg component
   is a public field
-  [@test] crates/code-symbols/src/java/summary_test.rs (`a_method_reference_of_a_qualified_super`, `a_compact_source_file_declares_at_the_top_level`, `a_vararg_record_component_is_a_public_field`)
+  [@test] psi-syntax:crates/code-symbols/src/java/summary_test.rs (`a_method_reference_of_a_qualified_super`, `a_compact_source_file_declares_at_the_top_level`, `a_vararg_record_component_is_a_public_field`)
 
 ### Requirement: Summaries: A Java member of an expression has an empty qualifier
 
@@ -142,12 +142,12 @@ chain of names longer than any path (64 segments), so that the qualifiers of a c
 #### Scenario: A member of a call's result
 - **WHEN** a Java file calls `a.b().c()`
 - **THEN** `c` has an empty qualifier
-  [@test] crates/code-symbols/src/java/summary_test.rs (`a_member_of_a_call_has_an_empty_qualifier`)
+  [@test] psi-syntax:crates/code-symbols/src/java/summary_test.rs (`a_member_of_a_call_has_an_empty_qualifier`)
 
 #### Scenario: A chain longer than any path
 - **WHEN** a chain of names is longer than 64 segments
 - **THEN** its members have an empty qualifier and the qualifiers of the chain take linear space
-  [@test] crates/code-symbols/src/java/summary_test.rs (`a_long_chain_of_names_takes_linear_space`)
+  [@test] psi-syntax:crates/code-symbols/src/java/summary_test.rs (`a_long_chain_of_names_takes_linear_space`)
 
 ### Requirement: Summaries: A C# file is read as Roslyn's parser reads it
 
@@ -157,12 +157,12 @@ a branch of `#if` it does not take is no code.
 #### Scenario: A branch of `#if` without its symbol
 - **WHEN** a C# file has an `#if` of a symbol
 - **THEN** the branch the parser does not take without preprocessor symbols is not read
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_branch_of_if_the_configuration_does_not_take_is_not_read`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_branch_of_if_the_configuration_does_not_take_is_not_read`)
 
 #### Scenario: The C# fixtures
 - **WHEN** the C# fixtures are summarized
 - **THEN** each matches its golden file
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 ### Requirement: Summaries: The package of a C# file is the namespace of its first type
 
@@ -171,7 +171,7 @@ The package of a C# file MUST be the namespace of its first type, nested block n
 #### Scenario: Nested block namespaces
 - **WHEN** the first type of a file lies in a block namespace inside another
 - **THEN** the package is the two namespaces joined
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`the_package_is_the_first_namespace_with_the_namespaces_around_it`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`the_package_is_the_first_namespace_with_the_namespaces_around_it`)
 
 ### Requirement: Summaries: C# usings import their path, an alias its target
 
@@ -181,7 +181,7 @@ The package of a C# file MUST be the namespace of its first type, nested block n
 #### Scenario: A using, a static using, an alias
 - **WHEN** a file has `using N;`, `using static N.T;` and `using X = N.T;`
 - **THEN** the first two import everything of their path, and the alias imports its target, an `Import` reference to it
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`usings_import_everything_of_their_path_and_an_alias_its_target`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`usings_import_everything_of_their_path_and_an_alias_its_target`)
 
 #### Scenario: A global using
 - **WHEN** a file has a `global using`
@@ -195,12 +195,12 @@ A C# file MUST declare its types (a nested one static), methods, properties, eve
 #### Scenario: A nested type and the members of a type
 - **WHEN** a type holds a nested type, methods, properties, events, fields and enum members
 - **THEN** each is declared, the nested type static, a `const` and a `static readonly` field constants
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_nested_type_is_static_and_a_member_is_private_without_a_modifier`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_nested_type_is_static_and_a_member_is_private_without_a_modifier`)
 
 #### Scenario: A record's positional parameters
 - **WHEN** a record has positional parameters
 - **THEN** each is a public property
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_record_has_its_positional_parameters_as_properties_and_its_primary_constructor`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_record_has_its_positional_parameters_as_properties_and_its_primary_constructor`)
 
 ### Requirement: Summaries: A C# declaration has the reach of C#'s modifiers and defaults
 
@@ -210,7 +210,7 @@ internal, a member of an interface or an enum public, `file` of the file.
 #### Scenario: A member without a modifier
 - **WHEN** a member of a class has no modifier
 - **THEN** it is private
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_nested_type_is_static_and_a_member_is_private_without_a_modifier`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_nested_type_is_static_and_a_member_is_private_without_a_modifier`)
 
 #### Scenario: The defaults of a type, an interface, an enum and `file`
 - **WHEN** a type of a namespace, a member of an interface or an enum, or a `file` type has no other modifier
@@ -224,7 +224,7 @@ receiver `T`.
 #### Scenario: An extension method and an extension block
 - **WHEN** a static method takes `this T`, or an extension block of `T` has a member
 - **THEN** each is declared with the receiver `T`
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`an_extension_method_and_a_member_of_an_extension_block_have_their_receiver`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`an_extension_method_and_a_member_of_an_extension_block_have_their_receiver`)
 
 ### Requirement: Summaries: A C# type declares its constructors
 
@@ -234,12 +234,12 @@ or a struct; none of a static class, an interface or an enum.
 #### Scenario: The primary constructor of a record
 - **WHEN** a record has positional parameters
 - **THEN** it has a public primary constructor of them
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_record_has_its_positional_parameters_as_properties_and_its_primary_constructor`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_record_has_its_positional_parameters_as_properties_and_its_primary_constructor`)
 
 #### Scenario: A static class, an interface and an enum
 - **WHEN** a static class, an interface or an enum is declared
 - **THEN** it has no constructor
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_static_class_an_interface_and_an_enum_have_no_constructors`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_static_class_an_interface_and_an_enum_have_no_constructors`)
 
 #### Scenario: A class without a declared constructor
 - **WHEN** a class or a struct declares no constructor
@@ -263,7 +263,7 @@ An attribute's name MUST be a reference of its class too (`[Obsolete]`, `Obsolet
 #### Scenario: An attribute without its suffix
 - **WHEN** a declaration has `[Obsolete]`
 - **THEN** its references name `Obsolete` and `ObsoleteAttribute`
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`an_attribute_names_its_class_too`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`an_attribute_names_its_class_too`)
 
 ### Requirement: Summaries: C# names that name nothing, and names by their value
 
@@ -273,12 +273,12 @@ by its value (`@event` is `event`).
 #### Scenario: A documentation comment
 - **WHEN** a declaration has a documentation comment
 - **THEN** its words name nothing, and the declaration starts at it
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_documentation_comment_names_nothing_and_starts_its_declaration`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_documentation_comment_names_nothing_and_starts_its_declaration`)
 
 #### Scenario: A verbatim identifier
 - **WHEN** a file names `@event`
 - **THEN** it is the name `event`
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_verbatim_identifier_is_its_value`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_verbatim_identifier_is_its_value`)
 
 #### Scenario: Labels, named arguments, `var`, `nameof` and `_`
 - **WHEN** a file has a label, a named argument, `var`, `nameof` or `_`
@@ -291,12 +291,12 @@ A token the parser skipped or found missing MUST count as an error.
 #### Scenario: A missing token
 - **WHEN** the parser finds a token missing
 - **THEN** it counts as an error and marks its declaration
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_missing_token_counts_as_an_error_and_marks_its_declaration`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_missing_token_counts_as_an_error_and_marks_its_declaration`)
 
 #### Scenario: A deep chain and nesting past Roslyn's
 - **WHEN** a file holds a deep chain of calls, or nesting past what Roslyn's parser reads
 - **THEN** the chain takes no stack per level, and the nesting past Roslyn's is a skipped token, read as an error
-  [@test] crates/code-symbols/src/csharp/summary_test.rs (`a_deep_chain_and_deep_nesting_take_no_stack_per_level`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`a_deep_chain_and_deep_nesting_take_no_stack_per_level`)
 
 ### Requirement: Summaries: A TypeScript or JavaScript file is read in the dialect of its extension
 
@@ -307,17 +307,17 @@ JavaScript with JSX; a summary MUST be kept per dialect.
 #### Scenario: The extension chooses the dialect
 - **WHEN** the same text is read as `.ts` and as `.tsx`
 - **THEN** in `.ts` `<T>x` asserts a type, in `.tsx` it is JSX, and each dialect has its own summary
-  [@test] crates/code-symbols/src/js/summary_test.rs (`the_extension_chooses_the_dialect`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`the_extension_chooses_the_dialect`)
 
 #### Scenario: JavaScript with JSX
 - **WHEN** a `.js`, `.mjs`, `.cjs` or `.jsx` file is read
 - **THEN** it is read as JavaScript with JSX
-  [@test] crates/code-symbols/src/js/summary_test.rs (`javascript`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`javascript`)
 
 #### Scenario: The TypeScript and JavaScript fixtures
 - **WHEN** the fixtures are summarized
 - **THEN** each matches its golden file
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 ### Requirement: Summaries: TypeScript declares its types, namespaces and modules
 
@@ -327,17 +327,17 @@ object types they hold, and a namespace or an ambient module (`namespace a.b.c` 
 #### Scenario: Types and their members
 - **WHEN** a file declares classes, interfaces, enums and type aliases of object types
 - **THEN** each is declared with its members
-  [@test] crates/code-symbols/src/js/summary_test.rs (`declarations`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`declarations`)
 
 #### Scenario: A dotted namespace
 - **WHEN** a file declares `namespace a.b.c`
 - **THEN** it is one module named `c`
-  [@test] crates/code-symbols/src/js/summary_test.rs (`a_dotted_namespace_is_one_module_of_its_last_name`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`a_dotted_namespace_is_one_module_of_its_last_name`)
 
 #### Scenario: An ambient module
 - **WHEN** a file declares an ambient module
 - **THEN** it is a module, named by its string
-  [@test] crates/code-symbols/src/js/summary_test.rs (`an_ambient_module_is_named_by_its_string`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`an_ambient_module_is_named_by_its_string`)
 
 ### Requirement: Summaries: TypeScript declares functions, variables and class members
 
@@ -351,12 +351,12 @@ property.
   `const`, and a constructor with a parameter property
 - **THEN** the functions and the arrow or function values are functions, the `const` a constant, the parameter
   property a member
-  [@test] crates/code-symbols/src/js/summary_test.rs (`declarations`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`declarations`)
 
 #### Scenario: Signatures of a constructor and an accessor
 - **WHEN** an interface has a constructor signature and an accessor signature
 - **THEN** the constructor signature declares nothing and the accessor signature is a value
-  [@test] crates/code-symbols/src/js/summary_test.rs (`a_constructor_signature_declares_nothing_and_an_accessor_signature_is_a_value`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`a_constructor_signature_declares_nothing_and_an_accessor_signature_is_a_value`)
 
 ### Requirement: Summaries: A TypeScript member is named by an identifier, never by a computed key
 
@@ -366,7 +366,7 @@ computed key.
 #### Scenario: Computed keys
 - **WHEN** a class has members of `[k]` and of another computed key
 - **THEN** only the computed identifier names a member
-  [@test] crates/code-symbols/src/js/summary_test.rs (`only_a_computed_identifier_names_a_member`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`only_a_computed_identifier_names_a_member`)
 
 ### Requirement: Summaries: A TypeScript export makes a declaration public
 
@@ -375,7 +375,7 @@ computed key.
 #### Scenario: An exported ambient declaration
 - **WHEN** a declaration is under `export declare`
 - **THEN** it is public
-  [@test] crates/code-symbols/src/js/summary_test.rs (`an_exported_ambient_declaration_is_public`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`an_exported_ambient_declaration_is_public`)
 
 #### Scenario: An export of a name
 - **WHEN** a file has `export { name }` of a declaration
@@ -389,22 +389,22 @@ and a type of `import("m")` MUST be a type.
 #### Scenario: The references of a file
 - **WHEN** a file uses names
 - **THEN** its references are those uses
-  [@test] crates/code-symbols/src/js/summary_test.rs (`references`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`references`)
 
 #### Scenario: A call with type arguments
 - **WHEN** a file calls `f<T>()`
 - **THEN** it is a call of `f`
-  [@test] crates/code-symbols/src/js/summary_test.rs (`a_call_with_type_arguments_is_a_call`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`a_call_with_type_arguments_is_a_call`)
 
 #### Scenario: A decorator
 - **WHEN** a decorator stands before a declaration
 - **THEN** its references belong to that declaration
-  [@test] crates/code-symbols/src/js/summary_test.rs (`a_decorator_is_of_the_declaration_it_decorates`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`a_decorator_is_of_the_declaration_it_decorates`)
 
 #### Scenario: An import type
 - **WHEN** a file names a type of `import("m")`
 - **THEN** it is a reference of a type
-  [@test] crates/code-symbols/src/js/summary_test.rs (`a_type_of_an_import_type_is_a_reference`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`a_type_of_an_import_type_is_a_reference`)
 
 ### Requirement: Summaries: TypeScript names that name nothing, and the scope of `infer`
 
@@ -415,12 +415,12 @@ type's parameters only in it.
 #### Scenario: Names of no declaration
 - **WHEN** a file has an index signature, a named tuple member, a type predicate, `as const` and `import x = a.b`
 - **THEN** their names, the label, the parameter, `const` and the alias are no references
-  [@test] crates/code-symbols/src/js/summary_test.rs (`names_that_name_no_declaration_are_no_references`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`names_that_name_no_declaration_are_no_references`)
 
 #### Scenario: `infer` and a function type's parameters
 - **WHEN** a conditional type has `infer U`, or a function type has parameters
 - **THEN** `U` is seen in its conditional type, and the parameters only in the function type
-  [@test] crates/code-symbols/src/js/summary_test.rs (`infer_is_seen_in_its_conditional_type`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`infer_is_seen_in_its_conditional_type`)
 
 ### Requirement: Summaries: A TypeScript declaration starts at its doc comment and has the parse's header
 
@@ -430,12 +430,12 @@ header MUST be the parse's tokens before its body or initializer, a type paramet
 #### Scenario: The start of a declaration
 - **WHEN** a declaration has a `/**` comment, decorators or `export` before it, or a `///` directive
 - **THEN** it starts at the comment, the decorators or the `export`, never at the directive
-  [@test] crates/code-symbols/src/js/summary_test.rs (`a_declaration_starts_at_its_doc_comment_and_decorators`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`a_declaration_starts_at_its_doc_comment_and_decorators`)
 
 #### Scenario: The header
 - **WHEN** a function has a type parameter with a default and a body
 - **THEN** its header is the parse's tokens before the body, the default kept
-  [@test] crates/code-symbols/src/js/summary_test.rs (`a_header_is_the_tokens_of_the_parse`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`a_header_is_the_tokens_of_the_parse`)
 
 ### Requirement: Summaries: TypeScript errors are what the parse recovered from
 
@@ -445,12 +445,12 @@ which leaves the tree whole (`js_syntax::is_syntax_error`, as accio reads them).
 #### Scenario: A recovered syntax error
 - **WHEN** the parse recovers from a syntax error
 - **THEN** the errors are what the recovery blanked and the labels of the error
-  [@test] crates/code-symbols/src/js/summary_test.rs (`errors_are_what_the_parse_recovered_from`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`errors_are_what_the_parse_recovered_from`)
 
 #### Scenario: An early error
 - **WHEN** the file has an early error only
 - **THEN** it is no error of the file
-  [@test] crates/code-symbols/src/js/summary_test.rs (`an_early_error_is_no_error_of_the_file`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`an_early_error_is_no_error_of_the_file`)
 
 ### Requirement: Summaries: A TypeScript file no recovery saves, or nested deep, is read safely
 
@@ -460,7 +460,7 @@ truncated, and any nesting below that MUST be read on a 2 MiB thread.
 #### Scenario: Deep nesting
 - **WHEN** a file is nested deeper than the parse reads, or nested deep below that
 - **THEN** the first is truncated, and the second is read on a 2 MiB thread
-  [@test] crates/code-symbols/src/js/summary_test.rs (`deep_nesting_is_read_on_a_small_stack`)
+  [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`deep_nesting_is_read_on_a_small_stack`)
 
 #### Scenario: A file no recovery saves
 - **WHEN** no recovery of the parse saves a file
@@ -474,12 +474,12 @@ accio reads it with.
 #### Scenario: The types of paths
 - **WHEN** a Rust function names `Vec<_>` and calls `Vec::<u8>::new()`
 - **THEN** the references are those of rust-analyzer's tree, and `_` names nothing
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`the_types_of_paths`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`the_types_of_paths`)
 
 #### Scenario: The Rust fixtures
 - **WHEN** the Rust fixtures are summarized
 - **THEN** each matches its golden file
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 ### Requirement: Summaries: A Rust header is the tokens of the item as lexed
 
@@ -494,7 +494,7 @@ the `,` that ends a `where` and the `;` that ends the item dropped), without att
   of `Iterator<Item = T>` and the ABI string kept
 - **AND** the `,` that ends the `where`, the `;` that ends the item, the attributes, the comments and the visibility
   dropped
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`a_header_is_the_tokens_of_the_item_as_lexed`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`a_header_is_the_tokens_of_the_item_as_lexed`)
 
 ### Requirement: Summaries: The tokens of a Rust macro are read as outside it
 
@@ -505,12 +505,12 @@ macro in a pattern MUST bind there.
 #### Scenario: A member after a group
 - **WHEN** a macro holds `f(x).unwrap()`
 - **THEN** `unwrap` has an empty qualifier
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`a_member_after_a_group_in_a_macro_is_of_an_expression`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`a_member_after_a_group_in_a_macro_is_of_an_expression`)
 
 #### Scenario: Tokens that are no names
 - **WHEN** a macro holds keywords, lifetimes, `_`, literals and metavariables (`$x`), or sits in a pattern
 - **THEN** none of those tokens names anything, and the names of the macro in the pattern bind there
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`the_tokens_of_a_macro_that_are_no_names`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`the_tokens_of_a_macro_that_are_no_names`)
 
 ### Requirement: Summaries: Rust arm patterns, typed `self` and root paths
 
@@ -521,17 +521,17 @@ segments.
 #### Scenario: A capitalized pattern of an arm
 - **WHEN** a match arm's pattern is `None` or `MAX` alone
 - **THEN** it is a reference
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`a_capitalized_pattern_of_an_arm_is_a_reference`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`a_capitalized_pattern_of_an_arm_is_a_reference`)
 
 #### Scenario: A typed `self`
 - **WHEN** a method takes `self: Box<Self>`
 - **THEN** it is an instance member
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`a_typed_self_makes_an_instance_member`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`a_typed_self_makes_an_instance_member`)
 
 #### Scenario: A path from the root
 - **WHEN** a file names `::core::mem`
 - **THEN** the reference keeps its segments
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`a_path_from_the_root_keeps_its_segments`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`a_path_from_the_root_keeps_its_segments`)
 
 ### Requirement: Summaries: The references of a Rust attribute are of the declaration around its item
 
@@ -540,7 +540,7 @@ An attribute's references MUST be of the declaration around its item.
 #### Scenario: An attribute of an item
 - **WHEN** an item inside a declaration has an attribute that names something
 - **THEN** that reference is of the declaration around the item
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`the_references_of_an_attribute_are_of_the_container_around_its_item`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`the_references_of_an_attribute_are_of_the_container_around_its_item`)
 
 ### Requirement: Summaries: A Rust error marks the declarations it lies before the name of
 
@@ -551,7 +551,7 @@ name; the error bytes MUST be those of the outermost `ERROR` nodes and one per e
 - **WHEN** an error lies between the start of a declaration's node, after its attributes, and its name
 - **THEN** the declaration is `in_error`
 - **AND** the error bytes are those of the outermost `ERROR` nodes and one per error of no bytes
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`an_error_marks_the_declarations_it_lies_before_the_name_of`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`an_error_marks_the_declarations_it_lies_before_the_name_of`)
 
 ### Requirement: Summaries: A Rust file nested too deep is truncated
 
@@ -560,7 +560,7 @@ A file nested deeper than `rust_syntax::nesting::MAX_LEVELS` MUST be `truncated`
 #### Scenario: Deep nesting
 - **WHEN** a file is nested deeper than `rust_syntax::nesting::MAX_LEVELS`
 - **THEN** its summary is `truncated`, read on a small stack without an overflow
-  [@test] crates/code-symbols/src/rust/summary_test.rs (`deep_nesting_is_summarized_on_a_small_stack`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`deep_nesting_is_summarized_on_a_small_stack`)
 
 ### Requirement: Summaries: A Java member's reach follows the modifiers of IntelliJ's PSI
 
@@ -575,7 +575,7 @@ body is final as a record is (none of its methods may be overridden), and a clas
   body and a record have methods, and a class has `@` right after its modifiers
 - **THEN** the member of the interface is public, the private method reaches the interface alone, the methods of the
   enum and the record may not be overridden, and the class is an annotation type
-  [@test] crates/code-symbols/src/java_test.rs (`the_implicit_modifiers_give_the_reach_and_whether_a_member_may_be_overridden`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`the_implicit_modifiers_give_the_reach_and_whether_a_member_may_be_overridden`)
 
 ### Requirement: Summaries: A Kotlin or Java function has its parameter types
 
@@ -586,8 +586,8 @@ a default value, `vararg`, the dimensions of an array with a vararg counted as o
 - **WHEN** a function has qualified, nullable, defaulted, vararg, array and type-parameter parameters
 - **THEN** its signature holds the last names of each type, `?`, the default, `vararg` and the dimensions, a vararg
   counted as one, and a type parameter as any type
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_signature_has_the_parameter_types`)
-  [@test] crates/code-symbols/src/java_test.rs (`a_signature_has_the_parameter_types`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_signature_has_the_parameter_types`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_signature_has_the_parameter_types`)
 
 ### Requirement: Summaries: A Kotlin or Java member knows how it overrides and how the JVM sees it
 
@@ -599,14 +599,14 @@ Kotlin file.
 #### Scenario: Overriding
 - **WHEN** a member is `override`, `open`, `abstract` or final, of a class, an interface or an object
 - **THEN** the summary says whether it overrides and whether a subtype may override it
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_member_knows_whether_it_overrides_and_can_be_overridden`)
-  [@test] crates/code-symbols/src/java_test.rs (`a_member_knows_whether_it_overrides_and_can_be_overridden`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_member_knows_whether_it_overrides_and_can_be_overridden`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_member_knows_whether_it_overrides_and_can_be_overridden`)
 
 #### Scenario: The JVM marks of a Kotlin member
 - **WHEN** a Kotlin member is `@JvmStatic`, `@JvmField`, `lateinit`, `@JvmName` (by `@get:`, `@set:` or
   `` @`JvmName` `` too) or `@JvmSynthetic`, a `var` has a `private set`, or the file has `@file:JvmName`
 - **THEN** the summary holds each
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_member_knows_whether_it_is_jvm_static`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_member_knows_whether_it_is_jvm_static`)
 
 ### Requirement: Summaries: A Kotlin or Java type has its direct supertypes
 
@@ -616,7 +616,7 @@ path.
 #### Scenario: Supertypes
 - **WHEN** a type extends a generic type and a Kotlin function type
 - **THEN** its supertypes are the generic type without type arguments and an empty path
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 ### Requirement: Summaries: An override is a reference per direct supertype
 
@@ -628,13 +628,13 @@ path of the supertype, with its kind, receiver and parameter types as its shape.
 - **WHEN** a class of two supertypes has an `override` or `@Override` member
 - **THEN** it is an `Override` reference per supertype, qualified by its path, with its kind, receiver and parameter
   types as its shape
-  [@test] crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`)
-  [@test] crates/code-symbols/src/java_test.rs (`an_override_is_a_reference_per_supertype`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`an_override_is_a_reference_per_supertype`)
 
 #### Scenario: An override in a one-line object expression
 - **WHEN** an object expression on one line overrides a member of its supertype
 - **THEN** the override is a reference of that supertype
-  [@test] crates/code-symbols/src/kotlin_test.rs (`an_override_in_a_one_line_object_expression_overrides_its_supertype`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`an_override_in_a_one_line_object_expression_overrides_its_supertype`)
 
 ### Requirement: Summaries: A function a Kotlin or Java test framework runs is a test
 
@@ -647,14 +647,14 @@ class named `…Test`, `…Tests` or `…TestCase` or that extends a `…TestCas
 - **WHEN** a Kotlin function is annotated `@Test` or another test annotation of any qualifier, or is a JUnit 3
   `testName()` of a test class
 - **THEN** it is a `test`
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_function_a_test_framework_runs_is_a_test`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_function_a_test_framework_runs_is_a_test`)
 
 #### Scenario: A Java test
 - **WHEN** a Java method is annotated `@Test`, `@ParameterizedTest`, `@RepeatedTest`, `@TestFactory` or
   `@TestTemplate`, or is a JUnit 3 `testName()` without parameters in a class named `…Test`, `…Tests` or `…TestCase`
   or that extends a `…TestCase`
 - **THEN** it is a `test`
-  [@test] crates/code-symbols/src/java_test.rs (`a_method_a_test_framework_runs_is_a_test`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_method_a_test_framework_runs_is_a_test`)
 
 ### Requirement: Summaries: A function a Rust test attribute marks is a test, a TypeScript call none
 
@@ -666,7 +666,7 @@ and so MUST be no test.
 - **WHEN** a Rust function is under `#[test]`, `#[tokio::test]`, `#[test_log::test]` or `#[rstest]`, below a doc
   comment or another attribute, or under `#[cfg(test)]` alone
 - **THEN** it is a test under the first four and none under `#[cfg(test)]` alone
-  [@test] crates/code-symbols/src/rust_test.rs (`a_function_under_a_test_attribute_is_a_test`)
+  [@test] psi-syntax:crates/code-symbols/src/rust_test.rs (`a_function_under_a_test_attribute_is_a_test`)
 
 #### Scenario: A TypeScript test
 - **WHEN** a TypeScript file calls `test("…")`
@@ -682,7 +682,7 @@ one, another return type or other parameters MUST be none.
 #### Scenario: Kotlin forms of `main`
 - **WHEN** a Kotlin file declares `fun main` at the top level of each form, and a member, a local or another `main`
 - **THEN** the top-level forms are an `entry_point`, the others none
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_top_level_main_is_an_entry_point`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_top_level_main_is_an_entry_point`)
 
 ### Requirement: Summaries: A Java `public static void main` of strings is an entry point
 
@@ -693,7 +693,7 @@ with `public` implied for a non-private interface method. Another return type or
 - **WHEN** a Java type declares `public static void main` of `String[]`, `String...` or `String args[]`, an interface
   a non-private `static void main`, and a `main` of other parameters
 - **THEN** the first ones are an `entry_point`, the last none
-  [@test] crates/code-symbols/src/java_test.rs (`a_public_static_void_main_of_strings_is_an_entry_point`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_public_static_void_main_of_strings_is_an_entry_point`)
 
 ### Requirement: Summaries: A Kotlin or Java declaration marked as no stable API is unstable
 
@@ -706,13 +706,13 @@ name, an alias of it, or `ApiStatus.*`), never another `Internal`.
 - **WHEN** a declaration is annotated `@ApiStatus.Internal`, `@ApiStatus.Experimental`, or a bare `@Internal` or
   `@Experimental` that an import brings in from `org.jetbrains.annotations.ApiStatus`
 - **THEN** it is `unstable`
-  [@test] crates/code-symbols/src/kotlin_test.rs (`an_unstable_annotation_marks_a_declaration`)
-  [@test] crates/code-symbols/src/java_test.rs (`an_unstable_annotation_marks_a_declaration`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`an_unstable_annotation_marks_a_declaration`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`an_unstable_annotation_marks_a_declaration`)
 
 #### Scenario: A bare `Internal` without the import
 - **WHEN** a declaration is annotated `@Internal` and no import brings in `ApiStatus`
 - **THEN** it is stable
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_bare_internal_without_the_import_of_api_status_is_stable`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_bare_internal_without_the_import_of_api_status_is_stable`)
 
 ### Requirement: Summaries: Test-only API, Java fields and Kotlin file annotations are unstable
 
@@ -724,12 +724,12 @@ marked itself, and an import MUST bind no API.
 #### Scenario: `@VisibleForTesting`
 - **WHEN** a member is annotated `@VisibleForTesting` on the line above
 - **THEN** it is `unstable`
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_member_knows_whether_it_overrides_and_can_be_overridden`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_member_knows_whether_it_overrides_and_can_be_overridden`)
 
 #### Scenario: A file annotation
 - **WHEN** a Kotlin file is annotated `@file:ApiStatus.Internal`, its import after the annotation
 - **THEN** its top-level declarations are `unstable`, the members of its types not themselves
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_file_annotation_marks_the_top_level_declarations_unstable`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_file_annotation_marks_the_top_level_declarations_unstable`)
 
 #### Scenario: A Java field and an import
 - **WHEN** a Java field statement is annotated `@TestOnly`, and a file imports a marked declaration
@@ -745,17 +745,17 @@ body), and whether a constructor call gave the type.
 #### Scenario: A property's type
 - **WHEN** a property is declared with a type, or initialized by a constructor call
 - **THEN** its `value_type` is the type without type arguments, and whether the constructor call gave it
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_property_knows_its_type`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_property_knows_its_type`)
 
 #### Scenario: An annotated nullable type
 - **WHEN** a property or the receiver of an extension is of `(@A Foo)?`
 - **THEN** the type is `Foo`
-  [@test] crates/code-symbols/src/kotlin_test.rs (`an_annotated_nullable_type_is_its_inner_type`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`an_annotated_nullable_type_is_its_inner_type`)
 
 #### Scenario: The Kotlin and Java fixtures
 - **WHEN** the fixtures are summarized
 - **THEN** the types of properties and receivers are those of the golden files
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 ### Requirement: Summaries: A Kotlin or Java member reference has the type of its receiver
 
@@ -768,26 +768,26 @@ constructor only in the initializers of the class.
 #### Scenario: A bound name as the receiver
 - **WHEN** a parameter, a local or a typed lambda parameter is the whole receiver of a call
 - **THEN** the reference has its declared type as its `receiver_type`
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`)
-  [@test] crates/code-symbols/src/java_test.rs (`a_bound_name_carries_its_declared_type`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_bound_name_carries_its_declared_type`)
 
 #### Scenario: A not-null assertion
 - **WHEN** the receiver is `m!!`
 - **THEN** it names its receiver as a safe call `m?.` does
-  [@test] crates/code-symbols/src/kotlin/summary_test.rs (`a_not_null_assertion_names_its_receiver_as_a_safe_call_does`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/summary_test.rs (`a_not_null_assertion_names_its_receiver_as_a_safe_call_does`)
 
 #### Scenario: An extension of another receiver, and a parameter of a primary constructor
 - **WHEN** a property `m` is used in an extension of another receiver, and a parameter of the primary constructor in
   an initializer, in `init` and in a function
 - **THEN** the use in the extension has no `receiver_type`, an extension of the class itself keeps it
 - **AND** the parameter has its type in the initializer and in `init` only
-  [@test] crates/code-symbols/src/kotlin_test.rs (`an_extension_receiver_or_a_function_hides_the_type`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`an_extension_receiver_or_a_function_hides_the_type`)
 
 #### Scenario: A context parameter of a property
 - **WHEN** a property has a context parameter `c: Ctx` and uses a member on `c`
 - **THEN** that reference has the type `Ctx` of its receiver, and `c` is a name of the property alone, not of the
   class around it
-  [@test] crates/code-symbols/src/kotlin/summary_test.rs (`a_context_parameter_of_a_property_is_a_name_of_the_property_alone`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/summary_test.rs (`a_context_parameter_of_a_property_is_a_name_of_the_property_alone`)
 
 ### Requirement: Summaries: Kotlin and Java names of no single type give no type
 
@@ -799,18 +799,18 @@ declaration, an inferred expression, a Java anonymous class and a name that its 
 - **WHEN** a name is cast by `is`, `!is`, `as`, an `is` branch of its `when`, `instanceof` or a Java cast in its scope
   or function
 - **THEN** it gives no type, but `in` keeps it
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_smart_cast_drops_the_type`)
-  [@test] crates/code-symbols/src/java_test.rs (`a_smart_cast_drops_the_type`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_smart_cast_drops_the_type`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_smart_cast_drops_the_type`)
 
 #### Scenario: An anonymous class initializer
 - **WHEN** a Java field is initialized by an anonymous class
 - **THEN** it has no type
-  [@test] crates/code-symbols/src/java_test.rs (`an_anonymous_class_initializer_has_no_type`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`an_anonymous_class_initializer_has_no_type`)
 
 #### Scenario: An array after the name
 - **WHEN** a Java field is declared `Foo a[]`
 - **THEN** it has no type
-  [@test] crates/code-symbols/src/java/summary_test.rs (`an_array_after_the_name_has_no_type`)
+  [@test] psi-syntax:crates/code-symbols/src/java/summary_test.rs (`an_array_after_the_name_has_no_type`)
 
 #### Scenario: Type parameters, function types, varargs, delegates and inferred expressions
 - **WHEN** a name is of a type parameter, a function type or a vararg, a delegate, a destructuring declaration or an
@@ -826,18 +826,18 @@ supertype included, MUST hold the shape of its arguments on the reference of its
 #### Scenario: A call
 - **WHEN** a Kotlin or Java function is called with arguments, and a Kotlin function by an infix call
 - **THEN** the reference of the callee holds the shape of the arguments, the infix call none
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`)
-  [@test] crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`)
 
 #### Scenario: A constructor invocation of a supertype
 - **WHEN** a Kotlin class invokes `: a.Base(…)`
 - **THEN** the shape is on the reference of `Base`, whose qualifiers are types
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_constructor_invocation_of_a_supertype_has_its_argument_shape`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_constructor_invocation_of_a_supertype_has_its_argument_shape`)
 
 #### Scenario: The Kotlin and Java fixtures
 - **WHEN** the fixtures are summarized
 - **THEN** the shapes of their calls are those of the golden files
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 ### Requirement: Summaries: The shape of a call holds each argument in order and by its kind
 
@@ -850,8 +850,8 @@ signed or not), a boolean, a lambda or another expression (`null`, a real, a cha
   real, a character, `1L`, `1u`, a name, a call, a named argument, a trailing lambda and a spread array
 - **THEN** its shape holds them in source order, the named one with its name, the trailing lambda last, the spread
   marked, each as a text, a number, a boolean, a lambda or another expression
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`)
-  [@test] crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`)
 
 ### Requirement: Summaries: The shape of a call says whether it is enclosed
 
@@ -866,8 +866,8 @@ expression's supertype and a `new` of an anonymous class are of the code around 
 - **THEN** the first five are enclosed, the last three are not
 - **AND** the supertype invocation of the object expression and the `new` of the anonymous class are of the code
   around them
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`)
-  [@test] crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`)
 
 ### Requirement: Summaries: An annotation with arguments stays a type
 
@@ -886,7 +886,7 @@ type of `extends`, in Kotlin the only supertype of the class, named without argu
 #### Scenario: `this(…)` of a Java constructor
 - **WHEN** a Java constructor calls `this(…)`
 - **THEN** it is a call of the class around it, and the name of a constructor is no reference
-  [@test] crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
 
 #### Scenario: `super(…)` of a Kotlin constructor of one supertype or two
 - **WHEN** a secondary constructor of a Kotlin class of the only supertype `: Base` calls `super(…)`, and one of a
@@ -897,7 +897,7 @@ type of `extends`, in Kotlin the only supertype of the class, named without argu
 #### Scenario: `super(…)` of a Kotlin class without a supertype
 - **WHEN** a secondary constructor of a Kotlin class without a supertype calls `super()`
 - **THEN** it is no reference
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_constructor_invocation_of_a_supertype_has_its_argument_shape`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_constructor_invocation_of_a_supertype_has_its_argument_shape`)
 
 #### Scenario: Java `super(…)` without `extends`
 - **WHEN** a Java class without `extends` calls `super(…)`
@@ -913,17 +913,17 @@ parameters (as a function's) and the reach of its modifiers.
 - **WHEN** a Kotlin class has a primary constructor (class parameters, a default value, `vararg`) and secondary ones,
   and an interface, an object, a companion, an enum, an annotation and a class with a parse error in it are declared
 - **THEN** the summary holds each constructor of the class with its parameters and reach, and the others none
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
 
 #### Scenario: Java constructors and types without them
 - **WHEN** a Java class declares constructors, and an interface, an enum and an annotation are declared
 - **THEN** the class holds its constructors, and the others none
-  [@test] crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
 
 #### Scenario: The fixtures
 - **WHEN** the fixtures are summarized
 - **THEN** the constructors are those of the golden files
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 ### Requirement: Summaries: A record has its canonical constructor, a class without any the implicit one
 
@@ -935,12 +935,12 @@ local class MUST add none to the class around it.
 - **WHEN** a Java record has a compact or a declared canonical constructor or none, and a class declares none
 - **THEN** the record holds the canonical constructor with the record's reach and its others, and the class `()` of
   its reach
-  [@test] crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
 
 #### Scenario: A Kotlin class without constructors, and a local class
 - **WHEN** a Kotlin class declares no constructor, and a function declares a local class
 - **THEN** the class holds a public `()`, and the local class adds none to the class around it
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
 
 ### Requirement: Summaries: Only a record's canonical constructor replaces the one of its header
 
@@ -953,8 +953,8 @@ summary can't tell apart (`Stamp(java.util.Date)` beside `Stamp(java.sql.Date)`,
 - **WHEN** a class has `Stamp(java.util.Date)` beside `Stamp(java.sql.Date)`, or `Box(value: T)` beside
   `Box(list: List<T>)`
 - **THEN** both are there, neither replaces the other
-  [@test] crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
 
 ### Requirement: Summaries: A function, a property, a field or a constant carries its header
 
@@ -965,13 +965,13 @@ without comments, annotations, the modifiers that the reach and the overriding s
 #### Scenario: The header of a member
 - **WHEN** a Kotlin or Java member has comments, annotations, modifiers and parameters before its body
 - **THEN** its header is the tokens before the body without them
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_header_is_the_form_before_the_body`)
-  [@test] crates/code-symbols/src/java_test.rs (`a_header_is_the_form_before_the_body`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_header_is_the_form_before_the_body`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_header_is_the_form_before_the_body`)
 
 #### Scenario: The fixtures
 - **WHEN** the fixtures are summarized
 - **THEN** the headers are those of the golden files
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 ### Requirement: Summaries: A header changes with the form, not with the body
 
@@ -981,12 +981,12 @@ take the type of a field from the declaration around its declarator.
 #### Scenario: A body changes, the form changes
 - **WHEN** a commit changes the body of a function alone, or its `suspend`, its receiver or its return type
 - **THEN** the header stays in the first case and changes in the others
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_header_is_the_form_before_the_body`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_header_is_the_form_before_the_body`)
 
 #### Scenario: A Java field of several declarators
 - **WHEN** a Java statement declares several fields of one type
 - **THEN** the header of each holds the type of the statement
-  [@test] crates/code-symbols/src/java_test.rs (`a_header_is_the_form_before_the_body`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_header_is_the_form_before_the_body`)
 
 ### Requirement: Summaries: A reference knows whether a suspend call is allowed where it is
 
@@ -999,7 +999,7 @@ another function.
 - **WHEN** references stand in a `suspend` function, a lambda of `runBlocking`, another function, an initializer, an
   accessor, a lambda of `sequence` and of another function
 - **THEN** a suspend call is allowed in the first two, not in the next four, and unknown in the last
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_reference_knows_its_coroutine_context`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_reference_knows_its_coroutine_context`)
 
 #### Scenario: Java
 - **WHEN** a Java reference is read
@@ -1166,7 +1166,7 @@ Starlark, TypeScript, JavaScript and Rust.
 #### Scenario: The version and the revision
 - **WHEN** the rules or the revision of psi-syntax change
 - **THEN** the extractor version changes, and the revision is the one cargo builds
-  [@test] crates/code-symbols/src/summary_test.rs (`extractor_version_is_stable`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`extractor_version_is_stable`)
   [@test] crates/file-diffs/src/lib_test.rs (`the_psi_syntax_revision_is_the_one_cargo_builds`)
 
 ### Requirement: Summaries: A Rust macro in item position declares its `pub` items
@@ -1179,8 +1179,8 @@ visibility (`pub(crate)`), from their doc comments and attributes to their `;` o
 #### Scenario: The items of a macro
 - **WHEN** a macro in item position holds `pub` items of each kind with doc comments and attributes
 - **THEN** each is declared with the reach of its visibility, from its doc comment to its `;` or its body
-  [@test] crates/code-symbols/src/rust_test.rs (`declarations`)
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/rust_test.rs (`declarations`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 
 ### Requirement: Summaries: Other names of a macro body stay references, and a macro in a function declares nothing
 
@@ -1190,7 +1190,7 @@ nothing.
 #### Scenario: A macro in a function body
 - **WHEN** a function body holds a macro with `pub` items
 - **THEN** it declares nothing, and its names are references
-  [@test] crates/code-symbols/src/rust_test.rs (`declarations`)
+  [@test] psi-syntax:crates/code-symbols/src/rust_test.rs (`declarations`)
 
 ### Requirement: Summaries: A Bazel file declares its defs, assignments and targets
 
@@ -1204,22 +1204,22 @@ top-level calls declare targets (`BUILD`, `BUILD.bazel`, `MODULE.bazel`), a targ
 - **WHEN** a `BUILD` file calls a rule with a literal `name`, with a name that is no literal, and with an empty one
 - **THEN** the first is a target of the rule it calls as its type (`jps_test`, `native.cc_library`), the others
   declare none
-  [@test] crates/code-symbols/src/starlark/summary_test.rs (`a_top_level_call_with_a_literal_name_is_a_target_of_its_rule`, `a_name_that_is_no_literal_or_is_empty_declares_no_target`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/summary_test.rs (`a_top_level_call_with_a_literal_name_is_a_target_of_its_rule`, `a_name_that_is_no_literal_or_is_empty_declares_no_target`)
 
 #### Scenario: Only a build file declares targets
 - **WHEN** a `.bzl` file makes the same top-level calls
 - **THEN** they declare no target
-  [@test] crates/code-symbols/src/starlark/summary_test.rs (`only_a_build_file_declares_targets_from_its_top_level_calls`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/summary_test.rs (`only_a_build_file_declares_targets_from_its_top_level_calls`)
 
 #### Scenario: Defs and assignments
 - **WHEN** a `.bzl` file has top-level `def`s and assignments
 - **THEN** each `def` is declared with its parameters, an assignment in capitals as a constant, another as a value
-  [@test] crates/code-symbols/src/starlark/summary_test.rs (`a_bzl_file_declares_its_top_level_defs_and_assignments`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/summary_test.rs (`a_bzl_file_declares_its_top_level_defs_and_assignments`)
 
 #### Scenario: The file names of the language
 - **WHEN** a file is named by one of the Bazel names
 - **THEN** it is of the language, though it has no extension of it
-  [@test] crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`, `language_by_extension`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`, `language_by_extension`)
 
 ### Requirement: Summaries: A Bazel `load` is an import, a label in a string no reference
 
@@ -1231,12 +1231,12 @@ reads too, so that one answer serves both.
 #### Scenario: A load
 - **WHEN** a file `load`s names of a label, one under an alias
 - **THEN** each is an import of the label as written, the aliased one with its alias
-  [@test] crates/code-symbols/src/starlark/summary_test.rs (`a_load_is_an_import_per_name_it_binds_under_the_label_it_names`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/summary_test.rs (`a_load_is_an_import_per_name_it_binds_under_the_label_it_names`)
 
 #### Scenario: A call and a label in a string
 - **WHEN** a file calls a rule with `"//pkg:x"` and `":x"` as arguments
 - **THEN** the call is a reference of the rule, and the labels are none
-  [@test] crates/code-symbols/src/starlark/summary_test.rs (`a_call_is_a_reference_of_the_rule_it_names_and_a_label_in_a_string_is_none`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/summary_test.rs (`a_call_is_a_reference_of_the_rule_it_names_and_a_label_in_a_string_is_none`)
 
 ### Requirement: Summaries: Module roots, crate names and path aliases come from HEAD's tree
 
@@ -1502,7 +1502,7 @@ itself; and a private import from a module that is not its own or below it.
   qualified path `std::path::Path`, or a private import of another module
 - **THEN** it is no edge
   [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_use_that_needs_no_import_of_another_commit_is_no_edge`)
-  [@test] crates/code-symbols/src/rust_test.rs (`references`)
+  [@test] psi-syntax:crates/code-symbols/src/rust_test.rs (`references`)
 
 ### Requirement: Edges: The same package is evidence for a type in the same module only
 

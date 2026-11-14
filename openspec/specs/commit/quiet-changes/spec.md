@@ -20,7 +20,7 @@ targets:
   - psi-syntax:crates/diff-marks/src/index.rs
   - psi-syntax:crates/diff-marks/src/reorder.rs
   - crates/file-diffs/src/marks.rs
-  - crates/code-symbols/src/marks_bindings.rs
+  - psi-syntax:crates/code-symbols/src/marks_bindings.rs
   - crates/file-diffs/src/marks_measure.rs
   - crates/file-diffs/src/reading.rs
   - crates/bd-rewrite/src/mark_stats.rs
@@ -233,26 +233,26 @@ the policy passes the same test, with no shortcut. Whether a kind of run is quie
 - **WHEN** a call is wrapped inside its brackets in a file of Kotlin, a Kotlin script, Java, Rust, TypeScript, TSX, JavaScript, C# or Starlark, lines are indented again, or a space is put between the two `>` that close two lists of type arguments
 - **THEN** the lines are one quiet run of formatting, a comment that moved with them and the blank lines between them too, and the block has no start
 - **AND** a trailing comma added to the wrapped call is a token: no run
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`lines_that_changed_in_their_formatting_alone_are_a_quiet_run`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`lines_that_changed_in_their_formatting_alone_are_a_quiet_run`)
 
 #### Scenario: What changes the code
 - **WHEN** a block changes a space inside a string, `a - -b` into `a--b`, `>>` into `> >`, joins a `return` with the call of the next line, swaps two operands, adds spaces at the end of a line of a raw string, indents a statement of Starlark again, or renames a name
 - **THEN** it has no quiet run and its reading starts at its first line
 - **AND** so for a line of Starlark joined with the one its `\` continued, a label of Kotlin with a space before its `@`, a lambda joined with the name of the line before, a line break before the `=>` of an arrow function, a zero width space between two tokens of TypeScript, two spaces in the text of a JSX element, the text of a branch of `#if` that C# does not take, and two marks of the input of a Rust macro that join
 - **AND** a blank line a text block of Java gains is a block of its own, a stop
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`what_changes_the_code_is_never_formatting`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`what_changes_the_code_is_never_formatting`)
 
 #### Scenario: A block that is pale under the policy
 - **WHEN** a block is equal under the `Ignore` policy
 - **THEN** a call of Starlark wrapped inside its brackets is a quiet run
 - **AND** a `return` joined with the call of the next line and a blank line a raw string gained stay stops
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_pale_block_passes_the_same_test_of_tokens`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_pale_block_passes_the_same_test_of_tokens`)
 
 #### Scenario: Nothing left to read
 - **WHEN** files of every grammar are edited at random (indents, wrapped and joined lines, comments, blank lines, names) and compared with themselves
 - **THEN** every run of formatting has the same tokens on both sides and is quiet as `is_quiet` says
 - **AND** when no block of a diff that ignores nothing has a start, the two texts have the same tokens: the same program
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`)
 
 ### Requirement: Comments: Lines with the same code and other comments are a run that is a label
 
@@ -264,7 +264,7 @@ a run of comments. It MUST never be quiet: a view labels it, and the reading sto
 - **THEN** the lines are a run of comments that is not quiet, and the reading of the block starts at it
 - **AND** so is the line after a lone `\r` that a line comment of Rust runs over: the view ends a line there, the comment does not
 - **AND** `//go:build` and `// go:build` are other comments
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`lines_that_changed_in_their_comments_alone_are_a_run_that_is_a_label`, `what_changes_the_code_is_never_formatting`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`lines_that_changed_in_their_comments_alone_are_a_run_that_is_a_label`, `what_changes_the_code_is_never_formatting`)
 
 ### Requirement: Runs: A block is cut at the line boundaries both sides share
 
@@ -278,12 +278,12 @@ run of comments. A run MUST lie inside one block, with lines on both sides but a
 - **THEN** the indented lines are a quiet run, and the reading of the block starts at the `if`, at the changed line, at a comment added between them, or at the old line removed between them
 - **AND** a comment worded again among them is a run of comments of its own
 - **AND** a comment that moved to a line of its own is in the run of formatting, and comments worded again around an added comment are one run of comments
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_block_is_cut_into_runs_at_the_line_boundaries_both_sides_share`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_block_is_cut_into_runs_at_the_line_boundaries_both_sides_share`)
 
 #### Scenario: No boundary both sides share
 - **WHEN** a wrapped call and a changed call stand on one line of a side
 - **THEN** the block has no run
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_block_is_cut_into_runs_at_the_line_boundaries_both_sides_share`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_block_is_cut_into_runs_at_the_line_boundaries_both_sides_share`)
 
 #### Scenario: The template of the E2E tests
 - **WHEN** the commit of the `commit_marks` template is read
@@ -302,7 +302,7 @@ run, where the reader stops.
 - **WHEN** the lines of a wrapped call are asked as a block of their own while the statement before them, or after them, is another on the two sides
 - **THEN** they are no run
 - **AND** with the lines that differ inside the block, the call is a run in it
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_run_at_an_end_of_its_block_needs_the_code_around_the_block_to_read_the_same`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_run_at_an_end_of_its_block_needs_the_code_around_the_block_to_read_the_same`)
 
 ### Requirement: Runs: Blocks the comparison cut out of one change are read as one
 
@@ -316,19 +316,19 @@ read, the smallest from each block on.
 - **WHEN** a function of Kotlin is indented from four columns to two and the body of its lambda is put on a line of its own, and the comparison pairs the old `    }` that ends the function with the new `    }` that ends the lambda
 - **THEN** its two blocks, the second only the `}` the function ends with now, are a quiet run of formatting each, and neither has a start
 - **AND** a file of ten members reformatted so has nothing to read; its review plan folds every block into the unit of whitespace, and its reading has nothing to read, by formatting
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`blocks_the_comparison_cut_out_of_one_change_are_read_as_one`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`blocks_the_comparison_cut_out_of_one_change_are_read_as_one`)
   [@test] crates/review-plan/src/reading_test.rs (`a_reformat_the_comparison_cut_in_two_leaves_nothing_to_read_and_one_unit_of_whitespace`)
 
 #### Scenario: What a region does not prove
 - **WHEN** a change stands inside such blocks, a space inside a string makes the same characters other tokens, or the blocks are blank lines alone
 - **THEN** each block is read alone, and keeps its start
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`blocks_the_comparison_cut_out_of_one_change_are_read_as_one`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`blocks_the_comparison_cut_out_of_one_change_are_read_as_one`)
 
 #### Scenario: Edited at random
 - **WHEN** files of every grammar are edited at random and compared with themselves
 - **THEN** a run of formatting whose lines are not the same tokens alone is the quiet part of a run of blocks in a row whose lines are
 - **AND** when no block of a diff that ignores nothing has a start, the two texts have the same tokens
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`)
 
 ### Requirement: Renames: A binding whose every name changed alike is a rename
 
@@ -341,17 +341,17 @@ A rename MUST name its two names, its places on both sides and which of them dec
 - **WHEN** a local of a function is renamed at its five places, in Kotlin, a Kotlin script, Java, C#, Starlark, Rust, TypeScript, TSX and JavaScript
 - **THEN** the diff has one rename, `local`, of five places, declared at its first
 - **AND** every changed line is in a run of the kind `renamed` that is proven and quiet: no block has a start
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_renamed_at_every_place_is_proven_in_each_grammar`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_renamed_at_every_place_is_proven_in_each_grammar`)
 
 #### Scenario: The places
 - **WHEN** a local is renamed on a line with a character of two UTF-16 units before it, and its call is wrapped
 - **THEN** each place is `[line, start, end]` of its text, in UTF-16 columns, place `i` of the old text beside place `i` of the new one, and `declared` names the first
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`the_places_of_a_rename_are_lines_and_columns_of_both_texts`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`the_places_of_a_rename_are_lines_and_columns_of_both_texts`)
 
 #### Scenario: Two bindings of one spelling
 - **WHEN** two loop variables of one name get two names, or the same name, or the locals of two functions take the name of each other
 - **THEN** each binding is a rename of its own, with its own places
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`two_bindings_of_one_spelling_are_two_renames`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`two_bindings_of_one_spelling_are_two_renames`)
 
 #### Scenario: With the content
 - **WHEN** the diffs of a commit that renames a local stream, and are read again from memory and from the store of another app
@@ -367,7 +367,7 @@ A rename MUST name its two names, its places on both sides and which of them dec
 - **WHEN** a local is gone and another stands at each of its places, every line of them changed otherwise too (`val isRoot = …` read once, `val nameComponent = …` read once where it was), in Kotlin, Java, TypeScript and Rust
 - **THEN** the diff has no rename and no run of a renamed name, and every block its start
 - **AND** a call wrapped beside those lines is the quiet run of formatting it is without them
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_none_of_whose_lines_changed_in_its_name_alone_is_no_rename`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_none_of_whose_lines_changed_in_its_name_alone_is_no_rename`)
 
 ### Requirement: Renames: A use left behind, a name taken and two names swapped are no rename
 
@@ -379,12 +379,12 @@ declaration. Every block of such a change MUST stay a stop.
 #### Scenario: A use left behind in each grammar
 - **WHEN** a local is renamed at four of its five places, in each grammar
 - **THEN** the diff has no rename and no run, and every block its start
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_with_a_use_left_behind_is_no_rename_in_each_grammar`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_with_a_use_left_behind_is_no_rename_in_each_grammar`)
 
 #### Scenario: A name taken
 - **WHEN** two locals of one body take the name of each other, each declared and read in a block of its own, in Kotlin, Java, C#, Starlark, TypeScript and Rust; a local gets the name of a parameter, a field or a constant its body reads; a nearer declaration of the new name takes a use; two locals become one name; a use gets a third name; the new name is `it`; a member keeps its old name at one use; one of two calls of a function declared elsewhere changes
 - **THEN** nothing is a rename, and every block has its start
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_use_left_behind_a_name_taken_and_two_names_swapped_are_no_rename`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_use_left_behind_a_name_taken_and_two_names_swapped_are_no_rename`)
 
 ### Requirement: Renames: Lines that changed in a renamed name alone are a run
 
@@ -396,17 +396,17 @@ read.
 #### Scenario: A line with another change
 - **WHEN** a local is renamed at its five places and the line of one of them changes in an operator too, in each grammar
 - **THEN** the rename has its five places, the line of the other change is in no run, and the other lines are runs that are labels, that line standing between the places of the name: every block is read from its first line
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_place_on_a_line_with_another_change_is_read_in_each_grammar`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_place_on_a_line_with_another_change_is_read_in_each_grammar`)
 
 #### Scenario: Wrapped lines
 - **WHEN** a call with the renamed name is wrapped over four lines, the name stands in a string template, or a blank line is put between two lines of the name
 - **THEN** the lines are one run of the kind `renamed`
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`lines_wrapped_with_a_renamed_name_are_one_run`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`lines_wrapped_with_a_renamed_name_are_one_run`)
 
 #### Scenario: A comment that changed
 - **WHEN** the comment at the end of the line of a place changes with the name
 - **THEN** the line is in no run and is read, and where it declares the name the lines that read it are labels; a comment on a line of its own is a run of comments beside the run of the rename, also beside such a line
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_comment_that_changed_beside_a_renamed_name_is_read`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_comment_that_changed_beside_a_renamed_name_is_read`)
 
 ### Requirement: Renames: A run of a renamed name takes no line of formatting
 
@@ -421,18 +421,18 @@ that shares a line with it without holding it, or crosses it, is none.
 - **AND** beside the new `if`, a line that is read between the places of the name, the lines of the name are labels and the reading of the block starts at the first of them
 - **AND** a blank line put before or after the wrapped call is in its run of formatting
 - **AND** beside a rename that is a label for good (the use of a member, a parameter a call may name, a local of a C# file with an `#if`, a local of a text with a syntax error) the wrapped call is a quiet run of formatting too, and the reading of the block starts at the line of the name
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`lines_of_formatting_beside_a_renamed_name_are_a_run_of_their_own`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`lines_of_formatting_beside_a_renamed_name_are_a_run_of_their_own`)
 
 #### Scenario: The two readings pair the lines otherwise
 - **WHEN** a line with three places of a renamed local changes places with a call that is wrapped: the tokens of the texts pair the call, and with the names read as one the line of the places pairs with itself
 - **THEN** the wrapped call is the quiet run of formatting the first reading found, and the line of the places is in no run and is read, so the two other lines of the name are labels
 - **AND** of the runs of two readings, a run of the second that holds a run of the first in its kind stays with it, and one that shares a line with a run of the first it does not hold, or crosses it, is none
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_run_of_the_first_reading_stays_where_the_second_aligns_the_lines_otherwise`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_run_of_the_first_reading_stays_where_the_second_aligns_the_lines_otherwise`)
 
 #### Scenario: The runs of the first reading
 - **WHEN** the files of the corpus are edited at random, or have a name renamed, and the blocks of each diff are read once more from the tokens of the texts as they are
 - **THEN** every run that reading finds lies in a run of its kind of the marks
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
 
 ### Requirement: Renames: A run of a renamed name is quiet only for a value of its body alone
 
@@ -447,47 +447,47 @@ code. Any other rename is a label.
 - **THEN** its runs are labels and every block of them has its start
 - **AND** the parameter of a lambda of Kotlin and a parameter of Java, TypeScript and Rust without such a reader are proven
 - **AND** the name of a named argument is no name of the parameter: it is left to the other files
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_that_code_outside_its_body_may_name_is_a_label`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_that_code_outside_its_body_may_name_is_a_label`)
 
 #### Scenario: A text the scopes read in part
 - **WHEN** a local is renamed in a C# file with an `#if`, where a branch the parser does not take reads the new name, or holds nothing of either name; in a Rust function whose two declarations of the name stand under two `#[cfg]`; in a script that calls `eval` by its name
 - **THEN** its runs are labels and every block of them has its start: the bindings of such a text are those of one build of it, or of a part of what runs
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_that_code_outside_its_body_may_name_is_a_label`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_local_that_code_outside_its_body_may_name_is_a_label`)
 
 #### Scenario: Files with a name renamed
 - **WHEN** a word of a file of each grammar is written otherwise wherever it stands, alone and beside random edits, sometimes but for one place, sometimes as a word the file has
 - **THEN** each rename holds when the navigation is asked again of each side, each run of the kind `renamed` has the same tokens with its places read as one and holds no place that makes more of its name, and a proven one only places of values of their bodies alone
 - **AND** the marks are the same with and without the question before the tokens
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
 
 #### Scenario: The lines between the places
 - **WHEN** the declaration of a renamed local got another initializer or another type, on its line or on a later line of it, a use of it stands on a line with another change, a line of its function changed after its last place, or a local it is given to is renamed with it, in Kotlin, Java, TypeScript and Rust
 - **THEN** the lines that changed in the name alone are labels, each read: the name may hold another value there
 - **AND** a blank line put between its places leaves its runs quiet; two locals renamed in the lines of each other are proven together, or labels together
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_rename_of_a_local_is_a_label_where_its_declaration_or_a_line_of_a_use_changed_otherwise`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_rename_of_a_local_is_a_label_where_its_declaration_or_a_line_of_a_use_changed_otherwise`)
 
 #### Scenario: The member around the name
 - **WHEN** a line of the function of a renamed local changed otherwise, before its first place or after its last: what the lambda of a renamed parameter is given to (the value at the start of its chain, the body of a lambda before it), the type in the head of the function, the second line of an assignment in a loop or of a declaration below the function that reads the name, a statement of the loop of its places after the last of them, another parameter of its function, any other statement of it; or a blank line was put into a string of several lines the name is given, in Kotlin, Java, TypeScript and Rust
 - **THEN** the lines that changed in the name alone are labels, each read: nothing says that the line gives the name nothing
 - **AND** a line that changed in another function, a comment of the function worded again, a call of it wrapped otherwise and another local of it renamed too leave the runs quiet; the comment and the other function are read
 - **AND** a function that got another name with a local of its body leaves that local proven, and one that calls itself by its new name does not
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
 
 #### Scenario: The head of the type around the member
 - **WHEN** the parameter of the primary constructor of a Kotlin class got another type above the value of a property that reads it, the component of a Java record above its compact constructor, or the bound of a type parameter of a Rust `impl` or of a TypeScript class above a method that names it, and a local of that member is renamed
 - **THEN** the lines that changed in the name alone are labels, each read: the local may read another thing
 - **AND** a line that changed in another member of the type leaves the runs quiet
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
 
 #### Scenario: A function without a member of its own
 - **WHEN** a local is renamed in a function that is the value of an `export default`, in a method of an object that is such a value, or in a lambda given to a constant of a Java enum, to the constructor of the supertype of a Kotlin class or to a decorator of a TypeScript class, and the statement beside its lines gives it another value
 - **THEN** the lines that changed in the name alone are labels, each read: the statement of the body that holds the name is not its member
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_rename_of_a_local_is_proven_only_where_its_member_changed_in_names_alone`)
 
 #### Scenario: A comment beside a renamed name
 - **WHEN** a comment of the function of a renamed local is worded again with the name
 - **THEN** the comment is a run that is a label, read, and the lines of the name are quiet
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_comment_that_changed_beside_a_renamed_name_is_read`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_comment_that_changed_beside_a_renamed_name_is_read`)
 
 ### Requirement: Renames: The kind of a renamed name is quiet, switched on by its measurement
 
@@ -500,12 +500,12 @@ a label, and the pair MUST name its proven runs (`PairMarks::proven`): the marks
 - **WHEN** a local renamed at its five places is read as a view reads it, in each grammar
 - **THEN** the diff has the rename and its runs, quiet, and no block has a start
 - **AND** the pair names no run as proven and a label: the marks as proven are the marks of the view
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`the_runs_of_a_renamed_local_are_quiet_since_their_kind_is_switched_on`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`the_runs_of_a_renamed_local_are_quiet_since_their_kind_is_switched_on`)
 
 #### Scenario: Every diff of the tests
 - **WHEN** the files of the corpus are edited at random, or have a name renamed, and each diff is read as proven and as a view reads it
 - **THEN** the marks of the view are the proven ones with the runs of a kind that is not switched on as labels, and the starts of those runs
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
 
 ### Requirement: Renames: A place that makes more of its name than its binding is read
 
@@ -518,19 +518,19 @@ their runs, as labels.
 #### Scenario: Such places
 - **WHEN** a local declared by a destructuring, a record pattern, an array pattern or a tuple pattern, read by a shorthand property of TypeScript, Rust or C#, passed to a macro, captured by a format string, called as a value or spelled by `nameof` is renamed
 - **THEN** the line of that place is in no run and is read, and the lines of its other places are runs that are labels
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
 
 #### Scenario: A name that is a value where the code runs
 - **WHEN** a Kotlin local declared with a delegate is renamed (`val total by map`, `val integrationTest by registering(…)` of a build script, `by lazy` in an `init`), or a local of TypeScript or JavaScript that is given a function or a class written without a name (`const total = () => 1`, `const Total = class {}`)
 - **THEN** the line of its declaration is in no run and is read: the delegate reads another key, the task is registered under another name, the function has another `name`; the lines of its uses are runs that are labels
 - **AND** a use of a JavaScript local inside the body of a `with` is in no run and is read: there the name may be a property of the object
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
 
 #### Scenario: The text of an argument of C#
 - **WHEN** a local of C# is renamed that is passed to `ArgumentNullException.ThrowIfNull`, checked by `Debug.Assert` and has a method called on it
 - **THEN** the lines of those three places are in no run and are read: the exception, the message of the assertion and what the method reports may name another text
 - **AND** the lines of its declaration and of its `return` are runs that are labels
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
 
 ### Requirement: Renames: A name that is not local is a label, and its declaration is read
 
@@ -544,14 +544,14 @@ of its subject, with the runs its blocks have were it a rename.
 - **THEN** the rename is not `local`, `declared` names its declaration, each use is a run that is a label, and the block of the declaration has its start
 - **AND** a parameter of a TypeScript constructor that declares a property (`public total`) is such a rename, with its uses in the constructor and through `this`
 - **AND** a property and a local of its spelling renamed alike are two renames, the local one proven
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_name_that_is_not_local_is_a_label_and_its_declaration_is_read`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_name_that_is_not_local_is_a_label_and_its_declaration_is_read`)
 
 #### Scenario: A name the file does not declare
 - **WHEN** the two calls of a function declared in another file get another name
 - **THEN** the diff has no rename and no run, and the pair names the two names with their places, without a declaration
 - **AND** it keeps the run each call would be were the name a rename, which the pass over its subject takes once another file declares it
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_name_the_file_does_not_declare_is_left_to_the_other_files`)
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_name_the_file_does_not_declare_is_left_to_the_other_files`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have`)
 
 ### Requirement: Renames: A name that is not local says whether other code declares it now
 
@@ -565,7 +565,7 @@ count as other code.
 - **WHEN** a constant gets another value with its other name, a value goes on over a line that changed, a property gets another getter, a function another body or a parameter a call may name under another name, an object another supertype
 - **THEN** the name is declared by other code
 - **AND** the same value, a value wrapped otherwise, the same body, a body whose local got another name with it, and an object whose member changed are the same code: a type is its head
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it`)
 
 ### Requirement: Moves: Lines deleted in one block and added in another are a move
 
@@ -741,7 +741,7 @@ whether the indentation of a path has a meaning is part of what the diff is kept
 #### Scenario: Files edited at random
 - **WHEN** files of every grammar are edited at random and some of their lines stand at another place
 - **THEN** no line of a move is in a run or in another move, and the block of its new lines has a start
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`)
 
 ### Requirement: Subject: A pair leaves the changed lines no mark took and the names it declares none of
 
@@ -765,23 +765,23 @@ the lines its moves rewrote; whether a side has a lone carriage return. The pass
 - **WHEN** the calls of a function another file declares get another name, one of them beside a call that is wrapped
 - **THEN** the pair keeps, of each such block read with the two names as one, the run of the kind `renamed` of the line of the name, with the name; the run of formatting of the wrapped call is the pair's own and is not kept
 - **AND** the runs of the pair itself are as they were, and a kept run that shares a line with a move of the file is none
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_pair_keeps_the_runs_a_name_it_declares_none_of_would_have`)
 
 #### Scenario: A run that leans on the name after its block
 - **WHEN** a line that changed in a name another file declares ends its block, and the first token of the code after the block is a place of another name the file declares none of
 - **THEN** the kept run names both: it is a run only while the code after the block reads the same, which the second name read as one makes it
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`the_subject_adds_labels_alone_never_a_quiet_run_or_a_stop`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`the_subject_adds_labels_alone_never_a_quiet_run_or_a_stop`)
 
 #### Scenario: The lines a move rewrote
 - **WHEN** a function moves with an argument added to one of its lines, with a word of a line changed, or with a line edited in its whitespace alone (inside it, in its indent, after its text, a tab for its spaces); and two functions change places, each with such an argument, in texts of each line end
 - **THEN** the pair leaves the number of each edited line that differs in a character that is no whitespace, on the old side and on the new one, each side in its order; a line edited in its whitespace alone and an exact line are left by none
   [@test] psi-syntax:crates/line-diff/src/moves_test.rs (`a_line_a_move_rewrote_is_an_edited_line_that_differs_in_more_than_whitespace`)
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_on_a_line_a_move_took_as_it_is_is_not_read_anyway`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_on_a_line_a_move_took_as_it_is_is_not_read_anyway`)
 
 #### Scenario: The places of a declaration
 - **WHEN** a file declares a renamed function after two characters outside the basic plane on its line, has a lone carriage return, or stands at a path with a tab
 - **THEN** the declaration is asked by its line and its character from 1 in each text, and the text with the lone carriage return and the path with the tab ask nothing
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`the_declarations_are_asked_by_the_lines_and_the_characters_of_their_texts`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`the_declarations_are_asked_by_the_lines_and_the_characters_of_their_texts`)
 
 #### Scenario: A store of its own
 - **WHEN** a diff is stored, and a store holds a diff without what it left
@@ -801,7 +801,7 @@ pair only with a line at its depth. Lines that left a file and stand again in it
 - **WHEN** a file loses a function that another file of the subject gets, changed or added, whichever comes first
 - **THEN** the lines of the function are a move from the first file to the second
   [@test] psi-syntax:crates/line-diff/src/moves_across_test.rs (`lines_that_left_one_file_and_stand_in_another_are_a_move`)
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`lines_that_moved_between_two_files_are_a_label_at_both_ends`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`lines_that_moved_between_two_files_are_a_label_at_both_ends`)
 
 #### Scenario: Blank lines inside it, another indent
 - **WHEN** two functions with a blank line between them move into an object of another file, indented by two
@@ -817,7 +817,7 @@ pair only with a line at its depth. Lines that left a file and stand again in it
 - **WHEN** two files have the same short end of a class, a function moves within its file beside another file, or a line stands at seventeen places of two files
 - **THEN** nothing is a move between files
   [@test] psi-syntax:crates/line-diff/src/moves_across_test.rs (`boilerplate_and_lines_that_moved_within_a_file_are_no_move_between_files`)
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`lines_that_match_two_places_move_to_the_first_and_boilerplate_moves_nowhere`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`lines_that_match_two_places_move_to_the_first_and_boilerplate_moves_nowhere`)
 
 #### Scenario: A line at another depth
 - **WHEN** a Python function leaves a file for another, where its last line stands inside the `if` before it; where it stands whole inside a class; where one of its lines is indented by a tab
@@ -836,7 +836,7 @@ first of them, and the other place is plain added lines.
 - **WHEN** two files get the lines one file lost, or two files lose the lines one file got
 - **THEN** the lines are one move, of the first of the two files, and the other file has the marks of its pair
   [@test] psi-syntax:crates/line-diff/src/moves_across_test.rs (`lines_that_match_two_places_are_a_move_to_the_first`)
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`lines_that_match_two_places_move_to_the_first_and_boilerplate_moves_nowhere`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`lines_that_match_two_places_move_to_the_first_and_boilerplate_moves_nowhere`)
 
 #### Scenario: The longest first
 - **WHEN** a file loses two functions, one file gets the first and another both; or two files lose a function each and one file gets both in a row
@@ -853,7 +853,7 @@ there. It MUST be a label: no run, no start taken away, no line for a view to hi
 - **WHEN** a function moves from a ledger to a report
 - **THEN** the marks of the ledger name its four old lines with the index of the report and the line they stand at, those of the report its four new lines with the index of the ledger and the line they left
 - **AND** the runs, the moves, the renames and the starts of both files are those of their pairs: every block is read where it was
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`lines_that_moved_between_two_files_are_a_label_at_both_ends`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`lines_that_moved_between_two_files_are_a_label_at_both_ends`)
 
 #### Scenario: The template of the marks
 - **WHEN** the commit of the `commit_marks` template is read
@@ -888,28 +888,28 @@ stay. A label.
 - **WHEN** a ledger loses a function that a report gets with its parameters one a line, and the index says the function moved whole from its four old lines to its seven new ones
 - **THEN** without the answer the last three lines alone are a move; with it the ledger names the four old lines and the report the seven new ones as one move of `reportTitle`, each with the lines of the other end, and the runs, the moves, the renames and the starts of both are those of their pairs
 - **AND** an end that holds a line the change left alone, starts before its first line, or names a file the subject does not change moves nothing: the rows of the same lines are what they were
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_declaration_the_index_says_moved_whole_is_a_move_between_files_in_another_layout_too`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_declaration_the_index_says_moved_whole_is_a_move_between_files_in_another_layout_too`)
 
 #### Scenario: A file of declarations moved as they are
 - **WHEN** a ledger loses two functions that a report gets as they are, one row of the same lines, and the index names each of them as moved whole
 - **THEN** the row stays the one move it was, and no end names a declaration
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_row_of_the_same_lines_that_holds_declarations_the_index_says_moved_whole_as_they_are_stays_one_move`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_row_of_the_same_lines_that_holds_declarations_the_index_says_moved_whole_as_they_are_stays_one_move`)
 
 #### Scenario: A doc comment beside it
 - **WHEN** a function moves with its doc comment, its last line wrapped otherwise, and the index counts the function from its head
 - **THEN** without the answer the doc, the head and the line after it are one row; with it the function is the move of the declaration, and a doc of two lines and enough characters a move of its own
 - **AND** a doc too short to be a row by itself is no move: only the declaration moved
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_row_of_the_same_lines_keeps_its_parts_beside_a_declaration_of_another_layout_that_are_a_row_by_themselves`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_row_of_the_same_lines_keeps_its_parts_beside_a_declaration_of_another_layout_that_are_a_row_by_themselves`)
 
 #### Scenario: Under another owner within its file
 - **WHEN** a function leaves its class for the top of its file, on two lines, and the index says it moved under other owners
 - **THEN** the file names both ends, each with the file itself as the other file
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_declaration_moved_under_another_owner_within_its_file_is_a_move_to_the_file_itself`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_declaration_moved_under_another_owner_within_its_file_is_a_move_to_the_file_itself`)
 
 #### Scenario: Reordered in another layout
 - **WHEN** a method of three lines moves below another of its class on one line, and the index says it was put in another order there
 - **THEN** the file names both ends, the three old lines and the one new line, each with the file itself as the other file: a declaration the index reordered is such a move where no move of its pair holds it
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_move_within_a_file_of_declarations_whose_order_is_free_is_a_reorder_of_them`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_move_within_a_file_of_declarations_whose_order_is_free_is_a_reorder_of_them`)
 
 #### Scenario: The accio of this machine
 - **WHEN** this machine has an accio that answers `moves` of the revision 2, and a commit moves a function to another file with its parameters one a line
@@ -950,7 +950,7 @@ where they stand now, and no run, move or stop changes. `brd commits --mark-stat
 - **WHEN** a method moves below another of its class as it is, a move of the pair, and the index says both were reordered with an order that is free
 - **THEN** the move names the method by its two ends, and the moves of the pair are those they were
 - **AND** where the index says its order matters, or reordered only the other method, the move names nothing; and with a property beside it whose order matters it names nothing either
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_move_within_a_file_of_declarations_whose_order_is_free_is_a_reorder_of_them`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_move_within_a_file_of_declarations_whose_order_is_free_is_a_reorder_of_them`)
   [@test] psi-syntax:crates/diff-marks/src/index_test.rs (`a_move_of_declarations_whose_order_is_free_is_a_mark_and_one_that_holds_an_order_that_matters_is_none`)
 
 #### Scenario: The accio of this machine
@@ -977,7 +977,7 @@ every place of the name.
 - **AND** an answer that says the function moved with its words and its name (`moved`, not `renamed`, `body_equal`, only `owner` in `differs`), complete, and lists the declaration and the call behind each owner (at most two characters between them) in both trees proves it: the file names `Ledger` → `Report` as following the move of `title` to the report, confirmed, one run of the kind of a rename, quiet, and its block passed
 - **AND** a use on a line read anyway, or on a line the change left alone with its twin at the same place, proves as much
 - **AND** another declaration than the one that moved, a use left in a file the change did not touch, an answer that is not complete, and a use the other tree does not list behind the new owner prove nothing, and the file says nothing then; nor does an owner the file names where no use of the declaration stands behind it
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_whose_owner_the_change_wrote_anew_after_a_move_under_another_owner_is_quiet_once_the_index_proves_it`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_whose_owner_the_change_wrote_anew_after_a_move_under_another_owner_is_quiet_once_the_index_proves_it`)
 
 #### Scenario: An accio without the answer
 - **WHEN** the `versions` of accio names no answer of `moves`, its revision 1 or 3, or is no JSON; and when it answers 2, and when its index is not usable
@@ -996,30 +996,30 @@ runs and the starts stay the pair's.
 - **WHEN** a store renames its function and a report calls it at two places
 - **THEN** the report names the rename with its two places, the store as the file that declares it and the line of the declaration, each call is a run of the kind `renamed` that is a label, and the starts of the report are those of its pair
 - **AND** the renames of the marks of the report are still those it declares: none
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_another_file_declares_is_a_rename_of_the_file_that_uses_it`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_another_file_declares_is_a_rename_of_the_file_that_uses_it`)
 
 #### Scenario: A name no file declares
 - **WHEN** the report is the one file of its subject, or one of its lines changed in two names of which no file declares the second
 - **THEN** the report alone has the marks of its pair, and the line of the two names is in no run and is read, beside the run of the line of the declared name alone
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_no_file_of_the_subject_declares_and_a_line_that_needs_one_have_no_run`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_no_file_of_the_subject_declares_and_a_line_that_needs_one_have_no_run`)
 
 #### Scenario: A line of such a run is in no move
 - **WHEN** two lines of a report changed in the renamed name alone and another file got lines that read as they did
 - **THEN** without the file that declares the name the two lines moved to the other file, and with it they are a run of the rename and no move
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_run_the_subject_adds_takes_its_lines_from_the_moves_between_files`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_run_the_subject_adds_takes_its_lines_from_the_moves_between_files`)
 
 #### Scenario: Labels alone
 - **WHEN** a call is wrapped otherwise at the end of its block, before a line that changed in a name alone, whether the store renamed that name or no file declares it; and in every report made of such statements at random
 - **THEN** the wrapped lines are no run, as in the pair: with the name read as one they are a run of formatting, which is quiet and leans on a name it does not hold
 - **AND** the quiet runs, the starts, the moves and the renames of the file are those of its pair, every run of the pair lies in a run of its kind, and every run the subject added is of the kind `renamed` and no quiet one
 - **AND** a line of the renamed name at the end of its block is a run only when the name after the block is one a file of the subject renamed too
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`the_subject_adds_labels_alone_never_a_quiet_run_or_a_stop`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`the_subject_adds_labels_alone_never_a_quiet_run_or_a_stop`)
 
 #### Scenario: A quiet run of the pair
 - **WHEN** a file calls a function another file renamed on the line before the two lines of a renamed local, which are a quiet run of its pair
 - **THEN** the run the three lines are with the name of the call read as one is none: the two lines stay the quiet run they are, and the line of the call is read, the first of its block
 - **AND** the file names the rename of the call with its place
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_run_the_subject_adds_takes_no_line_of_a_quiet_run_of_the_pair`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_run_the_subject_adds_takes_no_line_of_a_quiet_run_of_the_pair`)
 
 ### Requirement: Subject: The file that declares a renamed name says how far the rename reaches
 
@@ -1031,7 +1031,7 @@ the two names, its own and those of every file that names the rename (`subject.u
 - **WHEN** a store renames its function and a report calls it at two places; the store is the one file of its subject; and two files more call it, one of which also adds a call
 - **THEN** the store says three places in two files; alone, its one place in one file; with the callers four places in three files
 - **AND** the file that added a call names no rename, and its places are not counted
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_declaration_says_how_many_places_of_the_subject_hold_its_name_and_in_how_many_files`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_declaration_says_how_many_places_of_the_subject_hold_its_name_and_in_how_many_files`)
 
 #### Scenario: The fields
 - **WHEN** the marks of a file with what its subject says of a name it declares are written as JSON
@@ -1074,7 +1074,7 @@ asks another, closes or loads again.
 #### Scenario: A declaration of another language
 - **WHEN** a TypeScript file declares a renamed function another file uses, alone or beside a Kotlin file that renamed another
 - **THEN** the index is asked nothing of it: its name is `incomplete` at once, in the file that declares it and in the one that uses it, and the declaration of the Kotlin file is asked
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_declared_in_a_language_the_index_proves_nothing_of_is_not_asked`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_declared_in_a_language_the_index_proves_nothing_of_is_not_asked`)
 
 #### Scenario: An accio without the answer
 - **WHEN** the `versions` of accio names no answer of `renames`, another revision of it, or fails
@@ -1107,30 +1107,30 @@ proven MUST be named (`subject.confirmed`).
 - **WHEN** the index lists the declaration and the two calls of the report as the uses of the function in both trees, complete and without a conflict
 - **THEN** the name of the report and the declaration of the store are `confirmed`, the two runs of the report are named as confirmed and are quiet, the report has no start left, and the block of the declaration keeps its start
 - **AND** while the index is asked, and without an answer, the same runs are labels and every block is a stop
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_rename_every_use_of_which_the_index_lists_is_confirmed_and_its_declaration_stays_a_stop`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_rename_every_use_of_which_the_index_lists_is_confirmed_and_its_declaration_stays_a_stop`)
 
 #### Scenario: A use on a line that is read anyway
 - **WHEN** the change also deletes a call of the function in a third file and adds one there, each on lines of its own, and a doc comment outside the subject names the function
 - **THEN** the rename is confirmed all the same; the same use on a line the change left alone is a use outside it
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_on_a_line_that_is_read_anyway_and_a_link_of_a_doc_comment_do_not_stand_in_the_way`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_on_a_line_that_is_read_anyway_and_a_link_of_a_doc_comment_do_not_stand_in_the_way`)
 
 #### Scenario: A use on a line a move took as it is
 - **WHEN** a function that calls the renamed function only moved, within its file or to another file, and a new function of the old name answers its call now, as accio answers of such a change: the call listed in the old tree, none in the new one, complete and without a conflict
 - **THEN** the rename is `usesOutside`: a view shows the line as the same line at another place, and the old name stands on it
 - **AND** the new name on a line that only moved is `otherMeaning`; a place of the rename whose old line a move took as it is, and that stands again at the other end of the move, is no place; a line a move edited in its whitespace alone is the line it was
 - **AND** a call renamed on a line of a move is read where it stands now, a changed line, and the rename is confirmed
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_on_a_line_a_move_took_as_it_is_is_not_read_anyway`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_on_a_line_a_move_took_as_it_is_is_not_read_anyway`)
 
 #### Scenario: A use on a line of a pale block
 - **WHEN** a third file joins a `return` and the call of the old name on the line after it, read under the policy that counts no whitespace and under the one that counts every character
 - **THEN** under the first the block is pale, the lines it was, and the rename is `usesOutside`; under the second the two lines are a change no run takes, and the rename is confirmed
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_on_a_line_of_a_pale_block_is_not_read_anyway`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_on_a_line_of_a_pale_block_is_not_read_anyway`)
 
 #### Scenario: A use without a word, a use by another word
 - **WHEN** the index lists a positional argument that sets a renamed property, on a line the change left alone, as it answers of such a change; and a call by the alias of an import in both trees, on a line the change left alone, in a file of the subject one line further down or in a file outside it
 - **THEN** the rename is confirmed all the same: neither writes the name
 - **AND** a use by another word that only one tree lists, or that the other tree lists on another line or by another word, leaves the rename `incomplete`, never a verdict of what it changed
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_that_writes_no_word_or_the_same_other_word_in_both_trees_does_not_stand_in_the_way`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_that_writes_no_word_or_the_same_other_word_in_both_trees_does_not_stand_in_the_way`)
 
 #### Scenario: The accio of this machine
 - **WHEN** this machine has an accio that answers `renames`, and a repository renames a function with its two calls in another file
@@ -1151,7 +1151,7 @@ only a final answer of a pair is kept.
 - **THEN** the proof is `usesOutside`, `otherMeaning`, `otherDeclaration`, `incomplete` and `unavailable` in that order of the cases, and no run is confirmed
 - **AND** a place of the name the index lists for no declaration leaves the name of its file `incomplete`, while the declaration and the use it does list are proven
 - **AND** what the index found wrong comes before what it could not say
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`every_other_answer_leaves_the_rename_a_label_and_says_why`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`every_other_answer_leaves_the_rename_a_label_and_says_why`)
 
 #### Scenario: An index that does not answer
 - **WHEN** the index answers no renames, has no index of the repository, fails, or answers another number of pairs than asked
@@ -1163,7 +1163,7 @@ only a final answer of a pair is kept.
 - **WHEN** the index lists a use in a file of the subject whose text ends a line with a carriage return that no line feed follows
 - **THEN** the rename is `incomplete`: the comparison counts such a line end and the index does not, so the line the index names is no line of the diff; the same answer of the same file without it confirms the rename
 - **AND** a use the index itself found left behind is still `usesOutside`
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_in_a_text_with_a_lone_carriage_return_proves_nothing`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_use_in_a_text_with_a_lone_carriage_return_proves_nothing`)
 
 ### Requirement: Subject: A name declared by other code is another thing, and the index is not asked of it
 
@@ -1176,7 +1176,7 @@ confirmed.
 - **WHEN** `const val TIMEOUT = 5` becomes `const val LIMIT = 10`, a file calls `pause(TIMEOUT)` at two places that became `pause(LIMIT)`, and the index lists the declaration and both calls in both trees, complete and without a conflict
 - **THEN** no declaration is asked, the proof of the name is `otherDeclaration` in both files, and the two calls are runs that are labels, each a stop
 - **AND** the same change with the same value is asked, confirmed by that answer, and its calls are passed; the declaration is read either way
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it`)
 
 ### Requirement: Subject: The marks of a subject enter no cache and are the same whenever they are read
 
@@ -1188,7 +1188,7 @@ the same pair in another subject has the marks of its pair alone.
 - **WHEN** the diffs of a commit with a function that moved between two files and a name another file declares are read, read again, and read by another app with the same store
 - **THEN** the three answers are the same, the marks of the subject among them, and the second read costs no process
   [@test] crates/file-diffs/src/service_test.rs (`a_diff_costs_one_list_and_one_cat_file_then_nothing`)
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`the_marks_of_a_subject_are_the_same_whenever_they_are_read`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`the_marks_of_a_subject_are_the_same_whenever_they_are_read`)
 
 #### Scenario: The same pair in another subject
 - **WHEN** the pair of a report that a subject marked with the name its store declares is the one file of another commit
@@ -1206,7 +1206,7 @@ one change, read as one: the tokens of the region are the same.
 - **WHEN** a block adds lines, deletes lines, adds a comment on a line of its own, adds a blank line, or has blank lines alone on both sides
 - **THEN** it has no run and its reading starts at its first line, under the policies that keep it a block
 - **AND** a blank line `IgnoreBlankLines` cut off has no run and no start
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_block_with_a_side_of_no_lines_or_of_blank_lines_alone_is_never_marked`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_block_with_a_side_of_no_lines_or_of_blank_lines_alone_is_never_marked`)
 
 ### Requirement: Never marked: A pair without one grammar, a text without tokens and a side over the size of the inner ranges
 
@@ -1219,13 +1219,13 @@ without a grammar keeps its pale block of whitespace.
 - **WHEN** a text file, a Python file and a Go file change in their whitespace alone
 - **THEN** they have no run, and the block stays a stop, pale under the policy that calls it equal
 - **AND** a rename from `.kt` to `.kts`, from `.ts` to `.tsx`, from `.txt` to `.kt` and back is no pair of one grammar
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_file_without_a_grammar_and_a_pair_of_two_grammars_have_no_runs`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_file_without_a_grammar_and_a_pair_of_two_grammars_have_no_runs`)
 
 #### Scenario: No tokens, a side over the size
 - **WHEN** a side has no tokens, the tokens count other lines than the diff, or the sides have more lines than the inner ranges are compared for
 - **THEN** the diff has no run and every block its start, and the pair over the size reads no tokens
 - **AND** the same change in texts of ten lines less is a run
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_runs`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_runs`)
 
 ### Requirement: Never marked: A file of no grammar, a pair of two grammars and lines that moved have no rename
 
@@ -1237,13 +1237,13 @@ no program of has none.
 #### Scenario: No grammar, moved lines
 - **WHEN** a name changes at every place of a text file and of a Python file, or in a function that moved
 - **THEN** the diff has no rename
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_file_of_no_grammar_and_lines_that_moved_have_no_rename`, `a_pair_of_two_grammars_has_no_rename`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_file_of_no_grammar_and_lines_that_moved_have_no_rename`, `a_pair_of_two_grammars_has_no_rename`)
 
 #### Scenario: A syntax error
 - **WHEN** a local is renamed in a Java file where the old name still stands in what the parser gave up on, in a Kotlin, a Java and a Rust file with a broken function after it, in a Kotlin file on a line that is broken on both sides, and in a TypeScript file oxc reads no program of
 - **THEN** the first five have the rename with runs that are labels, every block of them with its start: what stands where a parser gave up is no name to the scopes
 - **AND** the TypeScript file has none
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_file_with_a_syntax_error_is_read_as_its_parser_reads_it`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_file_with_a_syntax_error_is_read_as_its_parser_reads_it`)
 
 ### Requirement: Limits: The time of a comparison changes no mark
 
@@ -1256,7 +1256,7 @@ the tokens, the moves the blocks and the lines, never the inner ranges.
 - **WHEN** the inner ranges of a diff run out of their time, or are not asked for
 - **THEN** the diff is by lines alone and has the runs, the moves and the starts of the diff in time, from the comparison and from memory
 - **AND** a diff whose lines ran out of time too is one block of both texts, with the marks of that block
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_diff_the_time_cut_short_has_the_marks_of_its_blocks`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_diff_the_time_cut_short_has_the_marks_of_its_blocks`)
   [@test] crates/file-diffs/src/service_test.rs (`the_marks_of_a_diff_out_of_time_are_those_of_the_diff_in_time`, `the_moves_of_a_text_come_with_its_content_and_are_those_of_its_indentation`)
 
 ### Requirement: Limits: The marks are bound by work, never by time
@@ -1270,14 +1270,14 @@ blocks of a rename are compared again within what the first reading left of that
 - **WHEN** the sides of a block differ in more tokens than the limit, a side has more tokens than the limit, or the work of the file is spent
 - **THEN** no run is cut out of the block, and its reading starts at its first line
 - **AND** the same block within the limits has its run, and lines of the same code are a run without a comparison
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_block_over_a_limit_of_work_has_no_run_cut_out_of_it`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_block_over_a_limit_of_work_has_no_run_cut_out_of_it`)
 
 #### Scenario: The blocks of a rename
 - **WHEN** a block holds a renamed name, a wrapped call and a line with another change, and is read again with the names read as one
 - **THEN** with the work of the file it has its run of the rename beside the run of the wrapped call; with one step less than the comparison costs it keeps the run of the wrapped call the first reading found, and no run of the rename
 - **AND** a block that is the same code once the names are read as one has its runs without a comparison, with no work left too
 - **AND** a block the first reading cut nothing out of has the same runs: the wrapped call is a run of formatting there too
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`the_blocks_of_a_rename_are_cut_again_within_the_work_the_file_has_left`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`the_blocks_of_a_rename_are_cut_again_within_the_work_the_file_has_left`)
 
 #### Scenario: The comparison gives up by its edits
 - **WHEN** two sequences differ in more elements than the edits allowed
@@ -1347,12 +1347,12 @@ rename, and its blocks stay stops. The names MUST be read on the stack of a work
 - **THEN** the 200 are renames, by 400 resolutions of each text; with work for 150 resolutions the first 75 locals of the text are, and with work for less than one none is asked
 - **AND** in a Java file whose work pays fewer resolutions than its 100 locals need, the first locals of the text are renames and, of their proven runs, the blocks of the others alone have their starts
 - **AND** a local of one name in each of 60 functions, renamed alike, is 60 renames by 61 resolutions of each text
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`the_names_asked_are_bound_by_work`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`the_names_asked_are_bound_by_work`)
 
 #### Scenario: A deeply nested file
 - **WHEN** a local is renamed in a block nested 60 to 3,600 times, in each grammar, on a stack of 2 MiB
 - **THEN** a text with tokens has its rename and a text nested deeper than its parser reads has none
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_deeply_nested_file_is_read_on_the_stack_of_a_worker`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_deeply_nested_file_is_read_on_the_stack_of_a_worker`)
 
 ### Requirement: Before the tokens: A file whose blocks cannot hold a run is not parsed
 
@@ -1366,19 +1366,19 @@ be read once per grammar.
 - **WHEN** the blocks of a file change values and an operator, or add and delete lines
 - **THEN** the tokens of neither side are read
 - **AND** a wrapped call, a comment worded again and a changed name read each side once, whatever the number of blocks
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`a_file_whose_blocks_cannot_hold_a_run_is_not_parsed`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`a_file_whose_blocks_cannot_hold_a_run_is_not_parsed`)
 
 #### Scenario: The same words
 - **WHEN** the two sides of a block hold the same words: in another order, with other numbers or other marks between them
 - **THEN** the block gives no name of a rename, and two locals that took the name of each other in one block parse no side
 - **AND** a word one side has more often, or with another letter, `_` or `$`, is a word the other has not
-  [@test] crates/code-symbols/src/marks_bindings_renames_test.rs (`a_block_whose_sides_hold_the_same_words_gives_no_candidate`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_renames_test.rs (`a_block_whose_sides_hold_the_same_words_gives_no_candidate`)
 
 #### Scenario: The question changes no answer
 - **WHEN** the runs and the renames of a diff are read with the question and without it, for every case of the tests and for files of every grammar edited at random, with their own line ends, with `\r\n`, with lone `\r` among them and without the last one
 - **THEN** the runs and the renames are the same
 - **AND** every line a comment of a grammar is in answers that it may hold a comment: a line of a block comment, of a nested one, after a `/*/`, a `#!` line, an HTML-like comment of a script, a line of a comment of Razor in a C# file, the line after a lone `\r` that a line comment runs over
-  [@test] crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`, `every_line_of_a_comment_may_hold_a_comment_before_the_tokens_are_read`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`, `every_line_of_a_comment_may_hold_a_comment_before_the_tokens_are_read`)
 
 #### Scenario: The tokens of a blob are kept
 - **WHEN** a commit is read under another whitespace policy, and then the next commit of its file
@@ -2731,7 +2731,7 @@ changed" at once, with no index.
 #### Scenario: A name declared by other code
 - **WHEN** a constant gets another value with its other name, and no index is asked or none answers
 - **THEN** the proof of the name is `otherDeclaration` in the file that declares it and in the file that uses it, which the note words as "more than the name changed"
-  [@test] crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it`)
+  [@test] psi-syntax:crates/code-symbols/src/marks_bindings_subject_test.rs (`a_name_declared_by_other_code_is_another_thing_and_the_index_is_not_asked_of_it`)
   [@test] src/presenters/diff-marks.test.ts (`says how far the index proved a rename: every use in the change, uses outside it, another meaning, more than the name, not all checked`)
 
 ### Requirement: Views: A run the index proved is passed and keeps every line
@@ -3005,15 +3005,15 @@ line between them that really changed). The tests of the marks of a subject (`su
 repository from the fixture of the test server (`answerStoreRename` and `answerStoreMoves` write
 `.git/branch-deck-accio.json`, which `FixtureIndex` answers `get_index_marks` by), and hold that answer where they read
 the rows before it (`lateSubjectMarks`, `holdCommand`).
-`cargo nextest run -p code-symbols -E 'test(/marks_bindings/)'` (the marks of texts read with the bindings of
-`code-symbols`), `-p file-diffs -E 'test(/marks_test/)'` (the template through the service), and in accio's checkout,
-whose psi-syntax holds `line-diff` and `diff-marks`, `cargo nextest run -p line-diff -E
-'test(/model_test|moves_test|moves_across_test/)'` and `-p diff-marks`; the pass over a subject through the service and
+`cargo nextest run -p file-diffs -E 'test(/marks_test/)'` (the template through the service), and in accio's checkout,
+whose psi-syntax holds `line-diff`, `diff-marks` and `code-symbols`, `cargo nextest run -p line-diff -E
+'test(/model_test|moves_test|moves_across_test/)'`, `-p diff-marks` and `-p code-symbols -E 'test(/marks_bindings/)'`
+(the marks of texts read with the bindings of `code-symbols`); the pass over a subject through the service and
 the index: `-p file-diffs -E 'test(/service_test|accio_test/)'` (one test asks the accio of the machine, when it
 answers `renames`, of a repository it indexes under a home of its own); the question of a window to the index:
 `-p app-api -E 'test(/diffs_test/)'`; the measurement: `-p file-diffs -E 'test(/marks_measure_test/)'` and
 `-p bd-rewrite -E 'test(/mark_stats_test/)'`.
-`MARKS_EDITS=600 cargo nextest run --release -p code-symbols -E 'test(the_marks_of_edited_files)'` edits each file of
+In accio's checkout, `MARKS_EDITS=600 cargo nextest run --release -p code-symbols -E 'test(the_marks_of_edited_files)'` edits each file of
 the corpus 600 times (12 by default), `MARKS_RENAMES=200 … -E 'test(the_renames_of_files)'` renames a word of each
 200 times, alone and beside edits (twice by default). The E2E template of the marks is `commit_marks` (`crates/test-utils/src/repo_template.rs`):
 `src/Ledger.kt`, `src/Report.kt` and `src/Store.kt` with a case of every kind of mark, each in a block of its own;

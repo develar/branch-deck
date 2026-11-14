@@ -294,7 +294,7 @@ flowchart TD
   `push_action`, `needs_push`, `replaces_older_versions`, `drops_remote_commits`, `pushes_again`), а не
   `domain_policy::push`.
 - `sync-core` не достигает `github`, `patronus`, `youtrack`, `file-diffs`, `code-symbols` (`file-diffs` сам зависит от
-  `code-symbols` без feature, `file-diffs/Cargo.toml:9`, поэтому каждый модуль, который читает `file_diffs`, ушёл в
+  `code-symbols`, с 2026-11-14 crate psi-syntax, поэтому каждый модуль, который читает `file_diffs`, ушёл в
   `trial-check` в `s3-3`; читатели и писатели `github`, `patronus`, `youtrack` ушли в `remote-facts` в `s3-5`).
 - `remote-facts` не достигает `trial-check`, `update-core`, `lease-pool`, `file-diffs`, `code-symbols`: он добывает
   ответы GitHub и Patronus, а не проверяет и не обновляет.
@@ -324,6 +324,9 @@ flowchart TD
   (`openspec/specs/cli/host/spec.md`), не `ErrorCode`.
 - `bd-cli` и `src-tauri` не достигают `host-link`, `host-client`, `host-agent` и `brd-host`. Приложение на macOS несёт
   `brd-host` как файл (Tauri `externalBin`), не как зависимость, поэтому бинарь приложения не растёт.
+- Каждое имя, которое запрещает правило, — crate workspace или зависимость одного из них (`unknown_forbidden`):
+  `code-symbols` с 2026-11-14 живёт в psi-syntax, и правила о нём стоят, пока `file-diffs` его подключает;
+  переименованный или удалённый crate не оставляет правила, которое ничего не стережёт.
 
 | Crate | Из чего | Ответственность | Удаляется или поглощается |
 | --- | --- | --- | --- |

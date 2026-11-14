@@ -130,8 +130,9 @@ function tokenColors(palette: EditorPalette): ThemeRegistration["tokenColors"] {
 
 /**
  * The roles of a token after the default foreground (role 0), in the order of their ids, the same as `Role` of the
- * highlighting of the backend (`crates/code-symbols/src/highlight/mod.rs`, `roles_match_the_view`); the
- * class of a role is `t<id>` (`diff-view.css`), its colours `--syntax-*` of `src/index.css`
+ * highlighting of the backend (`psi-syntax:crates/code-symbols/src/highlight/mod.rs`; `roles_match_the_view` of
+ * `crates/file-diffs/src/syntax_test.rs` checks them); the class of a role is `t<id>` (`diff-view.css`), its colours
+ * `--syntax-*` of `src/index.css`
  */
 export const SYNTAX_ROLES = [
   "keyword",

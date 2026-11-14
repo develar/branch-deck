@@ -1131,7 +1131,7 @@ the escapes of each kind of string (a Kotlin raw string has none).
 #### Scenario: The fixtures of each language
 - **WHEN** the fixture files of each language are highlighted
 - **THEN** each matches its golden file, its lines and UTF-16 offsets counted as the view counts them
-  [@test] crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`, `splits_lines_and_counts_utf16_offsets_as_the_view`)
+  [@test] psi-syntax:crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`, `splits_lines_and_counts_utf16_offsets_as_the_view`)
 
 #### Scenario: The lines a view asks for
 - **WHEN** a view asks the backend for the colours of a run of pages of a file
@@ -1148,13 +1148,13 @@ the escapes of each kind of string (a Kotlin raw string has none).
 - **WHEN** a Kotlin file has a file annotation with arguments (`@file:OptIn(Api::class, "x")`) and a raw string with a template
 - **THEN** `@file:OptIn` is one annotation with its target, and its arguments are code (a keyword, a string)
 - **AND** the backslashes of the raw string are its text, no escapes; only the `$` of its template has a colour of its own
-  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`a_file_annotation_is_an_annotation_with_its_target_and_its_arguments_are_code`, `a_raw_string_has_no_escapes`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/highlight_test.rs (`a_file_annotation_is_an_annotation_with_its_target_and_its_arguments_are_code`, `a_raw_string_has_no_escapes`)
 
 #### Scenario: The keywords and the strings of Java
 - **WHEN** a Java file has the words the parser reads as keywords in context (`sealed`, `permits`, `non-sealed`, `var`, `record`, `when`, `yield`), a variable named `var`, a character, a string, a text block, and a `/*` inside a text block
 - **THEN** those words are keywords where the parser reads them so, and the variable `var` is a name
 - **AND** a character, a string and a text block have their escapes (an octal escape by the digits it takes, the line continuation of a text block), and a `/*` inside a text block is its text
-  [@test] crates/code-symbols/src/java/highlight_test.rs (`the_keywords_the_parser_reads_in_context_are_keywords_and_names_elsewhere`, `a_character_a_string_and_a_text_block_have_their_escapes`, `a_comment_inside_a_text_block_is_its_text`)
+  [@test] psi-syntax:crates/code-symbols/src/java/highlight_test.rs (`the_keywords_the_parser_reads_in_context_are_keywords_and_names_elsewhere`, `a_character_a_string_and_a_text_block_have_their_escapes`, `a_comment_inside_a_text_block_is_its_text`)
 
 ### Requirement: Files section: Fields, static members and constants have their colours
 
@@ -1168,14 +1168,14 @@ the name of a method reference or of an argument.
 - **THEN** a field and an unqualified use of one are fields, the static ones italic, a static method a declaration and italic
 - **AND** a field of an anonymous class and of an enum constant is a field, and one through a qualified `this` the instance's; a field is static by its modifier, and in an interface
 - **AND** a pattern variable and a vararg hide the field of their name only where Java sees them, the arguments of an anonymous class see no member of it, and the name of a method reference or of an annotation's argument is no field (an element of an annotation type is a method declaration)
-  [@test] crates/code-symbols/src/java/highlight_test.rs (`a_field_of_an_anonymous_class_and_of_an_enum_constant_is_a_field`, `a_pattern_variable_and_a_vararg_hide_the_field_of_their_name`, `a_qualified_this_is_a_keyword_and_the_fields_through_it_are_the_instance_s`, `a_field_is_static_by_its_modifier_and_in_an_interface_only`, `an_element_of_an_annotation_type_is_a_method_declaration_and_an_argument_name_no_field`, `the_name_of_a_method_reference_is_no_field`, `a_pattern_variable_hides_the_field_only_where_java_sees_it`, `the_arguments_of_an_anonymous_class_see_no_member_of_it`)
+  [@test] psi-syntax:crates/code-symbols/src/java/highlight_test.rs (`a_field_of_an_anonymous_class_and_of_an_enum_constant_is_a_field`, `a_pattern_variable_and_a_vararg_hide_the_field_of_their_name`, `a_qualified_this_is_a_keyword_and_the_fields_through_it_are_the_instance_s`, `a_field_is_static_by_its_modifier_and_in_an_interface_only`, `an_element_of_an_annotation_type_is_a_method_declaration_and_an_argument_name_no_field`, `the_name_of_a_method_reference_is_no_field`, `a_pattern_variable_hides_the_field_only_where_java_sees_it`, `the_arguments_of_an_anonymous_class_see_no_member_of_it`)
 
 #### Scenario: The properties of Kotlin
 - **WHEN** a Kotlin file declares and uses properties
 - **THEN** a property and an unqualified use of one are fields, an operand of an infix call too (`0 until MAX`, a constant italic)
 - **AND** a name after a receiver (`Math.size(1)`, `B::size`), of the path of an import, or of a parameter of a function type is no property, while `::size` is
 - **AND** a property of a script is static, as a top-level property of a file, also where a function uses it
-  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`a_name_after_a_receiver_is_no_field_of_the_scopes`, `an_operand_of_an_infix_call_is_read_by_the_scopes`, `a_script_has_its_top_level_properties_as_members`, `a_parameter_of_a_function_type_binds_nothing`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/highlight_test.rs (`a_name_after_a_receiver_is_no_field_of_the_scopes`, `an_operand_of_an_infix_call_is_read_by_the_scopes`, `a_script_has_its_top_level_properties_as_members`, `a_parameter_of_a_function_type_binds_nothing`)
 
 ### Requirement: Files section: A Rust call has the colour of the function it calls
 
@@ -1195,14 +1195,14 @@ colours.
 #### Scenario: Type parameters and labels
 - **WHEN** a file has a type parameter and a label
 - **THEN** they are coloured as a type parameter and a label
-  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`the_label_of_this_is_a_label`, `the_subject_of_a_where_clause_is_a_type_parameter`)
-  [@test] crates/code-symbols/src/java/highlight_test.rs (`an_annotated_type_parameter_is_a_type_parameter`)
-  [@test] crates/code-symbols/src/js/highlight_test.rs (`a_mapped_key_and_infer_are_type_parameters`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/highlight_test.rs (`the_label_of_this_is_a_label`, `the_subject_of_a_where_clause_is_a_type_parameter`)
+  [@test] psi-syntax:crates/code-symbols/src/java/highlight_test.rs (`an_annotated_type_parameter_is_a_type_parameter`)
+  [@test] psi-syntax:crates/code-symbols/src/js/highlight_test.rs (`a_mapped_key_and_infer_are_type_parameters`)
 
 #### Scenario: Doc comments
 - **WHEN** a file has a doc comment with its tags
 - **THEN** it is coloured as a doc comment with its tags
-  [@test] crates/code-symbols/src/java/highlight_test.rs (`a_markdown_doc_comment_is_a_doc_comment_from_the_slashes_of_each_line`)
+  [@test] psi-syntax:crates/code-symbols/src/java/highlight_test.rs (`a_markdown_doc_comment_is_a_doc_comment_from_the_slashes_of_each_line`)
 
 #### Scenario: A named argument, a string template, a macro, a lifetime, `self` and `?`
 - **WHEN** a file has a named argument, a string template, a macro, a lifetime, Rust's `self` or `?`
@@ -1215,7 +1215,7 @@ A Kotlin `var` and a Rust `mut` binding MUST be underlined; Kotlin's `it`, backi
 #### Scenario: A mutable binding and an implicit name
 - **WHEN** a file has a Kotlin `var`, a Rust `mut` binding, Kotlin's `it`, a backing `field` or a lambda
 - **THEN** the `var` and the `mut` binding are underlined, and `it`, `field` and the lambda braces bold
-  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`an_operand_of_an_infix_call_is_read_by_the_scopes`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/highlight_test.rs (`an_operand_of_an_infix_call_is_read_by_the_scopes`)
 
 ### Requirement: Files section: A JavaScript name is coloured by its declaration in the file
 
@@ -1226,13 +1226,13 @@ expression and a JSX component apart from an HTML tag and the brackets of a tag 
 #### Scenario: The names of a JavaScript file
 - **WHEN** a JavaScript or TypeScript file declares and uses names
 - **THEN** each name is coloured by its declaration, an exported, imported or undeclared one as global, a method also at its call
-  [@test] crates/code-symbols/src/highlight_test.rs (`colours_a_javascript_name_by_its_declaration_as_intellij_does`)
-  [@test] crates/code-symbols/src/js/highlight_test.rs (`an_exported_ambient_declaration_is_global`, `names_by_what_they_name`, `a_call_with_type_arguments_is_a_call`, `a_string_has_the_escapes_of_javascript`)
+  [@test] psi-syntax:crates/code-symbols/src/highlight_test.rs (`colours_a_javascript_name_by_its_declaration_as_intellij_does`)
+  [@test] psi-syntax:crates/code-symbols/src/js/highlight_test.rs (`an_exported_ambient_declaration_is_global`, `names_by_what_they_name`, `a_call_with_type_arguments_is_a_call`, `a_string_has_the_escapes_of_javascript`)
 
 #### Scenario: A JSX component and an HTML tag
 - **WHEN** a TSX file has a component, an HTML tag and a fragment
 - **THEN** the component is coloured apart from the HTML tag, and the brackets of a tag have their colour
-  [@test] crates/code-symbols/src/js/highlight_test.rs (`a_member_tag_is_a_component_and_a_fragment_has_brackets`)
+  [@test] psi-syntax:crates/code-symbols/src/js/highlight_test.rs (`a_member_tag_is_a_component_and_a_fragment_has_brackets`)
   [@test] tests/e2e/commit-files/commit-review.spec.ts (`should colour TSX as IntelliJ does: a name by its declaration, a component, a method, the brackets of a tag`)
 
 #### Scenario: A regular expression
@@ -1248,14 +1248,14 @@ plain.
 #### Scenario: The dialect of the extension
 - **WHEN** a TypeScript or JavaScript file is highlighted
 - **THEN** its grammar is the dialect of its extension
-  [@test] crates/code-symbols/src/highlight_test.rs (`chooses_the_grammar_of_the_dialect_of_the_extension`)
-  [@test] crates/code-symbols/src/js/highlight_test.rs (`the_grammar_reads_its_dialect`)
+  [@test] psi-syntax:crates/code-symbols/src/highlight_test.rs (`chooses_the_grammar_of_the_dialect_of_the_extension`)
+  [@test] psi-syntax:crates/code-symbols/src/js/highlight_test.rs (`the_grammar_reads_its_dialect`)
 
 #### Scenario: A template literal type, a decorator and a mapped type
 - **WHEN** a TypeScript file has a template literal type, a decorator with arguments, an index signature or a tuple member
 - **THEN** the template literal type is a string, the decorator is coloured from its `@` to its arguments, which are code
 - **AND** the name of the index signature or of the tuple member is plain
-  [@test] crates/code-symbols/src/js/highlight_test.rs (`a_template_literal_type_is_a_string`, `a_decorator_is_coloured_to_its_arguments`)
+  [@test] psi-syntax:crates/code-symbols/src/js/highlight_test.rs (`a_template_literal_type_is_a_string`, `a_decorator_is_coloured_to_its_arguments`)
 
 ### Requirement: Files section: The colours are those of the Islands schemes
 
@@ -1281,13 +1281,13 @@ one), and a string or a number that a parse error holds keeps its colour.
 #### Scenario: Keywords and soft keywords
 - **WHEN** a Kotlin file has `as?`, `!in`, `!is`, and a soft keyword used as a name
 - **THEN** the tokens of the parser are keywords, and the soft keyword used as a name is a name
-  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`the_keywords_are_the_tokens_of_the_parser`)
-  [@test] crates/code-symbols/src/highlight_test.rs (`colours_a_kotlin_name_that_is_a_soft_keyword_as_a_name`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/highlight_test.rs (`the_keywords_are_the_tokens_of_the_parser`)
+  [@test] psi-syntax:crates/code-symbols/src/highlight_test.rs (`colours_a_kotlin_name_that_is_a_soft_keyword_as_a_name`)
 
 #### Scenario: A parse error
 - **WHEN** a parse error holds a string or a number
 - **THEN** it keeps its colour
-  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`a_string_that_a_parse_error_holds_is_still_a_string`, `a_construct_past_the_nesting_limit_is_highlighted_as_its_error`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/highlight_test.rs (`a_string_that_a_parse_error_holds_is_still_a_string`, `a_construct_past_the_nesting_limit_is_highlighted_as_its_error`)
 
 ### Requirement: Files section: Rust's tokens are those of rust-analyzer's lexer
 
@@ -1298,12 +1298,12 @@ literals, a raw string has no escapes and a string's line continuation is one.
 #### Scenario: `Self` and the tokens of a macro
 - **WHEN** a Rust file has `Self`, and a macro with keywords, metavariables (`$x`, `$crate`) and a fragment (`$e:expr`)
 - **THEN** `Self` and the keywords are keywords, the metavariables plain, the fragment a keyword
-  [@test] crates/code-symbols/src/rust/highlight_test.rs (`self_type_is_a_keyword`, `the_tokens_of_a_macro_are_lexed`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/highlight_test.rs (`self_type_is_a_keyword`, `the_tokens_of_a_macro_are_lexed`)
 
 #### Scenario: An attribute and the strings
 - **WHEN** a Rust file has an attribute with literals, a raw string and a string with a line continuation
 - **THEN** the attribute is one colour but its literals, the raw string has no escapes, the line continuation is one
-  [@test] crates/code-symbols/src/rust/highlight_test.rs (`an_attribute_is_one_colour_but_its_literals`, `the_escapes_of_a_string`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/highlight_test.rs (`an_attribute_is_one_colour_but_its_literals`, `the_escapes_of_a_string`)
 
 ### Requirement: Files section: A Rust name is coloured by the binding its use sees
 
@@ -1313,12 +1313,12 @@ pattern is a mutable binding, and a variant after a type in a pattern (`Either::
 #### Scenario: A shadowed binding
 - **WHEN** a Rust name is bound again
 - **THEN** its uses see the last binding, a `let`'s from after it
-  [@test] crates/code-symbols/src/rust/highlight_test.rs (`a_binding_shadows_the_ones_before_it`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/highlight_test.rs (`a_binding_shadows_the_ones_before_it`)
 
 #### Scenario: The names of patterns
 - **WHEN** a pattern has a `mut` shorthand of a struct, and a variant after a type (`Either::One(_t)`)
 - **THEN** the shorthand is a mutable binding, and the variant a constant
-  [@test] crates/code-symbols/src/rust/highlight_test.rs (`the_names_of_patterns_and_declarations`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/highlight_test.rs (`the_names_of_patterns_and_declarations`)
 
 ### Requirement: Files section: A file the syntax tree cannot colour is coloured by Shiki, both sides
 
@@ -1329,13 +1329,13 @@ than rust-analyzer reads is coloured by Shiki.
 #### Scenario: A file nested too deep
 - **WHEN** a Rust or a script file is nested deeper than its parse reads
 - **THEN** it is coloured by its Shiki grammar, on a small stack
-  [@test] crates/code-symbols/src/rust/highlight_test.rs (`deep_nesting_is_highlighted_on_a_small_stack`)
-  [@test] crates/code-symbols/src/js/highlight_test.rs (`deep_nesting_is_highlighted_on_a_small_stack`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/highlight_test.rs (`deep_nesting_is_highlighted_on_a_small_stack`)
+  [@test] psi-syntax:crates/code-symbols/src/js/highlight_test.rs (`deep_nesting_is_highlighted_on_a_small_stack`)
 
 #### Scenario: A file over 8 MiB or without a grammar of the tree
 - **WHEN** a file is over 8 MiB, or of a language the syntax tree does not colour
 - **THEN** the backend colours none of it, and both sides are coloured by the Shiki grammar
-  [@test] crates/code-symbols/src/highlight_test.rs (`has_no_highlighting_over_the_limit`)
+  [@test] psi-syntax:crates/code-symbols/src/highlight_test.rs (`has_no_highlighting_over_the_limit`)
   [@test] crates/file-diffs/src/syntax_test.rs (`falls_back_to_the_worker_for_a_file_without_a_grammar`)
   [@test] src/lib/diff/highlight/backend-syntax.test.ts (`colours both sides of a file the backend cannot colour in the worker`)
 
@@ -1364,12 +1364,12 @@ call).
 #### Scenario: The fixtures of C#
 - **WHEN** the C# fixture is highlighted
 - **THEN** it matches its golden file
-  [@test] crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] psi-syntax:crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`)
 
 #### Scenario: Contextual keywords
 - **WHEN** a C# file has a contextual keyword the parser reads as a keyword, `var` of a declaration, `nameof` of a call, and the same words as names elsewhere
 - **THEN** the words the parser reads as keywords are keywords, and names elsewhere
-  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`the_contextual_keywords_the_parser_reads_as_keywords_are_keywords_and_names_elsewhere`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/highlight_test.rs (`the_contextual_keywords_the_parser_reads_as_keywords_are_keywords_and_names_elsewhere`)
 
 #### Scenario: C# in a review
 - **WHEN** a review shows a C# file
@@ -1388,17 +1388,17 @@ never as the member of its name (`Color Color`).
 - **THEN** they are fields, the static and `const` ones and the enum members italic, a static method a declaration and italic
 - **AND** the positional parameters of the record are fields
 - **AND** a verbatim identifier is the name of its text without the `@`: `@count` is the field `count`
-  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`members_are_fields_by_their_declarations_and_static_ones_are_italic`, `the_parameters_of_a_record_are_its_properties`, `a_verbatim_identifier_binds_its_value_text`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/highlight_test.rs (`members_are_fields_by_their_declarations_and_static_ones_are_italic`, `the_parameters_of_a_record_are_its_properties`, `a_verbatim_identifier_binds_its_value_text`)
 
 #### Scenario: A member after a value or a type name
 - **WHEN** a member follows a value (`item.Count`, `this.count`, `x?.Count`) or a type name
 - **THEN** after a value it is a field, after a type name plain
-  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`a_member_of_a_value_is_a_field_and_one_of_a_type_name_is_unknown`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/highlight_test.rs (`a_member_of_a_value_is_a_field_and_one_of_a_type_name_is_unknown`)
 
 #### Scenario: A name in a type position
 - **WHEN** C# reads a type where a member has the same name (`Color Color`)
 - **THEN** the name in the type position is a type, never the member of its name
-  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`a_name_in_a_type_position_is_a_type_not_the_member_of_its_name`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/highlight_test.rs (`a_name_in_a_type_position_is_a_type_not_the_member_of_its_name`)
 
 ### Requirement: Files section: The other roles of C# have their colours
 
@@ -1410,12 +1410,12 @@ roles, and so a documentation comment with its tags and their values, the keywor
 - **WHEN** a C# file has a type parameter, a label with its `goto`, a named argument and an attribute with arguments
 - **THEN** the type parameter is one where declared and used, the label and the `goto` to it are labels
 - **AND** the attribute is one colour and its arguments are code
-  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`a_type_parameter_is_one_where_declared_and_used`, `a_label_and_the_goto_to_it_are_labels`, `an_attribute_is_one_and_its_arguments_are_code`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/highlight_test.rs (`a_type_parameter_is_one_where_declared_and_used`, `a_label_and_the_goto_to_it_are_labels`, `an_attribute_is_one_and_its_arguments_are_code`)
 
 #### Scenario: A documentation comment and a directive
 - **WHEN** a C# file has a documentation comment, a directive and a branch of `#if` its configuration does not take
 - **THEN** the comment has its tags and their values, the directive its keywords, and the branch not taken is a comment
-  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`a_documentation_comment_has_its_tags_and_their_values`, `a_directive_has_its_keywords_and_a_branch_not_taken_is_a_comment`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/highlight_test.rs (`a_documentation_comment_has_its_tags_and_their_values`, `a_directive_has_its_keywords_and_a_branch_not_taken_is_a_comment`)
 
 ### Requirement: Files section: The strings of C# have the escapes of their kind
 
@@ -1425,7 +1425,7 @@ none of a raw one), with the code of its holes.
 #### Scenario: Strings of each kind
 - **WHEN** a C# file has a regular, a verbatim, an interpolated and a raw string
 - **THEN** each has the escapes of its kind (`\x41`, `""`, `{{`, none), and the holes are code
-  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`strings_have_the_escapes_of_their_kind`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/highlight_test.rs (`strings_have_the_escapes_of_their_kind`)
 
 ### Requirement: Files section: Starlark is coloured as the Bazel plugin of IntelliJ, from its PSI
 
@@ -1435,7 +1435,7 @@ Starlark (Bazel's BUILD, BUILD.bazel, MODULE.bazel, WORKSPACE and REPO.bazel fil
 #### Scenario: The files of Bazel
 - **WHEN** a diff shows a BUILD, BUILD.bazel, MODULE.bazel, WORKSPACE or REPO.bazel file, or one of `.bzl`, `.star` or `*.BUILD`
 - **THEN** it is read as Starlark
-  [@test] crates/code-symbols/src/starlark/highlight_test.rs (`bazel_files_are_starlark_by_their_names`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/highlight_test.rs (`bazel_files_are_starlark_by_their_names`)
 
 ### Requirement: Files section: The roles of Starlark are the plugin's
 
@@ -1446,17 +1446,17 @@ the callee of a top-level call as a declaration (a target's rule, `bazel_dep`), 
 #### Scenario: The keywords
 - **WHEN** a Starlark file has its keywords and a word it reserves, as `class`
 - **THEN** the keywords are coloured, and the reserved word is plain
-  [@test] crates/code-symbols/src/starlark/highlight_test.rs (`the_keywords_are_the_plugin_s`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/highlight_test.rs (`the_keywords_are_the_plugin_s`)
 
 #### Scenario: A `def` and a named argument
 - **WHEN** a Starlark file has a `def` and a call with a named argument
 - **THEN** the name of the `def` is a declaration, and the named argument's name and its `=` are coloured as the plugin annotates them
-  [@test] crates/code-symbols/src/starlark/highlight_test.rs (`a_def_s_name_and_a_named_argument_are_painted_as_the_plugin_annotates_them`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/highlight_test.rs (`a_def_s_name_and_a_named_argument_are_painted_as_the_plugin_annotates_them`)
 
 #### Scenario: A top-level call
 - **WHEN** a BUILD or MODULE.bazel file has a top-level call (a target's rule, `bazel_dep`), and a `.bzl` file one too
 - **THEN** the callee in the BUILD or MODULE.bazel file is a declaration, never the one of the `.bzl` file
-  [@test] crates/code-symbols/src/starlark/highlight_test.rs (`a_build_file_s_top_level_call_is_a_declaration`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/highlight_test.rs (`a_build_file_s_top_level_call_is_a_declaration`)
 
 ### Requirement: Files section: A diff shows the blocks of the engine with 4 lines of context
 

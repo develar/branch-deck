@@ -1,7 +1,7 @@
 # Symbol Dependencies
 
 **Status:** Implemented (`branchdeck.symbols on` by default)
-**Updated:** 2026-10-21
+**Updated:** 2026-11-14
 **Tags:** [dependencies, psi-syntax, rust-syntax, js-syntax, bd, check, suggest, conflict-fix]
 
 ## Problem
@@ -21,11 +21,10 @@ proposed `brd move-hunk` would have broken a branch.
 
 ## Solution Overview
 
-`crates/code-symbols` summarizes one source file (Kotlin, Java, C#, Starlark, Rust, TypeScript and JavaScript; Kotlin
-on the compiler's own parser, decision 21, Java on IntelliJ's own parser, decision 20, C# on Roslyn's, decision 23,
-Starlark on the Bazel plugin's, decision 25, Rust on rust-analyzer's, decision 26, TypeScript and JavaScript on oxc's,
-decision 27): its
-package, its imports (Rust `use` and `pub use`, Kotlin aliases, TypeScript imports and re-exports), its declarations
+`psi-syntax:crates/code-symbols` summarizes one source file (Kotlin, Java, C#, Starlark, Rust, TypeScript and
+JavaScript; Kotlin on the compiler's own parser, decision 21, Java on IntelliJ's own parser, decision 20, C# on
+Roslyn's, decision 23, Starlark on the Bazel plugin's, decision 25, Rust on rust-analyzer's, decision 26, TypeScript
+and JavaScript on oxc's, decision 27): its package, its imports (Rust `use` and `pub use`, Kotlin aliases, TypeScript imports and re-exports), its declarations
 with their containers and reach, and its references, without comments, strings (but with interpolations), locally
 bound names, labels and keys. Of Kotlin and Java it also holds the parameter types of each function, whether a member
 overrides and whether a subtype may override it, the supertypes of each type and the constructors of each class, per
@@ -33,6 +32,12 @@ overrides and whether a subtype may override it, the supertypes of each type and
 `new` and constructor invocation of a supertype the shape of its arguments (named, spread, a text, a number, a
 boolean, a lambda or another expression) and whether a Kotlin lambda, an object expression or an anonymous class
 around it may bring a receiver of its own. A summary depends only on the bytes of the blob, so it is cached by blob id.
+
+The crate is psi-syntax's since 2026-11-14 (accio's decision 2026-11-14-code-symbols-in-psi-syntax), beside the
+parsers it reads and the marks of a diff, whose names it binds for `accio diff` too: Branch Deck links it by the
+revision of develar/psi-syntax it links the parsers by (`file_diffs::PSI_SYNTAX_REVISION`), and a change of a rule of
+the summaries, the highlighting or the navigation is a commit of accio, then the mirror, then that revision, which makes
+every cached summary again ([Rust Rules → The crates of psi-syntax](../contributing/rust-rules.md#the-crates-of-psi-syntax)).
 
 Two consumers use the summaries. The dangling-reference check keeps finding candidate lines and only subtracts the
 ones the tree places in a comment, a string or a local scope, the name of an `override` member, and the names an
@@ -675,9 +680,9 @@ flowchart TD
     nothing to drop, their `,` being the list's. The name a C# token spells and the byte that writes it come from
     `csharp_syntax::read::word_at`, past a `@` and through a `\u` escape.
 
-    [@test] ../../crates/code-symbols/src/java/summary_test.rs (`a_declaration_ends_at_the_semicolon_that_is_its_own`)
-    [@test] ../../crates/code-symbols/src/kotlin/summary_test.rs (`an_enum_entry_drops_its_separator_and_a_property_keeps_its_semicolon`)
-    [@test] ../../crates/code-symbols/src/csharp/summary_test.rs (`no_separator_is_cut_from_a_declaration`)
+    [@test] psi-syntax:crates/code-symbols/src/java/summary_test.rs (`a_declaration_ends_at_the_semicolon_that_is_its_own`)
+    [@test] psi-syntax:crates/code-symbols/src/kotlin/summary_test.rs (`an_enum_entry_drops_its_separator_and_a_property_keeps_its_semicolon`)
+    [@test] psi-syntax:crates/code-symbols/src/csharp/summary_test.rs (`no_separator_is_cut_from_a_declaration`)
 
     **Rationale**: these questions have one answer per language and two consumers, Branch Deck and accio, which gave
     different ones: both cut a trailing `;` from every Java and C# declaration, against the PSI, while accio's rule
@@ -696,7 +701,7 @@ flowchart TD
     turns into the file it means: a path from the root of the repository, with a tail match for a Bazel workspace
     below it.
 
-    [@test] ../../crates/code-symbols/src/starlark/summary_test.rs (`a_top_level_call_with_a_literal_name_is_a_target_of_its_rule`, `only_a_build_file_declares_targets_from_its_top_level_calls`)
+    [@test] psi-syntax:crates/code-symbols/src/starlark/summary_test.rs (`a_top_level_call_with_a_literal_name_is_a_target_of_its_rule`, `only_a_build_file_declares_targets_from_its_top_level_calls`)
     [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_bazel_load_of_a_macro_another_commit_adds_is_an_edge`, `a_bazel_target_is_no_declaration_a_use_can_mean`)
 
     **Rationale**: the same rules have two consumers, accio's extractor and Branch Deck, and they had already drifted:
@@ -720,7 +725,7 @@ flowchart TD
     (an `ERROR` node, an expected token) lies between the start of its node after its attributes and its name, as of
     C#; `error_bytes` are the outermost `ERROR` nodes' bytes and one per error of no bytes.
 
-    [@test] ../../crates/code-symbols/src/rust/summary_test.rs (`a_header_is_the_tokens_of_the_item_as_lexed`, `a_member_after_a_group_in_a_macro_is_of_an_expression`, `the_tokens_of_a_macro_that_are_no_names`, `a_capitalized_pattern_of_an_arm_is_a_reference`, `a_typed_self_makes_an_instance_member`, `a_path_from_the_root_keeps_its_segments`, `the_references_of_an_attribute_are_of_the_container_around_its_item`, `the_types_of_paths`, `an_error_marks_the_declarations_it_lies_before_the_name_of`, `deep_nesting_is_summarized_on_a_small_stack`)
+    [@test] psi-syntax:crates/code-symbols/src/rust/summary_test.rs (`a_header_is_the_tokens_of_the_item_as_lexed`, `a_member_after_a_group_in_a_macro_is_of_an_expression`, `the_tokens_of_a_macro_that_are_no_names`, `a_capitalized_pattern_of_an_arm_is_a_reference`, `a_typed_self_makes_an_instance_member`, `a_path_from_the_root_keeps_its_segments`, `the_references_of_an_attribute_are_of_the_container_around_its_item`, `the_types_of_paths`, `an_error_marks_the_declarations_it_lies_before_the_name_of`, `deep_nesting_is_summarized_on_a_small_stack`)
     [@test] ../../crates/review-plan/src/api_test.rs (`a_rust_header_reads_as_code`)
 
     **Rationale**: two parsers of one language gave two readings of one file, the review's and accio's; rust-analyzer's
@@ -758,7 +763,7 @@ flowchart TD
     associated types); the navigation takes 25.9 s summed against tree-sitter's 82.4 s on Branch Deck, 25.9 s against
     966 s on the checkout (tree-sitter's spent over 300 s on one file, a type nested a thousand generics deep).
 
-    [@test] ../../crates/code-symbols/src/rust/navigate_test.rs (`a_binding_of_any_pattern_is_a_declaration`, `a_variant_in_a_pattern_is_no_declaration`, `the_names_of_an_attribute_are_in_the_scopes_of_its_item`, `what_is_no_name`, `the_kinds_of_paths_and_calls`, `deep_nesting_is_navigated_on_a_small_stack`)
+    [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`a_binding_of_any_pattern_is_a_declaration`, `a_variant_in_a_pattern_is_no_declaration`, `the_names_of_an_attribute_are_in_the_scopes_of_its_item`, `what_is_no_name`, `the_kinds_of_paths_and_calls`, `deep_nesting_is_navigated_on_a_small_stack`)
 
     The highlighting (`rust/highlight.rs`, [Diff View](diff-view.md#syntax-highlighting)) paints rust-analyzer's tokens
     by the rules of tree-sitter's (`RsColor` of RustRover): a keyword by its kind, `Self` and a keyword among the tokens
@@ -770,7 +775,7 @@ flowchart TD
     of the checkout's 21 092 those of 5 573, 2 170 of them files with a parse error; the highlighting takes 1.3 s summed
     against 2.7 s on Branch Deck, 5.0 s against 7.0 s on the checkout. tree-sitter-rust is no dependency.
 
-    [@test] ../../crates/code-symbols/src/rust/highlight_test.rs (`self_type_is_a_keyword`, `an_attribute_is_one_colour_but_its_literals`, `the_tokens_of_a_macro_are_lexed`, `the_escapes_of_a_string`, `a_binding_shadows_the_ones_before_it`, `the_names_of_patterns_and_declarations`, `deep_nesting_is_highlighted_on_a_small_stack`)
+    [@test] psi-syntax:crates/code-symbols/src/rust/highlight_test.rs (`self_type_is_a_keyword`, `an_attribute_is_one_colour_but_its_literals`, `the_tokens_of_a_macro_are_lexed`, `the_escapes_of_a_string`, `a_binding_shadows_the_ones_before_it`, `the_names_of_patterns_and_declarations`, `deep_nesting_is_highlighted_on_a_small_stack`)
 
 27. **Decision**: a TypeScript, TSX or JavaScript file is read by psi-syntax's `js-syntax`, oxc's parser with what every
     reader of psi-syntax shares of its parse (the dialect of the extension, decision 6, the options, the recovery of a
@@ -788,7 +793,7 @@ flowchart TD
     is `truncated`. Any nesting below that is read on a 2 MiB thread: the parse, the walk and the drop of the tree run
     on a thread of the stack the file needs.
 
-    [@test] ../../crates/code-symbols/src/js/summary_test.rs (`the_extension_chooses_the_dialect`, `a_header_is_the_tokens_of_the_parse`, `errors_are_what_the_parse_recovered_from`, `deep_nesting_is_read_on_a_small_stack`)
+    [@test] psi-syntax:crates/code-symbols/src/js/summary_test.rs (`the_extension_chooses_the_dialect`, `a_header_is_the_tokens_of_the_parse`, `errors_are_what_the_parse_recovered_from`, `deep_nesting_is_read_on_a_small_stack`)
 
     **Rationale**: two parsers of one file gave two readings of it, the review's and accio's. Against the tree-sitter
     baseline (`examples/facts.rs`), of the 1 032 TypeScript and JavaScript files of Branch Deck the summary moved in
@@ -825,7 +830,7 @@ flowchart TD
     a local of it, a private name (`#count`) is a name, the parameter of an index signature none. One thread, 4 945
     files: 2.64 s against 21.7 s.
 
-    [@test] ../../crates/code-symbols/src/js/navigate_test.rs (`a_bare_name_is_no_member_of_the_class_around_it`, `a_var_is_seen_in_its_function_and_a_let_in_its_block`, `deep_nesting_is_navigated_on_a_small_stack`)
+    [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_bare_name_is_no_member_of_the_class_around_it`, `a_var_is_seen_in_its_function_and_a_let_in_its_block`, `deep_nesting_is_navigated_on_a_small_stack`)
 
     The highlighting (`js/highlight.rs`) is the last reader: a walk of the tree marks the names by the start of their
     token, a pass over the parse's tokens and the comments paints them, so a contextual word (`type`, `as`, `infer`) is
@@ -838,12 +843,13 @@ flowchart TD
     parameters of a function type and of a signature parameters, the escapes of a string JavaScript's (`\x1f`,
     `\u{1F600}`). One thread, 5 000 files: 0.93 s against 9.41 s.
 
-    [@test] ../../crates/code-symbols/src/js/highlight_test.rs (`a_decorator_is_coloured_to_its_arguments`, `names_by_what_they_name`, `deep_nesting_is_highlighted_on_a_small_stack`)
+    [@test] psi-syntax:crates/code-symbols/src/js/highlight_test.rs (`a_decorator_is_coloured_to_its_arguments`, `names_by_what_they_name`, `deep_nesting_is_highlighted_on_a_small_stack`)
 
 ### Implementation Notes
 
-- `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and a revision of psi-syntax; the
-  `blob_summary` store is keyed by `file_diffs::summaries_version`, that of the revision the workspace links).
+- `psi-syntax:crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and a revision of
+  psi-syntax; the `blob_summary` store is keyed by `file_diffs::summaries_version`, that of the revision the workspace
+  links).
   Kotlin (`kotlin/summary.rs`) and Java (`java/summary.rs`) are walks of
   their PSI on the JVM rules of `jvm.rs` (decision 22): the `JvmFields` of a declaration (the signatures,
   `overrides`, `overridable`, `jvm_static`, `jvm_field`, `jvm_name`, `lateinit` and the `setter` of a `var`, `test`,
@@ -906,7 +912,7 @@ flowchart TD
   `searches_of` (the declarations on the changed lines of a branch's commits, `changed_form`, `constructor_forms`,
   `push_duplicates`), `DeclarationSearch::in_tree`, `uses` (`resolved`, `fit` with `header_fit`, `calls`),
   `removes_use` and `needs_new_form` for `fixed_by` and `mutual`; `TreeSearch::written_lines` of
-  `dangling_references.rs` for the uses the branch wrote; `crates/code-symbols`: `Walk::header` of each walk (of
+  `dangling_references.rs` for the uses the branch wrote; `psi-syntax:crates/code-symbols`: `Walk::header` of each walk (of
   Rust by its node's tokens, of TypeScript by the tokens of the parse), and `Reference::coroutine` by `Walk::coroutine` and `COROUTINE_BUILDERS`
   of `kotlin/summary.rs`.
 - `crates/trial-check/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
@@ -1266,8 +1272,8 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
   function addDiagnostic … } }`), which tree-sitter's walk had read at the top level and is a local now, and the enum
   members of 87 files whose fatal parse the two walks read otherwise after the same recovery. The two oracles of the
   readers' moves are in decisions 26 and 27.
-  [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_the_rust_impl_method_name_before_its_same_named_parameter_and_body_use`)
-  [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_each_typescript_overload_signature_and_implementation_at_its_name`)
+  [@test] psi-syntax:crates/code-symbols/src/navigate_test.rs (`finds_the_rust_impl_method_name_before_its_same_named_parameter_and_body_use`)
+  [@test] psi-syntax:crates/code-symbols/src/navigate_test.rs (`finds_each_typescript_overload_signature_and_implementation_at_its_name`)
 
 ### The gate
 

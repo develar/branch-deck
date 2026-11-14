@@ -1,7 +1,7 @@
 # Diff View: Our Own Renderer on the Blocks of the Engine
 
 **Status:** Implemented  
-**Updated:** 2026-11-12  
+**Updated:** 2026-11-14  
 **Tags:** [ui, diff, highlighting, virtualization, performance]
 
 **What runs and what is planned.** The steps of the Migration run: the row model, the layout, the highlight worker,
@@ -1642,8 +1642,10 @@ grammar is not loaded stays empty, so the front matter of Markdown would be a pa
 when one it embeds lazily loads after it, while the worker keeps the states of the old one. The first line of a grammar that the time limit cuts gets one more try
 with 1 s: the first lines compile the regexes of the rules.
 
-**Backend highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Java, C#, Starlark, Rust, TypeScript, TSX
-and JavaScript are coloured as the IntelliJ editor (and Rider) colours them without resolving a name, from a syntax tree of
+**Backend highlighting** (`psi-syntax:crates/code-symbols/src/highlight/`, psi-syntax's since 2026-11-14, so a change of
+a rule is a commit of accio, then a revision here: [Rust Rules](../contributing/rust-rules.md#the-crates-of-psi-syntax);
+the highlighting is kept in memory only, so no store is made again for it). Kotlin, Java, C#, Starlark, Rust,
+TypeScript, TSX and JavaScript are coloured as the IntelliJ editor (and Rider) colours them without resolving a name, from a syntax tree of
 `code-symbols`: Kotlin and Java from their PSI, the trees of the Kotlin compiler's and IntelliJ's own parsers
 (psi-syntax's `kotlin-syntax` and `java-syntax`, read by `kotlin/highlight.rs` and `java/highlight.rs`), C# from
 Roslyn's tree (psi-syntax's `csharp-syntax`, read by `csharp/highlight.rs`: a documentation comment's XML, the
@@ -1739,7 +1741,7 @@ Kotlin and Java from their PSI take 18–19 ms per MB, the parse included (the f
 intellij-community on one thread, 18.6 MB each: 343 and 365 ms, where tree-sitter took 1 527 and 1 257 ms); Rust from
 rust-analyzer's tree takes 5.0 s for the 21 092 Rust files of the IntelliJ monorepo against tree-sitter's 7.0 s, and
 TypeScript and JavaScript from oxc's 0.93 s for 5 000 files against 9.41 s ([Symbol Dependencies](symbol-dependencies.md),
-decisions 26 and 27). The rules have golden files (`crates/code-symbols/testdata/highlight/*.highlight`).
+decisions 26 and 27). The rules have golden files (`psi-syntax:crates/code-symbols/testdata/highlight/*.highlight`).
 
 **Go to Declaration** ([Symbol Navigation](../../openspec/specs/commit/symbol-navigation/spec.md)). The painter finds the word
 under a point or at the selection (`wordAt`, `wordAtSelection`: the caret of the point, the offset of its code cell
@@ -1852,7 +1854,7 @@ alone; the statements of the sections of a C# `switch` share its block, a query 
 each of its lambdas ends what it declares; the variable of a Java pattern is seen where its test is known to have
 matched (`java/pattern_scope.rs`, JLS 6.3), a resource of a `try` by its block; a Rust item sees no binding around it.
 
-The scopes are checked against the compilers. A fixture per language (`crates/code-symbols/testdata/navigate/`)
+The scopes are checked against the compilers. A fixture per language (`psi-syntax:crates/code-symbols/testdata/navigate/`)
 gives every read of a name `s` to a function of what it reads, `f` of the declaration of the file and `p` of the one
 its line declares, and the two take types of their own: the file compiles only as it is tagged, so the expectations
 of the test that reads it (`test_support::readings_unlike_the_compiler`) are javac's, csc's, kotlinc's, rustc's and

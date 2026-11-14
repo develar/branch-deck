@@ -12,15 +12,15 @@ targets:
   - src/hooks/useSymbolNavigation.ts
   - src/lib/diff/code-menu.ts
   - src/lib/menu-key.ts
-  - crates/code-symbols/src/navigate.rs
-  - crates/code-symbols/src/summary_builder.rs
-  - crates/code-symbols/src/kotlin/navigate.rs
-  - crates/code-symbols/src/java/navigate.rs
-  - crates/code-symbols/src/java/pattern_scope.rs
-  - crates/code-symbols/src/csharp/navigate.rs
-  - crates/code-symbols/src/starlark/navigate.rs
-  - crates/code-symbols/src/js/navigate.rs
-  - crates/code-symbols/src/rust/navigate.rs
+  - psi-syntax:crates/code-symbols/src/navigate.rs
+  - psi-syntax:crates/code-symbols/src/summary_builder.rs
+  - psi-syntax:crates/code-symbols/src/kotlin/navigate.rs
+  - psi-syntax:crates/code-symbols/src/java/navigate.rs
+  - psi-syntax:crates/code-symbols/src/java/pattern_scope.rs
+  - psi-syntax:crates/code-symbols/src/csharp/navigate.rs
+  - psi-syntax:crates/code-symbols/src/starlark/navigate.rs
+  - psi-syntax:crates/code-symbols/src/js/navigate.rs
+  - psi-syntax:crates/code-symbols/src/rust/navigate.rs
   - crates/file-diffs/src/declarations.rs
   - crates/file-diffs/src/usages.rs
   - crates/file-diffs/src/accio.rs
@@ -88,7 +88,7 @@ modifier held, the name under the pointer SHALL be underlined as a link and the 
 - **WHEN** the menu of the code opens where no name is
 - **THEN** "Go to Declaration" is disabled, with the reason
 - **AND** the backend finds no reference at a place that is no name
-  [@test] crates/code-symbols/src/navigate_test.rs (`has_no_reference_outside_a_name`)
+  [@test] psi-syntax:crates/code-symbols/src/navigate_test.rs (`has_no_reference_outside_a_name`)
   [@test] src/lib/diff/code-menu.test.ts (`offers both items for a name, and disables them with the reason where no name is`)
 
 ### Requirement: One Go to Declaration or Find Usages is in flight per view
@@ -377,18 +377,18 @@ side.
 - **WHEN** the function is shown as a declaration, inside the review or outside it
 - **THEN** the name of the function is selected, not the word of its attribute
 - **AND** it is at the same column on either side
-  [@test] crates/code-symbols/src/summary_test.rs (`a_declaration_whose_line_writes_its_name_twice_is_found_at_its_own_column`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`a_declaration_whose_line_writes_its_name_twice_is_found_at_its_own_column`)
   [@test] crates/file-diffs/src/declarations_test.rs (`finds_the_rust_impl_method_at_one_column_inside_and_outside_the_review`)
 
 #### Scenario: A doc comment above the name
 - **WHEN** a doc comment stands above the name of a declaration
 - **THEN** the column of the summary is still the one of the name the parser read
-  [@test] crates/code-symbols/src/summary_test.rs (`a_doc_comment_above_a_name_leaves_the_column_of_the_name`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`a_doc_comment_above_a_name_leaves_the_column_of_the_name`)
 
 #### Scenario: The column of the summary counts UTF-16 units
 - **WHEN** a line has characters of more than one UTF-16 unit before the name
 - **THEN** `Declaration::name_column` counts the UTF-16 units of its line before it
-  [@test] crates/code-symbols/src/summary_test.rs (`a_name_column_counts_the_utf16_units_of_its_line_before_it`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`a_name_column_counts_the_utf16_units_of_its_line_before_it`)
 
 #### Scenario: A declaration outside the review is selected from the column to the end column accio answers
 - **WHEN** accio answers a declaration outside the review with its column and end column
@@ -423,29 +423,29 @@ declared after its use, a hoisted TypeScript function) MUST go there; the name o
 #### Scenario: Kotlin names go to their declarations by the scopes
 - **WHEN** a name of a Kotlin file is a local, a parameter that shadows a property, or a member declared after its use
 - **THEN** Go to Declaration goes to the declaration the scopes bind it to
-  [@test] crates/code-symbols/src/navigate_test.rs (`finds_a_kotlin_local_a_parameter_that_shadows_a_property_and_a_member_declared_after_its_use`)
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_parameter_used_in_the_body_goes_to_the_parameter`, `the_parameter_of_a_catch_is_a_local_declaration`, `the_subject_of_a_where_clause_is_the_type_parameter`, `a_script_declares_its_top_level_names_for_its_functions`)
+  [@test] psi-syntax:crates/code-symbols/src/navigate_test.rs (`finds_a_kotlin_local_a_parameter_that_shadows_a_property_and_a_member_declared_after_its_use`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_parameter_used_in_the_body_goes_to_the_parameter`, `the_parameter_of_a_catch_is_a_local_declaration`, `the_subject_of_a_where_clause_is_the_type_parameter`, `a_script_declares_its_top_level_names_for_its_functions`)
 
 #### Scenario: Java names go to their declarations by the scopes
 - **WHEN** a name of a Java file is a field, a local or a parameter its scopes declare
 - **THEN** Go to Declaration goes to the declaration the scopes bind it to
-  [@test] crates/code-symbols/src/navigate_test.rs (`finds_a_java_field_a_local_and_tells_a_static_call_by_its_qualifier`)
-  [@test] crates/code-symbols/src/java/navigate_test.rs (`a_loop_variable_a_pattern_variable_a_resource_and_a_lambda_parameter_declare_their_name`, `a_use_before_the_declaration_of_a_local_is_the_field`, `the_members_of_an_anonymous_class_are_its_own`, `a_break_goes_to_its_label`, `an_argument_of_an_annotation_goes_to_the_element_of_its_type_in_the_file`, `var_and_this_are_no_names`, `a_call_through_super_of_an_interface_has_that_interface_for_its_qualifier`, `a_compact_constructor_reads_the_record_component_and_a_record_pattern_names_a_type`, `the_dotted_names_of_an_import_and_a_module_are_a_value_and_members_without_a_qualifier`, `a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere`, `the_arguments_of_an_anonymous_class_see_the_code_around_it_not_its_members`)
+  [@test] psi-syntax:crates/code-symbols/src/navigate_test.rs (`finds_a_java_field_a_local_and_tells_a_static_call_by_its_qualifier`)
+  [@test] psi-syntax:crates/code-symbols/src/java/navigate_test.rs (`a_loop_variable_a_pattern_variable_a_resource_and_a_lambda_parameter_declare_their_name`, `a_use_before_the_declaration_of_a_local_is_the_field`, `the_members_of_an_anonymous_class_are_its_own`, `a_break_goes_to_its_label`, `an_argument_of_an_annotation_goes_to_the_element_of_its_type_in_the_file`, `var_and_this_are_no_names`, `a_call_through_super_of_an_interface_has_that_interface_for_its_qualifier`, `a_compact_constructor_reads_the_record_component_and_a_record_pattern_names_a_type`, `the_dotted_names_of_an_import_and_a_module_are_a_value_and_members_without_a_qualifier`, `a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere`, `the_arguments_of_an_anonymous_class_see_the_code_around_it_not_its_members`)
 
 #### Scenario: Rust and TypeScript names go to their declarations by the scopes
 - **WHEN** a name of a Rust file is a binding, or a name of a TypeScript file is a parameter or a hoisted function
 - **THEN** Go to Declaration goes to the declaration the scopes bind it to
-  [@test] crates/code-symbols/src/navigate_test.rs (`finds_a_rust_binding_and_tells_a_method_and_a_path`, `finds_a_typescript_parameter_a_hoisted_function_and_tells_a_property`)
+  [@test] psi-syntax:crates/code-symbols/src/navigate_test.rs (`finds_a_rust_binding_and_tells_a_method_and_a_path`, `finds_a_typescript_parameter_a_hoisted_function_and_tells_a_property`)
 
 #### Scenario: C# names go to their declarations by the scopes
 - **WHEN** a name of a C# file is a parameter, a field, a local, a pattern variable or a type parameter
 - **THEN** Go to Declaration goes to the declaration the scopes bind it to
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_name_goes_to_its_declaration_by_the_scopes`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_name_goes_to_its_declaration_by_the_scopes`)
 
 #### Scenario: A C# member after a qualifier
 - **WHEN** a name of a C# file is a member after a qualifier (`a.b`)
 - **THEN** it has its qualifier, and the scopes bind it to no declaration
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_member_after_a_qualifier_has_its_qualifier_and_no_declaration`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_member_after_a_qualifier_has_its_qualifier_and_no_declaration`)
 
 #### Scenario: A local of the review, and the name of a declaration
 - **WHEN** Go to Declaration runs on a local of a file of the review
@@ -460,7 +460,7 @@ A Kotlin name after a receiver and `::` (`Foo::bar`, `this::bar`) MUST be a memb
 #### Scenario: A callable reference names a member of its receiver
 - **WHEN** Go to Declaration runs on `bar` of `Foo::bar` or `this::bar`
 - **THEN** the name is a member of that receiver, as after a dot
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_name_after_a_receiver_and_colons_is_its_member`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_name_after_a_receiver_and_colons_is_its_member`)
 
 ### Requirement: A Kotlin label and a doc comment have no names but this@Outer
 
@@ -470,7 +470,7 @@ In Kotlin a label and a name in a doc comment MUST be no names, but the `Outer` 
 - **WHEN** Go to Declaration runs on a label or a name in a doc comment
 - **THEN** there is no name there
 - **AND** the `Outer` of `this@Outer` is a type that goes to its class
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_label_and_a_doc_comment_have_no_names_but_the_label_of_this`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_label_and_a_doc_comment_have_no_names_but_the_label_of_this`)
 
 ### Requirement: A Kotlin variable is seen after its own statement
 
@@ -484,7 +484,7 @@ and of a file are seen wherever they are declared.
 - **THEN** the value of `name` goes to the parameter, the range to the parameter `items`, both early `count` to the property of the file
 - **AND** after their statements the names go to the variables
 - **AND** the usages of the parameter are its declaration and the value read from it
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`code_reads_in_its_order_a_variable_after_its_statement_and_a_loop_variable_after_its_range`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`code_reads_in_its_order_a_variable_after_its_statement_and_a_loop_variable_after_its_range`)
 
 ### Requirement: A Kotlin local is found before a member of a class inside its body
 
@@ -497,7 +497,7 @@ level of a file.
 - **WHEN** a function declares `val total` and `val sum`, then an object with a property `sum` whose function reads `sum`, `total` and a property of its own, and a local class `Box(val total: Int)` whose function reads `total`
 - **THEN** `sum` and `total` go to the variables of the function, in the object and in the class
 - **AND** the property no local hides goes to the property, and a property of the class of the function comes before one of the file
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_member_of_a_class_inside_a_body_gives_way_to_a_local_of_the_body`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_member_of_a_class_inside_a_body_gives_way_to_a_local_of_the_body`)
 
 ### Requirement: A parameter of a Kotlin primary constructor is seen by the initializers of its class
 
@@ -510,7 +510,7 @@ name. A function, an accessor, a secondary constructor and a class of the body M
 - **WHEN** `class C(total: String, val other: String = total) : Base(total)` reads `total` in a function, an initializer, a getter, an `init`, an inner class, an object, a function and a lambda of initializers and a secondary constructor, beside a property `total` of the file; and `class Greeter(name: String)` declares `fun greet() = "Hello, " + name` before `private val name = name.trim()`
 - **THEN** the default, the call of the supertype, the initializers, the `init` and what stands inside initializers go to the parameter, the function, the getter, the inner class and the secondary constructor to the property of the file
 - **AND** `name` in `greet` goes to the property, `name.trim()` to the parameter
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_parameter_of_a_primary_constructor_is_seen_by_the_initializers_of_its_class`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_parameter_of_a_primary_constructor_is_seen_by_the_initializers_of_its_class`)
 
 ### Requirement: A Kotlin companion is seen in its class, an instance in no class nested in it
 
@@ -521,7 +521,7 @@ instances of the classes around it: a name there goes to a declaration further o
 #### Scenario: The readings of the compiler
 - **WHEN** Go to Declaration runs on each of the 75 reads of `testdata/navigate/Scopes.kt`: a property `s` of the file and an `s` a function, a lambda, a loop, a `when`, a class, a companion, an object or an interface declares, each read given to a function that takes one of the two alone, so that kotlinc compiles the file only as it is tagged
 - **THEN** each read goes to the declaration the compiler binds it to: a function of a class to the `s` of its companion, an inner class to the property of the class around it, a class nested in it to the property of the file
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_name_is_bound_where_the_compiler_binds_it`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_name_is_bound_where_the_compiler_binds_it`)
 
 ### Requirement: The condition of a Kotlin do while sees the block of its body
 
@@ -532,7 +532,7 @@ statement after the loop does not.
 - **WHEN** a function loops `do { val more = … } while (more)` beside a property `more` of the file and reads `more` after the loop
 - **THEN** the condition goes to the variable of the body, the name after the loop to the property
 - **AND** the usages of the variable are its declaration and the condition
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local`)
 
 ### Requirement: A Kotlin name where a type is written is of no value
 
@@ -543,7 +543,7 @@ function of its spelling.
 #### Scenario: A type of the spelling of a parameter
 - **WHEN** a function with the parameter `total` declares `val typed: total`
 - **THEN** the type has no declaration in the file, and is no usage of the parameter
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local`)
 
 ### Requirement: The name of a named argument is the parameter of what is called
 
@@ -555,17 +555,17 @@ local of its spelling, and it is no usage of one.
 - **WHEN** a Kotlin function calls `report(total = total)` beside its parameter `total`
 - **THEN** the name of the argument is a member with no declaration, its value goes to the parameter
 - **AND** the usages of the parameter are its declaration and the value
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local`)
 
 #### Scenario: Bazel
 - **WHEN** a `def` calls `rule(name = name)` beside its parameter `name`
 - **THEN** the name of the argument is a member with no declaration, its value goes to the parameter
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`the_name_of_a_named_argument_is_bound_to_no_local`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`the_name_of_a_named_argument_is_bound_to_no_local`)
 
 #### Scenario: C#
 - **WHEN** a C# method calls `Report(total: total)` beside its local `total`
 - **THEN** the name of the argument is no usage of the local
-  [@test] crates/code-symbols/src/names_at_test.rs (`csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
+  [@test] psi-syntax:crates/code-symbols/src/names_at_test.rs (`csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
 ### Requirement: C# local functions, labels, verbatim names and using static
 
@@ -577,17 +577,17 @@ value and members after it (`Math` of `using static System.Math;` is a member).
 #### Scenario: A local function is seen in all of its block
 - **WHEN** a name calls a local function declared after the statement of the use
 - **THEN** it goes to that local function
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_name_goes_to_its_declaration_by_the_scopes`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_name_goes_to_its_declaration_by_the_scopes`)
 
 #### Scenario: A goto goes to its label
 - **WHEN** Go to Declaration runs on the label of a `goto`
 - **THEN** it goes to the label of its name in the blocks around it, the innermost first
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_goto_goes_to_the_label_of_its_name_in_the_blocks_around_it`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_goto_goes_to_the_label_of_its_name_in_the_blocks_around_it`)
 
 #### Scenario: A name compares by its value
 - **WHEN** a name is written verbatim (`@count`)
 - **THEN** it is the name `count`
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_verbatim_identifier_is_found_by_its_value`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_verbatim_identifier_is_found_by_its_value`)
 
 #### Scenario: The target of a using static
 - **WHEN** the target of a `using static` is one name (`using static Console;`)
@@ -596,7 +596,7 @@ value and members after it (`Math` of `using static System.Math;` is a member).
 #### Scenario: The dotted names of a using
 - **WHEN** a `using` or a namespace writes a dotted name (`using System.Text;`, `using static System.Math;`)
 - **THEN** its first name is a value and the names after it are members
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_names_of_a_namespace_and_a_using_are_values_and_members`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`the_names_of_a_namespace_and_a_using_are_values_and_members`)
 
 ### Requirement: C# documentation comments and directives have no names
 
@@ -605,7 +605,7 @@ In C# a name in a documentation comment or a directive MUST be none.
 #### Scenario: A documentation comment or a directive
 - **WHEN** Go to Declaration runs on a name in a documentation comment or a directive
 - **THEN** there is no name there
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_name_in_a_documentation_comment_or_a_directive_is_none`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_name_in_a_documentation_comment_or_a_directive_is_none`)
 
 ### Requirement: The statements of the sections of a C# switch share its block
 
@@ -618,7 +618,7 @@ statements around the `switch`.
 - **WHEN** a `switch (Next(out var seen))` declares `int total` in its first section beside a field `total`, assigns `total` in its second, whose label is `case int n when n > 0`, and declares a local function in its third
 - **THEN** the assignment of the second section goes to the local of the first, a `total` after the `switch` to the field
 - **AND** `n` goes to the variable of the label in its section and to the field in the third, the call of the local function to it, `seen` after the `switch` to the variable of the governing expression
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_sections_of_a_switch_share_its_block`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`the_sections_of_a_switch_share_its_block`)
 
 ### Requirement: A C# loop and a statement without a block end the variables of their expressions
 
@@ -631,7 +631,7 @@ block (`if (c) Use(out var y);`): a name after it goes to the declaration around
 - **WHEN** a method declares `x` in the condition of a `while`, `y` in `if (c) Use(out var y);`, `z` in the condition of a `do … while`, `w` in the expression of a `lock`, `s` in the condition of an `if` and `v` in `lock (o) Use(out var v);`, beside fields `x`, `y`, `z`, `w`, `v`, and reads each after its statement
 - **THEN** the body of the `while` goes to its variable, the names after the `while`, the `do` and the two bodies without a block to the fields
 - **AND** `w` after its `lock` and `s` after its `if` go to the variables of their expressions
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_loop_and_an_embedded_statement_end_the_variables_of_their_expressions`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_loop_and_an_embedded_statement_end_the_variables_of_their_expressions`)
 
 ### Requirement: A variable a C# expression declares ends where the compiler ends it
 
@@ -644,7 +644,7 @@ statements around the query.
 #### Scenario: The readings of the compiler
 - **WHEN** Go to Declaration runs on each of the 141 reads of `testdata/navigate/Scopes.cs`: a field `s` and a variable `s` in every statement, member and clause that may declare one, each read given to a method that takes the field or the variable alone, so that csc compiles the file only as it is tagged
 - **THEN** each read goes to the declaration the compiler binds it to
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_variable_of_an_expression_is_seen_where_the_compiler_sees_it`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_variable_of_an_expression_is_seen_where_the_compiler_sees_it`)
 
 ### Requirement: The top-level statements of a C# file share one scope
 
@@ -655,7 +655,7 @@ function of the file, which they call, and it stays a local, whose usages are th
 - **WHEN** a file of top-level statements declares `var total`, reads it in the next statement and in a local function, and calls that function
 - **THEN** each read goes to the declaration and the call to the local function
 - **AND** the usages of `total` are its declaration and the three reads
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_top_level_statements_of_a_file_share_a_scope`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`the_top_level_statements_of_a_file_share_a_scope`)
 
 ### Requirement: A C# query reads its clauses in their order
 
@@ -670,7 +670,7 @@ variable before it. The collection of a `foreach` MUST be read before the variab
 - **AND** the source of the `join` after `from item` goes to the field, its left key and the `select` to the variable of the `from`
 - **AND** after an `into` a variable before it is gone: `item` goes to the field, an `x` to no declaration
 - **AND** the collection of the `foreach` goes to the field, its body to the variable
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_query_reads_its_clauses_in_their_order`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_query_reads_its_clauses_in_their_order`)
 
 ### Requirement: A C# type and the member an initializer names are of no variable
 
@@ -682,7 +682,7 @@ its spelling. The member an object initializer or a `with` sets (`new Box { Size
 - **WHEN** a method declares `var total`, then `total typed`, `new Box { Size = Size, total = total }` and `new { Size = total }`, beside a class `total` of the file and a parameter `Size`
 - **THEN** the type goes to the class, the members the initializers name to no declaration, their values to the parameter and the local
 - **AND** the usages of the local are its declaration and the two values
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_type_and_a_member_an_initializer_names_are_of_no_variable`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`a_type_and_a_member_an_initializer_names_are_of_no_variable`)
 
 ### Requirement: The right side of a C# is is a type or a constant
 
@@ -694,7 +694,7 @@ pattern where no type is.
 - **WHEN** a method with the local constants `Limit` and `Max` reads `x is Top`, `x is Limit`, `x is Max`, `x is not Limit` and `x is Other`, beside a class `Max` of the file and a constant `Top` of its class
 - **THEN** `Top` and `Limit` go to the constants, `Max` to the class, `Other` to no declaration
 - **AND** the usages of `Limit` are its declaration and both patterns
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_right_side_of_an_is_is_a_constant_where_no_type_of_the_name_is_declared`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`the_right_side_of_an_is_is_a_constant_where_no_type_of_the_name_is_declared`)
 
 ### Requirement: The collection of a loop is read before its variable
 
@@ -705,12 +705,12 @@ statement alone: a name after the loop goes to the declaration around it.
 #### Scenario: Java
 - **WHEN** a Java method loops `for (String item : item.parts())` beside a field `item` and reads `item` after the loop
 - **THEN** the collection and the name after the loop go to the field, the body to the variable
-  [@test] crates/code-symbols/src/java/navigate_test.rs (`the_collection_of_a_for_is_read_before_its_variable`)
+  [@test] psi-syntax:crates/code-symbols/src/java/navigate_test.rs (`the_collection_of_a_for_is_read_before_its_variable`)
 
 #### Scenario: C#
 - **WHEN** a C# method loops `foreach (var item in item)` beside a field `item` and reads `item` after the loop
 - **THEN** the collection and the name after the loop go to the field, the body to the variable
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_variable_of_a_foreach_is_seen_in_its_statement_alone`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`the_variable_of_a_foreach_is_seen_in_its_statement_alone`)
 
 ### Requirement: A Java call, type and method reference are of no variable
 
@@ -722,7 +722,7 @@ after `::` of a method reference MUST be a member of what stands before the colo
 - **WHEN** a method declares `int size = size()` and `int total`, then `total typed` and `this::size`, beside a field and a method `size` and a class `total`
 - **THEN** the call goes to the method, the type to the class, `size` after `this::` is a member of `this`
 - **AND** the usages of each variable are its declaration and its reads
-  [@test] crates/code-symbols/src/java/navigate_test.rs (`a_call_a_type_and_a_method_reference_are_of_no_variable`)
+  [@test] psi-syntax:crates/code-symbols/src/java/navigate_test.rs (`a_call_a_type_and_a_method_reference_are_of_no_variable`)
 
 ### Requirement: The variable of a Java case pattern ends at the next label
 
@@ -732,7 +732,7 @@ after it up to the next label; the statements of another label go to the declara
 #### Scenario: A pattern variable read under the next label
 - **WHEN** a `switch` has `case Integer i when i > 0: use(i); break;` and `default: use(i);` beside a field `i`
 - **THEN** the guard and the first `use(i)` go to the variable of the pattern, the one under `default` to the field
-  [@test] crates/code-symbols/src/java/navigate_test.rs (`the_variable_of_a_case_pattern_ends_at_the_next_label`)
+  [@test] psi-syntax:crates/code-symbols/src/java/navigate_test.rs (`the_variable_of_a_case_pattern_ends_at_the_next_label`)
 
 ### Requirement: A Java pattern variable is seen where its test is known to have matched
 
@@ -744,12 +744,12 @@ that goes on only when it matched. Elsewhere the name MUST go to the declaration
 #### Scenario: The readings of the compiler
 - **WHEN** Go to Declaration runs on each of the 140 reads of `testdata/navigate/Scopes.java`: a field `s` and a pattern variable, a resource or a local `s` per method, under `!`, `&&`, `||`, `? :`, in the branches of an `if`, in loops, guards and labels, after statements that can and cannot complete normally, each read given to a method that takes the field or the variable alone, so that javac compiles the file only as it is tagged
 - **THEN** each read goes to the declaration the compiler binds it to
-  [@test] crates/code-symbols/src/java/navigate_test.rs (`a_pattern_variable_and_a_resource_are_seen_where_java_sees_them`)
+  [@test] psi-syntax:crates/code-symbols/src/java/navigate_test.rs (`a_pattern_variable_and_a_resource_are_seen_where_java_sees_them`)
 
 #### Scenario: The else of an if
 - **WHEN** a method reads `name` in both branches of `if (o instanceof String name) … else …` beside a field `name`
 - **THEN** the usages of the pattern variable are its declaration and the read of the first branch, and the read of the `else` is a usage of the field
-  [@test] crates/code-symbols/src/java/navigate_test.rs (`a_pattern_variable_and_a_resource_are_seen_where_java_sees_them`, `a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere`)
+  [@test] psi-syntax:crates/code-symbols/src/java/navigate_test.rs (`a_pattern_variable_and_a_resource_are_seen_where_java_sees_them`, `a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere`)
 
 ### Requirement: A resource of a Java try is seen by its resources and its block
 
@@ -759,7 +759,7 @@ A resource of a Java `try` MUST be seen by the resources after it and by the blo
 #### Scenario: A catch and a finally of the name of a resource
 - **WHEN** a `try (Res s = new Res(); Res q = r(s)) { r(s); } catch (Exception e) { f(s); }` and a `try` with a `finally` that reads `s` stand beside a field `s`
 - **THEN** the second resource and the block go to the resource, the `catch`, the `finally` and the statement after the `try` to the field
-  [@test] crates/code-symbols/src/java/navigate_test.rs (`a_pattern_variable_and_a_resource_are_seen_where_java_sees_them`)
+  [@test] psi-syntax:crates/code-symbols/src/java/navigate_test.rs (`a_pattern_variable_and_a_resource_are_seen_where_java_sees_them`)
 
 ### Requirement: A TypeScript or JavaScript file is read in the dialect of its extension
 
@@ -769,12 +769,12 @@ A TypeScript or JavaScript file MUST be read in the dialect of its extension: a 
 #### Scenario: A type assertion of a .ts file
 - **WHEN** a `.ts` file writes `<T>x`
 - **THEN** it asserts a type, and its `x` is a name of the code
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_typescript_file_reads_a_type_assertion`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_typescript_file_reads_a_type_assertion`)
 
 #### Scenario: JSX of a .js file
 - **WHEN** a `.js` file writes JSX
 - **THEN** it is read as JSX
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_jsx_tag_goes_to_its_component`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_jsx_tag_goes_to_its_component`)
 
 ### Requirement: TypeScript and JavaScript declarations are seen in their scopes
 
@@ -785,12 +785,12 @@ conditional type.
 #### Scenario: A var in its function, a let in its block
 - **WHEN** a name is declared by a `var`, or by a `let`, a `const`, a class or a function
 - **THEN** it is seen in all of its function for the `var`, in all of its block for the others
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_var_is_seen_in_its_function_and_a_let_in_its_block`, `deep_nesting_is_navigated_on_a_small_stack`, `a_name_is_bound_where_the_compiler_binds_it`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_var_is_seen_in_its_function_and_a_let_in_its_block`, `deep_nesting_is_navigated_on_a_small_stack`, `a_name_is_bound_where_the_compiler_binds_it`)
 
 #### Scenario: A parameter of a type, a type parameter and what infer declares
 - **WHEN** a name is a parameter of a function type or a signature, or what `infer` declares
 - **THEN** it is seen in that function type or signature alone, or in its conditional type
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`type_parameters_infer_and_a_predicate_go_to_their_declarations`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`type_parameters_infer_and_a_predicate_go_to_their_declarations`)
 
 ### Requirement: A TypeScript or JavaScript function has one variable of a name
 
@@ -803,7 +803,7 @@ function expression is another variable than a parameter of its name.
 - **WHEN** a function declares `var total = 2` in a block beside its parameter `total`, declares `var later` three times, the last in the head of a `for … of`, and reads `later` before the first
 - **THEN** the `var` of `total` goes to the parameter and is a write of it, every `later` goes to the first `var`, the last one as a write
 - **AND** `var e = 1` in `catch (e)` writes the parameter of the `catch`, and the parameter of `function total(total)` is what its body reads
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_function_has_one_variable_of_a_name`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_function_has_one_variable_of_a_name`)
 
 ### Requirement: The signature of a TypeScript or JavaScript function is read before its body
 
@@ -815,7 +815,7 @@ to its parameters and type parameters, else to a scope around the function, neve
 - **WHEN** a function inside `outer(total, sum)` has the default `a = total` and a `let total` in its body, and an arrow function the default `c = sum` and a `var sum`
 - **THEN** both defaults go to the parameters of `outer`, a default that names a parameter before it to that parameter
 - **AND** the bodies read their own declarations
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`the_default_of_a_parameter_is_read_outside_the_body`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`the_default_of_a_parameter_is_read_outside_the_body`)
 
 ### Requirement: A TypeScript name read as a type is of no variable
 
@@ -827,7 +827,7 @@ spelling. `typeof total` reads the value.
 - **WHEN** a function declares `const total`, a `const typed: total`, a `const other: total.T` and reads `typeof total`, beside a `type total` of the file
 - **THEN** the type and the namespace go to the type of the file, `typeof total` to the constant
 - **AND** the usages of the constant are its declaration, the `typeof` and its reads
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_type_is_of_no_variable_and_an_enum_sees_its_members`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_type_is_of_no_variable_and_an_enum_sees_its_members`)
 
 ### Requirement: The members of a TypeScript enum are seen in its body
 
@@ -837,7 +837,7 @@ declaration around the enum; outside its body a member is reached through the en
 #### Scenario: A member read by the member after it
 - **WHEN** an enum declares `sum = 1, twice = sum * 2` beside a constant `sum` of the function around it
 - **THEN** the `sum` of the enum goes to its member, the `sum` after the enum to the constant
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_type_is_of_no_variable_and_an_enum_sees_its_members`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_type_is_of_no_variable_and_an_enum_sees_its_members`)
 
 ### Requirement: A bare TypeScript name is never a member of the class around it
 
@@ -846,7 +846,7 @@ In TypeScript and JavaScript a bare name MUST NOT be a member of the class aroun
 #### Scenario: A bare name in a method
 - **WHEN** a method of a class uses a bare name that a member of the class also has
 - **THEN** the name is not that member; only `this.` reaches it
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_bare_name_is_no_member_of_the_class_around_it`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_bare_name_is_no_member_of_the_class_around_it`)
 
 ### Requirement: TypeScript destructurings, members and private names are declarations
 
@@ -856,7 +856,7 @@ private name (`#count`) MUST be declarations.
 #### Scenario: The names of members and a private name
 - **WHEN** Go to Declaration runs on a member of a class, an interface or an enum, a private name (`#count`) or a name of a destructuring
 - **THEN** that name is a declaration
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`the_names_of_members_are_declarations`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`the_names_of_members_are_declarations`)
 
 ### Requirement: TypeScript calls, qualified types, import types and imports
 
@@ -867,22 +867,22 @@ in its module.
 #### Scenario: A call with type arguments and a new
 - **WHEN** a name is called with type arguments, or follows `new`
 - **THEN** it is a call
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_call_with_type_arguments_and_a_new_are_calls`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_call_with_type_arguments_and_a_new_are_calls`)
 
 #### Scenario: A qualified name in a type
 - **WHEN** `a.B` stands in a type
 - **THEN** `B` is a type qualified by `a`
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_qualified_type_is_a_type_with_its_qualifier`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_qualified_type_is_a_type_with_its_qualifier`)
 
 #### Scenario: A name after an import type
 - **WHEN** a name follows `import("m")`
 - **THEN** it is a member of that module
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`the_names_after_an_import_type_are_members_of_its_module`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`the_names_after_an_import_type_are_members_of_its_module`)
 
 #### Scenario: A name of an import
 - **WHEN** Go to Declaration runs on a name of an import
 - **THEN** it is a value whose declaration is in its module
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_name_of_an_import_goes_to_its_module`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`a_name_of_an_import_goes_to_its_module`)
 
 ### Requirement: What no TypeScript name of a declaration of the file is
 
@@ -902,12 +902,12 @@ pattern (`None`) a value.
 #### Scenario: The binding of any pattern and an alias
 - **WHEN** a name is bound by any pattern (`if let`, a `for`, a match arm, a closure's parameter, a field of a struct pattern) or is an alias (`as e`)
 - **THEN** it is a declaration its uses go to
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_binding_of_any_pattern_is_a_declaration`, `deep_nesting_is_navigated_on_a_small_stack`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`a_binding_of_any_pattern_is_a_declaration`, `deep_nesting_is_navigated_on_a_small_stack`)
 
 #### Scenario: A capitalized name alone in a pattern
 - **WHEN** a pattern is a capitalized name alone (`None`)
 - **THEN** it is a value, no declaration
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_variant_in_a_pattern_is_no_declaration`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`a_variant_in_a_pattern_is_no_declaration`)
 
 ### Requirement: The names of a Rust attribute are in the scopes of its item
 
@@ -916,7 +916,7 @@ The names of a Rust attribute MUST be in the scopes of its item: `#[instrument(s
 #### Scenario: An attribute names a parameter
 - **WHEN** Go to Declaration runs on `ctx` of `#[instrument(skip(ctx))]`
 - **THEN** it goes to the parameter of the function
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`the_names_of_an_attribute_are_in_the_scopes_of_its_item`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`the_names_of_an_attribute_are_in_the_scopes_of_its_item`)
 
 ### Requirement: What no Rust name is
 
@@ -926,7 +926,7 @@ keyword among its tokens MUST be no names.
 #### Scenario: Lifetimes, labels, Self, _, cfg and macro tokens
 - **WHEN** Go to Declaration runs on a lifetime, a label, `Self`, `_`, a predicate of `#[cfg]`, a metavariable or a fragment of a macro, or a keyword among its tokens
 - **THEN** there is no name there
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`what_is_no_name`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`what_is_no_name`)
 
 ### Requirement: Rust calls and paths with type arguments
 
@@ -935,7 +935,7 @@ In Rust a method called with type arguments MUST be a call, and a name with type
 #### Scenario: Type arguments in a call and in a path
 - **WHEN** a method is called with type arguments, or a name with type arguments stands before `::`
 - **THEN** the method is a call and the name a type
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`the_kinds_of_paths_and_calls`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`the_kinds_of_paths_and_calls`)
 
 ### Requirement: A Rust binding is seen after its statement and in the block it guards
 
@@ -949,7 +949,7 @@ and a binding shadows an item.
 - **THEN** each value and collection goes to the parameter, each block to its binding
 - **AND** after the block of the `if let`, `found` is the parameter again
 - **AND** the usages of the parameter `total` are its declaration and the value read from it
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_binding_is_seen_after_its_statement_and_in_the_block_it_guards`, `a_name_is_bound_where_the_compiler_binds_it`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`a_binding_is_seen_after_its_statement_and_in_the_block_it_guards`, `a_name_is_bound_where_the_compiler_binds_it`)
 
 ### Requirement: A Rust name is of its namespace
 
@@ -963,13 +963,13 @@ member, which no scope binds.
 - **WHEN** a function declares `let total` and `let first`, then `S { total: total }`, `let typed: total::T = first!()` and `total::run(total) + first`, beside a module `total` and a macro `first` of the file
 - **THEN** the segments before `::` go to the module, `first!` to the macro, the field before its colon is a member with no declaration
 - **AND** the value of the field, the argument and `first` go to the bindings, and the usages of `total` are its declaration, that value and that argument
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_name_is_of_its_namespace_and_an_item_sees_no_binding_around_it`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`a_name_is_of_its_namespace_and_an_item_sees_no_binding_around_it`)
 
 #### Scenario: A constant and a const parameter as the argument of a generic
 - **WHEN** a file has `impl<const N: usize> Array<N>`, `fn f() -> Array<CAP>` beside `const CAP`, `fn g<const M: usize>(a: Array<M>) -> usize { M }` and `let a: Array<n>` beside a parameter `n`
 - **THEN** `N`, `CAP` and `M` go to their declarations, `n` to none
 - **AND** the usages of `M` are its declaration, the argument and its read
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`an_argument_of_a_generic_is_a_constant_or_a_const_parameter`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`an_argument_of_a_generic_is_a_constant_or_a_const_parameter`)
 
 ### Requirement: A Rust item sees no binding of the code around it
 
@@ -980,7 +980,7 @@ function.
 #### Scenario: A fn inside a function reads a static
 - **WHEN** a function with the parameter `sum` declares `fn g() -> u32 { total::run(sum) }` beside a static `sum` of the file, and reads `sum` itself
 - **THEN** the `sum` of `g` goes to the static, the `sum` of the function to its parameter
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_name_is_of_its_namespace_and_an_item_sees_no_binding_around_it`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`a_name_is_of_its_namespace_and_an_item_sees_no_binding_around_it`)
 
 ### Requirement: A Rust format string uses the names it takes from the code around it
 
@@ -993,7 +993,7 @@ and a string outside a macro MUST name nothing, and a name inside a string is no
 - **WHEN** Find Usages runs on a parameter that `format!("{total} {{total}} {total:>8} {:width$} …", total)` and `format!("{total:0width$} {:#0width$x} {:08.width$} {width:0>5} …", total)` read, a string outside a macro spelling `{total}` too
 - **THEN** its usages are its declaration, the placeholders and the arguments; `width` has its declaration, the width of the first string and the three widths and the placeholder of the second
 - **AND** Go to Declaration finds no name inside the string
-  [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_format_string_uses_the_names_it_takes_from_the_code_around_it`)
+  [@test] psi-syntax:crates/code-symbols/src/rust/navigate_test.rs (`a_format_string_uses_the_names_it_takes_from_the_code_around_it`)
 
 ### Requirement: A Bazel file has the scopes of the file, a def and a comprehension
 
@@ -1005,23 +1005,23 @@ comprehension.
 #### Scenario: A name of the file goes to what binds it
 - **WHEN** Go to Declaration runs on a call of a `def` of the file, or a read of a name the file assigns, in a `BUILD` or a `.bzl` file
 - **THEN** it goes to the `def` or the assignment that binds it
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_call_of_a_def_of_the_file_goes_to_the_def`, `a_read_of_an_assigned_name_goes_to_its_assignment`, `a_bzl_file_reads_the_same_names_as_a_build_file`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`a_call_of_a_def_of_the_file_goes_to_the_def`, `a_read_of_an_assigned_name_goes_to_its_assignment`, `a_bzl_file_reads_the_same_names_as_a_build_file`)
 
 #### Scenario: A qualified call is bound by no scope of the file
 - **WHEN** a call is qualified by a receiver
 - **THEN** it names its receiver, and no `def`, assignment or `load` of the file is its declaration
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_qualified_call_names_its_receiver_and_has_no_declaration_of_its_own`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`a_qualified_call_names_its_receiver_and_has_no_declaration_of_its_own`)
 
 #### Scenario: A name declared inside a def is a local
 - **WHEN** Find Usages runs on a parameter of a `def` or a name its body assigns
 - **THEN** it is a local, whose usages stay in that `def`
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`the_usages_of_a_parameter_stay_inside_its_def`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`the_usages_of_a_parameter_stay_inside_its_def`)
 
 #### Scenario: The variable of a comprehension is a local
 - **WHEN** a comprehension binds a name, inside a `def` or at the top level of the file, that the code around it spells too
 - **THEN** the name is a local of the comprehension: past it the name is the one around again
 - **AND** the usages of the name of the file hold none of the comprehension
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_comprehension_is_a_scope_and_a_default_is_read_where_its_function_is_defined`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`a_comprehension_is_a_scope_and_a_default_is_read_where_its_function_is_defined`)
 
 ### Requirement: A Bazel default and the first collection of a comprehension are read outside their scope
 
@@ -1033,7 +1033,7 @@ collection and the condition of a comprehension see its variables.
 - **WHEN** a `def` has the parameters `name, deps = name, key = lambda name = name: name` and the comprehension `[name for name in name.split() if name]`, beside a `name` of the file
 - **THEN** both defaults go to the `name` of the file, the body of the `lambda` to its parameter
 - **AND** the first collection goes to the parameter of the `def`, the element and the condition to the variable of the comprehension
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_comprehension_is_a_scope_and_a_default_is_read_where_its_function_is_defined`, `a_name_is_bound_where_the_language_binds_it`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`a_comprehension_is_a_scope_and_a_default_is_read_where_its_function_is_defined`, `a_name_is_bound_where_the_language_binds_it`)
 
 ### Requirement: A name a Bazel def binds is one variable in all of it
 
@@ -1046,7 +1046,7 @@ not a name of the file.
 - **WHEN** a `def` assigns `total` twice, the second time in an `if`, assigns and loops over its parameter `deps`, and a `def` inside it reads `total` before the first assignment, beside a `total` of the file
 - **THEN** the second assignment and the read of the closure go to the first assignment, the assignment and the `for` of `deps` to the parameter
 - **AND** the usages of `total` are its declaration, the write of the branch and its reads, the closure's among them; the name of the file has none of them
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_name_a_def_binds_is_one_variable_in_all_of_it`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`a_name_a_def_binds_is_one_variable_in_all_of_it`)
 
 ### Requirement: A name a Bazel load binds is declared by its string
 
@@ -1056,12 +1056,12 @@ goes to, at the name inside its quotes, and the use counts as an import.
 #### Scenario: A call of a loaded macro goes to the line that loads it
 - **WHEN** Go to Declaration runs on a call of a name a `load` binds
 - **THEN** it goes to the string of the `load`, at the name inside its quotes
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_call_of_a_loaded_macro_goes_to_the_line_that_loads_it`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`a_call_of_a_loaded_macro_goes_to_the_line_that_loads_it`)
 
 #### Scenario: The usages of a loaded name
 - **WHEN** Find Usages runs on a loaded name
 - **THEN** its usages are its import and its calls
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`the_usages_of_a_loaded_name_are_its_import_and_its_calls`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`the_usages_of_a_loaded_name_are_its_import_and_its_calls`)
 
 ### Requirement: A label in a Bazel string is no name
 
@@ -1070,7 +1070,7 @@ A label in a string (`":x"`, `"//pkg:x"`) MUST be no name: a target is reached b
 #### Scenario: A label in a string
 - **WHEN** Go to Declaration runs on a label in a string (`":x"`, `"//pkg:x"`)
 - **THEN** there is no name there
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_label_in_a_string_is_no_name`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`a_label_in_a_string_is_no_name`)
 
 ### Requirement: A name its own file does not bind is looked for in the review, ranked
 
@@ -1342,24 +1342,24 @@ sees.
 #### Scenario: The usages of a parameter apart from the property it shadows
 - **WHEN** Find Usages runs on a parameter or a local of a function
 - **THEN** its usages are the names its scopes bind to its declaration, in its file only
-  [@test] crates/code-symbols/src/navigate_test.rs (`finds_the_usages_of_a_kotlin_parameter_apart_from_the_property_it_shadows`)
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_usages_of_a_local_are_its_own_and_of_a_member_all_unbound`)
+  [@test] psi-syntax:crates/code-symbols/src/navigate_test.rs (`finds_the_usages_of_a_kotlin_parameter_apart_from_the_property_it_shadows`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`the_usages_of_a_local_are_its_own_and_of_a_member_all_unbound`)
   [@test] crates/file-diffs/src/usages_test.rs (`finds_a_word_in_the_files_of_the_review_without_git_and_a_local_in_its_file_only`)
 
 #### Scenario: A Kotlin local outside a function
 - **WHEN** Find Usages runs on a declaration inside code outside a function (an `init` block, a `catch` or a `when` of a property's initializer)
 - **THEN** it is a local
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_local_outside_a_function_is_a_local`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_local_outside_a_function_is_a_local`)
 
 #### Scenario: A local of a Java initializer
 - **WHEN** Find Usages runs on a local declared in an initializer block of a Java class (`{ … }`, `static { … }`)
 - **THEN** it is a local
-  [@test] crates/code-symbols/src/java/navigate_test.rs (`a_local_of_an_initializer_is_a_local`)
+  [@test] psi-syntax:crates/code-symbols/src/java/navigate_test.rs (`a_local_of_an_initializer_is_a_local`)
 
 #### Scenario: A parameter of a Kotlin function type
 - **WHEN** Find Usages runs on the parameter of a function type (`(event: Event) -> Unit`)
 - **THEN** it is a local that no scope sees
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_parameter_of_a_function_type_declares_nothing_the_code_sees`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_parameter_of_a_function_type_declares_nothing_the_code_sees`)
 
 ### Requirement: The usages of any other name are the names no local binds
 
@@ -1370,14 +1370,14 @@ the other files of the review in a language that sees it, from the texts the dif
 - **WHEN** Find Usages runs on a name that is no local
 - **THEN** its usages are the names of that text that no local binds, in its file and in the same side of the other files of the review in a language that sees it
 - **AND** no git process runs
-  [@test] crates/code-symbols/src/navigate_test.rs (`finds_the_usages_of_a_rust_binding_and_of_an_imported_function`, `finds_the_usages_of_a_name_in_another_file_without_the_locals_that_shadow_it`)
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_usages_of_a_local_are_its_own_and_of_a_member_all_unbound`, `the_usages_in_another_file_are_the_names_no_local_binds`)
+  [@test] psi-syntax:crates/code-symbols/src/navigate_test.rs (`finds_the_usages_of_a_rust_binding_and_of_an_imported_function`, `finds_the_usages_of_a_name_in_another_file_without_the_locals_that_shadow_it`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`the_usages_of_a_local_are_its_own_and_of_a_member_all_unbound`, `the_usages_in_another_file_are_the_names_no_local_binds`)
   [@test] crates/file-diffs/src/usages_test.rs (`finds_a_word_in_the_files_of_the_review_without_git_and_a_local_in_its_file_only`)
 
 #### Scenario: The places of the usages of a Kotlin name
 - **WHEN** Find Usages runs on a Kotlin name: a package of one segment, an assigned member, a call with type arguments, or a name in a CRLF text
 - **THEN** each usage is at its place, with how it uses the name
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_package_of_one_segment_is_one_usage`, `the_qualifier_of_an_assigned_member_is_its_whole_receiver`, `a_call_with_type_arguments_is_a_call_and_an_increment_a_write`, `the_usages_of_a_name_are_at_their_places_in_one_pass_over_a_crlf_text`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_package_of_one_segment_is_one_usage`, `the_qualifier_of_an_assigned_member_is_its_whole_receiver`, `a_call_with_type_arguments_is_a_call_and_an_increment_a_write`, `the_usages_of_a_name_are_at_their_places_in_one_pass_over_a_crlf_text`)
 
 ### Requirement: A write is an assignment, an increment, a C# out or ref argument or a destructuring target
 
@@ -1390,20 +1390,20 @@ value of a variable of a TypeScript or JavaScript function does. An argument of 
 #### Scenario: An assignment and an increment write
 - **WHEN** a name ends the left side of an assignment or is the operand of `++` or `--`
 - **THEN** its usage is a write
-  [@test] crates/code-symbols/src/navigate_test.rs (`tells_a_java_write_an_increment_and_an_import`)
-  [@test] crates/code-symbols/src/java/navigate_test.rs (`a_write_is_the_left_side_of_an_assignment_and_the_operand_of_an_increment`)
-  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_call_with_type_arguments_is_a_call_and_an_increment_a_write`)
+  [@test] psi-syntax:crates/code-symbols/src/navigate_test.rs (`tells_a_java_write_an_increment_and_an_import`)
+  [@test] psi-syntax:crates/code-symbols/src/java/navigate_test.rs (`a_write_is_the_left_side_of_an_assignment_and_the_operand_of_an_increment`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin/navigate_test.rs (`a_call_with_type_arguments_is_a_call_and_an_increment_a_write`)
 
 #### Scenario: A Bazel assignment declares
 - **WHEN** a name of a Bazel file is assigned by `=`
 - **THEN** its usage there is its declaration, no write
 - **AND** a later assignment of the name in its `def`, and a `for` over it, is a write of the variable
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`the_usages_of_a_parameter_stay_inside_its_def`, `a_name_a_def_binds_is_one_variable_in_all_of_it`)
+  [@test] psi-syntax:crates/code-symbols/src/starlark/navigate_test.rs (`the_usages_of_a_parameter_stay_inside_its_def`, `a_name_a_def_binds_is_one_variable_in_all_of_it`)
 
 #### Scenario: A C# out or ref argument writes
 - **WHEN** a C# name is passed as an `out` or `ref` argument
 - **THEN** its usage is a write
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_usages_of_a_local_are_its_own_and_of_a_member_all_unbound`)
+  [@test] psi-syntax:crates/code-symbols/src/csharp/navigate_test.rs (`the_usages_of_a_local_are_its_own_and_of_a_member_all_unbound`)
 
 #### Scenario: An argument of any other language reads
 - **WHEN** a name of a Kotlin, Java, Rust, TypeScript or JavaScript file is passed as an argument, a Rust `&mut x` too
@@ -1413,7 +1413,7 @@ value of a variable of a TypeScript or JavaScript function does. An argument of 
 - **WHEN** a TypeScript or JavaScript name is a target of a destructuring assignment
 - **THEN** its usage is a write
 - **AND** a later `var` of a variable of its function is a write when it has a value, a declaration again when it has none
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`an_assignment_a_destructuring_and_an_increment_write`, `a_function_has_one_variable_of_a_name`)
+  [@test] psi-syntax:crates/code-symbols/src/js/navigate_test.rs (`an_assignment_a_destructuring_and_an_increment_write`, `a_function_has_one_variable_of_a_name`)
 
 ### Requirement: The usages outside the review come from the index at the side
 

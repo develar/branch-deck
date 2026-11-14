@@ -254,17 +254,15 @@ pub(crate) fn crate_name(manifest: &[u8]) -> Option<String> {
   None
 }
 
-/// The deepest `extends` chain the reads of `ts_aliases` follow, one pass a level: as deep as `js_syntax::tsconfig`
-/// follows one, whose bound is private (JetBrains/accio#784: export it, then use it here)
-const MAX_EXTENDS: usize = 16;
-
 /// The path aliases of each configuration of `configs` (its path, and its bytes or none), with the `extends` chain tsc
 /// applies (`js_syntax::tsconfig::aliases`), by its directory: the configurations of a directory by name, those that
 /// give a specifier nothing left out. `configs` are the `tsconfig*.json` files of the directories above the files, read
 /// in the batch of the summaries, so a chain of those costs nothing; a name tried that a directory `roots` read lacks (a
 /// name without `.json`) costs nothing either. Any other configuration a chain names is read in one `cat-file --batch`
 /// of what a pass lacks, a pass a level of the chains, wherever it lies: by its blob when a directory `roots` read lists
-/// it (`./base.json` beside the files), else at `rev` by its path
+/// it (`./base.json` beside the files), else at `rev` by its path. The reads stop where `tsconfig::aliases` stops
+/// following a chain (`tsconfig::MAX_EXTENDS`): it has the whole answer after at most `MAX_EXTENDS - 1` passes, so the
+/// stop at `MAX_EXTENDS` is a guard that no answer reaches
 fn ts_aliases(git: &GitCommandExecutor, repository_path: &str, rev: &str, roots: &ModuleRoots, configs: Vec<(String, Option<Vec<u8>>)>) -> Result<HashMap<String, Vec<Aliases>>> {
   let mut paths: Vec<String> = configs.iter().filter(|(_, text)| text.is_some()).map(|(path, _)| path.clone()).collect();
   paths.sort_unstable();
@@ -296,7 +294,7 @@ fn ts_aliases(git: &GitCommandExecutor, repository_path: &str, rev: &str, roots:
       let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
       aliases.entry(dir.to_string()).or_default().push(config);
     }
-    if wanted.is_empty() || pass == MAX_EXTENDS {
+    if wanted.is_empty() || pass == tsconfig::MAX_EXTENDS {
       return Ok(aliases);
     }
     pass += 1;

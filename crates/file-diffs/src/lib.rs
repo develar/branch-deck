@@ -31,10 +31,12 @@ mod worktree;
 /// The revision of psi-syntax, whose `kotlin-syntax`, `java-syntax` and `csharp-syntax` read Kotlin, Java and C#, whose
 /// `starlark-syntax` reads Starlark, whose `js-syntax` reads TypeScript and JavaScript and whose `rust-syntax` reads Rust:
 /// the `rev` of develar/psi-syntax (the public mirror of accio's `psi-syntax/`) of the workspace's dependencies, the
-/// one of every crate of psi-syntax the workspace builds but `lmdb-env`: `code-tokens`, whose parsers are of the same
-/// revision and whose version of the tokens is keyed by it (`code_tokens::tokens_version`), `line-diff` and
-/// `diff-marks` (`the_psi_syntax_revision_is_the_one_cargo_builds`)
-pub const PSI_SYNTAX_REVISION: &str = "94e5d0ad8472cbbdfb3f3a8a0a25564cebe5bbb9";
+/// one of every crate of psi-syntax the workspace builds but `lmdb-env`: `code-symbols`, whose summaries are keyed by
+/// it (`summaries_version`), `code-tokens`, whose parsers are of the same revision and whose version of the tokens is
+/// keyed by it (`code_tokens::tokens_version`), `line-diff` and `diff-marks`
+/// (`the_psi_syntax_revision_is_the_one_cargo_builds`). A new revision makes the stored diffs (`file_diff`) and
+/// summaries (`blob_summary`) again; the highlighting is kept in memory only
+pub const PSI_SYNTAX_REVISION: &str = "a26787b231d3321689a1171a9a0ee38424067336";
 
 /// The version of the summaries of this build (`code_symbols::extract::extractor_version` of `PSI_SYNTAX_REVISION`): the
 /// one the `blob_summary` store is read and written by, so a summary of other rules or other parsers is made again

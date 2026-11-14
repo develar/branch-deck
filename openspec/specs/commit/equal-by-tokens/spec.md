@@ -243,7 +243,7 @@ the grammars of the build and the revision of the parsers its consumer names, an
 - **WHEN** a file of a grammar gets other whitespace where no token is: an indent, spaces at the end of a line, a blank line
 - **THEN** its tokens are the same, its content and its text without blanks too, and a name of it renamed is another token
 - **AND** each token is in the lines it names, with only blanks before it
-  [@test] crates/code-symbols/src/tokens_fixture_test.rs (`every_fixture_formatted_again_has_the_same_tokens`)
+  [@test] psi-syntax:crates/code-symbols/src/tokens_fixture_test.rs (`every_fixture_formatted_again_has_the_same_tokens`)
 
 ### Requirement: Comments: A comment is no code and compares by its text
 
@@ -345,9 +345,9 @@ where the tree around the names is the same, and no other token changes.
 
 `code-tokens` is a crate of psi-syntax: its tests run in accio's checkout (`cargo nextest run -p code-tokens`), and the
 rule on real files, each formatted again and with a name renamed, there too: `cargo run --release -p code-tokens
---example tokens -- <files and directories>` (`--none` lists the files without tokens). Here
-`cargo nextest run -p code-symbols -E 'test(/tokens_fixture_test/)'` checks the tokens of every fixture of
-`code-symbols` and of its sources.
+--example tokens -- <files and directories>` (`--none` lists the files without tokens). `code-symbols` is a crate of
+psi-syntax too: there `cargo nextest run -p code-symbols -E 'test(/tokens_fixture_test/)'` checks the tokens of every
+fixture of `code-symbols` and of its sources.
 
 ## Open Questions / Risks
 

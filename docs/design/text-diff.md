@@ -1,7 +1,7 @@
 # Text Diff Engine
 
 **Status:** Implemented (the engine of every diff and merge the app shows)
-**Updated:** 2026-11-13
+**Updated:** 2026-11-14
 **Tags:** [diff, comparison, intellij, port]
 
 ## Problem
@@ -24,7 +24,8 @@ mirror of accio's `psi-syntax/`, that it links the parsers by (one line of `[wor
 change of it is a commit of accio, then a new revision here. To try one before that, build with every crate of
 psi-syntax Cargo.lock holds (but `lmdb-env`) patched to accio's checkout, one
 `--config 'patch."https://github.com/develar/psi-syntax".<crate>.path="<accio>/psi-syntax/crates/<crate>"'` each:
-cargo rewrites Cargo.lock for it, which goes back before a commit, and CI builds the revision.
+cargo rewrites Cargo.lock for it, which goes back before a commit, and CI builds the revision (the steps and the cache
+a patched build must not write: [Rust Rules → The crates of psi-syntax](../contributing/rust-rules.md#the-crates-of-psi-syntax)).
 
 `crates/text-diff` is the wire model of the app over it, Branch Deck's own: the types that `src/lib/bindings.ts`
 describes (`specta::Type`) and the `file_diff` store keeps (`text_diff::model`: `TextDiff` with its scopes and its

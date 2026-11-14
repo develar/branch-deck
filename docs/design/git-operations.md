@@ -3321,7 +3321,7 @@ before and after each commit, by blob id; nothing reads the working tree or an i
   changed member brings the overloads its file had before along); a use of anything else is no edge.
 
 Code: `crates/trial-check/src/symbol_scan.rs`, `crates/trial-check/src/module_roots.rs`,
-`crates/trial-check/src/symbol_dependencies.rs`, `crates/object-cache/src/blob_summary.rs`, `crates/code-symbols`.
+`crates/trial-check/src/symbol_dependencies.rs`, `crates/object-cache/src/blob_summary.rs`, `psi-syntax:crates/code-symbols`.
 
 #### Commit files
 

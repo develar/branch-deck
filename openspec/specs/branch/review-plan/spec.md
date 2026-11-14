@@ -22,10 +22,10 @@ targets:
   - crates/review-plan/src/texts.rs
   - crates/review-plan/src/modules.rs
   - crates/trial-check/src/declaration_checks.rs
-  - crates/code-symbols/src/kotlin/summary.rs
-  - crates/code-symbols/src/java/summary.rs
-  - crates/code-symbols/src/psi_tree.rs
-  - crates/code-symbols/src/rust/summary.rs
+  - psi-syntax:crates/code-symbols/src/kotlin/summary.rs
+  - psi-syntax:crates/code-symbols/src/java/summary.rs
+  - psi-syntax:crates/code-symbols/src/psi_tree.rs
+  - psi-syntax:crates/code-symbols/src/rust/summary.rs
   - crates/trial-check/src/symbol_dependencies.rs
   - crates/trial-check/src/symbol_scan.rs
   - crates/file-diffs/src/accio.rs
@@ -686,7 +686,7 @@ no entry, as an addition of it is none.
 #### Scenario: The order of the reaches
 - **WHEN** two reaches are compared by `Reach::wider_than`
 - **THEN** each is wider than every one before it: a private member, private in its file, `pub(super)`, the module, public
-  [@test] crates/code-symbols/src/summary_test.rs (`a_reach_is_wider_than_every_one_before_it`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`a_reach_is_wider_than_every_one_before_it`)
 
 #### Scenario: Opened to unstable API
 - **WHEN** the reach widens and the declaration is unstable API
@@ -785,8 +785,8 @@ types alone, so a type written in other words is no change. Of a change each par
 #### Scenario: The type as written
 - **WHEN** a Kotlin or a Java parameter has a type
 - **THEN** its form shows it as written: `Map<String, List<T>?>`, `suspend (index: Int) -> Unit`, `String...`, `int[][]`, without an annotation
-  [@test] crates/code-symbols/src/kotlin_test.rs (`a_parameter_shows_its_type_as_written`)
-  [@test] crates/code-symbols/src/java_test.rs (`a_parameter_shows_its_type_as_written`)
+  [@test] psi-syntax:crates/code-symbols/src/kotlin_test.rs (`a_parameter_shows_its_type_as_written`)
+  [@test] psi-syntax:crates/code-symbols/src/java_test.rs (`a_parameter_shows_its_type_as_written`)
 
 #### Scenario: A type written in other words
 - **WHEN** a commit writes a type in other words (`Map<String,List<Path>>` for `Map<String, List<Path>>`)
@@ -3330,7 +3330,7 @@ them is a change as any. The statements are read at the lines of the diff, never
 - **THEN** the import and package statements of Kotlin, Java, Rust and TypeScript and the `using` directives and the `namespace` line of C# are imports
 - **AND** a Rust `pub use` and a TypeScript `export … from` are none
   [@test] crates/file-diffs/src/service_test.rs (`a_block_of_import_statements_alone_is_marked_by_the_syntax`)
-  [@test] crates/code-symbols/src/summary_test.rs (`the_import_lines_are_the_import_and_package_statements`)
+  [@test] psi-syntax:crates/code-symbols/src/summary_test.rs (`the_import_lines_are_the_import_and_package_statements`)
 
 #### Scenario: A line of code beside the imports
 - **WHEN** a block has a line of code beside the imports

@@ -159,7 +159,7 @@ texts are the same when their tokens are, and two texts with the same tokens par
 Measured (release, one thread, load 30 to 45): the tokens of a Kotlin or Java file of idea-1's `platform-impl` (910
 tokens on average) in 0.3 ms, of a TypeScript file of this repository in 0.2 ms, of a Rust file of it (13 KiB on
 average) in 0.7 ms, a quarter of it the errors of rust-analyzer's validation; so the pair of each of 141 files of a
-plan in about 0.1 s. `cargo run --release -p code-symbols --example tokens` checks the rule on real files: formatted
+plan in about 0.1 s. `cargo run --release -p code-tokens --example tokens` (accio's checkout) checks the rule on real files: formatted
 again (indents, spaces at line ends, blank lines), 2 474 files of this repository, 7 388 Kotlin and Java files of
 idea-1, 61 447 files of the test data of its Java and Kotlin plugins, 8 124 of psi-syntax's C#, Java and Starlark
 test data and 4 460 of JavaScript and TypeScript packages have the same tokens, the same content and the same text

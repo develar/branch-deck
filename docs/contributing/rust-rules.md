@@ -1,13 +1,14 @@
 # Rust Rules
 
 **Status:** Active  
-**Updated:** 2026-10-29  
-**Tags:** [rust, clippy, tracing, windows]
+**Updated:** 2026-11-14  
+**Tags:** [rust, clippy, tracing, windows, psi-syntax]
 
 ## Summary
 
 How the Rust code is written beside its git ([Git Rules](git-rules.md)): logging and spans, Clippy, platform
-branches, file system removals, processes and imports. [AGENTS.md](../../AGENTS.md) ("Code Style") keeps one line
+branches, file system removals, processes and imports, and how a crate of psi-syntax changes
+([The crates of psi-syntax](#the-crates-of-psi-syntax)). [AGENTS.md](../../AGENTS.md) ("Code Style") keeps one line
 per rule and links here.
 
 - **Rust**: `snake_case` for variables, functions and modules; `tracing` for structured logging, `#[instrument]` to
@@ -53,3 +54,42 @@ per rule and links here.
   - ✅ `use git_executor::git_command_executor::GitCommandExecutor`
   - ✅ `use domain_types::issue_navigation::IssueNavigationConfig`
   - ❌ `pub use pull_request::PullRequestAvailability` (in lib.rs)
+
+## The crates of psi-syntax
+
+`code-symbols` (the summaries, the highlighting, the navigation and the bindings of the names the marks ask),
+`code-tokens`, `line-diff`, `diff-marks`, `spec-syntax`, `js-syntax` (with `tsconfig`) and the parsers below them are
+accio's `psi-syntax/crates/`, which accio's `accio diff` reads too. Branch Deck links them from develar/psi-syntax, the
+public mirror of accio's `psi-syntax/`, at one revision: the `rev` of their lines of `[workspace.dependencies]` in the
+root `Cargo.toml`, the same as `file_diffs::PSI_SYNTAX_REVISION` (`the_psi_syntax_revision_is_the_one_cargo_builds`
+checks every one Cargo.lock holds against it; `lmdb-env` has a revision of its own). None of their code is in this
+repository, so a change of one is never an edit here:
+
+1. **Try it** against accio's checkout (or a lease of accio) before a commit there. Every crate of psi-syntax that
+   Cargo.lock holds, but `lmdb-env`, is patched to it, one `--config` each; a patch of one alone would link a second
+   copy of the crates it depends on:
+
+   ```bash
+   accio=~/projects/accio   # or the lease of accio that holds the change
+   patches=()
+   for crate in code-symbols code-tokens csharp-syntax diff-marks java-syntax js-syntax kotlin-syntax line-diff \
+     psi-builder rust-syntax spec-syntax starlark-syntax; do
+     patches+=(--config "patch.\"https://github.com/develar/psi-syntax\".$crate.path=\"$accio/psi-syntax/crates/$crate\"")
+   done
+   cargo "${patches[@]}" nextest run -p file-diffs -p trial-check   # bash and zsh alike
+   ```
+
+   The patched build keys the cache by the revision it does not build (`summaries_version`, `code_tokens::tokens_version`
+   of `PSI_SYNTAX_REVISION`), so a summary or a diff it writes would be read by the released app as its own: run `brd`
+   of a patched build with `--no-cache` (the cache is the repository's, `$GIT_COMMON_DIR/branch-deck/cache`, shared by
+   every worktree), and the app only on a repository of its own. cargo rewrites Cargo.lock to the paths; it goes back
+   before a commit (`git checkout Cargo.lock`), and a Cargo.lock with a path fails
+   `the_psi_syntax_revision_is_the_one_cargo_builds` all the same.
+2. **Commit in accio** (its rules, its tests: a rule of `code-symbols` is tested there, `marks_bindings*_test.rs` for
+   the marks), push, then mirror it (`scripts/psi-syntax-mirror.sh` of accio, its build and tests in the mirror, the
+   push of the mirror).
+3. **One revision here**: the mirror's commit in every psi-syntax line of `[workspace.dependencies]` and in
+   `PSI_SYNTAX_REVISION`, one commit. Every revision makes the stored diffs (`file_diff`) and summaries
+   (`blob_summary`) again, as their versions hash it; the highlighting is kept in memory only. The commit says so, and
+   the A/B of `brd --no-cache commits --mark-stats` and `--symbol-stats` on a real repository before and after shows
+   what the revision changed.

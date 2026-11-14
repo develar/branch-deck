@@ -1,7 +1,9 @@
 //! The direction of the dependencies between the crates of the workspace, the rules of "Crates и направление
 //! зависимостей" in `docs/design/rust-domain-authority.md`, checked on `cargo metadata`. The rules are data; an edge
 //! that breaks one today stands in `ALLOWED` with the stage that removes it, and an entry whose edge is gone or that
-//! breaks no rule fails too, so the list only shrinks. A failure names the edge, or the path of a forbidden reach.
+//! breaks no rule fails too, so the list only shrinks. A failure names the edge, or the path of a forbidden reach. A
+//! rule names crates the workspace holds or depends on (`code-symbols` is psi-syntax's, which file-diffs links), so a
+//! renamed or removed crate leaves no rule that guards nothing.
 //!
 //! `--no-deps` lists the dependencies of the workspace crates only: a reach goes through workspace crates and ends at
 //! the first external crate (`reqwest` is seen, the `tokio` that `reqwest` pulls in is not). An optional dependency is
@@ -569,6 +571,35 @@ fn the_rules_of_the_architecture_name_crates_of_the_workspace() {
     .chain([APP, APP_API, TEST_SERVER, BD_CORE, BD_CLI]);
   let unknown: Vec<&str> = named.filter(|name| !graph.contains_key(*name)).collect();
   assert!(unknown.is_empty(), "the architecture rules name crates the workspace lacks (renamed?): {unknown:?}");
+  let forbidden = unknown_forbidden(&graph);
+  assert!(
+    forbidden.is_empty(),
+    "the architecture rules forbid crates that neither the workspace holds nor a crate of it depends on (renamed, or gone \
+     from the workspace?): {forbidden:?}"
+  );
+}
+
+/// The names `UNREACHABLE` forbids that match no crate `graph` holds and no dependency of one: a crate of the workspace
+/// (`file-diffs`) or one it links from outside (`reqwest`, `code-symbols` of psi-syntax), so that a renamed or removed
+/// crate does not leave a rule that guards nothing
+fn unknown_forbidden(graph: &Graph) -> Vec<&'static str> {
+  let known: BTreeSet<&str> = graph
+    .iter()
+    .flat_map(|(name, package)| std::iter::once(name.as_str()).chain(package.dependencies.iter().map(|dependency| dependency.name.as_str())))
+    .collect();
+  let forbidden: BTreeSet<&'static str> = UNREACHABLE.iter().flat_map(|rule| rule.forbidden.iter().copied()).collect();
+  forbidden.into_iter().filter(|pattern| !known.iter().any(|name| matches(pattern, name))).collect()
+}
+
+#[test]
+fn a_forbidden_name_is_a_crate_of_the_workspace_or_a_dependency_of_one() {
+  // `code-symbols` of psi-syntax is no crate of the workspace, but file-diffs depends on it, so its rules still guard
+  let graph = graph_of(&[("file-diffs", "code-symbols", Kind::Normal, &[]), ("sync-core", "git-ops", Kind::Normal, &[])]);
+  let forbidden = unknown_forbidden(&graph);
+  assert!(!forbidden.contains(&"code-symbols"), "{forbidden:?}");
+  assert!(!forbidden.contains(&"file-diffs") && !forbidden.contains(&"git-ops"), "{forbidden:?}");
+  // a name no crate holds or depends on guards nothing
+  assert!(forbidden.contains(&"youtrack"), "{forbidden:?}");
 }
 
 /// A graph of `(from, to, kind, features)` edges, none optional, each `from` a workspace crate without features

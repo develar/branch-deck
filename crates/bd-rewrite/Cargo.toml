@@ -10,9 +10,9 @@ publish = false
 commit-clustering = { path = "../commit-clustering" }
 generated-files = { path = "../generated-files", features = ["schemars"] }
 bd-core = { path = "../bd-core" }
-code-symbols = { path = "../code-symbols" }
+code-symbols.workspace = true
 # the tokens of a file and the rule "equal by tokens", the grammar of a path
-code-tokens = { workspace = true, default-features = true }
+code-tokens.workspace = true
 file-diffs = { path = "../file-diffs" }
 # the marks of a diff and the answers of the index they decide by
 diff-marks.workspace = true

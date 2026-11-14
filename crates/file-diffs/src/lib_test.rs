@@ -30,6 +30,7 @@ fn the_psi_syntax_revision_is_the_one_cargo_builds() {
     "rust-syntax",
     "starlark-syntax",
     "code-tokens",
+    "code-symbols",
     "line-diff",
     "diff-marks",
   ] {
