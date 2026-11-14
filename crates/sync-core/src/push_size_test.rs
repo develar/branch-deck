@@ -3,6 +3,7 @@ use crate::push_size::{DEFAULT_PUSH_SIZE_LIMIT, check_push_size, parse_push_size
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::history::HistoryCommit;
 
 /// The limit is a size; `0` and the words of off turn the check off; anything else says what it takes
 #[test]
@@ -43,4 +44,27 @@ fn files_spread_over_the_tree_name_no_directory() {
   assert_eq!(too_large.directory, None);
   assert_eq!(too_large.paths(), ["a/one.txt", "b/two.txt", "three.txt"]);
   assert_eq!(check_push_size(repo.git_executor(), repo.path_str(), &[&tip], "origin", 900).unwrap(), None);
+}
+
+/// A file that ten commits of the push change counts once, by its largest version less the remote's (100 − 50 bytes,
+/// not the 775 of its ten versions): the versions go as deltas of each other, so a long branch of edits to one file is
+/// no large push; a new file beside it counts whole, and the refusal names each file once
+#[test]
+fn a_file_changed_by_many_commits_counts_once() {
+  let versions: Vec<String> = (0..=10).map(|version| format!("{version:02} {}", "x".repeat(47 + 5 * version))).collect();
+  let commits: Vec<HistoryCommit> = versions
+    .iter()
+    .enumerate()
+    .map(|(version, content)| HistoryCommit::new(format!("Edit {version}"), &[("notes.md", content.as_str())]))
+    .collect();
+  let (repo, ids) = TestRepo::with_history(&commits);
+  repo.git(&["update-ref", "refs/remotes/origin/main", &ids[0]]);
+  let edits = ids.last().unwrap().clone();
+
+  assert_eq!(check_push_size(repo.git_executor(), repo.path_str(), &[&edits], "origin", 500).unwrap(), None);
+
+  let tip = repo.create_commit("Add", "data.bin", &"d".repeat(600));
+  let too_large = check_push_size(repo.git_executor(), repo.path_str(), &[&tip], "origin", 500).unwrap().unwrap();
+  assert_eq!((too_large.size, too_large.files), (650, 2));
+  assert_eq!(too_large.paths(), ["data.bin", "notes.md"]);
 }

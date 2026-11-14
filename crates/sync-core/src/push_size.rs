@@ -1,5 +1,5 @@
-//! The size check of a push: a push that would add more than `branchdeck.pushSizeLimit` of files (50 MiB unless set,
-//! uncompressed, `0` or `off` for no check) is refused before it talks to the remote, naming the directory that holds
+//! The size check of a push: a push whose files would add more than `branchdeck.pushSizeLimit` (50 MiB unless set,
+//! uncompressed, each file once by what it adds to the remote's version, `0` or `off` for no check) is refused before it talks to the remote, naming the directory that holds
 //! most of it and the largest files. A server refuses such a pack only after the upload, with `unpacker error` and no
 //! file named, and what it carries is mostly build output committed by mistake: 2236 files of a cargo `target/`
 //! (229 MiB) were refused that way (docs/design/git-operations.md, "Push size").
@@ -40,7 +40,7 @@ pub fn parse_push_size_limit(text: &str) -> Result<Option<u64>, String> {
 /// A push refused for its size before it talked to the remote: nothing was pushed
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PushTooLarge {
-  /// The bytes of the files the push adds, uncompressed
+  /// The bytes the files of the push add, uncompressed (`push_contents`: each file once, by what it adds)
   pub size: u64,
   pub limit: u64,
   /// How many files the push adds
@@ -100,7 +100,7 @@ impl PushTooLarge {
   }
 }
 
-/// The files a push of `tips` to `remote` adds (`push_contents`), refused when their bytes exceed `limit`: one `log`
+/// The files a push of `tips` to `remote` adds (`push_contents`), refused when the bytes they add exceed `limit`: one `log`
 /// and one `cat-file --batch-check`
 #[instrument(skip(git, tips), fields(tips = tips.len()))]
 pub fn check_push_size(git: &GitCommandExecutor, repository_path: &str, tips: &[&str], remote: &str, limit: u64) -> Result<Option<PushTooLarge>> {

@@ -4894,16 +4894,32 @@ size carries is mostly build output committed by mistake, and the error names it
 directory that holds four fifths of it (`main_directory`) and the three largest files, then what to do (`PushTooLarge`,
 `push_too_large`, its `paths` the directory and the files).
 
-- **What counts** (`git_ops::push_contents`): the blobs that the commits of the pushed tips add or change and that no
-  remote-tracking branch of the remote reaches: one `git log -z --raw --no-renames --no-abbrev --topo-order --reverse
-  --format= --stdin` (the tips, `--not`, `--remotes=<remote>` on stdin), each blob once at the first path a commit gave
-  it, a deleted file and a gitlink not; then one `cat-file --batch-check='%(objectname) %(objectsize)' -Z`
+- **What counts** (`git_ops::push_contents`): each path that the commits of the pushed tips add or change, the commits
+  no remote-tracking branch of the remote reaches, once, by the bytes it adds: its largest version in the push less the
+  remote's version of the path (the `<src>` of its first diff), never below nothing; a path that adds nothing is no file
+  of the push. One `git log -z --raw --no-renames --no-abbrev --topo-order --reverse --format=tformat:@ --stdin` (the
+  tips, `--not`, `--remotes=<remote>` on stdin; `@` marks each commit), then one `cat-file
+  --batch-check='%(objectname) %(objectsize)' -Z` of the versions and the remote's versions
   (`cat_file_batch::object_sizes`). On the monorepo the 106 commits of that history took 0.14 s and 0.19 s; a
   `rev-list --objects --disk-usage` of the same push took 1.1 s, a walk of every tree, which the push's own
-  `pack-objects` makes again. A blob the remote holds under another commit counts too: the diffs don't say what the
-  remote holds, so the check may overcount a copied file, never undercount.
+  `pack-objects` makes again.
+  - *Once, not per version*: git sends the versions of a file as deltas of each other and of the remote's version. A
+    branch of 59 commits (`develar/virtual/123`, 2026-11-14) counted every version whole: 768 blobs, 50.0 MiB, refused,
+    naming one 700 KiB design doc three times as "the largest"; each path once at its largest version is 13.0 MiB (12.7
+    of it changes to files the remote has), by what each adds 0.9 MiB in 415 files; its thin pack is 1.4 MiB.
+  - *Largest, not last*: a `target/` committed and then removed within the push is still in the pack.
+  - *What the remote has*: the `<src>` of a diff that no earlier commit of the push wrote is a blob from outside the
+    push, which the remote has; a version equal to one counts nothing (a file moved under `--no-renames`, a revert). The
+    commit marks are why: within one commit the new path of a move may come before the old one. A blob counts once.
+  - *Not exact*: a copy of a file the push does not touch counts (the diffs don't say what the remote holds); a file
+    replaced by other content of about its size counts only its growth, and a binary rewritten many times once, though
+    git sends nearly all of each. The server's own limit stays behind it (below, "Not here").
+  - *Not measured*: the pack itself (`pack-objects --revs --thin`) repeats the push's delta search; the size on disk
+    (`%(objectsize:disk)`) depends on what is loose or packed here and the delta bases this clone chose, and the limit
+    is uncompressed.
 - **Where**: at the start of `push_leased`, the one leased push of every push (the app's push and stack push, the whole
-  stack, an unapplied branch, `brd push`, `brd safe-push` of a whole stack), after the repository lock, since it only
+  stack, an unapplied branch, `brd push`, `brd safe-push` of a whole stack), and in `push_baseline` (a push into the
+  baseline, [Push into the baseline](#push-into-the-baseline)), after the repository lock, since it only
   reads; a dry run too, so `brd push --dry-run` answers what the push would. The limit comes with the operation's one
   `git config` (`ConfigSnapshot::push_size_limit`): `brd` from the snapshot of its sync, the app's push read by the start of
   its run (`land_session`, one `config`); a value that is neither a size nor off refuses the push, rather
