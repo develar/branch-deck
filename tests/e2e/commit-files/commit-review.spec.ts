@@ -345,12 +345,15 @@ simpleTest.describe("Commit review", () => {
   })
 
   simpleTest("should observe the size of the map of the files once as the review opens, however often its diffs lay out", async ({ page }) => {
-    // the observations the review window starts on the track of the map
+    // the observers the review window makes of the track of the map, each once however often it observes it anew (an
+    // observer of the page lets go an element a change touched in its report, and observes it again, observeSize)
     await page.addInitScript(() => {
       const counts = globalThis as unknown as { mapObservations?: number }
+      const counted = new WeakSet<ResizeObserver>()
       globalThis.ResizeObserver = class extends globalThis.ResizeObserver {
         override observe(target: Element, options?: ResizeObserverOptions): void {
-          if (target instanceof HTMLElement && target.dataset.testid === "review-file-map-track") {
+          if (target instanceof HTMLElement && target.dataset.testid === "review-file-map-track" && !counted.has(this)) {
+            counted.add(this)
             counts.mapObservations = (counts.mapObservations ?? 0) + 1
           }
           super.observe(target, options)
