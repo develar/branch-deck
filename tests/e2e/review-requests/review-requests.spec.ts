@@ -1913,25 +1913,39 @@ test.describe("Read ahead", () => {
     expect(await cut(row.getByTestId("review-request-reading").locator("span"))).toBe(false)
     expect(await cut(row.getByTestId("review-request-age"))).toBe(false)
 
-    // as the window widens, the meta is hidden whole or shows its number whole ("#402…"), never a bare part of it
+    // as the window widens, the meta is hidden whole or shows its number whole ("#402…"), never a bare part of it: the
+    // narrowest window that shows it, found by halving (each width a round trip of the browser, seconds under load for a
+    // scan of every 10 px), shows the number whole, as do the next pixels, and the pixel below hides it
     const meta = row.getByTestId("review-request-meta")
-    const states = new Set<string>()
-    for (let width = 1000; width <= 1600; width += 10) {
+    const stateAt = async (width: number) => {
       await page.setViewportSize({ width, height: 720 })
-      states.add(
-        await meta.evaluate(element => {
-          if (element.clientWidth === 0 || getComputedStyle(element).visibility === "hidden") {
-            return "hidden"
-          }
-          const text = element.firstChild!
-          const number = document.createRange()
-          number.setStart(text, 0)
-          number.setEnd(text, text.textContent!.indexOf(" · "))
-          return number.getBoundingClientRect().width <= element.clientWidth ? "number" : "cut"
-        }),
-      )
+      return meta.evaluate(element => {
+        if (element.clientWidth === 0 || getComputedStyle(element).visibility === "hidden") {
+          return "hidden"
+        }
+        const text = element.firstChild!
+        const number = document.createRange()
+        number.setStart(text, 0)
+        number.setEnd(text, text.textContent!.indexOf(" · "))
+        return number.getBoundingClientRect().width <= element.clientWidth ? "number" : "cut"
+      })
     }
-    expect([...states].sort()).toEqual(["hidden", "number"])
+    let [hidden, shown] = [1000, 1600]
+    expect(await stateAt(shown)).toBe("number")
+    while (shown - hidden > 1) {
+      const width = Math.floor((hidden + shown) / 2)
+      const state = await stateAt(width)
+      expect(state, `at ${width} px`).not.toBe("cut")
+      if (state === "hidden") {
+        hidden = width
+      } else {
+        shown = width
+      }
+    }
+    for (const width of [shown, shown + 1, shown + 2]) {
+      expect(await stateAt(width), `at ${width} px`).toBe("number")
+    }
+    expect(await stateAt(hidden)).toBe("hidden")
   })
 
   test("should sum a stack in its header and say what each layer under it leaves to read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
