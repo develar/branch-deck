@@ -170,11 +170,12 @@ fn psi_syntax_crates(metadata: &Value) -> Crates {
 ///
 /// # Errors
 /// Cargo does not run, has not fetched a package of the workspace or Cargo.lock is not up to date; cargo's error, its
-/// lines joined from the first error.
+/// lines joined from the first error. Without colour whatever the environment says (`CARGO_TERM_COLOR=always` of CI,
+/// `term.color` of a cargo config): the error is read for its first line and shown as text
 pub fn cargo_metadata(root: &Path) -> Result<Value, String> {
   let cargo = std::env::var_os("CARGO").unwrap_or_else(|| env!("CARGO").into());
   let output = windowless_command(&cargo)
-    .args(["metadata", "--format-version", "1", "--offline", "--locked", "--manifest-path"])
+    .args(["metadata", "--format-version", "1", "--offline", "--locked", "--color", "never", "--manifest-path"])
     .arg(root.join("Cargo.toml"))
     .output()
     .map_err(|error| format!("cargo metadata --offline: {error}"))?;

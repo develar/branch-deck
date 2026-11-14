@@ -5,6 +5,7 @@ use crate::{
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::path::Path;
+use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
 /// A repository of `files` (path → text) in a temporary directory, removed when it drops
@@ -228,9 +229,11 @@ fn cargo_metadata_answers_the_checkout_cargo_fetched_of_psi_syntax_at_the_revisi
   assert!(commit.starts_with(&checkout), "{commit} {}", file.display());
 }
 
-/// A revision of psi-syntax cargo has not fetched: offline, cargo fails, and the check says so with cargo's reason
+/// A revision of psi-syntax cargo has not fetched: offline, cargo fails, and the check says so with cargo's reason, in
+/// plain text also where the environment asks cargo for colour, as CI does
 #[test]
 fn cargo_metadata_of_a_revision_of_psi_syntax_cargo_has_not_fetched_fails_offline_with_its_reason() {
+  let _color = EnvVars::set(&[("CARGO_TERM_COLOR", "always")]);
   let workspace = workspace_on_spec_syntax(&"0".repeat(40));
   let sources = GitSources::new(|| cargo_metadata(workspace.path()));
   let problem = sources
