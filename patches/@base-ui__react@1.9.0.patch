@@ -22,6 +22,16 @@ changes (pnpm writes none), `pnpm install`, and the E2E tests of "Hover back ove
 (tests/e2e/branch-row-layout/branch-row-layout.spec.ts) in Chromium and WebKit: they fail without the patch. Drop the
 patch once a release leaves the pending open of the trigger to the trigger.
 
+The second bug: ToastContent sets the height of its toast with flushSync from its ResizeObserver and MutationObserver.
+A flushSync renders every update pending then, so in the delivery of the observers it resized other observed elements
+after their reports (the tooltip of Approve and Safe Push of a review, as the toast of a refused start came): a
+ResizeObserver loop, which the page logs as an uncaught error. The fix, in both builds: both observers set the height in
+the next frame (`requestAnimationFrame`, before its layout), the last one asked, cancelled with the effect. Re-port it
+onto a new version where ToastContent still calls `recalculateHeight(true)` from its observers, and check it with the
+E2E test "should stack the toasts of two checks for updates" (tests/e2e/repository/title-bar.spec.ts) and
+review-requests.spec.ts "should not Safe Push a pull request that got commits since the user reviewed it" under a
+throttled CPU (`E2E_RO_TRACE=1 E2E_CPU_THROTTLE=6`).
+
 diff --git a/floating-ui-react/hooks/useHoverFloatingInteraction.js b/floating-ui-react/hooks/useHoverFloatingInteraction.js
 index 82b9c1fd40ca2e21814de831eb0e6ebb51649db0..22313fcd4e23eb7c3b94f846a832c49ff03bd48f 100644
 --- a/floating-ui-react/hooks/useHoverFloatingInteraction.js
@@ -97,3 +107,63 @@ index 21df34aa63dd82e50a3f946ab9e6c3a2e6bccbe4..fba176f69569a626418a7ccb05add4e9
 +  useOnMount(ownsTimers ? data.hoverInteractionState.disposeEffect : KEEP_TIMERS);
    return data.hoverInteractionState;
  }
+diff --git a/toast/content/ToastContent.js b/toast/content/ToastContent.js
+--- a/toast/content/ToastContent.js
++++ b/toast/content/ToastContent.js
+@@ -35,8 +35,16 @@
+     if (!node || typeof ResizeObserver !== 'function' || typeof MutationObserver !== 'function') {
+       return undefined;
+     }
+-    const resizeObserver = new ResizeObserver(() => recalculateHeight(true));
+-    const mutationObserver = new MutationObserver(() => recalculateHeight(true));
++    // Branch Deck: the height is set in the next frame, before its layout, not in the delivery of the observers: a
++    // flushSync there renders every update pending then, which resized other observed elements in the delivery of their
++    // own observations (a ResizeObserver loop)
++    let frame = 0;
++    const recalculateNextFrame = () => {
++      cancelAnimationFrame(frame);
++      frame = requestAnimationFrame(() => recalculateHeight(true));
++    };
++    const resizeObserver = new ResizeObserver(recalculateNextFrame);
++    const mutationObserver = new MutationObserver(recalculateNextFrame);
+     resizeObserver.observe(node);
+     mutationObserver.observe(node, {
+       childList: true,
+@@ -44,6 +52,7 @@
+       characterData: true
+     });
+     return () => {
++      cancelAnimationFrame(frame);
+       resizeObserver.disconnect();
+       mutationObserver.disconnect();
+     };
+diff --git a/toast/content/ToastContent.mjs b/toast/content/ToastContent.mjs
+--- a/toast/content/ToastContent.mjs
++++ b/toast/content/ToastContent.mjs
+@@ -30,8 +30,16 @@
+     if (!node || typeof ResizeObserver !== 'function' || typeof MutationObserver !== 'function') {
+       return undefined;
+     }
+-    const resizeObserver = new ResizeObserver(() => recalculateHeight(true));
+-    const mutationObserver = new MutationObserver(() => recalculateHeight(true));
++    // Branch Deck: the height is set in the next frame, before its layout, not in the delivery of the observers: a
++    // flushSync there renders every update pending then, which resized other observed elements in the delivery of their
++    // own observations (a ResizeObserver loop)
++    let frame = 0;
++    const recalculateNextFrame = () => {
++      cancelAnimationFrame(frame);
++      frame = requestAnimationFrame(() => recalculateHeight(true));
++    };
++    const resizeObserver = new ResizeObserver(recalculateNextFrame);
++    const mutationObserver = new MutationObserver(recalculateNextFrame);
+     resizeObserver.observe(node);
+     mutationObserver.observe(node, {
+       childList: true,
+@@ -39,6 +47,7 @@
+       characterData: true
+     });
+     return () => {
++      cancelAnimationFrame(frame);
+       resizeObserver.disconnect();
+       mutationObserver.disconnect();
+     };
