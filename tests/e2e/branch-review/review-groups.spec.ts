@@ -4,6 +4,9 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { writeFixtureIndex } from "../helpers/marks-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
 import { answerPlayerModules, openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { openReviewWindow } from "../helpers/review-window-helpers"
+import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { nextAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `review_modules` template: the branch `media` of a plugin `player`, its second commit a large step that adds the
@@ -147,6 +150,50 @@ test.describe("Review groups", () => {
       await expect(row(`${ROOT}/view.gui/testSrc/com/example/player/gui/embeds/EmbedModelTest.kt`)).toHaveAttribute("aria-selected", "true")
       await window.keyboard.press("j")
       await expect(row(`${ROOT}/shared/code/src/com/example/player/shared/NightlyBuild.kt`)).toHaveAttribute("aria-selected", "true")
+    },
+  )
+
+  test(
+    "should fold the wiring of a large step the modules cut into its groups after the plan of git, as that plan folded its build files, and keep the step folded by the reader",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("review_modules")
+      turnOnReviewPlan(repo)
+      await answerPlayerModules(repo, syncAndWaitForBranches)
+      // accio answers the modules only once released: the plan of git shows first, every file of the root of the repository
+      await repo.holdRemoteAnswers({ hold: ["modules"] })
+      await syncAndWaitForBranches()
+      let answered!: Promise<unknown>
+      const window = await openLinkedSubWindow(page, await openReviewWindow(page, "media"), {
+        beforeLoad: async window => {
+          answered = nextAnswer(window, "get_review_plan")
+        },
+      })
+      await repo.arrival("modules")
+      const { tree } = reviewSidebar(window)
+      const row = (name: string) => tree.getByRole("treeitem", { name, exact: true })
+      const large = row("2 · play the media embeds of the chat inline")
+
+      // the plan of git: the large step lists its files, its build files and its list of modules folded at its end; the
+      // reader folds the step
+      await expect(row("Build files (4)")).toHaveAttribute("aria-expanded", "false")
+      await expect(row("Module lists (1)")).toHaveAttribute("aria-expanded", "false")
+      await expect(row(`${ROOT}/AGENTS.md`)).toBeVisible()
+      await expect(row("view.gui")).toHaveCount(0)
+      await large.getByTestId("tree-row-chevron").click()
+      await expect(large).toHaveAttribute("aria-expanded", "false")
+      await expect(row("Build files (4)")).toHaveCount(0)
+
+      // the modules answer: the step stays folded; opened, it is cut into its groups, the build files under the wiring,
+      // which starts folded
+      await repo.holdRemoteAnswers({ release: ["modules"] })
+      await answered
+      await expect(large).toHaveAttribute("aria-description", /^27 files, \+212 −4, commit [0-9a-f]+, \+1 dep$/)
+      await expect(large).toHaveAttribute("aria-expanded", "false")
+      await large.getByTestId("tree-row-chevron").click()
+      await expect(row("view.gui.media")).toHaveAttribute("aria-expanded", "true")
+      await expect(row("Wiring")).toHaveAttribute("aria-expanded", "false")
+      await expect(row(`${ROOT}/view.gui.media/BUILD.bazel`)).toHaveCount(0)
     },
   )
 

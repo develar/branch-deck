@@ -162,9 +162,9 @@ pub struct TestHosts {
 
 /// The symbol index of the test repository `repository` is its fixture, `.git/branch-deck-accio.json` (`FixtureIndex`),
 /// as accio answers: for the symbol searches and for the queries of a review plan (`get_review_plan`); read at once,
-/// but its answer of the tests of the steps, which waits while a test holds it (`HeldAnswer::StepTests`), until the
-/// release or the cancel of its search, and a search below the app, which waits while a test holds the read ahead
-/// (`HeldAnswer::ReadAhead`)
+/// but its answers of the tests of the steps and of the modules, which wait while a test holds them
+/// (`HeldAnswer::StepTests`, `HeldAnswer::Modules`) until the release or the cancel of their search, and a search below
+/// the app, which waits while a test holds the read ahead (`HeldAnswer::ReadAhead`)
 pub struct FixtureIndexes {
   pub state: std::sync::Weak<AppState>,
   /// The id of the test repository
@@ -201,9 +201,10 @@ impl FixtureSearch<'_> {
   /// How often a held query of the tests asks whether its search was canceled
   const CANCEL_POLL: std::time::Duration = std::time::Duration::from_millis(20);
 
-  /// Waits while a test holds the tests of the steps (`HeldAnswer::StepTests`), once a test started the fakes: until
-  /// the release, the deletion of the repository, or the cancel of the search, which answers `SearchCanceled`
-  fn pass_held_tests(&self) -> anyhow::Result<()> {
+  /// Waits while a test holds the query `held` (`HeldAnswer::StepTests`, `HeldAnswer::Modules`), once a test started
+  /// the fakes: until the release, the deletion of the repository, or the cancel of the search, which answers
+  /// `SearchCanceled`
+  fn pass_held_query(&self, held: crate::remote_host::HeldAnswer) -> anyhow::Result<()> {
     let remote = self
       .indexes
       .state
@@ -211,7 +212,7 @@ impl FixtureSearch<'_> {
       .and_then(|state| state.repositories.get(&self.indexes.repository)?.existing_remote());
     let Some(remote) = remote else { return Ok(()) };
     self.indexes.runtime.block_on(async {
-      let mut pass = std::pin::pin!(remote.pass_held(crate::remote_host::HeldAnswer::StepTests));
+      let mut pass = std::pin::pin!(remote.pass_held(held));
       loop {
         if tokio::time::timeout(Self::CANCEL_POLL, pass.as_mut()).await.is_ok() {
           return Ok(());
@@ -257,7 +258,7 @@ impl file_diffs::accio::SymbolIndex for FixtureSearch<'_> {
     given: &[String],
     revision: &str,
   ) -> anyhow::Result<Option<Vec<file_diffs::accio::TestReach>>> {
-    self.pass_held_tests()?;
+    self.pass_held_query(crate::remote_host::HeldAnswer::StepTests)?;
     file_diffs::accio::FixtureIndex.tests(repository_root, declarations, given, revision)
   }
 
@@ -278,6 +279,7 @@ impl file_diffs::accio::SymbolIndex for FixtureSearch<'_> {
   }
 
   fn modules(&self, repository_root: &str, paths: &[String], revision: &str) -> anyhow::Result<Option<file_diffs::accio::ModulesAnswer>> {
+    self.pass_held_query(crate::remote_host::HeldAnswer::Modules)?;
     file_diffs::accio::FixtureIndex.modules(repository_root, paths, revision)
   }
 }

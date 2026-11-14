@@ -614,6 +614,23 @@ export function foldedGroups(nodes: readonly FileTreeNode[]): string[] {
   })
 }
 
+/**
+ * The collapsed rows of a review whose groups that start collapsed were `before` and are `after` now (a plan told again,
+ * with the modules after the plan of git): such a group new to the tree starts collapsed, a row collapsed as such a group
+ * before that is none now opens, and the reader's fold of every other row stays
+ */
+export function refoldGroups(collapsed: ReadonlySet<string>, before: readonly string[], after: readonly string[]): Set<string> {
+  const was = new Set(before)
+  const now = new Set(after)
+  const next = new Set([...collapsed].filter(key => !was.has(key) || now.has(key)))
+  for (const key of after) {
+    if (!was.has(key)) {
+      next.add(key)
+    }
+  }
+  return next
+}
+
 /** The tree lists commits (`buildReviewTree` with commits): a range shown whole with its plan */
 export function listsCommits(nodes: readonly FileTreeNode[]): boolean {
   return nodes.some(

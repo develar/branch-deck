@@ -23,6 +23,7 @@ import {
   mechanicalKindsOf,
   OTHER_CHANGES_KEY,
   OTHER_COMMITS_KEY,
+  refoldGroups,
   revealInTree,
   sectionRows,
 } from "@/lib/file-tree"
@@ -818,6 +819,20 @@ describe("the groups of a large step in the tree of a review", () => {
     )
     // a file of a group shows: its group and the step open
     expect([...revealInTree(new Set([groupRowKey("media", 2), concernRowKey("media")]), paths.mediaTest, tree)]).toEqual([])
+  })
+
+  it("folds the Wiring of a plan told again with its modules where it stands now, opens the row it held in the plan of git, and keeps the reader's other folds", () => {
+    const after = foldedGroups(buildReviewTree(files, mechanical, chapters))
+    expect(after).toEqual([groupRowKey("media", 3)])
+    // the plan of git, every file of the root of the repository: the Wiring second, after the code; the reader folded
+    // the code, and a row of another step
+    const before = [groupRowKey("media", 1)]
+    const read = new Set([groupRowKey("media", 0), groupRowKey("media", 1), concernRowKey("other")])
+    expect([...refoldGroups(read, before, after)].toSorted()).toEqual([groupRowKey("media", 0), groupRowKey("media", 3), concernRowKey("other")].toSorted())
+    // the reader opened the Wiring: the plan told again with the same groups keeps it open
+    expect([...refoldGroups(new Set(), after, after)]).toEqual([])
+    // the plan came after the files: every group that starts collapsed folds
+    expect([...refoldGroups(new Set([concernRowKey("other")]), [], after)]).toEqual([concernRowKey("other"), groupRowKey("media", 3)])
   })
 
   it("lists a file of a group whose own row is in another step as a row also in that group, by its directory too", () => {

@@ -33,7 +33,7 @@ export type PatronusCommandReply = { readonly status: "pending" } | { readonly s
  * what waits for it is seen waiting), the configuration of the YouTrack that names its Hub (a sign-in in the browser
  * asks it first), the reports of the hosts of `brd-host` (Disk Usage shows the progress of this Mac until they answer),
  * the tests of the steps of a review plan (the index of the fixture: the plan shows its other answers until the release),
- * the read ahead of the waiting requests (its search of the index below the app: the rows say "Checking…" until the release)
+ * the modules of a review plan at its head and its base (the plan of git shows until the release), the read ahead of the waiting requests (its search of the index below the app: the rows say "Checking…" until the release)
  */
 export type HeldAnswer =
   | "pullRequests"
@@ -58,6 +58,7 @@ export type HeldAnswer =
   | "youTrackConfig"
   | "hostDisks"
   | "stepTests"
+  | "modules"
   | "readAhead"
 
 /** A commit someone else pushed onto a branch of the remote: its author (`Name <email>`), time and files */

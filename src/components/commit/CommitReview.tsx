@@ -41,6 +41,7 @@ import {
   hasReviewGroups,
   listsCommits,
   mechanicalKindsOf,
+  refoldGroups,
   revealInTree,
   sectionRows,
   toggleInSet,
@@ -479,8 +480,11 @@ interface TreeSelection {
   selectedPath: string | null
   /** The row of the selected file when it is not its main row: the file "also in" another concern of a review */
   selectedRow: string | null
-  /** The tree has the groups of a review: a plan that comes after the files folds the Mechanical group once */
-  grouped: boolean
+  /**
+   * The groups of the tree that start collapsed (`foldedGroups`), null without the groups of a review: a plan that comes
+   * after the files, or again with other groups, folds the groups new to the tree once
+   */
+  folded: readonly string[] | null
   /** The file the diffs of this key open at (`LoadedReview.initialPath` at the start of the key) */
   initialPath: string | null
   /** The first file of the tree, selected because nothing else was: a plan that comes after the files moves it */
@@ -546,7 +550,7 @@ function initialSelection(
       collapsed: new Set(),
       selectedPath: null,
       selectedRow: null,
-      grouped: false,
+      folded: null,
       initialPath: null,
       defaultPath: null,
       awaited: null,
@@ -565,7 +569,7 @@ function initialSelection(
     collapsed: loaded.initialPath === null ? initial : revealInTree(initial, loaded.initialPath, nodes),
     selectedPath: loaded.initialPath ?? firstPath,
     selectedRow: null,
-    grouped: hasReviewGroups(nodes),
+    folded: reviewFolds(nodes),
     initialPath: loaded.initialPath,
     defaultPath: loaded.initialPath === null ? firstPath : null,
     awaited: loaded.initialPath === null ? loaded.awaitedPath : null,
@@ -605,7 +609,7 @@ function filteredSelection(
       collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
       selectedPath,
       selectedRow: null,
-      grouped: hasReviewGroups(nodes),
+      folded: reviewFolds(nodes),
       // the file that stands in for the awaited one: the reader has not moved from it
       defaultPath: awaited !== null ? selectedPath : previous.defaultPath,
       awaited,
@@ -616,24 +620,35 @@ function filteredSelection(
   )
 }
 
+/** The groups of a review that start collapsed (`foldedGroups`), null when the tree has none of its groups */
+function reviewFolds(nodes: readonly FileTreeNode[]): readonly string[] | null {
+  return hasReviewGroups(nodes) ? foldedGroups(nodes) : null
+}
+
+function sameFolds(a: readonly string[] | null, b: readonly string[] | null): boolean {
+  return a === null || b === null ? a === b : a.length === b.length && a.every((key, index) => key === b[index])
+}
+
 /**
- * The plan came, or went: the Mechanical group and the generated files of each concern start collapsed unless they
- * hold the selected file. A file selected only as the first of the tree without the plan, which may be a generated
- * one, gives way to the first of the new tree, or to the awaited file the new tree shows (`withAwaited`)
+ * The plan came, went, or came again with other groups (the modules after the plan of git): the Mechanical group and
+ * the generated files of each concern new to the tree start collapsed unless they hold the selected file, a row folded
+ * as such a group before that is another group now opens, and the reader's folds of the rest stay. A file selected
+ * only as the first of the tree without the plan, which may be a generated one, gives way to the first of the new
+ * tree, or to the awaited file the new tree shows (`withAwaited`)
  */
-function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[], files: readonly CommitFile[]): TreeSelection {
-  const grouped = hasReviewGroups(nodes)
-  if (!grouped) {
-    return withAwaited({ ...previous, grouped, selectedRow: null }, nodes, files)
+function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[], files: readonly CommitFile[], folded: readonly string[] | null): TreeSelection {
+  if (folded === null) {
+    return withAwaited({ ...previous, folded, selectedRow: null }, nodes, files)
   }
   const firstPath = files[0]?.path ?? null
-  const moved = previous.selectedPath !== null && previous.selectedPath === previous.defaultPath
+  // a plan told again keeps the file the reader reads, also the first of the tree before
+  const moved = previous.folded === null && previous.selectedPath !== null && previous.selectedPath === previous.defaultPath
   const selectedPath = moved ? firstPath : previous.selectedPath
-  const collapsed = new Set([...previous.collapsed, ...foldedGroups(nodes)])
+  const collapsed = refoldGroups(previous.collapsed, previous.folded ?? [], folded)
   return withAwaited(
     {
       ...previous,
-      grouped,
+      folded,
       selectedPath,
       selectedRow: null,
       defaultPath: moved ? firstPath : previous.defaultPath,
@@ -847,6 +862,7 @@ function ReviewLayout({
     return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical, chapters, commitPlaces, narrowed)
   }, [loadedFiles, reviewFacts, mechanical, chapters, commitPlaces, narrowed])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
+  const folds = useMemo(() => reviewFolds(nodes), [nodes])
   const chip = ownerMarks?.label ?? null
   const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, ownerFilterKey, chip, nodes, files.length, files[0]?.path ?? null))
   const loadedKey = loaded?.key ?? null
@@ -854,8 +870,8 @@ function ReviewLayout({
     setSelection(initialSelection(loaded, filterText, ownerFilterKey, chip, nodes, files.length, files[0]?.path ?? null))
   } else if (selection.filterText !== filterText || selection.ownerFilterKey !== ownerFilterKey || selection.chip !== chip) {
     setSelection(filteredSelection(selection, filterText, ownerFilterKey, chip, nodes, files, loaded?.revealPath ?? null))
-  } else if (selection.grouped !== hasReviewGroups(nodes)) {
-    setSelection(groupedSelection(selection, nodes, files))
+  } else if (!sameFolds(selection.folded, folds)) {
+    setSelection(groupedSelection(selection, nodes, files, folds))
   }
   const { collapsed, selectedPath, selectedRow } = selection
   const activeGroupKey = useMemo(() => activeConcernGroup(nodes, selectedRow ?? selectedPath), [nodes, selectedRow, selectedPath])

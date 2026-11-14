@@ -852,7 +852,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `TestFactSources::profiles`), `authStatus` (the status of the sign-ins: the session's read, `TestFactSources::auth`,
   and the read of a window without a session, `get_auth_status`, held in `TestHost::before_auth_status`), `cliTools` (the tools of Settings), `stepTests` (the tests of the steps of a review plan, `SymbolIndex::tests` of the
   fixture index, held in `FixtureIndexes` until the release or the cancel of its search: the plan shows its other
-  answers meanwhile), `hostDisks` (the
+  answers meanwhile), `modules` (the modules of a review plan at its head and its base, `SymbolIndex::modules` of the
+  fixture index, held the same way: the plan of git shows meanwhile), `hostDisks` (the
   reports of the hosts of `brd-host`, `TestHost::host_disks`: Disk Usage shows the progress of the walk of this Mac until
   they answer), `sync` (a sync
   run of the session, held in `TestSessionEnvironment::run_setup` before it reads anything: the session's sync runs
