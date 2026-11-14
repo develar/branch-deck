@@ -1209,7 +1209,7 @@ impl AppSession<'_> {
       return;
     };
     let (context, memo) = (self.context, &self.facts.memo);
-    let answer = Ok(derive_patronus(&context.git, &context.repository, &derivation.of(), memo));
+    let answer = derive_patronus(&context.git, &context.repository, &derivation.of(), memo).map_err(|failed| ApiError::internal(format!("{:#}", failed.error)));
     let observation = Observation {
       inputs: derivation.inputs,
       ..self.observation()

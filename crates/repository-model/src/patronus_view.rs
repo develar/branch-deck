@@ -14,8 +14,9 @@
 //!   it the branch built new ones on (its copy is a commit of the branch): no git. Otherwise the content does
 //!   (`robot_landing`), once per state of the branches (`ContentMemo`).
 //! - One function makes every view (`view_of`): over the table, the remote branches and the robots, by the hashes and the
-//!   answers of the content the memo keeps, no git. A derivation asks git first what the memo lacks (`learn_content`),
-//!   then makes the view of the same inputs (`patronus_view`); the session makes it again whenever the robots, the table
+//!   answers of the content the memo keeps, no git. A derivation asks git first what the memo lacks or has only of a
+//!   frame (`learn_content`), then makes the view of the same inputs (`patronus_view`), and fails when git fails
+//!   (`ContentFailed`, with that view); the session makes it again whenever the robots, the table
 //!   or the remote branches change before the derivation of them answers, or after it failed
 //!   (`facts::PatronusFact::publish`), so every reader reads the robots as they are.
 
@@ -47,14 +48,16 @@ const MEMO_LIMIT: usize = 512;
 /// (`content_key`: the robot, its commit, the tip of its subject and the commits of the branches with their copies): a
 /// derivation of the same state runs no git, and every view reads its answers (`view_of`); of each merged robot also its
 /// latest answer, which a view of a state not asked yet reads. Shared by the views of a session and the checks of its
-/// pushes, kept in the frame of the session (`warm_start`), locked only to look up and to keep answers, never across git
+/// pushes, locked only to look up and to keep answers, never across git. The frame of the session (`warm_start`) keeps
+/// the answers the view of its table reads (`frame_of`); a memo seeded from it answers the views until a derivation of
+/// this process asks git again under the rules of this binary (`MemoAnswers::from_frame`)
 #[derive(Debug, Default)]
 pub struct ContentMemo {
   answers: Mutex<MemoAnswers>,
 }
 
-/// The answers of a memo, as a frame keeps them
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The answers of a memo, as a frame keeps them; two are equal when they answer alike, whoever asked
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MemoAnswers {
   /// What a merged robot landed, by `content_key`
   landings: HashMap<String, Vec<BranchLanding>>,
@@ -62,12 +65,29 @@ pub struct MemoAnswers {
   spans: HashMap<String, Option<Vec<BranchSpan>>>,
   /// By merged robot id, the key of its latest answer in `landings`
   latest_landing: HashMap<String, String>,
+  /// The keys of the answers a frame of an earlier run seeded (`ContentMemo::seeded`): the views read them, a derivation
+  /// asks git again, so an answer of the rules of another binary lasts only until then
+  #[serde(skip)]
+  from_frame: HashSet<String>,
   /// Raised by every answer kept: a view of the same inputs and version is the same view
   #[serde(skip)]
   version: u64,
 }
 
+impl PartialEq for MemoAnswers {
+  fn eq(&self, other: &Self) -> bool {
+    (&self.landings, &self.spans, &self.latest_landing) == (&other.landings, &other.spans, &other.latest_landing)
+  }
+}
+
+impl Eq for MemoAnswers {}
+
 impl MemoAnswers {
+  /// Whether a derivation of this process has the answer of `key` among `answers`: one a frame seeded it asks again
+  fn knows<T>(&self, answers: &HashMap<String, T>, key: &str) -> bool {
+    answers.contains_key(key) && !self.from_frame.contains(key)
+  }
+
   /// What the merged robot `robot_id` landed of the branches as `key` names them, else of the branches as they were for
   /// its latest answer
   fn landing(&self, key: &str, robot_id: &str) -> Option<&Vec<BranchLanding>> {
@@ -79,9 +99,10 @@ impl MemoAnswers {
 }
 
 impl ContentMemo {
-  /// A memo of the answers a frame kept
+  /// A memo of the answers a frame kept, which the views read and the first derivation that needs one asks again
   #[must_use]
-  pub const fn seeded(answers: MemoAnswers) -> Self {
+  pub fn seeded(mut answers: MemoAnswers) -> Self {
+    answers.from_frame = answers.landings.keys().chain(answers.spans.keys()).cloned().collect();
     Self { answers: Mutex::new(answers) }
   }
 
@@ -95,10 +116,36 @@ impl ContentMemo {
     })
   }
 
-  /// The answers as a frame keeps them
+  /// The answers as a frame keeps them: those of the content `keys` (`content_keys` of the table of the frame) and the
+  /// latest answer of each of `robots`, the robots the frame lists; none of a state the views of the frame don't read
   #[must_use]
-  pub fn frame(&self) -> MemoAnswers {
-    self.answers().clone()
+  pub fn frame_of(&self, keys: &HashSet<String>, robots: &HashSet<&str>) -> MemoAnswers {
+    let kept = self.answers();
+    let latest_landing: HashMap<String, String> = kept
+      .latest_landing
+      .iter()
+      .filter(|(robot, _)| robots.contains(robot.as_str()))
+      .map(|(robot, key)| (robot.clone(), key.clone()))
+      .collect();
+    let latest: HashSet<&String> = latest_landing.values().collect();
+    let framed = |key: &String| keys.contains(key) || latest.contains(key);
+    MemoAnswers {
+      landings: kept
+        .landings
+        .iter()
+        .filter(|(key, _)| framed(key))
+        .map(|(key, answer)| (key.clone(), answer.clone()))
+        .collect(),
+      spans: kept
+        .spans
+        .iter()
+        .filter(|(key, _)| keys.contains(*key))
+        .map(|(key, answer)| (key.clone(), answer.clone()))
+        .collect(),
+      latest_landing,
+      from_frame: HashSet::new(),
+      version: 0,
+    }
   }
 
   /// The version of the answers: raised by every answer kept
@@ -120,6 +167,7 @@ impl ContentMemo {
       }
     }
     for (robot_id, key, branches) in answered {
+      kept.from_frame.remove(&key);
       kept.landings.insert(key.clone(), branches);
       kept.latest_landing.insert(robot_id, key);
     }
@@ -132,7 +180,10 @@ impl ContentMemo {
     if kept.spans.len() > MEMO_LIMIT {
       kept.spans.clear();
     }
-    kept.spans.extend(answered);
+    for (key, answer) in answered {
+      kept.from_frame.remove(&key);
+      kept.spans.insert(key, answer);
+    }
     kept.version += 1;
   }
 }
@@ -507,11 +558,14 @@ fn ancestors(repo: &Repository<'_>, name: &str) -> Vec<String> {
   build_ancestors(repo, name).into_iter().map(str::to_string).collect()
 }
 
-/// What the content of the commits of the robots of `of` tells that `memo` lacks (module docs): one call for the merged
-/// robots and one for the running ones, their answers kept in `memo`; what the hashes tell a merged robot landed is kept
-/// as its latest answer too, which a view of a state the hashes no longer answer reads. A git error is no answer: the
-/// next derivation asks again, and the view reads what `memo` had (`view_of`)
-fn learn_content(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, matched: &RobotMatches, memo: &ContentMemo) {
+/// What the content of the commits of the robots of `of` tells that `memo` lacks or has only of a frame (module docs):
+/// one call for the merged robots and one for the running ones, their answers kept in `memo`; what the hashes tell a
+/// merged robot landed is kept as its latest answer too, which a view of a state the hashes no longer answer reads.
+///
+/// # Errors
+/// A git error, of the first call that failed: the answers of the other are kept, the failed ones asked again by the
+/// next derivation
+fn learn_content(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, matched: &RobotMatches, memo: &ContentMemo) -> anyhow::Result<()> {
   let PatronusOf { table, remote, robots, .. } = *of;
   let (lookups, repo) = (Lookups::new(robots, matched), table.repository());
   let merged = merged_plans(table, &repo, remote, robots);
@@ -521,11 +575,11 @@ fn learn_content(git_executor: &GitCommandExecutor, repository_path: &str, of: &
     let kept = memo.answers();
     let told_by_hashes: Vec<(String, String, Vec<BranchLanding>)> = merged
       .iter()
-      .filter(|plan| kept.latest_landing.get(&plan.robot.id) != Some(&plan.question.key))
+      .filter(|plan| kept.latest_landing.get(&plan.robot.id) != Some(&plan.question.key) || kept.from_frame.contains(&plan.question.key))
       .filter_map(|plan| Some((plan.robot.id.clone(), plan.question.key.clone(), plan.hashes.clone()?)))
       .collect();
     let mut landing_asks: Vec<&Question> = Vec::new();
-    for plan in merged.iter().filter(|plan| plan.hashes.is_none() && !kept.landings.contains_key(&plan.question.key)) {
+    for plan in merged.iter().filter(|plan| plan.hashes.is_none() && !kept.knows(&kept.landings, &plan.question.key)) {
       if !landing_asks.iter().any(|it| it.key == plan.question.key) {
         landing_asks.push(&plan.question);
       }
@@ -533,12 +587,13 @@ fn learn_content(git_executor: &GitCommandExecutor, repository_path: &str, of: &
     (
       told_by_hashes,
       landing_asks,
-      unasked(spans.iter().map(|plan| &plan.told), |key| kept.spans.contains_key(key)),
+      unasked(spans.iter().map(|plan| &plan.told), |key| kept.knows(&kept.spans, key)),
     )
   };
   if !told_by_hashes.is_empty() {
     memo.keep_landings(told_by_hashes);
   }
+  let mut failed: Option<anyhow::Error> = None;
   if !landing_asks.is_empty() {
     let requests: Vec<RobotLandingRequest> = landing_asks.iter().map(|question| question.request.clone()).collect();
     match robot_landings_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches) {
@@ -549,17 +604,47 @@ fn learn_content(git_executor: &GitCommandExecutor, repository_path: &str, of: &
           .map_or_else(Vec::new, |landing| landing.branches.clone());
         (question.request.robot_id.clone(), question.key.clone(), branches)
       })),
-      Err(error) => debug!(error = %format!("{error:#}"), "no robot landings: the view reads what the memo had"),
+      Err(error) => failed = Some(error.context("Cannot tell what the merged Safe Pushes landed")),
     }
   }
   if !span_asks.is_empty() {
     let requests: Vec<RobotLandingRequest> = span_asks.iter().map(|question| question.request.clone()).collect();
     match robot_spans_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches) {
       Ok(answers) => memo.keep_spans(span_asks.iter().zip(answers).map(|(question, answer)| (question.key.clone(), answer.branches))),
-      // the stack as it is now holds, asked again by the next derivation
-      Err(error) => debug!(error = %format!("{error:#}"), "no robot spans: the stack as it is now tells"),
+      Err(error) => {
+        let error = error.context("Cannot tell what the running Safe Pushes land");
+        match &failed {
+          Some(first) => debug!(error = %format!("{error:#}"), first = %format!("{first:#}"), "the second call of the content failed too"),
+          None => failed = Some(error),
+        }
+      }
     }
   }
+  failed.map_or(Ok(()), Err)
+}
+
+/// A derivation git did not tell the content of the robots' commits to: the view of what the memo has (`view_of`), the
+/// answers that came kept, and the error, which the derivation of a session fails with (`Stale` with the reason, derived
+/// again after the next answer of Patronus); a one-shot command reads the view
+#[derive(Debug)]
+pub struct ContentFailed {
+  pub view: PatronusView,
+  pub error: anyhow::Error,
+}
+
+/// The content keys of the questions of the robots of `of` (`content_key`): the answers a view of the table of `of`
+/// reads, which a frame keeps (`ContentMemo::frame_of`)
+#[must_use]
+pub fn content_keys(of: &PatronusOf<'_>) -> HashSet<String> {
+  let PatronusOf { table, remote, robots, .. } = *of;
+  let matched = match_robots(table, remote, robots);
+  let (lookups, repo) = (Lookups::new(robots, &matched), table.repository());
+  let merged = merged_plans(table, &repo, remote, robots).into_iter().map(|plan| plan.question.key);
+  let spans = span_plans(table, &repo, remote, &lookups).into_iter().filter_map(|plan| match plan.told {
+    Told::Content(question) => Some(question.key),
+    Told::Hashes(_) => None,
+  });
+  merged.chain(spans).collect()
 }
 
 /// What the robots land and landed of the branches of the table of `of` (module docs), with the robot of each branch and
@@ -567,10 +652,23 @@ fn learn_content(git_executor: &GitCommandExecutor, repository_path: &str, of: &
 /// holds, the starts, the restarts): the content of the robots' commits the hashes don't answer and `memo` lacks asked
 /// of git and kept in `memo` (`learn_content`), then the view of them (`view_of`). The robots are the user's (only those
 /// that land or landed change what is held), the remote branches what the deriver knows of them
+///
+/// # Errors
+/// Git failed to tell the content (`ContentFailed`, with the view of what `memo` has)
 #[instrument(skip_all, fields(robots = of.robots.len(), branches = of.table.branches.len()))]
-pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, matched: &RobotMatches, memo: &ContentMemo) -> PatronusView {
-  learn_content(git_executor, repository_path, of, matched, memo);
-  view_of(of, matched, memo)
+pub fn patronus_view(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  of: &PatronusOf<'_>,
+  matched: &RobotMatches,
+  memo: &ContentMemo,
+) -> Result<PatronusView, Box<ContentFailed>> {
+  let learned = learn_content(git_executor, repository_path, of, matched, memo);
+  let view = view_of(of, matched, memo);
+  match learned {
+    Ok(()) => Ok(view),
+    Err(error) => Err(Box::new(ContentFailed { view, error })),
+  }
 }
 
 /// The view of `of` (module docs), with the robot of each branch and whole stack (`matched`), by the hashes and what

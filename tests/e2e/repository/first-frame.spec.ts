@@ -1,7 +1,7 @@
 // @spec openspec/specs/repository/title-bar/spec.md
-import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
+import { errorLogs } from "../helpers/ipc-helpers"
 import { getSubWindowReadyOpen, getWindowReadyRows, getWindowShell, observeWindowStages } from "../helpers/sub-window-helpers"
 import { windowCalls } from "../helpers/title-bar-helpers"
 
@@ -138,8 +138,3 @@ test.describe("The first frame of the main window", () => {
     await expect(page.getByTestId("branch-table-loading")).toHaveCount(0)
   })
 })
-
-/** The lines of the error level that the page sent to the log of the app (`__e2eErrorLogs` of the mock of `plugin:log`) */
-function errorLogs(page: Page): Promise<{ line: string; keyValues: Record<string, string | undefined> }[]> {
-  return page.evaluate(() => (window as unknown as { __e2eErrorLogs?: { line: string; keyValues: Record<string, string | undefined> }[] }).__e2eErrorLogs ?? [])
-}

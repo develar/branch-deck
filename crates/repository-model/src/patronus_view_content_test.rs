@@ -66,7 +66,7 @@ fn counted_view(repo: &TestRepo, table: &BranchTable, robots: &[PatronusRobot], 
     needs_review: &std::collections::BTreeMap::new(),
     failing: &[],
   };
-  let view = patronus_view(&git, repo.path_str(), &of, &matched, memo);
+  let view = patronus_view(&git, repo.path_str(), &of, &matched, memo).expect("git told the content");
   let processes = git
     .process_stats()
     .unwrap()
@@ -138,6 +138,51 @@ async fn a_root_restacked_below_a_running_robot_is_told_by_content_once() {
   assert_eq!((processes, again), (Vec::new(), view));
 }
 
+/// A frame of an earlier run seeds the memo (`ContentMemo::seeded`): the views read its answers, and the first derivation
+/// that needs one asks git again, so an answer of the rules of another binary lasts only until then; here one that says
+/// the robot of auth lands the new root env too, which its commit doesn't have. The answer of this derivation is kept:
+/// the next asks nothing
+#[tokio::test]
+async fn an_answer_of_a_frame_is_read_by_the_views_and_asked_again_by_the_first_derivation() {
+  use crate::patronus_view::{content_keys, view_of};
+  use domain_types::robot_landing::BranchSpan;
+  use std::collections::HashSet;
+  let repo = repo();
+  let (table, robots) = restacked_below_a_robot(&repo).await;
+  let memo = ContentMemo::default();
+  let (view, _) = counted_view(&repo, &table, &robots, &memo);
+  let remote = RemoteFacts::default();
+  let of = PatronusOf {
+    table: &table,
+    remote: &remote,
+    robots: &robots,
+    needs_review: &std::collections::BTreeMap::new(),
+    failing: &[],
+  };
+  let mut framed = memo.frame_of(&content_keys(&of), &HashSet::from(["r"]));
+  assert_eq!(framed, *memo.answers(), "the answers of the table of the frame");
+  let env = table.branch("env").unwrap().commits.iter().map(|commit| commit.id.clone()).collect();
+  assert_eq!(framed.spans.len(), 1, "the question of the running robot");
+  let answer = framed.spans.values_mut().next().unwrap();
+  answer.get_or_insert_with(Vec::new).insert(
+    0,
+    BranchSpan {
+      branch: "env".to_string(),
+      commits: env,
+      amended: Vec::new(),
+    },
+  );
+  let seeded = ContentMemo::seeded(framed);
+  let env_hold = |view: &PatronusView| view.branches.get("env").and_then(|facts| facts.landing.hold.as_ref()).map(|hold| hold.kind);
+  let read = view_of(&of, &match_robots(&table, &remote, &robots), &seeded);
+  assert_eq!(env_hold(&read), Some(HoldKind::Span), "the view reads the answer of the frame");
+
+  let (derived, processes) = counted_view(&repo, &table, &robots, &seeded);
+  assert_eq!(processes, [("cat-file".to_string(), 1), ("rev-list".to_string(), 2)], "asked again");
+  assert_eq!((env_hold(&derived), derived), (None, view), "the answer of the rules of this binary");
+  assert_eq!(counted_view(&repo, &table, &robots, &seeded).1, [], "the answer was kept");
+}
+
 /// The memo is locked only to look up and to keep answers: while git tells the content of a robot (a git here that
 /// waits until the test lets it go), another view, or the checks of a push, takes the memo
 #[cfg(unix)]
@@ -179,7 +224,7 @@ async fn the_memo_is_free_while_git_tells_the_content() {
     let free = memo.answers.try_lock().is_ok();
     std::fs::write(&go, "").unwrap();
     assert!(free, "the memo is free while git runs");
-    view.join().unwrap()
+    view.join().unwrap().expect("git told the content")
   });
   assert_eq!(view.branches["auth"].landing.hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Own));
   assert_eq!(counted_view(&repo, &table, &robots, &memo).1, [], "the answer was kept");

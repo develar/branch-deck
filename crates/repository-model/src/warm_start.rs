@@ -6,13 +6,13 @@
 //!   commit what its view leaves out but a rewrite finds it again by, `CommitIdentity`, and what that sync built of the
 //!   rows beside them, `CachedBuild`, which the next steps, the pushes and the actions read) and the facts of the remote
 //!   services as the view had them (`CachedFacts`: the robots, the Patronus view with what only Rust reads of it,
-//!   `KeptPatronus`, what the content of the robots' commits told, `MemoAnswers`, the landing needs with the inputs they
-//!   are of, the pull requests, the rules, the merge profiles,
-//!   the readiness, the review requests, the sign-ins).
-//!   The parts the rules
-//!   decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need the user) are not
-//!   kept: the session derives them again from the frame, by the rules of the binary that reads it, as from every
-//!   state. No running sync, no operation, no news: a frame is of no process.
+//!   `KeptPatronus`, what the content of the robots' commits told that the view of its table reads, `MemoAnswers`, the
+//!   landing needs with the inputs they are of, the pull requests, the rules, the merge profiles, the readiness, the
+//!   review requests, the sign-ins). The parts the rules decide (the pushes, the starts, what landed, the next steps,
+//!   the actions, the robots that need the user) are not kept: the session derives them again from the frame, by the
+//!   rules of the binary that reads it, as from every state; an answer of the content it kept the views read until the
+//!   first derivation that needs it asks git again (`MemoAnswers::from_frame`). No running sync, no operation, no news: a
+//!   frame is of no process.
 //! - **Where**: the object cache of the repository, store `session_frame`, one frame per worktree (`frame_key`, the
 //!   hash of its path) under the version of the schema (`FRAME_SCHEMA`), so the start reads it without a git process and
 //!   a frame of another schema is never read. The record names its key and the epoch of its worktree
@@ -217,8 +217,9 @@ pub struct CachedFacts {
   /// The Patronus view as its wire has it, without what only Rust reads of it, which `patronus_kept` keeps
   pub patronus: PatronusPart,
   pub patronus_kept: KeptPatronus,
-  /// What the content of the robots' commits told the derivations (`ContentMemo`): the view of the robots as they are
-  /// after the start reads it, as a derivation would, until a derivation of this process answers
+  /// What the content of the robots' commits told the derivations that the view of the table of the frame reads
+  /// (`ContentMemo::frame_of`): the views after the start read it, and the first derivation of this process that needs an
+  /// answer of it asks git again (`MemoAnswers::from_frame`)
   pub content: MemoAnswers,
   /// The landing needs of the last computation that answered them, with what they are of
   pub landing_needs: Option<CachedNeeds>,
@@ -301,7 +302,7 @@ pub fn frame_of(key: &SessionKey, epoch: Option<&str>, state: &TableState, facts
     key: key.clone(),
     epoch: epoch.map(str::to_owned),
     table,
-    facts: facts.frame(),
+    facts: facts.frame(state),
   }
 }
 

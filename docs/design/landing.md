@@ -412,8 +412,9 @@ The whole stack is an object of its own in the app, beside its branches, named "
     "landed: nothing of it is left to land" of a branch whose two commits neither master nor the remote had.
 - **A view of another table.** The view of the robots is one function over the table, the remote branches and the
   robots (`patronus_view::view_of`), by the hashes and what the content of the robots' commits told (`ContentMemo`, by
-  robot and by the commits it covered, kept in the frame of the session). A derivation asks git first what the memo
-  lacks, then makes the view; whenever the robots, the table or the remote branches change before the derivation of
+  robot and by the commits it covered; the frame keeps the answers the view of its table reads, and the first derivation
+  after a start asks them again under the rules of the binary). A derivation asks git first what the memo lacks, then
+  makes the view, and fails when git fails (`Stale` with why); whenever the robots, the table or the remote branches change before the derivation of
   them answers, or after it failed, the session makes the view of them again with what the memo has
   (`facts::PatronusFact::publish`, `Stale` until the derivation answers). So the view the session shows is of the
   robots and the table as they are: a robot started since holds its branch and its stack branch, one that ended since

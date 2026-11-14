@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import { flushSync } from "react-dom"
 
 /** A height within this of the one the layout has is the same: a subpixel of a resize lays out nothing again */
@@ -32,13 +32,17 @@ export function useMeasuredHeights(): MeasuredHeights {
         flushSync(() => setHeights(previous => merged(previous, measured)))
       }),
   )
-  const measure = (element: HTMLElement | null) => {
-    if (element === null) {
-      return undefined
-    }
-    observer.observe(element)
-    return () => observer.unobserve(element)
-  }
+  // one ref callback for the life of the view: another function would detach and attach every block it measures
+  const measure = useCallback(
+    (element: HTMLElement | null) => {
+      if (element === null) {
+        return undefined
+      }
+      observer.observe(element)
+      return () => observer.unobserve(element)
+    },
+    [observer],
+  )
   return { heights, measure }
 }
 

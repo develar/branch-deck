@@ -128,7 +128,7 @@ fn a_frame_keeps_what_only_rust_reads_of_the_patronus_view_beside_its_wire() {
   }
   let (_, seeded) = read.seed();
   assert_eq!(seeded.patronus.part().view, view);
-  assert_eq!(seeded.memo.frame(), content);
+  assert_eq!(seeded.frame(&synced_state()).content, content, "the latest answer of a listed robot");
 }
 
 /// A frame seeds only the session of its key and schema: another prefix of the worktree, or a frame of another schema,

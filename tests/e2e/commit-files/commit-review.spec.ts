@@ -7,6 +7,7 @@ import { activityButton, activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { changedParts, deletedParts, diffRows, findMarks, joinedText } from "../helpers/diff-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
+import { errorLogs } from "../helpers/ipc-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
@@ -364,6 +365,8 @@ simpleTest.describe("Commit review", () => {
     await expect(map).toHaveAttribute("data-sections", "5")
     await expect(map).toHaveAttribute("data-current", /\/RowMapper\.kt$/)
     expect(await map.evaluate(() => (globalThis as unknown as { mapObservations?: number }).mapObservations)).toBe(1)
+    // it observed the scroller as it mounted: a map that mounts before it logs so and observes a frame later
+    expect((await errorLogs(page)).map(entry => entry.line)).not.toContain("The map of the files mounted before the scroller of its view")
   })
 
   simpleTest(

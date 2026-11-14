@@ -1524,8 +1524,9 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
   (`fileMapScale`, `fileMapTicks` of `src/lib/diff/file-map.ts`, `DiffLayout.sectionStart`): the map measures
   nothing but the sizes of the track and the view, from their `ResizeObserver`, made once as the map mounts (the view
   passes a new `scroller` with each layout; an observer made anew each time observed the view again in the frame that
-  laid it out, as the measured heights render at once, a ResizeObserver loop); the heights of the openings are the
-  layout's already.
+  laid it out, as the measured heights render at once, a ResizeObserver loop). So the scroller comes before the map in
+  `DiffView`, its ref attached first; a map that mounts without it logs an error to the log of the app, which the E2E
+  test of the map checks, and observes again in the next frame; the heights of the openings are the layout's already.
 - **Ticks.** A tick of 1 px at the start of each section, in a token of its own
   (`--diff-map-tick`, `--foreground` 26% into the canvas, one formula for both themes: `--border` is the canvas itself
   in the light theme, and the edge of a card, `--diff-card-border`, is too faint on the dark canvas), 2 px from the

@@ -1451,7 +1451,8 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &ContentMemo) -> Result<PatronusView, ApiError> {
     self.environment.before_patronus_view(key)?;
-    Ok(derive_patronus(&self.git_of(key), &key.worktree, of, memo))
+    // a content git did not tell fails the derivation: `Stale` with why, derived again after the next answer of Patronus
+    derive_patronus(&self.git_of(key), &key.worktree, of, memo).map_err(|failed| self.environment.api_error(failed.error))
   }
 
   fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> Result<Needs, ApiError> {

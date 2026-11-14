@@ -66,7 +66,7 @@ use crate::branch_table::{BranchTable, RemoteFacts, remote_fact};
 use crate::derive::landed_subject;
 use crate::landed_closes::{LandedCloses, push_closes};
 use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
-use crate::patronus_view::{ContentMemo, landed_commits, match_robots, patronus_view, view_of, with_landing_needs};
+use crate::patronus_view::{ContentFailed, ContentMemo, MemoAnswers, content_keys, landed_commits, match_robots, patronus_view, view_of, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_readings::ReviewReadingsFact;
@@ -528,16 +528,17 @@ impl FactStore {
     }
   }
 
-  /// The facts a frame keeps (`warm_start::frame_of`), as the view has them: the merge profiles only of the baseline
-  /// the table has now
+  /// The facts a frame keeps (`warm_start::frame_of`), as the view has them with the table and the remote branches of
+  /// `state`: the merge profiles only of the baseline the table has now, the answers of the content only those the view
+  /// of the table and the listed robots reads (`content_frame`)
   #[must_use]
-  pub fn frame(&self) -> CachedFacts {
+  pub fn frame(&self, state: &TableState) -> CachedFacts {
     let profiles = &self.profiles;
     CachedFacts {
       robots: self.robots.view().clone(),
       patronus: self.patronus.part().clone(),
       patronus_kept: KeptPatronus::of(&self.patronus.part().view),
-      content: self.memo.frame(),
+      content: self.content_frame(state),
       landing_needs: self.patronus.needs.frame(),
       pull_requests: self.pull_requests.view().clone(),
       rules: self.rules.iter().map(|(base, rules)| (base.clone(), rules.fact().clone())).collect(),
@@ -550,6 +551,24 @@ impl FactStore {
       review_requests: self.review_requests.view().clone(),
       auth: self.auth.fact().clone(),
     }
+  }
+
+  /// The answers of the content a frame keeps (`ContentMemo::frame_of`): of the questions of the robots the session lists
+  /// over the table and the remote branches of `state` (`content_keys`), and the latest answer of each listed robot
+  fn content_frame(&self, state: &TableState) -> MemoAnswers {
+    let view = self.robots.view();
+    let robots = listed_robots(view);
+    let keys = self.table.value().map_or_else(HashSet::new, |table| {
+      let remote = session_remote(table, state);
+      content_keys(&PatronusOf {
+        table,
+        remote: &remote,
+        robots: &robots,
+        needs_review: &view.needs_review,
+        failing: &view.failing,
+      })
+    });
+    self.memo.frame_of(&keys, &robots.iter().map(|robot| robot.id.as_str()).collect())
   }
 
   /// The last news of the session, oldest first
@@ -1439,9 +1458,13 @@ pub type Needs = BTreeMap<String, Vec<LandingRefusal>>;
 
 /// The robot of each branch and whole stack of the table `of`, what the robots land and landed of it, and what the rules
 /// decide over that (`patronus_view` over `match_robots`, `derive::decide_landing`): the one derivation of the session
-/// and of `bd` (`one_shot::OneShot::derive_patronus`); runs git for the robots the hashes and `memo` don't answer: blocking
+/// and of `bd` (`one_shot::OneShot::derive_patronus`); runs git for the robots the hashes and `memo` don't answer (an
+/// answer a frame seeded included): blocking
+///
+/// # Errors
+/// Git failed to tell the content (`ContentFailed`): a session's derivation fails with it, a one-shot reads its view
 #[instrument(skip_all, fields(robots = of.robots.len(), branches = of.table.branches.len()))]
-pub fn derive_patronus(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, memo: &ContentMemo) -> PatronusView {
+pub fn derive_patronus(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, memo: &ContentMemo) -> Result<PatronusView, Box<ContentFailed>> {
   let matched = match_robots(of.table, of.remote, of.robots);
   patronus_view(git_executor, repository_path, of, &matched, memo)
 }

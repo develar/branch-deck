@@ -645,6 +645,50 @@ fn a_merge_closes_no_pull_request_of_a_branch_the_view_does_not_know() {
   assert_eq!(closes_of(grown), Vec::new(), "a commit since the view");
 }
 
+/// The view of the robots as they are, which a publish keeps while what it is of stays (`PatronusFact::publish`), is made
+/// again once the memo keeps an answer of the content since (its version): the merged robot of auth took a commit only
+/// the content tells, and once a derivation told it, a publish of the same inputs names what landed auth
+#[test]
+fn a_publish_of_the_same_inputs_reads_what_the_memo_kept_since() {
+  use crate::patronus_view::patronus_view_test::{content_told, merged, table};
+  let state = TableState::with_prefix("user");
+  let auth = table(&[("auth", None, &[("a1", "va1")])]);
+  let mut facts = FactStore::new();
+  let _ = facts.table.answer(at(1, 0, 1), Ok(Arc::new(auth.clone())));
+  facts.apply(
+    at(2, 0, 2),
+    FactResult::Robots {
+      read: FULL_LIST,
+      result: listed(Vec::new()),
+    },
+  );
+  let derivation = facts.begin_patronus(&state, Duration::from_secs(2)).expect("the first derivation");
+  facts.patronus.answer(at(3, derivation.inputs, 3), Ok(PatronusView::default()));
+  let robot = merged("r", "auth", "taken", 20);
+  facts.apply(
+    at(4, 0, 4),
+    FactResult::Robots {
+      read: FULL_LIST,
+      result: listed(vec![robot.clone()]),
+    },
+  );
+  let landed = |facts: &mut FactStore| {
+    let _ = facts.publish_patronus(&state);
+    facts
+      .patronus
+      .part()
+      .view
+      .branches
+      .get("auth")
+      .and_then(|facts| facts.landed_by.clone())
+      .map(|landed| landed.landed)
+  };
+  assert_eq!(landed(&mut facts), None, "nothing told what the robot landed");
+  assert_eq!(landed(&mut facts), None, "the view kept");
+  content_told(&facts.memo, &auth, &robot, &["a1"]);
+  assert_eq!(landed(&mut facts), Some(vec!["a1".to_owned()]), "what the memo kept since");
+}
+
 /// The running robots a failed required check dooms are part of what the Patronus view is derived of: their answer
 /// derives the view again, which offers their restart (`domain_policy::holds::restart_action`)
 #[test]
@@ -818,7 +862,7 @@ fn the_details_of_a_demanded_robot_name_its_profile_and_go_with_its_demand() {
 /// shown), because no observation of this process stands behind the frame; a fact the frame had no answer of seeds none
 #[test]
 fn the_facts_of_a_frame_seed_cached_and_a_failure_of_their_first_read_leaves_none() {
-  let mut seeded = FactStore::from_cached(answered_facts().frame(), "origin/master");
+  let mut seeded = FactStore::from_cached(answered_facts().frame(&TableState::with_prefix("user")), "origin/master");
   assert_eq!(seeded.robots.view().head.state, FactState::Cached);
   assert_eq!(ids(&seeded.robots), ["r1"]);
   let pull_requests = seeded.pull_requests.view();

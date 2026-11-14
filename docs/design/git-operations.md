@@ -5106,8 +5106,9 @@ remote facts and what the baseline has whole), from which the seed rebuilds the 
 (`BranchTable`, `Cached` in `FactStore::table`), so the next steps, the pushes and the actions of the rows show; and
 the facts of the remote services as the view has them (the robots, the Patronus view with what only Rust reads of it,
 which its wire leaves out, beside it, `KeptPatronus`: what landed each branch, the holds the view decided, what is left
-of each whole stack, what each merged robot landed; what the content of the robots' commits told, `MemoAnswers`, which
-the view of the robots as they are reads after the start; the landing needs of the last
+of each whole stack, what each merged robot landed; what the content of the robots' commits told that the view of its
+table reads, `MemoAnswers`, which the view of the robots as they are reads after the start until the first derivation
+that needs an answer of it asks git again ([Session facts](#session-facts)); the landing needs of the last
 computation with the inputs they are of, `CachedNeeds`, so a first sync that leaves the tips of the frame computes
 them not again and no row waits for them anew, the pull requests, the rules, the merge profiles of the table's
 baseline, the readiness, the review requests, the sign-ins). The parts the rules decide (the pushes, the starts, what
@@ -5403,9 +5404,15 @@ process when the hashes tell:
 else the robot landing and the robot span ask the content, one call each for every robot the memo lacks
 (`ContentMemo`, by the robot, its commit, the tip of its subject and the commits of the candidate branches with their
 copies): a view of the same state asks no git again. The memo also keeps the latest answer of each merged robot, what
-the hashes told included. The memo is shared by the views of a session and the checks of its pushes, kept in the frame
-of the session (`MemoAnswers`), and locked only to look up and to keep answers, never across the git of a view, so a
-push does not wait for the content walk of a view.
+the hashes told included. The memo is shared by the views of a session and the checks of its pushes, and locked only
+to look up and to keep answers, never across the git of a view, so a push does not wait for the content walk of a view.
+The frame of the session keeps of it what the view of the frame's table reads (`ContentMemo::frame_of`): the answers of
+the questions of the listed robots over that table (`content_keys`) and the latest answer of each listed robot, not
+the answers of states the table left (6.7 of 51 KB on the rows of `pnpm perf:table` with 33 merged robots the content
+tells and ten states before, `a_frame_of_the_large_table_keeps_the_content_of_its_table_only`). A memo seeded from a
+frame marks its answers (`MemoAnswers::from_frame`): the views read them, and the first derivation that needs one asks
+git again, so the rules of the binary that reads the frame answer from its first derivation on; this costs the git of
+one derivation once per start, only for robots the hashes don't tell, and no version of the rules to raise by hand.
 
 One function makes the view of these facts (`view_of`), no git: the derivation asks git what the memo lacks
 (`learn_content`) and then calls it (`patronus_view`, the app's and `brd`'s, a one-shot session and the robots a push
@@ -5415,7 +5422,9 @@ actor derives on), the view kept while the inputs and the answers stay: the part
 `Stale` until the derivation of them answers. A merged robot the memo has no answer of for the branches as they are
 landed what its latest answer says, of the branches as they were, which the readers judge against the branches as
 they are (`LandedByView::knows`, `is_whole_of`); nothing without one. A running one the memo has no answer of lands
-what the stack as it is now says. A git error is no answer: the view reads what the memo had. `patronus_view_content_test.rs` pins the
+what the stack as it is now says. A git error of the content fails the derivation with the view of what the memo has
+(`ContentFailed`, the answers that came kept): the session's part is `Stale` with why, derived again after the next
+answer of Patronus, while `brd` and the checks of a push read that view, the failure in the log. `patronus_view_content_test.rs` pins the
 processes: none for a robot at its tip or under new commits, one `cat-file --batch-check` and two `rev-list` after a
 restack, none for the same state again, and the memo free while git runs (`the_memo_is_free_while_git_tells_the_content`).
 

@@ -3460,7 +3460,7 @@ new one below a tested one, MUST NOT be landed.
 The landing by content MUST be asked once per state of the branches (`ContentMemo`, keyed by the robot and the
 commits it covers, locked only to look up and to keep answers, never while git runs), on the table the last sync left.
 The memo MUST keep the latest answer of each merged robot (what the hashes told included), which a view of a state
-not asked yet reads, judged against the branches as they are, and the frame of the session MUST keep the memo.
+not asked yet reads, judged against the branches as they are, and the frame MUST keep the answers its table's view reads.
 
 #### Scenario: The memo while git runs
 - **WHEN** git tells the content of a landing
@@ -3481,13 +3481,53 @@ not asked yet reads, judged against the branches as they are, and the frame of t
 
 #### Scenario: The memo over a start
 - **WHEN** a session starts from its frame
-- **THEN** the memo answers what it answered before, and the first view of the robots as they are reads it
+- **THEN** the memo answers what the frame kept, and the first view of the robots as they are reads it
   [@test] crates/repository-model/src/warm_start_test.rs (`a_frame_keeps_what_only_rust_reads_of_the_patronus_view_beside_its_wire`)
+
+#### Scenario: What a frame keeps of the content
+- **WHEN** the session writes its frame
+- **THEN** it keeps the answers of the questions of the listed robots over the table of the frame and the latest answer of each listed robot, none of a state the table left or of a robot no longer listed
+  [@test] crates/repository-model/src/patronus_view_test.rs (`a_frame_keeps_the_answers_the_view_of_its_table_reads`)
+  [@test] crates/repository-model/src/patronus_view_test.rs (`a_frame_of_the_large_table_keeps_the_content_of_its_table_only`)
 
 #### Scenario: The cost of a view made again
 - **WHEN** the view of the robots as they are is made again over 141 rows and 46 robots
 - **THEN** it takes at most its budget (about 2 ms in a debug build), and a publish of the same inputs and answers reads the view it kept
   [@test] crates/repository-model/src/derive_budget_test.rs (`the_view_of_the_robots_as_they_are_is_made_again_within_its_budget`)
+
+#### Scenario: An answer since the view
+- **WHEN** the memo keeps an answer after the view of the robots as they are was made, and their inputs stay
+- **THEN** the next publish makes the view again with that answer
+  [@test] crates/repository-model/src/facts_test.rs (`a_publish_of_the_same_inputs_reads_what_the_memo_kept_since`)
+
+### Requirement: Merged: An answer of a frame is asked again by the first derivation
+
+An answer of the content a frame of an earlier run seeded MUST be read by the views and asked of git again by the first
+derivation that needs it, so an answer of the rules of another binary lasts only until then; the answer of that
+derivation MUST be kept.
+
+#### Scenario: A frame's answer the rules of this binary contradict
+- **GIVEN** a session seeded from a frame whose answer says the robot lands a branch its commit doesn't have
+- **WHEN** the views of the robots are made, then the first derivation runs
+- **THEN** the views read the answer of the frame, the derivation asks git again and answers by the rules of this binary, and the next asks nothing
+  [@test] crates/repository-model/src/patronus_view_content_test.rs (`an_answer_of_a_frame_is_read_by_the_views_and_asked_again_by_the_first_derivation`)
+
+### Requirement: Merged: A content git does not tell fails the derivation
+
+When git fails to tell the content of a robot's commit, the derivation MUST fail with the error (`Stale` with why,
+`Unavailable` without an earlier view), the answers that came kept, and the next answer of Patronus MUST derive it
+again; meanwhile the view MUST be of the robots as they are by what the memo has. A one-shot command of `brd` MUST
+read that view.
+
+#### Scenario: Git fails
+- **WHEN** git fails to tell what a merged robot landed
+- **THEN** the derivation fails with the error and the view of what the memo has, keeping what the hashes told
+  [@test] crates/repository-model/src/patronus_view_test.rs (`a_derivation_git_fails_to_tell_the_content_to_fails_with_the_view_of_what_the_memo_has`)
+
+#### Scenario: The session over a failed content
+- **WHEN** the derivation of the session fails so over an earlier view
+- **THEN** the view is `Stale` with why, of the robots as they are, and the next answer of Patronus derives it again
+  [@test] crates/repository-model/src/session_test.rs (`a_derivation_git_fails_to_tell_the_content_to_is_stale_and_derived_again_after_the_next_answer_of_patronus`)
 
 ### Requirement: Merged: Of several robots the one that left the least work counts
 
@@ -4963,6 +5003,12 @@ which every reader reads against the branch as its row has it (`derive::hold_now
 - **AND** a landing holds the branch only while its robot merged and every commit of the branch is one it landed
   [@test] crates/repository-model/src/derive_test.rs (`a_start_reads_the_holds_of_the_view_as_every_reader_does`)
   [@test] crates/repository-model/src/derive_test.rs (`a_push_reads_no_hold_of_what_a_view_of_another_table_says_landed`)
+
+#### Scenario: A landing of the branch as it was
+- **GIVEN** the latest answer of the content of a merged robot is of the branch as it was, and the branch has a commit since
+- **WHEN** the view of the branches as they are is made
+- **THEN** the view names what landed the branch as it was, and its hold is decided of the branch as the table has it: the landing holds nothing
+  [@test] crates/repository-model/src/patronus_view_test.rs (`a_merged_robot_holds_as_landed_only_the_branch_as_it_landed_it`)
 
 #### Scenario: A robot started since the view
 - **GIVEN** a Safe Push of a branch, or of its whole stack, started after the view the session shows was derived (`brd safe-push`, `brd land`), and its derivation runs or failed

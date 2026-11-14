@@ -5,6 +5,7 @@ import type { FileStatus } from "@/lib/bindings"
 import { fileMapBand, fileMapScale, fileMapSectionAt, fileMapThumb, fileMapTicks, PROLOGUE_SECTION } from "@/lib/diff/file-map"
 import type { FileMapSection } from "@/lib/diff/file-map"
 import type { DiffLayout } from "@/lib/diff/layout"
+import { logError } from "@/lib/errors"
 
 /** A section of the view as the map shows it and its hover names it */
 export interface FileMapEntry extends FileMapSection {
@@ -101,30 +102,51 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
   // of the view in the frame that laid it out (the heights it measured render at once), a ResizeObserver loop
   const scrollerNow = useEffectEvent(() => scroller())
   useLayoutEffect(() => {
-    const element = scrollerNow()
-    const area = track.current
-    if (element === null || area === null) {
-      return
-    }
-    const measure = () => setSize({ width: area.clientWidth, height: area.clientHeight, view: element.clientHeight })
-    measure()
-    const resize = new ResizeObserver(measure)
-    resize.observe(area)
-    resize.observe(element)
-    let resolution = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
-    const onResolution = () => {
-      resolution.removeEventListener("change", onResolution)
-      setRatio(window.devicePixelRatio || 1)
-      resolution = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
+    const observe = (element: HTMLDivElement, area: HTMLDivElement) => {
+      const measure = () => setSize({ width: area.clientWidth, height: area.clientHeight, view: element.clientHeight })
+      measure()
+      const resize = new ResizeObserver(measure)
+      resize.observe(area)
+      resize.observe(element)
+      let resolution = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
+      const onResolution = () => {
+        resolution.removeEventListener("change", onResolution)
+        setRatio(window.devicePixelRatio || 1)
+        resolution = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
+        resolution.addEventListener("change", onResolution)
+      }
       resolution.addEventListener("change", onResolution)
+      const themes = new MutationObserver(() => setTheme(document.documentElement.dataset.theme ?? ""))
+      themes.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] })
+      return () => {
+        resize.disconnect()
+        resolution.removeEventListener("change", onResolution)
+        themes.disconnect()
+      }
     }
-    resolution.addEventListener("change", onResolution)
-    const themes = new MutationObserver(() => setTheme(document.documentElement.dataset.theme ?? ""))
-    themes.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] })
+    let stop: (() => void) | undefined
+    const start = () => {
+      const element = scrollerNow()
+      const area = track.current
+      if (element !== null && area !== null) {
+        stop = observe(element, area)
+      }
+      return stop !== undefined
+    }
+    let retry = 0
+    if (!start()) {
+      // DiffView renders the scroller before the map, so React attaches its ref first; a map that mounts before it would
+      // stay without sizes, as this runs once: the log of the app says so (the E2E tests of the map check it), and the
+      // map observes again in the next frame
+      logError("The map of the files mounted before the scroller of its view", new Error("no scroller as the map mounted"))
+      retry = requestAnimationFrame(() => {
+        retry = 0
+        start()
+      })
+    }
     return () => {
-      resize.disconnect()
-      resolution.removeEventListener("change", onResolution)
-      themes.disconnect()
+      cancelAnimationFrame(retry)
+      stop?.()
     }
   }, [])
 

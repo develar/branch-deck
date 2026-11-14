@@ -1,6 +1,11 @@
 import type { Page } from "@playwright/test"
 import { expect } from "../fixtures/base-test"
 
+/** The lines of the error level that the page sent to the log of the app (`__e2eErrorLogs` of the mock of `plugin:log`) */
+export function errorLogs(page: Page): Promise<{ line: string; keyValues: Record<string, string | undefined> }[]> {
+  return page.evaluate(() => (window as unknown as { __e2eErrorLogs?: { line: string; keyValues: Record<string, string | undefined> }[] }).__e2eErrorLogs ?? [])
+}
+
 /** What the Tauri mock counts of the page's commands (`window.__ipcStats`, tests/e2e/setup/tauri-mocks.ts) */
 export interface IpcStats {
   invokes: Record<string, number>

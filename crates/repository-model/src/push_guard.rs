@@ -16,7 +16,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use sync_core::patronus_start::{carried_ids, carried_words, join_names, push_mode_name};
-use tracing::instrument;
+use tracing::{instrument, warn};
 
 /// The facts the checks read (`guard_facts`): the table of the last sync, the robots Rust read, and the Patronus view of
 /// both
@@ -41,7 +41,11 @@ pub fn guard_facts(git_executor: &GitCommandExecutor, repository_path: &str, tab
     needs_review: &BTreeMap::new(),
     failing: &[],
   };
-  let view = derive_patronus(git_executor, repository_path, &of, &table.memo);
+  // the checks of a push read what the memo has when git fails to tell the content
+  let view = derive_patronus(git_executor, repository_path, &of, &table.memo).unwrap_or_else(|failed| {
+    warn!(error = %format!("{:#}", failed.error), "the content of the Safe Pushes is unknown: the checks read what the memo has");
+    failed.view
+  });
   GuardFacts { synced, robots, view }
 }
 

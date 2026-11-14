@@ -226,14 +226,14 @@ impl SessionHost for ScriptedHost {
     true
   }
 
-  /// By the hashes only: the scripted tables are of no repository
+  /// By the hashes only: the scripted tables are of no repository, so what the content tells is unknown
   fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &ContentMemo) -> Result<PatronusView, ApiError> {
     *self.derivations.lock().unwrap_or_else(PoisonError::into_inner) += 1;
     if let Some(gate) = self.view_gate.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
       let _ = gate.started.send(());
       let _ = gate.release.recv();
     }
-    Ok(derive_patronus(&GitCommandExecutor::new(), &key.worktree, of, memo))
+    Ok(derive_patronus(&GitCommandExecutor::new(), &key.worktree, of, memo).unwrap_or_else(|failed| failed.view))
   }
 
   fn landing_needs(&self, _key: &SessionKey, _landed: &HashSet<String>) -> Result<Needs, ApiError> {
@@ -1804,6 +1804,45 @@ async fn a_view_that_failed_is_derived_again_after_the_next_answer_of_patronus()
   let part = patronus_when(&sessions, &key, |part| part.landing_needs == FactState::Fresh).await;
   assert_eq!(part.state, FactState::Fresh);
   assert!(part.view.branches.contains_key("util"), "{part:?}");
+}
+
+/// A derivation git fails to tell the content of a robot's commit to fails (`facts::derive_patronus`, `ContentFailed`):
+/// the view is `Stale` with why, read of the robots as they are meanwhile, and the next answer of Patronus derives it
+/// again, also of the same robots; here the merged robot of util took a commit no copy is, and the repository is gone
+/// (its `.git` moved away) while the view is derived
+#[tokio::test]
+async fn a_derivation_git_fails_to_tell_the_content_to_is_stale_and_derived_again_after_the_next_answer_of_patronus() {
+  use sync_utils::fs_retry::rename;
+  let facts = Arc::new(HostFacts::default());
+  let (repo, sessions, key) = util_and_flow(&facts).await;
+  list_robots(&sessions, &key, Vec::new()).await;
+  assert_eq!(patronus_when(&sessions, &key, |part| part.state != FactState::Loading).await.state, FactState::Fresh);
+
+  let table = sessions.table(&key).await.unwrap();
+  let merged = PatronusRobot {
+    source_revision: Some(table.table.branch("util").unwrap().commits[0].id.clone()),
+    finish_time: Some(200),
+    ..robot("robot-1", Some("util"), PatronusRobotStatus::Success, 100)
+  };
+  let (git_dir, away) = (repo.path().join(".git"), repo.path().join("git-away"));
+  rename(&git_dir, &away).unwrap();
+  list_robots(&sessions, &key, vec![merged.clone()]).await;
+  // the derivation of the robot answered: it failed, or it is the view of the robot
+  let failed = patronus_when(&sessions, &key, |part| match &part.state {
+    FactState::Stale { reason } => reason.is_some(),
+    state => *state == FactState::Fresh && part.view.branches.get("util").is_some_and(|util| util.robot_id.is_some()),
+  })
+  .await;
+  let FactState::Stale { reason: Some(reason) } = &failed.state else {
+    panic!("{:?}", failed.state)
+  };
+  assert!(reason.message.starts_with("Cannot tell what the merged Safe Pushes landed"), "{reason:?}");
+  assert_eq!(failed.view.branches["util"].robot_id.as_deref(), Some("robot-1"), "the robots as they are");
+
+  rename(&away, &git_dir).unwrap();
+  list_robots(&sessions, &key, vec![merged]).await;
+  let part = patronus_when(&sessions, &key, |part| part.state == FactState::Fresh).await;
+  assert_eq!(part.view.branches["util"].robot_id.as_deref(), Some("robot-1"));
 }
 
 /// The frame of `/repo` under the prefix of the tests: the table of a sync of `auth`, the facts Patronus and GitHub

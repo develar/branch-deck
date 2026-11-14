@@ -704,9 +704,11 @@ impl<'a> LandingFacts<'a> {
   }
 
   /// The facts of `table` with `view`, its Patronus facts, the remote branches `remote` and the user's `robots`;
-  /// `running_spans`, by branch, the first running robot that lands it (`patronus_view`). A view whose holds are decided
-  /// already (`decide_landing`) passes none: its holds are read from it as every reader reads them, of the branches of
-  /// `table` and the robots as they are (`hold_now`)
+  /// `running_spans`, by branch, the first running robot that lands it (`patronus_view`), with which the holds are
+  /// decided: landed only by what landed the branch as `table` has it (`BranchTable::landed_whole`; the latest answer of
+  /// a robot may be of the branch as it was). A view whose holds are decided already (`decide_landing`) passes none: its
+  /// holds are read from it as every reader reads them, of the branches of `table` and the robots as they are
+  /// (`hold_now`)
   pub fn new(table: &'a BranchTable, remote: &'a RemoteFacts, view: &'a PatronusView, robots: &'a [PatronusRobot], running_spans: Option<&HashMap<String, SpanView>>) -> Self {
     let robots = Robots::new(robots);
     let holds = table
@@ -718,7 +720,8 @@ impl<'a> LandingFacts<'a> {
         let hold = match running_spans {
           Some(spans) => {
             let robot = facts.and_then(|facts| facts.robot_id.as_deref()).and_then(|id| robots.get(id));
-            branch_hold(name, facts.and_then(|facts| facts.landed_by.as_ref()), robot, spans.get(name))
+            let landed = facts.and_then(|facts| facts.landed_by.as_ref()).filter(|landed| table.landed_whole(name, landed));
+            branch_hold(name, landed, robot, spans.get(name))
           }
           None => facts
             .and_then(|facts| hold_now(facts, |id| robots.get(id), Some(&branch.commits)))

@@ -654,6 +654,15 @@ export function DiffView({
   const { heights: measured, measure } = useMeasuredHeights()
   // the epilogue, whose openings J and the tree show
   const epilogueElement = useRef<HTMLDivElement | null>(null)
+  // one callback for the life of the view, as `attachRows`: React detaches and attaches the host of a ref callback that
+  // is another function, so a callback made in the render would observe the epilogue again with every render
+  const attachEpilogue = useCallback(
+    (element: HTMLDivElement | null) => {
+      epilogueElement.current = element
+      return measure(element)
+    },
+    [measure],
+  )
   // the edges of the cards that were in view (`DiffLayout.passedCards`)
   const passedEdges = useRef(new Map<string, number>())
   // the block of changed lines N and P stepped to last, in the section at the top
@@ -1939,17 +1948,7 @@ export function DiffView({
   }
   if (epilogued) {
     content.push(
-      <div
-        key={EPILOGUE_KEY}
-        ref={element => {
-          epilogueElement.current = element
-          return measure(element)
-        }}
-        className="dv-opening"
-        data-testid="diff-view-epilogue"
-        data-measure={EPILOGUE_KEY}
-        style={{ top: layout.epilogueTop }}
-      >
+      <div key={EPILOGUE_KEY} ref={attachEpilogue} className="dv-opening" data-testid="diff-view-epilogue" data-measure={EPILOGUE_KEY} style={{ top: layout.epilogueTop }}>
         {epilogue}
       </div>,
     )
@@ -2068,7 +2067,8 @@ export function DiffView({
         />
       )}
       {mapped ? (
-        // the map of the files beside the scroller, in place of its scrollbar (diff-view.css)
+        // the map of the files beside the scroller, in place of its scrollbar (diff-view.css); the scroller first: the map
+        // reads it once as it mounts, and logs an error without it
         <div className="flex min-h-0 flex-1">
           {view}
           <DiffFileMap

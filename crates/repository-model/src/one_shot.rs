@@ -23,6 +23,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_utils::timestamp::unix_now;
+use tracing::warn;
 
 /// The table of a command and the facts it read; `Default`: a command that asked nothing
 #[derive(Debug, Default)]
@@ -91,7 +92,11 @@ impl OneShot {
     let Some(derivation) = self.facts.begin_patronus(&self.state, Duration::ZERO) else {
       return;
     };
-    let view = derive_patronus(git, &self.key.worktree, &derivation.of(), &self.facts.memo);
+    // a one-shot command asks no second time: the view of what the memo has, the failure in the log
+    let view = derive_patronus(git, &self.key.worktree, &derivation.of(), &self.facts.memo).unwrap_or_else(|failed| {
+      warn!(error = %format!("{:#}", failed.error), "the content of the Safe Pushes is unknown: the view reads what the memo has");
+      failed.view
+    });
     let observation = Observation {
       inputs: derivation.inputs,
       ..self.observation()
