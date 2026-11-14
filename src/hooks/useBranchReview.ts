@@ -261,11 +261,19 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   if (
     ready &&
     view !== null &&
-    (lastReady === null || lastReady.view !== view || lastReady.choice !== choice || !samePlanState(lastReady.plan, plan) || !samePlanState(lastReady.commitPlan, commitPlan))
+    (lastReady === null ||
+      lastReady.view !== view ||
+      lastReady.choice !== choice ||
+      lastReady.experimental !== experimental ||
+      !samePlanState(lastReady.plan, plan) ||
+      !samePlanState(lastReady.commitPlan, commitPlan))
   ) {
-    setLastReady({ view, plan, commitPlan, choice })
+    setLastReady({ view, plan, commitPlan, choice, experimental })
   }
-  const holding = !ready && view !== null && lastReady !== null && lastReady.choice === choice
+  // a switch of the review plan is no next review: the plan of the review on screen shows as it is read, the uses left
+  // outside while the tests are asked. The session of a window tells it with its view, which can come after the window
+  // read and showed the review without it
+  const holding = !ready && view !== null && lastReady !== null && lastReady.choice === choice && lastReady.experimental === experimental
   const shownView = holding ? lastReady.view : view
   const shownPlan = holding ? lastReady.plan : plan
   const shownCommitPlan = holding ? lastReady.commitPlan : commitPlan
@@ -366,6 +374,8 @@ interface ShownReview {
   readonly commitPlan: ReviewPlanState
   /** The choice of the user it showed (`select`): a newer choice shows at once */
   readonly choice: number
+  /** The review plan was on as it showed (`branchdeck.reviewExperimental`): a switch of it shows at once */
+  readonly experimental: boolean
 }
 
 /** What a review shows of its view and its plan: the subject of the diffs, the column, "Since Your Review" */

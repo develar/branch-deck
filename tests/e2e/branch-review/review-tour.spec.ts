@@ -12,7 +12,7 @@ import { selectedInDiffs } from "../helpers/selection-helpers"
 import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { nextAnswer, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { expectClosed, openTooltip } from "../helpers/wait-helpers"
+import { expectClosed, holdCommandCalls, openTooltip } from "../helpers/wait-helpers"
 
 /** The card right below the opening of the step of `heading`: the space between them and the file of the card */
 function cardBelow(heading: Locator): Promise<{ gap: number; path: string | null }> {
@@ -93,6 +93,19 @@ async function openLayoutPlan(page: Page, setupRepo: (template: string) => Promi
 // `allowed` with its two uses and a test that calls it, a test of the welcome the branch does not touch, a change of the
 // paint no test of the branch reaches, the restart story with a rule of the spec and its test link, and a round that renames the flag of
 // the rule
+
+/**
+ * The `review_tour` template with the review plan on, synced: `hooks`, which the first commit removes, has a call left
+ * outside the change, and the index answers the tests of the steps only once released, its other answers at once
+ */
+async function setUpHeldTests(setupRepo: (template: string) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<void>): Promise<TestRepositoryBuilder> {
+  const repo = await setupRepo("review_tour")
+  turnOnReviewPlan(repo)
+  writeTestIndex(repo.path, { "src/a/Manager.kt:6": [{ file: "test/b/WelcomeTest.kt", line: 7, column: 3, snippet: "Manager().hooks()", kind: "call", resolved: "typed" }] })
+  await repo.holdRemoteAnswers({ hold: ["stepTests"] })
+  await syncAndWaitForBranches()
+  return repo
+}
 
 /**
  * The index of the repository, as accio answers `tests --at … --tests <file>…` the code of the steps of `layout` at its
@@ -296,13 +309,7 @@ test.describe("Review tour", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupRepo("review_tour")
-    turnOnReviewPlan(repo)
-    // `hooks`, which the first commit removes, has a call left outside the change
-    writeTestIndex(repo.path, { "src/a/Manager.kt:6": [{ file: "test/b/WelcomeTest.kt", line: 7, column: 3, snippet: "Manager().hooks()", kind: "call", resolved: "typed" }] })
-    // the index answers the tests of the steps only once released: its other answers come at once
-    await repo.holdRemoteAnswers({ hold: ["stepTests"] })
-    await syncAndWaitForBranches()
+    const repo = await setUpHeldTests(setupRepo, syncAndWaitForBranches)
     let answered!: Promise<unknown>
     const window = await openLinkedSubWindow(page, await openReviewWindow(page, "layout"), {
       beforeLoad: async window => {
@@ -339,6 +346,37 @@ test.describe("Review tour", () => {
     await expect(window.getByTestId("review-step-finding-tests")).toHaveCount(0)
     await expect(reading).toHaveCount(0)
     await expect(hooks.getByTestId("review-plan-outside")).toHaveText("1 use left outside")
+  })
+
+  // the session of a window tells it the review plan with its view, which a loaded machine answers after the window read
+  // and showed its review without the plan: the switch is no next review the window keeps the last one for, so the plan
+  // that waits for the tests shows at once (it waited for the plan whole, the overview empty while the tests ran)
+  test("should show the plan that waits for the tests of its steps in a window whose session told the review plan after it showed the review", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setUpHeldTests(setupRepo, syncAndWaitForBranches)
+    let view!: Awaited<ReturnType<typeof holdCommandCalls>>
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "layout"), {
+      beforeLoad: async window => {
+        view = await holdCommandCalls(window, "subscribe_view")
+      },
+    })
+    // the review read and shown, every file with its diff, while the view of the session is held: no plan, no Mark Reviewed
+    const code = window.getByTestId("diff-view")
+    await expect(code).toContainText("The window keeps its stored layout across a restart")
+    await expect(code).toContainText("restart-keeps-layout")
+    await expect(window.getByRole("button", { name: "Mark Reviewed" })).toHaveCount(0)
+    view.release()
+    await repo.arrival("stepTests")
+    const overview = window.getByTestId("review-overview")
+    await expect(overview.getByTestId("review-overview-reading")).toHaveText("Finding the tests of the change…")
+    await expect(overview.getByTestId("review-plan-breakage-entry").getByTestId("review-plan-outside")).toHaveText("1 use left outside")
+    await expect(window.getByTestId("branch-review-body")).not.toHaveAttribute("aria-busy", "true")
+    await repo.holdRemoteAnswers({ release: ["stepTests"] })
+    await expect(overview.getByTestId("review-contents-step").nth(1).getByTestId("review-contents-step-facts")).toHaveText("Tested by ManagerTest.kt · New API: allowed")
+    await expect(overview.getByTestId("review-overview-reading")).toHaveCount(0)
   })
 
   // the ways through the steps apart from what the overview and the openings show: one test of both took 30 s under load
