@@ -285,6 +285,20 @@ impl file_diffs::accio::SymbolIndex for FixtureSearch<'_> {
   }
 }
 
+impl TestRepository {
+  /// Now on the clock of the page (`page_clock`), moved on by the time since its last command; the clock of the machine
+  /// before any command named it
+  pub fn page_now_ms(&self) -> u64 {
+    let clock = *self.page_clock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    match clock {
+      Some((page_ms, at)) => page_ms.saturating_add(u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX)),
+      None => std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX)),
+    }
+  }
+}
+
 pub struct TestRepository {
   pub id: String,
   pub path: String,
@@ -313,6 +327,10 @@ pub struct TestRepository {
   pub review_fetch_calls: AtomicU32,
   /// The `keep` of every `prune_review_refs`, in call order
   pub review_prune_keeps: std::sync::Mutex<Vec<Vec<u32>>>,
+  /// The clock of the page as its last command named it (`X-Page-Now`, ms) and when it came: a time the server records
+  /// for the page to show (the time of a sync, `page_now_ms`) is on the clock of the page, which a test installs and
+  /// moves (`page.clock`), not on the clock of the machine
+  pub page_clock: std::sync::Mutex<Option<(u64, std::time::Instant)>>,
   /// The fake services behind the real ones (`remote_host.rs`), started on the first need; stopped with the repository
   pub remote: std::sync::OnceLock<std::sync::Arc<crate::remote_host::RemoteHost>>,
   /// The sessions of the server, which a sign-in of the repository's fakes has read the facts of its worktree again

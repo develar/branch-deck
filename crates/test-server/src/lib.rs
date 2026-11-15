@@ -757,6 +757,7 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
     reviews_calls: std::sync::atomic::AtomicU32::new(0),
     review_fetch_calls: std::sync::atomic::AtomicU32::new(0),
     review_prune_keeps: std::sync::Mutex::default(),
+    page_clock: std::sync::Mutex::default(),
     remote: std::sync::OnceLock::new(),
     sessions: Arc::downgrade(&state.sessions),
     patronus_list_calls: std::sync::atomic::AtomicU32::new(0),

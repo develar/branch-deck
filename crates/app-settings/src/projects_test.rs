@@ -1,4 +1,4 @@
-use crate::projects::{selected_project, synced_before};
+use crate::projects::{record_sync as record_of_session, selected_project, synced_before};
 use crate::service::SettingsService;
 use domain_types::settings::SettingsPatch;
 use domain_types::worktree_epoch::WorktreeEpoch;
@@ -56,7 +56,8 @@ fn epochs_of(service: &SettingsService) -> std::sync::Arc<std::sync::Mutex<Value
   epochs
 }
 
-/// The window of the repository at `path` records a sync of it, as `recordSynced` writes it
+/// An entry of the repository at `path` with the time of a sync, as Rust writes one for the lease now (a fixture of the
+/// E2E server, `syncedAgoMs`)
 fn record_sync(service: &SettingsService, path: &str) -> domain_types::settings::SettingsChange {
   let entry = json!({ path: { "lastSyncTime": 1_700_000_000_000_u64, "lastBranchCount": 3 } });
   service
@@ -189,4 +190,73 @@ fn the_collapsed_stacks_of_a_slot_are_forgotten_under_another_lease_and_kept_und
   let projects = &service.snapshot().1["recentProjects"];
   assert_eq!(projects[0], json!({ "path": "/pool/1/repo", "parkedCollapsed": true }), "{projects}");
   assert_eq!(projects[1]["collapsedStacks"], json!(["ui"]));
+}
+
+/// What a window writes of the repository at `path`: the whole entry its page has, with what the page read of it
+fn write_of_window(service: &SettingsService, path: &str, entry: Value) -> Option<domain_types::settings::SettingsChange> {
+  let mut fields = serde_json::Map::new();
+  fields.insert(path.to_owned(), entry);
+  service
+    .set_of_window(
+      SettingsPatch::Fields {
+        key: "repositoryState".to_owned(),
+        fields,
+      },
+      "main",
+      None,
+    )
+    .unwrap()
+}
+
+/// The time of a sync (`lastSyncTime`) is the session's own record, of the lease it opened under: a write of a window
+/// keeps what the writer has for the epoch it is stamped with, whatever it carries. The order of the review of
+/// onboarding.spec.ts:298: the session of lease-a records its sync, the slot is returned and leased again (lease-b), and
+/// the window of lease-a writes the whole entry its page has, with the time of that sync; the slot of lease-b is no
+/// worktree synced before, so its session waits for the user's first sync
+#[test]
+fn a_write_of_a_window_keeps_the_time_of_a_sync_as_the_session_recorded_it_for_its_lease() {
+  let (_directory, service) = service_with(&[]);
+  let epochs = epochs_of(&service);
+  let path = "/pool/1/repo";
+  *epochs.lock().unwrap() = json!({ path: "lease-a" });
+  let lease_a = WorktreeEpoch::Lease("lease-a".to_owned());
+  assert!(record_of_session(&service, path, &lease_a, 1_000).unwrap().is_some());
+  assert!(synced_before(&service, path));
+
+  // a window of the same lease writes a time of its own, and none: the time stays the session's
+  write_of_window(&service, path, json!({ "lastSyncTime": 5, "lastBranchCount": 3 })).unwrap();
+  assert_eq!(service.value("repositoryState")[path]["lastSyncTime"], 1_000);
+  write_of_window(&service, path, json!({ "lastBranchCount": 4 })).unwrap();
+  assert_eq!(
+    service.value("repositoryState")[path],
+    json!({ "lastSyncTime": 1_000, "lastBranchCount": 4, "epoch": "lease-a" })
+  );
+
+  // the slot leased again, then the late write of the window of lease-a, with the time of its sync
+  *epochs.lock().unwrap() = json!({ path: "lease-b" });
+  let late = write_of_window(&service, path, json!({ "lastSyncTime": 1_000, "lastBranchCount": 4 })).unwrap();
+  assert_eq!(late.value[path], json!({ "lastBranchCount": 4, "epoch": "lease-b" }), "no time of a sync of lease-b");
+  assert!(!synced_before(&service, path), "the slot of lease-b was never synced");
+}
+
+/// A record of a sync by a session of an earlier lease writes nothing once the slot holds another lease: what the session
+/// of lease-a records never becomes lease-b's. Under its own lease the record keeps the other fields of the entry, and
+/// replaces an entry of another lease; outside a pool it names no epoch
+#[test]
+fn a_record_of_a_sync_is_of_the_lease_its_session_opened_under() {
+  let (_directory, service) = service_with(&[]);
+  let epochs = epochs_of(&service);
+  let (slot, checkout) = ("/pool/1/repo", "/work/checkout");
+  *epochs.lock().unwrap() = json!({ slot: "lease-b", checkout: null });
+  let (lease_a, lease_b) = (WorktreeEpoch::Lease("lease-a".to_owned()), WorktreeEpoch::Lease("lease-b".to_owned()));
+  assert_eq!(record_of_session(&service, slot, &lease_a, 1_000).unwrap(), None);
+  assert!(!synced_before(&service, slot));
+
+  write_of_window(&service, slot, json!({ "lastBranchCount": 2 })).unwrap();
+  let change = record_of_session(&service, slot, &lease_b, 2_000).unwrap().unwrap();
+  assert_eq!(change.value[slot], json!({ "lastBranchCount": 2, "lastSyncTime": 2_000, "epoch": "lease-b" }));
+  assert_eq!(change.origin, "session");
+
+  let outside = record_of_session(&service, checkout, &WorktreeEpoch::NotASlot, 3_000).unwrap().unwrap();
+  assert_eq!(outside.value[checkout], json!({ "lastSyncTime": 3_000 }));
 }

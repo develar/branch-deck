@@ -1521,6 +1521,17 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
   opens anew for the new lease, whose sync marks it
   [@test] crates/repository-model/src/session_test.rs (`a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the_session_opens_anew`)
 
+#### Scenario: A late record of a sync of the lease before
+- **GIVEN** a window synced a slot under one lease, and the slot is returned and leased again
+- **WHEN** the window of the lease before writes what it records of the repository after that, the time of its sync
+  among it
+- **THEN** the slot of the new lease is no worktree synced before: the time of a sync (`lastSyncTime`) is the record of
+  the session that synced, of the lease it opened under, which the writer keeps whatever a window writes and refuses
+  under another lease, so its session waits for the user's first sync and shows the Ready to Sync card
+  [@test] crates/app-settings/src/projects_test.rs (`a_write_of_a_window_keeps_the_time_of_a_sync_as_the_session_recorded_it_for_its_lease`, `a_record_of_a_sync_is_of_the_lease_its_session_opened_under`)
+  [@test] crates/repository-model/src/session_test.rs (`a_run_records_the_time_of_its_sync_under_the_lease_its_session_opened_under`)
+  [@test] tests/e2e/onboarding/onboarding.spec.ts (`shows the Ready to Sync card in the window of a slot once an agent leased the slot again, without the rows and Last synced of the lease before`)
+
 #### Scenario: A stamp of a new lease during a check
 - **GIVEN** a check of the inputs of a focus of the session under the lease before is in flight, and no run
 - **WHEN** the stamp of the new lease comes

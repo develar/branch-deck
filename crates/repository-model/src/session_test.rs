@@ -643,6 +643,8 @@ struct TestEnvironment {
 struct TestLeases {
   epoch: Mutex<WorktreeEpoch>,
   leased_again_in_run: Mutex<Option<WorktreeEpoch>>,
+  /// The lease each record of a sync named (`SessionEnvironment::record_synced`), in order
+  recorded: Mutex<Vec<WorktreeEpoch>>,
 }
 
 /// What the landing needs answer (nothing, by default) with the landed commits of each computation, and whether the view
@@ -675,6 +677,10 @@ impl SessionEnvironment for TestEnvironment {
 
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     self.syncs_on_focus
+  }
+
+  fn record_synced(&self, _key: &SessionKey, epoch: &WorktreeEpoch) {
+    self.leases.recorded.lock().unwrap_or_else(PoisonError::into_inner).push(epoch.clone());
   }
 
   fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
@@ -822,6 +828,20 @@ async fn a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the
       "{reason:?}: the session of lease-b marks it"
     );
   }
+}
+
+/// A run records the time of its sync (`lastSyncTime`, which its sessions sync of themselves by) under the lease its
+/// session opened under, also when the slot was leased again while it ran (the writer of the settings then records
+/// nothing: `a_record_of_a_sync_is_of_the_lease_its_session_opened_under`); a run that syncs nothing records nothing
+#[tokio::test]
+async fn a_run_records_the_time_of_its_sync_under_the_lease_its_session_opened_under() {
+  let (_repo, key, leases, sessions) = opened_under_lease_a().await;
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  *leases.leased_again_in_run.lock().unwrap() = Some(lease("lease-b"));
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  assert_eq!(*leases.recorded.lock().unwrap(), [lease("lease-a"), lease("lease-a")]);
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Skipped));
+  assert_eq!(leases.recorded.lock().unwrap().len(), 2, "the run of a slot under another lease synced nothing");
 }
 
 /// The guard an operation of a session writes the files of the lease under (an intent of a window: Update Project, its

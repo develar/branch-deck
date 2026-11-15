@@ -5371,7 +5371,7 @@ reloads as the table of the first sync goes out loses that patch although the se
 keeps the seed whose run it saw end in `sessionStorage` (`bd-seed-ended`, which lives as long as the window, over a
 reload), and a catch-up from that seed ends no run in it; it takes the end of a run from a catch-up or a patch only,
 never from a snapshot (a session of another epoch). So the first sync ends once in the window, its count of Sync and
-its `lastSyncTime` written once, also when its page reloaded as that sync committed.
+what the page records of it written once, also when its page reloaded as that sync committed.
 
 **A rewrite on the frame**: what a window named on the seeded table is of no HEAD this process read, so a rewrite
 pressed meanwhile is admitted, waits for the first sync to commit (`WaitingForSync`), then resolves what it named by
@@ -5389,7 +5389,9 @@ While the table is the frame because its first sync failed or git deferred it, b
 that they wait for, and the error says what to fix.
 
 **The first sync**: a worktree synced before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the
-app's writer keeps by the path, `app_settings::projects::synced_before`, or the mark of the session's prefix: every
+app's writer keeps by the path, `app_settings::projects::synced_before`, which each run of a session records under the
+lease its session opened under, `SessionEnvironment::record_synced`, refused while the slot holds another lease and kept
+from the writes of the windows, or the mark of the session's prefix: every
 sync that succeeds, `brd sync` too, names its prefix in the git directory of the worktree, `branch-deck/synced.d/` of
 `sync_core::synced_mark`, a file per prefix (its name the SHA-256 of the prefix in hex, as long for every prefix, the
 prefix its content, which the read checks; written by a rename, so two syncs under two prefixes at once both land; the
@@ -5402,7 +5404,8 @@ window), so the first sync of the start runs while the window loads, and so does
 switch back within `IDLE_LIMIT`; also one a sync of this session committed), which then runs only when what a sync
 reads changed; a window that opens or gains the focus during it is served by it or checks once after it. The page asks
 no sync of its own as it opens (its `syncBranches("open")` is gone, `startup-read` of `pnpm lint:arch`), and records
-the `lastSyncTime` of every run of its session, also of one it did not ask for. Whether the session syncs of itself
+the branch count and the duration of every run of its session, also of one it did not ask for; the time of the run is
+the session's record. Whether the session syncs of itself
 is its view's (`RepositoryView.synced`, `Actor::synced`: synced before, or a sync of it committed a table), patched as
 it changes: the page reads it for the Ready to Sync card, for the sync after a write of Settings and for the Sync asked
 again after `prefix_changed`, never `lastSyncTime`, which only the "Last synced" of the header and of the repository

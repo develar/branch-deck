@@ -45,10 +45,7 @@ pub async fn set_setting(ctx: &AppContext, call: &Call, params: SetSettingParams
   operation(async move {
     let SetSettingParams { patch, order } = params;
     let origin = call.window.as_str();
-    let applied = match order {
-      Some(order) => ctx.settings.set_in_order(patch, origin, &page_write(call, order)),
-      None => ctx.settings.set(patch, origin).map(Some),
-    };
+    let applied = ctx.settings.set_of_window(patch, origin, order.map(|order| page_write(call, order)).as_ref());
     let change = applied.map_err(|e| api_error(anyhow::Error::new(e).context("Cannot change the settings")))?;
     if let Some(change) = &change {
       settings_changed(&*ctx.events, change);

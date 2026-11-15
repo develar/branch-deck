@@ -350,7 +350,9 @@ describe("the warm start", () => {
     expect(fakeSessions.snapshotCalls).toEqual([])
     // the window never saw the run, idle on both sides of the catch-up: it ended all the same, and the window handles its end
     expect(branchSyncStore.getState().syncCount).toBe(1)
-    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastSyncTime: expect.any(Number), lastBranchCount: 2 }) }])
+    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 2 }) }])
+    // the time of the sync is the session's own record, of the lease it opened under (`record_synced` of Rust)
+    expect(syncRecords[0]?.record).not.toHaveProperty("lastSyncTime")
     expect(archived.settled).toBe(1)
     expect(plans).toHaveBeenCalledWith({ repositoryPath: "/repo" })
   })
@@ -401,7 +403,7 @@ describe("the warm start", () => {
     await reloaded.whenSessionReady()
     // the catch-up from the seed brings the end of that run, which no page of the window saw: it ends here, once
     expect(table.getState()).toMatchObject({ branchOrder: ["a", "b"], cached: false, syncCount: 1 })
-    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastSyncTime: expect.any(Number), lastBranchCount: 2 }) }])
+    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 2 }) }])
     reloaded.closeSession()
   })
 

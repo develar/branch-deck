@@ -1567,6 +1567,12 @@ pub trait SessionEnvironment: Send + Sync + 'static {
     false
   }
 
+  /// A sync of `key` ended, a run of the session that opened under `epoch` (`lease_began`): the app records its time in
+  /// its settings (`app_settings::projects::record_sync`, the `lastSyncTime` its sessions sync of themselves by and its
+  /// windows show), only while the worktree holds `epoch`, so a run of an earlier lease never makes the next lease
+  /// synced; nothing by default. Blocking
+  fn record_synced(&self, _key: &SessionKey, _epoch: &WorktreeEpoch) {}
+
   /// The git the session of `key` runs its syncs, its inputs and its Patronus view with: the host's `git` in the app;
   /// the E2E server's carries the global config of the test repository (`GIT_CONFIG_GLOBAL`), as its commands do
   fn git(&self, _key: &SessionKey, git: &GitCommandExecutor) -> GitCommandExecutor {
@@ -1623,6 +1629,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       }
       options.lease = {
         let (environment, key) = (Arc::clone(&environment), key.clone());
+        let began_under = began_under.clone();
         LeaseGuard::while_held(move || environment.epoch(&key) == began_under)
       };
       // the remote statuses and the landing report among the events are kept for the table
@@ -1631,6 +1638,14 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       let report = sync_branches(&git, &key.worktree, &key.prefix, reporter, options)
         .await
         .map_err(|error| environment.api_error(error))?;
+      // the time of the sync, of the lease the session opened under, as the mark of `sync_branches`
+      let recorded = {
+        let (environment, key) = (Arc::clone(&environment), key.clone());
+        tokio::task::spawn_blocking(in_current_span(move || environment.record_synced(&key, &began_under))).await
+      };
+      if let Err(error) = recorded {
+        warn!(worktree = %key.worktree, "The record of the sync failed: {error}");
+      }
       let table = BranchTable::from_report(&key.prefix, &report, &collector.take_statuses(), &collector.take_landing());
       Ok(SyncedTable { report, table })
     })

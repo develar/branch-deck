@@ -40,6 +40,9 @@ pub const PROGRESS_CHANNEL_HEADER: &str = "X-Progress-Channel";
 /// The header with which the page mock names the window of its page (`__e2eWindowLabel`) on every command
 pub const WINDOW_LABEL_HEADER: &str = "X-Window-Label";
 
+/// The header of a command that names the clock of the page (`Date.now()`, ms), whose time a test installs and moves
+pub const PAGE_NOW_HEADER: &str = "X-Page-Now";
+
 /// How a command fails: with its `ApiError`, answered the way Tauri rejects a command (`{ status: "error", error:
 /// <ApiError> }` with status 200, which the page mock hands to the bindings: the same JSON as the app,
 /// `api_error_contract_test.rs`), or with a failure of the server itself, a panicked command (500, `caught`). A type of
@@ -177,6 +180,7 @@ async fn invoke(name: &'static str, State(state): State<Arc<AppState>>, headers:
 /// call of the window it names, its channel on `progress`
 async fn run(name: &'static str, state: &AppState, headers: &HeaderMap, body: &[u8], progress: Progress) -> Result<Answer, Rejection> {
   let context = requesting_context(state, headers)?;
+  note_page_clock(state, headers);
   let call = context.call(requesting_window(headers));
   let spec = app_api::dispatch::spec(name).expect("a route is a command of the registry");
   let args = arguments(spec, body).map_err(|e| failed(name, format!("Invalid arguments of {name}: {e}")))?;
@@ -226,6 +230,21 @@ fn arguments(spec: &CommandSpec, body: &[u8]) -> serde_json::Result<serde_json::
 }
 
 /// The context of the test repository of the page that sends a command (`X-Repository-Id`)
+/// The clock of the page that sends a command (`X-Page-Now`, ms), kept by its repository (`TestRepository::page_clock`)
+fn note_page_clock(state: &AppState, headers: &HeaderMap) {
+  let page_ms = headers
+    .get(PAGE_NOW_HEADER)
+    .and_then(|value| value.to_str().ok())
+    .and_then(|value| value.parse::<u64>().ok());
+  let repository = headers
+    .get(crate::REPOSITORY_ID_HEADER)
+    .and_then(|value| value.to_str().ok())
+    .and_then(|id| state.repositories.get(id));
+  if let (Some(page_ms), Some(repository)) = (page_ms, repository) {
+    *repository.page_clock.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((page_ms, std::time::Instant::now()));
+  }
+}
+
 fn requesting_context(state: &AppState, headers: &HeaderMap) -> Result<Arc<AppContext>, Rejection> {
   headers
     .get(crate::REPOSITORY_ID_HEADER)

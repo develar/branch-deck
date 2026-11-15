@@ -1324,13 +1324,13 @@ function recordSync(repositoryPath: string, answer: SyncAnswer, reason: SyncReas
 /**
  * The repository is synced now, with `branchCount` branches (the room of the loading table at the next start), and
  * the sync took `took` ms when the window knows when it was asked; the Landed island hides what the user saw
- * (`hideAfterSync`). In `repositoryState`, a file of its own, so a sync never rewrites the user's settings
+ * (`hideAfterSync`). In `repositoryState`, a file of its own, so a sync never rewrites the user's settings. The time of
+ * the sync (`lastSyncTime`) is the session's own record, of the lease it opened under (`record_synced` of Rust): the
+ * writer keeps it whatever this write carries, so a window of the lease before never makes a slot leased again synced
  */
 function recordSynced(repositoryPath: string, branchCount: number, took?: number): void {
-  const syncedAt = Date.now()
   updateRepositoryState(repositoryPath, state => ({
     ...state,
-    lastSyncTime: syncedAt,
     lastBranchCount: branchCount,
     ...(took !== undefined && { updateTimings: addTiming(state.updateTimings, "sync", took) }),
   }))

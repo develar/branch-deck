@@ -51,10 +51,7 @@ async fn a_sync_marks_its_worktree_synced_and_one_git_deferred_does_not() {
 /// would hold that task until its lock gave up (10 s) and land nothing
 #[tokio::test(flavor = "current_thread")]
 async fn the_mark_of_a_sync_waits_for_the_lock_of_the_lease_off_the_worker_of_the_runtime() {
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  repo.create_commit("(feature) Add the feature", "feature.txt", "feature");
-  let path = repo.path().to_str().unwrap().to_string();
+  let (repo, path) = with_a_feature();
   let lock = lease_of(&repo).lease_lock();
   std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
   let held = lock_as_another_process(lock.clone(), "brd lease return").unwrap();
@@ -89,10 +86,7 @@ async fn the_mark_of_a_sync_waits_for_the_lock_of_the_lease_off_the_worker_of_th
 /// both
 #[tokio::test]
 async fn the_mark_names_the_prefix_each_sync_built_under() {
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test");
-  repo.create_commit("(feature) Add the feature", "feature.txt", "feature");
-  let path = repo.path().to_str().unwrap().to_string();
+  let (repo, path) = with_a_feature();
   sync_under(&path, "other").await.unwrap();
   assert!(synced_before(&path, "other"));
   assert!(!synced_before(&path, "test"));
@@ -162,6 +156,15 @@ fn mark_of(dir: &std::path::Path) -> LeasePaths {
 }
 
 /// The files of the lease of the main worktree of `repo`
+/// A repository of a commit and one of the branch `feature` on it, and its path
+fn with_a_feature() -> (TestRepo, String) {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  repo.create_commit("(feature) Add the feature", "feature.txt", "feature");
+  let path = repo.path().to_str().unwrap().to_string();
+  (repo, path)
+}
+
 fn lease_of(repo: &TestRepo) -> LeasePaths {
   LeasePaths::of_git_dir(&repo.path().join(".git"))
 }

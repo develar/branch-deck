@@ -130,7 +130,10 @@ sequenceDiagram
    (`POST /repositories/{id}/lease-slot`, the real get), names its path as the repository and the selected project, and
    with `"again"` returns it after `syncedAgoMs` and leases it again, the same path under a new epoch. The setup hands
    the page the writer's `repositoryState` (`GET /store/{repo}/repositoryState`), as the build of a window does, so an
-   entry of an earlier lease is gone from it.
+   entry of an earlier lease is gone from it. The time of a sync of a session (`lastSyncTime`, the session's own record,
+   `record_synced`) is on the clock of the page, which the test installs and moves: each command of the page names it
+   (`X-Page-Now`), and the server takes it on from the last one (`TestRepository::page_now_ms`), so "Last synced just
+   now" ages to "1 minute ago" with `page.clock.fastForward`.
    **Rationale**: The writer is the app's (`SettingsService`), so the key lands in its own file
    (`repository-state.json`) and the page's later patches of the key apply to the value the writer has; an init script
    that edits `__TAURI_STORE__` changes only what the page starts from.

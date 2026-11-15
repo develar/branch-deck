@@ -24,6 +24,8 @@ struct HeldSyncHost {
 }
 
 impl SessionHost for HeldSyncHost {
+  // jscpd:ignore-start: the held-sync SessionHost delegates to its host, as the seeded-session test host of
+  // `rewrite_test.rs` does: the signatures of the trait, and a gate of its own around the run
   fn inputs(&self, key: &SessionKey) -> Option<SyncInputs> {
     self.host.inputs(key)
   }
@@ -37,7 +39,6 @@ impl SessionHost for HeldSyncHost {
     })
   }
 
-  // jscpd:ignore-start: the held-sync SessionHost must delegate these required methods, like the seeded-session test host
   fn syncs_on_focus(&self, key: &SessionKey) -> bool {
     self.host.syncs_on_focus(key)
   }

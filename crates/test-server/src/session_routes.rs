@@ -186,6 +186,16 @@ impl SessionEnvironment for TestSessionEnvironment {
       || sync_core::synced_mark::synced_before(&key.worktree, &key.prefix)
   }
 
+  /// The time of the sync in the store of the test, as the app records it (`app_api::app::services::record_synced`), on
+  /// the clock of the page (`TestRepository::page_now_ms`), which shows it
+  fn record_synced(&self, key: &SessionKey, epoch: &domain_types::worktree_epoch::WorktreeEpoch) {
+    if let Some(state) = self.state.upgrade()
+      && let Ok(repository) = state.repository(&key.worktree)
+    {
+      app_api::app::services::record_synced(&repository.context, key, epoch, repository.page_now_ms());
+    }
+  }
+
   /// The git of the test repository (`AppState::git_of`): a sync reads the `branchdeck.*` keys of its global config, as
   /// Settings does, never the config of the machine that runs the tests
   fn git(&self, key: &SessionKey, git: &GitCommandExecutor) -> GitCommandExecutor {

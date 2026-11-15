@@ -16,7 +16,7 @@ use crate::reads::review_prefetch::{prefetch_after_commit, read_ahead_requests};
 use crate::repository_state::RepositoryStateCache;
 use crate::transport::{AppEvents, AppHost, Desktop};
 use app_settings::linked_pull_requests::{forget, linked};
-use app_settings::projects::synced_before;
+use app_settings::projects::{record_sync, synced_before};
 use app_settings::service::SettingsService;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
@@ -66,7 +66,7 @@ use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_utils::clock::SystemClock;
 use sync_utils::single_flight::SingleFlight;
 use sync_utils::timestamp::unix_now;
-use tracing::warn;
+use tracing::{debug, warn};
 use trial_check::landing_gate::landing_needs_of;
 use youtrack::client::YouTrackClient;
 use youtrack::service::{EnvironmentToken, YouTrackService};
@@ -214,6 +214,25 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
   /// terminal leaves too (`synced_mark`)
   fn synced_before(&self, key: &SessionKey) -> bool {
     synced_before(&self.source.context().settings, &key.worktree) || sync_core::synced_mark::synced_before(&key.worktree, &key.prefix)
+  }
+
+  /// The time of the sync, now, as the session's own record (`record_synced`)
+  fn record_synced(&self, key: &SessionKey, epoch: &WorktreeEpoch) {
+    let at_ms = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
+    record_synced(self.source.context(), key, epoch, at_ms);
+  }
+}
+
+/// Records that a sync of the session of `key` ended at `at_ms` (the `lastSyncTime` of its worktree in the settings, which
+/// only the sessions write: `app_settings::projects::record_sync`), the session opened under `epoch`: nothing while the
+/// worktree holds another lease; the windows hear the change. A failure is only logged: the next sync records again
+pub fn record_synced(ctx: &AppContext, key: &SessionKey, epoch: &WorktreeEpoch, at_ms: u64) {
+  match record_sync(&ctx.settings, &key.worktree, epoch, at_ms) {
+    Ok(Some(change)) => settings_changed(&*ctx.events, &change),
+    Ok(None) => debug!(worktree = %key.worktree, "the worktree holds another lease than the session: its sync is not recorded"),
+    Err(error) => warn!(worktree = %key.worktree, %error, "cannot record the sync"),
   }
 }
 

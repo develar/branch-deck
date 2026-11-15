@@ -221,6 +221,9 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
       headers: {
         "Content-Type": "application/json",
         "X-Window-Label": windowLabel,
+        // the clock of the page, which the test installs and moves: a time the server records for the page to show (the
+        // time of a sync) is on it (`TestRepository::page_now_ms`)
+        "X-Page-Now": String(Date.now()),
         ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId), Accept: "text/event-stream, application/json" }),
       },
       body: JSON.stringify(actualPayload),

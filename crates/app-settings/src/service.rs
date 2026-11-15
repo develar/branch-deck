@@ -35,7 +35,9 @@
 //! the writer forgets it before the key leaves it (`snapshot`, `changes_since`, `value`, the change of a `set`) and
 //! tells the windows (`on_external_change`), so neither Rust nor a window reads it. An epoch the files could not tell (`WorktreeEpoch::Unknown`)
 //! forgets nothing and stamps nothing anew: the entry keeps the epoch it names. The epochs are read before the mutex of
-//! the writer is taken, never under it.
+//! the writer is taken, never under it. The time of a sync of an entry (`SYNC_TIME_FIELD`) only Rust writes, for the
+//! lease it names (`set_repository_field`: a session, under the lease it opened under); a write of a window
+//! (`set_of_window`) keeps it as the writer has it for the epoch the entry is stamped with.
 
 use crate::file::{RECENT_PROJECTS_KEY, REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile, lock_directory};
 use crate::merge::{Unsaved, changed_keys};
@@ -68,6 +70,12 @@ pub const EPOCH_ORIGIN: &str = "epoch";
 /// The field of an entry of `repositoryState` that names the epoch of its worktree it was written under; none for a path
 /// outside a lease pool
 pub const EPOCH_FIELD: &str = "epoch";
+
+/// The field of an entry of `repositoryState` that only Rust writes (`set_repository_field`), the time a sync of the
+/// session of the worktree ended: a session syncs of itself by it (`projects::synced_before`), so it is of the lease the
+/// session opened under. A write of a window keeps the stored value of the epoch it is stamped with, whatever it holds
+/// (`keep_rust_fields`): the whole entry a window writes carries what its page read, of an earlier lease too
+pub const SYNC_TIME_FIELD: &str = "lastSyncTime";
 
 /// The field of a recent project that the epoch of its worktree bounds: the stack roots collapsed in its table, roots
 /// of the lease they were collapsed under, which would collapse stacks of the same names of the next lease
@@ -414,12 +422,27 @@ impl SettingsService {
   /// `set` of a write of a page (`write`, its number among the writes of that page): applied only when it is newer than
   /// the last write of its key of that page (`PageWrites`), else `None` and nothing changes, as the newer value is there
   pub fn set_in_order(&self, patch: SettingsPatch, origin: &str, write: &PageWrite) -> Result<Option<SettingsChange>, SettingsError> {
+    self.set_written(patch, origin, Some(write), Write::Rust)
+  }
+
+  /// The change of a window, `origin` its label (`app_api::app::settings::set_setting`), in the order of its page when it
+  /// names one (`set_in_order`). The field of an entry of `repositoryState` only Rust writes (`SYNC_TIME_FIELD`) stays as
+  /// the writer keeps it for the epoch the entry is stamped with (`keep_rust_fields`): the whole entry a window writes
+  /// carries what its page read, of an earlier lease too
+  ///
+  /// # Errors
+  /// As `set`
+  pub fn set_of_window(&self, patch: SettingsPatch, origin: &str, write: Option<&PageWrite>) -> Result<Option<SettingsChange>, SettingsError> {
+    self.set_written(patch, origin, write, Write::Window)
+  }
+
+  fn set_written(&self, patch: SettingsPatch, origin: &str, write: Option<&PageWrite>, how: Write) -> Result<Option<SettingsChange>, SettingsError> {
     let now = self.epochs_of(&patch);
     let mut state = self.shared.lock();
-    if !state.page_writes.applies(write, patch.key()) {
+    if write.is_some_and(|write| !state.page_writes.applies(write, patch.key())) {
       return Ok(None);
     }
-    self.apply_locked(state, patch, origin, now.as_ref()).map(Some)
+    self.apply_stamped(state, patch, origin, now.as_ref(), how).map(Some)
   }
 
   /// The epochs of the worktrees a patch of a key bound to them writes (the entries of `repositoryState`, the collapsed
@@ -429,8 +452,56 @@ impl SettingsService {
     bounded.then(|| self.epochs_now(written_paths(patch))).flatten()
   }
 
+  /// Sets `field` of the entry of `repositoryState` of the worktree at `path` to `value`, as a change of `origin`, in
+  /// the entry of the epoch `epoch` of that worktree (the lease a session opened under), its other fields kept and an
+  /// entry of another epoch replaced, the entry naming `epoch`. `None` when the worktree holds another known epoch now,
+  /// which writes nothing: what a session of an earlier lease records never becomes the next lease's
+  /// (`SYNC_TIME_FIELD`, which only this writes)
+  ///
+  /// # Errors
+  /// As `set`
+  pub fn set_repository_field(&self, path: &str, field: &str, value: Value, epoch: &WorktreeEpoch, origin: &str) -> Result<Option<SettingsChange>, SettingsError> {
+    let now = self.epochs_now(vec![path.to_owned()]);
+    let held = now.as_ref().and_then(|now| now.get(path)).map(|now| &now.epoch);
+    if held.is_some_and(|held| held.recorded().is_some() && epoch.recorded().is_some() && held != epoch) {
+      return Ok(None);
+    }
+    let state = self.shared.lock();
+    let stored = state.repository_state_file.content.other.get(REPOSITORY_STATE_KEY).and_then(|entries| entries.get(path));
+    let mut entry = stored
+      .filter(|stored| !epoch.outdates(epoch_of(stored)))
+      .and_then(Value::as_object)
+      .cloned()
+      .unwrap_or_default();
+    entry.insert(field.to_owned(), value);
+    match epoch.recorded() {
+      Some(Some(named)) => {
+        entry.insert(EPOCH_FIELD.to_owned(), Value::String(named.to_owned()));
+      }
+      Some(None) => {
+        entry.remove(EPOCH_FIELD);
+      }
+      // an epoch the files could not tell keeps the one the entry names
+      None => {}
+    }
+    let mut fields = Map::new();
+    fields.insert(path.to_owned(), Value::Object(entry));
+    let patch = SettingsPatch::Fields {
+      key: REPOSITORY_STATE_KEY.to_owned(),
+      fields,
+    };
+    self.apply_stamped(state, patch, origin, now.as_ref(), Write::Named).map(Some)
+  }
+
   /// `set` under `state`, the lock of the writer, which it lets go before it wakes the writer
-  fn apply_locked(&self, mut state: MutexGuard<'_, State>, mut patch: SettingsPatch, origin: &str, now: Option<&EpochsNow>) -> Result<SettingsChange, SettingsError> {
+  fn apply_locked(&self, state: MutexGuard<'_, State>, patch: SettingsPatch, origin: &str, now: Option<&EpochsNow>) -> Result<SettingsChange, SettingsError> {
+    self.apply_stamped(state, patch, origin, now, Write::Rust)
+  }
+
+  /// `apply_locked`, the entries of `repositoryState` of `patch` stamped with the epoch of their worktree now, of a
+  /// window with the fields only Rust writes kept (`Write::Window`), or naming the epoch they carry
+  /// (`set_repository_field`)
+  fn apply_stamped(&self, mut state: MutexGuard<'_, State>, mut patch: SettingsPatch, origin: &str, now: Option<&EpochsNow>, how: Write) -> Result<SettingsChange, SettingsError> {
     let key = patch.key().to_owned();
     // the change carries the whole key: without what an earlier lease left in it, forgotten first
     if let Some(now) = now {
@@ -439,8 +510,13 @@ impl SettingsService {
       } else {
         forget_collapsed_stacks(&mut state, now);
       }
-      stamp_epochs(&mut patch, now, &state);
+      if how != Write::Named {
+        stamp_epochs(&mut patch, now, &state);
+      }
       stamp_collapsed_stacks(&mut patch, now, &state);
+    }
+    if how == Write::Window {
+      keep_rust_fields(&mut patch, &state);
     }
     let file = StoreFile::of(&key);
     let fields = match &patch {
@@ -859,6 +935,48 @@ fn written_entries(patch: &mut SettingsPatch) -> Option<&mut Map<String, Value>>
   }
 }
 
+/// Who writes, which decides how the entries of `repositoryState` of the write are stamped
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Write {
+  /// Rust for the lease now (a fixture, a forget): each entry with the epoch of its worktree now (`stamp_epochs`)
+  Rust,
+  /// A window (`set_of_window`): each entry stamped with the epoch now, the fields only Rust writes kept
+  /// (`keep_rust_fields`)
+  Window,
+  /// Rust for a lease it names (`set_repository_field`): each entry with the epoch it carries
+  Named,
+}
+
+/// Each entry of `repositoryState` that `patch` writes gets the field Rust owns (`SYNC_TIME_FIELD`) as the writer keeps
+/// it for the epoch the entry names, whatever the entry holds: absent when the stored entry is of another epoch or has
+/// none, so a write of a window after the slot was leased again, carrying the time of a sync of the lease before, never
+/// makes the new lease synced (onboarding.spec.ts, "Ready to Sync after a re-lease")
+fn keep_rust_fields(patch: &mut SettingsPatch, state: &State) {
+  for_each_written_entry(patch, state, |_, entry, stored| {
+    let kept = stored
+      .filter(|stored| epoch_of(stored) == entry.get(EPOCH_FIELD).and_then(Value::as_str))
+      .and_then(|stored| stored.get(SYNC_TIME_FIELD))
+      .cloned();
+    match kept {
+      Some(kept) => entry.insert(SYNC_TIME_FIELD.to_owned(), kept),
+      None => entry.remove(SYNC_TIME_FIELD),
+    };
+  });
+}
+
+/// Calls `each` with the path, the object and the stored entry of each entry of `repositoryState` that `patch` writes
+fn for_each_written_entry(patch: &mut SettingsPatch, state: &State, mut each: impl FnMut(&str, &mut Map<String, Value>, Option<&Value>)) {
+  let stored = state.repository_state_file.content.other.get(REPOSITORY_STATE_KEY);
+  let Some(entries) = written_entries(patch) else {
+    return;
+  };
+  for (path, entry) in entries.iter_mut() {
+    if let Value::Object(entry) = entry {
+      each(path, entry, stored.and_then(|stored| stored.get(path)));
+    }
+  }
+}
+
 /// The paths whose entries of `repositoryState` `patch` writes
 fn written_paths(patch: &SettingsPatch) -> Vec<String> {
   match patch {
@@ -998,23 +1116,16 @@ fn forget_collapsed_stacks(state: &mut State, now: &EpochsNow) -> bool {
 /// they were written under. An entry whose epoch is unknown keeps the one the writer has of it, so a failed read stamps
 /// nothing anew
 fn stamp_epochs(patch: &mut SettingsPatch, now: &EpochsNow, state: &State) {
-  let stored = state.repository_state_file.content.other.get(REPOSITORY_STATE_KEY);
-  let Some(entries) = written_entries(patch) else {
-    return;
-  };
-  for (path, entry) in entries.iter_mut() {
-    let Value::Object(entry) = entry else {
-      continue;
-    };
+  for_each_written_entry(patch, state, |path, entry, stored| {
     let epoch = match now.get(path).and_then(|now| now.epoch.recorded()) {
       Some(recorded) => recorded.map(str::to_owned),
-      None => stored.and_then(|stored| stored.get(path)).and_then(epoch_of).map(str::to_owned),
+      None => stored.and_then(epoch_of).map(str::to_owned),
     };
     match epoch {
       Some(epoch) => entry.insert(EPOCH_FIELD.to_owned(), Value::String(epoch)),
       None => entry.remove(EPOCH_FIELD),
     };
-  }
+  });
 }
 
 /// Removes from `repositoryState` each entry written under an epoch of its worktree that `now` knows to be another
