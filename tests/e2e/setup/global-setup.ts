@@ -1,8 +1,9 @@
 import { execFileSync, execSync } from "child_process"
 import { createHash } from "crypto"
-import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs"
 import { chromium } from "@playwright/test"
 import type { FullConfig } from "@playwright/test"
+import { releaseCheckoutLock, takeCheckoutLock } from "../../../scripts/checkout-lock.mjs"
 import { TEST_SERVER_PORT, TEST_SERVER_URL } from "../helpers/test-server-url"
 
 /**
@@ -149,50 +150,13 @@ function buildFrontend() {
 const RUN_LOCK = "target/e2e-run.lock"
 
 /**
- * Takes the checkout for this run, until its process ends: a second `pnpm e2e` in it, also on another port, refuses at
- * once, for its global setup would build `dist/` anew under the pages of the first. The lock is a hard link of a file
- * the pid is written in first, so no start ever reads it empty (a create and then a write left that moment, in which a
- * second start took the lock of a pid 0 for one that ended). A lock whose run has ended (its process gone) is taken over
+ * Takes the checkout for this run, until its process ends (`scripts/checkout-lock.mjs`): a second `pnpm e2e` in it, also
+ * on another port, refuses at once, for its global setup would build `dist/` anew under the pages of the first
  */
 function lockCheckout() {
   mkdirSync("target", { recursive: true })
-  const mine = `${RUN_LOCK}.${process.pid}`
-  writeFileSync(mine, String(process.pid))
-  try {
-    for (;;) {
-      try {
-        linkSync(mine, RUN_LOCK)
-        break
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-          throw error
-        }
-      }
-      const holder = Number(readBuiltInputs(RUN_LOCK))
-      if (Number.isInteger(holder) && holder > 0 && holder !== process.pid && isAlive(holder)) {
-        throw new Error(
-          `Another pnpm e2e runs in this checkout (pid ${holder}): one at a time, as its global setup builds dist/ under the other. Wait for it, or run in another checkout`,
-        )
-      }
-      rmSync(RUN_LOCK, { force: true })
-    }
-  } finally {
-    rmSync(mine, { force: true })
-  }
-  process.on("exit", () => {
-    if (readBuiltInputs(RUN_LOCK) === String(process.pid)) {
-      rmSync(RUN_LOCK, { force: true })
-    }
-  })
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM"
-  }
+  takeCheckoutLock(RUN_LOCK, process.pid)
+  process.on("exit", () => releaseCheckoutLock(RUN_LOCK, process.pid))
 }
 
 /**
