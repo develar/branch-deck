@@ -1,7 +1,8 @@
 //! The small utilities every crate of Branch Deck may use, with no git process and no remote service:
 //! - the files: `atomic_file` (a file other processes read at any time), `private_file` (0600 in the app data
 //!   directory), `secret_store` (the tokens of the sign-ins), `fs_retry` (the removals and renames Windows refuses for a
-//!   while), `paths` (as the shell and git take them)
+//!   while), `paths` (as the shell and git take them), `dir_watch` (the watch of a directory, a hint with a look of its
+//!   own)
 //! - the processes that are not git: `child_process`, `known_tools` (where each is looked for), `process_scan` (the
 //!   processes inside a directory)
 //! - the grammars of a commit: `commit_subject`, `commit_body` (its Markdown: `markdown_table`, `markdown_inline`,
@@ -17,6 +18,7 @@ pub mod clock;
 pub mod code_spans;
 pub mod commit_body;
 pub mod commit_subject;
+pub mod dir_watch;
 pub mod fs_retry;
 pub mod git_bool;
 pub mod host_ref_name;
@@ -47,6 +49,8 @@ mod child_process_test;
 mod clock_test;
 #[cfg(test)]
 mod code_spans_test;
+#[cfg(test)]
+mod dir_watch_test;
 #[cfg(test)]
 mod fs_retry_test;
 #[cfg(test)]

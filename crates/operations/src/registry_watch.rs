@@ -11,26 +11,33 @@
 //! - a change of `journal.jsonl` (an operation of this process or of another ended) tells the listener of the journal
 //!   (`RegistryFiles::on_journal`): the windows read Activity again.
 //!
+//! An event is a hint, never the guarantee (`sync_utils::dir_watch`, docs/design/async-patterns.md, "A watch is a
+//! hint"): with fseventsd at 100 % CPU the watch told no change of the file for 28 s and more. So the task of a
+//! repository looks at the three files on every event of the directory and at least every `dir_watch::RECHECK` without
+//! one: it reads the registry, and syncs for the stamp and tells of the journal when its stat changed since its last
+//! look (`Fingerprints`). An event of any name of the directory, of the directory itself, a lost event (`need_rescan`:
+//! the queue of `FSEvents` or inotify overflowed) and an error of the watcher are a look too: a rename over a file may
+//! come as an event of its temporary name only. A window that gains the focus reads the registry at once
+//! (`Registry::reread`), and so does each admission of an operation into the file, which writes it.
+//!
 //! One task per repository reads the file and applies what it read, one read at a time, so a session never shows an older
-//! read after a newer one; the events that come while it reads are one read after it. A watcher that lost events (the
-//! queue of `FSEvents` or inotify overflowed under load: one event that names no file, `need_rescan`) or failed wakes all
-//! three: any of them may have been among the lost ones. Without a watch (the system
-//! refused one) the session reads the file again when a window of it gains the focus (`Registry::reread`) and after each
-//! admission of an operation into the file, which writes it; the stamp then waits for the focus sync. The watch runs no
-//! git process, and a read is one read of a file.
+//! read after a newer one; the events that come while it reads are one read after it. The watch runs no git process: a
+//! look is one read of the registry and two stats.
 
 use crate::registry::JournalListener;
 use crate::registry_file::{ProcessRegistry, Record};
 use domain_types::operation::RunningOperation;
 use domain_types::session::SyncReason;
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, RecommendedWatcher};
 use repository_model::session::{SessionKey, Sessions};
 use repository_model::table::OperationPatch;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 use sync_utils::atomic_file::{AtomicWrite, write_atomically};
+use sync_utils::dir_watch::{self, Fingerprints, WatchConfig, WatchedDir};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tokio::sync::Notify;
@@ -38,6 +45,13 @@ use tracing::{Instrument, debug, warn};
 
 /// The name of the stamp in the directory of the registry
 const STAMP: &str = "stamp";
+
+/// The files of the directory of the registry that a look reads: the registry, the stamp, the journal
+const NAMES: [&str; 3] = [crate::registry_file::FILE, STAMP, crate::journal::FILE];
+
+/// The stamp and the journal in the `Fingerprints` of a look, a bit each
+const STAMP_CHANGED: u64 = 0b01;
+const JOURNAL_CHANGED: u64 = 0b10;
 
 /// Touches the stamp of the repository of `git_common_dir` (`$GIT_COMMON_DIR/branch-deck/stamp`): `bd` did a mutation,
 /// which the sessions of the app that watch the repository sync for. The file says when and which process; a failure is
@@ -52,36 +66,40 @@ pub fn touch_stamp(git_common_dir: &Path) {
   }
 }
 
-/// What woke the task of a watch: the registry changed, the stamp moved, the journal changed
+/// What woke the task of a watch: a read of the registry was asked, or a look at the three files
 #[derive(Default)]
-struct Wake {
+pub(crate) struct Wake {
   notify: Notify,
   registry: AtomicBool,
-  stamp: AtomicBool,
-  journal: AtomicBool,
+  look: AtomicBool,
+  /// The looks that found the stamp changed and asked the syncs of the sessions, counted before the read of the
+  /// registry of the same look: a test that saw the patch of that read sees the count of that look
+  stamps: std::sync::atomic::AtomicU64,
 }
 
 impl Wake {
-  /// Anything may have changed unseen: the registry is read, the syncs of a stamp asked and the journal told
-  fn everything(&self) {
-    self.registry();
-    self.stamp();
-    self.journal();
-  }
-
+  /// A read of the registry: a window gained the focus, an admission wrote the file
   fn registry(&self) {
     self.registry.store(true, Ordering::SeqCst);
     self.notify.notify_one();
   }
 
-  fn stamp(&self) {
-    self.stamp.store(true, Ordering::SeqCst);
+  /// A look at the three files: an event of the directory, which tells what may have changed, not what did
+  pub(crate) fn look(&self) {
+    self.look.store(true, Ordering::SeqCst);
     self.notify.notify_one();
   }
 
-  fn journal(&self) {
-    self.journal.store(true, Ordering::SeqCst);
-    self.notify.notify_one();
+  /// Whether a look was asked and not taken yet, which a test of the events reads
+  #[cfg(test)]
+  pub(crate) fn looks(&self) -> bool {
+    self.look.load(Ordering::SeqCst)
+  }
+
+  /// How many looks asked the syncs of a stamp
+  #[cfg(test)]
+  pub(crate) fn stamps(&self) -> u64 {
+    self.stamps.load(Ordering::SeqCst)
   }
 }
 
@@ -90,7 +108,7 @@ struct RepositoryWatch {
   /// The sessions, each with the number of its subscriptions that watch
   keys: HashMap<SessionKey, Watching>,
   wake: Arc<Wake>,
-  /// `None` when the system refused a watch: the reads on focus and after an admission stand in for it
+  /// `None` when the system refused a watch: the looks every `RECHECK` stand in for it
   _watcher: Option<RecommendedWatcher>,
   task: tokio::task::AbortHandle,
 }
@@ -107,20 +125,22 @@ struct Watching {
 /// journals; a clone is the same
 #[derive(Clone)]
 pub(crate) struct Watches {
-  watches: Arc<Mutex<HashMap<ProcessRegistry, RepositoryWatch>>>,
+  by_registry: Arc<Mutex<HashMap<ProcessRegistry, RepositoryWatch>>>,
   journaled: Option<JournalListener>,
+  config: WatchConfig,
 }
 
 impl Watches {
-  pub(crate) fn new(journaled: Option<JournalListener>) -> Self {
+  pub(crate) fn new(journaled: Option<JournalListener>, config: WatchConfig) -> Self {
     Self {
-      watches: Arc::default(),
+      by_registry: Arc::default(),
       journaled,
+      config,
     }
   }
 
   fn lock(&self) -> MutexGuard<'_, HashMap<ProcessRegistry, RepositoryWatch>> {
-    self.watches.lock().unwrap_or_else(PoisonError::into_inner)
+    self.by_registry.lock().unwrap_or_else(PoisonError::into_inner)
   }
 
   /// The journal of `registry` changed: its listener hears it, with the sessions that watch it
@@ -148,6 +168,20 @@ impl Watches {
     if let Some(watch) = self.lock().get(registry) {
       watch.wake.registry();
     }
+  }
+
+  /// Looks at the files of `registry` for its sessions, as an event of its watch does, when a window of one of them
+  /// watches it
+  pub(crate) fn look(&self, registry: &ProcessRegistry) {
+    if let Some(watch) = self.lock().get(registry) {
+      watch.wake.look();
+    }
+  }
+
+  /// The wake of the watch of `registry`, which a test of the events gives its events to
+  #[cfg(test)]
+  pub(crate) fn wake_of(&self, registry: &ProcessRegistry) -> Option<Arc<Wake>> {
+    self.lock().get(registry).map(|watch| Arc::clone(&watch.wake))
   }
 
   /// The sessions that watch `registry` now
@@ -212,10 +246,11 @@ impl Drop for SessionWatch {
 /// `registry_watch`, a root as the span of an actor: it serves the sessions of the repository, no one operation
 fn start(sessions: &Arc<Sessions>, registry: &ProcessRegistry, watches: Watches) -> RepositoryWatch {
   let wake = Arc::new(Wake::default());
-  let watcher = watcher(registry, &wake);
+  let config = watches.config;
+  let watcher = watcher(registry, &wake, config.events);
   let span = tracing::info_span!(parent: None, "registry_watch", registry = %registry.dir().display());
   let _entered = span.enter();
-  let task = tokio::spawn(run(Arc::clone(sessions), registry.clone(), watches, Arc::clone(&wake)).in_current_span());
+  let task = tokio::spawn(run(Arc::clone(sessions), registry.clone(), watches, Arc::clone(&wake), config.recheck).in_current_span());
   RepositoryWatch {
     keys: HashMap::new(),
     wake,
@@ -224,59 +259,81 @@ fn start(sessions: &Arc<Sessions>, registry: &ProcessRegistry, watches: Watches)
   }
 }
 
-/// The watcher of the directory of `registry`, which wakes `wake` for a change of the registry or of the stamp; `None`
-/// when the system refused it
-fn watcher(registry: &ProcessRegistry, wake: &Arc<Wake>) -> Option<RecommendedWatcher> {
+/// The watcher of the directory of `registry`, which asks `wake` for a look at each event of the directory; `None` when
+/// the system refused it. Without `events` (a test) its events reach nothing
+fn watcher(registry: &ProcessRegistry, wake: &Arc<Wake>, events: bool) -> Option<RecommendedWatcher> {
   let handler = Arc::clone(wake);
-  let watched = std::fs::create_dir_all(registry.dir()).map_err(notify::Error::io).and_then(|()| {
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| woken(&handler, event))?;
-    watcher.watch(registry.dir(), RecursiveMode::NonRecursive)?;
-    Ok(watcher)
+  let dir = WatchedDir::new(registry.dir());
+  let watched = dir_watch::watch(registry.dir(), move |event: notify::Result<Event>| {
+    if events {
+      woken(&handler, &dir, &event);
+    }
   });
   watched
-    .inspect_err(|error| warn!("cannot watch {}: {error}; the registry is read again on focus", registry.dir().display()))
+    .inspect_err(|error| {
+      warn!(
+        "cannot watch {}: {error}; the registry is looked at every {:?}",
+        registry.dir().display(),
+        dir_watch::RECHECK
+      );
+    })
     .ok()
 }
 
-/// Wakes `wake` for what `event` changed: the registry, the stamp, the journal, and all three when the watcher lost
-/// events (its event of them names no file) or failed
-fn woken(wake: &Wake, event: notify::Result<Event>) {
-  match event {
-    Ok(event) => {
-      if event.need_rescan() {
-        wake.everything();
-      }
-      for name in event.paths.iter().filter_map(|path| path.file_name()) {
-        if ProcessRegistry::is_file_name(name) {
-          wake.registry();
-        } else if name == STAMP {
-          wake.stamp();
-        } else if crate::journal::is_file_name(name) {
-          wake.journal();
-        }
-      }
-    }
-    Err(error) => {
-      debug!("the watch of the operations registry failed: {error}");
-      wake.everything();
-    }
+/// Asks `wake` for a look when `event` may be a change of the registry, the stamp or the journal (`WatchedDir::wake_of`):
+/// an event of one of them, of another name of the directory or of the directory itself, a lost event, an error
+pub(crate) fn woken(wake: &Wake, dir: &WatchedDir, event: &notify::Result<Event>) {
+  if let Err(error) = event {
+    debug!("the watch of the operations registry failed: {error}");
+  }
+  if dir.wake_of(event, &NAMES).wakes() {
+    wake.look();
   }
 }
 
-/// The task of the watch of `registry`: each wake asks the syncs of a stamp, or reads the registry and applies it
-async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watches, wake: Arc<Wake>) {
+/// The stamp and the journal of the directory `dir` of a registry at a first look
+fn fingerprints_in(dir: &Path) -> Fingerprints {
+  Fingerprints::new(vec![dir.join(STAMP), crate::journal::journal_path_in(dir)])
+}
+
+/// The task of the watch of `registry`: each wake, and every `recheck` without one, reads the registry when a read or a
+/// look was asked, and on a look asks the syncs of a stamp and tells of the journal when their stat changed since the
+/// last look
+async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watches, wake: Arc<Wake>, recheck: Option<Duration>) {
+  let dir = registry.dir().to_path_buf();
+  let mut fingerprints = fingerprints_in(&dir);
   loop {
-    wake.notify.notified().await;
-    if wake.stamp.swap(false, Ordering::SeqCst) {
+    let ticked = if let Some(every) = recheck {
+      tokio::time::timeout(every, wake.notify.notified()).await.is_err()
+    } else {
+      wake.notify.notified().await;
+      false
+    };
+    let look = wake.look.swap(false, Ordering::SeqCst) || ticked;
+    let read = wake.registry.swap(false, Ordering::SeqCst) || look;
+    let mut changed = 0;
+    if look {
+      // a stat each, off the workers of the runtime: the drive may be slow under load
+      let taken = std::mem::replace(&mut fingerprints, Fingerprints::new(Vec::new()));
+      let looked = tokio::task::spawn_blocking(in_current_span(move || {
+        let mut taken = taken;
+        let changed = taken.look();
+        (taken, changed)
+      }))
+      .await;
+      (fingerprints, changed) = looked.unwrap_or_else(|_| (fingerprints_in(&dir), 0));
+    }
+    if changed & STAMP_CHANGED != 0 {
+      wake.stamps.fetch_add(1, Ordering::SeqCst);
       for key in watches.keys(&registry) {
         // the window hears the sync as its patches; nothing waits for its answer
         drop(sessions.sync(&key, SyncReason::Stamp));
       }
     }
-    if wake.registry.swap(false, Ordering::SeqCst) {
+    if read {
       show(&sessions, &registry, &watches).await;
     }
-    if wake.journal.swap(false, Ordering::SeqCst) {
+    if changed & JOURNAL_CHANGED != 0 {
       watches.journaled(&registry);
     }
   }

@@ -8,12 +8,22 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Duration;
+use sync_utils::dir_watch::WatchConfig;
 
 /// Longer than any test: a save happens only by a flush or a drop
 const NEVER: Duration = Duration::from_hours(1);
 
 /// How long a test waits for the watch to tell a change: the event under any load of the machine
 const EVENT_DEADLINE: Duration = Duration::from_mins(1);
+
+/// A writer that learns of a change of the other one by the events of its watch alone, without a look
+const EVENTS_ONLY: WatchConfig = WatchConfig { recheck: None, events: true };
+
+/// A writer whose watch tells nothing (as fseventsd at 100 % CPU told nothing), which learns of a change by its looks
+const LOOKS_ONLY: WatchConfig = WatchConfig {
+  recheck: Some(Duration::from_millis(50)),
+  events: false,
+};
 
 fn app_fields(value: Value) -> SettingsPatch {
   let Value::Object(fields) = value else { panic!("fields are an object") };
@@ -33,6 +43,10 @@ fn read(path: &Path) -> Value {
 
 fn writer(directory: &tempfile::TempDir, debounce: Duration) -> SettingsService {
   SettingsService::open_with_debounce(directory.path().to_path_buf(), debounce).unwrap()
+}
+
+fn watched_writer(directory: &tempfile::TempDir, config: WatchConfig) -> SettingsService {
+  SettingsService::open_watched_as(directory.path().to_path_buf(), NEVER, config).unwrap()
 }
 
 /// The changes of another process `service` tells, in the order it tells them
@@ -108,18 +122,36 @@ fn two_writers_that_save_at_once_lose_no_change_of_the_other() {
   assert_eq!(recorded, 60, "every repository each writer recorded");
 }
 
+/// The writer of the IDE takes the save of the app, told by the event of its watch with no look, and tells it once with
+/// its next version. It fails with "no watch event" where the watch runs behind the writes (`FSEvents` on a loaded
+/// machine), which the looks of the writer stand in for
 #[test]
-fn a_change_another_writer_saved_reaches_the_subscribers_with_the_next_version() {
+fn a_change_another_writer_saved_reaches_the_subscribers_with_the_next_version_when_its_watch_tells_the_save() {
   let directory = tempfile::tempdir().unwrap();
   let app = writer(&directory, NEVER);
-  let ide = writer(&directory, NEVER);
-  let heard = external_changes(&ide);
+  let ide = watched_writer(&directory, EVENTS_ONLY);
+  the_change_of_the_app_reaches_the_ide(&app, &ide, "no watch event: the watch of the system runs behind the writes");
+}
+
+/// The guarantee: the watch of the IDE's writer tells nothing, and its look takes the save of the app within its recheck
+#[test]
+fn a_change_another_writer_saved_reaches_the_subscribers_at_the_next_look_with_no_event_of_the_watch() {
+  let directory = tempfile::tempdir().unwrap();
+  let app = writer(&directory, NEVER);
+  let ide = watched_writer(&directory, LOOKS_ONLY);
+  the_change_of_the_app_reaches_the_ide(&app, &ide, "no look of the writer read the save");
+}
+
+/// The app saves a change while the IDE has one of its own, unsaved: the IDE's writer tells it once, with the version
+/// after its own change; past `EVENT_DEADLINE` the test fails with `missing`
+fn the_change_of_the_app_reaches_the_ide(app: &SettingsService, ide: &SettingsService, missing: &str) {
+  let heard = external_changes(ide);
   ide.set(whole("diffView", json!({ "mode": "split" })), "main").unwrap();
 
-  // the watch of the IDE's writer sees the save of the app: nothing of the IDE saves meanwhile
+  // nothing of the IDE saves meanwhile
   app.set(app_fields(json!({ "zoom": 1.5 })), "main").unwrap();
   app.flush().unwrap();
-  let change = heard.recv_timeout(EVENT_DEADLINE).expect("the watch told the change of the other writer");
+  let change = heard.recv_timeout(EVENT_DEADLINE).unwrap_or_else(|_| panic!("{missing} within {EVENT_DEADLINE:?}"));
 
   assert_eq!(change.key, "appSettings");
   assert_eq!(change.value["zoom"], json!(1.5));

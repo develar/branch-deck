@@ -7097,6 +7097,7 @@ dependencies = [
  "jiff",
  "libc",
  "memchr",
+ "notify",
  "pretty_assertions",
  "serde",
  "serde_json",

@@ -49,7 +49,8 @@ use tracing::{debug, warn};
 pub const SCHEMA: u32 = 1;
 /// The directory of the registry in `$GIT_COMMON_DIR`
 const DIRECTORY: &str = "branch-deck";
-const FILE: &str = "operations.json";
+/// The name of the registry file in its directory
+pub(crate) const FILE: &str = "operations.json";
 const LOCK: &str = "operations.lock";
 /// The bound of the wait for another process at the lock: a change holds it for a file operation only
 const LOCK_TIMEOUT: Duration = Duration::from_secs(2);
@@ -369,11 +370,6 @@ impl ProcessRegistry {
   /// The directory of the registry (`$GIT_COMMON_DIR/branch-deck`), which `registry_watch` watches
   pub(crate) fn dir(&self) -> &Path {
     &self.dir
-  }
-
-  /// Whether `name` is the name of the file of the registry in its directory (an event of `registry_watch`)
-  pub(crate) fn is_file_name(name: &std::ffi::OsStr) -> bool {
-    name == FILE
   }
 
   /// The records as the file has them now, without the lock (a read sees one whole state); none without a file, and

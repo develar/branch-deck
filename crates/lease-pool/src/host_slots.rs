@@ -873,10 +873,12 @@ pub fn watches_started() -> u64 {
 }
 
 /// The file events of the table and the pool, for a lend that waits, or of the heavy turn (`host_turn`) for a run that
-/// waits for it; `None` inside when the system refused a watch
+/// waits for it; `None` inside when the system refused a watch. An event is a hint (`sync_utils::dir_watch`): a change
+/// of one of the files wakes a wait, and so does anything that may be one, which the next look of the caller reads
 pub(crate) struct TableWake {
   events: std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
   _watcher: Option<notify::RecommendedWatcher>,
+  dir: sync_utils::dir_watch::WatchedDir,
   /// The names of the files of `dir` whose change wakes a wait
   files: &'static [&'static str],
 }
@@ -884,43 +886,52 @@ pub(crate) struct TableWake {
 impl TableWake {
   /// The watch of `dir`, which a change of one of `files` there wakes
   pub(crate) fn start(dir: &Path, files: &'static [&'static str]) -> Self {
-    use notify::Watcher as _;
     WATCHES_STARTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (sender, events) = std::sync::mpsc::channel();
-    let watcher = std::fs::create_dir_all(dir)
-      .map_err(notify::Error::io)
-      .and_then(|()| notify::recommended_watcher(sender))
-      .and_then(|mut watcher| watcher.watch(dir, notify::RecursiveMode::NonRecursive).map(|()| watcher))
+    let watcher = sync_utils::dir_watch::watch(dir, sender)
       .inspect_err(|error| warn!(dir = %dir.display(), %error, "cannot watch the host slots: a wait looks every 5 s"))
       .ok();
-    Self { events, _watcher: watcher, files }
+    Self {
+      events,
+      _watcher: watcher,
+      dir: sync_utils::dir_watch::WatchedDir::new(dir),
+      files,
+    }
   }
 
-  /// Until a change of one of the files, or `timeout`; the events that came meanwhile are one wake
-  pub(crate) fn wait(&self, timeout: Duration) {
-    let wakes = |event: &notify::Result<notify::Event>| {
-      event.as_ref().map_or(true, |event| {
-        event
-          .paths
-          .iter()
-          .any(|path| path.file_name().is_some_and(|name| self.files.iter().any(|file| name == *file)))
-      })
-    };
+  /// A wake of `dir` whose events come from `events` alone, as a test gives them
+  #[cfg(test)]
+  pub(crate) fn of_events(dir: &Path, files: &'static [&'static str], events: std::sync::mpsc::Receiver<notify::Result<notify::Event>>) -> Self {
+    Self {
+      events,
+      _watcher: None,
+      dir: sync_utils::dir_watch::WatchedDir::new(dir),
+      files,
+    }
+  }
+
+  /// Until a change of one of the files, or `timeout`; the events that came meanwhile are one wake. Anything that may be
+  /// a change of them wakes too (`WatchedDir::wake_of`): an event of another name of the directory (the temporary file
+  /// of `write_atomically`, whose rename over the table may come as its only event), of the directory itself, a lost
+  /// event (`need_rescan`: `FSEvents` tells `MUST_SCAN_SUBDIRS` under load) and an error of the watcher. Whether an event
+  /// ended it
+  pub(crate) fn wait(&self, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
       let left = deadline.saturating_duration_since(Instant::now());
       match self.events.recv_timeout(left) {
-        Ok(event) if wakes(&event) => break,
+        Ok(event) if self.dir.wake_of(&event, self.files).wakes() => break,
         Ok(_) => {}
         // the time is up, or no watch: the sender went with it
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return false,
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
           std::thread::sleep(left);
-          return;
+          return false;
         }
       }
     }
     while self.events.try_recv().is_ok() {}
+    true
   }
 }
 
@@ -2284,3 +2295,7 @@ fn shrink_one(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
   recorded?;
   outcome.map(drop)
 }
+
+#[cfg(test)]
+#[path = "table_wake_test.rs"]
+mod table_wake_test;

@@ -1,14 +1,19 @@
-//! The watch of the app data directory by a `SettingsService` (`notify`: `FSEvents`, inotify, `ReadDirectoryChangesW`,
-//! non-recursive): a change of `settings.json` or of `repository-state.json`, which the writer of another process (the
-//! app, `brd mcp` of an IDE) renamed over the file, asks the writer to read the file again. A watcher that lost events
-//! (an event that names no file, `need_rescan`) or failed asks for both files; its own writes are read again too, and
-//! find nothing new. A directory the system refuses to watch is only logged: the files are then read again by each
-//! save, which merges into them anyway.
+//! The watch of the app data directory by a `SettingsService` (`sync_utils::dir_watch`, non-recursive): a change of
+//! `settings.json` or of `repository-state.json`, which the writer of another process (the app, `brd mcp` of an IDE)
+//! renamed over the file, asks the writer to read the file again. An event is a hint: an event of another name of the
+//! directory (the temporary file of a rename over one of them), of the directory itself, a lost event (`need_rescan`)
+//! and an error ask for both files, and the writer looks at both files every `dir_watch::RECHECK` without an event
+//! (`write_loop`), as a watch may tell nothing for long under load. Its own writes are read again too, and find nothing
+//! new. A directory the system refuses to watch is only logged: the looks stand in for it.
 
 use crate::file::{REPOSITORY_STATE_FILE_NAME, SETTINGS_FILE_NAME};
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, RecommendedWatcher};
 use std::path::Path;
+use sync_utils::dir_watch::{self, Wake, WatchedDir};
 use tracing::{debug, warn};
+
+/// The settings files of the directory, in the order of the bits of a `Wake` and of a look
+pub(crate) const NAMES: [&str; 2] = [SETTINGS_FILE_NAME, REPOSITORY_STATE_FILE_NAME];
 
 /// Which settings files an event of the watch names
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -24,39 +29,42 @@ impl Changed {
     repository_state: true,
   };
 
-  /// The files of `event`: both when the watcher lost events or failed
-  fn of(event: notify::Result<Event>) -> Self {
-    let event = match event {
-      Ok(event) if !event.need_rescan() => event,
-      Ok(_) => return Self::BOTH,
-      Err(error) => {
-        debug!("the watch of the settings failed: {error}");
-        return Self::BOTH;
-      }
-    };
-    let mut changed = Self::default();
-    for name in event.paths.iter().filter_map(|path| path.file_name()) {
-      changed.settings |= name == SETTINGS_FILE_NAME;
-      changed.repository_state |= name == REPOSITORY_STATE_FILE_NAME;
+  /// The files that changed by the bits of a look or a wake, in the order of `NAMES`
+  pub(crate) const fn of_bits(bits: u64) -> Self {
+    Self {
+      settings: bits & 0b01 != 0,
+      repository_state: bits & 0b10 != 0,
     }
-    changed
+  }
+
+  /// The files `event` of the watch of `dir` may have changed (`WatchedDir::wake_of`)
+  pub(crate) fn of(dir: &WatchedDir, event: &notify::Result<Event>) -> Self {
+    if let Err(error) = event {
+      debug!("the watch of the settings failed: {error}");
+    }
+    match dir.wake_of(event, &NAMES) {
+      Wake::None => Self::default(),
+      Wake::Named(bits) => Self::of_bits(bits),
+      Wake::Any => Self::BOTH,
+    }
   }
 }
 
-/// The watcher of `directory` (created when missing), which calls `wake` with the settings files each event names;
-/// `None` when the system refused it
-pub fn watch(directory: &Path, wake: impl Fn(Changed) + Send + 'static) -> Option<RecommendedWatcher> {
-  let watched = std::fs::create_dir_all(directory).map_err(notify::Error::io).and_then(|()| {
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-      let changed = Changed::of(event);
-      if changed != Changed::default() {
-        wake(changed);
-      }
-    })?;
-    watcher.watch(directory, RecursiveMode::NonRecursive)?;
-    Ok(watcher)
+/// The watcher of `directory` (created when missing), which calls `wake` with the settings files each event may have
+/// changed; `None` when the system refused it. Without `events` (a test of the looks alone) its events reach nothing
+pub fn watch(directory: &Path, events: bool, wake: impl Fn(Changed) + Send + 'static) -> Option<RecommendedWatcher> {
+  let dir = WatchedDir::new(directory);
+  let watched = dir_watch::watch(directory, move |event: notify::Result<Event>| {
+    let changed = if events { Changed::of(&dir, &event) } else { Changed::default() };
+    if changed != Changed::default() {
+      wake(changed);
+    }
   });
   watched
-    .inspect_err(|error| warn!("cannot watch {}: {error}; a change of another process shows with the next save", directory.display()))
+    .inspect_err(|error| warn!("cannot watch {}: {error}; the files are looked at every {:?}", directory.display(), dir_watch::RECHECK))
     .ok()
 }
+
+#[cfg(test)]
+#[path = "watch_test.rs"]
+mod watch_test;

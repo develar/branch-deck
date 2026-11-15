@@ -2892,8 +2892,9 @@ a run never skips a step whose output a give-back of the run before removed. yon
 
 A lend that waits (`host_slots::lend_waiting`) watches `branch-deck/` of the common dir with `notify` before its first
 look, so a give-back between the look and the wait wakes it: the table is replaced by a rename, so the watch is on the
-directory, and only a change of `host-slots.json` or `leases.json` wakes it (the lock files and the stamp of brd change
-there too). A lend writes the table only when it changed it, so its own write wakes it at most once. The supervisor
+directory, and a change of `host-slots.json` or `leases.json` wakes it, as does any event that may be one (another name
+of the directory, such as the temporary file of the rename, a lost event, an error: [A watch is a
+hint](async-patterns.md#a-watch-is-a-hint)); a look after the lock files or the stamp of brd finds nothing new. A lend writes the table only when it changed it, so its own write wakes it at most once. The supervisor
 waits in looks of 2 s, so a cancel ends its wait, and keeps one watch for all of them (`watch_lends`, `lend_watching`):
 until 2026-11-14 each look started a stream of file events of its own; `lend_waiting` is `lend_watching` with a watch of
 its own. The end of a
@@ -4392,30 +4393,35 @@ names of its files anywhere else):
   it. The clean rules of `.branchdeck.toml` clean the working tree of a slot, and the common dir is not in it.
 - **The watch** (`operations::registry_watch`): while a window subscribes to a session (`Registry::subscribe`, the
   app's and the E2E server's `subscribe_view`; the watch rides in the subscription and ends with it), the directory
-  `$GIT_COMMON_DIR/branch-deck` is watched (`notify`: FSEvents, inotify, `ReadDirectoryChangesW`; one watch per
-  repository for all its sessions, no git process). A change of `operations.json` reads it again without the lock, on
-  one task per repository that applies one read at a time: the records of the other processes that hold what they hold
+  `$GIT_COMMON_DIR/branch-deck` is watched (`sync_utils::dir_watch`: FSEvents, inotify, `ReadDirectoryChangesW`; one
+  watch per repository for all its sessions, no git process). An event is a hint ([A watch is a
+  hint](async-patterns.md#a-watch-is-a-hint)): any event of the directory, and every 2 s without one, is a look of the
+  task of the repository, which applies one read at a time. A look reads `operations.json` again without the lock: the records of the other processes that hold what they hold
   (alive, or `unknown`) of the branch prefix of each session, of any worktree, become its operations of other processes
   (`OperationPatch::Foreign`, `Origin::OtherProcess { tool, pid }`), in place of the ones read before. The rows show them
   ("brd: Safe Push of auth…", the pid on hover), and a start of their row says why it can't start before any IPC; any
   other operation that needs what they hold is `busy` from the file, as above. They decide no
   admission in the session (`domain_policy::admission::admit` skips them): the file decided across processes, and a
-  record the session shows may have left it since. A watcher that lost events (the queue of FSEvents or inotify
-  overflowed under load, which it tells as one event that names no file, `need_rescan`) or failed wakes the read of
-  the file, the syncs of a stamp and the journal at once: any of them may have been among the lost events, and a stamp
-  that woke nothing left the session unsynced until a focus (`lost_events_wake_the_registry_the_stamp_and_the_journal`).
-  Without a watch (the system refused one) the file is read again
-  when a window of the session gains the focus (`set_window_focus`) and after each admission of the app, which read it.
+  record the session shows may have left it since. A look also stats the stamp and the journal, and syncs for the stamp
+  or tells Activity of the journal only when its stat changed since the last look (`Fingerprints`). An event of a name
+  the watch does not know (the temporary file of a rename over the registry, which may come as its only event), of the
+  directory itself, a lost event (`need_rescan`: the queue of FSEvents or inotify overflowed) and an error are a look
+  too (`an_event_that_may_be_a_change_of_the_directory_asks_for_a_look`). Until 2026-11-15 only an event of a known name
+  or a lost event woke the task, and a window under an overloaded fseventsd showed another process's operations and
+  synced for a stamp only at a focus. The file is read again at once when a window of the session gains the focus
+  (`set_window_focus`) and after each admission of the app, which read it; a watch the system refused leaves the looks.
 - **The stamp**: `brd` touches `$GIT_COMMON_DIR/branch-deck/stamp` (its Unix time and pid, written by a rename) after
   every command that succeeded and is no read (`bd-cli::execute`, the commands `READ_ONLY` of `brd --help` leaves out:
   a rewrite, a push, a start, a sync, an update, a pick, a park, a description), once, in one place. The watch asks each
   session of the repository a window shows for a sync that runs when the inputs changed (`SyncReason::Stamp`, a focus
-  no window gained): the regroup of an agent shows within a second, without a focus.
+  no window gained): the regroup of an agent shows within a second, without a focus, and within 2 s, at the next look,
+  when the watch tells nothing.
 
 `operations/src/registry_file_test.rs` pins the rules (a holder of this host until it is gone, a reused pid, another
 host after five minutes, a start in flight, another prefix, another schema never written, the heartbeat, what a session
 shows), `operations/src/registry_watch_test.rs` the watch (the operations of another process of the prefix of a session,
-in any worktree, while a window watches; a stamp syncs it), and `bd-cli/src/cross_process_test.rs` two processes: the
+in any worktree, while a window watches, and a stamp that syncs it, at a look with no event; the reaction to an event the
+test gives; one event of the system), and `bd-cli/src/cross_process_test.rs` two processes: the
 `brd safe-push auth` of a child, held at its start by the fake Patronus, makes a `brd safe-push auth` beside it and the
 Safe Push of auth of the app (`Sessions`, the scheduler of the facts and the registry of the app in the test, as the
 app runs them) `busy` with its id, while the app's window shows it; the app's Safe Push of auth, held so, makes the

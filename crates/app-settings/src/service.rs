@@ -42,7 +42,7 @@
 
 use crate::file::{RECENT_PROJECTS_KEY, REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile, lock_directory};
 use crate::merge::{Unsaved, changed_keys};
-use crate::watch::{Changed, watch};
+use crate::watch::{Changed, NAMES, watch};
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsChange, SettingsPatch};
 use domain_types::worktree_epoch::WorktreeEpoch;
 use notify::RecommendedWatcher;
@@ -52,6 +52,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use sync_utils::dir_watch::{Fingerprints, WatchConfig};
 use sync_utils::page_writes::{PageWrite, PageWrites};
 use sync_utils::span::in_current_span;
 use tracing::{debug, warn};
@@ -355,6 +356,8 @@ struct Shared {
   /// The app data directory with the files
   directory: PathBuf,
   debounce: Duration,
+  /// How often the writer looks at the files without an event of the watch (`dir_watch::RECHECK`)
+  recheck: Option<Duration>,
   state: Mutex<State>,
   /// Wakes the writer: a change, a flush, the shutdown
   wake: Condvar,
@@ -394,10 +397,17 @@ impl SettingsService {
 
   /// `open` with another delay of the save
   pub fn open_with_debounce(directory: PathBuf, debounce: Duration) -> std::io::Result<Self> {
+    Self::open_watched_as(directory, debounce, WatchConfig::default())
+  }
+
+  /// `open_with_debounce`, learning of a change of another process as `config` says: a test of the events alone or of
+  /// the looks alone
+  pub(crate) fn open_watched_as(directory: PathBuf, debounce: Duration, config: WatchConfig) -> std::io::Result<Self> {
     let state = State::load(&directory);
     let shared = Arc::new(Shared {
       directory,
       debounce,
+      recheck: config.recheck,
       state: Mutex::new(state),
       wake: Condvar::new(),
       saved: Condvar::new(),
@@ -412,7 +422,7 @@ impl SettingsService {
     // values the load moved wait for the debounce, as a change does
     shared.wake.notify_one();
     let woken = Arc::downgrade(&shared);
-    let watcher = watch(&shared.directory, move |changed| {
+    let watcher = watch(&shared.directory, config.events, move |changed| {
       let Some(shared) = woken.upgrade() else {
         return;
       };
@@ -422,8 +432,8 @@ impl SettingsService {
       drop(state);
       shared.wake.notify_one();
     });
-    if watcher.is_some() {
-      // what another process saved between the load and the start of the watch
+    if watcher.is_some() || config.recheck.is_some() {
+      // what another process saved between the load and the start of the watch and of the looks
       shared.lock().reread = Changed::BOTH;
       shared.wake.notify_one();
     }
@@ -775,6 +785,11 @@ struct SaveOutcome {
 /// the lock of the memory) and read each file the watch named; take what another process changed into memory, record
 /// the outcome, tell the changes of the other process and wake the flushes
 fn write_loop(shared: &Shared) {
+  // the look of its own every `recheck`: the watch is a hint, which may tell nothing for long under load
+  let mut looks = shared.recheck.map(|every| {
+    let fingerprints = Fingerprints::new(NAMES.iter().map(|name| shared.directory.join(name)).collect());
+    (fingerprints, every, Instant::now() + every)
+  });
   let mut state = shared.lock();
   loop {
     let due = match (state.dirty_since.map(|since| since + shared.debounce), state.retry_at) {
@@ -787,11 +802,26 @@ fn write_loop(shared: &Shared) {
       if state.shutdown {
         return;
       }
-      state = match due {
-        Some(due) => {
+      if let Some((fingerprints, every, next)) = &mut looks
+        && *next <= Instant::now()
+      {
+        drop(state);
+        let changed = Changed::of_bits(fingerprints.look());
+        *next = Instant::now() + *every;
+        state = shared.lock();
+        state.reread.settings |= changed.settings;
+        state.reread.repository_state |= changed.repository_state;
+        continue;
+      }
+      let wake_at = match (due, looks.as_ref().map(|(_, _, next)| *next)) {
+        (Some(due), Some(next)) => Some(due.min(next)),
+        (due, next) => due.or(next),
+      };
+      state = match wake_at {
+        Some(at) => {
           shared
             .wake
-            .wait_timeout(state, due.saturating_duration_since(Instant::now()))
+            .wait_timeout(state, at.saturating_duration_since(Instant::now()))
             .unwrap_or_else(PoisonError::into_inner)
             .0
         }

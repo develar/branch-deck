@@ -2824,6 +2824,12 @@ look and the wait is lost, wakes only on a change of `host-slots.json` or `lease
 - **THEN** the whole wait starts one watch of the table, before its first look
   [@test] crates/host-agent/src/slots_test.rs (`a_wait_for_a_slot_keeps_one_watch_of_the_table_for_all_its_looks`)
 
+#### Scenario: An event that may be a change of the table
+- **WHEN** the watch tells an event of another name of its directory (the temporary file of a rename over the table),
+  of the directory itself, a lost event or an error
+- **THEN** the wait looks again at once, as at a change of the table; an event below the directory does not end it
+  [@test] crates/lease-pool/src/table_wake_test.rs (`a_wait_ends_at_an_event_of_its_table_and_at_any_event_that_may_be_one`)
+
 ### Requirement: Host slots: A waiting lend gives back an abandoned slot itself
 
 A queued `lend_waiting` MUST give back itself a slot that no process acts on (an abandoned lend or give-back, a

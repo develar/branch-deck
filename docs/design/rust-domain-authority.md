@@ -1231,7 +1231,7 @@ repository». Аудит всех функций в тот же день наш�
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`, `a_killed_holder_frees_the_clones_lock_with_its_process`)
 - **22. Смена репозитория**
   [@test] ../../crates/repository-model/src/session_test.rs (`the_sync_of_another_session_ends_while_the_sync_of_one_is_held`, `the_outcome_of_a_push_in_one_session_leaves_the_branch_of_the_same_name_in_another`)
-  [@test] ../../crates/operations/src/registry_watch_test.rs (`a_window_shows_the_operations_another_process_runs_under_its_prefix_while_it_watches`)
+  [@test] ../../crates/operations/src/registry_watch_test.rs (`a_window_shows_the_operations_another_process_runs_under_its_prefix_at_the_next_look_with_no_event_of_the_watch`)
   [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should keep holding a start Patronus accepted through a switch to another repository and back`, `should start the Safe Push in its repository when another repository opens during its checks`)
   [@test] ../../src/lib/show-repository.test.ts (`does nothing for the repository the main window shows and synced`, `switches the main window to another repository and waits for its first sync`)

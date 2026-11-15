@@ -104,8 +104,11 @@ machine.
   until nextest killed the test at 300 s. A test gives the history instead of asking it (`disk_usage_core_with_changes`
   of `crates/pool-disk`: the history since a measurement names nothing, then the changed file), and a wait for what
   another process wrote into a watched file reads it again as a focus of the window does (`Registry::reread`, every
-  50 ms in `operations_once` of `crates/bd-cli/src/cross_process_test.rs`). Only the tests of the watch itself
-  (`registry_watch_test.rs`) wait for its events.
+  50 ms in `operations_once` of `crates/bd-cli/src/cross_process_test.rs`). A test of a watch names the path it tests
+  ([A watch is a hint](../design/async-patterns.md#a-watch-is-a-hint)): the guarantee with a watch that tells nothing
+  (`WatchConfig { events: false }`, a look every 50 ms), the reaction to an event with the events it gives (`woken`,
+  `TableWake::of_events`), and one test of the events of the system per watch, whose wait ends at a deadline with "no
+  watch event" (`the_watch_of_the_system_tells_that_a_record_left_the_registry_with_no_look`).
 - **Commit times are the fixture's**: commits that must fall into different seconds, or a rewrite that must have a
   later committer time, get their dates (`create_commit_with_timestamp`, `GIT_COMMITTER_DATE` of the rewrite's git)
   instead of a wait for the clock. Two commits of one author with one subject share a `CommitKey` only within one

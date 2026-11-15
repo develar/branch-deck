@@ -280,9 +280,14 @@ impl Registry {
   /// The registry of the operations of `sessions`, recorded for the other processes in `files`
   #[must_use]
   pub fn new(sessions: Arc<Sessions>, files: RegistryFiles) -> Self {
+    Self::watched_as(sessions, files, sync_utils::dir_watch::WatchConfig::default())
+  }
+
+  /// `new`, whose watches learn of a change as `config` says: a test of the events alone or of the looks alone
+  pub(crate) fn watched_as(sessions: Arc<Sessions>, files: RegistryFiles, config: sync_utils::dir_watch::WatchConfig) -> Self {
     Self {
       sessions,
-      watches: Watches::new(files.journaled.clone()),
+      watches: Watches::new(files.journaled.clone(), config),
       files,
       channels: Arc::new(Mutex::new(HashMap::new())),
       reconciling: Arc::new(Mutex::new(HashMap::new())),
@@ -312,11 +317,27 @@ impl Registry {
   }
 
   /// Reads the operations registry of the repository of the session of `key` again, when a window watches it: a window
-  /// of it gained the focus, which stands in for a watch the system refused
+  /// of it gained the focus
   pub async fn reread(&self, key: &SessionKey) {
     if let Some(registry) = self.files.registry_of(key).await {
       self.watches.reread(&registry);
     }
+  }
+
+  /// Looks at the registry, the stamp and the journal of the repository of the session of `key` at once, as an event of
+  /// its watch does, when a window watches it: the E2E server, which touched the stamp, tells every session that
+  /// watches the repository without waiting for the event or the next look
+  pub async fn look(&self, key: &SessionKey) {
+    if let Some(registry) = self.files.registry_of(key).await {
+      self.watches.look(&registry);
+    }
+  }
+
+  /// The watch of the registry of the repository of the session of `key`, which a test of the events gives its events to
+  #[cfg(test)]
+  pub(crate) async fn watch_wake(&self, key: &SessionKey) -> Option<Arc<crate::registry_watch::Wake>> {
+    let registry = self.files.registry_of(key).await?;
+    self.watches.wake_of(&registry)
   }
 
   /// The sessions whose operations it admits

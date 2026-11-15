@@ -44,7 +44,8 @@ use sync_utils::timestamp::unix_now;
 use tokio::sync::watch;
 use tracing::debug;
 
-const FILE: &str = "journal.jsonl";
+/// The name of the journal in the directory of the registry
+pub(crate) const FILE: &str = "journal.jsonl";
 /// How many entries the journal keeps
 pub const LIMIT: usize = 200;
 /// How old, in seconds, the oldest entry the journal keeps is: 30 days
@@ -92,11 +93,6 @@ fn read_journal(path: &Path) -> std::io::Result<Vec<JournalEntry>> {
     return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "the repository of the journal is gone"));
   }
   Ok(entries)
-}
-
-/// Whether `name` is the name of a journal: a watch of the directory of a registry tells Activity of its change
-pub(crate) fn is_file_name(name: &std::ffi::OsStr) -> bool {
-  name == FILE
 }
 
 /// The lines of the file at `path` that `read` parses, oldest first: a missing file is an empty journal, a line this

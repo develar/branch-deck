@@ -684,6 +684,17 @@ pub(crate) fn path_of(state: &AppState, id: &str) -> Result<String, (StatusCode,
   state.repositories.get(id).map(|repo| repo.path.clone()).ok_or_else(unknown_repository)
 }
 
+/// The worktrees of the test repository `id` whose path is `path`: the repository, then the slots of its lease pool a
+/// test leased (`disk_fixtures::lease_slot`), the one a window shows last
+fn worktrees_of(state: &AppState, id: &str, path: &str) -> Vec<String> {
+  let slots = state
+    .path_to_id
+    .iter()
+    .filter(|entry| entry.value() == id && entry.key() != path)
+    .map(|entry| entry.key().clone());
+  std::iter::once(path.to_owned()).chain(slots).collect()
+}
+
 /// The app of the test repository at `path`, what its commands run with (`AppState::context_of`)
 pub(crate) fn context_of(state: &AppState, path: &str) -> Result<Arc<app_api::context::AppContext>, (StatusCode, String)> {
   state
@@ -831,9 +842,11 @@ pub struct StampRequest {
 
 /// `POST /repositories/{id}/stamp`: `bd` did a mutation in the repository behind the app's back, as after an agent's
 /// `brd group` (`touch_stamp`): the sessions a window shows sync once the inputs changed, of a repository synced before.
-/// With `answer`, the session of the repository is asked for that sync of a stamp too, as the watch asks it, and the
-/// fixture answers its outcome (`skipped` for a session that does not sync of itself): what the watch's own request
-/// did, which nothing waits for, a test cannot read
+/// The sessions that watch the repository look at once (`Registry::look`), as at an event of their watch, which runs
+/// behind the writes on a loaded machine: a test waits for neither the event nor the next look. With `answer`, the
+/// session the window shows (of the slot of the lease pool the test leased, else of the repository) is asked for that
+/// sync of a stamp instead, as the watch asks it, and the fixture answers its outcome (`skipped` for a session that
+/// does not sync of itself): what the watch's own request did, which nothing waits for, a test cannot read
 pub async fn touch_repository_stamp(
   Path(id): Path<String>,
   State(state): State<Arc<AppState>>,
@@ -841,10 +854,17 @@ pub async fn touch_repository_stamp(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
   let path = path_of(&state, &id)?;
   touch_stamp(&std::path::Path::new(&path).join(".git"));
+  let worktrees = worktrees_of(&state, &id, &path);
   if !request.answer {
+    for worktree in &worktrees {
+      if let Ok(key) = session_of(&state, worktree).await {
+        state.registry.look(&key).await;
+      }
+    }
     return Ok(Json(serde_json::json!({})));
   }
-  let key = session_of(&state, &path).await?;
+  let shown = worktrees.last().unwrap_or(&path);
+  let key = session_of(&state, shown).await?;
   let answer = state.sessions.sync(&key, SyncReason::Stamp).wait().await;
   Ok(Json(match answer {
     Ok(answer) => serde_json::json!({ "outcome": answer.outcome }),

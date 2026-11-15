@@ -13,6 +13,8 @@ getrandom.workspace = true
 gethostname = "1.1.0"
 jiff.workspace = true
 memchr = "2"
+# the watch of a directory under the rules of every watch of Branch Deck (`dir_watch`): its events and its fingerprints
+notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
@@ -22,7 +24,8 @@ tracing.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
-# the start time of a process (`process_scan`: `OpenProcess`, `GetProcessTimes`), the ancestors of this process (the
+# the start time of a process (`process_scan`: `OpenProcess`, `GetProcessTimes`), the file index of a file that a look of a
+# watch compares (`dir_watch`: `GetFileInformationByHandle`), the ancestors of this process (the
 # snapshot of the process list, `CreateToolhelp32Snapshot`) and the sharing errors that a rename or a removal waits out
 # (`fs_retry`), the console of the process, without which a child gets no window, and its priority class, which a
 # background child keeps when it is idle (`child_process::windowless_command_at`)
@@ -30,6 +33,7 @@ libc = "0.2.191"
 windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",
   "Win32_Security",
+  "Win32_Storage_FileSystem",
   "Win32_System_Console",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_JobObjects",
