@@ -125,7 +125,11 @@ host run one at a time, whatever their repository, and the other runs go as befo
   pack, checks out the commit, runs the prepare steps and the command, stages the outputs, writes `exit.json` and gives
   the slot back on every way out. A restart of `serve` does not stop it. A cancel sends SIGINT to the process group of
   the command, SIGINT again a second later to each process of the group that started as it came, and SIGKILL after
-  120 s (decision 9).
+  120 s (decision 9). Its stderr is `supervisor.log` of the run, its stdout the log of `serve`. A client forgets a run
+  once it ended, and its directory goes while the slot is still given back, so the lines after `exit.json` (the
+  give-back, a quarantine, the heavy turn, their failures) go to the log of the agent too, with the id of the run.
+  launchd never rotates that log: a run adds its start line and a few lines of its give-back, and a flood from a host
+  of the network one line a minute (`tally`).
 - **The keeper** is a thread of `serve`. It wakes once a minute and when a run names a repository. It brings the git
   of the host to its floor (`ensure_host_git`), takes up what a gone process left (`reclaim`, `reclaim_refs`), keeps
   the minimum free space (`keep_free`), and fills the missing slots (`fill`). A failed fill waits 1, 5, then 15

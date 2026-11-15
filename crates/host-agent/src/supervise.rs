@@ -39,8 +39,11 @@
 //! run and gives the slot back (`slots::give_back`): the processes that the run left in the slot stop, its changes go,
 //! the ref of its pack goes, and a run that got no slot leaves the queue. A heavy run then leaves the heavy turn: it
 //! gives the turn back, or its ticket leaves the queue; a killed supervisor holds no turn, since the next heavy run
-//! takes the turn of a gone holder. No signal cuts the give-back, and its lines go to `supervisor.log`. The `cancel`
-//! file of the run, or SIGINT, SIGTERM or SIGHUP, interrupts the run. Before the command starts, the run ends with the exit code 130 after the current step; a checkout and a scan of the slot run to
+//! takes the turn of a gone holder. No signal cuts the give-back. Its lines, as every line after `exit.json`, go to
+//! `supervisor.log` and with the id of the run to the log of the agent, the stdout that `serve` gives the supervisor
+//! (`log::supervisor_after_end`): a client forgets the run once it ended, and its directory goes.
+//!
+//! The `cancel` file of the run, or SIGINT, SIGTERM or SIGHUP, interrupts the run. Before the command starts, the run ends with the exit code 130 after the current step; a checkout and a scan of the slot run to
 //! their end, since the pool runs their git in process. After the command started, the command group gets SIGINT, 1 s
 //! later each process of the group that started as it came gets SIGINT again (`interrupt_newcomers`), and the group
 //! gets SIGKILL after the grace time. The progress lines go to `events.log` as stderr events with the prefix `brd-host: `,
@@ -49,7 +52,7 @@
 
 use crate::files::{FILE_MODE, open_private, private_dir, remove_entry, try_flock};
 use crate::home::Home;
-use crate::log::supervisor;
+use crate::log::{supervisor, supervisor_after_end};
 use crate::login_env::LoginEnv;
 use crate::prepare::Prepared;
 use crate::repo::Repository;
@@ -133,7 +136,8 @@ pub fn supervise(home: &Home, run_dir: &Path, lock: Option<RawFd>) {
     Err(refusal) => ExitRecord::refused(&refusal),
   };
   if let Err(error) = run.write_exit(&exit) {
-    supervisor(&format!("cannot write the end of {}: {error}", run_dir.display()));
+    let id = run_dir.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+    supervisor_after_end(&id, &format!("cannot write the end of {}: {error}", run_dir.display()));
   }
   drop(lock);
   if let Some(spec) = spec {
@@ -148,11 +152,12 @@ pub fn supervise(home: &Home, run_dir: &Path, lock: Option<RawFd>) {
 /// leaves the queue. A signal does not cut it
 fn leave_turn(home: &Home, run: &str) {
   match turn::leave(home, run) {
-    Ok(true) => supervisor("gave the heavy turn of the host back"),
+    Ok(true) => supervisor_after_end(run, "gave the heavy turn of the host back"),
     Ok(false) => {}
-    Err(refusal) => supervisor(&format!(
-      "cannot leave the heavy turn of the host: {refusal}; the next heavy run takes it once this process is gone"
-    )),
+    Err(refusal) => supervisor_after_end(
+      run,
+      &format!("cannot leave the heavy turn of the host: {refusal}; the next heavy run takes it once this process is gone"),
+    ),
   }
 }
 
@@ -163,29 +168,30 @@ pub fn refuse_run(run_dir: &Path, refusal: &Refusal) {
 
 /// Gives back the host slot of the run, or takes the run out of the queue when it got none. A signal does not cut it
 fn give_back(home: &Home, repo: Option<Repository>, spec: &RunSpec) {
+  let say = |message: &str| supervisor_after_end(&spec.run, message);
   let repo = match repo.map_or_else(|| Repository::open(home, home.expand(&spec.repo)), Ok) {
     Ok(repo) => repo,
     Err(refusal) => {
-      supervisor(&format!("cannot give the slot of the run back: {refusal}"));
+      say(&format!("cannot give the slot of the run back: {refusal}"));
       return;
     }
   };
   match slots::give_back(&repo, &spec.run) {
     Ok(gave_back) => {
       if let Some(n) = gave_back.n {
-        supervisor(&format!("gave back the slot {n}, {} process(es) of the run stopped", gave_back.stopped));
+        say(&format!("gave back the slot {n}, {} process(es) of the run stopped", gave_back.stopped));
         if !gave_back.quarantined.is_empty() {
-          supervisor(&format!("the slot {n} stays in quarantine while these work in it: {}", gave_back.quarantined.join(", ")));
+          say(&format!("the slot {n} stays in quarantine while these work in it: {}", gave_back.quarantined.join(", ")));
         }
       }
       if let Some(deleted) = &gave_back.deleted_ref {
-        supervisor(&format!("deleted {deleted}"));
+        say(&format!("deleted {deleted}"));
       }
       if gave_back.maintenance_started {
-        supervisor("started the git maintenance of the repository");
+        say("started the git maintenance of the repository");
       }
     }
-    Err(refusal) => supervisor(&format!("cannot give the slot of the run back: {refusal}")),
+    Err(refusal) => say(&format!("cannot give the slot of the run back: {refusal}")),
   }
 }
 

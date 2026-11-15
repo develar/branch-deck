@@ -497,6 +497,21 @@ fn a_run_waits_for_its_pack_checks_out_by_the_diff_and_gives_its_slot_back() {
   );
 }
 
+/// `brd-host run` forgets its run as soon as it ended, so the directory and `supervisor.log` go while the supervisor still
+/// gives the slot back: its lines reach the log of the agent with the id of the run
+#[test]
+fn the_give_back_of_a_forgotten_run_writes_its_lines_to_the_log_of_the_agent() {
+  let world = World::new(1, &[]);
+  let agent = world.serve();
+  agent.start(world.spec("2-2", "echo done"));
+  assert_eq!(agent.follow("2-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("2-2"));
+  assert!(matches!(agent.reply(&Request::Forget { run: "2-2".to_owned() }), Reply::Done { .. }));
+  assert!(!world.run_dir("2-2").exists());
+  eventually("the give-back line of the forgotten run in the log of the agent", || {
+    world.serve_log().contains("brd-host supervise 2-2: gave back the slot ")
+  });
+}
+
 #[test]
 fn the_changes_of_a_command_come_back_as_a_patch_without_the_prepare_steps() {
   let config = "[host]\noutputs = [\"out/result.txt\"]\n\n[host.env]\nFROM_CONFIG = \"yes\"\n\n[[host.prepare]]\nname = \"made\"\nrun = [\"/bin/sh\", \"-c\", \"echo prepared > made.txt\"]\ncreates = [\"made.txt\"]\n";

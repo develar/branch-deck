@@ -15,7 +15,7 @@
 //! | `outputs/` | the staged outputs of `[host]`, under their paths relative to the slot root |
 //! | `outputs.json` | the outputs in `outputs/`, as a JSON array of their paths |
 //! | `changes.patch` | the changes that the command made to the files of the slot, for `git apply` |
-//! | `supervisor.log` | the stderr of the supervisor, such as a panic |
+//! | `supervisor.log` | the stderr of the supervisor, such as a panic; the log of the agent has its lines after `exit.json` |
 //!
 //! The supervisor writes the last event before `exit.json`, so a reader that sees `exit.json` and then reads the log to
 //! its end has every event. A run is alive while a process holds the flock of `lock`. A run that is not alive and has no

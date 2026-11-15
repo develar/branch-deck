@@ -18,7 +18,7 @@ use host_link::proto::{FileKind, Reply, RunSpec, is_run_id};
 use host_link::refusal::{Code, Refusal};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, RawFd};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -74,6 +74,8 @@ impl Agent {
   fn spawn_supervisor(&self, run: &RunDir, lock: &File) -> Result<(), Refusal> {
     let spawn_failed = |error: io::Error| Refusal::new(Code::SpawnFailed, format!("cannot start the supervisor of the run: {error}"));
     let stderr = append_private(&run.path().join(SUPERVISOR_LOG)).map_err(spawn_failed)?;
+    // the lines of the supervisor after the end of the run go to the log of the agent too (`log::supervisor_after_end`)
+    let agent_log = io::stderr().as_fd().try_clone_to_owned().map_or_else(|_| Stdio::null(), Stdio::from);
     let descriptor: RawFd = lock.as_raw_fd();
     let mut command = windowless_command(&self.exe);
     command
@@ -82,7 +84,7 @@ impl Agent {
       .arg("--lock-fd")
       .arg(descriptor.to_string())
       .stdin(Stdio::null())
-      .stdout(Stdio::null())
+      .stdout(agent_log)
       .stderr(stderr);
     sys::detach(&mut command, Some(descriptor));
     let mut child = command.spawn().map_err(spawn_failed)?;
