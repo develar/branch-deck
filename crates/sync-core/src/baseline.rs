@@ -20,7 +20,7 @@ use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::snapshot::read_grouping_inputs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::UNIX_EPOCH;
 use tracing::{instrument, warn};
 
@@ -234,8 +234,8 @@ pub struct KnownBaseline {
   pub upstream_head: String,
   /// When the repository was last fetched
   pub fetched_at: Option<u32>,
-  /// The landed state of this worktree (`landed::LANDED_FILE`), a file of its lease, which only `lease_state` writes
-  pub(crate) landed_state: PathBuf,
+  /// The files of the lease of this worktree, with its landed state, which only `lease_state` writes
+  pub(crate) lease: crate::lease_state::LeasePaths,
 }
 
 /// `check_baseline_update_with` of the state a sync read: no guard, branch, upstream or commit is read again

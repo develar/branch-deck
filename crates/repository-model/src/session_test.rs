@@ -756,6 +756,25 @@ fn branch_names(view: &RepositoryView) -> Vec<&str> {
   names
 }
 
+/// A repository with a commit of `auth` ahead of its origin, a slot of a lease pool under the lease `lease-a`
+/// (`TestLeases`), its session opened by a window: the repository, the key, the leases and the sessions
+async fn opened_under_lease_a() -> (TestRepo, SessionKey, Arc<TestLeases>, Sessions) {
+  let repo = ahead_of_origin(&["(auth) Add auth"]);
+  let key = SessionKey {
+    worktree: repo.path_str().to_string(),
+    prefix: "test".to_string(),
+  };
+  let leases = Arc::new(TestLeases::default());
+  *leases.epoch.lock().unwrap() = lease("lease-a");
+  let environment = TestEnvironment {
+    leases: Arc::clone(&leases),
+    ..TestEnvironment::default()
+  };
+  let (sessions, _clock) = with_environment(GitCommandExecutor::new(), environment);
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  (repo, key, leases, sessions)
+}
+
 /// A run writes the files of the lease of its worktree (the mark of a sync, the landed state) only under the lease it
 /// began under: a slot an agent returned and leased again while the run ran is a worktree this run did not sync, whose
 /// return took the files of the lease before, so nothing of the run reaches the new lease, neither the mark, after which
@@ -763,21 +782,9 @@ fn branch_names(view: &RepositoryView) -> Vec<&str> {
 /// writes both
 #[tokio::test]
 async fn a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under() {
-  let repo = ahead_of_origin(&["(auth) Add auth"]);
-  let key = SessionKey {
-    worktree: repo.path_str().to_string(),
-    prefix: "test".to_string(),
-  };
-  let landed_state = repo.path().join(".git").join(sync_core::landed::LANDED_FILE);
-  let leases = Arc::new(TestLeases::default());
-  *leases.epoch.lock().unwrap() = lease("lease-a");
+  let (repo, key, leases, sessions) = opened_under_lease_a().await;
+  let landed_state = sync_core::lease_state::LeasePaths::of_worktree(repo.path()).unwrap().landed();
   *leases.leased_again_in_run.lock().unwrap() = Some(lease("lease-b"));
-  let environment = TestEnvironment {
-    leases: Arc::clone(&leases),
-    ..TestEnvironment::default()
-  };
-  let (sessions, _clock) = with_environment(GitCommandExecutor::new(), environment);
-  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
   assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "no mark of a run across two leases");
   assert!(!landed_state.exists(), "no landed state of a run across two leases");
@@ -786,6 +793,25 @@ async fn a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
   assert!(sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "a run under one lease marks it");
   assert!(landed_state.exists(), "a run under one lease records where the branch is");
+}
+
+/// The guard an operation of a session writes the files of the lease under (an intent of a window: Update Project, its
+/// undo, a dismiss) holds while the slot holds the lease the session opened under, the lease of its view, and stops
+/// holding once the slot holds another; asked while the slot holds another lease than the session opened under, there is
+/// none: the operation would act on a worktree of another lease
+#[tokio::test]
+async fn an_operation_of_a_session_writes_the_files_of_the_lease_only_under_the_lease_of_its_view() {
+  let (repo, key, leases, sessions) = opened_under_lease_a().await;
+  let paths = sync_core::lease_state::LeasePaths::of_worktree(repo.path()).unwrap();
+  let marked = |prefix: &str| sync_core::synced_mark::synced_before(&key.worktree, prefix);
+
+  let guard = sessions.lease_guard(&key).await.unwrap();
+  sync_core::synced_mark::mark_synced(&guard, &paths, "of-the-view");
+  assert!(marked("of-the-view"), "a write under the lease of the view lands");
+  *leases.epoch.lock().unwrap() = lease("lease-b");
+  sync_core::synced_mark::mark_synced(&guard, &paths, "after-the-change");
+  assert!(!marked("after-the-change"), "a write after the slot changed its lease lands nowhere");
+  assert_eq!(sessions.lease_guard(&key).await.err(), Some(crate::session::AnotherLease));
 }
 
 /// Two worktrees of one repository are two sessions, each with the table of its own HEAD

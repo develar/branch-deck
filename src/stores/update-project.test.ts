@@ -44,7 +44,8 @@ vi.mock("@/lib/bindings", () => ({
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 vi.mock("@/components/ui/toast", async () => (await import("@/test-support/toast-mock")).toastModule)
-vi.mock("@/model/store", () => ({ nextRunNumber: () => 7, whenSessionViewAt: async () => {} }))
+// the epoch of the view the window shows, which each intent names
+vi.mock("@/model/store", () => ({ getViewEpoch: () => 3, nextRunNumber: () => 7, whenSessionViewAt: async () => {} }))
 vi.mock("@/stores/branch-sync", () => ({ branchSyncStore: { getState: () => ({ operations: {} }), subscribe: () => () => {} }, setBaselineUpdate: () => {} }))
 vi.mock("@/stores/landed", () => ({ addLandedUpdate: () => {} }))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
@@ -193,7 +194,7 @@ describe("the running update", () => {
   it("shows the steps of its operation: the fetch with git's progress, the wait behind a rewrite, then the check", async () => {
     const update = runUpdateProject()
     const execution = await executionIn("/a", "updateProject")
-    expect(execution.intent).toEqual({ kind: "updateProject", fetch: true })
+    expect(execution.intent).toEqual({ kind: "updateProject", fetch: true, epoch: 3 })
     execution.events.onmessage({ kind: "progress", op: "u", ...PROGRESS })
     expect(stepIn("/a")).toEqual({ step: "fetch", fetch: PROGRESS })
     // the fetch ended while a rewrite holds HEAD: the session queues the check behind it
@@ -313,7 +314,7 @@ describe("the running update", () => {
     const first = await executionIn("/a", "updateProject")
     const second = await executionIn("/a", "updateProject", 1)
     // the check and the apply only: the fetch of the refused update stands
-    expect(first.intent).toEqual({ kind: "updateProject", fetch: false })
+    expect(first.intent).toEqual({ kind: "updateProject", fetch: false, epoch: 3 })
     expect(runningIn("/a")?.run.plan).toEqual(["check", "apply", "sync"])
     const retried = outcome(
       "w",

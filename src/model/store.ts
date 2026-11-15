@@ -197,6 +197,16 @@ export function getSessionWitness(repositoryPath: string): TableWitness {
   return view === null ? NO_WITNESS : { head: view.header.head, storeTips: view.header.storeTips, epoch: view.version.epoch }
 }
 
+/**
+ * The epoch of the view the window shows of `repositoryPath`, which an intent asked on it names (Update Project, the
+ * undo of a rewrite, the dismissal of what landed), as a rewrite names it in its witness: the engine refuses one asked
+ * on the view of a session that opened anew since (a slot leased again); null while the window holds no view of it
+ */
+export function getViewEpoch(repositoryPath: string): number | null {
+  const view = session?.repositoryPath === repositoryPath ? session.view : null
+  return view === null ? null : view.version.epoch
+}
+
 /** The version of the view the store holds, as `data-view-version` shows it: `epoch:seq`; null without a view */
 export function viewVersionKey(version: Version | null): string | null {
   return version === null ? null : `${version.epoch}:${version.seq}`

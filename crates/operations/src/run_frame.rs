@@ -55,7 +55,7 @@ pub async fn follow_up(
   hosts: Hosts<'_>,
   events: &std::sync::Arc<dyn crate::events::EventSink>,
 ) -> Option<Outcome> {
-  let Intent::UpdateProject { fetch } = intent else {
+  let Intent::UpdateProject { fetch, .. } = intent else {
     return None;
   };
   let outcome = crate::update::execute_update_in(registry.sessions(), key, guard, fetch, hosts).await.ok()?;

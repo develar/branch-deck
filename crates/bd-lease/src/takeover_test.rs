@@ -412,9 +412,13 @@ fn a_get_below_the_minimum_free_space_deletes_the_trash_of_gone_runs_first() {
 }
 
 /// The mark of a sync in the git directory of `path` (`synced_mark`), as a sync in the slot leaves it
-fn mark_synced_in(path: &str) {
-  let mark = slot_git(path, &["rev-parse", "--path-format=absolute", "--git-path", sync_core::synced_mark::SYNCED_FILE]);
-  sync_core::synced_mark::mark_synced(&sync_core::lease_state::LeaseGuard::any(), Path::new(mark.trim()), PREFIX);
+pub(crate) fn mark_synced_in(path: &str) {
+  let mark = slot_git(path, &["rev-parse", "--path-format=absolute", "--git-path", "branch-deck"]);
+  sync_core::synced_mark::mark_synced(
+    &sync_core::lease_state::LeaseGuard::any(),
+    &sync_core::lease_state::LeasePaths::in_dir(mark.trim().into()),
+    PREFIX,
+  );
   assert!(sync_core::synced_mark::synced_before(path, PREFIX));
 }
 

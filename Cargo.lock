@@ -635,6 +635,7 @@ dependencies = [
  "git-ops",
  "github",
  "history-rewrite",
+ "lease-pool",
  "object-cache",
  "operations",
  "patronus",

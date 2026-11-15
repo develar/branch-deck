@@ -441,6 +441,7 @@ pub fn sync(context: &RepoContext) -> Result<SyncOutput, CliError> {
     object_cache: context.cache(),
     config: Some(context.config()?),
     facts: Some(context.command_facts()?),
+    lease: context.lease.clone(),
     ..SyncOptions::default()
   };
   let report = runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;

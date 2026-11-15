@@ -17,7 +17,7 @@ import { showToast } from "@/lib/toast-message"
 import type { TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
 import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-progress"
 import { cancelIntent, executeIntent } from "@/model/intents"
-import { nextRunNumber, whenSessionViewAt } from "@/model/store"
+import { getViewEpoch, nextRunNumber, whenSessionViewAt } from "@/model/store"
 import { canceledBeforeStart, presentLockWait } from "@/presenters/lock-wait"
 import { presentRunningLabel } from "@/presenters/operations"
 import type { FollowingUpdate } from "@/presenters/outcome"
@@ -400,7 +400,9 @@ async function runIntentOf(repositoryPath: string, intent: Intent, kind: UpdateR
  */
 export function runUpdateProject(): Promise<void> {
   const repositoryPath = getSelectedProject()?.path
-  return repositoryPath === undefined ? Promise.resolve() : runIntentOf(repositoryPath, { kind: "updateProject", fetch: true }, "update", UPDATE_PLAN)
+  return repositoryPath === undefined
+    ? Promise.resolve()
+    : runIntentOf(repositoryPath, { kind: "updateProject", fetch: true, epoch: getViewEpoch(repositoryPath) }, "update", UPDATE_PLAN)
 }
 
 /**
@@ -409,7 +411,9 @@ export function runUpdateProject(): Promise<void> {
  * the repository, as Update Project: a click after a switch never moves the HEAD of another one
  */
 export function retryUpdateWithoutFetch(repositoryPath: string): Promise<void> {
-  return isSelectedRepository(repositoryPath) ? runIntentOf(repositoryPath, { kind: "updateProject", fetch: false }, "update", APPLY_PLAN) : Promise.resolve()
+  return isSelectedRepository(repositoryPath)
+    ? runIntentOf(repositoryPath, { kind: "updateProject", fetch: false, epoch: getViewEpoch(repositoryPath) }, "update", APPLY_PLAN)
+    : Promise.resolve()
 }
 
 /**

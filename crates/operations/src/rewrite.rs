@@ -39,7 +39,7 @@
 use crate::engine::{Hosts, outcome_of, run, runs_only_in_bd};
 use crate::events::EventSink;
 use crate::registry::{Answer, OperationRequest, Registry, RunningGuard, Stepper};
-use crate::witness::{Witness, plan_changed, read_refs};
+use crate::witness::{Witness, plan_changed, read_refs, under_its_lease};
 use domain_types::branch_names::{BranchKind, qualified_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::PlannedEffect;
@@ -71,6 +71,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use sync_core::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
 use sync_core::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core, delete_unapplied_branch_core};
+use sync_core::lease_state::LeaseGuard;
 use sync_core::parked::park_result;
 use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use sync_core::unapply_branch::{UnapplyBranchParams, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
@@ -283,12 +284,16 @@ async fn resolve_and_run(
   rewrite: &RewriteIntent,
   planned: &RewritePlan,
 ) -> Result<(RewriteIntent, Option<String>, Ran), ApiError> {
+  // the rows it was asked on are of a session that opened anew since (another lease of the slot): a branch of the same
+  // name is another branch now, which no rewrite by its name may take for it, and an undo of a rewrite of the lease
+  // before undoes nothing of this one; what the core writes into the files of the lease waits for the lease of the view
+  let lease = under_its_lease(sessions, key, &Intent::Rewrite(Box::new(rewrite.clone())), rewrite.asked_epoch()).await?;
   let (mut resolved, mut expect_head) = resolve(sessions, key, hosts, guard, rewrite, planned).await?;
   let canceled = guard.canceled();
   let mut runs = 0;
   loop {
     runs += 1;
-    let failed = match run_core(guard, key, hosts, &resolved, expect_head.clone()).await {
+    let failed = match run_core(guard, key, hosts, &resolved, expect_head.clone(), &lease).await {
       Ok(ran) => return Ok((resolved, expect_head, ran)),
       Err(failed) => failed,
     };
@@ -411,17 +416,6 @@ async fn resolve(
   let Some(asked) = rewrite.witness() else {
     return Ok((rewrite.clone(), None));
   };
-  // the rows it was asked on are of a session that opened anew since (another lease of the slot): a branch of the same
-  // name is another branch now, which no rewrite by its name may take for it
-  if let Some(epoch) = asked.epoch
-    && sessions.view_version(key).await.is_some_and(|now| now.epoch != epoch)
-  {
-    let intent = Intent::Rewrite(Box::new(rewrite.clone()));
-    return Err(plan_changed(
-      &intent,
-      Some("the rows it was asked on are of the worktree before, the slot holds another lease"),
-    ));
-  }
   let mut seen = seen_now(sessions, key).await;
   if seen.as_ref().is_some_and(|seen| seen.cached) {
     after_first_sync(sessions, key, guard, rewrite).await?;
@@ -648,7 +642,7 @@ enum Failure {
 ///
 /// # Errors
 /// The core's failure as the host words it; `canceled` once the user stopped the wait for the lock
-async fn run_core(guard: &RunningGuard, key: &SessionKey, hosts: Hosts<'_>, rewrite: &RewriteIntent, expect_head: Option<String>) -> Result<Ran, ApiError> {
+async fn run_core(guard: &RunningGuard, key: &SessionKey, hosts: Hosts<'_>, rewrite: &RewriteIntent, expect_head: Option<String>, lease: &LeaseGuard) -> Result<Ran, ApiError> {
   guard.step(OperationStep::Rewriting);
   let cache = match rewrite {
     RewriteIntent::PickRemote { .. } => Some(hosts.services.object_cache(key).await),
@@ -661,6 +655,7 @@ async fn run_core(guard: &RunningGuard, key: &SessionKey, hosts: Hosts<'_>, rewr
     expect_head,
     cache,
     file_diffs: hosts.rewrites.file_diffs(),
+    lease: lease.clone(),
   };
   let waiter = Arc::new(StepWaiter::new(guard, OperationStep::Rewriting));
   let (resolved, core_waiter) = (rewrite.clone(), Arc::clone(&waiter));
@@ -733,6 +728,8 @@ struct Core {
   /// The object cache of a pick
   cache: Option<ObjectCache>,
   file_diffs: FileDiffs,
+  /// The guard of the writes into the files of the lease (the landed state an undo of an update restores)
+  lease: LeaseGuard,
 }
 
 /// `work` on the blocking pool, in the span of the operation
@@ -938,7 +935,7 @@ impl Core {
       }
       // resolved into a move back of the commits of its branch
       RewriteIntent::Ungroup { .. } => return Err(failed(anyhow::anyhow!("An ungroup runs as the move back of its commits"))),
-      RewriteIntent::Undo { token } => self.undo(token, lock_wait).map_err(Failure::Undo)?,
+      RewriteIntent::Undo { token, .. } => self.undo(token, lock_wait).map_err(Failure::Undo)?,
       // refused before its admission (`execute_rewrite`)
       RewriteIntent::Group { .. } | RewriteIntent::MoveHunk { .. } => return Err(failed(anyhow::anyhow!("Only brd runs it"))),
     })
@@ -977,7 +974,7 @@ impl Core {
         false
       }
       // its short lock, as `brd undo` takes it
-      UndoKind::Update => undo_update_core(git, path, &UpdateUndoToken::parse(text).ok_or_else(not_a_token)?, DEFAULT_LOCK_TIMEOUT)?.already_undone,
+      UndoKind::Update => undo_update_core(git, path, &UpdateUndoToken::parse(text).ok_or_else(not_a_token)?, DEFAULT_LOCK_TIMEOUT, &self.lease)?.already_undone,
     };
     Ok(Ran::of(RewriteResult::Undone { already_undone }, token.kind, None))
   }

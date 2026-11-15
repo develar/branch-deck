@@ -598,7 +598,7 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
   let fetch = !(args.no_fetch || args.resume || args.abort || args.status);
   // a dry run and a status read only: no record
   let reads_only = args.dry_run || (args.status && !args.materialize);
-  recorded_unless(context, reads_only, &Intent::UpdateProject { fetch }, || updated(context, args))
+  recorded_unless(context, reads_only, &Intent::UpdateProject { fetch, epoch: None }, || updated(context, args))
 }
 
 /// `update`, recorded unless it reads only
@@ -645,6 +645,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
         commit: commit.clone(),
         user: args.user,
       }),
+      lease: context.lease.clone(),
     };
     let outcome = continue_resolve(&context.git, &context.repository, &options, context.lock_timeout).map_err(|error| update_core_error(context, error))?;
     return session_output(context, outcome, args.dry_run, &bd).map(|output| UpdateCommandOutput::Update(Box::new(output)));
@@ -664,6 +665,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
     fetch: !args.no_fetch,
     lock_wait: LockWait::Bounded(context.lock_timeout),
     onto: None,
+    lease: &context.lease,
   };
   let output = update_or_resolve(context, options, args.dir.as_deref())?;
   Ok(UpdateCommandOutput::Update(Box::new(output)))
@@ -688,6 +690,7 @@ pub fn update_lease_onto(context: &RepoContext, branch: &str) -> Result<UpdateOu
     fetch: false,
     lock_wait: LockWait::Bounded(context.lock_timeout),
     onto: Some(branch),
+    lease: &context.lease,
   };
   let mut output = update_or_resolve(context, options, None)?;
   if matches!(output.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
@@ -1447,7 +1450,7 @@ fn undo_update_token(context: &RepoContext, text: &str) -> Result<UndoneUpdateOu
   })?;
   let UndoneUpdate {
     landed_restored, already_undone, ..
-  } = undo_update_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(undo_core_error)?;
+  } = undo_update_core(&context.git, &context.repository, &token, context.lock_timeout, &context.lease).map_err(undo_core_error)?;
   Ok(UndoneUpdateOutput {
     head: token.previous_head,
     undone: token.new_head,

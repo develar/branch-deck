@@ -8,6 +8,7 @@ use crate::update_project::{BdUpdate, UpdateOptions, UpdateProjectParams, update
 use domain_types::update_project::UpdateState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::LockWait;
+use sync_core::lease_state::LeaseGuard;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::process_budget::{assert_processes, assert_signed_commits, counting, with_added_processes};
 
@@ -44,6 +45,7 @@ fn run_update(git: &GitCommandExecutor, repo: &TestRepo, fetch: bool) {
     &UpdateProjectParams {
       repository_path: path(repo).to_string(),
       fetch,
+      lease: LeaseGuard::any(),
     },
     &|_| {},
     LockWait::default(),
@@ -154,6 +156,7 @@ fn a_conflicting_update_pairs_its_commits_once() {
     &UpdateProjectParams {
       repository_path: path(&clone).to_string(),
       fetch: false,
+      lease: LeaseGuard::any(),
     },
     &|_| {},
     LockWait::default(),

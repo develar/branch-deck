@@ -9,11 +9,10 @@ use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
 use pretty_assertions::assert_eq;
 use std::fs;
-use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::check_baseline_update;
-use sync_core::landed::{LANDED_FILE, dismiss_landed, read_report, record_sync, record_update};
-use sync_core::lease_state::LeaseGuard;
+use sync_core::landed::{dismiss_landed, read_report, record_sync, record_update};
+use sync_core::lease_state::{LeaseGuard, LeasePaths};
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -59,11 +58,15 @@ fn landing(repo: &TestRepo) -> Vec<String> {
   describe(&check_baseline_update(repo.git_executor(), path(repo), "origin/master").unwrap().unwrap().landing)
 }
 
+/// The files of the lease of the worktree of `repo`, where git names `branch-deck`
+fn lease_of(repo: &TestRepo) -> LeasePaths {
+  LeasePaths::in_dir(repo.git(&["rev-parse", "--path-format=absolute", "--git-path", "branch-deck"]).into())
+}
+
 /// What the check inside a sync records: the undismissed report
 fn record(repo: &TestRepo) -> Vec<String> {
   let check = check_baseline_update(repo.git_executor(), path(repo), "origin/master").unwrap().unwrap().check;
-  let state = repo.git(&["rev-parse", "--path-format=absolute", "--git-path", LANDED_FILE]);
-  describe(&record_sync(repo.git_executor(), path(repo), Path::new(&state), &check, &GroupingInputs::default(), &LeaseGuard::any()).unwrap())
+  describe(&record_sync(repo.git_executor(), path(repo), &lease_of(repo), &check, &GroupingInputs::default(), &LeaseGuard::any()).unwrap())
 }
 
 /// `setup` with the local branches `auth` (login, logout) and `ui` (button); the ids of login and logout
@@ -113,7 +116,7 @@ fn undo_of_an_update_restores_the_report_from_before_it() {
     new_head: result.applied.unwrap().new_head,
   };
 
-  let undone = undo_update_core(clone.git_executor(), path(&clone), &token, Duration::from_millis(200)).unwrap();
+  let undone = undo_update_core(clone.git_executor(), path(&clone), &token, Duration::from_millis(200), &LeaseGuard::any()).unwrap();
   assert!(undone.landed_restored);
   assert_eq!(clone.head(), token.previous_head);
   assert_eq!(describe(&read_report(clone.git_executor(), path(&clone)).unwrap()), Vec::<String>::new());
@@ -127,7 +130,7 @@ fn undo_of_an_update_restores_the_report_from_before_it() {
 #[test]
 fn a_late_record_of_an_update_keeps_the_record_of_the_update_after_it() {
   let (Setup { upstream, clone }, login, logout) = auth_and_ui();
-  let state = clone.git(&["rev-parse", "--path-format=absolute", "--git-path", LANDED_FILE]);
+  let state = lease_of(&clone).landed();
   let landed_login = land_as(&upstream, &clone, &login, "Add login", &[("login.txt", "login\n")]);
   // update A, its record not written yet: the state is the one from before it
   let first = update(&clone).unwrap();
@@ -139,7 +142,7 @@ fn a_late_record_of_an_update_keeps_the_record_of_the_update_after_it() {
   let second_head = second.applied.as_ref().unwrap().new_head.clone();
 
   let first_head = &first.applied.as_ref().unwrap().new_head;
-  record_update(clone.git_executor(), path(&clone), &first.check, first_head, first.landed.clone()).unwrap();
+  record_update(clone.git_executor(), path(&clone), &first.check, first_head, first.landed.clone(), &LeaseGuard::any()).unwrap();
   assert_eq!(
     describe(&read_report(clone.git_executor(), path(&clone)).unwrap()),
     vec![format!("auth: Add logout -> {landed_logout}, Add login -> {landed_login} | 0 stay")]
@@ -149,7 +152,7 @@ fn a_late_record_of_an_update_keeps_the_record_of_the_update_after_it() {
     previous_head: second.check.head,
     new_head: second_head,
   };
-  let undone = undo_update_core(clone.git_executor(), path(&clone), &token, Duration::from_millis(200)).unwrap();
+  let undone = undo_update_core(clone.git_executor(), path(&clone), &token, Duration::from_millis(200), &LeaseGuard::any()).unwrap();
   assert!(undone.landed_restored, "the state still names B's head");
 }
 
@@ -288,7 +291,7 @@ fn update_made_elsewhere_is_reported_by_the_next_sync_once() {
   assert_eq!(record(&clone), expected);
   assert_eq!(record(&clone), expected, "reported once, kept until dismissed");
 
-  dismiss_landed(clone.git_executor(), path(&clone)).unwrap();
+  dismiss_landed(clone.git_executor(), path(&clone), &LeaseGuard::any()).unwrap();
   assert_eq!(record(&clone), Vec::<String>::new());
 }
 

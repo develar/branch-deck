@@ -119,7 +119,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::Push(push) => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),
     Intent::ForgetStart { .. } => forget::forget_plan(&intent).map(Some),
     Intent::Rewrite(rewrite) => Ok(prepare_rewrite(sessions, key, *rewrite).await),
-    intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => Ok(update::prepare_update(sessions, key, intent).await),
+    intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded { .. }) => Ok(update::prepare_update(sessions, key, intent).await),
     intent @ (Intent::FetchReview { .. } | Intent::FetchReviewStack { .. }) => Ok(review_fetch::prepare_review_fetch(sessions, key, intent).await),
     // only `bd` runs it: no plan the app could run
     Intent::Pick { .. } => Ok(None),
@@ -157,8 +157,8 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     // the run of a rewrite is a large future: on the heap
     Intent::Rewrite(rewrite) => Box::pin(execute_rewrite(registry, key, *rewrite, hosts, events)).await,
     Intent::FetchBaseline => Box::pin(update::execute_fetch(registry, key, hosts, events)).await,
-    Intent::UpdateProject { fetch } => Box::pin(update::execute_update(registry, key, fetch, hosts, events)).await,
-    Intent::DismissLanded => update::execute_dismiss(registry, key, hosts, events).await,
+    Intent::UpdateProject { fetch, epoch } => Box::pin(update::execute_update(registry, key, fetch, epoch, hosts, events)).await,
+    Intent::DismissLanded { epoch } => update::execute_dismiss(registry, key, epoch, hosts, events).await,
     Intent::FetchReview { number } => review_fetch::execute_review_fetch(registry, key, number, hosts, events).await,
     Intent::FetchReviewStack { top, bottom } => review_fetch::execute_review_stack_fetch(registry, key, top, bottom, hosts, events).await,
     intent @ Intent::Pick { .. } => Err(runs_only_in_bd(&intent)),
@@ -345,7 +345,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     intent @ Intent::SetIssueState { key, .. } => issue::issue_request(intent, key),
     intent @ Intent::ForgetStart { .. } => forget::forget_request(intent),
     Intent::Rewrite(rewrite) => rewrite_request(prefix, rewrite),
-    intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => update::update_request(intent, update::planned_upstream(plan)),
+    intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded { .. }) => update::update_request(intent, update::planned_upstream(plan)),
     intent @ (Intent::FetchReview { .. } | Intent::FetchReviewStack { .. }) => review_fetch::review_fetch_request(intent.clone()),
     intent @ Intent::Pick { .. } => pick_request(intent),
   }
@@ -359,7 +359,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
 pub fn unplanned_request(prefix: &str, intent: &Intent) -> Option<OperationRequest> {
   match intent {
     Intent::Rewrite(rewrite) => Some(rewrite_request(prefix, rewrite)),
-    Intent::UpdateProject { .. } | Intent::DismissLanded => Some(update::update_request(intent, "")),
+    Intent::UpdateProject { .. } | Intent::DismissLanded { .. } => Some(update::update_request(intent, "")),
     Intent::Pick { .. } => Some(pick_request(intent)),
     _ => None,
   }

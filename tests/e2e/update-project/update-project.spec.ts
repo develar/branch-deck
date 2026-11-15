@@ -5,7 +5,7 @@ import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/bran
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
-import { emitTauriEvent, finishedSyncCount, nextAnswer, pressSyncHeld, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, nextAnswer, pressSyncHeld, runAndWaitForSync, runAndWaitForUpdate, viewEpoch } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, holdIntent, recordCommand, recordRewrites, routeCommandError, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -335,9 +335,11 @@ test.describe("Update Project", () => {
     await runAndWaitForUpdate(page, () => toast.getByRole("button", { name: "Retry Without Fetch" }).click())
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
     // the update checks and applies against the baseline the last fetch got
+    // each names the epoch of the view it was asked on
+    const epoch = Number(await viewEpoch(page))
     expect(executions.map(call => call.intent)).toEqual([
-      { kind: "updateProject", fetch: true },
-      { kind: "updateProject", fetch: false },
+      { kind: "updateProject", fetch: true, epoch },
+      { kind: "updateProject", fetch: false, epoch },
     ])
   })
 

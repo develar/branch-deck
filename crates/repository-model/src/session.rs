@@ -50,6 +50,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
+use sync_core::lease_state::LeaseGuard;
 use sync_core::sync::SyncReport;
 use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::Clock;
@@ -342,6 +343,10 @@ impl SessionLife {
   }
 }
 
+/// The worktree of a session holds another lease now than the session opened under (`Sessions::lease_guard`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnotherLease;
+
 /// An operation of a session in flight (a request that waits, a run, a check): the session stays while one lives
 pub(crate) struct Busy(Arc<SessionLife>);
 
@@ -587,6 +592,34 @@ impl Sessions {
   /// another); `None` for a session that is not open
   pub async fn view_version(&self, key: &SessionKey) -> Option<Version> {
     self.ask(key, Message::ViewVersion).await
+  }
+
+  /// The guard of the writes of an operation of the session of `key` into the files of the lease of its worktree (the
+  /// mark of a sync, the landed state; `LeaseGuard`): they land only while the worktree holds the lease the session
+  /// opened under, the lease of its view, asked of the host right before each write (`SessionHost::epoch`), and at any
+  /// time for a worktree that is no slot. Of a session that is not open, the lease now. `AnotherLease` when the worktree
+  /// holds another known lease now than the session opened under: the operation would act on a worktree of another lease
+  /// before the session opens anew for it
+  pub async fn lease_guard(&self, key: &SessionKey) -> Result<LeaseGuard, AnotherLease> {
+    let opened = self.lock().get(key).and_then(|entry| entry.life.epoch());
+    let (host, of) = (Arc::clone(&self.host), key.clone());
+    let now = tokio::task::spawn_blocking(in_current_span(move || host.epoch(&of)))
+      .await
+      .unwrap_or(WorktreeEpoch::Unknown);
+    let began = match opened {
+      Some(opened) if opened.recorded().is_some() => {
+        if now.recorded().is_some() && now != opened {
+          return Err(AnotherLease);
+        }
+        opened
+      }
+      _ => now,
+    };
+    if began == WorktreeEpoch::NotASlot {
+      return Ok(LeaseGuard::any());
+    }
+    let (host, of) = (Arc::clone(&self.host), key.clone());
+    Ok(LeaseGuard::while_held(move || host.epoch(&of) == began))
   }
 
   /// The group `message` would put its commit into (`history_rewrite::commit_grouper::group_of` of its subject as git

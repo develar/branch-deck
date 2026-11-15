@@ -10,7 +10,7 @@ use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectStatus, Fingerprint, Intent, OperationId, OperationResult, OperationStep, Outcome, Resource, RunningOperation};
 use domain_types::patronus::PatronusPushMode;
 use domain_types::repository_view::PatronusView;
-use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind};
+use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind, UndoToken};
 use domain_types::session::{SyncReason, ViewPatch};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::regroup::RegroupOptions;
@@ -40,6 +40,11 @@ impl Fixture {
   /// `rewrite` run by the engine, off Space
   async fn rewrite(&self, rewrite: &RewriteIntent) -> Result<Outcome, ApiError> {
     execute_rewrite(&self.registry, &self.key, rewrite.clone(), OFFLINE.hosts(), Arc::new(NoEvents)).await
+  }
+
+  /// The undo of `token`, which must succeed, as `brd` asks it: no view
+  async fn undo(&self, token: UndoToken) -> Outcome {
+    self.rewrite(&RewriteIntent::Undo { token, epoch: None }).await.unwrap()
   }
 
   /// The subjects of the commits ahead of the initial one, newest first
@@ -150,7 +155,7 @@ async fn a_rewrite_is_run_by_its_core_and_ends_once_it_asked_its_sync_with_its_u
     "it answered once its sync showed the new HEAD"
   );
 
-  let undone = fixture.rewrite(&RewriteIntent::Undo { token: undo }).await.unwrap();
+  let undone = fixture.undo(undo).await;
   assert_eq!(undone.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
   assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "HEAD is back");
 }
@@ -203,7 +208,7 @@ async fn stack_together_is_one_rewrite_of_every_named_branch() {
   assert_eq!(outcome.undo.as_ref().map(|undo| undo.kind), Some(UndoKind::Regroup));
 
   let undo = outcome.undo.unwrap();
-  let undone = fixture.rewrite(&RewriteIntent::Undo { token: undo }).await.unwrap();
+  let undone = fixture.undo(undo).await;
   assert_eq!(undone.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
 }
 
@@ -270,7 +275,7 @@ async fn the_session_offers_the_undo_of_the_last_rewrite_while_head_is_the_head_
   let delta = fixture.commit("(delta) Delta");
   let moved = fixture.rewrite(&move_to(&[delta], "gamma", &fixture.witness().await)).await.unwrap();
   assert_eq!(fixture.offered_undo().await.as_ref(), Some(&moved.op));
-  fixture.rewrite(&RewriteIntent::Undo { token: moved.undo.unwrap() }).await.unwrap();
+  fixture.undo(moved.undo.unwrap()).await;
   assert_eq!(fixture.offered_undo().await, None, "an undo leaves nothing to undo");
 }
 
@@ -293,7 +298,12 @@ async fn a_triple_undo_is_one_undo_with_one_outcome() {
   let fixture = fixture(true).await;
   let (beta, head) = (fixture.commit("(alpha/beta) Beta"), fixture.repo.rev_parse("HEAD").unwrap());
   let moved = fixture.rewrite(&move_to(std::slice::from_ref(&beta), "gamma", &fixture.witness().await)).await.unwrap();
-  let answers = fixture.three_times(&RewriteIntent::Undo { token: moved.undo.unwrap() }).await;
+  let answers = fixture
+    .three_times(&RewriteIntent::Undo {
+      token: moved.undo.unwrap(),
+      epoch: None,
+    })
+    .await;
   for answer in answers {
     assert_eq!(answer.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
   }
@@ -435,7 +445,7 @@ async fn an_undo_during_a_rewrite_waits_behind_it_and_runs_after_it() {
   fixture.synced().await;
   assert_eq!(fixture.witness().await.store_tips.parked.is_some(), true);
 
-  let undo = RewriteIntent::Undo { token };
+  let undo = RewriteIntent::Undo { token, epoch: None };
   let (unstacked, undone) = fixture.one_after_another(&unstack(&fixture.witness().await), &undo).await;
   unstacked.unwrap();
   assert_eq!(undone.unwrap().result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
@@ -451,7 +461,10 @@ async fn an_undo_waiting_for_the_lock_of_another_process_that_commits_on_top_is_
   let fixture = fixture(true).await;
   let beta = fixture.commit("(alpha/beta) Beta");
   let moved = fixture.rewrite(&move_to(std::slice::from_ref(&beta), "gamma", &fixture.witness().await)).await.unwrap();
-  let undo = RewriteIntent::Undo { token: moved.undo.unwrap() };
+  let undo = RewriteIntent::Undo {
+    token: moved.undo.unwrap(),
+    epoch: None,
+  };
   let refused = fixture
     .while_another_process_moves_head(&undo, commit_on_top("(alpha) Alpha 2", "alpha2.txt"))
     .await
@@ -562,7 +575,7 @@ async fn an_unapply_a_reapply_and_the_delete_of_the_unapplied_branch_run_through
   let unapplied = unapply().await;
   assert_eq!(undo_and_sync(&unapplied), (Some(UndoKind::Unapply), true));
   assert_eq!(fixture.subjects(), ["(alpha) Alpha"]);
-  let undone = fixture.rewrite(&RewriteIntent::Undo { token: unapplied.undo.unwrap() }).await.unwrap();
+  let undone = fixture.undo(unapplied.undo.unwrap()).await;
   assert_eq!(undone.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
   assert_eq!(fixture.subjects(), both);
 
@@ -574,7 +587,7 @@ async fn an_unapply_a_reapply_and_the_delete_of_the_unapplied_branch_run_through
   let reapplied = fixture.rewrite(&reapply).await.unwrap();
   assert_eq!(undo_and_sync(&reapplied), (Some(UndoKind::Reapply), true));
   assert_eq!(fixture.subjects().len(), 2, "the commit is back on top");
-  fixture.rewrite(&RewriteIntent::Undo { token: reapplied.undo.unwrap() }).await.unwrap();
+  fixture.undo(reapplied.undo.unwrap()).await;
   assert_eq!(fixture.subjects(), ["(alpha) Alpha"], "the undo took it out again");
 
   let delete = RewriteIntent::DeleteUnapplied {
@@ -608,7 +621,7 @@ async fn a_drop_and_its_undo_run_through_the_engine_and_a_queued_drop_follows_a_
     panic!("not a drop: {result:?}");
   };
   assert_eq!(result.emptied_branches, ["beta"]);
-  let undone = fixture.rewrite(&RewriteIntent::Undo { token: dropped.undo.unwrap() }).await.unwrap();
+  let undone = fixture.undo(dropped.undo.unwrap()).await;
   assert_eq!(undone.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
   assert_eq!(fixture.subjects(), ["(alpha/beta) Beta", "(alpha) Alpha"]);
 

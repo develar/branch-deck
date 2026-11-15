@@ -224,16 +224,23 @@ end of a successful `sync_branches`, of `brd` and of a session of the app alike;
 read it (`SessionHost::synced_before` of the session's prefix, without git). Beside it, the landed state of the worktree
 (`branch-deck/landed.json`, `sync_core::landed`): decided by the update check of a sync (`record_sync`) and by Update
 Project, its undo and a dismiss (`record_update` and the others under `landed.lock`). Both are files of the lease of a
-slot (`lease_state::LEASE_FILES`), with one writer, `sync_core::lease_state` (`write_lease_file`, `remove_lease_file`,
-`lock_landed`; a temporary file and a rename, no git), each write under the guard of its caller (`LeaseGuard`): a sync
-of `brd` and an intent write at any time, a run of a session of the app only while the slot holds the lease the run
-began under (`SyncOptions::lease` of `GitSessionHost::run`, the epoch asked right before each write), so a run across a
-return and a new lease writes nothing into the files of the new lease. `lease_files_scan_test.rs` fails a name of
-these files, or a path of one, outside the modules of its table, and a write or a removal of a file in one of them but
-`lease_state.rs`. Only a lease slot takes them out, every file of the list at once, as it goes back (`finish_return` of
-a return, a takeover and a reclaim, first, so one that fails after it leaves none) and as a get reuses it
-(`move_reused_slot`, after its reservation changed the epoch, so it also takes what a run wrote during the return), with
-`forget_lease_state` (`fs_retry`). A start records what it sends before
+slot, whose paths only `sync_core::lease_state::LeasePaths` builds, with one writer, `sync_core::lease_state`
+(`write_lease_file`, `remove_lease_file`, `lock_landed`; a temporary file and a rename, no git), each write under the
+guard of its caller (`LeaseGuard`), checked and written under the lock of the lease (`lease.lock`): a work of a slot
+writes only while the slot holds the lease it began under, the epoch asked right before each write. The run of a
+session of the app gives its sync the lease the run began under (`SyncOptions::lease` of `GitSessionHost::run`), an
+intent of a window the lease of the view it was asked on (`operations::witness::under_its_lease`, `Sessions::lease_guard`;
+Update Project, the undo of a rewrite and a dismiss name the epoch of that view and are refused, `plan_changed`, on a
+view of another epoch or a slot of another lease), `brd` the lease of the slot as the command starts (`RepoContext::lease`,
+`lease_pool::epoch::lease_guard`, also from a directory outside the slot); only a worktree that is no slot writes at any
+time (`LeaseGuard::any`). So a work across a return and a new lease writes nothing into the files of the new lease.
+`lease_files_scan_test.rs` fails a name of these files beside `branch-deck` outside `lease_state.rs`, however a path is
+put together, a name of their paths outside the modules of its table, and a write or a removal of a file in one of them
+but `lease_state.rs`. Only a lease slot takes them out, every file of `LeasePaths::all` at once, under the lock of the
+lease, as it goes back (`finish_return` of a return, a takeover and a reclaim, first, so one that fails after it leaves
+none) and as a get reuses it (`move_reused_slot`, after its reservation changed the epoch), with `forget_lease_state`
+(`fs_retry`): a write that passed its check lands before the forget, which takes it out, and one after sees the epoch of
+the next lease. A start records what it sends before
 its request goes out; an answer lost after it went out is `EffectStatus::Unknown`, never sent again: its record stays
 `unknown` and holds for every process until a read of Patronus settles it (`operations::reconcile`, at an admission
 and after a list of the robots) or the user forgets it (Forget This Start, `brd operation forget`)

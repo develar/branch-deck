@@ -101,6 +101,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       kind: undo_kind(&args.token),
       token: args.token.clone(),
     },
+    epoch: None,
   };
   recorded(context, &Intent::Rewrite(Box::new(intent)), || undone(context, args))
 }

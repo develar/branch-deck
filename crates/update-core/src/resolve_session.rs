@@ -31,6 +31,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
+use sync_core::lease_state::LeaseGuard;
 use sync_core::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use sync_utils::paths::display_path;
 use tracing::{instrument, warn};
@@ -499,13 +500,21 @@ pub(crate) fn start_resolve(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   start: PreparedStart,
-  grouping: &GroupingInputs,
+  record: Record<'_>,
   dir: Option<(String, bool)>,
   lock: RepositoryLock,
 ) -> Result<SessionOutcome> {
   let (dir, dir_created) = dir.map_or((None, false), |(dir, created)| (Some(dir), created));
   let step = start.start(git_executor, repo_path, dir, dir_created)?;
-  outcome(git_executor, repo_path, step, None, Some(grouping), Some(lock), ViewDetail::Full)
+  outcome(git_executor, repo_path, step, None, record, Some(lock), ViewDetail::Full)
+}
+
+/// What a session that finishes records of what landed: with the issue groups of the update (`None`: read then), while
+/// `lease` holds, the lease the update or the step began under
+#[derive(Clone, Copy)]
+pub(crate) struct Record<'a> {
+  pub(crate) grouping: Option<&'a GroupingInputs>,
+  pub(crate) lease: &'a LeaseGuard,
 }
 
 /// What `brd update --continue` passes
@@ -522,6 +531,9 @@ pub struct ContinueOptions {
   pub drop_empty: Option<String>,
   /// `--landed <commit> [--user]`: take `onto` for every file and drop the round's commit as its upstream twin
   pub landed: Option<LandedInput>,
+  /// The guard of the record of what landed, once the session finishes: the lease `brd` began under
+  /// (`lease_pool::epoch::lease_guard`)
+  pub lease: LeaseGuard,
 }
 
 /// `brd update --continue`, under the repository lock: read the `edit` copies of the open round, commit the round,
@@ -584,7 +596,11 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
     }
     step => step,
   };
-  outcome(git_executor, repo_path, step, Some(&previous), None, lock, ViewDetail::Round)
+  let record = Record {
+    grouping: None,
+    lease: &options.lease,
+  };
+  outcome(git_executor, repo_path, step, Some(&previous), record, lock, ViewDetail::Round)
 }
 
 fn recheck_edit_copies(state: &SessionState, input: &RoundInput) -> Result<()> {
@@ -681,7 +697,7 @@ fn outcome(
   repo_path: &str,
   step: Step,
   previous: Option<&SessionState>,
-  grouping: Option<&GroupingInputs>,
+  record: Record<'_>,
   lock: Option<RepositoryLock>,
   detail: ViewDetail,
 ) -> Result<SessionOutcome> {
@@ -700,7 +716,7 @@ fn outcome(
         return Err(anyhow!("A prepared resolve round needs the repository lock"));
       };
       let step = apply_prepared_round(git_executor, repo_path, prepared)?;
-      outcome(git_executor, repo_path, step, previous, grouping, Some(lock), detail)
+      outcome(git_executor, repo_path, step, previous, record, Some(lock), detail)
     }
     Step::PreparedFinish(prepared) => {
       let Some(lock) = lock else {
@@ -708,7 +724,7 @@ fn outcome(
         return Err(anyhow!("A prepared resolve finish needs the repository lock"));
       };
       let step = finish_prepared(git_executor, repo_path, prepared)?;
-      outcome(git_executor, repo_path, step, previous, grouping, Some(lock), detail)
+      outcome(git_executor, repo_path, step, previous, record, Some(lock), detail)
     }
     Step::Round(session) => {
       closed(session.state());
@@ -756,7 +772,7 @@ fn outcome(
         .map(|resolution| resolution.commit.clone())
         .collect();
       let read;
-      let grouping = if let Some(grouping) = grouping {
+      let grouping = if let Some(grouping) = record.grouping {
         grouping
       } else {
         read = read_grouping_inputs(git_executor, repo_path)?;
@@ -774,7 +790,7 @@ fn outcome(
       let landed = if state.local_upstream {
         Vec::new()
       } else {
-        record_landed_update(git_executor, repo_path, &report, grouping)
+        record_landed_update(git_executor, repo_path, &report, grouping, record.lease)
       };
       let replayed = count(git_executor, repo_path, &new_head, &state.upstream_head)?;
       // a round that took `onto` for a file left out the commit's change of it: one that kept its commit, and one that the

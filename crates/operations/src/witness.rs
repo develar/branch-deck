@@ -14,9 +14,11 @@ use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::ref_tips;
+use repository_model::session::{AnotherLease, SessionKey, Sessions};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use sync_core::lease_state::LeaseGuard;
 use sync_core::patronus_start::push_mode_name;
 
 /// What a plan was prepared on
@@ -129,6 +131,26 @@ pub fn plan_changed(intent: &Intent, why: Option<&str>) -> ApiError {
   )
 }
 
+/// The lease an intent of a window acts under (openspec/specs/repository/onboarding/spec.md, "A window on a slot leased
+/// again shows the new lease"): one asked on the view of a session that opened anew since (`asked`, the epoch of that
+/// view), or whose worktree holds another lease now than its session opened under, is refused before anything is done
+/// (`plan_changed`), as the branch, the report and the undo there are of another lease. Answers the guard of its writes
+/// into the files of the lease of the worktree (`Sessions::lease_guard`), the lease of that view
+///
+/// # Errors
+/// `plan_changed` of `intent`
+pub async fn under_its_lease(sessions: &Sessions, key: &SessionKey, intent: &Intent, asked: Option<u32>) -> Result<LeaseGuard, ApiError> {
+  if let Some(epoch) = asked
+    && sessions.view_version(key).await.is_some_and(|now| now.epoch != epoch)
+  {
+    return Err(plan_changed(intent, Some("it was asked on the view of the worktree before, the slot holds another lease")));
+  }
+  sessions
+    .lease_guard(key)
+    .await
+    .map_err(|AnotherLease| plan_changed(intent, Some("the slot holds another lease than the view it was asked on")))
+}
+
 /// What the user asked of `intent`, and how to ask it again
 fn asked(intent: &Intent) -> (String, &'static str) {
   match intent {
@@ -153,7 +175,7 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     ),
     Intent::FetchBaseline => ("the fetch of the baseline".to_string(), "fetch again"),
     Intent::UpdateProject { .. } => ("the update of the project".to_string(), "update again"),
-    Intent::DismissLanded => ("the dismissal of the landed commits".to_string(), "dismiss them again"),
+    Intent::DismissLanded { .. } => ("the dismissal of the landed commits".to_string(), "dismiss them again"),
     Intent::FetchReview { number } => (format!("the fetch of pull request #{number}"), "fetch it again"),
     Intent::FetchReviewStack { top, .. } => (format!("the fetch of the stack of pull request #{top}"), "fetch it again"),
     Intent::Pick { source } => (format!("the pick of {source}"), "pick again"),

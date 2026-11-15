@@ -2298,7 +2298,7 @@ names the check (`landed_check`) and the proof of each commit found landed (`lan
 the pick and about twenty more, only when `log` found commits (`a_lease_return_whose_commit_landed_by_the_ladder`).
 The slot keeps its git directory across its leases, so the return takes out everything a lease left there, and so
 does a get that reuses a free slot, which a return of an older build may have left with them: the files of the lease,
-listed once (`sync_core::lease_state::LEASE_FILES`: the mark of a sync, `branch-deck/synced.d/` and the file of a build
+listed once (`sync_core::lease_state::LeasePaths::all`: the mark of a sync, `branch-deck/synced.d/` and the file of a build
 before, "The first sync", and the landed state, `branch-deck/landed.json`), their locks kept (`forget_lease_state`
 first of `finish_return`, also of a takeover and a reclaim, and of `move_reused_slot`;
 `a_new_lease_of_a_slot_inherits_nothing_the_lease_before_left_in_its_git_directory`,
@@ -2306,15 +2306,22 @@ first of `finish_return`, also of a takeover and a reclaim, and of `move_reused_
 the next lease is a worktree no sync built anything for, a window that opens it shows the Ready to Sync card, and
 nothing landed is reported of a branch it never had. A run of a session that began under one lease and ended under
 another writes nothing into the files of the lease, neither the mark nor the landed state: they have one writer
-(`sync_core::lease_state`, `lease_files_scan_test.rs`), which writes each under the guard of its caller (`LeaseGuard`),
-and the session gives its sync one that asks the epoch of the slot right before each write and holds only under the
-epoch the run began under (`SyncOptions::lease` of `GitSessionHost::run`;
+(`sync_core::lease_state`, `lease_files_scan_test.rs`, which also builds their paths, `LeasePaths`), which writes each
+under the guard of its caller (`LeaseGuard`), and the session gives its sync one that asks the epoch of the slot right
+before each write and holds only under the epoch the run began under (`SyncOptions::lease` of `GitSessionHost::run`;
 `a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under`,
 `a_sync_whose_lease_no_longer_holds_writes_no_file_of_the_lease`), as the return took the files of the lease before
-and this run synced no worktree of the new one. A write of the run before the return goes with the forget of the
-return; one between that forget and the end of the return, while the epoch still names the lease, goes with the forget
-of the get that reuses the slot, which comes after its reservation changed the epoch. Update Project, its undo and a
-dismiss are intents of the user on the worktree as it is and write at any time.
+and this run synced no worktree of the new one. So do the intents of a window and `brd`: Update Project, the undo of a
+rewrite and a dismiss name the epoch of the view they were asked on, are refused (`plan_changed`) on another epoch or
+on a slot that holds another lease than their session opened under, and write under the lease of that view
+(`under_its_lease`, `Sessions::lease_guard`;
+`an_intent_of_a_slot_leased_again_writes_nothing_into_the_files_of_the_next_lease`), and `brd` writes under the lease
+of the slot as the command started (`RepoContext::lease`; `a_command_in_a_slot_writes_nothing_of_the_lease_once_the_slot_holds_another`).
+The check of the guard and the write hold the lock of the lease (`lease.lock`), which the forget of the return and of
+the get that reuses the slot takes before it removes: a write that passed its check lands before the forget, which
+takes it out, and one after the forget sees the epoch of the next lease, as the forget of the get comes after its
+reservation changed it (`a_forget_between_the_check_of_a_write_and_the_write_takes_out_what_the_write_wrote`); a write
+between the forget of the return and its end, while the epoch still names the lease, goes with the forget of the get.
 
 **The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`, `domain_types::worktree_epoch::WorktreeEpoch`): the
 path stays too, and the app keeps what it records of a worktree by its path. The epoch is `Lease` with the id of the

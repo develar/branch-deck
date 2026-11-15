@@ -96,7 +96,12 @@ async fn a_rewrite_costs_its_core_and_one_read_of_its_witness() {
       ("var", 1),
     ]
   );
-  let undone = rewrite(RewriteIntent::Undo { token: squashed.undo.unwrap() }).await.unwrap();
+  let undone = rewrite(RewriteIntent::Undo {
+    token: squashed.undo.unwrap(),
+    epoch: None,
+  })
+  .await
+  .unwrap();
   // the restore of HEAD, as the app's undo of a squash: its checks, then under the lock the core's witness of HEAD and
   // the move; the engine reads no witness for an undo
   assert_eq!(processes_of(&undone), [("for-each-ref", 1), ("rev-list", 1), ("rev-parse", 3), ("update-ref", 1)]);

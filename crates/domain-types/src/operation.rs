@@ -94,10 +94,23 @@ pub enum Intent {
   FetchBaseline,
   /// The checked out branch is brought onto the baseline, keeping unrelated local changes (Update Project, ⌘T): the
   /// fetch first when `fetch` (the `FetchBaseline` of the session, joined when one runs), then the check and the move
-  /// (`operations::update`); without it onto the tracking ref as the last fetch left it (Retry Without Fetch)
-  UpdateProject { fetch: bool },
-  /// The report of the commits that landed with an update is cleared (the user has seen it)
-  DismissLanded,
+  /// (`operations::update`); without it onto the tracking ref as the last fetch left it (Retry Without Fetch). `epoch`:
+  /// the epoch of the view of the session it was asked on (`Version::epoch`), which a window names: one asked on the view
+  /// of a session that opened anew since (a slot of a lease pool leased again) is refused, as the branch there is of
+  /// another lease; none from `brd` and from a follow-up of the engine, which see no view
+  UpdateProject {
+    fetch: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    epoch: Option<u32>,
+  },
+  /// The report of the commits that landed with an update is cleared (the user has seen it); `epoch` as of
+  /// `UpdateProject`: a report of another lease is no report the user saw
+  DismissLanded {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    epoch: Option<u32>,
+  },
   /// The commits of the pull request `number` a review window shows are fetched into its review refs
   /// (`refs/branch-deck/review/<n>/{head,base}`) unless both are local, and its range answered (`operations::review_fetch`):
   /// the head and the base GitHub names, as the review requests of the session have them
@@ -138,7 +151,7 @@ impl Intent {
       Self::Rewrite(_) => OperationKind::Rewrite,
       Self::FetchBaseline => OperationKind::FetchBaseline,
       Self::UpdateProject { .. } => OperationKind::UpdateProject,
-      Self::DismissLanded => OperationKind::DismissLanded,
+      Self::DismissLanded { .. } => OperationKind::DismissLanded,
       Self::FetchReview { .. } | Self::FetchReviewStack { .. } => OperationKind::FetchReview,
       Self::Pick { .. } => OperationKind::Pick,
     }

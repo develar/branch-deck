@@ -1,6 +1,7 @@
 use crate::lease_state::LeaseGuard;
+use crate::lease_state::LeasePaths;
 use crate::sync::{SyncOptions, sync_branches};
-use crate::synced_mark::{SYNCED_DIR, SYNCED_FILE, mark_synced, synced_before};
+use crate::synced_mark::{mark_synced, synced_before};
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::sync_fixtures::TestReporter;
@@ -55,7 +56,7 @@ async fn the_mark_names_the_prefix_each_sync_built_under() {
   sync_under(&path, "test").await.unwrap();
   sync_under(&path, "other").await.unwrap();
   assert!(synced_before(&path, "test") && synced_before(&path, "other"));
-  let mut marked: Vec<String> = std::fs::read_dir(repo.path().join(".git").join(SYNCED_DIR))
+  let mut marked: Vec<String> = std::fs::read_dir(lease_of(&repo).marks())
     .unwrap()
     .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
     .collect();
@@ -68,15 +69,15 @@ async fn the_mark_names_the_prefix_each_sync_built_under() {
 #[test]
 fn two_marks_under_two_prefixes_at_once_both_land() {
   let repo = TestRepo::new();
-  let mark = repo.path().join(".git").join(SYNCED_FILE);
+  let paths = lease_of(&repo);
   let prefixes: Vec<String> = (0..16).map(|n| format!("team/prefix-{n}")).collect();
   let start = std::sync::Barrier::new(prefixes.len());
   std::thread::scope(|scope| {
     for prefix in &prefixes {
-      let (mark, start) = (&mark, &start);
+      let (paths, start) = (&paths, &start);
       scope.spawn(move || {
         start.wait();
-        mark_synced(&LeaseGuard::any(), mark, prefix);
+        mark_synced(&LeaseGuard::any(), paths, prefix);
       });
     }
   });
@@ -89,14 +90,15 @@ fn two_marks_under_two_prefixes_at_once_both_land() {
 #[test]
 fn the_mark_of_a_build_before_is_read_and_moved_by_the_next_mark() {
   let repo = TestRepo::new();
-  let mark = repo.path().join(".git").join(SYNCED_FILE);
+  let paths = lease_of(&repo);
+  let mark = paths.legacy_mark();
   std::fs::create_dir_all(mark.parent().unwrap()).unwrap();
   std::fs::write(&mark, "1794600000000\nold\n").unwrap();
   let path = repo.path().to_str().unwrap();
   assert!(synced_before(path, "old"));
   assert!(!synced_before(path, "1794600000000"), "a time names no prefix");
 
-  mark_synced(&LeaseGuard::any(), &mark, "new");
+  mark_synced(&LeaseGuard::any(), &paths, "new");
   assert!(!mark.exists(), "the file of the build before goes");
   assert!(synced_before(path, "old") && synced_before(path, "new"));
   assert!(!synced_before(path, "1794600000000"));
@@ -109,9 +111,15 @@ fn git_in(dir: &std::path::Path, args: &[&str]) -> String {
   String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
-/// The mark as the sync writes it in the worktree `dir`: where git names `SYNCED_FILE` (`RepoFacts::synced_mark`)
-fn mark_of(dir: &std::path::Path) -> std::path::PathBuf {
-  git_in(dir, &["rev-parse", "--path-format=absolute", "--git-path", SYNCED_FILE]).into()
+/// The files of the lease as the sync writes them in the worktree `dir`: where git names `branch-deck`
+/// (`RepoFacts::lease`)
+fn mark_of(dir: &std::path::Path) -> LeasePaths {
+  LeasePaths::in_dir(git_in(dir, &["rev-parse", "--path-format=absolute", "--git-path", "branch-deck"]).into())
+}
+
+/// The files of the lease of the main worktree of `repo`
+fn lease_of(repo: &TestRepo) -> LeasePaths {
+  LeasePaths::of_git_dir(&repo.path().join(".git"))
 }
 
 /// A checkout of a separate git directory and a submodule have a `.git` file that names their git directory, where the
@@ -158,13 +166,13 @@ fn the_mark_of_a_submodule_and_of_a_separate_git_directory_is_read_where_their_g
 #[test]
 fn a_prefix_of_200_bytes_is_marked_in_a_file_named_by_its_hash_that_holds_it() {
   let repo = TestRepo::new();
-  let mark = repo.path().join(".git").join(SYNCED_FILE);
+  let paths = lease_of(&repo);
   let path = repo.path().to_str().unwrap();
   let long = format!("team/{}", "a".repeat(195));
   assert_eq!(long.len(), 200);
-  mark_synced(&LeaseGuard::any(), &mark, &long);
+  mark_synced(&LeaseGuard::any(), &paths, &long);
   assert!(synced_before(path, &long));
-  let files: Vec<(String, String)> = std::fs::read_dir(repo.path().join(".git").join(SYNCED_DIR))
+  let files: Vec<(String, String)> = std::fs::read_dir(paths.marks())
     .unwrap()
     .map(|entry| {
       let entry = entry.unwrap();
@@ -175,7 +183,7 @@ fn a_prefix_of_200_bytes_is_marked_in_a_file_named_by_its_hash_that_holds_it() {
   assert_eq!((files[0].0.len(), files[0].1.as_str()), (64, long.as_str()));
 
   // the file of the prefix holds another one: no mark of it
-  std::fs::write(repo.path().join(".git").join(SYNCED_DIR).join(&files[0].0), "other").unwrap();
+  std::fs::write(paths.marks().join(&files[0].0), "other").unwrap();
   assert!(!synced_before(path, &long));
 }
 
@@ -184,14 +192,15 @@ fn a_prefix_of_200_bytes_is_marked_in_a_file_named_by_its_hash_that_holds_it() {
 #[test]
 fn the_mark_named_by_the_hex_of_its_prefix_is_read_and_moved_by_the_next_mark() {
   let repo = TestRepo::new();
-  let dir = repo.path().join(".git").join(SYNCED_DIR);
+  let paths = lease_of(&repo);
+  let dir = paths.marks();
   std::fs::create_dir_all(&dir).unwrap();
   let hex = dir.join("7465616d2f6f6c64");
   std::fs::write(&hex, "team/old").unwrap();
   let path = repo.path().to_str().unwrap();
   assert!(synced_before(path, "team/old"));
 
-  mark_synced(&LeaseGuard::any(), &repo.path().join(".git").join(SYNCED_FILE), "team/old");
+  mark_synced(&LeaseGuard::any(), &paths, "team/old");
   assert!(!hex.exists(), "the file of the build before goes");
   assert!(synced_before(path, "team/old"));
 }

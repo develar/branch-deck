@@ -3,7 +3,7 @@
 //! check that every sync runs against the last fetched state are `baseline`.
 
 use crate::resolve_copies::{Materialize, prepare_dir};
-use crate::resolve_session::{DroppedCommit, SessionOutcome, ViewDetail, own_session, regenerate_files, start_resolve, view_session, with_empty_drops, with_subjects};
+use crate::resolve_session::{DroppedCommit, Record, SessionOutcome, ViewDetail, own_session, regenerate_files, start_resolve, view_session, with_empty_drops, with_subjects};
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::managed_branch_kind;
 use domain_types::landed::LandedBranch;
@@ -26,6 +26,7 @@ use std::time::Duration;
 use sync_core::baseline::{BaselineUpstream, fetch_baseline, last_fetch_time, read_check_inputs};
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 use sync_core::landed::{LandedQuery, find_landed, local_revs, record_update, remaining_revs, restore_before_update};
+use sync_core::lease_state::LeaseGuard;
 use sync_core::repo_facts::{Baseline, read_baseline};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::timestamp::unix_now;
@@ -39,6 +40,8 @@ pub struct UpdateProjectParams {
   /// operation of the session (`Intent::FetchBaseline`) first, so the network never holds HEAD, then updates without
   /// a fetch
   pub fetch: bool,
+  /// The guard of the record of what landed (`landed::record_update`): the lease of the view the update was asked on
+  pub lease: LeaseGuard,
 }
 
 /// The step an update is at
@@ -76,6 +79,9 @@ pub struct UpdateOptions<'a> {
   /// A local branch to update onto instead of the baseline, never fetched: the home of a lease (`brd lease pick`). The
   /// update may run on a detached HEAD, and writes no landed report: nothing reached the baseline by it
   pub onto: Option<&'a str>,
+  /// The guard of the record of what landed (`landed::record_update`): the lease the update began under
+  /// (`lease_pool::epoch::lease_guard`)
+  pub lease: &'a LeaseGuard,
 }
 
 /// The fetch of an update failed; nothing was changed
@@ -107,6 +113,7 @@ pub fn update_project_core(
     fetch: params.fetch,
     lock_wait,
     onto: None,
+    lease: &params.lease,
   };
   update_project_with(git_executor, &params.repository_path, options, on_progress)
 }
@@ -290,7 +297,11 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   if let (Some(start), Resolve::Yes { dir, worktree }) = (start, resolve) {
     let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir, &worktree.git_dir)).transpose();
     let dir = dir.inspect_err(|_| start.discard(git_executor, repo_path))?;
-    let outcome = start_resolve(git_executor, repo_path, start, &grouping, dir, lock)?;
+    let record = Record {
+      grouping: Some(&grouping),
+      lease: options.lease,
+    };
+    let outcome = start_resolve(git_executor, repo_path, start, record, dir, lock)?;
     return Ok(BdUpdate::Session(Box::new(outcome)));
   }
   let state = plan.check.state.clone();
@@ -327,7 +338,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       reads: plan.landed_reads(),
       not_landed: &[],
     };
-    record_landed_update(git_executor, repo_path, &report, &grouping)
+    record_landed_update(git_executor, repo_path, &report, &grouping, options.lease)
   });
   // what `bd` lists of the drops and of the generated files: the app shows `landed`
   let (dropped, regenerate) = match &applied {
@@ -424,7 +435,13 @@ pub(crate) struct LandedReport<'a> {
 }
 
 /// What an applied update landed, added to the report. The update is done: a failure here is logged, not returned.
-pub(crate) fn record_landed_update(git_executor: &GitCommandExecutor, repo_path: &str, report: &LandedReport<'_>, grouping: &GroupingInputs) -> Vec<LandedBranch> {
+pub(crate) fn record_landed_update(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  report: &LandedReport<'_>,
+  grouping: &GroupingInputs,
+  lease: &LeaseGuard,
+) -> Vec<LandedBranch> {
   let LandedReport {
     check,
     excluded,
@@ -457,7 +474,7 @@ pub(crate) fn record_landed_update(git_executor: &GitCommandExecutor, repo_path:
       }
       landed.retain(|branch| !branch.commits.is_empty());
     }
-    record_update(git_executor, repo_path, check, new_head, landed.clone())?;
+    record_update(git_executor, repo_path, check, new_head, landed.clone(), lease)?;
     anyhow::Ok(landed)
   })();
   result.unwrap_or_else(|e| {
@@ -517,7 +534,7 @@ pub struct UndoneUpdate {
 /// the undo writes. The landed report goes back to the one before the update, after the lock. Undoing again is no
 /// error: `already_undone`, nothing changes
 #[instrument(skip(git_executor))]
-pub fn undo_update_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UpdateUndoToken, lock_timeout: Duration) -> Result<UndoneUpdate> {
+pub fn undo_update_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UpdateUndoToken, lock_timeout: Duration, lease: &LeaseGuard) -> Result<UndoneUpdate> {
   // the guards, the lock, the mark and the move take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let (checked, lock) = lock_checked_undo(LockWait::Bounded(lock_timeout), git_executor, repo_path, |git| {
@@ -536,7 +553,7 @@ pub fn undo_update_core(git_executor: &GitCommandExecutor, repo_path: &str, toke
   apply_update_undo(git_executor, repo_path, &undo)?;
   drop(lock);
   // the undo is done: the landed report is a file of its own, written after the lock; a failure is logged, not returned
-  let landed_restored = restore_before_update(git_executor, repo_path, undo.branch(), &token.new_head).unwrap_or_else(|e| {
+  let landed_restored = restore_before_update(git_executor, repo_path, undo.branch(), &token.new_head, lease).unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't restore the landed report");
     false
   });

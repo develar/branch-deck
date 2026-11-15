@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { availableRobots, mergeRunningRobot, robot } from "../helpers/patronus-helpers"
 import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
-import { emitTauriEvent, nextAnswer, runAndWaitForUpdate } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, runAndWaitForUpdate, viewEpoch } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
 import { holdIntent, recordCommand } from "../helpers/wait-helpers"
@@ -94,8 +94,11 @@ test.describe("The toast of a landing", () => {
     await toast.getByRole("button", { name: "Fetch" }).click()
     await expect(toast.getByRole("button", { name: "Fetching…" })).toBeDisabled()
 
-    // back in the repository of the merge, ⌘T during that fetch: the update goes on from it, no fetch of its own
+    // back in the repository of the merge, its view on screen, ⌘T during that fetch: the update goes on from it, no fetch
+    // of its own
     await switchRepository(page, repo.path)
+    await expect.poll(() => viewEpoch(page)).toBeDefined()
+    const epoch = Number(await viewEpoch(page))
     await emitTauriEvent(page, "update_project")
     await expect.poll(() => executions.length).toBe(2)
     await expect(toast.getByRole("button", { name: "Fetching…" })).toBeDisabled()
@@ -104,7 +107,8 @@ test.describe("The toast of a landing", () => {
     await repo.holdFetchLock(false)
     await answered
     await expectLandedInPlace(page, toast)
-    expect(executions.map(call => call.intent)).toEqual([{ kind: "fetchBaseline" }, { kind: "updateProject", fetch: true }])
+    // the update names the epoch of the view it was asked on, which the engine refuses once the session opened anew
+    expect(executions.map(call => call.intent)).toEqual([{ kind: "fetchBaseline" }, { kind: "updateProject", fetch: true, epoch }])
   })
 
   test("should say in the toast of a merge what a sync found landed after an update outside the app", async ({ page, setupRepo, syncAndWaitForBranches }) => {

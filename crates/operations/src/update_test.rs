@@ -1,7 +1,7 @@
 use crate::events::EventSink;
 use crate::journal::read;
 use crate::land_execute::Accepted;
-use crate::push::push_test::{AGENT_PUSH, OFFLINE, registry_of};
+use crate::push::push_test::{AGENT_PUSH, OFFLINE, TestLease, host_under, registry_of, registry_on};
 use crate::registry::Registry;
 use crate::registry::registry_test::{Heard, operations_until, view_operations};
 use crate::rewrite::execute_rewrite;
@@ -14,6 +14,7 @@ use domain_types::patronus::{PatronusAvailability, PatronusPushMode, PatronusRob
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use domain_types::rewrite::{RewriteIntent, RewriteResult, UndoKind};
 use domain_types::session::SyncReason;
+use domain_types::worktree_epoch::WorktreeEpoch;
 use history_rewrite::repository_lock::{RepositoryLock, lock_repository_as_another_process};
 use pretty_assertions::assert_eq;
 use repository_model::facts::{FactResult, RobotsRead};
@@ -64,7 +65,7 @@ impl Fixture {
   /// Update Project, its events to `heard`
   async fn update(&self, fetch: bool, heard: &Arc<Heard>) -> Outcome {
     let events: Arc<dyn EventSink> = Arc::clone(heard) as Arc<dyn EventSink>;
-    within_a_minute(Box::pin(execute_update(&self.registry, &self.key, fetch, OFFLINE.hosts(), events)))
+    within_a_minute(Box::pin(execute_update(&self.registry, &self.key, fetch, None, OFFLINE.hosts(), events)))
       .await
       .unwrap()
   }
@@ -117,7 +118,7 @@ impl Fixture {
 async fn locked() -> (Fixture, RepositoryLock, Arc<Heard>, Intent) {
   let fixture = fixture().await;
   let held = fixture.hold_the_lock();
-  (fixture, held, Arc::new(Heard::default()), Intent::UpdateProject { fetch: true })
+  (fixture, held, Arc::new(Heard::default()), Intent::UpdateProject { fetch: true, epoch: None })
 }
 
 /// A push-route session with no Patronus or GitHub gate
@@ -217,7 +218,7 @@ async fn an_update_fetches_checks_and_moves_then_asks_its_sync_with_its_undo() {
   );
   let undo = outcome.undo.clone().unwrap();
   assert_eq!(undo.kind, UndoKind::Update);
-  let undo = RewriteIntent::Undo { token: undo };
+  let undo = RewriteIntent::Undo { token: undo, epoch: None };
   let undone = within_a_minute(Box::pin(execute_rewrite(
     &fixture.registry,
     &fixture.key,
@@ -239,7 +240,7 @@ async fn a_second_update_joins_the_update_and_a_fetch_joins_its_fetch() {
   let fixture = fixture().await;
   let held = fixture.hold_the_fetch();
   let heard = Arc::new(Heard::default());
-  let update = Intent::UpdateProject { fetch: true };
+  let update = Intent::UpdateProject { fetch: true, epoch: None };
   let release = async {
     fixture
       .until(|operations| operation_of(operations, &update).is_some_and(|it| it.joined == 1) && operation_of(operations, &Intent::FetchBaseline).is_some_and(|it| it.joined == 1))
@@ -336,7 +337,7 @@ async fn stop_waiting_ends_the_wait_of_an_update_for_the_lock_with_nothing_moved
   let head = fixture.clone.head();
   let _held = fixture.hold_the_lock();
   let heard = Arc::new(Heard::default());
-  let update = Intent::UpdateProject { fetch: true };
+  let update = Intent::UpdateProject { fetch: true, epoch: None };
   let stop = async {
     let operations = fixture
       .until(|operations| operation_of(operations, &update).is_some_and(|it| matches!(it.step, OperationStep::WaitingForLock { holder: Some(_) })))
@@ -363,13 +364,197 @@ async fn dismiss_landed_clears_the_report_of_what_an_update_landed() {
   assert_eq!(result.landed.iter().map(|branch| branch.name.clone()).collect::<Vec<_>>(), [Some("auth".to_owned())]);
   let report = |repo: &TestRepo| read_report(repo.git_executor(), repo.path_str()).unwrap();
   assert_eq!(report(&fixture.clone).len(), 1);
-  let dismissed = within_a_minute(Box::pin(execute_dismiss(&fixture.registry, &fixture.key, OFFLINE.hosts(), Arc::new(Heard::default()))))
-    .await
-    .unwrap();
+  let dismissed = within_a_minute(Box::pin(execute_dismiss(
+    &fixture.registry,
+    &fixture.key,
+    None,
+    OFFLINE.hosts(),
+    Arc::new(Heard::default()),
+  )))
+  .await
+  .unwrap();
   assert_eq!(effects(&dismissed), [(PlannedEffect::DismissLanded, "done")]);
   assert_eq!(report(&fixture.clone), Vec::new());
   // the session syncs on: what landed is no news of a later sync
   fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
+}
+
+/// Update Project, the dismissal of what landed and the undo of an update, asked on the view of a session that opened
+/// anew since (a slot of a lease pool leased again), are refused before anything is done (`plan_changed`), as a rewrite
+/// is: no fetch, no move of the branch, the report of the lease of the view stays; asked on the view of the session, each
+/// runs
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_a_dismiss_and_an_undo_asked_on_the_view_before_the_session_opened_anew_are_refused() {
+  let fixture = fixture().await;
+  fixture.upstream.create_commit_with_timestamp("Add login", "login.txt", "login\n", Some(LOGIN_TIME));
+  let epoch = fixture.registry.sessions().view_version(&fixture.key).await.unwrap().epoch;
+  let (head, fetched) = (fixture.clone.head(), fixture.clone.git(&["rev-parse", "origin/master"]));
+  let heard = Arc::new(Heard::default()) as Arc<dyn EventSink>;
+  let before = |answer: crate::registry::Answer| {
+    let error = answer.unwrap_err();
+    assert_eq!(error.code, ErrorCode::PlanChanged, "{error:?}");
+    assert!(error.message.contains("the slot holds another lease"), "{}", error.message);
+  };
+  before(
+    within_a_minute(Box::pin(execute_update(
+      &fixture.registry,
+      &fixture.key,
+      true,
+      Some(epoch + 1),
+      OFFLINE.hosts(),
+      Arc::clone(&heard),
+    )))
+    .await,
+  );
+  assert_eq!(
+    (fixture.clone.head(), fixture.clone.git(&["rev-parse", "origin/master"])),
+    (head.clone(), fetched),
+    "no fetch, no move"
+  );
+
+  let updated = within_a_minute(Box::pin(execute_update(
+    &fixture.registry,
+    &fixture.key,
+    true,
+    Some(epoch),
+    OFFLINE.hosts(),
+    Arc::clone(&heard),
+  )))
+  .await
+  .unwrap();
+  let report = |repo: &TestRepo| read_report(repo.git_executor(), repo.path_str()).unwrap();
+  assert_eq!(report(&fixture.clone).len(), 1, "the update of the view of the session ran and recorded what it landed");
+  let epoch = fixture.registry.sessions().view_version(&fixture.key).await.unwrap().epoch;
+  before(
+    within_a_minute(Box::pin(execute_dismiss(
+      &fixture.registry,
+      &fixture.key,
+      Some(epoch + 1),
+      OFFLINE.hosts(),
+      Arc::clone(&heard),
+    )))
+    .await,
+  );
+  assert_eq!(report(&fixture.clone).len(), 1, "the report of the lease of the view stays");
+
+  let undo = |epoch| RewriteIntent::Undo {
+    token: updated.undo.clone().unwrap(),
+    epoch: Some(epoch),
+  };
+  let moved = fixture.clone.head();
+  before(
+    within_a_minute(Box::pin(execute_rewrite(
+      &fixture.registry,
+      &fixture.key,
+      undo(epoch + 1),
+      OFFLINE.hosts(),
+      Arc::clone(&heard),
+    )))
+    .await,
+  );
+  assert_eq!(fixture.clone.head(), moved, "the branch stays");
+
+  within_a_minute(Box::pin(execute_dismiss(&fixture.registry, &fixture.key, Some(epoch), OFFLINE.hosts(), Arc::clone(&heard))))
+    .await
+    .unwrap();
+  assert_eq!(report(&fixture.clone), Vec::new());
+  within_a_minute(Box::pin(execute_rewrite(&fixture.registry, &fixture.key, undo(epoch), OFFLINE.hosts(), heard)))
+    .await
+    .unwrap();
+  assert_eq!(fixture.clone.head(), head, "the undo of the view of the session ran");
+}
+
+/// A clone of an upstream that landed its one local commit, `(auth) Add login`, in a slot of a lease pool under the lease
+/// `lease-a` (`TestLease`), its session synced: the upstream, the clone, the lease, the registry and the key
+async fn landed_in_a_slot() -> (TestRepo, TestRepo, Arc<TestLease>, Registry, SessionKey) {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", "one\ntwo\nthree\n")]);
+  clone.create_commit_with_timestamp("(auth) Add login", "login.txt", "login\n", Some(LOGIN_TIME));
+  upstream.create_commit_with_timestamp("Add login", "login.txt", "login\n", Some(LOGIN_TIME));
+  let lease = TestLease::of("lease-a");
+  let (registry, key) = registry_on(&clone, host_under(Arc::clone(&lease)), true).await;
+  (upstream, clone, lease, registry, key)
+}
+
+/// Update Project and the dismissal of what landed, asked on the view of the session, are refused when the slot holds
+/// another lease than the session opened under (a return and a get the stamp of `brd` did not tell the session yet):
+/// the branch and the report there are of another lease. Under the lease of the session they run, and one whose slot
+/// is leased again right after its check (a dismiss, the undo of the update) writes nothing into the files of the next
+/// lease
+#[tokio::test(flavor = "multi_thread")]
+async fn an_intent_of_a_slot_leased_again_writes_nothing_into_the_files_of_the_next_lease() {
+  let (_upstream, clone, lease, registry, key) = landed_in_a_slot().await;
+  let epoch = registry.sessions().view_version(&key).await.unwrap().epoch;
+  let heard = Arc::new(Heard::default()) as Arc<dyn EventSink>;
+  let refused = |answer: crate::registry::Answer| {
+    let error = answer.unwrap_err();
+    assert_eq!(error.code, ErrorCode::PlanChanged, "{error:?}");
+    assert!(error.message.contains("the slot holds another lease than the view"), "{}", error.message);
+  };
+
+  lease.set("lease-b");
+  let head = clone.head();
+  refused(within_a_minute(Box::pin(execute_update(&registry, &key, true, Some(epoch), OFFLINE.hosts(), Arc::clone(&heard)))).await);
+  refused(within_a_minute(Box::pin(execute_dismiss(&registry, &key, Some(epoch), OFFLINE.hosts(), Arc::clone(&heard)))).await);
+  assert_eq!(clone.head(), head, "the branch of the other lease stays");
+
+  lease.set("lease-a");
+  let updated = within_a_minute(Box::pin(execute_update(&registry, &key, true, Some(epoch), OFFLINE.hosts(), Arc::clone(&heard))))
+    .await
+    .unwrap();
+  assert_eq!(
+    read_report(clone.git_executor(), clone.path_str()).unwrap().len(),
+    1,
+    "the update under the lease of its session recorded what landed"
+  );
+
+  // a dismiss that began under the lease of its session, the slot leased again right after its check: the report stays
+  // as the write found it, which the return of the lease before takes out
+  *lease.after_the_next_read.lock().unwrap() = Some(WorktreeEpoch::Lease("lease-c".to_owned()));
+  within_a_minute(Box::pin(execute_dismiss(&registry, &key, Some(epoch), OFFLINE.hosts(), heard)))
+    .await
+    .unwrap();
+  assert_eq!(read_report(clone.git_executor(), clone.path_str()).unwrap().len(), 1, "no write under the next lease");
+
+  // so does the undo of the update: the branch goes back, the report of the update stays as the write found it
+  lease.set("lease-a");
+  let epoch = registry.sessions().view_version(&key).await.unwrap().epoch;
+  *lease.after_the_next_read.lock().unwrap() = Some(WorktreeEpoch::Lease("lease-d".to_owned()));
+  let undo = RewriteIntent::Undo {
+    token: updated.undo.unwrap(),
+    epoch: Some(epoch),
+  };
+  within_a_minute(Box::pin(execute_rewrite(&registry, &key, undo, OFFLINE.hosts(), Arc::new(Heard::default()))))
+    .await
+    .unwrap();
+  assert_eq!(clone.head(), head, "the branch is back");
+  assert_eq!(read_report(clone.git_executor(), clone.path_str()).unwrap().len(), 1, "no restore under the next lease");
+}
+
+/// An update that began under the lease of its session and waits for the repository lock while the slot is returned and
+/// leased again records nothing of what it landed: the record writes only while the slot holds the lease the update
+/// began under, so the report of the new lease is not the one of the lease before
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_whose_slot_changed_its_lease_while_it_waited_records_nothing_of_what_it_landed() {
+  let (_upstream, clone, lease, registry, key) = landed_in_a_slot().await;
+  let held = lock_repository_as_another_process(&clone.path().join(".git"), AGENT_PUSH).unwrap();
+  let update = Intent::UpdateProject { fetch: true, epoch: None };
+  let during = async {
+    within_a_minute(operations_until(registry.sessions(), &key, |operations| {
+      operation_of(operations, &update).is_some_and(|it| matches!(it.step, OperationStep::WaitingForLock { .. }))
+    }))
+    .await;
+    // the return forgets the files of the lease, and the get of the next lease takes the slot
+    sync_core::lease_state::forget_lease_state(clone.path()).unwrap();
+    lease.set("lease-b");
+    drop(held);
+  };
+  let updating = within_a_minute(Box::pin(execute_update(&registry, &key, true, None, OFFLINE.hosts(), Arc::new(Heard::default()))));
+  let (updated, ()) = tokio::join!(updating, during);
+  let OperationResult::Update(result) = updated.unwrap().result else {
+    panic!("an update")
+  };
+  assert!(result.applied.is_some(), "{result:?}");
+  assert_eq!(read_report(clone.git_executor(), clone.path_str()).unwrap(), Vec::new(), "no report of the lease before");
 }
 
 /// A regroup clicked while the update holds HEAD (it waits for the lock of an agent after its check) waits behind the
@@ -601,7 +786,9 @@ async fn a_merge_by_rebase_is_followed_by_an_update_that_drops_the_original_whos
   repo.git(&["--git-dir", ".git/origin.git", "update-ref", "refs/heads/master", &merged]);
   assert_ne!(merged, copy, "a rebase merge writes another commit");
   let heard: Arc<dyn EventSink> = Arc::new(Heard::default());
-  let outcome = within_a_minute(Box::pin(execute_update(&registry, &key, true, OFFLINE.hosts(), heard))).await.unwrap();
+  let outcome = within_a_minute(Box::pin(execute_update(&registry, &key, true, None, OFFLINE.hosts(), heard)))
+    .await
+    .unwrap();
   let OperationResult::Update(result) = &outcome.result else { panic!("{outcome:?}") };
   assert_eq!(result.landed.iter().map(|branch| branch.name.clone()).collect::<Vec<_>>(), [Some("alpha".to_owned())]);
   assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), merged);

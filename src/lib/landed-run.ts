@@ -5,6 +5,7 @@ import type { OperationEvent } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
 import { executeIntent } from "@/model/intents"
+import { getViewEpoch } from "@/model/store"
 import { clearNewlyArchived } from "@/stores/archived-branches"
 import { clearLandedReport } from "@/stores/landed"
 
@@ -13,7 +14,7 @@ export async function dismissLanded(repositoryPath: string): Promise<void> {
   clearNewlyArchived()
   clearLandedReport(repositoryPath)
   // an operation of the session (`Intent::DismissLanded`), which writes the report under its lock for every window and `bd`
-  const intent = { kind: "dismissLanded" } as const
+  const intent = { kind: "dismissLanded", epoch: getViewEpoch(repositoryPath) } as const
   const result = await invokeCommand(() => executeIntent({ repositoryPath, intent, fingerprint: "", accepted: [] }, new Channel<OperationEvent>()))
   if (result.status !== "ok") {
     notifyError("Cannot dismiss the landed commits", result.error)

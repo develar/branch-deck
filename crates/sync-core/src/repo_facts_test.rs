@@ -111,7 +111,7 @@ fn an_operation_that_knows_its_directories_reads_no_paths_and_no_commits() {
       (&known.head, &known.baseline, &known.baseline_commit, &known.upstream, &known.remotes),
       (&read.head, &read.baseline, &read.baseline_commit, &read.upstream, &read.remotes)
     );
-    assert_eq!((&known.landed_state, known.fetched_at), (&read.landed_state, read.fetched_at));
+    assert_eq!((&known.lease, known.fetched_at), (&read.lease, read.fetched_at));
     // only the lane fetched, into a `FETCH_HEAD` of its own
     assert_eq!(known.fetched_at.is_some(), branch == "lane");
     assert_eq!(git.process_stats().unwrap().total(), processes, "remote, for-each-ref and the upstream of master");

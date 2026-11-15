@@ -142,9 +142,13 @@ pub enum RewriteIntent {
     expected_remote: Option<String>,
     witness: TableWitness,
   },
-  /// The rewrite whose outcome gave `token` (`Outcome::undo`) is undone
+  /// The rewrite whose outcome gave `token` (`Outcome::undo`) is undone; `epoch` as of `TableWitness::epoch`: the undo
+  /// of a rewrite of another lease of the slot is refused
   Undo {
     token: UndoToken,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    epoch: Option<u32>,
   },
   /// The regroup of a plan (`brd group --plan`): only the record of a run of `bd` in the operations registry of the
   /// repository, which the view and the journal show; the engine of the app runs none
@@ -197,6 +201,15 @@ impl RewriteIntent {
       | Self::Group { witness, .. }
       | Self::MoveHunk { witness, .. } => Some(witness),
       Self::Undo { .. } => None,
+    }
+  }
+
+  /// The epoch of the view of the session it was asked on: of its witness, or of an undo; none from `brd`
+  #[must_use]
+  pub fn asked_epoch(&self) -> Option<u32> {
+    match self {
+      Self::Undo { epoch, .. } => *epoch,
+      _ => self.witness().and_then(|witness| witness.epoch),
     }
   }
 

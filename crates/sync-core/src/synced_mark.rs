@@ -16,32 +16,24 @@
 //! The mark is a file of the lease of a slot of a lease pool: it is written and removed only through `lease_state`,
 //! under the guard of the sync (`LeaseGuard`), so a run of the app's session marks no slot leased again meanwhile.
 
-use crate::lease_state::{LeaseGuard, remove_lease_file, write_lease_file};
-use git_ops::lease_slot::git_dir_of;
+use crate::lease_state::{LeaseGuard, LeasePaths, remove_lease_file, write_lease_file};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::warn;
 
-/// The mark of a build before in the git directory of a worktree, as `rev-parse --git-path` names it: a linked worktree
-/// has its own. One branch prefix per line (or the time of a sync, of the build before it)
-pub const SYNCED_FILE: &str = "branch-deck/synced";
-
-/// The directory of the mark beside `SYNCED_FILE`: a file for each prefix a sync succeeded under
-pub const SYNCED_DIR: &str = "branch-deck/synced.d";
-
-/// Names `prefix` in the mark of the git directory whose `SYNCED_FILE` is `mark` (`RepoFacts::synced_mark`), and moves
-/// the prefixes of a mark of a build before into files of their own, each write while `guard` holds. A failure is only
-/// logged, as the sync is done
-pub fn mark_synced(guard: &LeaseGuard, mark: &Path, prefix: &str) {
-  let dir = dir_of(mark);
-  let legacy = std::fs::read_to_string(mark).ok();
+/// Names `prefix` in the mark of the files of the lease `paths` (`LeasePaths::marks`, `RepoFacts::lease`), and moves the
+/// prefixes of a mark of a build before (`LeasePaths::legacy_mark`) into files of their own, each write while `guard`
+/// holds. A failure is only logged, as the sync is done
+pub fn mark_synced(guard: &LeaseGuard, paths: &LeasePaths, prefix: &str) {
+  let (dir, mark) = (paths.marks(), paths.legacy_mark());
+  let legacy = std::fs::read_to_string(&mark).ok();
   let mut marked: Vec<&str> = legacy.as_deref().map(prefixes_of).into_iter().flatten().collect();
   marked.push(prefix);
   for prefix in marked {
     let file = dir.join(file_name_of(prefix));
     if !names(&file, prefix) {
-      match write_lease_file(guard, &file, prefix.as_bytes()) {
+      match write_lease_file(guard, paths, &file, prefix.as_bytes()) {
         Ok(true) => {}
         Ok(false) => return,
         Err(error) => {
@@ -51,24 +43,24 @@ pub fn mark_synced(guard: &LeaseGuard, mark: &Path, prefix: &str) {
       }
     }
     if let Some(hex) = hex_name_of(prefix) {
-      remove_lease_file(guard, &dir.join(hex), "the mark of a build before");
+      remove_lease_file(guard, paths, &dir.join(hex), "the mark of a build before");
     }
   }
   if legacy.is_some() {
-    remove_lease_file(guard, mark, "the mark of a build before");
+    remove_lease_file(guard, paths, &mark, "the mark of a build before");
   }
 }
 
 /// Whether a sync of Branch Deck under `prefix` succeeded in the worktree whose top level is `worktree` (its mark names
 /// it), without a git process, in the git directory its `.git` names (`git_dir_of`)
 pub fn synced_before(worktree: &str, prefix: &str) -> bool {
-  let Some(git_dir) = git_dir_of(Path::new(worktree)) else {
+  let Some(paths) = LeasePaths::of_worktree(Path::new(worktree)) else {
     return false;
   };
-  let dir = git_dir.join(SYNCED_DIR);
+  let dir = paths.marks();
   names(&dir.join(file_name_of(prefix)), prefix)
     || hex_name_of(prefix).is_some_and(|hex| dir.join(hex).exists())
-    || std::fs::read_to_string(git_dir.join(SYNCED_FILE)).is_ok_and(|legacy| prefixes_of(&legacy).any(|line| line == prefix))
+    || std::fs::read_to_string(paths.legacy_mark()).is_ok_and(|legacy| prefixes_of(&legacy).any(|line| line == prefix))
 }
 
 /// Whether the file of a mark at `file` names `prefix`: its content is the prefix, and nothing else of the same hash
@@ -98,9 +90,4 @@ fn hex(bytes: &[u8]) -> String {
     let _ = write!(name, "{byte:02x}");
     name
   })
-}
-
-/// The directory of the mark beside `SYNCED_FILE` at `mark`
-fn dir_of(mark: &Path) -> PathBuf {
-  mark.with_file_name(Path::new(SYNCED_DIR).file_name().unwrap_or_default())
 }

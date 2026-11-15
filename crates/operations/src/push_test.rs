@@ -12,6 +12,7 @@ use domain_types::operation::{EffectStatus, Intent, NewsKey, OperationEvent, Ope
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::reason::Reason;
 use domain_types::session::SyncReason;
+use domain_types::worktree_epoch::WorktreeEpoch;
 use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
@@ -45,10 +46,48 @@ const PREFIX: &str = "test";
 /// The command line of another process that holds the repository lock: an agent's push
 pub(crate) const AGENT_PUSH: &str = "brd push auth";
 
-/// The syncs of the sessions of the tests: the options of a sync of the app, under the prefix of the key
-struct TestEnvironment;
+/// The lease a test gives the slot of its worktree (`host_under`): the one now, and the one the slot holds once the next
+/// read of it answered, the lease of the next get that a return let in right after an operation began
+#[derive(Default)]
+pub(crate) struct TestLease {
+  pub(crate) now: std::sync::Mutex<WorktreeEpoch>,
+  pub(crate) after_the_next_read: std::sync::Mutex<Option<WorktreeEpoch>>,
+}
+
+impl TestLease {
+  pub(crate) fn of(id: &str) -> Arc<Self> {
+    Arc::new(Self {
+      now: std::sync::Mutex::new(WorktreeEpoch::Lease(id.to_owned())),
+      after_the_next_read: std::sync::Mutex::default(),
+    })
+  }
+
+  pub(crate) fn set(&self, id: &str) {
+    *self.now.lock().unwrap() = WorktreeEpoch::Lease(id.to_owned());
+  }
+}
+
+/// The syncs of the sessions of the tests: the options of a sync of the app, under the prefix of the key; the epoch of
+/// the worktree is the one the test gives it (`host_under`), no slot by default
+#[derive(Default)]
+struct TestEnvironment {
+  lease: Option<Arc<TestLease>>,
+}
 
 impl SessionEnvironment for TestEnvironment {
+  fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
+    let Some(lease) = &self.lease else {
+      return WorktreeEpoch::NotASlot;
+    };
+    let mut now = lease.now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let read = now.clone();
+    let next = lease.after_the_next_read.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    if let Some(next) = next {
+      *now = next;
+    }
+    read
+  }
+
   fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup> {
     Ok(RunSetup {
       options: SyncOptions::default(),
@@ -85,7 +124,12 @@ pub(crate) async fn fixture(synced: bool) -> Fixture {
 
 /// The host of the sessions of the tests: their syncs run with git as the app's do
 pub(crate) fn test_host() -> Arc<dyn SessionHost> {
-  Arc::new(GitSessionHost::new(GitCommandExecutor::new(), TestEnvironment))
+  Arc::new(GitSessionHost::new(GitCommandExecutor::new(), TestEnvironment::default()))
+}
+
+/// `test_host` of a worktree that is a slot of a lease pool, whose lease the test gives it in `lease`
+pub(crate) fn host_under(lease: Arc<TestLease>) -> Arc<dyn SessionHost> {
+  Arc::new(GitSessionHost::new(GitCommandExecutor::new(), TestEnvironment { lease: Some(lease) }))
 }
 
 /// The registry of the sessions of `repo` under the prefix of the tests, its session synced unless `synced` is false:

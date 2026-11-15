@@ -18,7 +18,7 @@
 //! nothing into a slot leased again meanwhile; Update Project, its undo and a dismiss are intents of the user on the
 //! worktree as it is, which write at any time.
 
-use crate::lease_state::{LeaseGuard, lock_landed, write_lease_file};
+use crate::lease_state::{LEASE_DIR, LeaseGuard, LeasePaths, lock_landed, write_lease_file};
 use anyhow::Result;
 use domain_types::commit::Commit;
 use domain_types::landed::{LandedBranch, LandedCommit};
@@ -280,16 +280,15 @@ struct LandedState {
   previous: Option<Box<Self>>,
 }
 
-/// The state file in the git directory of this worktree, as `rev-parse --git-path` names it: another worktree has its
-/// own HEAD. A sync reads its path with the other facts (`RepoFacts`)
-pub const LANDED_FILE: &str = "branch-deck/landed.json";
-
-fn state_path(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<PathBuf> {
+/// The files of the lease of this worktree, with its state file (`LeasePaths::landed`), in its git directory as
+/// `rev-parse --git-path` names it: another worktree has its own HEAD. A sync reads them with the other facts
+/// (`RepoFacts`)
+fn lease_paths(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<LeasePaths> {
   if let Some(dirs) = known_dirs(git_executor, repo_path) {
-    return Ok(dirs.git_path(LANDED_FILE));
+    return Ok(LeasePaths::in_dir(dirs.git_path(LEASE_DIR)));
   }
-  let path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", LANDED_FILE], repo_path)?;
-  Ok(PathBuf::from(path))
+  let dir = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", LEASE_DIR], repo_path)?;
+  Ok(LeasePaths::in_dir(PathBuf::from(dir)))
 }
 
 fn load_state(path: &Path) -> Option<LandedState> {
@@ -300,10 +299,9 @@ fn load_state(path: &Path) -> Option<LandedState> {
 }
 
 /// Write through a temporary file and a rename (`lease_state::write_lease_file`) while `guard` holds: the app and `bd`
-/// may read it at any time
-fn save_state(guard: &LeaseGuard, path: &Path, state: &LandedState) -> Result<()> {
-  write_lease_file(guard, path, &serde_json::to_vec(state)?)?;
-  Ok(())
+/// may read it at any time. Answers whether it wrote
+fn save_state(guard: &LeaseGuard, paths: &LeasePaths, state: &LandedState) -> Result<bool> {
+  Ok(write_lease_file(guard, paths, &paths.landed(), &serde_json::to_vec(state)?)?)
 }
 
 /// Add `found` to `report`: a branch already there gets the new commits and the new count of the commits that stay
@@ -327,17 +325,17 @@ fn expire(report: &mut Vec<LandedBranch>, now: u32) {
 
 /// For the sync: if the local commits moved onto a newer upstream since the previous sync (an update here or elsewhere),
 /// add the commits that landed to the report; remember where the branch is, while `guard` holds (`SyncOptions::lease`).
-/// `path` is the state file of the worktree (`LANDED_FILE`). Returns the undismissed report.
+/// `paths` are the files of the lease of the worktree (`LeasePaths::landed`). Returns the undismissed report.
 #[instrument(skip(git_executor, check, grouping), fields(branch = %check.branch))]
 pub fn record_sync(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
-  path: &Path,
+  paths: &LeasePaths,
   check: &UpdateCheck,
   grouping: &GroupingInputs,
   guard: &LeaseGuard,
 ) -> Result<Vec<LandedBranch>> {
-  let previous = load_state(path);
+  let previous = load_state(&paths.landed());
   let mut state = previous.clone().unwrap_or_default();
   let same_branch = state.branch == check.branch && state.upstream == check.upstream && !state.head.is_empty();
   // amend, reword or squash keep the merge base: only an update brings the branch onto a newer upstream
@@ -376,32 +374,31 @@ pub fn record_sync(
   check.base.clone_into(&mut state.base);
   expire(&mut state.landed, unix_now());
   if previous.as_ref() != Some(&state) {
-    save_state(guard, path, &state)?;
+    save_state(guard, paths, &state)?;
   }
   Ok(state.landed)
 }
 
-/// The lock of a read-modify-write of the state file by an update, its undo and a dismiss, beside it: an update records
-/// after the repository lock (`record_landed_update`), so two of them, or an update and the undo of the next one, would
-/// write over each other. A lock of its own, so a record never waits for a rewrite. The sync's record takes none: it
-/// compares with the previous sync in between, which is slow
-const STATE_LOCK_FILE: &str = "landed.lock";
-
 /// How long a record waits for another: the other one only reads and writes the state file
 const STATE_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn lock_state(path: &Path) -> Result<RepositoryLock> {
-  lock_landed(path, STATE_LOCK_FILE, STATE_LOCK_TIMEOUT)
+/// The lock of a read-modify-write of the state file by an update, its undo and a dismiss, beside it (`landed.lock`): an
+/// update records after the repository lock (`record_landed_update`), so two of them, or an update and the undo of the
+/// next one, would write over each other. A lock of its own, so a record never waits for a rewrite. The sync's record
+/// takes none: it compares with the previous sync in between, which is slow
+fn lock_state(paths: &LeasePaths) -> Result<RepositoryLock> {
+  lock_landed(paths, STATE_LOCK_TIMEOUT)
 }
 
 /// For Update Project: add what this update landed to the report and remember the branch after it, so the next sync
 /// doesn't report it again. The state before is kept as `previous` for the undo of the update. The update records
 /// after the repository lock: when HEAD is no longer at `new_head` (a later update moved the branch, and it records
-/// where the branch is and its undo), this one only adds what it landed to the report
-pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: &UpdateCheck, new_head: &str, found: Vec<LandedBranch>) -> Result<()> {
-  let path = state_path(git_executor, repo_path)?;
-  let _lock = lock_state(&path)?;
-  let mut state = load_state(&path).unwrap_or_default();
+/// where the branch is and its undo), this one only adds what it landed to the report. Written while `guard` holds: the
+/// lease the update began under (`UpdateProjectParams::lease`)
+pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: &UpdateCheck, new_head: &str, found: Vec<LandedBranch>, guard: &LeaseGuard) -> Result<()> {
+  let paths = lease_paths(git_executor, repo_path)?;
+  let _lock = lock_state(&paths)?;
+  let mut state = load_state(&paths.landed()).unwrap_or_default();
   let head = read_head(git_executor, repo_path)?.map(|(id, _)| id);
   if head.as_deref() != Some(new_head) {
     if !state.branch.is_empty() && (state.branch != check.branch || state.upstream != check.upstream) {
@@ -420,7 +417,7 @@ pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: 
     }
     merge_report(&mut state.landed, found);
     expire(&mut state.landed, unix_now());
-    return save_state(&LeaseGuard::any(), &path, &state);
+    return save_state(guard, &paths, &state).map(|_| ());
   }
   let mut before = state.clone();
   before.previous = None;
@@ -436,40 +433,41 @@ pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: 
   check.upstream_head.clone_into(&mut state.upstream_head);
   // HEAD is on the upstream now
   check.upstream_head.clone_into(&mut state.base);
-  save_state(&LeaseGuard::any(), &path, &state)
+  save_state(guard, &paths, &state).map(|_| ())
 }
 
 /// For the undo of an update that left `branch` at `new_head`: the state as it was before that update, when the state
 /// still names it. Returns whether it was restored; without a record of the update (another
-/// update or a sync since, or no state at all) the state stays, and the next sync compares from there
+/// update or a sync since, or no state at all) the state stays, and the next sync compares from there. Written while
+/// `guard` holds: the lease the undo began under
 #[instrument(skip(git_executor))]
-pub fn restore_before_update(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, new_head: &str) -> Result<bool> {
-  let path = state_path(git_executor, repo_path)?;
-  let _lock = lock_state(&path)?;
-  let Some(state) = load_state(&path) else { return Ok(false) };
+pub fn restore_before_update(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, new_head: &str, guard: &LeaseGuard) -> Result<bool> {
+  let paths = lease_paths(git_executor, repo_path)?;
+  let _lock = lock_state(&paths)?;
+  let Some(state) = load_state(&paths.landed()) else { return Ok(false) };
   let Some(previous) = state.previous.filter(|_| state.branch == branch && state.head == new_head) else {
     return Ok(false);
   };
-  save_state(&LeaseGuard::any(), &path, &previous)?;
-  Ok(true)
+  save_state(guard, &paths, &previous)
 }
 
 /// The undismissed report, for `bd`
 pub fn read_report(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Vec<LandedBranch>> {
-  let mut report = load_state(&state_path(git_executor, repo_path)?).map_or_else(Vec::new, |state| state.landed);
+  let mut report = load_state(&lease_paths(git_executor, repo_path)?.landed()).map_or_else(Vec::new, |state| state.landed);
   expire(&mut report, unix_now());
   Ok(report)
 }
 
-/// The user has seen the report: clear it, keep where the branch is
+/// The user has seen the report: clear it, keep where the branch is, while `guard` holds: the lease of the view the
+/// user saw it in
 #[instrument(skip(git_executor))]
-pub fn dismiss_landed(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
-  let path = state_path(git_executor, repo_path)?;
-  let _lock = lock_state(&path)?;
-  let Some(mut state) = load_state(&path) else { return Ok(()) };
+pub fn dismiss_landed(git_executor: &GitCommandExecutor, repo_path: &str, guard: &LeaseGuard) -> Result<()> {
+  let paths = lease_paths(git_executor, repo_path)?;
+  let _lock = lock_state(&paths)?;
+  let Some(mut state) = load_state(&paths.landed()) else { return Ok(()) };
   if state.landed.is_empty() {
     return Ok(());
   }
   state.landed.clear();
-  save_state(&LeaseGuard::any(), &path, &state)
+  save_state(guard, &paths, &state).map(|_| ())
 }

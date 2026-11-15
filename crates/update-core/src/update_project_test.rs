@@ -25,6 +25,7 @@ use std::fmt::Write;
 use std::fs;
 use std::time::Duration;
 use sync_core::baseline::{check_baseline_update, previous_tip_of_forced_update};
+use sync_core::lease_state::LeaseGuard;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, append_config};
@@ -58,6 +59,7 @@ pub(crate) fn update(repo: &TestRepo) -> anyhow::Result<UpdateProjectResult> {
     &UpdateProjectParams {
       repository_path: path(repo).to_string(),
       fetch: true,
+      lease: LeaseGuard::any(),
     },
     &|_| {},
     LockWait::default(),
@@ -72,6 +74,7 @@ fn update_reporting_progress(repo: &TestRepo) -> (anyhow::Result<UpdateProjectRe
     &UpdateProjectParams {
       repository_path: path(repo).to_string(),
       fetch: true,
+      lease: LeaseGuard::any(),
     },
     &|it| progress.borrow_mut().push(it),
     LockWait::default(),
@@ -588,6 +591,7 @@ fn e2e_templates_have_the_expected_update_states() {
     &UpdateProjectParams {
       repository_path: repo.clone(),
       fetch: true,
+      lease: LeaseGuard::any(),
     },
     &|_| {},
     LockWait::default(),
@@ -1039,7 +1043,7 @@ fn applied_update(setup: &Setup) -> UpdateUndoToken {
 }
 
 fn undo(repo: &TestRepo, token: &UpdateUndoToken) -> anyhow::Result<UndoneUpdate> {
-  undo_update_core(repo.git_executor(), path(repo), token, Duration::from_millis(200))
+  undo_update_core(repo.git_executor(), path(repo), token, Duration::from_millis(200), &LeaseGuard::any())
 }
 
 #[test]
@@ -1162,6 +1166,7 @@ const FETCH_AND_A_SHORT_WAIT: UpdateOptions = UpdateOptions {
   fetch: true,
   lock_wait: LockWait::Bounded(Duration::from_millis(200)),
   onto: None,
+  lease: &LeaseGuard::any(),
 };
 
 /// `update_project_with` in `repo`, with the phases it told, each once
@@ -1211,6 +1216,7 @@ fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
     fetch: false,
     lock_wait: LockWait::Bounded(Duration::from_secs(60)),
     onto: None,
+    lease: &LeaseGuard::any(),
   };
   let result = std::thread::scope(|scope| {
     let update = scope.spawn(|| update_project_with(clone.git_executor(), path(&clone), options, &|it| sender.send(it.phase).unwrap()));
@@ -1267,6 +1273,7 @@ fn update_without_a_fetch_goes_onto_the_last_fetched_state() {
     fetch: false,
     lock_wait: LockWait::Bounded(Duration::from_millis(200)),
     onto: None,
+    lease: &LeaseGuard::any(),
   };
 
   let result = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap();
@@ -1517,6 +1524,7 @@ fn an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_bac
     fetch: true,
     lock_wait: LockWait::Bounded(Duration::from_secs(10)),
     onto: Some("master"),
+    lease: &LeaseGuard::any(),
   };
 
   let result = update_project_with(repo.git_executor(), &lane.path, options, &|_| {}).unwrap();
@@ -1546,7 +1554,7 @@ fn an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_bac
     previous_head: own.clone(),
     new_head,
   };
-  let undone = undo_update_core(repo.git_executor(), &lane.path, &token, Duration::from_secs(10)).unwrap();
+  let undone = undo_update_core(repo.git_executor(), &lane.path, &token, Duration::from_secs(10), &LeaseGuard::any()).unwrap();
   assert_eq!((undone.branch.as_str(), undone.already_undone), ("HEAD", false));
   assert_eq!(lane_git(&["rev-parse", "HEAD"]), own);
 }
@@ -1564,6 +1572,7 @@ fn the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_
   let params = UpdateProjectParams {
     repository_path: path(&clone).to_string(),
     fetch: false,
+    lease: LeaseGuard::any(),
   };
   let result = update_project_core(span.executor(), &params, &|_| {}, LockWait::default()).unwrap();
   assert!(result.applied.is_some(), "{result:?}");
@@ -1593,7 +1602,7 @@ fn the_undo_of_an_update_locks_only_the_witness_and_the_move() {
   let setup = setup();
   let token = applied_update(&setup);
   let span = test_utils::lock_span::LockSpan::new(&setup.clone.path().join(".git"));
-  let undone = undo_update_core(span.executor(), path(&setup.clone), &token, Duration::from_secs(10)).unwrap();
+  let undone = undo_update_core(span.executor(), path(&setup.clone), &token, Duration::from_secs(10), &LeaseGuard::any()).unwrap();
   assert!(!undone.already_undone);
   assert_eq!(setup.clone.head(), token.previous_head);
   assert_eq!(
@@ -1626,6 +1635,7 @@ fn start_a_session(git_executor: &GitCommandExecutor, repo: &TestRepo) -> Sessio
     fetch: false,
     lock_wait: LockWait::Bounded(Duration::from_secs(10)),
     onto: None,
+    lease: &LeaseGuard::any(),
   };
   match update_and_resolve(git_executor, path(repo), options, None).unwrap() {
     BdUpdate::Session(outcome) => match *outcome {

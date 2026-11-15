@@ -19,6 +19,8 @@ sync-core = { path = "../sync-core" }
 trial-check = { path = "../trial-check" }
 sync-utils = { path = "../sync-utils" }
 history-rewrite = { path = "../history-rewrite" }
+# the epoch of the slot a command starts in, the guard of its writes into the files of the lease (`RepoContext::lease`)
+lease-pool = { path = "../lease-pool" }
 repository-model = { path = "../repository-model" }
 remote-facts = { path = "../remote-facts" }
 # the record of a run of a command in the operations registry of its repository (`operation_record`)

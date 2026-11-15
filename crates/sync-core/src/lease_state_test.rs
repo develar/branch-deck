@@ -1,8 +1,9 @@
-use crate::landed::LANDED_FILE;
-use crate::lease_state::{LeaseGuard, forget_lease_state, remove_lease_file, write_lease_file};
+use crate::lease_state::{LeaseGuard, LeasePaths, forget_lease_state, forget_lease_state_with, remove_lease_file, write_lease_file};
 use crate::sync::{SyncOptions, sync_branches};
-use crate::synced_mark::{SYNCED_DIR, SYNCED_FILE, synced_before};
+use crate::synced_mark::synced_before;
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread::JoinHandle;
 use test_utils::git_test_utils::{TestRepo, append_config};
 use test_utils::sync_fixtures::TestReporter;
 
@@ -13,11 +14,11 @@ fn every_file_of_the_lease_goes_and_the_locks_stay() {
   let repo = TestRepo::new();
   let git_dir = repo.path().join(".git");
   // named here apart from the list of the module, so a file the list lacks fails
-  let lease_files = [SYNCED_DIR, SYNCED_FILE, LANDED_FILE];
+  let lease_files = ["branch-deck/synced.d", "branch-deck/synced", "branch-deck/landed.json"];
   for file in lease_files {
     let path = git_dir.join(file);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    if file == SYNCED_DIR {
+    if file == "branch-deck/synced.d" {
       std::fs::create_dir_all(&path).unwrap();
       std::fs::write(path.join("prefix"), "test").unwrap();
     } else {
@@ -40,15 +41,49 @@ fn every_file_of_the_lease_goes_and_the_locks_stay() {
 #[test]
 fn a_write_under_a_guard_that_no_longer_holds_leaves_the_file_of_the_lease_as_it_is() {
   let dir = tempfile::tempdir().unwrap();
-  let file = dir.path().join("branch-deck/landed.json");
+  let paths = LeasePaths::of_git_dir(dir.path());
+  let file = paths.landed();
   let gone = LeaseGuard::while_held(|| false);
-  assert!(!write_lease_file(&gone, &file, b"of the lease before").unwrap());
+  assert!(!write_lease_file(&gone, &paths, &file, b"of the lease before").unwrap());
   assert!(!file.exists(), "no write under another lease");
-  assert!(write_lease_file(&LeaseGuard::while_held(|| true), &file, b"of this lease").unwrap());
-  remove_lease_file(&gone, &file, "the landed state");
+  assert!(write_lease_file(&LeaseGuard::while_held(|| true), &paths, &file, b"of this lease").unwrap());
+  remove_lease_file(&gone, &paths, &file, "the landed state");
   assert_eq!(std::fs::read(&file).unwrap(), b"of this lease", "no removal under another lease");
-  remove_lease_file(&LeaseGuard::any(), &file, "the landed state");
+  remove_lease_file(&LeaseGuard::any(), &paths, &file, "the landed state");
   assert!(!file.exists());
+}
+
+/// A forget of the lease (a return, the get that reuses a slot) between the check of the guard of a write and the write
+/// waits for the write, and takes out what it wrote: the check and the write hold the lock of the lease, which the
+/// forget takes before it removes. The guard here starts the forget, as another process would run it, and answers that
+/// the lease holds once the forget waits for the lock or ended; without the lock the forget ends first, and the write
+/// lands after it, in the slot of the next lease
+#[test]
+fn a_forget_between_the_check_of_a_write_and_the_write_takes_out_what_the_write_wrote() {
+  let repo = TestRepo::new();
+  let paths = LeasePaths::of_worktree(repo.path()).unwrap();
+  let file = paths.landed();
+  let forgetting: Arc<Mutex<Option<JoinHandle<()>>>> = Arc::default();
+  let guard = LeaseGuard::while_held({
+    let (forgetting, worktree) = (Arc::clone(&forgetting), repo.path().to_path_buf());
+    move || {
+      let (told, heard) = mpsc::channel::<()>();
+      let (waits, worktree) = (told.clone(), worktree.clone());
+      let thread = std::thread::spawn(move || {
+        forget_lease_state_with(&worktree, &move || {
+          let _ = waits.send(());
+        })
+        .unwrap();
+        let _ = told.send(());
+      });
+      *forgetting.lock().unwrap() = Some(thread);
+      let _ = heard.recv();
+      true
+    }
+  });
+  assert!(write_lease_file(&guard, &paths, &file, b"of the lease before").unwrap());
+  forgetting.lock().unwrap().take().unwrap().join().unwrap();
+  assert!(!file.exists(), "the forget after the check took out what the write wrote");
 }
 
 /// A sync whose worktree no longer holds the lease it began under (the guard of the app's session: the slot was
@@ -61,7 +96,7 @@ async fn a_sync_whose_lease_no_longer_holds_writes_no_file_of_the_lease() {
   append_config(repo.path(), &[("remote.origin.url", "."), ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")]);
   repo.git(&["update-ref", "refs/remotes/origin/master", "HEAD"]);
   repo.create_commit("(auth) Add auth", "auth.txt", "auth");
-  let landed_state = repo.path().join(".git").join(LANDED_FILE);
+  let landed_state = LeasePaths::of_worktree(repo.path()).unwrap().landed();
   let git = GitCommandExecutor::new();
   let sync = |lease: LeaseGuard| {
     let options = SyncOptions { lease, ..SyncOptions::default() };

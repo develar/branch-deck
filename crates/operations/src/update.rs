@@ -21,6 +21,7 @@ use crate::engine::{Hosts, outcome_of, plain_plan, run};
 use crate::events::EventSink;
 use crate::registry::{Answer, OperationRequest, Registry, RunningGuard, Stepper};
 use crate::rewrite::{StepWaiter, blocking, wait_stopped};
+use crate::witness::under_its_lease;
 use domain_types::error::ApiError;
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectRecord, EffectStatus, FetchedBaseline, Intent, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Resource};
@@ -32,6 +33,7 @@ use repository_model::session::{SessionKey, Sessions, SyncTicket};
 use std::sync::{Arc, Mutex, PoisonError};
 use sync_core::baseline_fetch::{FetchBaselineParams, fetch_baseline_core};
 use sync_core::landed::dismiss_landed;
+use sync_core::lease_state::LeaseGuard;
 use sync_core::transfer_progress::TransferProgress;
 use tracing::instrument;
 use update_core::update_project::{UpdatePhase, UpdateProjectParams, UpdateUndoToken, update_project_core};
@@ -46,8 +48,8 @@ fn effects_of(intent: &Intent, upstream: &str) -> Vec<PlannedEffect> {
   let fetch = || PlannedEffect::Fetch { upstream: upstream.to_owned() };
   match intent {
     Intent::FetchBaseline => vec![fetch(), PlannedEffect::Sync],
-    Intent::UpdateProject { fetch: true } => vec![fetch(), PlannedEffect::Update, PlannedEffect::Sync],
-    Intent::UpdateProject { fetch: false } => vec![PlannedEffect::Update, PlannedEffect::Sync],
+    Intent::UpdateProject { fetch: true, .. } => vec![fetch(), PlannedEffect::Update, PlannedEffect::Sync],
+    Intent::UpdateProject { fetch: false, .. } => vec![PlannedEffect::Update, PlannedEffect::Sync],
     _ => vec![PlannedEffect::DismissLanded],
   }
 }
@@ -73,8 +75,8 @@ pub fn update_request(intent: &Intent, upstream: &str) -> OperationRequest {
       });
       (tracking.into_iter().collect(), OperationStep::Fetching)
     }
-    Intent::UpdateProject { fetch: true } => (Vec::new(), OperationStep::Fetching),
-    Intent::UpdateProject { fetch: false } => (vec![Resource::Head], OperationStep::Checking),
+    Intent::UpdateProject { fetch: true, .. } => (Vec::new(), OperationStep::Fetching),
+    Intent::UpdateProject { fetch: false, .. } => (vec![Resource::Head], OperationStep::Checking),
     _ => (Vec::new(), OperationStep::Writing),
   };
   OperationRequest {
@@ -206,12 +208,15 @@ impl EventSink for Relay {
 /// What refused it before its first effect: a session that closed; without a fetch the core's failure, `canceled` after
 /// a stopped wait for the lock
 #[instrument(skip_all, fields(fetch))]
-pub async fn execute_update(registry: &Registry, key: &SessionKey, fetch: bool, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
+pub async fn execute_update(registry: &Registry, key: &SessionKey, fetch: bool, epoch: Option<u32>, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
   let sessions = registry.sessions();
-  let request = update_request(&Intent::UpdateProject { fetch }, "");
+  let intent = Intent::UpdateProject { fetch, epoch };
+  let request = update_request(&intent, "");
   let asked = Mutex::new(None);
   let answer = run(registry, key, request, events, async |guard| {
-    let (answer, sync) = update_under_guard(Some(registry), sessions, key, guard, fetch, hosts, false).await;
+    // asked on the view of a lease of the slot before: refused, before the fetch
+    let lease = under_its_lease(sessions, key, &intent, epoch).await?;
+    let (answer, sync) = update_under_guard(Some(registry), sessions, key, guard, fetch, &lease, hosts, false).await;
     *asked.lock().unwrap_or_else(PoisonError::into_inner) = sync;
     answer
   })
@@ -227,7 +232,12 @@ pub async fn execute_update(registry: &Registry, key: &SessionKey, fetch: bool, 
 /// Runs Update Project under the guard of its caller, without a second registry entry or journal line; waits for the sync
 /// before returning so the caller keeps its resources until the new facts are visible
 pub(crate) async fn execute_update_in(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, fetch: bool, hosts: Hosts<'_>) -> Answer {
-  let (answer, sync) = update_under_guard(None, sessions, key, guard, fetch, hosts, true).await;
+  // the follow-up of an operation of the session: under the lease of its view
+  let answer = match under_its_lease(sessions, key, &Intent::UpdateProject { fetch, epoch: None }, None).await {
+    Ok(lease) => update_under_guard(None, sessions, key, guard, fetch, &lease, hosts, true).await,
+    Err(error) => (Err(error), None),
+  };
+  let (answer, sync) = answer;
   let mut outcome = match answer {
     Ok(outcome) => outcome,
     Err(error) => {
@@ -249,13 +259,16 @@ pub(crate) async fn execute_update_in(sessions: &Sessions, key: &SessionKey, gua
 }
 
 /// The effects of Update Project under the operation of `guard`: its fetch either as an operation of its own or inline,
-/// HEAD for the update, then the sync; only a caller with its own operation waits for that sync outside `run`
+/// HEAD for the update, then the sync; only a caller with its own operation waits for that sync outside `run`. What it
+/// landed is recorded while `lease` holds
+#[expect(clippy::too_many_arguments, reason = "the inputs of the effects of an update")]
 async fn update_under_guard(
   registry: Option<&Registry>,
   sessions: &Sessions,
   key: &SessionKey,
   guard: &RunningGuard,
   should_fetch: bool,
+  lease: &LeaseGuard,
   hosts: Hosts<'_>,
   wait_for_sync: bool,
 ) -> (Answer, Option<SyncTicket>) {
@@ -292,7 +305,7 @@ async fn update_under_guard(
   {
     return (Err(error), None);
   }
-  let updated = update(guard, key, hosts).await;
+  let updated = update(guard, key, lease, hosts).await;
   let applied = updated.as_ref().is_ok_and(|result| result.applied.is_some());
   // the fetch moved the baseline also when nothing moved here: integration, the remote status, what landed
   let sync = (should_fetch || applied).then(|| sessions.sync(key, SyncReason::AfterRewrite));
@@ -349,11 +362,12 @@ fn undo_of(result: &UpdateProjectResult) -> Option<UndoToken> {
 ///
 /// # Errors
 /// The core's failure as the host words it; `canceled` once the user stopped the wait for the lock
-async fn update(guard: &RunningGuard, key: &SessionKey, hosts: Hosts<'_>) -> Result<UpdateProjectResult, ApiError> {
+async fn update(guard: &RunningGuard, key: &SessionKey, lease: &LeaseGuard, hosts: Hosts<'_>) -> Result<UpdateProjectResult, ApiError> {
   let (git, stepper) = (hosts.services.git(), guard.stepper());
   let params = UpdateProjectParams {
     repository_path: key.worktree.clone(),
     fetch: false,
+    lease: lease.clone(),
   };
   let waiter = Arc::new(StepWaiter::new(guard, OperationStep::Updating));
   let core_waiter = Arc::clone(&waiter);
@@ -375,16 +389,18 @@ async fn update(guard: &RunningGuard, key: &SessionKey, hosts: Hosts<'_>) -> Res
 }
 
 /// Clears the report of what landed with an update in the session of `key` (`Intent::DismissLanded`): the user has seen
-/// it, in every window and `bd`
+/// it, in every window and `bd`; one asked on the view of a lease of the slot before is refused
 ///
 /// # Errors
-/// A failed write of the report, as the host words it
+/// `plan_changed` of a view of another lease; a failed write of the report, as the host words it
 #[instrument(skip_all)]
-pub async fn execute_dismiss(registry: &Registry, key: &SessionKey, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
-  let request = update_request(&Intent::DismissLanded, "");
+pub async fn execute_dismiss(registry: &Registry, key: &SessionKey, epoch: Option<u32>, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
+  let intent = Intent::DismissLanded { epoch };
+  let request = update_request(&intent, "");
   run(registry, key, request, events, async |guard| {
+    let lease = under_its_lease(registry.sessions(), key, &intent, epoch).await?;
     let (git, path) = (hosts.services.git(), key.worktree.clone());
-    let dismissed = blocking(move || Ok(dismiss_landed(&git, &path))).await?;
+    let dismissed = blocking(move || Ok(dismiss_landed(&git, &path, &lease))).await?;
     dismissed.map_err(|error| hosts.rewrites.rewrite_error(error))?;
     let effects = vec![EffectRecord::new(PlannedEffect::DismissLanded, EffectStatus::Done)];
     Ok(outcome_of(guard.id().clone(), effects, None, None, OperationResult::None))

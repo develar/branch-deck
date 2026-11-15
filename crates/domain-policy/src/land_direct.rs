@@ -471,9 +471,9 @@ fn checks_of(open: Option<&PullRequest>, tip: Option<&str>) -> Vec<Confirmation>
 #[must_use]
 pub fn update_after(effects: &[EffectRecord]) -> Option<Intent> {
   effects.iter().find_map(|record| match (&record.effect, &record.status) {
-    (PlannedEffect::PushBaseline { .. }, EffectStatus::Done) => Some(Intent::UpdateProject { fetch: false }),
-    (PlannedEffect::PushBaseline { .. }, EffectStatus::Failed { error }) if error.code == ErrorCode::BaselineMoved => Some(Intent::UpdateProject { fetch: true }),
-    (PlannedEffect::MergePullRequest { .. } | PlannedEffect::MergeStack { .. }, EffectStatus::Done) => Some(Intent::UpdateProject { fetch: true }),
+    (PlannedEffect::PushBaseline { .. }, EffectStatus::Done) => Some(Intent::UpdateProject { fetch: false, epoch: None }),
+    (PlannedEffect::PushBaseline { .. }, EffectStatus::Failed { error }) if error.code == ErrorCode::BaselineMoved => Some(Intent::UpdateProject { fetch: true, epoch: None }),
+    (PlannedEffect::MergePullRequest { .. } | PlannedEffect::MergeStack { .. }, EffectStatus::Done) => Some(Intent::UpdateProject { fetch: true, epoch: None }),
     _ => None,
   })
 }

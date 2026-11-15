@@ -2,6 +2,7 @@
 use crate::clones_lock_test::wait_for_the_slot;
 use crate::clones_lock_test::{get_with_steps, kinds, new_slot_steps, printed};
 use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_get_output, lease_status};
+use crate::takeover_test::mark_synced_in;
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::beside_a_held_sync;
@@ -443,9 +444,7 @@ fn the_free_slot_returned_last_is_leased_first() {
 fn a_return_takes_out_the_mark_of_a_sync_in_the_lease() {
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
-  let mark = slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", sync_core::synced_mark::SYNCED_FILE]);
-  sync_core::synced_mark::mark_synced(&sync_core::lease_state::LeaseGuard::any(), Path::new(mark.trim()), PREFIX);
-  assert!(sync_core::synced_mark::synced_before(&path, PREFIX));
+  mark_synced_in(&path);
 
   fixture.give_back(&path);
   assert!(!sync_core::synced_mark::synced_before(&path, PREFIX));
@@ -454,12 +453,42 @@ fn a_return_takes_out_the_mark_of_a_sync_in_the_lease() {
 
   // a free slot a return of an older build left marked: the get takes the mark out too
   fixture.give_back(&path);
-  sync_core::synced_mark::mark_synced(&sync_core::lease_state::LeaseGuard::any(), Path::new(mark.trim()), PREFIX);
+  mark_synced_in(&path);
   assert_eq!(path_of(&fixture.get(&[])), path);
   assert!(!sync_core::synced_mark::synced_before(&path, PREFIX));
 }
 
-/// Every file a lease leaves in the git directory of its slot (`lease_state::LEASE_FILES`: the mark of a sync, the landed
+/// `brd -C <slot>` started under one lease of the slot writes nothing into the files of the lease once the slot was
+/// returned and leased again meanwhile: from a directory outside the slot, which the process check of a return does not
+/// see, its sync neither marks the slot of the new lease synced nor records a landed state there; a command that starts
+/// under the new lease writes them
+#[test_log::test]
+fn a_command_in_a_slot_writes_nothing_of_the_lease_once_the_slot_holds_another() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&["-b", "first"]));
+  let in_slot = || {
+    let options = bd_core::context::RepoOptions {
+      repo: Some(Path::new(&path)),
+      prefix: Some(PREFIX),
+      full_ids: false,
+      no_cache: true,
+    };
+    bd_core::context::RepoContext::resolve(&fixture.environment(fixture.home.path()), &options).unwrap()
+  };
+  let landed = || sync_core::lease_state::LeasePaths::of_worktree(Path::new(&path)).unwrap().landed();
+  let started = in_slot();
+  fixture.give_back(&path);
+  assert_eq!(path_of(&fixture.get(&["-b", "second"])), path, "the same slot again");
+  bd_core::sync_command::sync(&started).unwrap();
+  assert!(!sync_core::synced_mark::synced_before(&path, PREFIX), "no mark of the lease before");
+  assert!(!landed().exists(), "no landed state of the lease before");
+
+  bd_core::sync_command::sync(&in_slot()).unwrap();
+  assert!(sync_core::synced_mark::synced_before(&path, PREFIX), "a command under the new lease marks its slot");
+  assert!(landed().exists(), "and records where its branch is");
+}
+
+/// Every file a lease leaves in the git directory of its slot (`lease_state::LeasePaths::all`: the mark of a sync, the landed
 /// state, where each branch was at the last sync and a report of what landed not dismissed yet) goes with the return,
 /// and with the get of a free slot that still has them: the next lease of the slot inherits none of them
 #[test_log::test]
@@ -467,13 +496,13 @@ fn a_new_lease_of_a_slot_inherits_nothing_the_lease_before_left_in_its_git_direc
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
   // what a lease leaves, named here apart from the list the return goes by, so a file the list lacks fails
-  let lease_files = [sync_core::synced_mark::SYNCED_DIR, sync_core::synced_mark::SYNCED_FILE, sync_core::landed::LANDED_FILE];
+  let lease_files = ["branch-deck/synced.d", "branch-deck/synced", "branch-deck/landed.json"];
   let leave = || {
     for file in lease_files {
       let at = slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", file]);
       let at = Path::new(at.trim());
       std::fs::create_dir_all(at.parent().unwrap()).unwrap();
-      if file == sync_core::synced_mark::SYNCED_DIR {
+      if file == "branch-deck/synced.d" {
         std::fs::create_dir_all(at).unwrap();
         std::fs::write(at.join("prefix"), PREFIX).unwrap();
       } else {

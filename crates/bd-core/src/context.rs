@@ -12,6 +12,7 @@ use git_ops::revs::{current_branch, repository_dirs, with_repository_dirs};
 use github::client::GITHUB_API_URL;
 use github::token::TokenSources;
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
+use lease_pool::epoch::lease_guard;
 use object_cache::cache::{CacheConfig, ObjectCache, cache_dir};
 use operations::registry_file::ProcessRegistry;
 use patronus::client::PATRONUS_URL;
@@ -22,6 +23,7 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::GitHubRepository;
+use sync_core::lease_state::LeaseGuard;
 use sync_core::patronus::{SpaceRepository, parse_space_repository};
 use sync_core::repo_facts::{Baseline, CommandFacts, Remotes, read_baseline_of, read_remotes};
 use sync_utils::operation_id::OperationId;
@@ -191,6 +193,11 @@ pub struct RepoContext {
   github_repository: OnceLock<Option<GitHubRepository>>,
   /// The runtime of the sync and of the requests to Patronus and GitHub, started by the first that asks
   runtime: OnceLock<Runtime>,
+  /// The guard of the writes of the command into the files of the lease of the worktree (the mark of a sync, the landed
+  /// state): of the lease the slot of a lease pool holds as the command starts, so `brd -C <slot>` from a directory
+  /// outside the slot, which the process check of a return does not see, writes nothing into the files of the next
+  /// lease; at any time in a worktree that is no slot (`lease_pool::epoch::lease_guard`)
+  pub lease: LeaseGuard,
 }
 
 impl RepoContext {
@@ -237,6 +244,8 @@ impl RepoContext {
 
     let mut cache_config = CacheConfig::default();
     cache_config.sync_commits = environment.flush_to_drive;
+    // the lease the slot holds as the command starts
+    let lease = lease_guard(Path::new(&repository));
     Ok(Self {
       git,
       prefix: prefix.prefix,
@@ -256,6 +265,7 @@ impl RepoContext {
       facts: Mutex::new(Facts::default()),
       github_repository: OnceLock::new(),
       runtime: OnceLock::new(),
+      lease,
     })
   }
 

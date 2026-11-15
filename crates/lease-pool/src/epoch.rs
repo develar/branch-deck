@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
+use sync_core::lease_state::LeaseGuard;
 use sync_utils::paths::display_path;
 
 /// The epoch of the worktree at `worktree`: `NotASlot` for a path that is no slot of a pool (the main checkout, a worktree
@@ -45,6 +46,28 @@ pub fn worktree_epoch(worktree: &Path) -> WorktreeEpoch {
     Ok(slots) => slots.get(&linked.path).cloned().map_or(WorktreeEpoch::NotASlot, WorktreeEpoch::Lease),
     Err(Unreadable) => WorktreeEpoch::Unknown,
   }
+}
+
+/// The guard of the writes of a work that begins now in the worktree at `worktree` into the files of its lease
+/// (`sync_core::lease_state::LeaseGuard`): `brd -C <slot>` and an intent of the app write them only while the slot holds
+/// the lease it holds now, so a work that a return and a new lease of the slot overtook writes nothing into the files of
+/// the new one, from a directory outside the slot too, which the process check of a return does not see. A worktree that
+/// is no slot writes at any time, as no next lease inherits its files
+#[must_use]
+pub fn lease_guard(worktree: &Path) -> LeaseGuard {
+  lease_guard_under(worktree, worktree_epoch(worktree))
+}
+
+/// `lease_guard` of a work that began under `began`, the epoch of the worktree at `worktree` when it began (the lease of
+/// the view of the session an intent was asked on): it writes while the worktree is of that epoch, at any time when it
+/// is no slot. An epoch the files could not tell writes while they still cannot tell, as the guard of the session does
+#[must_use]
+pub fn lease_guard_under(worktree: &Path, began: WorktreeEpoch) -> LeaseGuard {
+  if began == WorktreeEpoch::NotASlot {
+    return LeaseGuard::any();
+  }
+  let worktree = worktree.to_path_buf();
+  LeaseGuard::while_held(move || worktree_epoch(&worktree) == began)
 }
 
 /// A file that tells the epoch could not be read or parsed

@@ -44,7 +44,7 @@ vi.mock("@/stores/branch-sync", () => ({
 vi.mock("@/stores/commit-move", () => ({ requestReveal: () => {} }))
 // the rewrites run in the engine: the window holds no session view in this test, the table it shows is at HEAD, and
 // nothing takes the Undo of a rewrite back
-vi.mock("@/model/store", () => ({ whenSessionViewAt: async () => {}, getSessionWitness: () => WITNESS, followUndo: () => () => {} }))
+vi.mock("@/model/store", () => ({ whenSessionViewAt: async () => {}, getSessionWitness: () => WITNESS, getViewEpoch: () => 3, followUndo: () => () => {} }))
 vi.mock("@/stores/stack-collapse", () => ({ forgetCollapsedStack: () => {}, renameCollapsedStack: () => {} }))
 vi.mock("@/lib/bindings", async importOriginal => {
   const original = await importOriginal<typeof import("@/lib/bindings")>()
@@ -59,7 +59,7 @@ const commit = { originalHash: OLD_ID, message: "(auth) Add login" } as unknown 
 
 /** The `execute` of the Undo of the reword in `repositoryPath`: the rewrite `undo` of its regroup token */
 function undoOf(repositoryPath: string) {
-  return { repositoryPath, intent: { kind: "rewrite", rewrite: "undo", token: { kind: "regroup", token: TOKEN } }, fingerprint: "" }
+  return { repositoryPath, intent: { kind: "rewrite", rewrite: "undo", token: { kind: "regroup", token: TOKEN }, epoch: 3 }, fingerprint: "" }
 }
 
 /** The `execute` of the reword of `commitId` to `message` in /repo, as the page sends it: named on the table it shows */

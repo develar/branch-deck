@@ -13,7 +13,7 @@ import type { ApiError, OperationEvent, Outcome, RewriteIntent, RewriteResult, T
 import { notifyError } from "@/lib/errors"
 import { showToast } from "@/lib/toast-message"
 import { executeRewrite } from "@/model/intents"
-import { getSessionWitness } from "@/model/store"
+import { getSessionWitness, getViewEpoch } from "@/model/store"
 import { actionOfLabel, canceledBeforeStart } from "@/presenters/lock-wait"
 import { presentRewrite } from "@/presenters/rewrite"
 import { startIndicator } from "@/stores/indicators"
@@ -100,6 +100,6 @@ function tellFailure(error: ApiError, label: string, failureTitle: string): void
  */
 export async function undoRewrite(repositoryPath: string, token: UndoToken, label: string, failureTitle: string, onWritten?: () => void): Promise<boolean> {
   const spec: RewriteRunSpec = { label, repositoryPath, ...(onWritten !== undefined && { onWritten }) }
-  const done = await runRewriteIntent(spec, { rewrite: "undo", token }, failureTitle)
+  const done = await runRewriteIntent(spec, { rewrite: "undo", token, epoch: getViewEpoch(repositoryPath) }, failureTitle)
   return done !== null
 }

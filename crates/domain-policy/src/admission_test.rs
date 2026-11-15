@@ -195,6 +195,7 @@ fn a_rewrite_waits_for_the_rewrites_of_its_process_and_for_none_of_another() {
       kind: UndoKind::Regroup,
       token: "h0..h1".to_string(),
     },
+    epoch: None,
   }));
   let operations = [first.clone()];
   assert_eq!(admit(&operations, &first.intent, &[Resource::Head]), Admission::Join { op: id("a") });
@@ -206,7 +207,7 @@ fn a_rewrite_waits_for_the_rewrites_of_its_process_and_for_none_of_another() {
   assert!(!holds_across(&of_another, "user", "user", &unstack("gamma", "h1"), &[Resource::Head]));
   assert!(!holds_across(&of_another, "user", "user", &undo, &[Resource::Head]));
   assert!(!holds_across(&of_another, "user", "user", &unstack("beta", "h1"), &[Resource::Head]));
-  let update = Intent::UpdateProject { fetch: true };
+  let update = Intent::UpdateProject { fetch: true, epoch: None };
   assert!(!holds_across(
     &of_bd(running("u", update.clone(), &[Resource::Head])),
     "user",

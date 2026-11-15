@@ -889,7 +889,12 @@ pub async fn sync_outside_the_app(
     Some(path) => return Err((StatusCode::UNPROCESSABLE_ENTITY, format!("{path} is no worktree of the repository {id}"))),
   };
   let key = remote_fixtures::session_of(&state, &path).await?;
-  let synced = sync_core::sync::sync_branches(&state.git_of(&id), &path, &key.prefix, UnreadEvents, sync_core::sync::SyncOptions::default()).await;
+  // as `brd -C <slot> sync`: under the lease the slot holds as it starts
+  let options = sync_core::sync::SyncOptions {
+    lease: lease_pool::epoch::lease_guard(std::path::Path::new(&path)),
+    ..sync_core::sync::SyncOptions::default()
+  };
+  let synced = sync_core::sync::sync_branches(&state.git_of(&id), &path, &key.prefix, UnreadEvents, options).await;
   synced.map(|_report| StatusCode::OK).map_err(|error| {
     tracing::error!("Failed to sync outside the app: {error:#}");
     (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}"))
@@ -912,6 +917,7 @@ pub async fn update_outside_the_app(axum::extract::Path(id): axum::extract::Path
   let path = state.repositories.get(&id).map(|repo| repo.path.clone()).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   let git = state.git_executor.clone();
   let params = update_core::update_project::UpdateProjectParams {
+    lease: lease_pool::epoch::lease_guard(std::path::Path::new(&path)),
     repository_path: path,
     fetch: false,
   };

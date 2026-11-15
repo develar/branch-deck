@@ -1095,7 +1095,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   // branch of the former `(foo)` still exists (git's directory/file rule). Only ref writes, fast. Its failure fails
   // the detection only, the branches are still rebuilt.
   let active_branches: HashSet<String> = branches.keys().cloned().collect();
-  let synced_mark = facts.synced_mark();
+  let lease_paths = facts.lease.clone();
   let RepoFacts {
     baseline: baseline_branch,
     baseline_commit,
@@ -1264,7 +1264,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   report.companion_needs = detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
   // the worktree was synced: a session of the app opened later, or one that hears the stamp of `brd`, syncs of itself;
   // only while the lease of its slot holds (`SyncOptions::lease`)
-  mark_synced(&lease, &synced_mark, branch_prefix);
+  mark_synced(&lease, &lease_paths, branch_prefix);
   Ok(report)
 }
 
@@ -1363,7 +1363,7 @@ fn send_baseline_status(
     }
   };
   let landed = match (&baseline_check, known) {
-    (Some(BaselineCheck { check, .. }), Some(known)) => record_sync(git_executor, repository_path, &known.landed_state, check, grouping, lease).unwrap_or_else(|e| {
+    (Some(BaselineCheck { check, .. }), Some(known)) => record_sync(git_executor, repository_path, &known.lease, check, grouping, lease).unwrap_or_else(|e| {
       warn!(error = %format!("{e:#}"), "can't record the landed commits");
       Vec::new()
     }),

@@ -1534,6 +1534,21 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
   [@test] scripts/lint-arch.test.mjs (`a store that names what identifies a row forgets the rows of a view of another session, of its test or test-support not`)
   [@test] tests/e2e/onboarding/onboarding.spec.ts (`shows the rows of the new lease of a slot an agent leased again under the window, none of them selected, expanded or focused as the row of the same name of the lease before was`)
 
+#### Scenario: Update Project, an undo or a dismiss asked on the view of the lease before
+- **GIVEN** the window asked Update Project, the undo of a rewrite or the dismissal of what landed on the view of the
+  session of the lease before, or the slot holds another lease than the session opened under
+- **WHEN** the intent comes to the engine
+- **THEN** it is refused before anything is done (`plan_changed`): no fetch, no move of the branch, the report stays
+  [@test] crates/operations/src/update_test.rs (`an_update_a_dismiss_and_an_undo_asked_on_the_view_before_the_session_opened_anew_are_refused`, `an_intent_of_a_slot_leased_again_writes_nothing_into_the_files_of_the_next_lease`)
+
+#### Scenario: An intent whose slot is leased again while it runs
+- **GIVEN** Update Project, an undo or a dismiss began under the lease of the view it was asked on
+- **WHEN** the slot is returned and leased again before it writes the files of the lease
+- **THEN** it writes nothing into the files of the next lease: neither what the update landed, nor the report its undo
+  restores, nor the cleared report
+  [@test] crates/operations/src/update_test.rs (`an_update_whose_slot_changed_its_lease_while_it_waited_records_nothing_of_what_it_landed`, `an_intent_of_a_slot_leased_again_writes_nothing_into_the_files_of_the_next_lease`)
+  [@test] crates/repository-model/src/session_test.rs (`an_operation_of_a_session_writes_the_files_of_the_lease_only_under_the_lease_of_its_view`)
+
 #### Scenario: A rewrite asked on the rows of the lease before
 - **GIVEN** the window asked a rewrite on the rows of the session of the lease before
 - **WHEN** the session opened anew for the new lease before the rewrite runs

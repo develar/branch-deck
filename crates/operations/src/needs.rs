@@ -63,7 +63,7 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
     | Intent::Rewrite(_)
     | Intent::FetchBaseline
     | Intent::UpdateProject { .. }
-    | Intent::DismissLanded
+    | Intent::DismissLanded { .. }
     | Intent::FetchReview { .. }
     | Intent::FetchReviewStack { .. }
     | Intent::Pick { .. } => Vec::new(),

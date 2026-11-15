@@ -8,9 +8,8 @@ use crate::baseline::{BaselineUpstream, KnownBaseline, TrackedUpstream, baseline
 use crate::config_snapshot::ConfigSnapshot;
 use crate::conflict_chain::CONFLICT_REFS;
 use crate::github_repository::{parse_github_repository, resolve_github_repository_with};
-use crate::landed::LANDED_FILE;
+use crate::lease_state::{LEASE_DIR, LeasePaths};
 use crate::patronus::parse_space_repository;
-use crate::synced_mark::SYNCED_FILE;
 use anyhow::{Result, anyhow, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use domain_types::landing_route::{LandingRemote, LandingSetting, LocalGitHub};
@@ -20,7 +19,7 @@ use git_ops::commit_writer::{STALE_TEMP_REF_AGE, TEMP_REF_PREFIX, is_stale_temp_
 use git_ops::revs::{current_branch, known_dirs, resolve_commit};
 use history_rewrite::baseline::{NoBaseline, baseline_candidates, no_baseline};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::instrument;
 
 /// The repository as a sync found it at its start; every step of the sync works from these
@@ -43,8 +42,8 @@ pub(crate) struct RepoFacts {
   pub head: String,
   /// When the repository was last fetched (the time of `FETCH_HEAD`)
   pub fetched_at: Option<u32>,
-  /// The landed state of this worktree (`landed::LANDED_FILE`), a file of its lease, which only `lease_state` writes
-  pub(crate) landed_state: PathBuf,
+  /// The files of the lease of this worktree (the mark of a sync, the landed state), which only `lease_state` writes
+  pub(crate) lease: LeasePaths,
   /// The branches under the prefix by name: virtual, archived, unapplied and stack (the archive step orders the archived
   /// ones by their tips, `branch_data_of`)
   pub branches: Vec<ListedBranch>,
@@ -62,12 +61,6 @@ impl RepoFacts {
     on_local_baseline(&self.baseline, &self.branch)
   }
 
-  /// The mark the sync leaves in the worktree once it succeeded (`synced_mark::SYNCED_FILE`): beside the landed state,
-  /// in `branch-deck/` of the git directory of the worktree
-  pub(crate) fn synced_mark(&self) -> PathBuf {
-    self.landed_state.with_file_name(Path::new(SYNCED_FILE).file_name().unwrap_or_default())
-  }
-
   /// What the update check of the sync needs; `None` for a local baseline, which has nothing to update from
   pub(crate) fn known_baseline(&self) -> Option<KnownBaseline> {
     Some(KnownBaseline {
@@ -76,7 +69,7 @@ impl RepoFacts {
       upstream: self.upstream.clone()?,
       upstream_head: self.baseline_commit.clone(),
       fetched_at: self.fetched_at,
-      landed_state: self.landed_state.clone(),
+      lease: self.lease.clone(),
     })
   }
 
@@ -407,8 +400,8 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     head_tip,
     baseline_tip,
   } = read_baseline_listing(git_executor, repo_path, Some(branch), Some(branch_prefix), true, known_remotes)?;
-  let (fetch_head, landed_state, head, baseline_commit) = match (known_dirs(git_executor, repo_path), head_tip, baseline_tip) {
-    (Some(dirs), Some(head), Some(baseline_commit)) => (dirs.git_path("FETCH_HEAD"), dirs.git_path(LANDED_FILE), head, baseline_commit),
+  let (fetch_head, lease, head, baseline_commit) = match (known_dirs(git_executor, repo_path), head_tip, baseline_tip) {
+    (Some(dirs), Some(head), Some(baseline_commit)) => (dirs.git_path("FETCH_HEAD"), LeasePaths::in_dir(dirs.git_path(LEASE_DIR)), head, baseline_commit),
     _ => read_head_and_baseline(git_executor, repo_path, &baseline, &baseline_ref)?,
   };
 
@@ -421,7 +414,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     baseline_commit,
     head,
     fetched_at: modified_time(&fetch_head),
-    landed_state,
+    lease,
     branches,
     remote_tips,
     conflict_tips,
@@ -431,7 +424,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
 
 /// `FETCH_HEAD`, the landed state, HEAD and the baseline from one `rev-parse`: `NoBaseline::NoCommits` for a
 /// repository without commits
-fn read_head_and_baseline(git_executor: &GitCommandExecutor, repo_path: &str, baseline: &str, baseline_ref: &str) -> Result<(PathBuf, PathBuf, String, String)> {
+fn read_head_and_baseline(git_executor: &GitCommandExecutor, repo_path: &str, baseline: &str, baseline_ref: &str) -> Result<(PathBuf, LeasePaths, String, String)> {
   let baseline_rev = format!("{baseline_ref}^{{commit}}");
   let (output, exit_code) = git_executor.execute_command_with_status(
     &[
@@ -440,14 +433,14 @@ fn read_head_and_baseline(git_executor: &GitCommandExecutor, repo_path: &str, ba
       "--git-path",
       "FETCH_HEAD",
       "--git-path",
-      LANDED_FILE,
+      LEASE_DIR,
       "HEAD^{commit}",
       &baseline_rev,
     ],
     repo_path,
   )?;
   let mut lines = output.lines();
-  let (Some(fetch_head), Some(landed_state), Some(head), Some(baseline_commit), 0) = (lines.next(), lines.next(), lines.next(), lines.next(), exit_code) else {
+  let (Some(fetch_head), Some(lease), Some(head), Some(baseline_commit), 0) = (lines.next(), lines.next(), lines.next(), lines.next(), exit_code) else {
     // HEAD of a repository without commits doesn't resolve
     let (_, head_exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "HEAD"], repo_path)?;
     if head_exit_code != 0 {
@@ -455,7 +448,12 @@ fn read_head_and_baseline(git_executor: &GitCommandExecutor, repo_path: &str, ba
     }
     bail!("Cannot resolve HEAD and {baseline}: {}", output.trim());
   };
-  Ok((PathBuf::from(fetch_head), PathBuf::from(landed_state), head.to_string(), baseline_commit.to_string()))
+  Ok((
+    PathBuf::from(fetch_head),
+    LeasePaths::in_dir(PathBuf::from(lease)),
+    head.to_string(),
+    baseline_commit.to_string(),
+  ))
 }
 
 #[cfg(test)]

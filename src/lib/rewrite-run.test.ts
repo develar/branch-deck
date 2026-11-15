@@ -60,6 +60,7 @@ vi.mock("@/lib/bindings", () => ({
 }))
 vi.mock("@/model/store", () => ({
   getSessionWitness: () => WITNESS,
+  getViewEpoch: () => 3,
   whenSessionViewAt: async (repositoryPath: string, version: Version | null) => {
     engine.waited.push(`${repositoryPath} at ${version?.seq}`)
   },
