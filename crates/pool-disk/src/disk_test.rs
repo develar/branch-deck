@@ -491,7 +491,7 @@ fn a_reclaimed_slot_with_the_number_of_an_earlier_free_period_is_measured_again(
   let (_repo, git, dirs) = repository();
   let slot_root = tempfile::tempdir().unwrap();
   let slot_root = std::fs::canonicalize(slot_root.path()).unwrap();
-  let paths: Vec<std::path::PathBuf> = (1..=2).map(|n| slot_root.join(format!("{n}/repo"))).collect();
+  let paths: Vec<PathBuf> = (1..=2).map(|n| slot_root.join(format!("{n}/repo"))).collect();
   for path in &paths {
     std::fs::create_dir_all(path.join("target")).unwrap();
     std::fs::write(path.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
