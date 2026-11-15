@@ -43,8 +43,9 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
 - **Heavy runs take turns**: a run that `heavy` of `[host]` names, or one with `--heavy`, waits until no other heavy
   run of the Studio goes, whatever its repository, so two full suites never slow each other into timeouts. A pattern
   matches what a command runs, not how it is written: `playwright test*` every run of it (`npx`, `pnpm exec`,
-  `npx -y`, `pnpm playwright`, a path of the binary), `pnpm e2e*` also `pnpm -C web e2e`, `--dir`, `--filter` and pnpm
-  by its path. A shell
+  `npx -y`, `npx -p @playwright/test`, `pnpm playwright`, a runner or the binary by its path), `pnpm e2e*` also
+  `pnpm -C web e2e`, `--dir`, `--filter`, a setting of `.npmrc` with its value (`--registry <url>`) and pnpm by its
+  path. A shell
   that wraps a command counts by what it runs: `zsh -c 'pnpm install; pnpm e2e > e2e.log 2>&1'`, `bash -lc`,
   `env FOO=1 zsh -c`, a shell in it, a substitution `"$(…)"`, and a script file of the shipped working tree
   (`zsh probe/run.sh`, `./probe/run.sh` whose first line names a shell or that has no first line `#!`, `. ./lib.sh`)

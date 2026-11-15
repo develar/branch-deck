@@ -46,16 +46,16 @@ pub struct RepoConfig {
 
 impl RepoConfig {
   /// The first pattern of `heavy` that matches `command`, `None` when the run is not heavy. A pattern matches the words
-  /// of the command joined by one space, whole, as `heavy_line` writes them: `pnpm e2e*` matches
+  /// of the command joined by one space, whole, as `heavy_lines` writes them: `pnpm e2e*` matches
   /// `env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts`, `pnpm -C web e2e` and `pnpm e2e-up`, `pnpm test` only `pnpm test`,
   /// `playwright test*` every run of `playwright test` (`npx playwright test x.spec.ts`, `pnpm exec playwright test`)
   pub fn heavy_entry(&self, command: &[String]) -> Option<&str> {
-    let (line, written) = heavy_line(command);
+    let lines = heavy_lines(command);
     self
       .heavy
       .iter()
       .flatten()
-      .find(|pattern| glob_matches(pattern, &line) || glob_matches(pattern, &written))
+      .find(|pattern| lines.iter().any(|line| glob_matches(pattern, line)))
       .map(String::as_str)
   }
 
@@ -106,12 +106,15 @@ const PNPM_VALUE_OPTIONS: [&str; 11] = [
 /// The programs and the words that run a package binary for the next word: `npx playwright`, `pnpm exec playwright`
 const RUNNERS: [&str; 6] = ["npx", "bunx", "yarn", "pnpm", "exec", "dlx"];
 
-/// The words of `command` that `heavy` matches, joined by one space, by what it runs rather than how it is written:
-/// without a leading `env` and the assignments after it; `pnpm` without its options before its script (`-C web`,
-/// `--dir=web`, `--filter app`, `-r`), so `pnpm -C web e2e` is `pnpm e2e`; and a run of `playwright test` by any runner
-/// (`npx`, `pnpm exec`, `pnpm`, a path of the binary) as `playwright test …`. Beside it the line as written, without
-/// the `env` and the assignments alone, so a pattern written with its runner (`pnpm exec playwright test*`) matches too
-fn heavy_line(command: &[String]) -> (String, String) {
+/// The lines of `command` that `heavy` matches, each its words joined by one space, by what it runs rather than how it
+/// is written: without a leading `env` and the assignments after it; `pnpm` (or a path of it) without its options before
+/// its script (`-C web`, `--dir=web`, `--filter app`, `-r`), so `pnpm -C web e2e` is `pnpm e2e`; and a run of
+/// `playwright test` by any runner (`npx`, `pnpm exec`, `pnpm`, a path of either or of the binary, with their options
+/// and the values of those) as `playwright test …`. A long option of pnpm that `PNPM_VALUE_OPTIONS` lacks can be a
+/// setting of `.npmrc` with its value in the next word (`--registry https://…`), so the line where it takes one counts
+/// too. Beside them the line as written, without the `env` and the assignments alone, so a pattern written with its
+/// runner (`pnpm exec playwright test*`) matches too
+fn heavy_lines(command: &[String]) -> Vec<String> {
   let mut words = command;
   if let Some(end) = env_end(words) {
     words = &words[end..];
@@ -119,17 +122,28 @@ fn heavy_line(command: &[String]) -> (String, String) {
   while words.first().is_some_and(|word| is_assignment(word)) {
     words = &words[1..];
   }
-  let written = words.join(" ");
+  let mut lines = vec![run_line(words, false)];
+  let with_settings = run_line(words, true);
+  if with_settings != lines[0] {
+    lines.push(with_settings);
+  }
+  lines.push(words.join(" "));
+  lines
+}
+
+/// The line of what `words` run (`heavy_lines`); `settings` reads each long option of pnpm without `=` that
+/// `PNPM_VALUE_OPTIONS` lacks as one with a value
+fn run_line(words: &[String], settings: bool) -> String {
   let mut line: Vec<&str> = Vec::with_capacity(words.len());
   let mut rest = words.iter().map(String::as_str);
   if let Some(program) = rest.next() {
-    let pnpm = program.rsplit('/').next() == Some("pnpm");
+    let pnpm = base_name(program) == "pnpm";
     // `/opt/homebrew/bin/pnpm` is `pnpm`
     line.push(if pnpm { "pnpm" } else { program });
     if pnpm {
       // its options before its script, and before the script of its `run` or the binary of its `exec`
       while let Some(word) = rest.next() {
-        if PNPM_VALUE_OPTIONS.contains(&word) {
+        if PNPM_VALUE_OPTIONS.contains(&word) || (settings && word.starts_with("--") && !word.contains('=')) {
           rest.next();
         } else if !word.starts_with('-') {
           line.push(word);
@@ -141,15 +155,23 @@ fn heavy_line(command: &[String]) -> (String, String) {
     }
     line.extend(rest);
   }
-  let playwright = line.iter().position(|word| word.rsplit('/').next() == Some("playwright"));
+  let playwright = line.iter().position(|word| base_name(word) == "playwright");
   if let Some(at) = playwright
     && line.get(at + 1) == Some(&"test")
-    // the runners and their options before it: `npx -y`, `npx --yes`
-    && line[..at].iter().all(|word| RUNNERS.contains(word) || word.starts_with('-'))
+    // the runners before it, their options and the values of those: `npx -y`, `npx -p @playwright/test`
+    && (0..at).all(|i| {
+      let word = line[i];
+      RUNNERS.contains(&base_name(word)) || word.starts_with('-') || (i > 0 && line[i - 1].starts_with('-') && !line[i - 1].contains('='))
+    })
   {
-    return (std::iter::once("playwright").chain(line[at + 1..].iter().copied()).collect::<Vec<_>>().join(" "), written);
+    return std::iter::once("playwright").chain(line[at + 1..].iter().copied()).collect::<Vec<_>>().join(" ");
   }
-  (line.join(" "), written)
+  line.join(" ")
+}
+
+/// The last component of a path, the word itself without one
+fn base_name(word: &str) -> &str {
+  word.rsplit('/').next().unwrap_or(word)
 }
 
 /// The words of an `env` (`/usr/bin/env`) at the start of `words` that keeps the environment, with its `-u NAME`,

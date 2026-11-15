@@ -2024,9 +2024,10 @@ its `-c` script, a shell in it, a script of the working tree read once, 64 at mo
 
 #### Scenario: A command by what it runs
 - **WHEN** `heavy` is `["playwright test*", "pnpm e2e*"]`
-- **THEN** `npx playwright test x.spec.ts`, `npx -y playwright test`, `pnpm exec playwright test`, `pnpm playwright
-  test`, a path of the binary, `pnpm -C web e2e`, `pnpm --dir=web e2e`, `pnpm --filter app -r e2e`,
-  `pnpm --loglevel error e2e` and `/opt/homebrew/bin/pnpm -C . e2e` are heavy runs
+- **THEN** `npx playwright test x.spec.ts`, `npx -y playwright test`, `npx -p @playwright/test playwright test`,
+  `/usr/local/bin/npx playwright test`, `pnpm exec playwright test`, `pnpm playwright test`, a path of the binary,
+  `pnpm -C web e2e`, `pnpm --dir=web e2e`, `pnpm --filter app -r e2e`, `pnpm --loglevel error e2e`,
+  `pnpm --registry https://registry.example e2e` and `/opt/homebrew/bin/pnpm -C . e2e` are heavy runs
 - **AND** `npx playwright install webkit` and `pnpm -C web test:unit` are not, and `pnpm exec playwright test*`, written
   with its runner, still matches `pnpm exec playwright test`
   [@test] crates/host-link/src/config_test.rs (`a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runner_of_playwright`, `the_host_table_of_this_repository_parses`)

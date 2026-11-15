@@ -322,8 +322,9 @@ fn the_host_table_of_this_repository_parses() {
 }
 
 /// A pattern matches what a command runs, not how it is written: `pnpm` without its options before its script, the
-/// script of its `run`, the binary of its `exec`; and every run of `playwright test`, by `npx`, `pnpm exec`, `pnpm`, `yarn`
-/// or a path of the binary, as `playwright test …`; `playwright install` stays itself
+/// script of its `run`, the binary of its `exec`, a setting of `.npmrc` with its value; and every run of `playwright test`,
+/// by `npx`, `pnpm exec`, `pnpm`, `yarn` with their options or a path of the binary, as `playwright test …`; `playwright
+/// install` stays itself
 #[test]
 fn a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runner_of_playwright() {
   let entry = entries_of(&["playwright test*", "pnpm e2e*", "pnpm run e2e*"]);
@@ -350,6 +351,15 @@ fn a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runn
     ("pnpm -C web test:unit", None),
     ("node scripts/playwright test", None),
     ("pnpm e2e-report playwright test", Some("pnpm e2e*")),
+    ("/usr/local/bin/npx playwright test", Some("playwright test*")),
+    ("npx -p @playwright/test playwright test", Some("playwright test*")),
+    ("npx --package=@playwright/test playwright test", Some("playwright test*")),
+    ("node --require x node_modules/.bin/playwright test", None),
+    ("pnpm --registry https://registry.example e2e", Some("pnpm e2e*")),
+    ("pnpm --registry https://registry.example lint", None),
+    ("pnpm --silent e2e", Some("pnpm e2e*")),
+    // an option with its value after `=` takes no next word: `e2e` is an argument of `test:unit`
+    ("pnpm --color=always test:unit e2e", None),
   ] {
     assert_eq!(entry(line), expected.map(str::to_owned), "{line}");
   }
