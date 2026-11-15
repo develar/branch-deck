@@ -249,9 +249,11 @@ async fn of_two_primaries_that_add_one_companion_at_once_the_second_is_refused()
   assert_eq!(refused.len(), 1, "one of the two is refused: {refused:?}");
   assert!(refused[0].contains("a companion has one primary"), "{refused:?}");
   let (winner, loser) = if of_first.is_ok() { (&first, &second) } else { (&second, &first) };
+  // git names the primary in its own form (`C:/…` on Windows), canonicalize in the verbatim one (`\\?\C:\…`)
   let primary = ConfigSnapshot::read(ci.git_executor(), ci.path_str()).unwrap().primary().map(str::to_owned);
-  assert!(
-    primary.is_some_and(|primary| std::path::Path::new(&primary) == std::fs::canonicalize(winner.path()).unwrap()),
+  assert_eq!(
+    primary.map(|primary| std::fs::canonicalize(primary).unwrap()),
+    Some(std::fs::canonicalize(winner.path()).unwrap()),
     "the companion names the one that added it"
   );
   assert_eq!(

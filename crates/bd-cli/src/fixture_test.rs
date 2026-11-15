@@ -9,6 +9,8 @@ use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::fmt::Write;
 use std::path::Path;
+use sync_utils::child_process::windowless_command;
+use sync_utils::process_tree::ProcessTree;
 use test_utils::git_test_utils::{TestRepo, append_config};
 use test_utils::history::{HistoryCommit, HistoryStream};
 
@@ -105,28 +107,27 @@ pub fn print_child_answer(exit_code: i32, output: &Value) {
 
 /// `bd` of another process: this test binary again, running only the test `test`, a child entry that does nothing
 /// unless the environment variable `variable` is set (`value` says what it runs) and prints its answer with
-/// `print_child_answer`. Killed when dropped, so a failure never leaves it waiting at a barrier of the test
-pub struct TestChild(Option<std::process::Child>);
+/// `print_child_answer`. Killed with its tree when dropped, so a failure never leaves it waiting at a barrier of the
+/// test; started in a tree (`ProcessTree`), so its kill also ends the git processes it started, which would otherwise
+/// keep the inherited output handles of the test open past nextest's leak timeout (the job of the child on Windows,
+/// where a kill of the child alone leaves them running)
+pub struct TestChild(Option<(std::process::Child, ProcessTree)>);
 
 impl TestChild {
   /// # Panics
   /// When the test binary can't be started
   #[must_use]
   pub fn spawn(test: &str, variable: &str, value: &str) -> Self {
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
-      .args(["--exact", test, "--nocapture"])
-      .env(variable, value)
-      .stdout(std::process::Stdio::piped())
-      .spawn()
-      .unwrap();
-    Self(Some(child))
+    let mut command = windowless_command(std::env::current_exe().unwrap());
+    command.args(["--exact", test, "--nocapture"]).env(variable, value).stdout(std::process::Stdio::piped());
+    Self(Some(ProcessTree::start(&mut command).unwrap()))
   }
 
   /// # Panics
   /// After `answer`
   #[must_use]
   pub fn pid(&self) -> u32 {
-    self.0.as_ref().unwrap().id()
+    self.0.as_ref().unwrap().0.id()
   }
 
   /// Whether it still runs
@@ -134,16 +135,16 @@ impl TestChild {
   /// # Panics
   /// When its state can't be read
   pub fn is_running(&mut self) -> bool {
-    self.0.as_mut().unwrap().try_wait().unwrap().is_none()
+    self.0.as_mut().unwrap().0.try_wait().unwrap().is_none()
   }
 
-  /// Kills it, as a user's ^C or a crash ends it, and waits for its end
+  /// Kills it with the processes it started, as a user's ^C or a crash ends it, and waits for its end
   ///
   /// # Panics
   /// After `answer`
   pub fn kill(mut self) {
-    let mut child = self.0.take().unwrap();
-    let _ = child.kill();
+    let (mut child, tree) = self.0.take().unwrap();
+    tree.kill(&mut child);
     let _ = child.wait();
   }
 
@@ -153,7 +154,7 @@ impl TestChild {
   /// When it failed or printed no answer
   #[must_use]
   pub fn answer(mut self) -> (i32, Value) {
-    let output = self.0.take().unwrap().wait_with_output().unwrap();
+    let output = self.0.take().unwrap().0.wait_with_output().unwrap();
     assert!(output.status.success(), "the child failed: {}", String::from_utf8_lossy(&output.stdout));
     let stdout = String::from_utf8(output.stdout).unwrap();
     let line = stdout
@@ -167,8 +168,8 @@ impl TestChild {
 
 impl Drop for TestChild {
   fn drop(&mut self) {
-    if let Some(child) = self.0.as_mut() {
-      let _ = child.kill();
+    if let Some((child, tree)) = self.0.as_mut() {
+      tree.kill(child);
       let _ = child.wait();
     }
   }
