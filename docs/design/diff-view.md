@@ -2430,7 +2430,8 @@ fastest run is the nearest to a quiet machine.
 - **Open:** the time when the review root mounts (ready), when the first rows with text show, and when every visible
   row is highlighted; the long tasks until the window is quiet for 1.5 s; the DOM nodes of the view.
 - **Expand:** the time from a click on the first fold of a large file to its highlighted rows.
-- **H (show, hide):** from where the expansion left the diffs, scrolled on until a note that opens is in view, H
+- **H (show, hide)**, in Inline, where a note of a quiet run opens (Split shows both lines of it, so none does):
+  from where the expansion left the diffs, scrolled on until a note that opens is in view, H
   shows the old lines of the notes in view, then hides them again: the press until the page took the key, the time
   until every note in view says so (`aria-expanded`), the long tasks and the reads of the selection meanwhile, each of
   which lays the page out. `PERF_HUGE_LINES` sets the lines of the one file (10,000; past it a change every 20 lines is

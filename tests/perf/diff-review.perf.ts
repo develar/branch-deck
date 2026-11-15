@@ -297,14 +297,18 @@ async function runScenario(page: Page, opened: OpenedSubWindow<BranchReviewWindo
   await button.click()
   const expand: PhaseMetrics = { highlightedMs: await timeWhen(window, "highlighted", startedAt), ...EMPTY_TASKS }
   Object.assign(expand, measureBytes ? await workerBytes(window) : await quietAndLongTasks(window, started))
-  const show = measureBytes ? undefined : await toggleNotes(window, "true")
-  const hide = measureBytes ? undefined : await toggleNotes(window, "false")
+  // H in Inline alone: Inline shows a quiet run by its new lines and its note opens the old ones; Split shows every line
+  // of it and its note opens nothing ("Views: Unified and Split keep every line of a quiet run, played down" of
+  // openspec/specs/commit/quiet-changes/spec.md), so in Split H has no note to toggle
+  const notesOpen = !measureBytes && layout.name === "Inline"
+  const show = notesOpen ? await toggleNotes(window, "true") : undefined
+  const hide = notesOpen ? await toggleNotes(window, "false") : undefined
   // the frames of the same loop without a scroll: what the machine gives a frame at its load
   const still = measureBytes ? {} : await scrollFrames(window, 0)
   const scroll3 = measureBytes ? {} : await scrollFrames(window, 3)
   const scroll20 = measureBytes ? {} : await scrollFrames(window, 20)
   await window.close()
-  return { open, expand, show: show ?? { ...EMPTY_TASKS, highlightedMs: 0 }, hide: hide ?? { ...EMPTY_TASKS, highlightedMs: 0 }, still, scroll3, scroll20 }
+  return { open, expand, show, hide, still, scroll3, scroll20 }
 }
 
 /**
@@ -423,7 +427,8 @@ function median(values: number[]): number {
 }
 
 /** `openFastest`: the open of the run with the least highlighted time, the nearest of the runs to a quiet machine; the others are medians */
-type ScenarioResult = Record<"open" | "openFastest" | "expand" | "show" | "hide" | "still" | "scroll3" | "scroll20", Record<string, number>>
+type ScenarioResult = Partial<Record<"show" | "hide", Record<string, number>>> &
+  Record<"open" | "openFastest" | "expand" | "still" | "scroll3" | "scroll20", Record<string, number>>
 
 async function measure(page: Page, files: SyntheticFile[], expandPath: string, layout: Layout): Promise<ScenarioResult> {
   const opened = await openReviewData(page)
@@ -434,12 +439,16 @@ async function measure(page: Page, files: SyntheticFile[], expandPath: string, l
   const bytes = await runScenario(page, opened, files, expandPath, true, layout)
   const result = {} as ScenarioResult
   for (const phase of ["open", "expand", "show", "hide"] as const) {
-    const keys = Object.keys(runs[0]![phase]) as (keyof PhaseMetrics)[]
-    result[phase] = Object.fromEntries(keys.map(key => [key, Math.round(median(runs.map(run => run[phase][key] ?? Number.NaN)))]))
-    if (phase === "open" || phase === "expand") {
-      result[phase].bytesToWorker = bytes[phase].bytesToWorker ?? 0
-      result[phase].bytesFromWorker = bytes[phase].bytesFromWorker ?? 0
+    const first = runs[0]![phase]
+    if (first === undefined) {
+      continue
     }
+    const keys = Object.keys(first) as (keyof PhaseMetrics)[]
+    result[phase] = Object.fromEntries(keys.map(key => [key, Math.round(median(runs.map(run => run[phase]?.[key] ?? Number.NaN)))]))
+  }
+  for (const phase of ["open", "expand"] as const) {
+    result[phase].bytesToWorker = bytes[phase].bytesToWorker ?? 0
+    result[phase].bytesFromWorker = bytes[phase].bytesFromWorker ?? 0
   }
   // the load of the machine only adds time: beside the medians, the open of the fastest run
   const fastest = runs.toSorted((a, b) => (a.open.highlightedMs ?? Number.NaN) - (b.open.highlightedMs ?? Number.NaN))[0]!.open
