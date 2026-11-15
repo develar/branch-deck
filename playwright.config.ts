@@ -8,6 +8,8 @@ const debugE2E = !!process.env.DEBUG_E2E
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // the specs alone: the unit tests of the setup (`tests/e2e/setup/*.test.ts`) are Vitest's
+  testMatch: "**/*.spec.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

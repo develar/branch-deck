@@ -1,5 +1,7 @@
 import type { BrowserContext, Locator, Page, Request } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
+import { longTaskOf, NEAR_TIMEOUT_MS, PAGE_HEALTH, pageAnswers, PROBE_MS, watchLongTasks } from "../helpers/page-health"
+import type { PageHealth } from "../helpers/page-health"
 import { resizeObservers } from "../setup/resize-observers"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
 
@@ -302,6 +304,9 @@ export const test = base.extend({
     const subscribed = new Map<Page, number>()
     const sessionViews: string[] = []
     const pagesClosed: string[] = []
+    // the long tasks of the pages as they ended, and at the end of a failed test whether its pages answered: what the
+    // timing reporter tells of a stalled action (`page-health.ts`)
+    const longTasks: PageHealth["longTasks"] = []
     const began = Date.now()
     const failureOf = (kind: NetworkFailure["kind"], what: string, from: Page | null): NetworkFailure => ({
       kind,
@@ -331,7 +336,10 @@ export const test = base.extend({
       networkFailures.push(failureOf("request", `${request.method()} ${request.url()}: ${request.failure()?.errorText ?? "failed"}`, pageOfRequest(request)))
     })
     context.on("console", message => {
-      if (message.type() === "info" && message.text() === SESSION_VIEW_MARK) {
+      const longTask = message.type() === "info" ? longTaskOf(message.text()) : null
+      if (longTask !== null) {
+        longTasks.push([Date.now(), longTask])
+      } else if (message.type() === "info" && message.text() === SESSION_VIEW_MARK) {
         const from = message.page()
         const asked = from === null ? undefined : subscribed.get(from)
         sessionViews.push(
@@ -386,6 +394,7 @@ export const test = base.extend({
 
     // Inject Tauri mocks before each navigation
     await page.addInitScript(tauriMockInitScript())
+    await watchLongTasks(context)
     // the trace of the ResizeObservers of the pages, and a CPU as slow as a loaded machine's (Chromium only), each on its
     // own: what found the loops of the toasts, of a review and of the branch columns (tests/e2e/setup/resize-observers.ts);
     // the throttle alone runs a test as it runs, with the page's own weighing of a loop
@@ -421,11 +430,41 @@ export const test = base.extend({
       time: new Date("2024-01-02T10:00:00Z"),
     })
 
+    // the pages of a test about to time out are asked whether they answer while they are open: Playwright closes them at
+    // the timeout, before this teardown. A check of the clock of the runner, no round trip, until then
+    let answered: boolean | null = null
+    const askPages = async (): Promise<boolean | null> => {
+      const open = context.pages().filter(opened => !opened.isClosed())
+      return open.length === 0 ? null : (await Promise.all(open.map(opened => pageAnswers(opened)))).every(Boolean)
+    }
+    const fixtureStarted = Date.now()
+    let asked = false
+    const nearTimeout = setInterval(() => {
+      if (!asked && testInfo.timeout > 0 && Date.now() - fixtureStarted >= testInfo.timeout - PROBE_MS - NEAR_TIMEOUT_MS) {
+        asked = true
+        void askPages().then(result => {
+          answered = result
+        })
+      }
+    }, 500)
+    nearTimeout.unref()
+
     // Use the page
     await use(page)
+    clearInterval(nearTimeout)
 
     if (testInfo.status !== testInfo.expectedStatus && pageErrors.length > 0) {
       await testInfo.attach("page errors", { body: pageErrors.join("\n"), contentType: "text/plain" })
+    }
+    // only a failed test asks its pages, at its end unless they were asked near its timeout: a page stuck in a task is
+    // what a press that never ended waits for
+    const failed = testInfo.status !== testInfo.expectedStatus
+    if (failed && answered === null) {
+      answered = await askPages()
+    }
+    if (failed || longTasks.length > 0) {
+      const health: PageHealth = { longTasks, answered: failed ? answered : null }
+      await testInfo.attach(PAGE_HEALTH, { body: JSON.stringify(health), contentType: "application/json" })
     }
     // a failed test fails on its own error; its log is attached above
     const undeclared = undeclaredErrors(logged, leaving, uncaught, consoleErrors, declaredErrors.get(context) ?? [])

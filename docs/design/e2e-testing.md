@@ -991,8 +991,12 @@ branch at the commit it was pushed up to.
 - **Timing summary** (`tests/e2e/setup/timing-reporter.ts`, a reporter of `playwright.config.ts`): every run prints
   its start (global setup, the server, the workers), the slowest tests, and the stalled actions, a click or hover
   that took ≥ 2 s and 20× the median action of the run (the ratio holds on a loaded machine, where every action is
-  slower): an overlay over its target, a toast to close (below). `tests/results/timing.json` keeps 20 of each, and
-  `tests/results/steps.json` every step of every test, its offset and duration (`scripts/e2e-steps.mjs` reads it)
+  slower): an overlay over its target, a toast to close (below). Each stall says the page or the machine in one line,
+  from its worker and time, the load and the swap of the machine, the slow actions of other workers beside it, the long
+  tasks of its pages and whether the pages of a failed test answered ([Writing E2E Tests](../contributing/e2e-tests.md),
+  "A stalled action says the page or the machine"). `tests/results/timing.json` keeps 20 of each, the stalls with their
+  context and every sample of the machine, and `tests/results/steps.json` every step of every test, its offset and
+  duration (`scripts/e2e-steps.mjs` reads it)
 - **Under load** (load average 80, several checkouts running e2e and cargo): a command takes seconds, so a test waits
   for the event a state comes with, never for one assertion to span two of them. A rewrite (move, rename, reword,
   squash, stack, undo) shows its result with the sync it starts: `runAndWaitForSync` (`data-sync-count`). What loads

@@ -1,7 +1,7 @@
 # Writing E2E Tests
 
 **Status:** Active  
-**Updated:** 2026-11-11  
+**Updated:** 2026-11-15  
 **Tags:** [e2e, playwright, tests]
 
 ## Summary
@@ -229,6 +229,27 @@ rules in one line each and links here.
   selection-helpers.ts, which asserts the open and says when its item moved from under the pointer (a scroll of the
   menu); `hover()` of an item with a submenu is refused (`refuseSubmenuHovers` of fixtures/base-test.ts), and
   `hoverSubmenuTrigger` is the plain move for a test that holds the delay.
+- **A stalled action says the page or the machine**: the summary of a run (`tests/e2e/setup/timing-reporter.ts`)
+  words each stalled action in one line, then what the line rests on, so a stall needs no reconstruction afterwards:
+  ```
+  22.8 s Press "h" in commit-files/quiet-changes.spec.ts › … H shows the old lines of the notes …
+      → the page: it did not answer before the end of its test, its main thread stuck in a task
+        worker 3, 16:18:05–16:18:28, load 85–92, swap-ins +0, no long task of its pages, a page did not answer, beside it 3.9 s Click (worker 2)
+  ```
+  The page is a page that did not answer an evaluate within 2 s, or a long task of its own over half of the stall; the
+  machine is two or more actions of other workers 5× the median and slower in the same time, or a swap; neither is an
+  action that waited for something of its own (an overlay over its target, a page that did not take it). The pieces:
+  the reporter samples the load and the free memory every second and the swap every fifth (`machine-sampler.ts`: no
+  process but `vm_stat` on macOS, `/proc/vmstat` on Linux), the page fixture tells the long tasks of every page from
+  500 ms as they end, in a line of the console, so a page keeps no buffer (`watchLongTasks` of
+  `tests/e2e/helpers/page-health.ts`), and asks the pages of a failed test whether they answer: 3 s before its timeout
+  while they are open, since Playwright closes the pages of a test that times out before its fixtures end, else at its
+  end; a passing test asks nothing. The pieces attach as `page health` and `timing.json` keeps them with the samples.
+  A press into a page stuck in its key handler ends as the stall of quiet-changes did, "Test timeout … keyboard.press:
+  Target page, context or browser has been closed". Kept by `stall-context.test.ts` (the verdicts, with `pnpm test:unit`)
+  and `harness/page-health.spec.ts` (the probe of a stuck page). Before it, the press of 22.8 s on the Mac Studio
+  (2026-11-15) could be told from neither: the timeline had to be rebuilt from the list reporter, and every test of its
+  50 s took two to three times its WebKit time.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config
