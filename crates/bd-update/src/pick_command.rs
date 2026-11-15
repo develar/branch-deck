@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use sync_utils::timestamp::format_utc_timestamp;
 use update_core::pick::{
   BaselineParentRefused, DependencyFix, GroupedBy, MessageFormatRefused, MessageGate, MessageVerdict, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, RemotePick,
-  UndonePick, pick_core, undo_pick_core,
+  UncheckedTreeRefused, UndonePick, pick_core, undo_pick_core,
 };
 
 #[derive(Debug, Default, clap::Args)]
@@ -115,8 +115,8 @@ pub struct PickOutput {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub conflict: Option<PickConflictOutput>,
   /// Whether a green build or test recorded the tree of HEAD of the worktree of --from (`bd-checks.jsonl` of its git
-  /// dir): with --dry-run, and with `pick_requires_check` of `.branchdeck.toml`, which refuses a pick without one
-  /// (`unchecked_tree`)
+  /// dir): with --dry-run, and with `pick_requires_check` of `.branchdeck.toml`, which refuses a pick that lands a
+  /// commit without one (`unchecked_tree`); a pick that lands nothing only follows
   #[serde(skip_serializing_if = "Option::is_none")]
   pub check: Option<TreeCheckOutput>,
   /// `--allow-unchecked <reason>`: the reason the pick did not ask for a check
@@ -352,12 +352,13 @@ pub struct HomePick {
   pub check: Option<TreeCheck>,
 }
 
-/// What the gate of `pick_requires_check` let through: the check it made, and the HEAD the source must still have under
-/// the lock, the one whose tree the check read
+/// What the gate of `pick_requires_check` let through: the check it made, the HEAD the source must still have under
+/// the lock, the one whose tree the check read, and whether that tree has no green check, so the pick may only follow
 #[derive(Debug, Default)]
 struct Gate {
   check: Option<TreeCheck>,
   expect_source_head: Option<String>,
+  land_nothing: bool,
 }
 
 /// `pick_requires_check` of `.branchdeck.toml` in `checkout`, the checkout the commits land in: the file of the branch
@@ -380,7 +381,9 @@ pub fn tree_check(git: &GitCommandExecutor, dir: &str) -> Result<TreeCheck, CliE
 
 /// The gate of `pick_requires_check` (openspec/specs/cli/pick/spec.md): a pick from a worktree lands only a tree that a green
 /// build or test recorded, unless `--allow-unchecked` says why; a pick of revisions names no worktree whose records bd
-/// could read, so it needs the reason too. `--remote` passes: the commits someone else pushed, which the user saw
+/// could read, so it needs the reason too. `--remote` passes: the commits someone else pushed, which the user saw. A
+/// worktree tree without a green record goes on with `land_nothing`: a pick that lands nothing only follows, and the
+/// check of the core refuses one that lands a commit, which `picked` words as `unchecked_tree`
 fn gate(context: &RepoContext, from: &PickFrom, args: &PickArgs, home: Option<&HomePick>) -> Result<Gate, CliError> {
   if matches!(from, PickFrom::Remote(_)) {
     return Ok(Gate::default());
@@ -392,11 +395,9 @@ fn gate(context: &RepoContext, from: &PickFrom, args: &PickArgs, home: Option<&H
         Some(check) => check,
         None => tree_check(&context.git, dir)?,
       };
-      if gated && !args.dry_run && check.state != CheckState::Ok {
-        return Err(unchecked_tree(context, dir, &check, args, home.is_some()));
-      }
       Ok(Gate {
         expect_source_head: gated.then(|| check.head.clone()),
+        land_nothing: gated && !args.dry_run && check.state != CheckState::Ok,
         check: Some(check),
       })
     }
@@ -523,6 +524,7 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
     expect_branch: home.map(|home| home.branch.clone()),
     expect_source_head: gate.expect_source_head,
     messages,
+    land_nothing: gate.land_nothing,
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
@@ -530,7 +532,11 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
     held_lock: None,
   };
   let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(|error| {
-    if let Some(refused) = error.downcast_ref::<MessageFormatRefused>() {
+    if error.is::<UncheckedTreeRefused>()
+      && let (PickFrom::Worktree(dir), Some(check)) = (&params.from, &gate.check)
+    {
+      unchecked_tree(context, dir, check, args, home.is_some())
+    } else if let Some(refused) = error.downcast_ref::<MessageFormatRefused>() {
       message_format(context, &params.from, refused, home)
     } else if let Some(refused) = error.downcast_ref::<BaselineParentRefused>() {
       baseline_parent(context, &params.from, refused)

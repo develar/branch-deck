@@ -730,6 +730,31 @@ fn a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded() {
   );
 }
 
+/// With `pick_requires_check` a pick that lands nothing needs no green check: a worktree whose commits are all on the
+/// branch follows it onto the tip without a record, and the check names the missing record; once the worktree has a
+/// commit the branch lacks, the pick is `unchecked_tree` again and lands nothing
+#[test_log::test]
+fn a_pick_that_lands_nothing_follows_without_a_check() {
+  let (repo, lane, _) = gated_repo();
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow", "--allow-unchecked", "setup"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let tip = repo.create_commit("Build on the new config", ".cargo/config.toml", "[build]\n");
+
+  let (exit_code, output) = run_in(&repo, &["--full-ids", "pick", "--from", &lane.path, "--follow"]);
+  assert_eq!(
+    (exit_code, &output["state"], &output["followed"]["state"], &output["check"]["state"]),
+    (0, &json!("up_to_date"), &json!("moved"), &json!("missing")),
+    "{output}"
+  );
+  assert_eq!(lane.git(&["rev-parse", "HEAD"]), tip, "the worktree follows the tip");
+
+  lane.commit("(lane) Add c", "c.txt", "c\n");
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_error(&output, exit_code, (4, "unchecked_tree"));
+  assert!(output["error"]["message"].as_str().unwrap().starts_with("brd pick: no green build or test ran"), "{output}");
+  assert_eq!(repo.head(), tip, "nothing landed");
+}
+
 /// `--allow-unchecked` lands a pick without a check, of a worktree or of revisions, and the output repeats the reason;
 /// `--unchecked`, its name in `brd lease pick` before, is the same flag; a blank reason is refused, and `--remote` takes
 /// none, as no check gates it

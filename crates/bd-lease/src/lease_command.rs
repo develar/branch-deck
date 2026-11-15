@@ -330,7 +330,8 @@ pub struct LeaseHomeOutput {
   /// has in another form, so its builds still use the old config: every `.cargo/config.toml`, `.cargo/config`,
   /// `rust-toolchain.toml` and `rust-toolchain`, a `Cargo.toml` whose `profile` table changed, the `[host]` table of
   /// `.branchdeck.toml`. `brd lease pick` (the first command of `next`) moves the lease onto the tip of `branch` after it
-  /// lands the commits of the lease; run it before the next build, once those commits build and pass their tests
+  /// lands the commits of the lease; run it before the next build, once those commits build and pass their tests, or at
+  /// once when the lease has none: a pick that lands nothing needs no green check (`pick_requires_check`)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub build_config_changed: Vec<String>,
 }

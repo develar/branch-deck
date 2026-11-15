@@ -412,9 +412,9 @@ fn operation_name(matches: &ArgMatches) -> String {
 /// had checked out then. A conflict lands nothing and comes back to the lease: the lease is updated onto the tip of
 /// that branch, a resolve session opened in it; an update that applies (the words resolved the conflict) is picked
 /// again at once. The gate of `pick_requires_check` is the pick's (`bd_update::pick_command`): a tree of the lease's
-/// HEAD that no green build or test recorded lands nothing (`unchecked_tree`) unless `--allow-unchecked` says why; the
-/// tree of an update that applies is new, so it is picked again only when a record names it too, else the conflict says
-/// to build first
+/// HEAD that no green build or test recorded lands nothing (`unchecked_tree`) unless `--allow-unchecked` says why, and a
+/// lease with nothing to land follows without a record; the tree of an update that applies is new, so it is picked
+/// again only when a record names it too, else the conflict says to build first
 fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOptions<'_>, args: &LeasePickArgs) -> Result<LeasePickOutput, CliError> {
   let (checkout, branch) = lease_home(lease)?;
   let in_dir = |dir: &str| {

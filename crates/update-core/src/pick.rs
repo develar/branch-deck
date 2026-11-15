@@ -3,7 +3,8 @@
 //! the witness and the moves under it. After the moves, one read of how the branch groups tells the group of each
 //! picked commit, the branches whose stack parent a `(parent/leaf)` prefix changes, and the picked commits whose branch
 //! is not built on the branches they need. With the commit rules of the repository (`MessageGate`), the check reads
-//! the message and the paths of each picked commit once and refuses a STRICT violation before the lock.
+//! the message and the paths of each picked commit once and refuses a STRICT violation before the lock. A source whose
+//! tree no green check recorded (`PickParams::land_nothing`) may only follow: each check refuses a pick that lands a commit.
 
 use anyhow::{Result, anyhow};
 use commit_rules::{MessageRules, Severity};
@@ -84,6 +85,10 @@ pub struct PickParams {
   pub expect_source_head: Option<String>,
   /// The commit rules of the target that the message of each picked commit must pass; `None` checks none
   pub messages: Option<MessageGate>,
+  /// No green build or test recorded the tree of the source (`pick_requires_check`): the pick lands no commit. A check
+  /// that would land one or that conflicts refuses the pick (`UncheckedTreeRefused`), before the lock and again under
+  /// it. A pick that lands nothing still moves the source onto the tip with `follow`
+  pub land_nothing: bool,
 }
 
 /// The commit rules of a pick (`[commit] check` of `.branchdeck.toml`, `commit_rules`): the message each picked commit
@@ -117,6 +122,20 @@ pub struct MessageFormatRefused {
   pub hint: Option<String>,
   /// Where the form is documented
   pub documentation: Option<String>,
+}
+
+/// The source has no green check, so the pick could only follow (`PickParams::land_nothing`), and the check found
+/// commits to land: nothing landed
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("no green build or test recorded the tree of the source, and the pick would land its commits")]
+pub struct UncheckedTreeRefused;
+
+/// `UncheckedTreeRefused` when `land_nothing` is set and `plan` lands a commit or conflicts
+fn refuse_unchecked(plan: &PickPlan, land_nothing: bool) -> Result<()> {
+  if land_nothing && (!plan.check.picked.is_empty() || matches!(plan.check.state, PickState::Conflict(_))) {
+    return Err(anyhow::Error::new(UncheckedTreeRefused));
+  }
+  Ok(())
 }
 
 /// A picked commit whose `(parent/leaf)` prefix names the baseline or the checked out branch of the target as a parent
@@ -378,7 +397,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     if let (true, PickFrom::Worktree(source)) = (params.follow, &params.from) {
       worktrees.push(source);
     }
-    land(git_executor, &worktrees, &request, options, &mut messages, signing)?
+    land(git_executor, &worktrees, &request, options, &mut messages, signing, params.land_nothing)?
   };
   let landing = if plan.check.picked.is_empty() {
     Landing::default()
@@ -458,6 +477,7 @@ pub fn pick_remote_commits_core(
     expect_branch: None,
     expect_source_head: None,
     messages: None,
+    land_nothing: false,
   };
   let result = pick_core(git_executor, &pick, options, cache, file_diffs)?;
   match &result.check.state {
@@ -560,6 +580,7 @@ fn land(
   options: &RewriteOptions<'_>,
   messages: &mut MessageCheck<'_>,
   signing: Signing,
+  land_nothing: bool,
 ) -> Result<(PickPlan, Option<AppliedPick>)> {
   let target = worktrees[0];
   let apply = |plan: &PickPlan| (plan.check.state == PickState::Clean).then(|| apply_pick(git_executor, target, plan)).transpose();
@@ -569,6 +590,7 @@ fn land(
     }
     let mut plan = check_pick_with_signing(git_executor, target, request, signing)?;
     options.ensure_head(git_executor, target, &plan.check.head)?;
+    refuse_unchecked(&plan, land_nothing)?;
     messages.verify(git_executor, target, &plan, true)?;
     if plan.check.state != PickState::Clean || !plan.moves_anything() {
       let applied = apply(&plan)?;
@@ -596,6 +618,7 @@ fn land(
   let plan = check_pick_with_signing(git_executor, target, request, signing)?;
   options.ensure_head(git_executor, target, &plan.check.head)?;
   // a check under the lock: new picked commits are read here, the same ones not again
+  refuse_unchecked(&plan, land_nothing)?;
   messages.verify(git_executor, target, &plan, true)?;
   let applied = apply(&plan)?;
   Ok((plan, applied))

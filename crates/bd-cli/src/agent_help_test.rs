@@ -458,7 +458,7 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_brd_fails_and_in_a_sandbox()
   // a long session runs `brd workspace` in its lease again, so it learns that its builds use an old build config
   assert!(
     rule.contains(
-      "In your lease, run `brd workspace` again when the session resumes and before a full build or test run. When its\n  `home.build_config_changed` names files, your builds use an old build config: run `brd -C <path> lease pick` before\n  the build, once your commits pass their tests, or at once when nothing is unlanded."
+      "In your lease, run `brd workspace` again when the session resumes and before a full build or test run. When its\n  `home.build_config_changed` names files, your builds use an old build config: run `brd -C <path> lease pick` before\n  the build, once your commits pass their tests, or at once when nothing is unlanded. A pick that lands nothing needs\n  no green check."
     ),
     "{rule}"
   );

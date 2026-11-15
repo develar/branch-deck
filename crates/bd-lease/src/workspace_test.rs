@@ -246,6 +246,28 @@ fn a_lease_names_the_build_config_that_its_home_branch_changed_until_it_follows(
   assert_eq!(workspace_in(&fixture, Path::new(&slot))["home"], json!({ "checkout": shared, "branch": "master" }));
 }
 
+/// In a repository with `pick_requires_check`, a lease with nothing to land follows a build config change of its home
+/// branch without a green check, as the skill says: the pick lands nothing, so the gate does not stop it
+#[test_log::test]
+fn a_lease_with_nothing_to_land_follows_a_build_config_change_without_a_check() {
+  let fixture = Fixture::new();
+  fixture.repo.create_commit("Require a check", ".branchdeck.toml", "[lease]\npick_requires_check = true\n");
+  let slot = path_of(&fixture.get(&[]));
+  fixture
+    .repo
+    .create_commit("Build on the new config", ".cargo/config.toml", "[build]\nrustflags = [\"-Csplit-debuginfo=off\"]\n");
+  assert_eq!(build_config_changed(&fixture, &slot), Some(json!([".cargo/config.toml"])));
+
+  let (exit_code, output) = fixture.run_in(Path::new(&slot), &["--prefix", PREFIX, "lease", "pick"]);
+  assert_eq!(
+    (exit_code, &output["state"], &output["check"]["state"]),
+    (0, &json!("up_to_date"), &json!("missing")),
+    "{output}"
+  );
+  assert_eq!(slot_git(&slot, &["rev-parse", "HEAD"]), fixture.repo.head(), "the lease follows the tip");
+  assert_eq!(build_config_changed(&fixture, &slot), None);
+}
+
 /// A dependency of a manifest, the `[commit]` table of `.branchdeck.toml` and the holder's own profile are no build
 /// config; a profile that the home branch changed and its `[host]` table are
 #[test_log::test]

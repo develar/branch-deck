@@ -2604,6 +2604,14 @@ the commit it checked (`PickRequest::expect_source_head`, which `recheck_pick` h
 between the check and the lock is `head_moved`, not an unchecked landing. An update that applies after a conflict
 makes a new tree, so the pick waits for a record of it. Without the setting the pick reads nothing.
 
+A pick that lands nothing passes the gate without a record. A lease with no unlanded commit must follow its home
+branch at once when the branch changed the build config, and a build on the old config first is the result that the
+hint of `brd workspace` exists to stop. So a tree without a green record does not stop the pick before its check.
+The gate sets `PickParams::land_nothing` instead, and the core refuses a pick that would land a commit or that
+conflicts (`UncheckedTreeRefused`), which the command words as `unchecked_tree`. The core checks this in each check
+before the lock and again in the check under it, so a commit made after the gate never lands unchecked. The refusal
+now costs the git of the check of the pick, where before it cost only the `rev-parse` of the tree.
+
 The gate stops a stale claim: a green run that ended before the last edit. It does not stop a merge break: a pick
 onto a tip that moved since the check, without a conflict, lands the lease's commits on a tree that no record saw.
 It does not judge coverage either: a test of one class counts as much as a build of the whole tree, and the record
