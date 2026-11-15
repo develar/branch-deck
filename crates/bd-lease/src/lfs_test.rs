@@ -25,7 +25,7 @@ const POINTER: &str = "the pointer of the model\n";
 /// A repository whose `*.bin` files go through the filter `lfs`, as `git lfs install` configures it in the repository:
 /// its smudge command a fake that logs `smudge` with the locks of the pool held as it ran, then passes the blob through.
 /// brd's git is a wrapper whose `git lfs pull` logs `pull` with those locks instead, and fails while the file `fail`
-/// exists; it runs the real git for the rest
+/// exists, and whose `git lfs checkout` logs `checkout` with them; it runs the real git for the rest
 struct LfsPool {
   fixture: Fixture,
   directory: TempDir,
@@ -49,7 +49,9 @@ impl LfsPool {
     let git = fake_executable(
       directory.path(),
       "git",
-      &format!("case \" $* \" in\n*\" lfs pull \"*) {held}; echo \"pull$held\" >> '{log}'; [ ! -f '{fail}' ];;\n*) exec git \"$@\";;\nesac"),
+      &format!(
+        "case \" $* \" in\n*\" lfs pull \"*) {held}; echo \"pull$held\" >> '{log}'; [ ! -f '{fail}' ];;\n*\" lfs checkout \"*) {held}; echo \"checkout$held\" >> '{log}';;\n*) exec git \"$@\";;\nesac"
+      ),
     );
     repo.create_commit_with_files("Add a model", &[(".gitattributes", "*.bin filter=lfs\n"), ("model.bin", POINTER)]);
     // appended, not a process per key
@@ -90,10 +92,19 @@ impl LfsPool {
   /// The path of a new slot of `brd lease get`, whose checkout wrote the pointer of the model and whose last step was the
   /// one `git lfs pull`, which writes nothing here
   fn new_slot_with_its_pointers(&self) -> String {
+    self.new_slot_logging(&["pull"])
+  }
+
+  /// `new_slot_with_its_pointers`, the fakes having logged `log`
+  fn new_slot_logging(&self, log: &[&str]) -> String {
     let (got, steps) = self.get("first");
     let got = serde_json::to_value(got.unwrap()).unwrap();
     assert_eq!(got["reused"], json!(false), "{got}");
-    assert_eq!((self.log(), steps.last().copied()), (vec!["pull".to_string()], Some("lfs pull")), "{got}");
+    assert_eq!(
+      (self.log(), steps.last().copied()),
+      (log.iter().map(|line| (*line).to_string()).collect(), Some("lfs pull")),
+      "{got}"
+    );
     let slot = path_of(&got);
     assert_eq!(std::fs::read_to_string(Path::new(&slot).join("model.bin")).unwrap(), POINTER);
     slot
@@ -165,13 +176,15 @@ fn a_repository_without_objects_of_git_lfs_pulls_nothing() {
 }
 
 /// A repository that lives on the pointers of what Git LFS can not download (`lfs.skipdownloaderrors`, as its smudge
-/// writes them) keeps them in a new slot whose pull failed: the get goes on, and the slot is reused, not dirty
+/// writes them) keeps them in a new slot whose pull failed: the get goes on, its `git lfs checkout`, no lock of the pool
+/// held, writes the content of every object that the pull got or the store had, as a pull that ended early may not, and
+/// the slot is reused, not dirty
 #[test_log::test]
 fn a_repository_that_skips_download_errors_keeps_the_pointers_of_a_failed_pull() {
   let pool = LfsPool::new();
   append_config(pool.fixture.repo.path(), &[("lfs.skipdownloaderrors", "true")]);
   std::fs::write(pool.directory.path().join("fail"), "").unwrap();
-  let slot = pool.new_slot_with_its_pointers();
+  let slot = pool.new_slot_logging(&["pull", "checkout"]);
 
   pool.fixture.give_back(&slot);
   let reused = serde_json::to_value(pool.get("second").0.unwrap()).unwrap();

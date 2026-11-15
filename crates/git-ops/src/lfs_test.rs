@@ -1,6 +1,6 @@
 use crate::lease_slot::lease_config;
 use crate::lfs::{ChangedPointer, fetch_config, include_lists, include_pattern, pointer_oid, pull_lfs_files, skips_download_errors};
-use crate::remote_command::{LFS_DEADLINE, execute_remote_command_until};
+use crate::remote_command::{LFS_IDLE, execute_remote_command_while_progressing};
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
 use test_utils::env_vars::EnvVars;
@@ -182,20 +182,42 @@ fn the_objects_of_git_lfs_are_where_lfs_storage_puts_them() {
   assert_eq!(objects(), common.join("store").join("objects"));
 }
 
-/// A `git lfs pull` that hangs is killed at the deadline of the LFS commands (`LFS_DEADLINE`, a test's
-/// `BD_TEST_LFS_DEADLINE_MS`), with the processes it started: git-lfs does its own HTTP, which `http.lowSpeedLimit` does
-/// not reach
+/// A `git lfs pull` that hangs, no line of progress, is killed after the idle deadline of the LFS commands (`LFS_IDLE`,
+/// a test's `BD_TEST_LFS_IDLE_MS`), with the processes it started: git-lfs does its own HTTP, which `http.lowSpeedLimit`
+/// does not reach
 #[test]
-fn a_hung_lfs_pull_is_killed_at_its_deadline() {
+fn a_hung_lfs_pull_is_killed_once_it_makes_no_progress() {
   let fake = tempfile::tempdir().unwrap();
   let fake_git = fake_executable(fake.path(), "git", "case \" $* \" in *\" lfs pull \"*) sleep 60; exit 0;; esac\nexec git \"$@\"");
   let git = executor_of_fake_git(&fake_git);
   let repo = TestRepo::new();
-  let _deadline = EnvVars::set(&[("BD_TEST_LFS_DEADLINE_MS", "300")]);
+  let _idle = EnvVars::set(&[("BD_TEST_LFS_IDLE_MS", "300")]);
   let started = std::time::Instant::now();
   let error = pull_lfs_files(&git, repo.path_str()).unwrap_err();
-  assert!(format!("{error:#}").contains("did not finish within"), "{error:#}");
+  assert!(format!("{error:#}").contains("no progress"), "{error:#}");
   assert!(started.elapsed() < std::time::Duration::from_secs(30), "{:?}", started.elapsed());
+}
+
+/// A slow `git lfs pull` that writes its progress (`GIT_LFS_PROGRESS`) runs past the idle deadline many times over and
+/// finishes: only a pull without progress is killed, whatever its length
+#[test]
+fn a_slow_lfs_pull_that_makes_progress_is_not_killed() {
+  let fake = tempfile::tempdir().unwrap();
+  let fake_git = fake_executable(
+    fake.path(),
+    "git",
+    "case \" $* \" in *\" lfs pull \"*) i=0; while [ $i -lt 25 ]; do i=$((i + 1)); echo \"download $i/25 $i/25 model.bin\" >> \"$GIT_LFS_PROGRESS\"; sleep 0.1; done; exit 0;; esac\nexec git \"$@\"",
+  );
+  let git = executor_of_fake_git(&fake_git);
+  let repo = TestRepo::new();
+  let _idle = EnvVars::set(&[("BD_TEST_LFS_IDLE_MS", "1000")]);
+  let started = std::time::Instant::now();
+  pull_lfs_files(&git, repo.path_str()).unwrap();
+  assert!(
+    started.elapsed() >= std::time::Duration::from_secs(2),
+    "the pull ran past the idle deadline: {:?}",
+    started.elapsed()
+  );
 }
 
 /// A fetch before a move ends as its operation is canceled (the Stop Waiting of the app), with the processes it started
@@ -206,7 +228,7 @@ fn a_fetch_ends_as_its_operation_is_canceled() {
   let git = executor_of_fake_git(&fake_git);
   let repo = TestRepo::new();
   let started = std::time::Instant::now();
-  let error = execute_remote_command_until(&git, &["lfs", "fetch"], repo.path_str(), LFS_DEADLINE, &|| true).unwrap_err();
+  let error = execute_remote_command_while_progressing(&git, &["lfs", "fetch"], repo.path_str(), LFS_IDLE, &|| true).unwrap_err();
   assert!(format!("{error:#}").contains("canceled"), "{error:#}");
   assert!(started.elapsed() < std::time::Duration::from_secs(30), "{:?}", started.elapsed());
 }

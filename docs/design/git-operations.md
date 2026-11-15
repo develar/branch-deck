@@ -387,9 +387,22 @@ reads them as they change. So the objects come first: before each lock, the core
   leading `!` or `#` are escaped by a backslash, and a comma or a blank at an end, which no escape keeps, is `?`.
 - **A failed fetch** is the error of the operation, before its lock, nothing written: the computation is discarded;
   unless the repository lives on the pointers of what it can not download (`lfs.skipdownloaderrors`,
-  `GIT_LFS_SKIP_DOWNLOAD_ERRORS`, read only then), where the move goes on and its smudge writes them, after one more try
-  under the lock. Each fetch ends at `LFS_DEADLINE` (30 min), killed with the processes it started, as the pull of a
-  new lease slot, and as the operation is canceled: the Stop Waiting of the app's wait for the lock
+  `GIT_LFS_SKIP_DOWNLOAD_ERRORS`, read only then), where the other lists are fetched still and the move goes on with no
+  network under the lock: the fetch marks the move of its worktree from HEAD (`lfs::downloads_held_back`, kept in the
+  process until the move takes it; not by the target, which the finish of a resolve session knows only under the
+  lock), and its `read-tree -m -u` runs with `-c lfs.fetchexclude=*`. The smudge reads every object the store has
+  whatever the exclude, the fetch put there all it could get, and for the rest it writes the pointer, as a failed
+  download would, without a request; the user's own `lfs.fetchexclude` keeps its pointers as well. Not a list of the
+  paths: `*` has no length limit (a command line of Windows), and it covers a path the fetch could not foresee.
+- **Deadline**: each fetch, as the pull of a new lease slot, is killed with the processes it started after
+  `LFS_IDLE` (10 min, `git_ops::remote_command`) without a line of progress, to the file of `GIT_LFS_PROGRESS` (a
+  line per part of a transfer) or to stderr: past the time git-lfs takes itself to give up a dead transfer (30 s of
+  `lfs.activitytimeout` a try, 8 retries, 10 s between them at most: about five minutes), so only a hang is killed, a
+  helper that never answers or a transfer that never ends, never a slow download. No cap on the whole: a large honest
+  download takes what it takes, and the user cancels it. git-lfs does its own HTTP, which `http.lowSpeedLimit` of the
+  policy does not reach. On Windows a kill ends the job object of git, git-lfs with it; where Windows puts git into
+  none (`sync_utils::process_tree`, which warns once), the kill ends git alone and git-lfs runs on until it ends by
+  itself. A fetch also ends as the operation is canceled: the Stop Waiting of the app's wait for the lock
   (`LockWait::canceled`), which a bounded wait of `brd` never is.
 - **Not covered**: a computation under the lock whose target is known only there (a witness that missed past
   `CHECKS_WITHOUT_THE_LOCK`, a rewrite under a lock its caller holds, the files of an interrupted move that follow under
@@ -397,11 +410,13 @@ reads them as they change. So the objects come first: before each lock, the core
   `$GIT_COMMON_DIR/lfs/objects` either, and whose operation read no config before (the app's moves, `brd` with
   `--prefix`): a check without a process can not tell it from one without LFS. There the smudge downloads under the
   lock as before.
-- Tests: `crates/bd-update/src/lfs_prefetch_test.rs` (a fake smudge that logs the lock and the store, a fake
-  `git lfs fetch` beside the git of `LockSpanGit`, one test per family: Update Project, an unapply and a reapply, a
-  drop, a pick, each with its undo, a resolve session's start and `--continue`; a move whose objects are stored, a
-  failed fetch, a store that `lfs.storage` moves), `crates/git-ops/src/lfs_test.rs` (the patterns, the lists, the
-  cancel), the processes: `a_drop_of_a_file_of_git_lfs_fetches_what_the_store_lacks_before_the_lock`
+- Tests: `crates/bd-update/src/lfs_prefetch_test.rs` (a fake smudge that logs the lock and whether its object came
+  from the store, was excluded or needed the network, a fake `git lfs fetch` beside the git of `LockSpanGit`, one test
+  per family: Update Project, an unapply and a reapply, a drop, a pick, each with its undo, a resolve session's start
+  and `--continue`; a move whose objects are stored, a failed fetch, a store that `lfs.storage` moves, a drop and a
+  resolve session of a repository that skips download errors, excluded under the lock),
+  `crates/git-ops/src/lfs_test.rs` (the patterns, the lists, the cancel, a hung pull killed and a slow one that makes
+  progress finishing), the processes: `a_drop_of_a_file_of_git_lfs_fetches_what_the_store_lacks_before_the_lock`
   (`crates/sync-core/src/process_budget_test.rs`).
 
 A new slot of a lease pool is the other case: its checkout under the clones lock writes the pointers, and the get
@@ -2191,15 +2206,17 @@ the get runs `git lfs pull` in the slot after the release, before the seed (`git
 policy of a remote command; `GetStep::LfsPull`): it downloads what the store lacks and replaces the pointers, the index
 refreshed. Only where the repository keeps objects of LFS (`lfs/objects` of the common directory, or of `lfs.storage`,
 no process): Git for Windows configures the filter in its system config for every repository, and a pull in a
-repository without files of LFS would scan its tree for nothing. The pull ends at `LFS_DEADLINE` (30 min,
-`git_ops::remote_command`), killed with the processes it started: git-lfs does its own HTTP, which `http.lowSpeedLimit`
-of the policy does not reach, and after the lock it holds only its own get, but a trickle or a helper that never
-answers would hold that one without end. A pull that fails fails the get, and the slot goes back without its index: its
+repository without files of LFS would scan its tree for nothing. The pull is killed with the processes it started after
+`LFS_IDLE` (10 min, `git_ops::remote_command`) without a line of progress, as a fetch before a move (Git LFS above):
+after the lock it holds only its own get, but a helper that never answers would hold that one without end, and a slow
+download that makes progress runs to its end. A pull that fails fails the get, and the slot goes back without its index: its
 files of LFS are pointers still, which the next move by the diff would keep as their content, so the next get finds it
 dirty, as after a checkout that failed, and adds another; unless the repository lives on the pointers of what it can not
 download (`lfs.skipdownloaderrors`, `GIT_LFS_SKIP_DOWNLOAD_ERRORS`, read only then:
-`git_ops::lfs::skips_download_errors`), whose smudge writes them in every checkout: the get logs the failure and goes on
-with them. A reused slot moves without a lock of
+`git_ops::lfs::skips_download_errors`), whose smudge writes them in every checkout: the get logs the failure, runs
+`git lfs checkout` (`git_ops::lfs::checkout_lfs_files`, no network), which writes the content of every object the pull
+got or the store had, the index refreshed, as a pull killed or ended early may not, and goes on with the pointers of
+the rest; a checkout that fails fails the get as a pull does. A reused slot moves without a lock of
 the pool (`reset --merge`, or the full checkout), so its smudge filter downloads as git runs it there, and no pull
 follows. Another smudge filter that reaches the network still runs under the clones lock: git has no switch for it, and
 nothing but LFS puts the content back after a checkout of the blobs.

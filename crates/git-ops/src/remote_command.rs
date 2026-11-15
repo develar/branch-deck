@@ -45,28 +45,60 @@ pub fn execute_remote_command_accepting(git_executor: &GitCommandExecutor, args:
   git_executor.cmd(&remote_args(&[], args), repository_path).env(&REMOTE_ENV).accept(ok_exit_codes).text()
 }
 
-/// The longest a git of the remote may run that does its HTTP outside git (`git lfs pull`, `git lfs fetch`): git-lfs has
-/// its own client, which `http.lowSpeedLimit` does not reach, so a transfer that trickles or a helper that never answers
-/// would hold it without end. Past it git is killed with every process it started (`StoppedCommand::TimedOut`)
-pub const LFS_DEADLINE: Duration = Duration::from_mins(30);
+/// How long a command of Git LFS (`git lfs pull`, `git lfs fetch`) may go without a line of its progress before it is
+/// killed: ten minutes, past the time git-lfs takes itself to give up a dead transfer (`lfs.activitytimeout` 30 s a
+/// try, `lfs.transfer.maxretries` 8, `lfs.transfer.maxretrydelay` 10 s: about five minutes), so only a hang is killed,
+/// a helper that never answers or a transfer that never ends, never a slow download, which writes a line as each part
+/// arrives. git-lfs does its own HTTP, which `http.lowSpeedLimit` does not reach. No cap on the whole: a large honest
+/// download takes what it takes, and the user cancels it
+pub const LFS_IDLE: Duration = Duration::from_mins(10);
 
-/// `execute_remote_command` killed after `deadline` (`LFS_DEADLINE`)
-pub fn execute_remote_command_within(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, deadline: Duration) -> Result<String> {
-  git_executor.cmd(&remote_args(&[], args), repository_path).env(&REMOTE_ENV).timeout(deadline).text()
-}
-
-/// `execute_remote_command_within` killed as well once `canceled` says so (`StoppedCommand::Cancelled`)
-pub fn execute_remote_command_until(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, deadline: Duration, canceled: &dyn Fn() -> bool) -> Result<()> {
+/// `execute_remote_command` of a command of Git LFS, killed with every process it started when it wrote no line of
+/// progress for `idle` (to `GIT_LFS_PROGRESS`, a file of its own, or to stderr) or once `canceled` says so. Where
+/// Windows puts git into no job object, a kill reaches git alone, not the git-lfs it started (`sync_utils::process_tree`,
+/// which warns of it once): that git-lfs runs on until it ends by itself
+///
+/// # Errors
+/// git failed, made no progress for `idle` (`git lfs reported no progress for …`), or was canceled
+pub fn execute_remote_command_while_progressing(
+  git_executor: &GitCommandExecutor,
+  args: &[&str],
+  repository_path: &str,
+  idle: Duration,
+  canceled: &dyn Fn() -> bool,
+) -> Result<()> {
+  let progress = tempfile::NamedTempFile::new()?;
+  let progress_path = progress.path().to_string_lossy().into_owned();
+  let mut env = REMOTE_ENV.to_vec();
+  env.push(("GIT_LFS_PROGRESS", progress_path.as_str()));
+  // the length of the progress file, and when it or stderr last grew
+  let last = std::cell::Cell::new((0u64, std::time::Instant::now()));
+  let idled = std::cell::Cell::new(false);
+  let stopped = || {
+    if canceled() {
+      return true;
+    }
+    let length = std::fs::metadata(progress.path()).map_or(0, |metadata| metadata.len());
+    let (seen, since) = last.get();
+    if length != seen {
+      last.set((length, std::time::Instant::now()));
+    } else if since.elapsed() >= idle {
+      idled.set(true);
+      return true;
+    }
+    false
+  };
   let stop = ProgressStop {
     idle_timeout: None,
-    is_cancelled: canceled,
+    is_cancelled: &stopped,
   };
-  git_executor
-    .cmd(&remote_args(&[], args), repository_path)
-    .env(&REMOTE_ENV)
-    .timeout(deadline)
-    .progress(&mut |_| {}, &stop)?;
-  Ok(())
+  let mut on_line = |_: &str| last.set((last.get().0, std::time::Instant::now()));
+  let ran = git_executor.cmd(&remote_args(&[], args), repository_path).env(&env).progress(&mut on_line, &stop);
+  match ran {
+    Ok(_) => Ok(()),
+    Err(error) if idled.get() => Err(error.context(format!("git lfs reported no progress for {} s", idle.as_secs()))),
+    Err(error) => Err(error),
+  }
 }
 
 /// `execute_remote_command_accepting` that keeps git's stderr and exit code too: an accepted failure (a `push` whose

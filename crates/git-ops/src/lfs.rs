@@ -7,7 +7,7 @@ use crate::attributes::read_attributes;
 use crate::lease_slot::linked_worktree;
 use crate::object_texts::read_blob_bytes;
 use crate::paths::changed_path_names;
-use crate::remote_command::{LFS_DEADLINE, execute_remote_command_until, execute_remote_command_within};
+use crate::remote_command::{LFS_IDLE, execute_remote_command, execute_remote_command_while_progressing};
 use crate::revs::{git_common_dir, known_dirs};
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -108,9 +108,11 @@ pub struct WorktreeMove {
 /// `objects` of `LfsStorage`, a fact of the executor), no process then; else one `diff-tree` of each move, one `check-attr` of its changed paths at `to` and one `cat-file` of the
 /// pointers of those that the filter `lfs` converts. Only when an object is missing: one `config` (whether the smudge
 /// downloads, `lfs.storage`, the remote) and `git lfs fetch --include <the paths> <remote> <to>` under the policy of a
-/// remote command, one per `MAX_INCLUDE_CHARS` of paths (`include_lists`), each ended at `LFS_DEADLINE` or when
-/// `canceled` says so (the Stop Waiting of the app's operation). A failed fetch is the error of the move, before its
-/// lock, nothing written, but where the repository skips download errors (`skips_download_errors`)
+/// remote command, one per `MAX_INCLUDE_CHARS` of paths (`include_lists`), each killed after `LFS_IDLE` without a line
+/// of progress or when `canceled` says so (the Stop Waiting of the app's operation). A failed fetch is the error of the
+/// move, before its lock, nothing written, but where the repository skips download errors (`skips_download_errors`):
+/// there the move under the lock downloads nothing (`downloads_held_back`), its smudge writes the pointers of what the
+/// store lacks
 ///
 /// # Errors
 /// A read of git, the fetch
@@ -124,6 +126,7 @@ pub fn prefetch_lfs_objects(git_executor: &GitCommandExecutor, moves: &[Worktree
 
 fn prefetch_move(git_executor: &GitCommandExecutor, worktree_move: &WorktreeMove, canceled: &dyn Fn() -> bool) -> Result<()> {
   let WorktreeMove { worktree, from, to, branch } = worktree_move;
+  forget_held_back(worktree_move);
   let common_dir = common_dir_of(git_executor, worktree)?;
   let known = LfsConfig {
     storage: git_executor.fact::<LfsStorage>().and_then(|storage| storage.0.clone()),
@@ -148,19 +151,83 @@ fn prefetch_move(git_executor: &GitCommandExecutor, worktree_move: &WorktreeMove
     return Ok(());
   }
   debug!(objects = missing.len(), remote = %config.remote, "fetching the objects of Git LFS of the move before the lock");
+  let mut failed = false;
   for include in include_lists(&missing) {
     let args = ["lfs", "fetch", "--include", include.as_str(), config.remote.as_str(), to.as_str()];
-    match execute_remote_command_until(git_executor, &args, worktree, deadline(), canceled) {
+    match execute_remote_command_while_progressing(git_executor, &args, worktree, idle(), canceled) {
       Ok(()) => {}
       // the smudge writes the pointers of what it can not download, as the repository asks
       Err(error) if skips_download_errors(git_executor, worktree) => {
         warn!(error = %format!("{error:#}"), "cannot fetch the files of Git LFS before the move; lfs.skipdownloaderrors: the move goes on");
-        return Ok(());
+        failed = true;
       }
       Err(error) => return Err(error.context(format!("Cannot fetch the files of Git LFS of {to} before the move"))),
     }
   }
+  if failed {
+    hold_back_downloads(worktree_move);
+  }
   Ok(())
+}
+
+/// A move whose smudge under the lock downloads nothing: of a worktree (canonical, as the move names it otherwise), from
+/// the commit `from`. Not by the commit it moves to: the finish of a resolve session moves to the commit it replays,
+/// which its fetch before the lock could not know, and read the upstream tip instead
+#[derive(PartialEq, Eq)]
+struct HeldBack {
+  worktree: PathBuf,
+  from: String,
+}
+
+impl HeldBack {
+  fn of(worktree: &str, from: &str) -> Self {
+    Self {
+      worktree: std::fs::canonicalize(worktree).unwrap_or_else(|_| PathBuf::from(worktree)),
+      from: from.to_string(),
+    }
+  }
+}
+
+/// The moves whose fetch before the lock failed where the repository skips download errors: written by the fetch
+/// (`prefetch_move`), taken by the move under the lock (`downloads_held_back`), kept in the process between the two; at
+/// most `HELD_BACK_LIMIT`, the oldest dropped, for a move that never came
+static HELD_BACK: std::sync::Mutex<Vec<HeldBack>> = std::sync::Mutex::new(Vec::new());
+
+const HELD_BACK_LIMIT: usize = 64;
+
+fn held_back() -> std::sync::MutexGuard<'static, Vec<HeldBack>> {
+  HELD_BACK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// What an earlier fetch of the same move held back, forgotten: this fetch decides again
+fn forget_held_back(worktree_move: &WorktreeMove) {
+  let key = HeldBack::of(&worktree_move.worktree, &worktree_move.from);
+  held_back().retain(|held| *held != key);
+}
+
+fn hold_back_downloads(worktree_move: &WorktreeMove) {
+  let key = HeldBack::of(&worktree_move.worktree, &worktree_move.from);
+  let mut held = held_back();
+  held.retain(|held| *held != key);
+  if held.len() >= HELD_BACK_LIMIT {
+    held.remove(0);
+  }
+  held.push(key);
+}
+
+/// Whether the move of `worktree` from the commit `from` downloads nothing under the lock, taken: its fetch before the
+/// lock failed where the repository skips download errors. Its `read-tree -m -u` then runs with `-c lfs.fetchexclude=*`:
+/// the smudge reads every object the store has, the fetch put there all it could get, and writes the pointer of the
+/// rest, as a failed download would, with no network
+pub(crate) fn downloads_held_back(worktree: &str, from: &str) -> bool {
+  let mut held = held_back();
+  if held.is_empty() {
+    return false;
+  }
+  let key = HeldBack::of(worktree, from);
+  let before = held.len();
+  held.retain(|held| *held != key);
+  held.len() != before
 }
 
 /// Whether `name` is set in the environment to a value git reads as true
@@ -181,12 +248,12 @@ pub fn skips_download_errors(git_executor: &GitCommandExecutor, worktree: &str) 
       .is_ok_and(|value| value == "true")
 }
 
-/// `LFS_DEADLINE`, or the milliseconds of `BD_TEST_LFS_DEADLINE_MS`, which a test of the deadline sets
-fn deadline() -> Duration {
-  std::env::var("BD_TEST_LFS_DEADLINE_MS")
+/// `LFS_IDLE`, or the milliseconds of `BD_TEST_LFS_IDLE_MS`, which a test of the idle deadline sets
+fn idle() -> Duration {
+  std::env::var("BD_TEST_LFS_IDLE_MS")
     .ok()
     .and_then(|millis| millis.parse().ok())
-    .map_or(LFS_DEADLINE, Duration::from_millis)
+    .map_or(LFS_IDLE, Duration::from_millis)
 }
 
 /// `$GIT_COMMON_DIR` of `worktree` without a process when the executor knows it (`with_dirs_of`) or the files tell it:
@@ -300,13 +367,27 @@ pub(crate) fn include_pattern(path: &str) -> String {
 
 /// `git lfs pull` in the worktree `worktree`, under the policy of a remote command: the objects that the store lacks
 /// downloaded, and every pointer of HEAD's files replaced by its content, the index refreshed. A new slot of a lease
-/// pool, whose checkout under the clones lock wrote the pointers (`lease_slot::LfsFiles::Pointers`), after that lock
+/// pool, whose checkout under the clones lock wrote the pointers (`lease_slot::LfsFiles::Pointers`), after that lock.
+/// Killed after `LFS_IDLE` without a line of progress
 ///
 /// # Errors
 /// The pull
 pub fn pull_lfs_files(git_executor: &GitCommandExecutor, worktree: &str) -> Result<()> {
-  execute_remote_command_within(git_executor, &["lfs", "pull"], worktree, deadline()).with_context(|| format!("Cannot pull the files of Git LFS into {worktree}"))?;
-  Ok(())
+  execute_remote_command_while_progressing(git_executor, &["lfs", "pull"], worktree, idle(), &|| false).with_context(|| format!("Cannot pull the files of Git LFS into {worktree}"))
+}
+
+/// `git lfs checkout` in the worktree `worktree`: every pointer of HEAD's files whose object the store has replaced by
+/// its content, no network. After a `git lfs pull` that failed in part, where the repository skips download errors: what
+/// it got, or the store had, is content, the rest stays pointers
+///
+/// # Errors
+/// The checkout
+pub fn checkout_lfs_files(git_executor: &GitCommandExecutor, worktree: &str) -> Result<()> {
+  // under the policy of a remote command as every command of git-lfs (`network_commands_run_through_remote_command`),
+  // though this one asks no remote: its prompts off, its locale C
+  execute_remote_command(git_executor, &["lfs", "checkout"], worktree)
+    .map(drop)
+    .with_context(|| format!("Cannot check out the files of Git LFS in {worktree}"))
 }
 
 /// What a fetch of Git LFS reads of the config: `LfsConfig` and the remote Git LFS takes by default

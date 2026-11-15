@@ -35,7 +35,8 @@ struct Lfs {
 
 impl Lfs {
   /// The filter as `git lfs install` sets it, in the config of `repo`: the smudge command logs `locked` or `free`, then
-  /// `store` or `network` for its object, and passes the pointer through; `clean` passes it through as well
+  /// `store`, `excluded` (not in the store, and `-c lfs.fetchexclude` of its git downloads nothing) or `network` for its
+  /// object, and passes the pointer through; `clean` passes it through as well
   fn new(repo: &TestRepo) -> Self {
     Self::with_store(repo, "lfs")
   }
@@ -50,7 +51,7 @@ impl Lfs {
     let object_of = |oid: &str| format!("'{objects_text}'/$(printf %s \"{oid}\" | cut -c1-2)/$(printf %s \"{oid}\" | cut -c3-4)/{oid}");
     let smudge = directory.path().join("smudge");
     let script = format!(
-      "#!/bin/sh\npointer=$(cat)\noid=$(printf '%s\\n' \"$pointer\" | sed -n 's/^oid sha256://p')\nobject={}\nif [ -f '{holder_text}' ]; then state=locked; else state=free; fi\nif [ -f \"$object\" ]; then from=store; else from=network; fi\necho \"$state $from\" >> '{}'\nprintf '%s\\n' \"$pointer\"\n",
+      "#!/bin/sh\npointer=$(cat)\noid=$(printf '%s\\n' \"$pointer\" | sed -n 's/^oid sha256://p')\nobject={}\nif [ -f '{holder_text}' ]; then state=locked; else state=free; fi\nif [ -f \"$object\" ]; then from=store; else case \"$GIT_CONFIG_PARAMETERS\" in *lfs.fetchexclude*) from=excluded;; *) from=network;; esac; fi\necho \"$state $from\" >> '{}'\nprintf '%s\\n' \"$pointer\"\n",
       object_of("$oid"),
       log.display()
     );
@@ -273,8 +274,8 @@ fn a_move_whose_objects_are_stored_fetches_nothing_and_a_failed_fetch_moves_noth
 }
 
 /// A repository that lives on the pointers of what Git LFS can not download (`lfs.skipdownloaderrors`) moves when the
-/// fetch before the lock failed: its smudge writes the pointers as the repository asks, and tries the object once more
-/// under the lock
+/// fetch before the lock failed: the move under the lock downloads nothing (`-c lfs.fetchexclude=*` of its
+/// `read-tree`), its smudge writes the pointer as the repository asks, with no network
 #[test_log::test]
 fn a_repository_that_skips_download_errors_moves_when_the_fetch_failed() {
   let _hermetic = HermeticGit::new();
@@ -282,6 +283,14 @@ fn a_repository_that_skips_download_errors_moves_when_the_fetch_failed() {
   append_config(repo.path(), &[("lfs.skipdownloaderrors", "true")]);
   lfs.run(&["drop", &commit]);
   assert_eq!(lfs.wrapped.locked_runs("lfs"), [false], "{:#?}", lfs.wrapped.commands());
+  assert_eq!(lfs.smudges(), ["locked excluded"], "{:#?}", lfs.wrapped.commands());
+  let moves: Vec<_> = lfs
+    .wrapped
+    .commands()
+    .into_iter()
+    .filter(|(_, args)| args.contains("read-tree -m -u --no-recurse-submodules"))
+    .collect();
+  assert!(moves.iter().all(|(locked, args)| *locked && args.contains("-c lfs.fetchexclude=* read-tree")), "{moves:#?}");
   assert_eq!(model(&repo), pointer(1));
 }
 
@@ -291,6 +300,39 @@ fn a_repository_that_skips_download_errors_moves_when_the_fetch_failed() {
 #[test_log::test]
 fn a_session_start_and_its_continue_fetch_the_objects_of_git_lfs_before_the_lock() {
   let _hermetic = HermeticGit::new();
+  let (_upstream, clone, upstream_tip, lfs) = an_update_that_conflicts_beside_the_model();
+  lfs.fetchable(2);
+  let round = lfs.run_exiting(&["update", "--no-fetch"], 1);
+  assert_eq!(round["state"], json!("conflict"), "{round}");
+  lfs.assert_fetched_before_the_lock_at(&upstream_tip, 2);
+  assert_eq!(lfs.smudges(), Vec::<String>::new(), "a round moves no file");
+
+  lfs.forget(2);
+  lfs.fetchable(2);
+  let done = continue_the_session(&lfs, &round);
+  lfs.assert_fetched_before_the_lock_at(&upstream_tip, 2);
+  assert_eq!(lfs.smudges(), ["locked store"], "{:#?}", lfs.wrapped.commands());
+  assert_eq!(model(&clone), pointer(2), "{done}");
+}
+
+/// The finish of a resolve session of a repository that skips download errors, whose fetch before the lock failed,
+/// downloads nothing under the lock either, though it moves to the commit it replays, not to the upstream tip the fetch
+/// read: its smudge writes the pointer
+#[test_log::test]
+fn a_session_of_a_repository_that_skips_download_errors_finishes_without_the_network() {
+  let _hermetic = HermeticGit::new();
+  let (_upstream, clone, _, lfs) = an_update_that_conflicts_beside_the_model();
+  append_config(clone.path(), &[("lfs.skipdownloaderrors", "true")]);
+  let round = lfs.run_exiting(&["update", "--no-fetch"], 1);
+  let done = continue_the_session(&lfs, &round);
+  assert_eq!(lfs.wrapped.locked_runs("lfs"), [false], "{:#?}", lfs.wrapped.commands());
+  assert_eq!(lfs.smudges(), ["locked excluded"], "{:#?}", lfs.wrapped.commands());
+  assert_eq!(model(&clone), pointer(2), "{done}");
+}
+
+/// A clone whose own commit conflicts with the upstream's on `shared.txt`, the upstream tip (the third) changing the
+/// model from `1`, which the store has, to `2`
+fn an_update_that_conflicts_beside_the_model() -> (TestRepo, TestRepo, String, Lfs) {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[ATTRIBUTES, ("model.bin", &pointer(1)), ("shared.txt", "one\ntwo\nthree\n")]);
   clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
   let upstream_tip = upstream.create_commit_with_files(
@@ -300,27 +342,21 @@ fn a_session_start_and_its_continue_fetch_the_objects_of_git_lfs_before_the_lock
   clone.git(&["fetch", "-q", "origin"]);
   let lfs = Lfs::new(&clone);
   lfs.store(1);
+  (upstream, clone, upstream_tip, lfs)
+}
 
-  lfs.fetchable(2);
-  let round = lfs.run_exiting(&["update", "--no-fetch"], 1);
-  assert_eq!(round["state"], json!("conflict"), "{round}");
-  lfs.assert_fetched_before_the_lock_at(&upstream_tip, 2);
-  assert_eq!(lfs.smudges(), Vec::<String>::new(), "a round moves no file");
-
-  lfs.forget(2);
-  lfs.fetchable(2);
+/// `brd update --continue` of the session that `round` started, its conflict resolved; it finishes
+fn continue_the_session(lfs: &Lfs, round: &Value) -> Value {
   let file = round["session"]["files"]
     .as_array()
-    .unwrap()
+    .unwrap_or_else(|| panic!("no session: {round}"))
     .iter()
     .find(|file| file["path"] == json!("shared.txt"))
     .unwrap();
   std::fs::write(file["edit"].as_str().unwrap(), "one\ntheirs and mine\nthree\n").unwrap();
   let done = lfs.run(&["update", "--continue", "--round", "1"]);
   assert_eq!(done["state"], json!("rebase"), "{done}");
-  lfs.assert_fetched_before_the_lock_at(&upstream_tip, 2);
-  assert_eq!(lfs.smudges(), ["locked store"], "{:#?}", lfs.wrapped.commands());
-  assert_eq!(model(&clone), pointer(2));
+  done
 }
 
 /// A store that `lfs.storage` keeps away from `$GIT_COMMON_DIR/lfs` is checked where the config that brd reads anyway

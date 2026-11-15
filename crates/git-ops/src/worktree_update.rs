@@ -53,11 +53,19 @@ pub(crate) fn prepare_worktree_update(git_executor: &GitCommandExecutor, repo_pa
 /// (HEAD's tree now; for an undo, the tree before the update). Must follow a passed `dry_run_worktree_update`,
 /// `prepare_worktree_update` and the branch move: git checks every path again before it writes any file, so a file
 /// changed since the dry run fails the update with nothing written. A lock of another process waits (`IndexLock::retry`).
-/// `read-tree -u` records the stat data of every file it writes, so no refresh follows it
+/// `read-tree -u` records the stat data of every file it writes, so no refresh follows it. Where the fetch of the objects
+/// of Git LFS before the lock failed and the repository skips download errors (`lfs::downloads_held_back`), with
+/// `-c lfs.fetchexclude=*`: its smudge filter downloads nothing under the lock
 #[instrument(skip(git_executor, lock))]
 pub(crate) fn apply_worktree_update(git_executor: &GitCommandExecutor, repo_path: &str, old_tree: &str, new_tree: &str, lock: &IndexLock<'_>) -> Result<()> {
+  let read_tree = ["read-tree", "-m", "-u", "--no-recurse-submodules", old_tree, new_tree];
+  let args: Vec<&str> = if crate::lfs::downloads_held_back(repo_path, old_tree) {
+    ["-c", "lfs.fetchexclude=*"].into_iter().chain(read_tree).collect()
+  } else {
+    read_tree.to_vec()
+  };
   lock.retry(INDEX_LOCK_WAIT, || {
-    let (output, exit_code) = git_executor.execute_command_with_status(&["read-tree", "-m", "-u", "--no-recurse-submodules", old_tree, new_tree], repo_path)?;
+    let (output, exit_code) = git_executor.execute_command_with_status(&args, repo_path)?;
     if exit_code != 0 {
       bail!("{output}");
     }
