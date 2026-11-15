@@ -209,10 +209,10 @@ export interface DiffViewHandle {
   /**
    * Shows the next (1) or previous (-1) block of changed lines, from the last one shown in the file at the top; into
    * the next file at the end of one. Collapsed files, and with `accept` the files it refuses, are skipped. While the
-   * view has shown no block and no scroll told the file at its top, it starts from the top of `from`, the file the
-   * reader is at (the file the tree selects: a filter that shows more files above it keeps it), else from the first
-   * file. Returns the file it shows and the key of its section; undefined, and nothing moves, when no block is left in
-   * that direction
+   * view has shown no block and no scroll told the file at its top, it starts from the top of `from`, the section the
+   * reader is at by its key (the section of the row the tree selects: a filter that shows more files above it keeps
+   * it; a path names the first section of its file), else from the first file. Returns the file it shows and the key of
+   * its section; undefined, and nothing moves, when no block is left in that direction
    */
   moveChange: (direction: 1 | -1, accept?: (path: string) => boolean, from?: string | null) => { path: string; key: string } | undefined
   /**
@@ -1827,7 +1827,7 @@ export function DiffView({
     },
     moveChange: (direction, accept, from) => {
       const order = prepared.map(file => file.key)
-      const fromKey = from == null ? undefined : prepared.find(file => file.path === from)?.key
+      const fromKey = from == null ? undefined : order.includes(from) ? from : prepared.find(file => file.path === from)?.key
       const start = changeCursor.current ?? { key: visibleKey.current ?? fromKey ?? order[0] ?? "", index: -1 }
       let fileIndex = order.indexOf(start.key)
       let index = start.index + direction
