@@ -444,44 +444,51 @@ test.describe("The boxes of the observed elements", () => {
   })
 })
 
+/** A change of the room of the repository path around a loop told to the page */
+type RoomChange = "none" | "resized before" | "resized after" | "removed after"
+
 /**
- * What the page weighs a loop the engine reports as, at the device scale and the zoom of the test: the event of a loop
- * told to the page (WebKit reports no loop of a constructed page), the elements of its observers laid out by the engine.
- * The room of the repository path, which an observer of the app observes, is a scroller whose bar takes room and whose
- * sizes are fractions of a pixel, which the arithmetic of the computed style lays out otherwise than the engine does
- * (src/lib/laid-out.ts): unchanged, it leaves a loop the library's; resized before its report, the page's
+ * The room of the repository path, which an observer of the app observes, made a scroller whose bar takes room and whose
+ * sizes are fractions of a pixel, at the device scale of the test and `zoom`: the arithmetic of the computed style lays
+ * it out otherwise than the engine does (src/lib/laid-out.ts). `loop` tells the page of a loop (WebKit reports none of a
+ * constructed page) with a change of the room around it; `lines` are the warnings and the errors of the loops the page
+ * logged, not the marks of the log of the app
  */
-async function weighLoopsOfTheRoom(page: Page, setupRepo: (template: string) => Promise<unknown>, zoom: string | null): Promise<void> {
+async function roomForLoops(page: Page, setupRepo: (template: string) => Promise<unknown>, zoom: string | null) {
   allowErrorLog(page, /^The trace of a ResizeObserver loop/, "the trace of the observers (E2E_RO_TRACE) logs each loop this test tells the page of")
   const lines: string[] = []
   page.on("console", message => {
-    // the warning and the error lines of the page, not the marks of the log of the app
     if (message.type() !== "info" && message.text().includes("ResizeObserver loop")) {
       lines.push(`${message.type()}: ${message.text()}`)
     }
   })
   await setupRepo("issue_links")
   await expect(page.getByTestId("repository-path")).toBeVisible()
-  const loop = (resize: boolean) =>
+  const loop = (change: RoomChange) =>
     page.evaluate(
-      async ({ zoom, resize }) => {
-        const room = document.querySelector<HTMLElement>("[data-testid=repository-path]")!.parentElement!
-        if (!room.hasAttribute("data-loop-room")) {
-          // the next rendering update, by the first report of an observer made for it, and the task after it: an
-          // observation made in the update, no deeper than its report, would be one the update skips
-          const block = document.createElement("div")
+      async ({ zoom, change }) => {
+        const room = document.querySelector<HTMLElement>("[data-loop-room]") ?? document.querySelector<HTMLElement>("[data-testid=repository-path]")!.parentElement!
+        // the next rendering update, by the first report of an observer made for it, and the task after it: an
+        // observation made in the update, no deeper than its report, would be one the update skips
+        let block = document.querySelector<HTMLElement>("[data-loop-update]")
+        if (block === null) {
+          block = document.createElement("div")
+          block.setAttribute("data-loop-update", "")
           block.style.cssText = "position: fixed; left: 0; top: 0; width: 1px; height: 1px"
           document.body.append(block)
-          const nextUpdate = () =>
-            new Promise<void>(resolve => {
-              const observer = new ResizeObserver(() => {
-                observer.disconnect()
-                const channel = new MessageChannel()
-                channel.port1.onmessage = () => resolve()
-                channel.port2.postMessage(null)
-              })
-              observer.observe(block)
+        }
+        const observed = block
+        const nextUpdate = () =>
+          new Promise<void>(resolve => {
+            const observer = new ResizeObserver(() => {
+              observer.disconnect()
+              const channel = new MessageChannel()
+              channel.port1.onmessage = () => resolve()
+              channel.port2.postMessage(null)
             })
+            observer.observe(observed)
+          })
+        if (!room.hasAttribute("data-loop-room")) {
           const sheet = new CSSStyleSheet()
           sheet.replaceSync(
             `${zoom === null ? "" : `html { zoom: ${zoom}; }`}
@@ -496,22 +503,40 @@ async function weighLoopsOfTheRoom(page: Page, setupRepo: (template: string) => 
             await nextUpdate()
           }
         }
-        if (resize) {
+        if (change === "resized before") {
           room.style.flexBasis = "280.5px"
         }
         window.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop completed with undelivered notifications.", error: null }))
+        if (change === "resized after") {
+          // a render in the task of the loop, before the next update: the boxes of that update say nothing of the loop
+          room.style.flexBasis = "280.5px"
+        } else if (change === "removed after") {
+          // a remount: the room out of the page in the next update, back after it
+          const parent = room.parentElement!
+          const next = room.nextSibling
+          room.remove()
+          await nextUpdate()
+          parent.insertBefore(room, next)
+        }
       },
-      { zoom, resize },
+      { zoom, change },
     )
-  // unchanged: a loop of a library alone, a warning of the page
-  await loop(false)
-  await expect.poll(() => lines).toEqual(["warning: ResizeObserver loop completed with undelivered notifications."])
-  // resized after its report: a loop that left it pending, an error of the page
+  return { lines, loop }
+}
+
+const LIBRARY_LOOP = "warning: ResizeObserver loop completed with undelivered notifications."
+
+/**
+ * What the page weighs a loop as at the device scale and the zoom of the test: the room unchanged leaves it the
+ * library's, a warning; resized before its report, the page's, an error
+ */
+async function weighLoopsOfTheRoom(page: Page, setupRepo: (template: string) => Promise<unknown>, zoom: string | null): Promise<void> {
+  const { lines, loop } = await roomForLoops(page, setupRepo, zoom)
+  await loop("none")
+  await expect.poll(() => lines).toEqual([LIBRARY_LOOP])
   expectErrorLog(page, /^A ResizeObserver loop of an observer of the page: left span pending$/)
-  await loop(true)
-  await expect
-    .poll(() => lines)
-    .toEqual(["warning: ResizeObserver loop completed with undelivered notifications.", "error: A ResizeObserver loop of an observer of the page left span pending"])
+  await loop("resized before")
+  await expect.poll(() => lines).toEqual([LIBRARY_LOOP, "error: A ResizeObserver loop of an observer of the page left span pending"])
 }
 
 test.describe("A loop at a device scale of 125%", () => {
@@ -536,5 +561,20 @@ test.describe("A loop at a zoom of 110%", () => {
   // the zoom of the app is the page zoom of the webview, which WebKit lays out as a zoom of the root
   test("should take a loop for a library's when the engine lays an element of the app out as reported, at a zoom of 110% @webkit", async ({ page, setupRepo }) => {
     await weighLoopsOfTheRoom(page, setupRepo, "1.1")
+  })
+
+  // the arithmetic proposes the room, laid out as reported; a render after the loop resizes it before the next update,
+  // or a remount takes it out of the page: the engine's boxes of that update say nothing of the loop, which stays the
+  // library's (a pending element that changed again so is no error either, the rarer and the safer way)
+  test("should take a loop for a library's when a task resizes an element of the app after it, at a zoom of 110% @webkit", async ({ page, setupRepo }) => {
+    const { lines, loop } = await roomForLoops(page, setupRepo, "1.1")
+    await loop("resized after")
+    await expect.poll(() => lines).toEqual([LIBRARY_LOOP])
+  })
+
+  test("should take a loop for a library's when an element of the app leaves the page after it until the next update, at a zoom of 110% @webkit", async ({ page, setupRepo }) => {
+    const { lines, loop } = await roomForLoops(page, setupRepo, "1.1")
+    await loop("removed after")
+    await expect.poll(() => lines).toEqual([LIBRARY_LOOP])
   })
 })

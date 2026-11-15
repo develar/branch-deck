@@ -38,7 +38,10 @@
  *   observation observes, the content box unless the border box, by the engine's own boxes from the report of an
  *   observer made as this module loads, before the others (`probe`), in the next update; the computed style proposes
  *   them (src/lib/laid-out.ts: a scroll bar that takes room is in the border box, not in the content box), exact only at
- *   a zoom of 100%, and in WebKit at a whole scale. An element
+ *   a zoom of 100%, and in WebKit at a whole scale. One that changed or left the page between the loop and that update is
+ *   told nothing of. The probe observes the root as well, so it reports in that update: its report lowers the depth the
+ *   update takes its next iteration from to the root's, so a loop of a library in every frame is one in every other while
+ *   candidates wait, and this module lets go more than that update skips, at the cost of a report. An element
  *   observed again in a delivery leaves the engine as its new observation waits, so a change does not leave its old
  *   observation to skip.
  *
@@ -422,6 +425,8 @@ function nextTask(run: () => void): void {
 interface Candidate {
   readonly element: Element
   readonly observations: readonly { readonly box: keyof Boxes; readonly reported: Boxes | null }[]
+  /** Its layout at the loop: one that a task resized or removed before the probe reported is told nothing of */
+  readonly layout: Layout | null
 }
 
 /** The loops that wait for the report of the probe, each with its candidates, in the order the engine reported them */
@@ -430,8 +435,10 @@ const probing: { readonly candidates: readonly Candidate[]; readonly verdict: (p
 /**
  * At a loop the engine reports: the elements of ours it left pending, resized since their report or observed with a size
  * and never reported. Their candidates are those the arithmetic lays out otherwise than reported (`laidOutBoxes`), exact
- * at a zoom of 100%; the engine's own boxes decide, from the report of the probe in the next update. A candidate that a
- * task resized between the loop and that update counts as pending, which at a zoom of 100% only one that was pending can
+ * at a zoom of 100%; the engine's own boxes decide, from the report of the probe in the next update. A candidate that
+ * changed between the loop and that update (a render of a task, a frame callback, a transition, a remount) is told
+ * nothing of: its boxes then say nothing of the loop. So a pending one that changed again is no error of the page, rarer
+ * and safer than an error of one that was not pending
  */
 function attributeLoop(verdict: (pending: readonly string[]) => void): void {
   const candidates: Candidate[] = []
@@ -440,7 +447,7 @@ function attributeLoop(verdict: (pending: readonly string[]) => void): void {
     for (const element of observer.pending()) {
       if (!seen.has(element)) {
         seen.add(element)
-        candidates.push({ element, observations: [...(observing.get(element) ?? [])].map(of => of.observationOf(element)) })
+        candidates.push({ element, observations: [...(observing.get(element) ?? [])].map(of => of.observationOf(element)), layout: layoutOf(element) })
       }
     }
   }
@@ -450,7 +457,10 @@ function attributeLoop(verdict: (pending: readonly string[]) => void): void {
   }
   // a loop after one that waits waits as well, so the page weighs the loops in their order
   probing.push({ candidates, verdict })
-  // the root, reported in every update: the probe reports even when every candidate has no box
+  // the root, reported in every update: the probe reports even when every candidate has no box. Its report, the first of
+  // that update, lowers the depth the update takes the next iteration from to the root's, so a loop of a library in
+  // every frame is one in every other while candidates wait (three in five seconds are still an error), and this module,
+  // which reads no depth of the probe, lets go more than the update would skip, which costs it a report
   probe.observe(document.documentElement)
   for (const { element } of candidates) {
     // both boxes come in every entry; the border box observed is reported first unless the element has none
@@ -458,13 +468,20 @@ function attributeLoop(verdict: (pending: readonly string[]) => void): void {
   }
 }
 
-/** The report of the probe in the update after a loop: each candidate pending as the engine lays it out; one it does not report has no box */
+/**
+ * The report of the probe in the update after a loop: each candidate pending as the engine lays it out, one it does not
+ * report has no box; one laid out otherwise than at the loop, or no longer in the page, is told nothing of
+ */
 function probed(entries: readonly ResizeObserverEntry[]): void {
   const boxes = new Map(entries.map(entry => [entry.target, boxesOfEntry(entry)]))
   probe?.disconnect()
   const none = { content: { inline: 0, block: 0 }, border: { inline: 0, block: 0 } }
   for (const { candidates, verdict } of probing.splice(0)) {
-    const pending = candidates.filter(({ element, observations }) => {
+    const pending = candidates.filter(({ element, observations, layout }) => {
+      const later = layoutOf(element)
+      if (layout !== null && (later === null || observations.some(({ box }) => !sameBoxOf(layout, later, box)))) {
+        return false
+      }
       const now = boxes.get(element) ?? none
       return observations.some(({ box, reported }) => (reported === null ? now[box].inline > 0 || now[box].block > 0 : !sameBox(reported[box], now[box])))
     })

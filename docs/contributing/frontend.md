@@ -208,7 +208,12 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   loop that left an element of ours pending is an error at once, so every E2E test fails on one. Its elements are told
   by the engine's own boxes: the computed style proposes the candidates, laid out otherwise than reported (exact at a
   zoom of 100%, up to 1.5 px off at another in WebKit), and an observer made first of all observes them at the loop,
-  its report in the next update the verdict, by which the page weighs the loop at its own time. The page cancels the
+  its report in the next update the verdict, by which the page weighs the loop at its own time. A candidate that
+  changed or left the page before that update (a render of a task, a frame callback, a transition, a remount) is told
+  nothing of, so a pending one that changed again is no error, rarer and safer than a false one. The probe observes
+  the root too, to report in that update even when no candidate has a box: its report lowers the depth that update
+  takes its next iteration from to the root's, so a library's loop in every frame comes in every other while candidates
+  wait (still 3 within 5 s), and `observeSize` lets go more than the update skips, which costs a report. The page cancels the
   engine's event of a loop, so no console reports it as uncaught; each kind of line
   comes once in 10 s at most, with the count it left out (`LOOP_LOG_MS`; `src/lib/page-errors.ts`, the thresholds of
   `src/lib/resize-loops.ts`). The WebKit check `tests/e2e/resize-loops/` names the elements of a library's loop in its

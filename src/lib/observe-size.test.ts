@@ -10,7 +10,8 @@ const sizes = new Map<object, { width: number; height: number; padding?: number;
 interface FakeNode {
   readonly parentNode: FakeNode | null
   readonly nodeType: number
-  readonly isConnected: boolean
+  /** In the page; a test removes an element by setting it false */
+  isConnected: boolean
   readonly tagName: string
   getAttribute(name: string): string | null
   contains(other: FakeNode): boolean
@@ -78,10 +79,13 @@ class FakeResizeObserver {
     this.observed.clear()
   }
 
-  /** The first report of what it observes, as the next rendering update gives it: the targets the box observed of is not empty */
+  /** The first report of what it observes, as the next rendering update gives it: the targets in the page the box observed of is not empty */
   reportObserved(): void {
     this.report(
       ...[...this.observed].filter(target => {
+        if (!(target as unknown as FakeNode).isConnected) {
+          return false
+        }
         const { width = 0, padding = 0 } = sizes.get(target) ?? {}
         return (this.boxes.get(target) === "border-box" ? width : width - 2 * padding) > 0
       }),
@@ -925,6 +929,32 @@ describe("observeSize", () => {
     FakeResizeObserver.all[0]!.report(item.element)
     resize(item.element, 100, 20, 4)
     expect(await loopNow()).toEqual([])
+  })
+
+  it("tells nothing at a loop of an element a task resized before the probe reported, pending or not", async () => {
+    // at a zoom of the app the arithmetic proposes elements laid out as reported; a render of a task before the next
+    // update resizes one: the engine's boxes then say nothing of the loop, and an error of the page would be false
+    const { loopOfOurs } = await import("@/lib/resize-loops")
+    const panel = await reportedPanel(0.4)
+    const told: (readonly string[])[] = []
+    loopOfOurs(pending => told.push(pending))
+    resize(panel.element, 90, 20)
+    FakeResizeObserver.probe!.reportObserved()
+    // one pending at the loop, resized again before the update: no error either, the rarer and the safer way
+    loopOfOurs(pending => told.push(pending))
+    resize(panel.element, 80, 20)
+    FakeResizeObserver.probe!.reportObserved()
+    expect(told).toEqual([[], []])
+  })
+
+  it("tells nothing at a loop of an element that left the page before the probe reported, as in a remount", async () => {
+    const { loopOfOurs } = await import("@/lib/resize-loops")
+    const panel = await reportedPanel(0.4)
+    const told: (readonly string[])[] = []
+    loopOfOurs(pending => told.push(pending))
+    ;(panel.element as unknown as FakeNode).isConnected = false
+    FakeResizeObserver.probe!.reportObserved()
+    expect(told).toEqual([[]])
   })
 
   it("names an element of ours at a loop that has no box any more, which the probe does not report", async () => {
