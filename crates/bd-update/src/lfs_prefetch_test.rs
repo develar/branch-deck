@@ -9,6 +9,7 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use tempfile::TempDir;
+use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::{TestRepo, TestWorktree, append_config};
 use test_utils::history::HistoryCommit;
 
@@ -122,6 +123,22 @@ fn undo_token(output: &Value) -> String {
   output["undo_token"].as_str().unwrap_or_else(|| panic!("no undo token: {output}")).to_string()
 }
 
+/// No system config and an empty global one for every git of the test, the fixtures' and brd's: the filter of a
+/// `git lfs install` of the developer or of the runner (`filter.lfs.required=true`, the real smudge) stays out, and only
+/// the fake filter of `Lfs` is configured
+struct Hermetic {
+  _vars: EnvVars,
+  _global: tempfile::NamedTempFile,
+}
+
+impl Hermetic {
+  fn new() -> Self {
+    let global = tempfile::NamedTempFile::new().unwrap();
+    let vars = EnvVars::set(&[("GIT_CONFIG_NOSYSTEM", "1".as_ref()), ("GIT_CONFIG_GLOBAL", global.path().as_os_str())]);
+    Self { _vars: vars, _global: global }
+  }
+}
+
 /// A repository whose baseline has the model `1` and whose branch `feature` changes it to `2`, the store with `2`
 fn feature_changes_the_model() -> (TestRepo, Lfs, String) {
   let (repo, ids) = repo_on_baseline(
@@ -137,6 +154,7 @@ fn feature_changes_the_model() -> (TestRepo, Lfs, String) {
 /// Update Project fetches the objects of the upstream's files before its lock, and so does its undo
 #[test_log::test]
 fn an_update_and_its_undo_fetch_the_objects_of_git_lfs_before_the_lock() {
+  let _hermetic = Hermetic::new();
   let (upstream, clone) = TestRepo::upstream_and_clone(&[ATTRIBUTES, ("model.bin", &pointer(1))]);
   upstream.create_commit("Change the model", "model.bin", &pointer(2));
   clone.git(&["fetch", "-q", "origin"]);
@@ -159,6 +177,7 @@ fn an_update_and_its_undo_fetch_the_objects_of_git_lfs_before_the_lock() {
 /// An unapply fetches the objects of the files it brings back before its lock, and so does the reapply
 #[test_log::test]
 fn an_unapply_and_a_reapply_fetch_the_objects_of_git_lfs_before_the_lock() {
+  let _hermetic = Hermetic::new();
   let (repo, lfs, _) = feature_changes_the_model();
   // an unapply takes the commits of the virtual branch a sync built
   lfs.run(&["sync"]);
@@ -177,6 +196,7 @@ fn an_unapply_and_a_reapply_fetch_the_objects_of_git_lfs_before_the_lock() {
 /// A drop fetches the objects of the files it brings back before its lock, and so does its undo
 #[test_log::test]
 fn a_drop_and_its_undo_fetch_the_objects_of_git_lfs_before_the_lock() {
+  let _hermetic = Hermetic::new();
   let (repo, lfs, commit) = feature_changes_the_model();
   lfs.fetchable(1);
   let dropped = lfs.run(&["drop", &commit]);
@@ -193,6 +213,7 @@ fn a_drop_and_its_undo_fetch_the_objects_of_git_lfs_before_the_lock() {
 /// A pick fetches the objects of the files it brings before its lock, and so does its undo
 #[test_log::test]
 fn a_pick_and_its_undo_fetch_the_objects_of_git_lfs_before_the_lock() {
+  let _hermetic = Hermetic::new();
   let (repo, _) = repo_on_baseline(&[ATTRIBUTES, ("model.bin", &pointer(1))], &[], ".");
   let lane = TestWorktree::detached(&repo);
   lane.commit("(lane) Change the model", "model.bin", &pointer(2));
@@ -215,6 +236,7 @@ fn a_pick_and_its_undo_fetch_the_objects_of_git_lfs_before_the_lock() {
 /// Objects the store has are fetched for no move, and a fetch that fails fails the move before its lock: nothing moved
 #[test_log::test]
 fn a_move_whose_objects_are_stored_fetches_nothing_and_a_failed_fetch_moves_nothing() {
+  let _hermetic = Hermetic::new();
   let (repo, lfs, commit) = feature_changes_the_model();
   let head = repo.head();
   // the fetch of the arm reads `fetchable`, which the test never wrote: the fetch fails
@@ -241,6 +263,7 @@ fn a_move_whose_objects_are_stored_fetches_nothing_and_a_failed_fetch_moves_noth
 /// under the lock
 #[test_log::test]
 fn a_repository_that_skips_download_errors_moves_when_the_fetch_failed() {
+  let _hermetic = Hermetic::new();
   let (repo, lfs, commit) = feature_changes_the_model();
   append_config(repo.path(), &[("lfs.skipdownloaderrors", "true")]);
   lfs.run(&["drop", &commit]);
