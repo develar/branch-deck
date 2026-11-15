@@ -10,6 +10,7 @@ pub mod fake_server;
 pub mod git_in_directory;
 pub mod git_test_utils;
 pub mod held_upload_pack;
+pub mod hermetic_git;
 pub mod history;
 pub mod links;
 #[cfg(unix)]

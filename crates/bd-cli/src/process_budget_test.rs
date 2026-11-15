@@ -48,6 +48,7 @@ use std::collections::BTreeMap;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_utils::fake_executable::fake_executable;
 use test_utils::git_test_utils::{TestRepo, TestWorktree, append_config};
+use test_utils::hermetic_git::HermeticGit;
 use test_utils::process_budget::{FIRST_SYNC, assert_signed_commits, with_added_processes, with_process_deltas};
 
 /// The context `brd --prefix test-user` resolves in `repo`; its executor counts every process of the command
@@ -1922,6 +1923,7 @@ fn a_lease_get_that_waited_for_the_clones_lock() {
 /// pointers (`-c` options, no process), and one `git lfs pull` after the clones lock; a fake `git lfs` answers it
 #[test]
 fn a_lease_get_of_a_new_slot_with_files_of_git_lfs() {
+  let _hermetic = HermeticGit::new();
   let repo = repo_with_branches();
   append_config(repo.path(), &[("filter.lfs.smudge", "cat"), ("filter.lfs.clean", "cat")]);
   std::fs::create_dir_all(repo.path().join(".git").join("lfs").join("objects")).unwrap();

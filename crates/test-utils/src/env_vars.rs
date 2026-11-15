@@ -10,7 +10,20 @@ pub struct EnvVars {
 
 impl EnvVars {
   pub fn set<V: AsRef<OsStr>>(vars: &[(&str, V)]) -> Self {
-    let previous = vars.iter().map(|(name, _)| ((*name).to_string(), std::env::var_os(name))).collect();
+    Self::set_and_remove(vars, &[])
+  }
+
+  /// Sets `vars` and removes `removed` until the guard drops, then restores the values they had
+  pub fn set_and_remove<V: AsRef<OsStr>>(vars: &[(&str, V)], removed: &[String]) -> Self {
+    let previous = vars
+      .iter()
+      .map(|(name, _)| *name)
+      .chain(removed.iter().map(String::as_str))
+      .map(|name| (name.to_string(), std::env::var_os(name)))
+      .collect();
+    for name in removed {
+      write(name, None);
+    }
     for (name, value) in vars {
       write(name, Some(value.as_ref()));
     }

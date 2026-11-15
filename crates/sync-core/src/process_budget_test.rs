@@ -36,9 +36,9 @@ use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
-use test_utils::env_vars::EnvVars;
 use test_utils::fake_executable::{executor_of_fake_git, fake_executable};
 use test_utils::git_test_utils::{TestRepo, append_config, stack_ahead_of_bare_origin};
+use test_utils::hermetic_git::HermeticGit;
 use test_utils::process_budget::{
   FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, processes, repo_on_origin, with_added_processes,
 };
@@ -737,8 +737,7 @@ fn lfs_pointer(n: u8) -> (String, String) {
 /// (`None`: no store, a repository without LFS). Its git answers `git lfs fetch` without a remote
 fn processes_of_a_drop_of_a_file_of_git_lfs(store: Option<&[u8]>) -> Vec<(String, u32)> {
   // the filter of a `git lfs install` stays out: Git for Windows configures `git-lfs filter-process` in its system config
-  let global = tempfile::NamedTempFile::new().unwrap();
-  let _isolated = EnvVars::set(&[("GIT_CONFIG_NOSYSTEM", "1".as_ref()), ("GIT_CONFIG_GLOBAL", global.path().as_os_str())]);
+  let _hermetic = HermeticGit::new();
   let repo = repo_on_origin();
   repo.create_commit_with_files("Add the model", &[(".gitattributes", "*.bin filter=lfs\n"), ("model.bin", &lfs_pointer(1).0)]);
   let beta = repo.create_commit("(beta) Change the model", "model.bin", &lfs_pointer(2).0);

@@ -15,9 +15,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tempfile::TempDir;
-use test_utils::env_vars::EnvVars;
 use test_utils::fake_executable::{fake_executable, shell_path};
 use test_utils::git_test_utils::append_config;
+use test_utils::hermetic_git::HermeticGit;
 
 /// The blob of the file of Git LFS, as the commit holds it: what the checkout of a new slot writes
 const POINTER: &str = "the pointer of the model\n";
@@ -30,15 +30,15 @@ struct LfsPool {
   fixture: Fixture,
   directory: TempDir,
   git: PathBuf,
-  _isolated: EnvVars,
+  _hermetic: HermeticGit,
 }
 
 impl LfsPool {
   fn new() -> Self {
-    let fixture = Fixture::new();
     // the filter of a `git lfs install` of the developer or of the runner stays out of every git of the test: brd's
     // reads the global config of the fixture already
-    let isolated = EnvVars::set(&[("GIT_CONFIG_NOSYSTEM", "1".as_ref()), ("GIT_CONFIG_GLOBAL", fixture.global_config.path().as_os_str())]);
+    let hermetic = HermeticGit::new();
+    let fixture = Fixture::new();
     let repo = &fixture.repo;
     let directory = tempfile::tempdir().unwrap();
     let log = shell_path(&directory.path().join("log"));
@@ -64,7 +64,7 @@ impl LfsPool {
       fixture,
       directory,
       git,
-      _isolated: isolated,
+      _hermetic: hermetic,
     }
   }
 

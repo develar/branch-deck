@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use test_utils::env_vars::EnvVars;
 use test_utils::fake_executable::{executor_of_fake_git, fake_executable};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::hermetic_git::HermeticGit;
 
 /// A repository whose local config a test writes, with no system config and an empty global one: the filter of a
 /// `git lfs install` of the developer or of the runner stays out
@@ -13,14 +14,12 @@ struct IsolatedConfig {
   repo: TestRepo,
   config: PathBuf,
   local: String,
-  _isolated: EnvVars,
-  _global: tempfile::NamedTempFile,
+  _hermetic: HermeticGit,
 }
 
 impl IsolatedConfig {
   fn new() -> Self {
-    let global = tempfile::NamedTempFile::new().unwrap();
-    let isolated = EnvVars::set(&[("GIT_CONFIG_NOSYSTEM", "1".as_ref()), ("GIT_CONFIG_GLOBAL", global.path().as_os_str())]);
+    let hermetic = HermeticGit::new();
     let repo = TestRepo::new();
     let config = repo.path().join(".git").join("config");
     let local = std::fs::read_to_string(&config).unwrap();
@@ -28,8 +27,7 @@ impl IsolatedConfig {
       repo,
       config,
       local,
-      _isolated: isolated,
-      _global: global,
+      _hermetic: hermetic,
     }
   }
 
