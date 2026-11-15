@@ -73,8 +73,9 @@ const PROFILE_TRASH: &str = ".brd-trash";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CleanRule {
   /// The units of the profile dirs under `dir` (a dir with `.cargo-lock`): `build/<package>/<hash>` and
-  /// `incremental/<crate>-<hash>` stay when they are among the `keep` newest of their group or younger than `age`; in a
-  /// kept unit the objects of rustc that no build reads go
+  /// `incremental/<crate>-<id>` stay when they are among the `keep` newest of their group or younger than `age`, an
+  /// incremental dir also while a kept unit wrote its newest session; in a kept unit the objects of rustc that no build
+  /// reads go
   Cargo { dir: String, keep: usize, age: Duration },
   /// Remove `path`, a file, a directory or a symlink; with `except`, the entries of the directory but the ones named
   Delete { path: String, except: Vec<String> },
@@ -1288,8 +1289,29 @@ struct Unit {
   /// Where the files that rustc wrote for the unit are: the files of `deps/` of the classic layout, and the dirs that
   /// hold them (`build/<package>/<hash>/out/`, a classic `build/<package>-<hash>/`)
   outputs: Vec<Output>,
+  /// The last run of rustc for the unit, as its fingerprint dir tells it
+  compiled: Option<Compiled>,
   /// A dir of `incremental/`, whose sessions hold the objects that the next build of its crate reads
-  incremental: bool,
+  incremental: Option<Session>,
+}
+
+/// The last run of rustc for a unit, as its fingerprint dir tells it: cargo writes `invoked.timestamp` before it starts
+/// rustc, and the other files of the dir once rustc ended
+#[derive(Debug, Clone, Copy)]
+struct Compiled {
+  invoked: SystemTime,
+  /// The newest mtime of a file of the fingerprint dir
+  ended: SystemTime,
+}
+
+/// A dir of `incremental/<crate>-<id>/`: rustc names it by the crate and an id of its own, not by the hash of the unit
+#[derive(Debug)]
+struct Session {
+  /// The crate of the name of the dir, which rustc compiles
+  crate_name: String,
+  /// When rustc started the newest session of the dir: the mtime of the newest `s-*.lock`, which rustc makes at the
+  /// start and leaves in place
+  started: Option<SystemTime>,
 }
 
 impl Unit {
@@ -1298,18 +1320,31 @@ impl Unit {
   }
 
   fn add(&mut self, path: PathBuf) {
-    let (built, target) = last_built(&path);
-    self.built = Some(self.built.map_or(built, |known| known.max(built)));
+    let built = last_built(&path);
+    self.built = Some(self.built.map_or(built.newest, |known| known.max(built.newest)));
     if self.target.is_none() {
-      self.target = target;
+      self.target = built.target;
+    }
+    if self.compiled.is_none() {
+      self.compiled = built.compiled;
     }
     self.paths.push(path);
   }
 
   /// Whether a build wrote the unit since it was read: the newest `last_built` of its paths moved
   fn built_again(&self) -> bool {
-    let built = self.paths.iter().map(|path| last_built(path).0).max();
+    let built = self.paths.iter().map(|path| last_built(path).newest).max();
     built != self.built
+  }
+
+  /// Whether rustc started the newest session of the incremental dir `session` while it compiled this unit, a unit of
+  /// its crate (`target_crate`): within the last run of rustc for the unit. Two units of one crate that cargo compiles
+  /// at the same time (its library and its test harness) both hold the session of each other
+  fn wrote(&self, session: &Session) -> bool {
+    let (Some(compiled), Some(started)) = (self.compiled, session.started) else {
+      return false;
+    };
+    compiled.invoked <= started && started <= compiled.ended
   }
 
   /// The group whose `keep` newest units stay: the package and the target, so each target of a package keeps its own
@@ -1416,25 +1451,80 @@ fn add_build_dir_units(units: &mut Units, build: &Path) {
   }
 }
 
-/// The units of `incremental/<crate>-<hash>/`, grouped by crate (a crate name may hold `-`); their hash is not the one
-/// of the other files, so each is a unit of its own
+/// The units of `incremental/<crate>-<id>/`, grouped by crate (a crate name may hold `-`); their id is not the hash of
+/// the other files, so each is a unit of its own
 fn add_incremental_units(units: &mut Units, incremental: &Path) {
   for dir in subdirs(incremental) {
     let name = dir.file_name().map_or_default(|name| name.to_string_lossy().into_owned());
     let crate_name = name.rfind('-').map_or(name.as_str(), |dash| &name[..dash]).replace('-', "_");
     let mut unit = Unit::new(format!("incremental {crate_name}"));
-    unit.incremental = true;
+    unit.incremental = Some(Session {
+      crate_name,
+      started: session_started(&dir),
+    });
     unit.add(dir);
     units.insert(format!("incremental/{name}"), unit);
   }
 }
 
+/// The mtime of the newest `s-*.lock` of the incremental dir `dir`: rustc makes the lock of a session when it starts it
+fn session_started(dir: &Path) -> Option<SystemTime> {
+  std::fs::read_dir(dir)
+    .ok()?
+    .flatten()
+    .filter(|entry| {
+      let name = entry.file_name();
+      let name = name.to_string_lossy();
+      name.starts_with("s-") && name.ends_with(".lock")
+    })
+    .filter_map(|entry| entry.metadata().and_then(|metadata| metadata.modified()).ok())
+    .max()
+}
+
+/// The crate that rustc compiles for the target that a fingerprint names (the kinds of cargo, after `test-` of a test
+/// build): `lib-bd_cli` and `test-lib-bd_cli` are `bd_cli`, `test-bin-test-server` is `test_server`,
+/// `build-script-build-script-build` is `build_script_build`. `None` for the run of a build script and for a doc,
+/// which run no rustc of an incremental dir
+fn target_crate(target: &str) -> Option<String> {
+  let target = target.strip_prefix("test-").unwrap_or(target);
+  let name = ["lib-", "bin-", "example-", "integration-test-", "bench-", "build-script-"]
+    .iter()
+    .find_map(|kind| target.strip_prefix(kind))?;
+  Some(name.replace('-', "_"))
+}
+
 /// The stale and the kept units of `units`: a unit stays when it is among the `keep` last built of its group
 /// (`Unit::group`) or was built after `cutoff`, since a slot builds a dozen variants an hour and age alone keeps all.
-/// The files of a unit go together
+/// An incremental dir also stays while a kept unit wrote its newest session (`Unit::wrote`): its crate has a dozen
+/// current units (the library, its check, its test harness, each of them for each set of features), so the group of
+/// its crate keeps fewer dirs than the units that read them. The files of a unit go together
 fn split_units(units: Units, keep: usize, cutoff: SystemTime) -> (Vec<Unit>, Vec<Unit>) {
+  let (sessions, compiled): (Vec<Unit>, Vec<Unit>) = units.into_values().partition(|unit| unit.incremental.is_some());
+  let (mut stale, mut kept) = split_groups(compiled, keep, cutoff);
+  let (stale_sessions, kept_sessions) = split_groups(sessions, keep, cutoff);
+  // the kept units by the crate of their target, which names the incremental dirs of the crate
+  let mut writers: HashMap<String, Vec<&Unit>> = HashMap::new();
+  for unit in &kept {
+    if let Some(name) = unit.target.as_deref().and_then(target_crate) {
+      writers.entry(name).or_default().push(unit);
+    }
+  }
+  let (written, unwritten): (Vec<Unit>, Vec<Unit>) = stale_sessions.into_iter().partition(|dir| {
+    dir
+      .incremental
+      .as_ref()
+      .is_some_and(|session| writers.get(&session.crate_name).is_some_and(|units| units.iter().any(|unit| unit.wrote(session))))
+  });
+  stale.extend(unwritten);
+  kept.extend(kept_sessions);
+  kept.extend(written);
+  (stale, kept)
+}
+
+/// The stale and the kept units of `units` by the `keep` last built of each group and `cutoff` alone
+fn split_groups(units: Vec<Unit>, keep: usize, cutoff: SystemTime) -> (Vec<Unit>, Vec<Unit>) {
   let mut groups: HashMap<String, Vec<Unit>> = HashMap::new();
-  for unit in units.into_values() {
+  for unit in units {
     groups.entry(unit.group()).or_default().push(unit);
   }
   let (mut stale, mut kept) = (Vec::new(), Vec::new());
@@ -1455,7 +1545,7 @@ fn split_units(units: Units, keep: usize, cutoff: SystemTime) -> (Vec<Unit>, Vec
 /// rebuild rewrites its fingerprint files (`build/`) or adds a session (`incremental/`), not always the directory
 /// itself, so the newest mtime of the directory and of the direct children of its `fingerprint` dir (else of itself)
 /// counts; of a file its own mtime
-fn last_built(unit: &Path) -> (SystemTime, Option<String>) {
+fn last_built(unit: &Path) -> Built {
   let modified = |path: &Path| path.symlink_metadata().and_then(|metadata| metadata.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
   let fingerprint = unit.join("fingerprint");
   // the fingerprint of the unit: `fingerprint/` of the build-dir layout, a dir of `.fingerprint/` of the classic one
@@ -1464,18 +1554,44 @@ fn last_built(unit: &Path) -> (SystemTime, Option<String>) {
   } else {
     (unit.to_path_buf(), unit.parent().and_then(Path::file_name).is_some_and(|parent| parent == ".fingerprint"))
   };
-  let mut newest = modified(unit);
-  let mut target: Option<String> = None;
+  let mut built = Built {
+    newest: modified(unit),
+    target: None,
+    compiled: None,
+  };
+  let (mut invoked, mut ended) = (None, None::<SystemTime>);
   if let Ok(entries) = std::fs::read_dir(&children) {
     for entry in entries.flatten() {
-      newest = newest.max(modified(&entry.path()));
+      let entry_modified = modified(&entry.path());
+      built.newest = built.newest.max(entry_modified);
       let name = entry.file_name().to_string_lossy().into_owned();
-      if names_target && fingerprint_target(&name) && target.as_ref().is_none_or(|known| name < *known) {
-        target = Some(name);
+      if !names_target {
+        continue;
+      }
+      if fingerprint_target(&name) && built.target.as_ref().is_none_or(|known| name < *known) {
+        built.target = Some(name.clone());
+      }
+      if name == "invoked.timestamp" {
+        invoked = Some(entry_modified);
+      }
+      if entry.file_type().is_ok_and(|file_type| !file_type.is_dir()) {
+        ended = Some(ended.map_or(entry_modified, |known| known.max(entry_modified)));
       }
     }
   }
-  (newest, target)
+  if let (Some(invoked), Some(ended)) = (invoked, ended) {
+    built.compiled = Some(Compiled { invoked, ended });
+  }
+  built
+}
+
+/// What `last_built` reads of a file or a dir of a unit
+struct Built {
+  newest: SystemTime,
+  /// The target that its fingerprint names (`fingerprint_target`)
+  target: Option<String>,
+  /// The last run of rustc that its fingerprint tells
+  compiled: Option<Compiled>,
 }
 
 /// Whether a file of a fingerprint dir names the kind and the name of the target of its unit: `lib-bd_cli`,
@@ -1530,7 +1646,7 @@ fn stale_objects(kept: &[Unit], incremental: &Path, cutoff: SystemTime) -> Vec<S
     return Vec::new();
   };
   let mut stale = Vec::new();
-  for unit in kept.iter().filter(|unit| !unit.incremental) {
+  for unit in kept.iter().filter(|unit| unit.incremental.is_none()) {
     let files = output_files(unit);
     let objects: Vec<(&OutputFile, &str)> = files
       .iter()

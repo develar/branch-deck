@@ -2833,6 +2833,17 @@ named apart from its package two units: on a probe of cargo 1.99.1 with 8 comman
 moved the files of 8 current units in `deps/` while all 30 fingerprint dirs stayed, and the 8 commands then compiled
 the package 4 times.
 
+rustc names a dir of `incremental/` by the crate and an id of its own (`fs_walk-0917nwb68p6zl`), not by the hash of
+the unit. So the rule groups such a dir by its crate, and the library, its check, its test harness and their clippy
+checks share one group of `keep`. Every build script of the workspace shares the crate `build_script_build`. A dir
+therefore also stays while a kept unit of its crate wrote its newest session (`Unit::wrote`). cargo writes
+`invoked.timestamp` before it starts rustc and the other files of the fingerprint dir once rustc ended, and rustc makes
+the lock of a session (`s-<id>.lock`) at its start. On a slot with 90 dirs and on a probe of stable cargo 1.99.1, the
+lock of every dir fell within the run of at least one unit of its crate. A library and its test harness that cargo
+compiles at the same time both hold the dir of each other, which keeps more. A dir that no kept unit wrote, as its
+unit is gone or its last compile failed, keeps the group of its crate, so the rule deletes no dir that it kept before.
+The rule does not compute the id: it is a hash internal to rustc.
+
 On macOS the dev default `split-debuginfo=unpacked` keeps the objects of rustc (`*.rcgu.o`) in `out/` of a unit, one
 set per invocation. rustc deletes the old incremental sessions, but not their objects: on 2026-11-15 a manual pass
 deleted 140,254 of them in the branch-deck slots and gave back about 110 GB. A session of `incremental/` links the

@@ -1925,10 +1925,11 @@ must not run arbitrary code.
 
 ### Requirement: Clean rules: A cargo rule prunes the stale units of its profile dirs
 
-`{ cargo = "<dir>", keep = 8, age = "1h" }` (the defaults) MUST prune the profile dirs under `<dir>` (a dir with
-`.cargo-lock`, at most 4 levels down, also of a cross target such as `aarch64-unknown-linux-musl/debug`): a unit stays
-when it is among the `keep` newest of its group (its package and the target its fingerprint names) or younger than
-`age` (`s`, `m`, `h`, `d`), and the files of a unit go together. Each profile dir MUST be pruned in the layout it has.
+`{ cargo = "<dir>", keep = 8, age = "1h" }` MUST prune the profile dirs under `<dir>` (a dir with `.cargo-lock`, at
+most 4 levels down, also of a cross target, `<triple>/debug`): a unit stays when it is among the `keep` newest of its
+group (its package and the target its fingerprint names) or younger than `age` (`s`, `m`, `h`, `d`), an incremental
+dir also while a kept unit wrote its session, and the files of a unit go together. Each profile dir MUST be pruned in
+the layout it has.
 
 #### Scenario: The newest and the young units stay
 - **WHEN** a cargo rule prunes a profile dir
@@ -1964,8 +1965,12 @@ when it is among the `keep` newest of its group (its package and the target its 
   [@test] crates/lease-pool/src/lease_clean_test.rs (`a_bin_named_apart_from_its_package_is_one_unit_with_its_fingerprint`)
 
 #### Scenario: Incremental units
-- **WHEN** the profile dir has `incremental/<crate>-<hash>/`, in either layout
+- **WHEN** the profile dir has `incremental/<crate>-<id>/`, in either layout
 - **THEN** it is a unit of its own, grouped by crate
+- **AND** it also stays while a kept unit of its crate wrote its newest session: the lock of the session
+  (`s-<id>.lock`) is not older than `invoked.timestamp` of the unit and not newer than the newest file of its
+  fingerprint dir
+  [@test] crates/lease-pool/src/lease_clean_test.rs (`an_incremental_dir_stays_while_the_unit_that_wrote_it_stays`, `a_target_names_the_crate_of_its_incremental_dir`)
 
 #### Scenario: The uplifted artifacts
 - **WHEN** the profile dir has uplifted artifacts at its top (`debug/libavl_vm.rlib`, `debug/<bin>`) and `.cargo-lock`
