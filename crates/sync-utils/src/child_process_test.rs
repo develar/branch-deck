@@ -178,9 +178,9 @@ fn a_process_the_child_starts_at_once_ends_with_the_kill() {
   wait_for_the_tree(&tree.into_inner(), &kill);
 }
 
-/// On Windows the child is created in its job (`PROC_THREAD_ATTRIBUTE_JOB_LIST`): each process of its tree, all of them
-/// started before the step after the spawn (`wait_after_spawns_for_the_tree`), is in the job; a job joined after the
-/// spawn would hold none of them
+/// On Windows the child is created suspended and resumed only once it is in its job: each process of its tree, all of
+/// them started before the step after the spawn (`wait_after_spawns_for_the_tree`), is in the job; a job joined after
+/// the child ran would hold none of them
 #[cfg(windows)]
 #[test]
 fn a_process_the_child_starts_at_once_is_in_its_job() {
@@ -199,6 +199,21 @@ fn a_process_the_child_starts_at_once_is_in_its_job() {
   tree.kill(&mut child);
   let _ = child.wait();
   assert!(held.iter().all(|(_, held)| *held), "{held:?}");
+}
+
+/// Where Windows makes no job for a child (the seam of the tests), the child runs without one and its kill ends the
+/// child alone: the start does not fail
+#[cfg(windows)]
+#[test]
+fn a_child_that_gets_no_job_runs_without_one() {
+  crate::process_tree::seam::make_no_jobs();
+  let dir = tempfile::tempdir().unwrap();
+  let mut command = windowless_command(fake(&dir, "echo ran"));
+  let output = run_child(&mut command, None, TIMEOUT, &|| false).unwrap();
+  assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ran");
+  let mut hang = windowless_command(fake(&dir, HANG));
+  let result = run_child(&mut hang, None, Duration::from_millis(300), &|| false);
+  assert!(matches!(result, Err(ChildProcessError::TimedOut)), "{result:?}");
 }
 
 /// The kill of the tree of `child_with_a_tree` whose scans list what `change` makes of their lists, by the round and the
@@ -340,12 +355,16 @@ fn a_fork_after_an_external_sigcont_after_the_last_round_is_killed_and_unsettles
   let started = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
   let (outside, forks) = (pids.clone(), std::rc::Rc::clone(&started));
   crate::process_tree::seam::when_confirmed(move |root| {
-    let before = record_forks(&outside, &forks);
     let root_started = process_started(root).unwrap();
     let below = crate::process_scan::descendants(root, root_started).unwrap_or_default();
     let tree: Vec<String> = std::iter::once(root).chain(below.iter().map(|process| process.pid)).map(|pid| pid.to_string()).collect();
     Command::new("sh").args(["-c", &format!("kill -CONT {}", tree.join(" "))]).status().unwrap();
-    while record_forks(&outside, &forks) == before {
+    // a fork after the confirm: the pid of one the rounds found may be written only now, its `echo` stopped by the kill
+    let is_new = |pid: &u32| !below.iter().any(|process| process.pid == *pid);
+    while {
+      record_forks(&outside, &forks);
+      !forks.borrow().iter().any(|(pid, _)| is_new(pid))
+    } {
       std::thread::sleep(Duration::from_millis(1));
     }
     crate::process_scan::stop(root, root_started);

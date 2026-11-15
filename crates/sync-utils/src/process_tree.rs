@@ -6,10 +6,12 @@
 //! (`mingw64\bin\git.exe`) as its child and waits for it, so a kill of the launcher alone (`TerminateProcess`) leaves even
 //! the real git. Every child is created suspended (`CREATE_SUSPENDED`, beside the flags its `windowless_command_at`
 //! set), put into a job object of its own and only then resumed, so a process it starts at once is in the job too, and
-//! a kill ends the job: the child and every process it started. A child that can't be put into its job is killed
-//! before it runs, and its start fails with the error of Windows: since Windows 8 a job nests in the job of this
-//! process (a CI runner's, a terminal's), so no case is known where a child can't have one. A child that exits by itself
-//! ends nothing: the job has no kill-on-close. The job allows no
+//! a kill ends the job: the child and every process it started. Since Windows 8 a job nests in the job of this process
+//! (a CI runner's, a terminal's), so no case is known where a child can't have one; where Windows still makes no job or
+//! puts the child into none, the child runs without one, a warning says so once per process, and its kill ends the
+//! child alone, as before the jobs: failing the start would fail every git. A child that can't be resumed is killed
+//! before it runs, and its start fails with the error of Windows. A child that exits by itself ends nothing: the job
+//! has no kill-on-close. The job allows no
 //! breakaway: the MSYS runtime of Git for Windows (its sh, its ssh) asks to break away from a job that allows it for
 //! every program it starts (`spawn.cc`, a workaround for the compatibility job of Windows 7), so an ssh command, a
 //! credential helper, alias or hook that git runs through its sh ended outside the job and outlived the kill. Git asks
@@ -92,24 +94,35 @@ const EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 #[cfg(unix)]
 const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// The job of a started child, or on Unix the child and its start
+/// The job of a started child (none where Windows made none for it: a kill then ends the child alone), or on Unix the
+/// child and its start
 pub struct ProcessTree {
   #[cfg(windows)]
-  job: std::os::windows::io::OwnedHandle,
+  job: Option<std::os::windows::io::OwnedHandle>,
   #[cfg(unix)]
   root: Option<(u32, u64)>,
 }
 
 impl ProcessTree {
   /// Starts `command` with its tree: on Windows the child is created suspended, put into a job of its own and resumed,
-  /// so every process it starts is in the job; a child that can't be put there is killed before it runs, and the start
-  /// fails with the error of Windows. An error is the one of the spawn, of the job or of the resume
+  /// so every process it starts is in the job. Where Windows makes no job or puts the child into none, the child runs
+  /// without one (the module header); one that can't be resumed is killed before it runs. An error is the one of the
+  /// spawn or of the resume
   #[cfg(windows)]
   pub fn start(command: &mut WindowlessCommand) -> std::io::Result<(Child, Self)> {
-    let job = job::new()?;
     let mut child = job::spawn_suspended(command)?;
-    if let Err(error) = job::assign(&job, &child).and_then(|()| job::resume(&child)) {
-      tracing::warn!(child = child.id(), %error, "a child could not be put into its job: it is killed before it runs");
+    let job = match job::new().and_then(|job| job::assign(&job, &child).map(|()| job)) {
+      Ok(job) => Some(job),
+      Err(error) => {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+          tracing::warn!(%error, "a child can't have a job of its own: it runs without one, and its kill ends the child alone (said once)");
+        });
+        None
+      }
+    };
+    if let Err(error) = job::resume(&child) {
+      tracing::warn!(child = child.id(), %error, "a child created suspended could not be resumed: it is killed before it runs");
       let _ = child.kill();
       let _ = child.wait();
       return Err(error);
@@ -137,14 +150,16 @@ impl ProcessTree {
   /// Whether the process `pid` is in the job of the tree, for a test of what the job holds
   #[cfg(all(test, windows))]
   pub(crate) fn holds(&self, pid: u32) -> bool {
-    job::holds(&self.job, pid)
+    self.job.as_ref().is_some_and(|job| job::holds(job, pid))
   }
 
   /// Kills `child` and every process of its tree that still runs; the caller waits for `child`
   #[cfg_attr(not(any(unix, windows)), expect(clippy::unused_self, reason = "a tree holds a job on Windows and a root on Unix"))]
   pub fn kill(&self, child: &mut Child) {
     #[cfg(windows)]
-    if job::terminate(&self.job) {
+    if let Some(job) = &self.job
+      && job::terminate(job)
+    {
       return;
     }
     #[cfg(unix)]
@@ -343,6 +358,22 @@ pub(crate) mod seam {
   use std::cell::RefCell;
 
   type AfterSpawn = Box<dyn Fn()>;
+
+  #[cfg(all(test, windows))]
+  thread_local! {
+    static NO_JOBS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+  }
+
+  /// The starts of trees on this thread get no job, as where Windows makes none
+  #[cfg(all(test, windows))]
+  pub(crate) fn make_no_jobs() {
+    NO_JOBS.set(true);
+  }
+
+  #[cfg(all(test, windows))]
+  pub(super) fn no_jobs() -> bool {
+    NO_JOBS.get()
+  }
   #[cfg(unix)]
   type Scanned = Box<dyn FnMut(usize, &mut Option<Vec<Descendant>>)>;
   #[cfg(unix)]
@@ -439,6 +470,10 @@ mod job {
 
   /// A new job without limits: no breakaway, no kill-on-close
   pub(super) fn new() -> std::io::Result<OwnedHandle> {
+    #[cfg(test)]
+    if super::seam::no_jobs() {
+      return Err(std::io::Error::other("the seam of the tests makes no job"));
+    }
     // SAFETY: no security attributes and no name; a non-null result is a handle that nothing else owns
     let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
     if job.is_null() {

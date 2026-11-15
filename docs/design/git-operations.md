@@ -447,8 +447,9 @@ every process it started (`crates/sync-utils/src/process_tree.rs`, as `sync_util
 its child): an ssh of a remote that does not answer reads no end of its pipes and would run on after git. On Windows
 the kill ends the job object of git (`ProcessTree::start`: git is created suspended, with `CREATE_SUSPENDED` beside the
 creation flags its `windowless_command` set, which `WindowlessCommand` keeps since std tells none back, put into the
-job and only then resumed, so a process git starts at once is in the job too; a git that can't be put there is killed
-before it runs and the start fails with the error of Windows): `git` on `PATH` is mostly the launcher of Git for
+job and only then resumed, so a process git starts at once is in the job too; where Windows makes no job or puts git
+into none, git runs without one, a warning says so once, and its kill ends git alone: failing the start would fail
+every git; a git that can't be resumed is killed before it runs): `git` on `PATH` is mostly the launcher of Git for
 Windows (`Git\cmd\git.exe`), which starts the real git as its child, and a kill of the launcher alone would leave that
 git running with its ssh or helper, its lock files and our inherited pipe handles. The job allows no breakaway: the
 MSYS runtime of Git for Windows asks to break away from a job that allows it for every program it starts, so an ssh
