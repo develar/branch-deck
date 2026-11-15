@@ -163,6 +163,34 @@ test.describe("Amend Changes Feature", () => {
     await expect(badge).toHaveCount(0)
   })
 
+  // the progress row takes the place of the form and of the pressed button, the focus of the form on it: Stop Waiting of
+  // its wait takes the focus from there, and gives it back to the form that comes again
+  test(
+    "should take the keys to Stop Waiting in the progress row of a form whose amend waits for the lock, and give them back to the form",
+    { tag: "@webkit" },
+    async ({ page }) => {
+      const amends = await recordRewrites(page, "amend")
+      await repo.holdRepositoryLock(true)
+      await openAmendDialog(page, "feature-auth")
+      await submitAmend(page)
+      const dialog = page.getByRole("dialog", { name: "Amend changes to feature-auth" })
+      // a screen reader is told whom for, and the keys are on Stop Waiting
+      const status = dialog.getByTestId("lock-wait-status")
+      await expect(status).toHaveRole("status")
+      await expect(status).toHaveText(/^Waiting for `[^`]+` \(pid \d+\)$/)
+      const stop = dialog.getByRole("button", { name: "Stop Waiting" })
+      await expect(stop).toBeFocused()
+      expect(amends).toHaveLength(1)
+
+      await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
+      await expect(toastOf(page, /^Canceled amending/)).toBeVisible()
+      // the form comes again with its Amend Changes, and the focus is in it, not on the page
+      await expect(dialog.getByRole("button", { name: "Amend Changes" })).toBeEnabled()
+      await expect.poll(() => dialog.evaluate(form => form.contains(document.activeElement))).toBe(true)
+      await repo.holdRepositoryLock(false)
+    },
+  )
+
   test.describe("in the queue", () => {
     // a second recent project: the window switches to it while the rewrite of the first one waits in the queue
     test.beforeEach(async ({ page, syncAndWaitForBranches, otherRepository }) => {

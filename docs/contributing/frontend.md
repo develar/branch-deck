@@ -187,7 +187,8 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   hidden from it. Stop Waiting takes the focus as the wait shows, where the press left it on the pressed button, in its
   form, dialog or popover, or nowhere, and gives it back as the wait ends, else to the button that waited; the pressed
   button stays focusable while it is busy (`focusableWhenDisabled`, `aria-busy`), dimmed by its own class. Tested in
-  `repository-lock.spec.ts`, by key in both engines
+  `repository-lock.spec.ts`, by key in both engines, and in `amend-changes.spec.ts` for the progress row of a form,
+  which takes the place of the pressed button
 - **A popup that goes took the hover of its trigger** (Base UI 1.9): each popup part shares the timers of its trigger's
   hover (`useHoverInteractionSharedState`) and cleared them as it unmounted at the end of its exit. The pointer back over
   the trigger of a popup closed otherwise than by its hover (its view hid, a press of an item) started a delay that the

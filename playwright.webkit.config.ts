@@ -25,6 +25,7 @@ export default defineConfig({
     "branch-row-layout/column-widths.spec.ts",
     "branch-row-layout/focus-outline.spec.ts",
     "repository/repository-lock.spec.ts",
+    "amend-changes/amend-changes.spec.ts",
     "repository/companion-links.spec.ts",
     "branch-review/review-plan.spec.ts",
     "branch-review/branch-review.spec.ts",
