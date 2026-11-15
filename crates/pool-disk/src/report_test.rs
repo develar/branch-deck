@@ -30,6 +30,7 @@ fn lines_name_the_slot_cache_source_age_and_elapsed_time() {
       }],
       checkout_bases: Vec::new(),
       trash_bytes: 0,
+      notes_bytes: 0,
     }],
     orphans: Vec::new(),
     bytes: 512,

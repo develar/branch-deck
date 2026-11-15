@@ -2255,9 +2255,12 @@ fn write_a_hidden_file(slot: &str) {
   std::fs::write(Path::new(slot).join("left.txt"), "left\n").unwrap();
 }
 
-/// The slot at `path` holds its commit's tree and nothing else: no change, no untracked file, no ignored one
+/// The slot at `path` holds its commit's tree and nothing else: no change, no untracked file, no ignored one but the link
+/// to the notes of its lease (`notes.local`, which `info/exclude` ignores)
 fn assert_pristine(path: &str) {
-  assert_eq!(slot_git(path, &["status", "--porcelain", "--untracked-files=all", "--ignored"]), "", "{path}");
+  let status = slot_git(path, &["status", "--porcelain", "--untracked-files=all", "--ignored"]);
+  let others: Vec<&str> = status.lines().filter(|line| *line != "!! notes.local").collect();
+  assert_eq!(others, Vec::<&str>::new(), "{path}");
 }
 
 /// One `clean -fd` judges what is ignored by the ignore files as it finds them when it starts: it deleted an untracked

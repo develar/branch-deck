@@ -1400,9 +1400,10 @@ fn a_lease_reclaim() {
   assert_git_processes(&context.git, &idle_lease_processes(&[("rev-parse", 5)]));
 }
 
-/// `brd lease trim --max 1` of a pool of two free slots: the `rev-parse` of its context and one `worktree remove` of the
-/// slot that goes once its directory is in the trash; with `--max` no config of the pool, and no `status`, no `worktree
-/// list`, nothing per kept slot
+/// `brd lease trim --max 1` of a pool of two free slots: the `rev-parse` of its context, one `config` of the pool (how
+/// long the notes of its returned leases stay, `branchdeck.leaseNotesKeep`; with `--max` not its limit) and one
+/// `worktree remove` of the slot that goes once its directory is in the trash; no `status`, no `worktree list`, nothing
+/// per kept slot
 #[test]
 fn a_lease_trim() {
   let repo = repo_with_branches();
@@ -1419,7 +1420,7 @@ fn a_lease_trim() {
   )
   .unwrap();
   assert_eq!(trimmed.trimmed.pools[0].removed.len(), 1, "{trimmed:?}");
-  assert_git_processes(&context.git, &[("rev-parse", 1), ("worktree", 1)]);
+  assert_git_processes(&context.git, &[("config", 1), ("rev-parse", 1), ("worktree", 1)]);
 }
 
 /// A get below the minimum free space that shrinks and evicts, in a pool of three free slots with the clean rule

@@ -32,6 +32,7 @@ fn trimmed() -> Trimmed {
           reason: SkipReason::Busy { processes: Vec::new() },
         }],
         config_error: None,
+        expired_notes: Vec::new(),
       },
       TrimmedPool {
         git_common_dir: "/h/accio/.git".to_owned(),
@@ -40,6 +41,7 @@ fn trimmed() -> Trimmed {
         removed: Vec::new(),
         skipped: Vec::new(),
         config_error: None,
+        expired_notes: Vec::new(),
       },
     ],
     orphans: vec![RemovedBase {

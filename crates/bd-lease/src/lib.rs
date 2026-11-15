@@ -5,6 +5,7 @@
 
 pub mod disk_command;
 pub mod lease_command;
+pub mod notes_command;
 pub mod trim_command;
 pub mod workspace_command;
 
@@ -24,6 +25,8 @@ mod lease_pick_test;
 mod lease_test;
 #[cfg(test)]
 mod lfs_test;
+#[cfg(test)]
+mod notes_test;
 #[cfg(test)]
 mod takeover_test;
 #[cfg(test)]

@@ -21,11 +21,12 @@ use crate::lease::{
   Lease, LeaseState, LeaseStore, Pool, ServerStop, SkipReason, SkippedSlot, Slot, busy_processes, canonical_path, release_marker, settle_abandoned, slot_servers, stop_servers,
 };
 use crate::lease_clean::{Trash, remove_measured, remove_measured_until};
+use crate::lease_notes::{DEFAULT_NOTES_KEEP, ExpiredNotes, expire_notes, held_leases, notes_keep};
 use crate::output_bases::{OutputBase, orphans, output_bases, output_user_roots};
 use crate::shrink::{next_free, shrink_order};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::{forget_slot, lease_config};
+use git_ops::lease_slot::{LeaseConfig, forget_slot, lease_config};
 use git_ops::revs::RepositoryDirs;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -83,12 +84,23 @@ impl Trimmed {
   /// The bytes on disk the deletes freed; 0 for a plan, which measures nothing
   pub fn freed_bytes(&self) -> u64 {
     let slots: u64 = self.pools.iter().flat_map(|pool| &pool.removed).map(RemovedSlot::freed_bytes).sum();
-    slots + self.orphans.iter().map(|base| base.freed_bytes).sum::<u64>()
+    slots + self.orphans.iter().map(|base| base.freed_bytes).sum::<u64>() + self.expired_notes_bytes()
+  }
+
+  /// The bytes on disk of the notes the trim deleted (a plan: would delete)
+  pub fn expired_notes_bytes(&self) -> u64 {
+    self
+      .pools
+      .iter()
+      .flat_map(|pool| &pool.expired_notes)
+      .filter(|notes| notes.error.is_none())
+      .map(|notes| notes.bytes)
+      .sum()
   }
 
   /// Whether it deleted (with a plan: would delete) anything
   pub fn is_empty(&self) -> bool {
-    self.removed_slots() == 0 && self.orphans.is_empty()
+    self.removed_slots() == 0 && self.orphans.is_empty() && self.pools.iter().all(|pool| pool.expired_notes.is_empty())
   }
 }
 
@@ -106,6 +118,8 @@ pub struct TrimmedPool {
   pub skipped: Vec<SkippedSlot>,
   /// Why the limit of the repository could not be read: the limit is the default then
   pub config_error: Option<String>,
+  /// The notes of returned leases past `branchdeck.leaseNotesKeep` (`lease_notes`), deleted with the slots
+  pub expired_notes: Vec<ExpiredNotes>,
 }
 
 /// A slot the trim deleted
@@ -240,7 +254,14 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
     let pool_index = trimmed.pools.len();
     let pool = Pool::new(&machine_pool.git_common_dir);
     let trash = Trash::new(&pool.trash_dir());
-    let (max_slots, config_error) = max_slots(git_executor, params.max_slots, &machine_pool.git_common_dir);
+    // one read of the config of the pool: its limit and how long its notes stay
+    let config = lease_config(git_executor, &display_path(&machine_pool.git_common_dir));
+    let (max_slots, config_error) = params.max_slots.map_or_else(|| max_slots_of(&config), |max| (max, None));
+    let (keep, keep_error) = config.as_ref().map_or((DEFAULT_NOTES_KEEP, None), notes_keep);
+    if let Some(error) = keep_error {
+      warn!(pool = %machine_pool.git_common_dir.display(), error = %error, "the notes of the pool keep the default");
+    }
+    let expired_notes = expire_notes(&pool.notes_root(), &held_leases(&pool), keep, crate::lease_notes::now_seconds(), !params.apply);
     let store = pool.read()?;
     let (present, free) = trim_order(&store.slots);
     let mut report = TrimmedPool {
@@ -250,6 +271,7 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
       removed: Vec::new(),
       skipped: Vec::new(),
       config_error,
+      expired_notes,
     };
     let excess = present.len().saturating_sub(max_slots);
     let removal = SlotRemoval {
@@ -399,6 +421,8 @@ pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -
         removed: Vec::new(),
         skipped: Vec::new(),
         config_error,
+        // an eviction deletes slots only: the trim before it expired the notes
+        expired_notes: Vec::new(),
       }
     });
     let removal = SlotRemoval {
@@ -624,10 +648,15 @@ pub fn max_slots(git_executor: &GitCommandExecutor, max: Option<usize>, git_comm
   if let Some(max) = max {
     return (max, None);
   }
-  match lease_config(git_executor, &display_path(git_common_dir)) {
-    Ok(config) => match config.max_slots {
+  max_slots_of(&lease_config(git_executor, &display_path(git_common_dir)))
+}
+
+/// `max_slots` of the config of a pool as `lease_config` read it
+fn max_slots_of(config: &Result<LeaseConfig>) -> (usize, Option<String>) {
+  match config {
+    Ok(config) => match &config.max_slots {
       None => (DEFAULT_MAX_SLOTS, None),
-      Some(value) => match parse_max_slots(&value) {
+      Some(value) => match parse_max_slots(value) {
         Ok(max) => (max, None),
         Err(reason) => (DEFAULT_MAX_SLOTS, Some(format!("branchdeck.leaseMaxSlots {value:?}: {reason}"))),
       },

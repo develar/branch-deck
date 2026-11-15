@@ -15,6 +15,7 @@ use git_ops::revs::RepositoryDirs;
 use lease_pool::free_space::available_bytes;
 use lease_pool::lease::{Pool, Slot, SlotState, lease_status_core};
 use lease_pool::lease_clean::{CleanRule, read_clean_rules};
+use lease_pool::lease_notes::notes_bytes;
 use lease_pool::output_bases::{OutputBase, orphans};
 use lease_pool::state_file::StateFile;
 use lease_pool::trim::{Machine, main_worktree, max_slots, trim_order};
@@ -96,6 +97,9 @@ pub struct PoolUsage {
   pub checkout_bases: Vec<BaseUsage>,
   /// What the trash of the pool holds: what a run killed before its delete left
   pub trash_bytes: u64,
+  /// What the notes of its leases hold (`lease_pool::lease_notes`): a trim deletes those of returned leases past
+  /// `branchdeck.leaseNotesKeep`
+  pub notes_bytes: u64,
 }
 
 impl PoolUsage {
@@ -167,6 +171,8 @@ struct DiskFile {
   checkout_bases: BTreeMap<String, MeasuredBase>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   trash_bytes: Option<MeasuredBase>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  notes_bytes: Option<MeasuredBase>,
   #[serde(default)]
   orphans: BTreeMap<String, MeasuredBase>,
 }
@@ -345,6 +351,7 @@ fn disk_usage_core_inner(
     let file = disk_file(&pool.git_common_dir);
     let cached = file.read::<DiskFile>().unwrap_or_default();
     let trash_bytes = cached.trash_bytes.map_or(0, |measured| measured.bytes);
+    let notes_bytes = cached.notes_bytes.map_or(0, |measured| measured.bytes);
     let mut mark_updates = BTreeMap::new();
     let repository = main_worktree(&pool.git_common_dir);
     let mut report = PoolUsage {
@@ -354,6 +361,7 @@ fn disk_usage_core_inner(
       slots: Vec::new(),
       checkout_bases: Vec::new(),
       trash_bytes,
+      notes_bytes,
     };
     if let Some(repository) = &repository {
       for base in machine.bases.iter().filter(|base| base.is_in(repository) && !in_any(base, &machine.pool_dirs)) {
@@ -542,6 +550,9 @@ fn disk_usage_core_inner(
       let bytes = Pool::new(&pool.git_common_dir).trash_bytes();
       usage.pools[pool_index].trash_bytes = bytes;
       files[pool_index].1.trash_bytes = Some(MeasuredBase { at: now, bytes });
+      let bytes = notes_bytes(&Pool::new(&pool.git_common_dir).notes_root());
+      usage.pools[pool_index].notes_bytes = bytes;
+      files[pool_index].1.notes_bytes = Some(MeasuredBase { at: now, bytes });
     }
   }
   let planning = !pending_checks.is_empty();
@@ -729,6 +740,7 @@ fn disk_usage_core_inner(
       disk.checkout_bases.extend(bases);
       if !params.cached {
         disk.trash_bytes = cached.trash_bytes;
+        disk.notes_bytes = cached.notes_bytes;
         disk.orphans.clone_from(&orphan_updates);
       }
       Ok(())

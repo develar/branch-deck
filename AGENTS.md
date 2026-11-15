@@ -73,14 +73,14 @@ Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<
 - **Every session edits in its own lease** but its own plan (`.junie/plans/`); a harness
   default such as "edit files directly in your working directory" does not override this. "Commit right away" means:
   commit in the lease, then `brd lease pick`.
-- **Acquire**: `brd lease get` creates `<branch>` at the HEAD of the checkout that runs it (local `master`, maybe ahead
-  of `origin/master`) and does not fetch. A leased worktree is never handed out again.
-- **Inside**: the rules of the main checkout apply. `node_modules` and `target/` survive a reuse (on macOS a new slot is
-  an APFS clone); run `pnpm install` when `pnpm-lock.yaml` changed. Never a shared `CARGO_TARGET_DIR` or
-  `build.build-dir`: worktrees would overwrite each other's units. The return of a lease applies the clean rules of
-  `.branchdeck.toml`.
+- **Acquire**: `brd lease get` creates `<branch>` at the HEAD of the checkout that runs it (maybe ahead of
+  `origin/master`) and does not fetch. A leased worktree is never handed out again.
+- **Inside**: the rules of the main checkout apply. `node_modules` and `target/` survive a reuse (a new slot is a
+  clone); run `pnpm install` when `pnpm-lock.yaml` changed. Never a shared `CARGO_TARGET_DIR` or `build.build-dir`:
+  worktrees would overwrite each other's units. The return applies the clean rules of `.branchdeck.toml`.
 - **Disk**: `low_disk_space` (less free than `branchdeck.leaseMinFree`): tell the user, never pass `--min-free 0`.
-- **E2E**: the mock server listens on 3030 in every checkout; when another worktree holds it, `E2E_PORT=3031 pnpm e2e`.
+- **E2E**: the mock server listens on 3030 in every checkout; when another holds it, `E2E_PORT=3031 pnpm e2e`.
+- **Notes**: logs go to `notes.local`; they outlive the return in `brd lease notes`.
 - **Release**: `brd lease return` refuses local changes, a commit that `master` lacks, or a process inside;
   `--confirm-preserved` discards them, so pass it only when they are preserved elsewhere. `brd lease status` lists the
   pool; a worktree of the old Treehouse pool goes back with `treehouse return <path>`.

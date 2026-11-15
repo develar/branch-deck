@@ -71,6 +71,24 @@ pub struct TrimmedPoolOutput {
   /// Why `branchdeck.leaseMaxSlots` of the repository could not be read; the limit is 10 then
   #[serde(skip_serializing_if = "Option::is_none")]
   pub config_error: Option<String>,
+  /// The notes of returned leases past `branchdeck.leaseNotesKeep` (14 days by default) that the trim deleted (`--plan`:
+  /// would delete); never those of a lease the pool holds
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub expired_notes: Vec<ExpiredNotesOutput>,
+}
+
+/// The notes of a returned lease that a trim deleted
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ExpiredNotesOutput {
+  pub lease_id: String,
+  pub holder: String,
+  /// Unix seconds of the return, or of the get of a lease that left the pool without one
+  pub returned_at: u64,
+  /// The bytes on disk of their directory
+  pub bytes: u64,
+  /// Why they could not be deleted; they stay
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -133,6 +151,17 @@ impl TrimmedOutput {
             .collect(),
           busy: busy_output(&pool.skipped),
           config_error: pool.config_error.clone(),
+          expired_notes: pool
+            .expired_notes
+            .iter()
+            .map(|notes| ExpiredNotesOutput {
+              lease_id: notes.lease_id.clone(),
+              holder: notes.holder.clone(),
+              returned_at: notes.returned_at,
+              bytes: notes.bytes,
+              error: notes.error.clone(),
+            })
+            .collect(),
         })
         .collect(),
       orphans: trimmed.orphans.iter().map(base_output).collect(),

@@ -28,6 +28,7 @@ fn schema_lists_every_output() {
       "lease_clean",
       "lease_disk",
       "lease_get",
+      "lease_notes",
       "lease_pick",
       "lease_reclaim",
       "lease_return",

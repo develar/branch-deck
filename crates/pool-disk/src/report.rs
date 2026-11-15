@@ -47,6 +47,10 @@ pub struct PoolReport {
   pub checkout_bases: Vec<BaseReport>,
   #[serde(default, skip_serializing_if = "is_zero")]
   pub trash_bytes: u64,
+  /// What the notes of its leases hold (`brd lease notes`); a trim deletes those of returned leases past
+  /// `branchdeck.leaseNotesKeep`
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub notes_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -187,6 +191,7 @@ impl DiskReport {
           .collect(),
         checkout_bases: pool.checkout_bases.iter().map(base).collect(),
         trash_bytes: pool.trash_bytes,
+        notes_bytes: pool.notes_bytes,
       })
       .collect();
     let orphans: Vec<BaseReport> = usage.orphans.iter().map(base).collect();

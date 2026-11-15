@@ -6,6 +6,7 @@ use bd_core::sync_command::SyncOutput;
 use bd_core::version::VersionOutput;
 use bd_lease::disk_command::LeaseDiskOutput;
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReclaimOutput, LeaseReturnOutput, LeaseStatusOutput};
+use bd_lease::notes_command::LeaseNotesOutput;
 use bd_lease::trim_command::LeaseTrimOutput;
 use bd_lease::workspace_command::WorkspaceOutput;
 use bd_remote::land_command::LandOutput;
@@ -64,6 +65,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
       "lease_reclaim",
       "lease_trim",
       "lease_disk",
+      "lease_notes",
     ],
   ),
   ("move-hunk", &["move_hunk"]),
@@ -181,6 +183,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("lease_reclaim".to_string(), schema_for!(LeaseReclaimOutput)),
     ("lease_trim".to_string(), schema_for!(LeaseTrimOutput)),
     ("lease_disk".to_string(), schema_for!(LeaseDiskOutput)),
+    ("lease_notes".to_string(), schema_for!(LeaseNotesOutput)),
     ("lease_get".to_string(), schema_for!(LeaseGetOutput)),
     ("lease_pick".to_string(), schema_for!(LeasePickOutput)),
     ("lease_return".to_string(), schema_for!(LeaseReturnOutput)),

@@ -840,10 +840,12 @@ fn a_held_unit_and_a_held_entry_stay_whole_and_the_next_clean_takes_them() {
   assert!(cleaned.iter().all(|rule| rule.freed_bytes > 0), "{cleaned:?}");
 }
 
-/// The `.branchdeck.toml` of this repository, with its `[host]` table, gives its clean rules
+/// The `.branchdeck.toml` of this repository, with its `[host]` table, gives its clean rules: the stale units of
+/// `target/` and the two directories of the e2e artifacts; the notes of a lease are no path of its worktree
+/// (`lease_notes`), so no rule deletes them
 #[test]
 fn the_rules_of_this_repository_parse() {
-  assert_eq!(parse_clean_rules(include_str!("../../../.branchdeck.toml")).unwrap().len(), 4);
+  assert_eq!(parse_clean_rules(include_str!("../../../.branchdeck.toml")).unwrap().len(), 3);
 }
 
 /// An APFS clone shares its blocks with its template: the delete of the clone frees near nothing, and the delete of the

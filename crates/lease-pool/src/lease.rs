@@ -18,15 +18,16 @@ use crate::free_space::{SpaceOf, Volume, VolumeSpace, volume_space};
 use crate::host_slots::{HOST_HOLDER_PREFIX, RelievedHostSlot, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, holds_gone_runs, read_clean_rules, remove_together};
+use crate::lease_notes::{LeaseNotes, close_notes, notes_root, open_notes};
 use crate::shrink::{ShrinkParams, Shrunk, lock_pressure, shrink_core};
 use crate::state_file::StateFile;
 use crate::trim::{EvictParams, TrimParams, Trimmed, evict_core, trim_core};
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
-  AgentLanding, CheckoutWorkers, LeaseConfig, LfsFiles, SlotMove, UnlandedCommit, UntrackedFiles, attach_new_branch, checkout_slot, clean_cloned_slot, detach_slot_head,
-  discard_slot_changes, ignored_paths, is_valid_branch_name, lease_config, linked_worktree, move_clean_slot, move_slot, refresh_cloned_index, register_slot, slot_changes,
-  start_deferred_maintenance, unlock_slot,
+  AgentLanding, CheckoutWorkers, LeaseConfig, LfsFiles, NOTES_LINK, SlotMove, UnlandedCommit, UntrackedFiles, attach_new_branch, checkout_slot, clean_cloned_slot,
+  detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name, lease_config, linked_worktree, move_clean_slot, move_slot, refresh_cloned_index, register_slot,
+  slot_changes, start_deferred_maintenance, unlock_slot,
 };
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, resolve_commit, short_id};
 use git_ops::update_resolve::session_ref;
@@ -775,6 +776,11 @@ impl Pool {
     self.state.dir().join(TRASH_DIR)
   }
 
+  /// The notes of the leases of the pool (`lease_notes`)
+  pub fn notes_root(&self) -> PathBuf {
+    notes_root(self.state.dir())
+  }
+
   /// The bytes on disk of what the trash holds: what a run killed before its delete left behind
   pub fn trash_bytes(&self) -> u64 {
     std::fs::read_dir(self.trash_dir()).map_or(0, |entries| entries.flatten().map(|entry| fs_walk::tree_size(&entry.path())).sum())
@@ -1053,6 +1059,9 @@ pub enum CreatedBy {
 pub struct LeaseGot {
   /// The slot with its `ready` lease
   pub slot: Slot,
+  /// The notes of the lease, which `notes.local` of the slot links to (`lease_notes`); `None` for a host slot, and where
+  /// they could not be made
+  pub notes: Option<LeaseNotes>,
   /// How a new slot was added; `None` for a reused one
   pub created_by: Option<CreatedBy>,
   /// The free slot or the source checkout a new slot was cloned from
@@ -1176,10 +1185,13 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
   let mut free_bytes = relief.raise(git_executor, params, &pool, (&pool_dir, min_free), &report)?;
   let seeds = seed_paths(git_executor, source)?;
   // the rules of the source leave out of a cloned slot what a return would delete; a file that can't be read clones all
-  let skips = CloneSkips::new(&clone_skips(&read_clean_rules(Path::new(source)).unwrap_or_else(|error| {
+  // and the notes of the lease of a template slot, which the get links anew
+  let mut skipped_paths = clone_skips(&read_clean_rules(Path::new(source)).unwrap_or_else(|error| {
     warn!(source = %source, error = %format!("{error:#}"), "cannot read the clean rules; a clone copies everything");
     Vec::new()
-  })));
+  }));
+  skipped_paths.push((NOTES_LINK.to_string(), Vec::new()));
+  let skips = CloneSkips::new(&skipped_paths);
   let mut scan = ProcessScan::scan();
   let holder = scan.session();
   let pid = std::process::id();
@@ -1343,7 +1355,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
         report(GetStep::CleanTakenOver { slot: path.clone() });
         // the trash stays: the next return or clean deletes it as the trash of a gone run, and the get goes on
         let trash = Trash::new(&pool.trash_dir());
-        finish_return(git_executor, &path, &old, None, Some(CleanOverrides::default()), &trash)
+        finish_return(git_executor, &path, &old, None, Some(CleanOverrides::default()), (&trash, &pool.notes_root()))
           .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         move_leased_slot(git_executor, &pool, params, &path, &lease.id, &source_head, config.workers)?;
         took_over = Some(TookOver { lease: *old, landed });
@@ -1415,6 +1427,14 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       });
     }
     let seeded = seed(Path::new(source), Path::new(&path), &seeds).map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
+    // the notes of an agent's lease, outside the worktree (`lease_notes`); a host slot has none. They never fail the get
+    let notes = (!lease.holder.starts_with(HOST_HOLDER_PREFIX))
+      .then(|| {
+        open_notes(&pool.notes_root(), Path::new(&path), &git_common_dir, &lease)
+          .inspect_err(|error| warn!(slot = %path, error = %error, "cannot make the notes of the lease"))
+          .ok()
+      })
+      .flatten();
     let name = linked_worktree(Path::new(&path)).map_or_default(|worktree| worktree.id);
     let slot = pool.update(params.lock_timeout, |store| {
       let slot = leased_slot(store, &path, &lease.id).ok_or_else(|| anyhow!("The lease of {path} was taken back while it was being prepared"))?;
@@ -1430,6 +1450,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
     })?;
     return Ok(LeaseGot {
       slot,
+      notes,
       created_by,
       cloned_from,
       pool_dir,
@@ -2717,6 +2738,8 @@ pub struct LeaseReturned {
   pub cleaned: Vec<Cleaned>,
   /// Why the rules could not be read; the return succeeded anyway
   pub clean_error: Option<String>,
+  /// The notes of the lease, which stay (`lease_notes`); `None` for a lease without them
+  pub notes: Option<LeaseNotes>,
   pub process_scan: bool,
 }
 
@@ -2821,6 +2844,7 @@ const fn joined_return(slot: Slot, landed_check: Option<LandedCheck>, process_sc
     detached_branch: None,
     cleaned: Vec::new(),
     clean_error: None,
+    notes: None,
     process_scan,
   }
 }
@@ -2963,12 +2987,20 @@ fn return_once(
     }
     ReturnAs::HostSlot { trash, .. } => (trash, false),
   };
-  let returned = finish_return(git_executor, &path, &lease, (!changes.is_empty()).then_some(config.untracked), params.clean, trash);
+  let returned = finish_return(
+    git_executor,
+    &path,
+    &lease,
+    (!changes.is_empty()).then_some(config.untracked),
+    params.clean,
+    (trash, &pool.notes_root()),
+  );
   let FinishedReturn {
     removed,
     detached_branch,
     mut cleaned,
     clean_error,
+    notes,
   } = match returned {
     Ok(finished) => finished,
     Err(error) => {
@@ -3022,6 +3054,7 @@ fn return_once(
     detached_branch,
     cleaned,
     clean_error,
+    notes,
     process_scan: scan.is_available(),
   })))
 }
@@ -3079,18 +3112,19 @@ struct FinishedReturn {
   detached_branch: Option<String>,
   cleaned: Vec<Cleaned>,
   clean_error: Option<String>,
+  notes: Option<LeaseNotes>,
 }
 
 /// What a reserved return does to the slot: discard the changes it may give up (`discard`: the untracked mode of the
-/// repository, when it found any), remove the seeded paths, detach HEAD and apply the clean rules, moving what a
-/// `delete` removes into `trash`
+/// repository, when it found any), remove the seeded paths, detach HEAD, take the notes of the lease out of the slot
+/// into `notes_root` (`lease_notes::close_notes`) and apply the clean rules, moving what a `delete` removes into `trash`
 fn finish_return(
   git_executor: &GitCommandExecutor,
   path: &str,
   lease: &Lease,
   discard: Option<UntrackedFiles>,
   clean: Option<CleanOverrides>,
-  trash: &Trash,
+  (trash, notes_root): (&Trash, &Path),
 ) -> Result<FinishedReturn> {
   // the next lease of the slot is a worktree no sync built anything for (`lease_state`: the mark of a sync, the landed
   // state): a window that opens it shows the Ready to Sync card, never syncs it of itself, and nothing landed is
@@ -3099,6 +3133,9 @@ fn finish_return(
   if let Err(error) = forget_lease_state(Path::new(path)) {
     warn!(slot = %path, "cannot take what the lease left out of the slot: {error}");
   }
+  // the next holder of the slot starts with an empty `notes.local`; the notes stay. Before the discard, whose `clean`
+  // would delete a directory of notes that `info/exclude` no longer ignores. Never fails the return
+  let notes = close_notes(notes_root, Path::new(path), &lease.id);
   if let Some(untracked) = discard {
     discard_slot_changes(git_executor, path, untracked)?;
   }
@@ -3121,6 +3158,7 @@ fn finish_return(
     detached_branch,
     cleaned,
     clean_error,
+    notes,
   })
 }
 
@@ -3657,7 +3695,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       answer.skipped.push(skip(IdleSkip::Busy { processes: running }));
       continue;
     }
-    match finish_return(git_executor, &path, &lease, None, Some(params.clean), &trash) {
+    match finish_return(git_executor, &path, &lease, None, Some(params.clean), (&trash, &pool.notes_root())) {
       Ok(finished) => reclaimed.cleaned = finished.cleaned,
       Err(error) => {
         restore_ready(&pool, params.lock_timeout, &path, &lease.id);

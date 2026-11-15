@@ -59,6 +59,12 @@ Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<
 - **E2E**: the mock server listens on 3030 in every checkout; when another worktree's server holds it, run
   `E2E_PORT=3031 pnpm e2e` (any free port). Global setup refuses a server that serves another checkout, because
   Playwright reuses whatever listens on the port.
+- **Notes**: `notes.local` of a leased worktree links to the notes of the lease, a directory outside the worktree
+  that git ignores (`notes` of `brd lease get`): logs, probes, patches and the outputs of a gate go there. The return
+  removes the link and keeps the notes, so the next holder of the slot starts with empty notes, and a reviewer or the
+  lead finds them with `brd lease notes --lease-id <id>` or `--holder <name>` (`--list` lists the files); nothing
+  needs copying to `/tmp`. The notes of a returned lease expire after `branchdeck.leaseNotesKeep` (14 days) through
+  `brd lease trim` and the keeper of a host.
 - **Release**: `brd lease return --workspace <path>` refuses local changes, a commit that no branch holds and that
   `master` lacks by content, or a process inside. `--confirm-preserved` discards the changes and commits it reports, so
   pass it only when they are preserved elsewhere. The branch survives; the next get moves the worktree.
@@ -96,6 +102,6 @@ How agents commit to this repository; "Git Operations" below is about the git th
   `rr-cache` directory exists, and agents had filled it with 132 resolutions by 2026-10-29. So the clone sets
   `rerere.enabled false` ([Commits and History](#commits-and-history)), which no directory overrides; a conflict of
   `brd lease pick` opens its resolve session, which rerere never touched. Never `git stash` in a lease: keep work in
-  progress as a WIP commit of the lease or a patch file in `notes.local/`. The return deletes `notes.local/` by a clean
-  rule of `.branchdeck.toml`, so the next holder of the slot never reads another agent's logs as its own: copy a probe
-  or a log a reviewer or another agent still needs out of the lease (`/tmp/<agent>/`) before the return.
+  progress as a WIP commit of the lease or a patch file in `notes.local/`. The return takes `notes.local` out of the
+  worktree and keeps what it held ([Worktrees](#worktrees), "Notes"), so the next holder of the slot never reads
+  another agent's logs as its own, and a probe or a log a reviewer still needs stays in `brd lease notes`.

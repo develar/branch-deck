@@ -92,7 +92,12 @@ impl UntrackedFiles {
   }
 }
 
-/// The paths of the local changes of `slot`: staged, unstaged and untracked files, not the ignored ones. One
+/// The notes of a lease in its slot (`lease_pool::lease_notes`): a link to a directory outside the worktree, which no
+/// status of the pool counts as a change, also where `info/exclude` lost the line that ignores it
+pub const NOTES_LINK: &str = "notes.local";
+
+/// The paths of the local changes of `slot`: staged, unstaged and untracked files, not the ignored ones nor the notes
+/// of the lease (`NOTES_LINK`). One
 /// `status --porcelain=v1 -z` with the `untracked` mode of the repository; its own `core.fsmonitor` and
 /// `core.untrackedCache` apply. The one `status` that may write the index (`GIT_OPTIONAL_LOCKS=1`, against the
 /// executor's default): the refreshed stat data, the fsmonitor token and the untracked cache stay in the slot's index,
@@ -104,7 +109,13 @@ pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: Un
     .cmd(&["status", "--porcelain=v1", "-z", untracked.arg()], slot)
     .env(&[("GIT_OPTIONAL_LOCKS", "1")])
     .bytes()?;
-  Ok(status_entries(&output).into_iter().map(|(_, path)| path).collect())
+  Ok(
+    status_entries(&output)
+      .into_iter()
+      .filter(|(code, path)| !(code == b"??" && path.trim_end_matches('/') == NOTES_LINK))
+      .map(|(_, path)| path)
+      .collect(),
+  )
 }
 
 /// The entries of a `status --porcelain=v1 -z`: the two status letters and the path (of a rename or a copy, the new one)
@@ -500,6 +511,9 @@ pub struct LeaseConfig {
   /// `branchdeck.hostSlotIdleClean`, as written (`6h`, `0` for never): how long a host slot waits idle after its last run
   /// before the keeper applies its clean rules (`host_slots::clean_idle_slots`)
   pub host_slot_idle_clean: Option<String>,
+  /// `branchdeck.leaseNotesKeep`, as written (`14d`, `0` for ever): how long the notes of a returned lease stay before
+  /// `brd lease trim` and the keeper of a host delete them (`lease_pool::lease_notes`)
+  pub notes_keep: Option<String>,
   /// `core.fileMode` is false: git keeps the modes of the index, not the executable bits of the files
   pub no_file_mode: bool,
   /// `core.symlinks` is false: git keeps a link as a file of its target
@@ -563,7 +577,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
         "--type=path",
         "--show-scope",
         "--get-regexp",
-        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|branchdeck\.hostslotidleclean|branchdeck\.agentpullrequest|branchdeck\.landing|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks|filter\.lfs\.process|filter\.lfs\.smudge|lfs\.storage)$",
+        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|branchdeck\.hostslotidleclean|branchdeck\.leasenoteskeep|branchdeck\.agentpullrequest|branchdeck\.landing|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks|filter\.lfs\.process|filter\.lfs\.smudge|lfs\.storage)$",
       ],
       repository,
     )
@@ -584,6 +598,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
       "branchdeck.hostslots" if !value.is_empty() => config.host_slots = Some(value.to_string()),
       "branchdeck.hostslotmaxsize" if !value.is_empty() => config.host_slot_max_size = Some(value.to_string()),
       "branchdeck.hostslotidleclean" if !value.is_empty() => config.host_slot_idle_clean = Some(value.to_string()),
+      "branchdeck.leasenoteskeep" if !value.is_empty() => config.notes_keep = Some(value.to_string()),
       // the last value wins; a key without a value is true
       "branchdeck.leasemaintenance" => config.return_maintenance = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(true),
       "branchdeck.agentpullrequest" => pull_request = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(true),

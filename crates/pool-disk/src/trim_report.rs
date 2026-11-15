@@ -41,6 +41,9 @@ pub struct TrimmedPoolReport {
   /// Why `branchdeck.leaseMaxSlots` of the repository could not be read; the limit is 10 then
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub config_error: Option<String>,
+  /// The notes of returned leases past `branchdeck.leaseNotesKeep` that went (with `plan`: would go), by lease id
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub expired_notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -85,6 +88,12 @@ impl TrimReport {
             .collect(),
           busy: pool.skipped.iter().map(|skipped| skipped.path.clone()).collect(),
           config_error: pool.config_error.clone(),
+          expired_notes: pool
+            .expired_notes
+            .iter()
+            .filter(|notes| notes.error.is_none())
+            .map(|notes| notes.lease_id.clone())
+            .collect(),
         })
         .collect(),
       orphans: trimmed.orphans.iter().map(removed_base).collect(),
@@ -111,7 +120,7 @@ impl TrimReport {
       )
     }];
     for pool in &self.pools {
-      if pool.removed.is_empty() && pool.busy.is_empty() && pool.config_error.is_none() {
+      if pool.removed.is_empty() && pool.busy.is_empty() && pool.config_error.is_none() && pool.expired_notes.is_empty() {
         continue;
       }
       lines.push(format!("  {}: {} slot(s), limit {}", pool.git_common_dir, pool.slots, pool.max_slots));
@@ -127,6 +136,10 @@ impl TrimReport {
       }
       if let Some(error) = &pool.config_error {
         lines.push(format!("    the limit is 10: {error}"));
+      }
+      if !pool.expired_notes.is_empty() {
+        let verb = if self.plan { "would delete" } else { "deleted" };
+        lines.push(format!("    {verb} the notes of {} returned lease(s) past their keep", pool.expired_notes.len()));
       }
     }
     lines

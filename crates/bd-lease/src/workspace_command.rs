@@ -9,6 +9,7 @@ use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::NOTES_LINK;
 use lease_pool::agent_workspace::{ActiveLease, AgentWorkspace, WorkspaceKind, agent_workspace};
 use lease_pool::lease::LeaseRefusal;
 use schemars::JsonSchema;
@@ -150,7 +151,11 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
   let this_lease = answer.this_lease.as_ref();
   let next = match kind {
     WorkspaceKindOutput::Main if lease.on => vec![format!("brd lease get --holder <your name> -C {}", shell_word(&top_level))],
-    WorkspaceKindOutput::Lease => this_lease.map_or_else(Vec::new, |lease| lease_next(&top_level, &lease.home, &lease.lease_id, pull_request.on)),
+    WorkspaceKindOutput::Lease => this_lease.map_or_else(Vec::new, |lease| {
+      // a lease with notes has their link in its worktree (`lease_notes`)
+      let notes = Path::new(&top_level).join(NOTES_LINK).symlink_metadata().is_ok();
+      lease_next(&top_level, &lease.home, &lease.lease_id, pull_request.on, notes)
+    }),
     _ => Vec::new(),
   };
   WorkspaceOutput {

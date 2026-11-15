@@ -8,7 +8,9 @@
 //! repositories of a host share one. A failed fill waits 1, 5, then 15 minutes before the next one, a relief that leaves
 //! a volume below its minimum 15 minutes. Before the relief of a repository, the same thread applies the clean rules
 //! of each host slot that waited idle `branchdeck.hostSlotIdleClean` (6 hours by default) since its last run
-//! (`lease_pool::host_slots::clean_idle_slots`), so a slot keeps its caches warm for a session's runs, not for days.
+//! (`lease_pool::host_slots::clean_idle_slots`), so a slot keeps its caches warm for a session's runs, not for days,
+//! and deletes the notes of the returned leases of the pool past `branchdeck.leaseNotesKeep` (14 days by default,
+//! `lease_pool::lease_notes::expire_pool_notes`).
 //! The repositories start from the
 //! repository list and the runs on disk, so a restart of `serve` keeps them. A change of the outcome of the git is one
 //! line of the log. With `tuning::keeper_rounds` each round is a line too, with what it did about each fill and the
@@ -23,6 +25,7 @@ use lease_pool::host_runs::reclaim_all;
 use lease_pool::host_slots::{clean_idle_slots, fill, keep_free};
 use lease_pool::lease::{ReliefRound, Relieved};
 use lease_pool::lease_clean::describe_size;
+use lease_pool::lease_notes::expire_pool_notes;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -240,6 +243,17 @@ fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) -> Turn {
           }
         }
         Err(error) => log(&format!("cannot clean the idle host slots of {}: {error:#}", repo.path.display())),
+      }
+      for notes in expire_pool_notes(&repo.git, Path::new(&repo.dirs.git_common_dir)) {
+        match &notes.error {
+          None => log(&format!(
+            "deleted the notes of the lease {} of {} returned past their keep: {}",
+            notes.lease_id,
+            notes.holder,
+            describe_size(notes.bytes)
+          )),
+          Some(error) => log(&format!("cannot delete the notes of the lease {}: {error}", notes.lease_id)),
+        }
       }
       match keep_free(&repo.git, &repo.params(), &mut round) {
         Ok(None) => {}

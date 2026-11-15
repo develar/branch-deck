@@ -17,13 +17,15 @@ fn display(path: &Path) -> String {
 }
 
 /// The `next` of the lease `lease` of `slot`: its pick, the push of its branch from `push_from` where the landing includes
-/// the pull request, its return
+/// the pull request, its return, the command that finds its notes
 fn lease_next(slot: &str, push_from: Option<&str>, lease: &Value) -> Value {
   let mut next = vec![format!("{CLI_NAME} -C {} lease pick", shell_word(slot))];
   if let Some(shared) = push_from {
     next.push(format!("{CLI_NAME} -C {} push <branch>", shell_word(shared)));
   }
-  next.push(format!("brd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()));
+  let lease_id = lease["lease_id"].as_str().unwrap();
+  next.push(format!("brd lease return --lease-id {lease_id}"));
+  next.push(format!("brd lease notes --lease-id {lease_id}"));
   json!(next)
 }
 
@@ -63,13 +65,7 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
   );
   assert_eq!(output["local_changes"], json!(1), "the shared checkout's, which the lease lacks");
   assert_eq!(output["home"], json!({ "checkout": shared, "branch": "master" }));
-  assert_eq!(
-    output["next"],
-    json!([
-      format!("{CLI_NAME} -C {} lease pick", shell_word(&slot)),
-      format!("brd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()),
-    ])
-  );
+  assert_eq!(output["next"], lease_next(&slot, None, &lease));
   assert!(
     output["next"].as_array().unwrap().iter().all(|command| command.as_str().unwrap().starts_with(CLI_NAME)),
     "{output}"

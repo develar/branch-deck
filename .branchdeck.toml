@@ -8,8 +8,6 @@ clean = [
   # the artifacts of the e2e tests (`outputDir` of playwright.config.ts) and of the HTML report
   { delete = "tests/results" },
   { delete = "playwright-report" },
-  # the notes of the agent that held the lease: logs, probes and patches; the next holder of the slot must not read them
-  { delete = "notes.local" },
 ]
 
 # A run of this repository on another machine of the user: `bd-host run studio -- <command>`

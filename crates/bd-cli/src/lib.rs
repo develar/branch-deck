@@ -620,6 +620,11 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       .and_then(|context| bd_lease::trim_command::lease_trim(&context, environment, args))
       .and_then(|output| printed(out, &output)),
     Command::Lease(LeaseArgs {
+      command: LeaseCommand::Notes(args),
+    }) => lease_context(None)
+      .and_then(|context| bd_lease::notes_command::lease_notes(&context, args))
+      .and_then(|output| printed(out, &output)),
+    Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),
     }) => print_summary(
       out,
@@ -717,7 +722,7 @@ const fn reads_only(command: &Command) -> bool {
     | Command::Mcp
     | Command::Help { .. }
     | Command::Lease(LeaseArgs {
-      command: LeaseCommand::Status(_) | LeaseCommand::Disk(_),
+      command: LeaseCommand::Status(_) | LeaseCommand::Disk(_) | LeaseCommand::Notes(_),
     }) => true,
     Command::Describe(args) => args.title.is_none() && args.body.is_none() && args.body_file.is_none() && !args.clear,
     Command::Companion(args) => matches!(args.command, CompanionCommand::List),
@@ -754,7 +759,9 @@ const fn reads_only(command: &Command) -> bool {
 /// itself, as a write would: it is the first command of a session
 fn reclaim_guard(command: &Command) -> Option<(bool, Option<&str>)> {
   match command {
-    Command::Lease(LeaseArgs { command: LeaseCommand::Status(_) }) => None,
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Status(_) | LeaseCommand::Notes(_),
+    }) => None,
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Return(args),
     }) => Some((true, args.lease_id.as_deref())),

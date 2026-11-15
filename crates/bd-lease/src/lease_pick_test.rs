@@ -38,6 +38,7 @@ fn the_get_names_the_home_of_the_lease_and_the_commands_of_the_session() {
     json!([
       format!("{CLI_NAME} -C {} lease pick", shell_word(&path)),
       format!("brd lease return --lease-id {}", got["lease_id"].as_str().unwrap()),
+      format!("brd lease notes --lease-id {}", got["lease_id"].as_str().unwrap()),
     ])
   );
   assert!(
@@ -49,7 +50,11 @@ fn the_get_names_the_home_of_the_lease_and_the_commands_of_the_session() {
   git(&fixture.repo, &["checkout", "-q", "--detach"]);
   let got = fixture.get(&[]);
   assert_eq!(got["home"], json!({ "checkout": display(fixture.repo.path()), "branch": null }));
-  assert_eq!(got["next"], json!([format!("brd lease return --lease-id {}", got["lease_id"].as_str().unwrap())]));
+  let lease_id = got["lease_id"].as_str().unwrap();
+  assert_eq!(
+    got["next"],
+    json!([format!("brd lease return --lease-id {lease_id}"), format!("brd lease notes --lease-id {lease_id}")])
+  );
   assert!(
     got["next"].as_array().unwrap().iter().all(|command| command.as_str().unwrap().starts_with(CLI_NAME)),
     "{got}"

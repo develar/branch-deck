@@ -22,6 +22,7 @@ use lease_pool::lease::{
   lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age};
+use lease_pool::lease_notes::read_notes;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write;
@@ -74,6 +75,11 @@ pub enum LeaseCommand {
   /// The bytes of a free slot are kept in `disk.json` until it is leased again, so a repeat takes a moment; --fresh
   /// walks every slot again
   Disk(crate::disk_command::LeaseDiskArgs),
+  /// Where the notes of a lease are, held or returned: `notes.local` of a leased worktree links to them, and they stay
+  /// after the return until `branchdeck.leaseNotesKeep` (14 days) passed. Read only
+  ///
+  /// Without --lease-id or --holder: the notes of the lease of this worktree, else of every lease of the pool
+  Notes(crate::notes_command::LeaseNotesArgs),
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -245,8 +251,12 @@ pub struct LeaseGetOutput {
   /// Where the commits of the lease land (`brd lease pick`)
   pub home: LeaseHomeOutput,
   /// What to run, in order: `brd lease pick` in the lease after each commit that builds and passes its tests, `brd lease
-  /// return` once the task is done
+  /// return` once the task is done, and `brd lease notes`, which finds the notes of the lease after its return
   pub next: Vec<String>,
+  /// The notes of the lease: `notes.local` of `path` links to this directory, ignored by git; logs, probes and patches
+  /// go there and stay after the return (`brd lease notes`). Omitted where they could not be made
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub notes: Option<String>,
   /// Unix seconds
   pub leased_at: u64,
   /// A free slot was moved (only the diff written); false: a new slot was added
@@ -326,8 +336,9 @@ impl LeaseHomeOutput {
 
 /// The commands of a session in the lease at `path`, in order: the pick of each commit onto its home (none while the
 /// home has no branch to land on), with `pull_request` (`branchdeck.agentPullRequest`) the push of its branch from the
-/// home, whose `gh pr create` opens the pull request, and the return once the task is done
-pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str, pull_request: bool) -> Vec<String> {
+/// home, whose `gh pr create` opens the pull request, the return once the task is done, and for a lease with `notes`
+/// the command that finds them after it
+pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str, pull_request: bool, notes: bool) -> Vec<String> {
   let mut next = Vec::new();
   if home.branch.is_some() && !home.checkout.is_empty() {
     next.push(format!("{CLI_NAME} -C {} lease pick", shell_word(path)));
@@ -336,6 +347,9 @@ pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str, pull_request: bo
     }
   }
   next.push(format!("brd lease return --lease-id {lease_id}"));
+  if notes {
+    next.push(format!("brd lease notes --lease-id {lease_id}"));
+  }
   next
 }
 
@@ -705,7 +719,14 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
     source_head: lease.source_head.clone(),
     branch: lease.branch.clone(),
     home: LeaseHomeOutput::new(&lease.home(), None),
-    next: lease_next(&got.slot.path, &lease.home(), &lease.id, got.agent_landing == AgentLanding::PullRequest),
+    next: lease_next(
+      &got.slot.path,
+      &lease.home(),
+      &lease.id,
+      got.agent_landing == AgentLanding::PullRequest,
+      got.notes.is_some(),
+    ),
+    notes: got.notes.as_ref().map(|notes| notes.dir.to_string_lossy().into_owned()),
     leased_at: lease.leased_at,
     reused: lease.reused,
     created_by: got.created_by.as_ref().map(|created_by| match created_by {
@@ -823,6 +844,10 @@ pub struct LeaseReturnOutput {
   /// The branch HEAD was on; HEAD is detached now, the branch stays
   #[serde(skip_serializing_if = "Option::is_none")]
   pub detached_branch: Option<String>,
+  /// The notes of the lease, which stay (`brd lease notes`): the link `notes.local` left the worktree, whose next lease
+  /// starts with notes of its own
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub notes: Option<String>,
   /// Whether the processes were checked; false where brd can't see them (Windows) and for a `joined` return that
   /// checked nothing
   pub processes_checked: bool,
@@ -992,6 +1017,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     cleaned: cleaned_output(&returned.cleaned),
     clean_error: returned.clean_error.clone(),
     detached_branch: returned.detached_branch.clone(),
+    notes: returned.notes.as_ref().map(|notes| notes.dir.to_string_lossy().into_owned()),
     processes_checked: returned.process_scan,
   })
 }
@@ -1070,6 +1096,10 @@ pub struct LeaseOutput {
   /// The idle lease a `preparing` get takes over, while it checks its work
   #[serde(skip_serializing_if = "Option::is_none")]
   pub taking_over: Option<TakingOverOutput>,
+  /// The directory of the notes of the lease, which `notes.local` of the slot links to (`brd lease notes`); omitted for a
+  /// lease without them (a host slot, a lease of an older brd)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub notes: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1086,6 +1116,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
     .and_then(|config| pool_dir(&config, &context.dirs.top_level, Path::new(&canonical_path(git_common_dir)), environment.home.as_deref()).ok());
   let (slots, process_scan) = lease_status_core(git_common_dir, args.processes).map_err(lease_error)?;
   let trash_bytes = Pool::new(Path::new(&canonical_path(git_common_dir))).trash_bytes();
+  let notes_root = Pool::new(Path::new(&canonical_path(git_common_dir))).notes_root();
   Ok(LeaseStatusOutput {
     schema: SchemaVersion,
     repository: context.dirs.top_level.clone(),
@@ -1115,6 +1146,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
             lease_id: old.id.clone(),
             holder: old.holder.clone(),
           }),
+          notes: read_notes(&notes_root, &lease.id).map(|notes| notes.dir.to_string_lossy().into_owned()),
         }),
         reclaimed: status.slot.reclaimed.as_ref().map(ReclaimedOutput::of),
         processes: status.processes.as_deref().map(processes_output),

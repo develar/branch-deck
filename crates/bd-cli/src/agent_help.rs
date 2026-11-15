@@ -245,9 +245,9 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
 0. Lease your worktree when `brd workspace` says `lease.on` (`branchdeck.agentLease`, on by default; its `next` is the
    command): `brd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
    prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, `lease_id`, `home` (the
-   `checkout` and the `branch` your commits land on) and `next` (the pick of step 2, with `pull_request.on` the push
-   after it, the return of step 5); work and commit only there, never `git worktree add`, never `git stash` (every
-   worktree of the pool shares one stash). A free slot is moved to that HEAD (`reused`: only the diff is written); with
+   `checkout` and the `branch` your commits land on), `notes` and `next` (the pick of step 2, with `pull_request.on` the
+   push after it, the return of step 5, the notes command); work and commit only there, never `git worktree add`, never
+   `git stash` (every worktree of the pool shares one stash). A free slot is moved to that HEAD (`reused`: only the diff is written); with
    none free the pool adds one (`created_by`: `clone`, an APFS clone on macOS without what the `delete` clean rules
    delete, or `checkout`), one at a time: a get waits while another adds a slot, says whom it waits for on stderr,
    and takes a slot freed meanwhile (`waited_for_clone_ms`). --branch <name> (-b) creates a branch there. `skipped`
@@ -266,6 +266,11 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    reports, --keep and --age as for the return.
    `lease_reclaimed` (exit 4): your lease was taken over while your session was gone, as its work had landed; that
    worktree is another session's now (its branch stays): stop working there and get a lease of your own (`next`).
+   `notes.local` of the worktree links to `notes`, a directory of the lease outside the worktree that git ignores:
+   logs, probes and patches go there, and they outlive the return, which removes the link (the next holder of the slot
+   starts with empty notes). `brd lease notes` names the notes of your lease, --lease-id <id> or --holder <name> those
+   of another, held or returned, --list their files; the notes of a returned lease expire after
+   `branchdeck.leaseNotesKeep` (14 days).
 
 1. When `brd workspace` says `subject_branch.on` (`branchdeck.agentSubjectBranch`, on by default), write the prefix
    when you commit, never later; off, write the subject as the repository does, and the owner groups the commits
@@ -391,7 +396,7 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    (--processes adds the processes in each; `holder_alive`, `idle` with `idle_with_work`, `reclaimed`, `free_bytes`). The return applies the clean rules of
    `.branchdeck.toml` (`cleaned`: stale cargo units, build output, test artifacts; a `delete` moves its paths into the
    trash and deletes them once the slot is free; `clean_error` when the file does not parse, the return still
-   succeeds); notes that must outlive the return go outside the paths of the rules:
+   succeeds); the notes of the lease are no path of the worktree, so no rule deletes them:
    `brd lease return --no-clean` applies none, and `brd lease return --keep <n> --age <duration>` changes every cargo
    rule for this call. `brd lease clean` applies the rules now (--free: the free slots; --host: the idle host slots; --dry-run only reports;
    --keep, --age as for the return). `brd lease trim` deletes the free slots past `branchdeck.leaseMaxSlots` (10; --max <n> for this call) of every pool of the

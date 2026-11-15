@@ -2384,6 +2384,26 @@ takes it out, and one after the forget sees the epoch of the next lease, as the 
 reservation changed it (`a_forget_between_the_check_of_a_write_and_the_write_takes_out_what_the_write_wrote`); a write
 between the forget of the return and its end, while the epoch still names the lease, goes with the forget of the get.
 
+**The notes of a lease** (`lease_pool::lease_notes`, `brd lease notes`): the logs, probes and patches of the session
+that holds a lease, which the lead or a reviewer may need after the return. Each lease has a directory of its own
+beside the state, `$GIT_COMMON_DIR/branch-deck/notes/<lease id>/`, and a record beside it (`<lease id>.json`: the
+holder, the slot, the branch, when it was got and returned); the get makes them and links `notes.local` of the
+worktree to the directory, and the return removes the link and records the return, so the next holder of the slot
+starts with an empty `notes.local` and the notes stay. Beside the state, not in the directory of the pool: every lease
+command knows the common dir, while the pool directory takes the config and the home, and a trim may delete every slot
+of a pool. No git runs for them. The link is kept out of git twice: the get adds `/notes.local` to `info/exclude` of the
+repository where that file lacks the line, so no `git add` takes it, and the status of a slot (`slot_changes`) never
+counts an untracked `notes.local`, so a return, a takeover and the dirty check of a get pass also where `info/exclude`
+lost the line. The return takes the notes out before it discards anything (`--confirm-preserved`), as its `clean -fd`
+would delete a directory of notes that nothing ignores, and a clone of a template slot leaves `notes.local` out. Where
+the system makes no link (Windows without the right to make one), `notes.local` is a directory of the worktree, whose
+entries the return moves into the directory of the lease; a `notes.local` that an earlier lease left in a slot (a
+return that could not move it, a brd before the notes) is moved by the next get into notes of its own
+(`left-<uuid>`, returned at once). The notes of a returned lease expire `branchdeck.leaseNotesKeep` after the return
+(`14d` by default, `0` for ever): `brd lease trim` (one `config` of each pool) and the keeper of a host delete them,
+never those of a lease the pool holds; `brd lease disk` counts them (`notes_bytes`), `brd lease status` names them for
+each lease.
+
 **The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`, `domain_types::worktree_epoch::WorktreeEpoch`): the
 path stays too, and the app keeps what it records of a worktree by its path. The epoch is `Lease` with the id of the
 lease the slot holds now (`returned <n>` of a free slot, by the number of its last return), `NotASlot` for a worktree
