@@ -4823,8 +4823,12 @@ no operation.
 - **Writes at once**: the app writes each config file through its one writer (`app_api::app::config_writer`): a task
   per file, the canonical common git directory of the repository (every worktree and every spelling of its path writes
   the same `config`, `two_spellings_of_one_repository_write_through_one_task`) or the global config, that runs the writes
-  of Settings and of the companions one after the other in the order they came (a companion's `branchdeck.primary` in
-  the writer of the companion's config, `a_companion_writes_each_side_in_the_writer_of_its_own_config`), so a prefix
+  of Settings and of the companions one after the other in the order they came (an add of a companion in three steps,
+  each in the writer of the config it reads and writes: the check of the primary, the companion's `branchdeck.primary`
+  with the check that it has one primary, so of two primaries that add one companion at once the second is refused,
+  then the key of the primary, whose failure takes back the primary the companion named;
+  `a_companion_writes_each_side_in_the_writer_of_its_own_config`,
+  `of_two_primaries_that_add_one_companion_at_once_the_second_is_refused_in_the_writer_of_the_companion`), so a prefix
   saved on blur and a switch flipped right after never race for `config.lock`, and no lock is held across git
   (`two_writes_of_different_keys_at_once_are_both_on_disk`: the writes at once cost the git processes of the same
   writes one by one, no write tried again). A lock is then another process's (`brd describe`, a `git config` of the

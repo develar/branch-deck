@@ -669,11 +669,24 @@ fn main_worktree(git: &GitCommandExecutor, path: &str) -> Result<String> {
 /// it (`None`): `branchdeck.companion.<name>.path` in the local config of the primary, `branchdeck.primary` in the
 /// local config of the companion, both the paths of the main worktrees. A companion has one primary, a primary is no
 /// companion, a repository is no companion of itself. A removal unsets the primary of the companion only while it names
-/// this repository, and of a companion that is gone only the key of the primary
+/// this repository, and of a companion that is gone only the key of the primary. Three steps, each in the config of one
+/// repository, which the app runs each in the writer of that config (`app::repository_config::write_companion`): the
+/// primary's check (`write_companion_of_primary`), the companion's side with its check (`write_companion_side`), and of
+/// an add the key of the primary (`finish_companion_of_primary`), whose failure takes back a side named just now
 #[instrument(skip(git))]
 pub fn write_companion(git: &GitCommandExecutor, repository_path: &str, name: &str, path: Option<&str>) -> Result<()> {
-  if let Some(side) = write_companion_of_primary(git, repository_path, name, path)? {
-    write_companion_side(git, &side)?;
+  let Some(side) = write_companion_of_primary(git, repository_path, name, path)? else {
+    return Ok(());
+  };
+  let named_now = write_companion_side(git, &side)?;
+  if let Err(error) = finish_companion_of_primary(git, &side) {
+    if named_now
+      && let Some(undo) = side.undo()
+      && let Err(undo_error) = write_companion_side(git, &undo)
+    {
+      warn!("cannot take back the primary of {}: {undo_error:#}", undo.companion());
+    }
+    return Err(error);
   }
   Ok(())
 }
@@ -682,9 +695,16 @@ pub fn write_companion(git: &GitCommandExecutor, repository_path: &str, name: &s
 /// primary's, so the app runs it in the writer of that file
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompanionSide {
-  /// `branchdeck.primary` of `companion` names `primary`
-  Set { companion: String, primary: String },
-  /// `branchdeck.primary` of `companion` goes while it names `primary`
+  /// An add: `branchdeck.primary` of `companion` names `primary` unless it names another one already, then `key` of the
+  /// primary at `repository` names the companion (`finish_companion_of_primary`)
+  Claim {
+    companion: String,
+    primary: String,
+    repository: String,
+    key: String,
+  },
+  /// A removal, whose key of the primary is unset already: `branchdeck.primary` of `companion` goes while it names
+  /// `primary`
   UnsetIfPrimary { companion: String, primary: String },
 }
 
@@ -693,13 +713,27 @@ impl CompanionSide {
   #[must_use]
   pub fn companion(&self) -> &str {
     match self {
-      Self::Set { companion, .. } | Self::UnsetIfPrimary { companion, .. } => companion,
+      Self::Claim { companion, .. } | Self::UnsetIfPrimary { companion, .. } => companion,
+    }
+  }
+
+  /// What takes back the claim of an add whose key of the primary could not be written: the primary of the companion
+  /// goes while it names this primary
+  #[must_use]
+  pub fn undo(&self) -> Option<Self> {
+    match self {
+      Self::Claim { companion, primary, .. } => Some(Self::UnsetIfPrimary {
+        companion: companion.clone(),
+        primary: primary.clone(),
+      }),
+      Self::UnsetIfPrimary { .. } => None,
     }
   }
 }
 
-/// `write_companion` in the config of the primary alone: the change checked and its key written; the write it leaves for
-/// the config of the companion (`write_companion_side`), none for a companion that is gone
+/// The first step of `write_companion`, in the config of the primary alone: a removal unsets the key of the primary; an
+/// add checks what the primary and the path tell and writes nothing yet. The write it leaves for the config of the
+/// companion (`write_companion_side`), none for a removed companion that is gone
 pub fn write_companion_of_primary(git: &GitCommandExecutor, repository_path: &str, name: &str, path: Option<&str>) -> Result<Option<CompanionSide>> {
   validate_companion_name(name)?;
   let key = format!("branchdeck.companion.{name}.path");
@@ -722,24 +756,53 @@ pub fn write_companion_of_primary(git: &GitCommandExecutor, repository_path: &st
   if companion == primary {
     bail!("{primary} can not be a companion of itself");
   }
-  if let Some(other) = ConfigSnapshot::read(git, &companion)?.primary().filter(|other| *other != primary) {
-    bail!("{companion} is a companion of {other} already: a companion has one primary");
-  }
-  run_config_write(git, repository_path, "--local", &key, Some(&companion))?;
-  Ok(Some(CompanionSide::Set { companion, primary }))
+  Ok(Some(CompanionSide::Claim {
+    companion,
+    primary,
+    repository: repository_path.to_owned(),
+    key,
+  }))
 }
 
-/// The write of `side` in the config of the companion: an unset only while it still names the primary
-pub fn write_companion_side(git: &GitCommandExecutor, side: &CompanionSide) -> Result<()> {
+/// The write of `side` in the config of the companion, with its check in the same step: a claim names the primary
+/// unless the companion names another one already (a companion has one primary), so of two primaries that add one
+/// companion at once the second is refused; an unset only while it still names the primary. Answers whether it named
+/// the primary just now, which a failure of the next step takes back (`CompanionSide::undo`)
+pub fn write_companion_side(git: &GitCommandExecutor, side: &CompanionSide) -> Result<bool> {
   match side {
-    CompanionSide::Set { companion, primary } => run_config_write(git, companion, "--local", PRIMARY_CONFIG_KEY, Some(primary)),
+    CompanionSide::Claim { companion, primary, .. } => match ConfigSnapshot::read(git, companion)?.primary() {
+      Some(other) if other != primary => bail!("{companion} is a companion of {other} already: a companion has one primary"),
+      Some(_) => Ok(false),
+      None => {
+        run_config_write(git, companion, "--local", PRIMARY_CONFIG_KEY, Some(primary))?;
+        Ok(true)
+      }
+    },
     CompanionSide::UnsetIfPrimary { companion, primary } => {
       if ConfigSnapshot::read(git, companion)?.primary() == Some(primary.as_str()) {
         run_config_write(git, companion, "--local", PRIMARY_CONFIG_KEY, None)?;
       }
-      Ok(())
+      Ok(false)
     }
   }
+}
+
+/// The last step of an add, in the config of the primary again: its key names the companion, while the primary is still
+/// no companion itself; nothing for a removal
+pub fn finish_companion_of_primary(git: &GitCommandExecutor, side: &CompanionSide) -> Result<()> {
+  let CompanionSide::Claim {
+    companion,
+    primary,
+    repository,
+    key,
+  } = side
+  else {
+    return Ok(());
+  };
+  if let Some(of) = ConfigSnapshot::read(git, repository)?.primary() {
+    bail!("{primary} is a companion of {of}: only a primary has companions");
+  }
+  run_config_write(git, repository, "--local", key, Some(companion))
 }
 
 /// `write_companion`, then the settings read again

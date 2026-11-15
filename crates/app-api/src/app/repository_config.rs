@@ -14,7 +14,7 @@ use domain_types::settings::{GitBranchPrefix, WriteOrder};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use sync_core::repository_config::{ConfigScope, RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, set_config};
-use tracing::instrument;
+use tracing::{instrument, warn};
 
 #[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -119,9 +119,12 @@ pub async fn add_companion(ctx: &AppContext, params: AddCompanionParams) -> Resu
   .await
 }
 
-/// `sync_core::repository_config::set_companion` through the writers of the configs it changes: the key of the primary
-/// in the writer of the config of the repository at `repository_path`, the `branchdeck.primary` of the companion in the
-/// writer of the companion's, then the settings of the repository read again in its writer
+/// `sync_core::repository_config::set_companion` through the writers of the configs it changes, each step in the writer
+/// of the config it reads and writes: the check of the primary (and of a removal its key unset) in the writer of the
+/// config of the repository at `repository_path`, the `branchdeck.primary` of the companion with the check that it has
+/// one primary in the writer of the companion's, so of two primaries that add one companion at once the second is
+/// refused before it wrote anything, then of an add the key of the primary in its writer again, whose failure takes
+/// back the primary the companion named just now, then the settings of the repository read again in its writer
 pub(crate) async fn write_companion(
   writers: &ConfigWriters,
   git: &GitCommandExecutor,
@@ -133,12 +136,33 @@ pub(crate) async fn write_companion(
   let primary = move || sync_core::repository_config::write_companion_of_primary(&primary_git, &repository, &name, path.as_deref());
   let side = writers.write(repository_path, WriteScope::Local, None, primary).await?.flatten();
   if let Some(side) = side {
-    let (side_git, companion) = (git.clone(), side.companion().to_owned());
-    writers
-      .write(&companion, WriteScope::Local, None, move || {
-        sync_core::repository_config::write_companion_side(&side_git, &side)
+    let (side_git, claim) = (git.clone(), side.clone());
+    let named_now = writers
+      .write(side.companion(), WriteScope::Local, None, move || {
+        sync_core::repository_config::write_companion_side(&side_git, &claim)
       })
-      .await?;
+      .await?
+      .unwrap_or(false);
+    let (finish_git, add) = (git.clone(), side.clone());
+    let finished = writers
+      .write(repository_path, WriteScope::Local, None, move || {
+        sync_core::repository_config::finish_companion_of_primary(&finish_git, &add)
+      })
+      .await;
+    if let Err(error) = finished {
+      if named_now && let Some(undo) = side.undo() {
+        let (undo_git, companion) = (git.clone(), undo.companion().to_owned());
+        let undone = writers
+          .write(&companion, WriteScope::Local, None, move || {
+            sync_core::repository_config::write_companion_side(&undo_git, &undo)
+          })
+          .await;
+        if let Err(undo_error) = undone {
+          warn!(companion, "cannot take back the primary of the companion: {}", undo_error.message);
+        }
+      }
+      return Err(error);
+    }
   }
   let (read_git, repository) = (git.clone(), repository_path.to_owned());
   let read = move || sync_core::repository_config::read_repository_config(&read_git, &repository);

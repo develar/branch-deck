@@ -1,7 +1,7 @@
 use crate::companions::{CompanionNeed, companion_needs, need_repositories, read_companion_needs, repository_links};
 use crate::config_snapshot::ConfigSnapshot;
 use crate::regroup_test::{commits, path, sync};
-use crate::repository_config::{read_repository_config, write_companion};
+use crate::repository_config::{finish_companion_of_primary, read_repository_config, write_companion, write_companion_of_primary, write_companion_side};
 use branch_integration::detection_notes::{CacheOps, CachedDetection};
 use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use domain_types::landing::NeedState;
@@ -159,6 +159,50 @@ fn a_companion_writes_both_sides_and_resolves_the_primary_and_its_siblings() {
   write_companion(app.git_executor(), path(&app), "ci", None).unwrap();
   assert_eq!(snapshot(&app).companions().keys().collect::<Vec<_>>(), ["web"]);
   assert_eq!(snapshot(&ci).primary(), None);
+}
+
+/// Two primaries that add one companion at once both pass the check of their own config, which writes nothing yet; the
+/// check that a companion has one primary is made with the write of its side, so the second side is refused and its
+/// primary never names the companion
+#[test]
+fn of_two_primaries_that_add_one_companion_at_once_the_side_of_the_second_is_refused() {
+  let (first, second, ci) = (baseline_repo(), baseline_repo(), baseline_repo());
+  let begin = |primary: &TestRepo| write_companion_of_primary(primary.git_executor(), path(primary), "ci", Some(path(&ci))).unwrap().unwrap();
+  let (of_first, of_second) = (begin(&first), begin(&second));
+  assert!(write_companion_side(ci.git_executor(), &of_first).unwrap(), "the first names its primary");
+  let refused = write_companion_side(ci.git_executor(), &of_second).unwrap_err().to_string();
+  assert!(refused.contains("a companion has one primary"), "{refused}");
+  finish_companion_of_primary(first.git_executor(), &of_first).unwrap();
+  assert_eq!(snapshot(&ci).primary(), Some(main_worktree(&first).as_str()));
+  assert_eq!(snapshot(&first).companions().keys().collect::<Vec<_>>(), ["ci"]);
+  assert!(snapshot(&second).companions().is_empty(), "the second primary names no companion");
+}
+
+/// An add whose primary became a companion between the claim of the companion and the key of the primary is refused,
+/// and the claim it made is taken back: the companion names no primary, the primary no companion
+#[test]
+fn an_add_whose_primary_became_a_companion_meanwhile_takes_back_its_claim() {
+  let (app, ci, other) = (baseline_repo(), baseline_repo(), baseline_repo());
+  let side = write_companion_of_primary(app.git_executor(), path(&app), "ci", Some(path(&ci))).unwrap().unwrap();
+  assert!(write_companion_side(ci.git_executor(), &side).unwrap());
+  write_companion(other.git_executor(), path(&other), "app", Some(path(&app))).unwrap();
+  let refused = finish_companion_of_primary(app.git_executor(), &side).unwrap_err().to_string();
+  assert!(refused.contains("only a primary has companions"), "{refused}");
+  write_companion_side(ci.git_executor(), &side.undo().unwrap()).unwrap();
+  assert_eq!(snapshot(&ci).primary(), None, "the claim is taken back");
+  assert!(snapshot(&app).companions().is_empty());
+}
+
+/// An add whose key of the primary cannot be written (another process holds the lock of its config past the wait of a
+/// write) fails, and the primary the companion named just now is taken back: no companion names a primary that does
+/// not name it
+#[test]
+fn an_add_whose_key_of_the_primary_cannot_be_written_takes_back_the_primary_of_the_companion() {
+  let (app, ci) = (baseline_repo(), baseline_repo());
+  std::fs::write(app.path().join(".git/config.lock"), "").unwrap();
+  let failed = write_companion(app.git_executor(), path(&app), "ci", Some(path(&ci))).unwrap_err().to_string();
+  assert!(failed.contains("config.lock"), "{failed}");
+  assert_eq!(snapshot(&ci).primary(), None, "the claim is taken back");
 }
 
 #[test]

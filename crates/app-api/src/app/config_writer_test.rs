@@ -156,3 +156,95 @@ async fn a_companion_writes_each_side_in_the_writer_of_its_own_config() {
   assert!(primary.is_some(), "the companion names its primary");
   assert_eq!(writers.tasks.lock().unwrap().len(), 2, "one writer for each config");
 }
+
+/// Polls `future` once, which queues its first write in the writer of its config, the one step it takes before it waits
+fn queue(future: std::pin::Pin<&mut impl Future>) {
+  let _ = future.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+}
+
+/// A write that holds the writer of the config of `repo` until `gate` opens, queued at once
+fn hold(writers: &ConfigWriters, repo: &TestRepo) -> (std::sync::mpsc::Sender<()>, impl Future<Output = Result<Option<()>, ApiError>>) {
+  let (open, gate) = std::sync::mpsc::channel::<()>();
+  let mut held = Box::pin(writers.write(repo.path_str(), WriteScope::Local, None, move || {
+    let _ = gate.recv();
+    Ok(())
+  }));
+  queue(held.as_mut());
+  (open, held)
+}
+
+/// The add of `ci` as the companion `ci` of `primary` through `writers`, not polled yet
+fn add_ci<'a>(writers: &'a ConfigWriters, primary: &'a TestRepo, ci: &TestRepo) -> std::pin::Pin<Box<impl Future<Output = Result<RepositoryConfig, ApiError>> + 'a>> {
+  Box::pin(write_companion(
+    writers,
+    primary.git_executor(),
+    primary.path_str(),
+    "ci".to_owned(),
+    Some(ci.path_str().to_owned()),
+  ))
+}
+
+/// The writes queued in the writer of the config of `repo` before it are done once it is
+async fn after_queued(writers: &ConfigWriters, repo: &TestRepo) {
+  writers.write(repo.path_str(), WriteScope::Local, None, || Ok(())).await.unwrap();
+}
+
+/// Two primaries that add one companion at once: each checks its own config in its writer, then the companion's side
+/// with the check that it has one primary in the companion's writer, so whatever their order the second is refused
+/// there and its primary never names the companion. The writer of the companion holds until both checked their primary,
+/// the order in which a check of the companion's config in the primary's writer let both pass
+#[tokio::test]
+async fn of_two_primaries_that_add_one_companion_at_once_the_second_is_refused_in_the_writer_of_the_companion() {
+  let (first, second, ci) = (TestRepo::new(), TestRepo::new(), TestRepo::new());
+  let writers = ConfigWriters::default();
+  let (open, held) = hold(&writers, &ci);
+  let (mut of_first, mut of_second) = (add_ci(&writers, &first, &ci), add_ci(&writers, &second, &ci));
+  queue(of_first.as_mut());
+  queue(of_second.as_mut());
+  after_queued(&writers, &first).await;
+  after_queued(&writers, &second).await;
+  open.send(()).unwrap();
+  let (of_first, of_second, held) = tokio::join!(of_first, of_second, held);
+  held.unwrap();
+  let refused: Vec<String> = [&of_first, &of_second]
+    .into_iter()
+    .filter_map(|added| added.as_ref().err())
+    .map(|error| error.message.clone())
+    .collect();
+  assert_eq!(refused.len(), 1, "one of the two is refused: {refused:?}");
+  assert!(refused[0].contains("a companion has one primary"), "{refused:?}");
+  let (winner, loser) = if of_first.is_ok() { (&first, &second) } else { (&second, &first) };
+  let primary = ConfigSnapshot::read(ci.git_executor(), ci.path_str()).unwrap().primary().map(str::to_owned);
+  let winner_main = ConfigSnapshot::read(winner.git_executor(), winner.path_str()).unwrap();
+  assert!(
+    primary.is_some_and(|primary| std::path::Path::new(&primary) == std::fs::canonicalize(winner.path()).unwrap()),
+    "the companion names the first that claimed it"
+  );
+  assert_eq!(winner_main.companions().keys().collect::<Vec<_>>(), ["ci"]);
+  assert!(
+    ConfigSnapshot::read(loser.git_executor(), loser.path_str()).unwrap().companions().is_empty(),
+    "the refused primary names no companion"
+  );
+}
+
+/// An add whose primary became a companion while the add waited for the writer of the companion is refused in the
+/// writer of the primary, and the primary the companion named just now is taken back in the writer of the companion
+#[tokio::test]
+async fn an_add_whose_primary_became_a_companion_meanwhile_takes_back_the_primary_of_the_companion() {
+  let (app, ci, other) = (TestRepo::new(), TestRepo::new(), TestRepo::new());
+  let writers = ConfigWriters::default();
+  let (open, held) = hold(&writers, &ci);
+  let mut added = add_ci(&writers, &app, &ci);
+  queue(added.as_mut());
+  after_queued(&writers, &app).await;
+  write_companion(&writers, other.git_executor(), other.path_str(), "app".to_owned(), Some(app.path_str().to_owned()))
+    .await
+    .unwrap();
+  open.send(()).unwrap();
+  let (added, held) = tokio::join!(added, held);
+  held.unwrap();
+  let refused = added.unwrap_err().message;
+  assert!(refused.contains("only a primary has companions"), "{refused}");
+  assert_eq!(ConfigSnapshot::read(ci.git_executor(), ci.path_str()).unwrap().primary(), None, "the claim is taken back");
+  assert!(ConfigSnapshot::read(app.git_executor(), app.path_str()).unwrap().companions().is_empty());
+}
