@@ -3,8 +3,13 @@ use crate::lease_state::LeasePaths;
 use crate::sync::{SyncOptions, sync_branches};
 use crate::synced_mark::{mark_synced, synced_before};
 use git_executor::git_command_executor::GitCommandExecutor;
+use history_rewrite::repository_lock::{lock_as_another_process, lock_file};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::sync_fixtures::TestReporter;
+use tokio::sync::Notify;
 
 async fn sync(path: &str) -> anyhow::Result<()> {
   sync_under(path, "test").await
@@ -38,6 +43,45 @@ async fn a_sync_marks_its_worktree_synced_and_one_git_deferred_does_not() {
   std::fs::create_dir_all(rebase.trim()).unwrap();
   assert!(sync(&lane.path).await.is_err());
   assert!(!synced_before(&lane.path, "test"));
+}
+
+/// The mark of a sync waits for the lock of the lease that another process holds on the blocking pool, not on a worker
+/// of the runtime: a task of the runtime runs meanwhile, on the one worker of a current-thread runtime too (here the one
+/// that lets the other process go once the mark waits for it), and the mark lands. Waited for on the worker, the mark
+/// would hold that task until its lock gave up (10 s) and land nothing
+#[tokio::test(flavor = "current_thread")]
+async fn the_mark_of_a_sync_waits_for_the_lock_of_the_lease_off_the_worker_of_the_runtime() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  repo.create_commit("(feature) Add the feature", "feature.txt", "feature");
+  let path = repo.path().to_str().unwrap().to_string();
+  let lock = lease_of(&repo).lease_lock();
+  std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
+  let held = lock_as_another_process(lock.clone(), "brd lease return").unwrap();
+  let sync = tokio::spawn({
+    let path = path.clone();
+    async move { sync(&path).await }
+  });
+  // the turn of the lock in this process is the mark's once a try of it has to wait for the turn
+  let waits = Arc::new(Notify::new());
+  let watcher = std::thread::spawn({
+    let waits = Arc::clone(&waits);
+    move || {
+      let waited = AtomicBool::new(false);
+      while !waited.load(Ordering::SeqCst) {
+        let _tried = lock_file(lock.clone(), Duration::ZERO, &|| {
+          waited.store(true, Ordering::SeqCst);
+          waits.notify_one();
+        });
+        std::thread::yield_now();
+      }
+    }
+  });
+  waits.notified().await;
+  drop(held);
+  sync.await.unwrap().unwrap();
+  watcher.join().unwrap();
+  assert!(synced_before(&path, "test"), "the mark landed once the other process let the lock go");
 }
 
 /// The mark names the prefix of each sync: a sync under another prefix (`brd sync --prefix other`) marks that one, so a

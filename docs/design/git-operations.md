@@ -2330,7 +2330,9 @@ the next lease is a worktree no sync built anything for, a window that opens it 
 nothing landed is reported of a branch it never had. A run of a session that began under one lease and ended under
 another writes nothing into the files of the lease, neither the mark nor the landed state: they have one writer
 (`sync_core::lease_state`, `lease_files_scan_test.rs`, which also builds their paths, `LeasePaths`), which writes each
-under the guard of its caller (`LeaseGuard`), and the session gives its sync one that asks the epoch of the slot right
+under the guard of its caller (`LeaseGuard`) and under the lock of the lease, which an async caller waits for on the
+blocking pool (the mark at the end of `sync_branches`:
+`the_mark_of_a_sync_waits_for_the_lock_of_the_lease_off_the_worker_of_the_runtime`), and the session gives its sync one that asks the epoch of the slot right
 before each write and holds only under the epoch the run began under (`SyncOptions::lease` of `GitSessionHost::run`;
 `a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under`,
 `a_sync_whose_lease_no_longer_holds_writes_no_file_of_the_lease`), as the return took the files of the lease before

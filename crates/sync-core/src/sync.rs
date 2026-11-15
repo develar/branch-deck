@@ -1263,8 +1263,12 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   report.companion_needs = detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
   // the worktree was synced: a session of the app opened later, or one that hears the stamp of `brd`, syncs of itself;
-  // only while the lease of its slot holds (`SyncOptions::lease`)
-  mark_synced(&lease, &lease_paths, branch_prefix);
+  // only while the lease of its slot holds (`SyncOptions::lease`). On the blocking pool: the mark waits for the lock of
+  // the lease, which another process may hold, and a worker of the runtime waits for nothing
+  let prefix = branch_prefix.to_owned();
+  tokio::task::spawn_blocking(in_current_span(move || mark_synced(&lease, &lease_paths, &prefix)))
+    .await
+    .map_err(|e| anyhow!("The mark of the sync failed: {e}"))?;
   Ok(report)
 }
 

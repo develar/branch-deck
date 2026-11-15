@@ -42,7 +42,8 @@ for the worktree safety scan too: `production_sources`, the production part of `
 only with `-z`; paths after `--` only with `--literal-pathspecs`; `push`, `fetch` and `ls-remote` only through
 `execute_remote_command*`. The concurrency scan on the same sources (`concurrency_scan_test.rs`): no guard of an
 async mutex or `RwLock` (`let … = ….lock().await`) lives across another `.await` of its scope (a read others wait for
-is one shared future, not a mutex), no guard of the repository lock across `execute_remote_command*`,
+is one shared future, not a mutex), no guard of the repository lock, nor of the file locks of a lease and of the
+companions (`lock_lease`, `lock_landed`, `lock_state`, `lock_companions`), across `execute_remote_command*`,
 `fetch_baseline`, `push_baseline`, `push_leased`, HTTP (`reqwest`, a method of a GitHub, Patronus or YouTrack
 service) or `block_on` ([invariant 2](../design/rust-domain-authority.md#инварианты)), nor across a sync (`sync`,
 `sync_branches`) or a wait for the index lock of another process (`wait_while_locked`, `wait_for_index`,

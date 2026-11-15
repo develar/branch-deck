@@ -91,7 +91,7 @@ impl LeasePaths {
   }
 
   /// The lock of the writes of the files of the lease and of their forget
-  fn lease_lock(&self) -> PathBuf {
+  pub(crate) fn lease_lock(&self) -> PathBuf {
     self.dir.join("lease.lock")
   }
 

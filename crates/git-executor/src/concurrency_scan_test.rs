@@ -1,7 +1,7 @@
 //! Nothing across the network or a wait (docs/design/rust-domain-authority.md, «Инварианты», 2; AGENTS.md, "Repository
 //! lock"). The guard of an async mutex or read-write lock lives across no other `.await` of its scope: a read that the
-//! others wait for is one shared future or a `watch` (single-flight), not a mutex. The guard of the repository lock lives
-//! across no call of the network: a git of the remote (`execute_remote_command*`), the fetch and the push of the baseline
+//! others wait for is one shared future or a `watch` (single-flight), not a mutex. The guard of the repository lock, and
+//! of the file locks of a lease and of the companions (`FILE_LOCK_FUNCTIONS`), lives across no call of the network: a git of the remote (`execute_remote_command*`), the fetch and the push of the baseline
 //! (`fetch_baseline`, `push_baseline`), the leased push (`push_leased`, `push::send`), HTTP (`reqwest`, the `.send()` of a
 //! request, a method of a `GitHubService`, `PatronusService`, `YouTrackService` or `ServiceFactSources` or of what the
 //! hosts answer for one), a runtime blocked on a future (`block_on`); nor across a sync or a wait for the index lock of
@@ -33,6 +33,12 @@ const ASYNC_GUARDS: [&str; 6] = [
 /// The functions of `history_rewrite::repository_lock` that take the repository lock, by the start of their name
 /// (`lock_repository_in`, `lock_prepared_move`, `RewriteOptions::lock_prepared`)
 const LOCK_FUNCTIONS: [&str; 5] = ["lock_repository", "try_lock_repository", "lock_prepared", "lock_checked_undo", "lock_as_another_process"];
+
+/// The file locks of the files of a lease and of the companions, by their whole name, each held as the repository lock is
+/// held: across the read and the write of a few files, never across the network or a sync (`sync_core::lease_state`:
+/// `lock_lease`, `lock_landed`; `sync_core::landed::lock_state`; `sync_core::companion_write::lock_companions`, under
+/// which the reads and writes of git config are by design)
+const FILE_LOCK_FUNCTIONS: [&str; 4] = ["lock_lease", "lock_landed", "lock_state", "lock_companions"];
 
 /// The methods of `LockWait` and `RewriteOptions` that take it, called with an argument: the `lock()` of a mutex has none
 const LOCK_METHODS: [&str; 3] = ["lock", "lock_with", "lock_in"];
@@ -247,6 +253,7 @@ fn takes_repository_lock(value: &str, bare: &[&str]) -> bool {
   let value = block_values(value);
   let value = value.as_str();
   LOCK_FUNCTIONS.iter().any(|name| calls(value, name, false, |_| true).next().is_some())
+    || FILE_LOCK_FUNCTIONS.iter().any(|name| calls(value, name, true, |_| true).next().is_some())
     || LOCK_METHODS
       .iter()
       .any(|name| calls(value, name, true, |before| before.trim_end().ends_with('.')).any(|at| has_argument(value, at)))
@@ -502,6 +509,25 @@ fn a_repository_lock_lives_across_no_call_of_the_network() {
     "  block_on(start());",
     "  let held = lock(&on_wait, &canceled)?; // hit",
     "  reqwest::get(url)?;",
+    "  Ok(())",
+    "}",
+    "fn the_file_locks_of_a_lease_and_of_the_companions(paths: &LeasePaths, git: &GitCommandExecutor) -> Result<()> {",
+    "  let _lock = lock_lease(paths, &|| {})?; // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  let _landed = lock_landed(paths, timeout)?; // hit",
+    "  fetch_baseline(git, path, &remote)?;",
+    "  let _state = lock_state(&paths)?; // hit",
+    "  push_leased(git, path)?;",
+    "  let _locks = lock_companions(git, &[Some(path), companion], &|| {})?; // hit",
+    "  execute_remote_command(git, &[\"ls-remote\"], path)?;",
+    "}",
+    "fn git_config_under_the_companion_locks(git: &GitCommandExecutor) -> Result<()> {",
+    "  let _locks = lock_companions(git, &[Some(path), companion], &|| {})?;",
+    "  run_config_write(git, path, \"--local\", key, None)",
+    "}",
+    "fn a_name_that_only_starts_as_one(git: &GitCommandExecutor) -> Result<()> {",
+    "  let states = lock_states(&paths);",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
     "  Ok(())",
     "}",
     "use bd_core::sync_command::{SyncOutput, lock, sync};",
