@@ -239,3 +239,20 @@ fn the_chunks_of_a_pack_keep_the_wait_alive_and_its_mark_ends_it() {
   assert!(restored.get(), "the wait never looked");
   assert!(waited.expect("the commit came without a mark"));
 }
+
+/// A process of the command group that started as the SIGINT of a cancel came, a second before it or later, gets it
+/// again; the command itself, an older process, one of another group and one whose start is unknown get none
+#[test]
+fn a_process_that_started_as_the_sigint_came_is_a_newcomer() {
+  let since = std::time::UNIX_EPOCH + Duration::from_secs(1_000_000);
+  let after = |millis: u64| Some(since + Duration::from_millis(millis));
+  let before = |millis: u64| Some(since - Duration::from_millis(millis));
+  let group = 4000;
+  assert!(is_newcomer(4001, group, after(300), group, since), "forked after the SIGINT");
+  assert!(is_newcomer(4002, group, before(500), group, since), "forked as it came");
+  assert!(is_newcomer(4003, group, before(1000), group, since), "the slack is a second");
+  assert!(!is_newcomer(4004, group, before(1500), group, since), "it had the SIGINT");
+  assert!(!is_newcomer(group, group, after(300), group, since), "the command itself");
+  assert!(!is_newcomer(4005, 5000, after(300), group, since), "another group");
+  assert!(!is_newcomer(4006, group, None, group, since), "a start that the system won't tell");
+}

@@ -5,6 +5,12 @@ use host_link::proto::{HEARTBEAT_SECONDS, PACK_STALL_SECONDS, PACK_WAIT_SECONDS,
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// How long after the SIGINT of a cancel the processes of the command group that started as it came get it again
+/// (`supervise::interrupt_newcomers`): `BD_HOST_TEST_INTERRUPT_REPEAT_MS`, else 1 s
+pub(crate) fn interrupt_repeat() -> Duration {
+  from_env("BD_HOST_TEST_INTERRUPT_REPEAT_MS", Duration::from_secs(1))
+}
+
 /// How long an interrupted command group has before SIGKILL: `BD_HOST_TEST_GRACE_MS`, else 120 s
 pub(crate) fn grace() -> Duration {
   from_env("BD_HOST_TEST_GRACE_MS", Duration::from_secs(120))

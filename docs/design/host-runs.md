@@ -1,7 +1,7 @@
 # Host Runs
 
 **Status:** Draft
-**Updated:** 2026-11-14
+**Updated:** 2026-11-15
 **Tags:** [host, remote-run, lease, brd-host, yonder]
 
 ## Problem
@@ -123,7 +123,9 @@ host run one at a time, whatever their repository, and the other runs go as befo
 - **The supervisor** is `brd-host supervise <run dir>`, one process per run, in a session of its own. `serve` starts it
   for each `Start`. It lends the slot with its own pid, so the lend lasts as long as the process. It waits for the
   pack, checks out the commit, runs the prepare steps and the command, stages the outputs, writes `exit.json` and gives
-  the slot back on every way out. A restart of `serve` does not stop it.
+  the slot back on every way out. A restart of `serve` does not stop it. A cancel sends SIGINT to the process group of
+  the command, SIGINT again a second later to each process of the group that started as it came, and SIGKILL after
+  120 s (decision 9).
 - **The keeper** is a thread of `serve`. It wakes once a minute and when a run names a repository. It brings the git
   of the host to its floor (`ensure_host_git`), takes up what a gone process left (`reclaim`, `reclaim_refs`), keeps
   the minimum free space (`keep_free`), and fills the missing slots (`fill`). A failed fill waits 1, 5, then 15
@@ -219,6 +221,16 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
 8. **Decision**: An unknown key of `[host]` names the keys of the build and the updates of both ends (2026-11-14).
    **Rationale**: Both ends refuse an unknown key, so a typo never drops a step. A new key then fails each run of an
    older end; its message says so, and a repository adds the key only after both ends know it.
+9. **Decision**: A second after the SIGINT of a cancel, each process of the command group that started as it came (a
+   second before it or later), but the command itself, gets SIGINT once more (2026-11-15).
+   **Rationale**: A shell that gets the SIGINT between two commands (`sh -c 'trap … INT; a; b'`) runs the next one
+   before its trap, and a process that it forks as the signal comes resets the handlers it had of the shell before its
+   `exec`: neither sees the SIGINT, and the shell waits for it. A cancel then ended only when that process ended by
+   itself, or at the SIGKILL of 120 s: 9 of 300 runs of the cancel test took 62 s under load, the `sleep 60` that the
+   shell started as the cancel came. A second SIGINT to the whole group would force a tool that cleans up on the first
+   one (Playwright stops at once on a second), and SIGTERM ends a shell before its trap; only a process that started as
+   the SIGINT came can have missed it. A process that a trap started in that second and that
+   still runs gets the SIGINT too.
 
 ## Alternatives Considered
 

@@ -1,6 +1,6 @@
-//! The signals of a run: a cancel sends SIGINT to the command group and SIGKILL after the grace time, the processes
-//! that a command leaves in its group get SIGTERM and SIGKILL, and a run whose supervisor is killed ends for a cancel and
-//! a follow
+//! The signals of a run: a cancel sends SIGINT to the command group, SIGINT again a second later to the processes that
+//! started as it came, and SIGKILL after the grace time, the processes that a command leaves in its group get SIGTERM
+//! and SIGKILL, and a run whose supervisor is killed ends for a cancel and a follow
 
 use super::{World, eventually, process_alive, wait_for};
 use host_link::proto::{Reply, Request};
@@ -15,8 +15,10 @@ const LOOP: &str = "i=0; while [ $i -lt 600 ]; do sleep 0.1; i=$((i + 1)); done"
 fn a_cancel_interrupts_the_command_group() {
   let world = World::new(1, &[]);
   let agent = world.serve();
-  // a trap makes the end certain: without one, sh goes on when its child exits 0 at the moment of the signal
-  agent.start(world.spec("1-1", &format!("trap 'echo interrupted; exit 7' INT; echo ready; {LOOP}")));
+  // a trap makes the end certain: without one, sh goes on when its child exits 0 at the moment of the signal. The shell
+  // waits in `wait`, which the SIGINT ends at once: at the start of a foreground command a SIGINT can make bash 3.2 of
+  // macOS exit 130 without its trap
+  agent.start(world.spec("1-1", "trap 'echo interrupted; exit 7' INT; sleep 600 & echo ready; wait"));
   agent.follow_until("1-1", "ready");
   assert_eq!(
     agent.reply(&Request::Cancel { run: "1-1".to_owned() }),
@@ -35,6 +37,30 @@ fn a_cancel_interrupts_the_command_group() {
       message: "the run 1-1 has ended already".to_owned()
     }
   );
+}
+
+/// A process that started after the SIGINT of a cancel never saw it: here the trap starts it, as a shell that got the
+/// SIGINT between two commands starts the next one before its trap. It gets SIGINT a second later, so the run ends
+/// long before the grace time and without SIGKILL. The shell waits in `wait`, which the SIGINT ends at once: at the
+/// start of a foreground command a SIGINT can make bash 3.2 of macOS exit 130 without its trap
+#[test]
+fn a_process_that_started_as_the_sigint_came_gets_it_again_and_the_run_ends_without_the_grace() {
+  let world = World::new(1, &[]);
+  let agent = world.serve();
+  agent.start(world.spec("2-2", "trap 'sleep 60; echo trapped; exit 7' INT; sleep 600 & echo ready; wait"));
+  agent.follow_until("2-2", "ready");
+  assert!(matches!(agent.reply(&Request::Cancel { run: "2-2".to_owned() }), Reply::Done { .. }));
+  let followed = agent.follow("2-2");
+  assert_eq!(followed.end, Reply::Exit { code: 7 }, "{}", agent.dump("2-2"));
+  assert!(followed.has_line("trapped"), "{followed:?}");
+  let again: Vec<&str> = followed
+    .lines
+    .iter()
+    .map(|(_, line)| line.as_str())
+    .filter(|line| line.starts_with("brd-host: SIGINT again to the processes that started as the SIGINT came: "))
+    .collect();
+  assert!(again.len() == 1 && again[0].contains("(sleep 60)"), "{followed:?}");
+  assert!(!followed.lines.iter().any(|(_, line)| line.contains("SIGKILL")), "{followed:?}");
 }
 
 #[test]

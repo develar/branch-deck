@@ -1,7 +1,7 @@
 # Fast Rust Tests
 
 **Status:** Active  
-**Updated:** 2026-10-30  
+**Updated:** 2026-11-15  
 **Tags:** [tests, nextest, fixtures, performance]
 
 ## Summary
@@ -64,6 +64,11 @@ machine.
   the old timing turned a fake's reply that the load held back into a lost link), `DEADLINE` of
   `crates/host-link/src/channel_test.rs`, the handshake of `PROCESS_TEST_ENV`; a test whose subject is a deadline sets
   its own (a silent agent, the end of an upgrade, the cut of a slow handshake).
+- **A shell under SIGINT**: bash 3.2 of macOS can exit 130 without its `INT` trap when the SIGINT comes at the start
+  of a foreground command (1 run in 300 under load, a plain `sh -c` too), and a command that the shell starts as the
+  SIGINT comes never sees it (the agent of `brd-host` sends it SIGINT again a second later). A test that needs the trap
+  waits in `wait` (`trap '…' INT; sleep 600 & echo ready; wait`), which the SIGINT ends at once; a test of the code
+  `130` alone needs no trap output.
 - **The end that a test asserts is the only one that can come**: a test that X ends Y (a kill at a timeout, a cancel,
   a close, a deletion beside a stream) makes Y unable to end by itself before the limit of the test, and asserts the
   outcome: a fake that sleeps two minutes against a limit of one (`HANG` of `crates/sync-utils/src/child_process_test.rs`,

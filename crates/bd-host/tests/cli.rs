@@ -416,39 +416,20 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
 }
 
 /// SIGTERM to a client counts as Ctrl+C: a tool that stops the client after its timeout cancels the run on the host,
-/// and the client follows its output to the end, rather than leave the run going for nobody
+/// and the client follows the run to its end and leaves by the exit code of its command, rather than leave the run going
+/// for nobody. The command ends on the SIGINT of the cancel; the trap of the shell gives it the code 130, and so does the
+/// shell itself, where a SIGINT around the start of `sleep` makes bash 3.2 of macOS exit 130 without its trap
 #[test]
 fn sigterm_to_the_client_cancels_the_run_on_the_host() {
   let world = World::new();
   let _agent = world.serve();
-  let mut run = world
-    .command()
-    .args([
-      "run",
-      ALIAS,
-      "--head",
-      "--",
-      "/bin/sh",
-      "-c",
-      "trap 'echo interrupted; exit 130' INT; echo started; sleep 60",
-    ])
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-    .expect("a run");
-  let mut stdout = BufReader::new(run.stdout.take().expect("the stdout"));
-  let mut first = String::new();
-  stdout.read_line(&mut first).expect("the first line");
-  assert_eq!(first, "started\n", "serve: {}", world.serve_log());
-  let pid = run.id().to_string();
-  assert!(Command::new("kill").args(["-TERM", &pid]).status().expect("kill").success());
-  let mut rest = String::new();
-  stdout.read_to_string(&mut rest).expect("the rest of the stdout");
+  let run = start_a_run_that_waits(&world, Stdio::piped());
+  assert!(Command::new("kill").args(["-TERM", &run.id().to_string()]).status().expect("kill").success());
   let ended = run.wait_with_output().expect("the client ended");
   let stderr = text(&ended.stderr);
   assert_eq!(ended.status.code(), Some(130), "the command ended on the SIGINT of the cancel: {stderr}");
-  assert_eq!(rest, "interrupted\n", "{stderr}");
   assert!(stderr.contains("brd-host: Ctrl+C, SIGTERM or SIGHUP: cancelling the run "), "{stderr}");
+  assert!(stderr.contains("\nbrd-host: phases: "), "the client followed the run to its end: {stderr}");
 }
 
 /// SIGTERM to `brd-host follow` leaves the follow at once with 130, as Ctrl+C does, and the run goes on on the host: a

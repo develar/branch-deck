@@ -401,6 +401,12 @@ pub fn descendants(pid: u32, started: u64) -> Option<Vec<Descendant>> {
   Some(found)
 }
 
+/// Interrupt the process `pid` with SIGINT, only while it still has the start time `started`, as `kill` signals. False
+/// when it was not signalled (gone, another process now, another user's, no signals on this platform)
+pub fn interrupt(pid: u32, started: u64) -> bool {
+  is_running(pid, Some(started)) && signal(pid, Signal::Interrupt)
+}
+
 /// Ask the process `pid` to exit with SIGTERM; false when the signal could not be sent (gone, another user's, no
 /// signals on this platform)
 #[cfg_attr(
@@ -452,6 +458,7 @@ pub(crate) fn parent_of(pid: u32) -> Option<u32> {
 /// The signals of `signal`
 #[derive(Clone, Copy)]
 enum Signal {
+  Interrupt,
   Terminate,
   Kill,
   Stop,
@@ -526,6 +533,7 @@ fn unix_exists(pid: u32) -> bool {
 fn signal(pid: u32, signal: Signal) -> bool {
   let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
   let signal = match signal {
+    Signal::Interrupt => libc::SIGINT,
     Signal::Terminate => libc::SIGTERM,
     Signal::Kill => libc::SIGKILL,
     Signal::Stop => libc::SIGSTOP,
