@@ -366,21 +366,25 @@ async fn a_focus_looks_at_the_journal_and_the_stamp_too() {
   end(child);
 }
 
-/// A change right after the watch started is a change at the first look: the first look is taken before the watcher,
-/// as `FSEvents` drops the changes of the first moments of a stream. The task of the watch runs only once the test
-/// awaits (one thread), so a first look of the task would find the line already there
+/// A change made after the watcher started and before the task of the watch took its first look is told at a look, with
+/// no event: `FSEvents` may drop it (a write in the first moments of a stream), and a first look that already held it
+/// would tell no change at any look after. On a runtime of one thread the task runs only after the test yields, so the
+/// writes land in that window every time (the test of bd-host-heavy, with the stamp beside the journal)
 #[tokio::test]
-async fn a_change_right_after_the_watch_started_is_a_change_at_the_first_look() {
+async fn a_change_between_the_start_of_the_watcher_and_the_first_look_is_seen() {
   let directory = tempfile::tempdir().unwrap();
   let (sessions, listener, mut heard) = sessions_hearing_journals();
-  let watches = Watches::new(Some(listener), GIVEN_EVENTS);
+  let watches = Watches::new(Some(listener), LOOKS_ONLY);
   let registry = ProcessRegistry::of(directory.path());
   let _watch = watches.watch(&sessions, &registry, &session("user"));
 
+  // the journal of an operation of `bd` that ended right after the watcher started, and its stamp
   journal_line(directory.path());
-  watches.look(&registry);
+  touch_stamp(directory.path());
   tokio::time::timeout(DEADLINE, heard.recv())
     .await
-    .unwrap_or_else(|_elapsed| panic!("the first look found no change of the journal within {DEADLINE:?}"))
+    .unwrap_or_else(|_elapsed| panic!("no look told the journal written before the first look within {DEADLINE:?}"))
     .unwrap();
+  let wake = watches.wake_of(&registry).expect("the watch of the registry");
+  assert_eq!(wake.stamps(), 1, "the look that told the journal asked the syncs of the stamp");
 }

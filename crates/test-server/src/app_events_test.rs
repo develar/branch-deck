@@ -7,6 +7,12 @@ use crate::test_support::{Messages, Named, command, create_repository, delete_re
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
+use std::time::Duration;
+
+/// The end of a wait for what the watch of the operations registry tells: a run whose watch or look tells it never
+/// reaches it (a look comes every 2 s), and one that tells nothing fails there with what it waited for, not at the
+/// timeout of the runner
+const WATCH_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The event stream of a page of the window `window` of the repository `id`, past its first message
 async fn events_of(client: &reqwest::Client, addr: SocketAddr, id: &str, window: &str) -> Messages {
@@ -91,15 +97,19 @@ async fn an_operation_journaled_in_the_repository_a_window_shows_tells_its_pages
   let push = json!({ "kind": "push", "branches": ["test-branch"], "force": false });
   let operation = json!({ "intent": push_intent("test-branch", None), "effects": [push] });
   post(&client, addr, &format!("/repositories/{id}/agent-operation"), operation).await;
-  loop {
-    let event = page.next().await;
-    if event["event"] == "activity-changed" {
-      assert_eq!(event, of_app("activity-changed", Value::Null, None));
-      break;
+  let told = tokio::time::timeout(WATCH_DEADLINE, async {
+    loop {
+      let event = page.next().await;
+      if event["event"] == "activity-changed" {
+        assert_eq!(event, of_app("activity-changed", Value::Null, None));
+        break;
+      }
+      // the settings the subscription changed (the journal it remembers for the project)
+      assert_eq!(event["event"], "settings_changed", "{event}");
     }
-    // the settings the subscription changed (the journal it remembers for the project)
-    assert_eq!(event["event"], "settings_changed", "{event}");
-  }
+  })
+  .await;
+  told.unwrap_or_else(|_elapsed| panic!("neither an event nor a look of the watch told activity-changed within {WATCH_DEADLINE:?}"));
   drop(patches);
   delete_repository(&client, addr, &id, &path).await;
 }

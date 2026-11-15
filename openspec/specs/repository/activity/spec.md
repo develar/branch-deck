@@ -738,7 +738,7 @@ each write of its own.
   drops the changes of the first moments of a stream, and runs behind under load)
 - **WHEN** an operation of `brd` ends in the journal, right after the watch started too, or a window gains the focus
 - **THEN** the windows hear `activity-changed` at the next look of the watch, within 2 s, at once on the focus
-  [@test] crates/operations/src/registry_watch_test.rs (`a_change_right_after_the_watch_started_is_a_change_at_the_first_look`)
+  [@test] crates/operations/src/registry_watch_test.rs (`a_change_between_the_start_of_the_watcher_and_the_first_look_is_seen`)
   [@test] crates/operations/src/registry_watch_test.rs (`a_focus_looks_at_the_journal_and_the_stamp_too`)
 
 ### Requirement: Log: An entry the main window recorded shows once, whichever answer comes first

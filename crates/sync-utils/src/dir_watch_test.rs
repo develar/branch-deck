@@ -1,4 +1,4 @@
-use crate::dir_watch::{Fingerprints, Wake, WatchedDir};
+use crate::dir_watch::{Fingerprints, Wake, WatchedDir, watch_from_with};
 use notify::Event;
 use notify::event::{EventKind, Flag, ModifyKind};
 use pretty_assertions::assert_eq;
@@ -74,4 +74,17 @@ fn a_look_tells_the_files_made_renamed_over_written_or_removed_since_the_last_on
   writeln!(std::fs::OpenOptions::new().append(true).open(&journal).unwrap(), "{{}}").unwrap();
   std::fs::remove_file(&stamp).unwrap();
   assert_eq!(fingerprints.look(), 0b110, "written in place and removed");
+}
+
+/// The first look of `watch_from` comes before its watcher starts: a write while the watcher starts, whose event the
+/// first moments of an `FSEvents` stream drop, is a change at the next look. A first look after the watcher would take
+/// it as where it starts and tell it at no look
+#[test]
+fn the_first_look_comes_before_the_watcher_so_a_write_while_it_starts_is_a_change_at_the_next_look() {
+  let dir = tempfile::tempdir().unwrap();
+  let journal = dir.path().join("journal.jsonl");
+  let start = |_dir: &Path, (): ()| std::fs::write(&journal, "{}\n").map_err(notify::Error::io);
+  let (mut fingerprints, started) = watch_from_with(dir.path(), vec![journal.clone()], (), start);
+  started.unwrap();
+  assert_eq!(fingerprints.look(), 0b1, "the write while the watcher started");
 }

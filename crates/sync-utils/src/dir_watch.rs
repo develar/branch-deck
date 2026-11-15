@@ -11,7 +11,9 @@
 //!   fseventsd at 100 % CPU a watch told no change of a file for 28 s and more, and a wait for its event hung.
 //!
 //! A look is a stat of each file (`Fingerprints::look`), so a waiter acts only on the files that changed since its last
-//! look, whatever woke it.
+//! look, whatever woke it. Its first look comes before its watcher (`watch_from`): `FSEvents` registers a stream after
+//! `FSEventStreamStart` returned and from "now", so it drops a change of its first moments without telling it, and a
+//! first look after the watcher could take that change as where it starts.
 
 use notify::{Event, EventHandler, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
@@ -138,6 +140,20 @@ pub fn watch(dir: &Path, handler: impl EventHandler) -> notify::Result<Recommend
   let mut watcher = notify::recommended_watcher(handler)?;
   watcher.watch(dir, RecursiveMode::NonRecursive)?;
   Ok(watcher)
+}
+
+/// The first look at `paths`, then the watch of `dir` (`watch`): a change after the look is told by an event or found by
+/// the next look, also one in the first moments of the stream, which `FSEvents` drops without telling it. A waiter that
+/// looks at files starts its watch this way, never with a first look after the watcher
+pub fn watch_from(dir: &Path, paths: Vec<PathBuf>, handler: impl EventHandler) -> (Fingerprints, notify::Result<RecommendedWatcher>) {
+  watch_from_with(dir, paths, handler, watch)
+}
+
+/// `watch_from` with `start` as the start of the watcher, the seam of the test of the order
+pub(crate) fn watch_from_with<H, W>(dir: &Path, paths: Vec<PathBuf>, handler: H, start: impl FnOnce(&Path, H) -> notify::Result<W>) -> (Fingerprints, notify::Result<W>) {
+  let fingerprints = Fingerprints::new(paths);
+  let watcher = start(dir, handler);
+  (fingerprints, watcher)
 }
 
 /// What a stat tells of a file that changes by a rename over it or by a write in place: its size, its modification time

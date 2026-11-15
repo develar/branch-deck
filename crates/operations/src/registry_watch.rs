@@ -35,7 +35,7 @@ use notify::{Event, RecommendedWatcher};
 use repository_model::session::{SessionKey, Sessions};
 use repository_model::table::OperationPatch;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -237,10 +237,9 @@ impl Drop for SessionWatch {
 fn start(sessions: &Arc<Sessions>, registry: &ProcessRegistry, watches: Watches) -> RepositoryWatch {
   let wake = Arc::new(Wake::default());
   let config = watches.config;
-  // the first look, before the watcher: a change after it is told by an event or found by the next look, also one in
-  // the first moments of the stream, which `FSEvents` drops
-  let fingerprints = fingerprints_in(registry.dir());
-  let watcher = watcher(registry, &wake, config.events);
+  // the first look, before the watcher (`dir_watch::watch_from`): a change after it is told by an event or found by the
+  // next look, also one in the first moments of the stream, which `FSEvents` drops
+  let (fingerprints, watcher) = watcher(registry, &wake, config.events);
   let span = tracing::info_span!(parent: None, "registry_watch", registry = %registry.dir().display());
   let _entered = span.enter();
   let task = tokio::spawn(run(Arc::clone(sessions), registry.clone(), watches, Arc::clone(&wake), fingerprints, config.recheck).in_current_span());
@@ -254,15 +253,15 @@ fn start(sessions: &Arc<Sessions>, registry: &ProcessRegistry, watches: Watches)
 
 /// The watcher of the directory of `registry`, which asks `wake` for a look at each event of the directory; `None` when
 /// the system refused it. Without `events` (a test) its events reach nothing
-fn watcher(registry: &ProcessRegistry, wake: &Arc<Wake>, events: bool) -> Option<RecommendedWatcher> {
+fn watcher(registry: &ProcessRegistry, wake: &Arc<Wake>, events: bool) -> (Fingerprints, Option<RecommendedWatcher>) {
   let handler = Arc::clone(wake);
   let dir = WatchedDir::new(registry.dir());
-  let watched = dir_watch::watch(registry.dir(), move |event: notify::Result<Event>| {
+  let (fingerprints, watched) = dir_watch::watch_from(registry.dir(), watched_paths(registry.dir()), move |event: notify::Result<Event>| {
     if events {
       woken(&handler, &dir, &event);
     }
   });
-  watched
+  let watcher = watched
     .inspect_err(|error| {
       warn!(
         "cannot watch {}: {error}; the registry is looked at every {:?}",
@@ -270,7 +269,8 @@ fn watcher(registry: &ProcessRegistry, wake: &Arc<Wake>, events: bool) -> Option
         dir_watch::RECHECK
       );
     })
-    .ok()
+    .ok();
+  (fingerprints, watcher)
 }
 
 /// Asks `wake` for a look when `event` may be a change of the registry, the stamp or the journal (`WatchedDir::wake_of`):
@@ -284,9 +284,10 @@ pub(crate) fn woken(wake: &Wake, dir: &WatchedDir, event: &notify::Result<Event>
   }
 }
 
-/// The stamp and the journal of the directory `dir` of a registry at a first look
-fn fingerprints_in(dir: &Path) -> Fingerprints {
-  Fingerprints::new(vec![dir.join(STAMP), crate::journal::journal_path_in(dir)])
+/// The files of the directory `dir` of a registry whose stat a look compares: the stamp and the journal, in the order of
+/// `STAMP_CHANGED` and `JOURNAL_CHANGED` (the registry is read at every look)
+fn watched_paths(dir: &Path) -> Vec<PathBuf> {
+  vec![dir.join(STAMP), crate::journal::journal_path_in(dir)]
 }
 
 /// The task of the watch of `registry`: each look asked, and one every `recheck` without one, reads the registry, asks
@@ -313,7 +314,7 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
     }))
     .await;
     let changed;
-    (fingerprints, changed) = looked.unwrap_or_else(|_| (fingerprints_in(&dir), 0));
+    (fingerprints, changed) = looked.unwrap_or_else(|_| (Fingerprints::new(watched_paths(&dir)), 0));
     if changed & STAMP_CHANGED != 0 {
       wake.stamps.fetch_add(1, Ordering::SeqCst);
       for key in watches.keys(&registry) {

@@ -4439,7 +4439,7 @@ names of its files anywhere else):
   the registry, the stamp and the journal), as does each admission of the app, which wrote the file; a watch the system
   refused leaves the looks. The first look is taken before the watcher starts: `FSEvents` registers a stream after
   `FSEventStreamStart` returned and from "now", so it drops a change of its first moments without telling it, which
-  the first look of the task then finds (`a_change_right_after_the_watch_started_is_a_change_at_the_first_look`).
+  the first look of the task then finds (`a_change_between_the_start_of_the_watcher_and_the_first_look_is_seen`).
 - **The stamp**: `brd` touches `$GIT_COMMON_DIR/branch-deck/stamp` (its Unix time and pid, written by a rename) after
   every command that succeeded and is no read (`bd-cli::execute`, the commands `READ_ONLY` of `brd --help` leaves out:
   a rewrite, a push, a start, a sync, an update, a pick, a park, a description), once, in one place. The watch asks each
