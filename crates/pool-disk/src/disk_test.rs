@@ -5,9 +5,18 @@ use fs_walk::changes::Changes;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use lease_pool::lease::{Lease, Pool, Slot};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use test_utils::git_test_utils::TestRepo;
+
+/// The history of the file system that names `changed`, as `changed_since` answers it for the roots of a slot: the paths
+/// under their real paths
+fn history(changed: Vec<PathBuf>) -> impl FnMut(&[&Path]) -> Changes {
+  move |roots| {
+    let roots: Vec<PathBuf> = roots.iter().filter_map(|root| fs_walk::changes::canonical_path(root)).collect();
+    Changes::Paths(changed.iter().filter(|path| roots.iter().any(|root| path.starts_with(root))).cloned().collect())
+  }
+}
 
 #[test]
 fn the_build_dirs_of_a_slot_are_the_outermost_dirs_its_clean_rules_name() {
@@ -132,7 +141,7 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   let mut cached_events = Vec::new();
   // the history of the file system names no change since the measurement: the files of the fixture came before its
   // mark, which `FSEvents` may log only later on a loaded machine, so the test gives the history instead of asking it
-  let cached = disk_usage_core_with_changes(&git, &cached_params, |event| cached_events.push(event), |_| Changes::Paths(Vec::new())).unwrap();
+  let cached = disk_usage_core_with_changes(&git, &cached_params, |event| cached_events.push(event), history(Vec::new())).unwrap();
   let expected_measuring = u32::from(cfg!(target_os = "macos"));
   assert!(matches!(
     &cached_events[0],
@@ -175,7 +184,7 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
     &git,
     &partial_params,
     |event| partial_events.push(event),
-    |_| Changes::Paths(vec![std::fs::canonicalize(&changed_path).unwrap()]),
+    history(vec![std::fs::canonicalize(&changed_path).unwrap()]),
   )
   .unwrap();
   assert!(matches!(&partial_events[0], DiskUsageProgress::Cached { measuring: 1, .. }));
@@ -301,7 +310,7 @@ fn a_changed_file_selects_its_nearest_saved_node_and_uncached_paths_select_a_roo
 fn a_slot_event_counts_the_slots_that_the_fsevents_check_left() {
   let (_repo, git, dirs) = repository();
   let slot_root = tempfile::tempdir().unwrap();
-  let slots: Vec<std::path::PathBuf> = (1..=2).map(|n| slot_root.path().join(format!("{n}/repo"))).collect();
+  let slots: Vec<PathBuf> = (1..=2).map(|n| slot_root.path().join(format!("{n}/repo"))).collect();
   for slot in &slots {
     std::fs::create_dir_all(slot.join("target")).unwrap();
     std::fs::write(slot.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
@@ -340,19 +349,13 @@ fn a_slot_event_counts_the_slots_that_the_fsevents_check_left() {
     file.write_all(&vec![3u8; 16 * 1024]).unwrap();
     file.sync_all().unwrap();
   }
-  let history = if cfg!(target_os = "macos") {
+  let changed = if cfg!(target_os = "macos") {
     vec![std::fs::canonicalize(&changed).unwrap()]
   } else {
     Vec::new()
   };
   let mut events = Vec::new();
-  disk_usage_core_with_changes(
-    &git,
-    &DiskParams { fresh: false, ..params },
-    |event| events.push(event),
-    |_| Changes::Paths(history.clone()),
-  )
-  .unwrap();
+  disk_usage_core_with_changes(&git, &DiskParams { fresh: false, ..params }, |event| events.push(event), history(changed)).unwrap();
   if cfg!(target_os = "macos") {
     assert!(
       matches!(
@@ -390,7 +393,7 @@ fn a_reclaim_leaves_the_measures_of_the_other_free_slots_valid() {
   let slot_root = std::fs::canonicalize(slot_root.path()).unwrap();
   let idle = slot_root.join("1/repo");
   repo.git(&["worktree", "add", "--detach", idle.to_str().unwrap(), "HEAD"]);
-  let free: Vec<std::path::PathBuf> = (2..=3).map(|n| slot_root.join(format!("{n}/repo"))).collect();
+  let free: Vec<PathBuf> = (2..=3).map(|n| slot_root.join(format!("{n}/repo"))).collect();
   for slot in &free {
     std::fs::create_dir_all(slot).unwrap();
     std::fs::write(slot.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();

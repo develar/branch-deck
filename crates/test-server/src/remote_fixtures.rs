@@ -684,6 +684,18 @@ pub(crate) fn path_of(state: &AppState, id: &str) -> Result<String, (StatusCode,
   state.repositories.get(id).map(|repo| repo.path.clone()).ok_or_else(unknown_repository)
 }
 
+/// The sessions of every worktree of the test repository `id` (`worktrees_of`) that watch its operations registry look
+/// at the registry, the stamp and the journal at once (`Registry::look`), as at an event of their watch: a fixture
+/// that wrote one of them waits for neither the event, which runs behind the writes on a loaded machine, nor the next
+/// look
+async fn look_at_once(state: &AppState, id: &str, path: &str) {
+  for worktree in &worktrees_of(state, id, path) {
+    if let Ok(key) = session_of(state, worktree).await {
+      state.registry.look(&key).await;
+    }
+  }
+}
+
 /// The worktrees of the test repository `id` whose path is `path`: the repository, then the slots of its lease pool a
 /// test leased (`disk_fixtures::lease_slot`), the one a window shows last
 fn worktrees_of(state: &AppState, id: &str, path: &str) -> Vec<String> {
@@ -761,8 +773,9 @@ fn agent_process() -> std::io::Result<std::process::Child> {
 }
 
 /// Records `intent` in the operations registry of the repository as `bd` of another process runs it (a child of the
-/// server, alive until the fixture ends, so the record is of a process that runs): the app's sessions show it from the
-/// watch of the registry, and refuse what needs what it holds as `busy`. Answers the id of the operation and its pid
+/// server, alive until the fixture ends, so the record is of a process that runs): the app's sessions show it from a
+/// look of the watch of the registry, which the fixture asks at once (`look_at_once`), as at the end of the operation
+/// before, and refuse what needs what it holds as `busy`. Answers the id of the operation and its pid
 pub async fn set_foreign_operation(
   Path(id): Path<String>,
   State(state): State<Arc<AppState>>,
@@ -775,6 +788,7 @@ pub async fn set_foreign_operation(
   let ended = foreign.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
   if let Some(ended) = ended {
     ended.end();
+    look_at_once(&state, &id, &path).await;
   }
   let Some(intent) = request.intent else {
     return Ok(Json(serde_json::Value::Null));
@@ -830,6 +844,7 @@ pub async fn set_foreign_operation(
     return Err(failed(error.message));
   }
   *foreign.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(operation);
+  look_at_once(&state, &id, &path).await;
   Ok(Json(serde_json::json!({ "op": op, "pid": pid })))
 }
 
@@ -854,15 +869,11 @@ pub async fn touch_repository_stamp(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
   let path = path_of(&state, &id)?;
   touch_stamp(&std::path::Path::new(&path).join(".git"));
-  let worktrees = worktrees_of(&state, &id, &path);
   if !request.answer {
-    for worktree in &worktrees {
-      if let Ok(key) = session_of(&state, worktree).await {
-        state.registry.look(&key).await;
-      }
-    }
+    look_at_once(&state, &id, &path).await;
     return Ok(Json(serde_json::json!({})));
   }
+  let worktrees = worktrees_of(&state, &id, &path);
   let shown = worktrees.last().unwrap_or(&path);
   let key = session_of(&state, shown).await?;
   let answer = state.sessions.sync(&key, SyncReason::Stamp).wait().await;

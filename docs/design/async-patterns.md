@@ -221,8 +221,11 @@ watches):
    itself, and a rename over a file (`write_atomically`) may come as an event of its temporary name only. Such an
    event, an event of any name of the directory the waiter does not know, and an error of the watcher wake for every
    file the waiter looks at (`WatchedDir::wake_of`, `Wake::Any`); an event below the directory wakes none.
-2. **Every wait on a watch has a bounded look of its own.** The waiter looks again at least every `dir_watch::RECHECK`
-   (2 s) without an event, and acts on what a stat says changed since its last look (`Fingerprints`), whatever woke it:
+2. **Every wait on a watch has a bounded look of its own.** The waiter takes its first look before the watcher starts:
+   `FSEvents` registers a stream after `FSEventStreamStart` returned and from "now", so it drops a change of the first
+   moments without telling it (a write 25 ms after the start, 3 of 40 rounds on notify 8.2.1), which the next look then
+   finds. It looks again at least every `dir_watch::RECHECK` (2 s) without an event, and at once at a focus of a
+   window, and acts on what a stat says changed since its last look (`Fingerprints`), whatever woke it:
    a look of the registry with its stamp and journal is one read of `operations.json` and two stats, 0.14 ms at a load
    of 64, so a window of each watched repository shows an operation of another process or syncs for a stamp of `brd`
    within 2 s with no event at all.
@@ -234,12 +237,13 @@ and one test of the events of the system, which fails in seconds with "no watch 
 
 | Watch | Rule 1 | Rule 2 | Since 2026-11-15 |
 |---|---|---|---|
-| `operations::registry_watch`: `operations.json`, the stamp, the journal | a lost event yes, an event of another name or of the directory no | none: a focus or an admission read the registry, a stamp waited for a focus | both rules: a look every 2 s, any event a look |
+| `operations::registry_watch`: `operations.json`, the stamp, the journal | a lost event yes, an event of another name or of the directory no | none: a focus or an admission read the registry alone, a stamp waited for a focus, a journal for its next change | both rules: a look every 2 s and at a focus, the first before the watcher, any event a look |
 | `app_settings::watch`: `settings.json`, `repository-state.json` | a lost event yes, another name no | none: the next save of the writer | both rules: the writer looks every 2 s while nothing is due |
 | `lease_pool::host_slots::TableWake`: the table of the host slots, the heavy turn | an error yes, a lost event and another name no (the rename of `heavy.json` came as its temporary file only) | yes: a look every 5 s (`WAIT_RECHECK`, `host_turn::RECHECK`) | rule 1 |
 | `host-agent` `watch::Watch`: `events.log` and the directory of a run (kqueue) | a vnode event of a named file: no rescan, no fseventsd | yes: each wait ends at its timeout, then the follow reads the files | none |
 | `fs_walk::changes::changed_since`: the history of a disk report | `MUST_SCAN_SUBDIRS`, a lost history or a replay past 0.5 s answer `All` | one replay of at most 0.5 s, then `All` | none (under such a load every check walks the whole slot) |
 | the lease state, the companions, the epoch of a worktree | no watch: read by each command, look or stamp | | |
+| the fixtures of the E2E server that write the registry or the stamp (`set_foreign_operation`, `stamp`) | | waited for the watch | each asks the watching sessions for a look at once (`Registry::look`) |
 
 ## Alternatives Considered
 

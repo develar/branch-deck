@@ -312,16 +312,15 @@ impl Registry {
     let watch = self.watches.watch(&self.sessions, &registry, key);
     let subscribed = self.sessions.subscribe_from(key, Box::new(Watching { subscriber, _watch: watch }), have).await;
     // the session is open now: the first read shows in it
-    self.watches.reread(&registry);
+    self.watches.look(&registry);
     subscribed
   }
 
-  /// Reads the operations registry of the repository of the session of `key` again, when a window watches it: a window
-  /// of it gained the focus
+  /// Looks at the operations registry, the stamp and the journal of the repository of the session of `key` at once, when
+  /// a window watches it: a window of it gained the focus (until 2026-11-15 a focus read the registry alone, and a
+  /// journal whose event was lost told Activity nothing)
   pub async fn reread(&self, key: &SessionKey) {
-    if let Some(registry) = self.files.registry_of(key).await {
-      self.watches.reread(&registry);
-    }
+    self.look(key).await;
   }
 
   /// Looks at the registry, the stamp and the journal of the repository of the session of `key` at once, as an event of
@@ -358,7 +357,7 @@ impl Registry {
 
   /// What the windows show of `registry` is read again: a record left it
   pub(crate) fn reread_registry(&self, registry: &ProcessRegistry) {
-    self.watches.reread(registry);
+    self.watches.look(registry);
   }
 
   /// Settles the starts whose answer was lost of the prefix of `key` in the registry of its repository after a list of
@@ -432,7 +431,7 @@ impl Registry {
     }
     if settled {
       debug!("a list of the robots settled a start whose answer was lost");
-      self.watches.reread(registry);
+      self.watches.look(registry);
     }
   }
 
@@ -475,7 +474,7 @@ impl Registry {
     let tally = entry.as_ref().map_or_else(OperationTally::begin, |entry| Arc::clone(entry.tally()));
     // the admission read the file: what the windows show of the other processes is read again too, without a watch
     if let Some(entry) = &entry {
-      self.watches.reread(entry.registry());
+      self.watches.look(entry.registry());
     }
     // from here on the guard ends what the actor admits: a caller that stops waiting, for the admission or in the queue,
     // gives the place up, as its end follows the admission on the actor
@@ -912,7 +911,7 @@ impl RunningGuard {
       // the removal of its record and its entry in the journal read and write the files: on the blocking pool
       let _ = tokio::task::spawn_blocking(in_current_span(move || entry.finish(ended.as_ref(), stats))).await;
       // a start whose answer was lost stays in the file, which its removal left as it was: the windows show it now
-      self.watches.reread(&registry);
+      self.watches.look(&registry);
     }
     answer
   }

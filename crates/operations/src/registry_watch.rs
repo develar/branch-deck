@@ -17,8 +17,11 @@
 //! one: it reads the registry, and syncs for the stamp and tells of the journal when its stat changed since its last
 //! look (`Fingerprints`). An event of any name of the directory, of the directory itself, a lost event (`need_rescan`:
 //! the queue of `FSEvents` or inotify overflowed) and an error of the watcher are a look too: a rename over a file may
-//! come as an event of its temporary name only. A window that gains the focus reads the registry at once
-//! (`Registry::reread`), and so does each admission of an operation into the file, which writes it.
+//! come as an event of its temporary name only. A window that gains the focus looks at once (`Registry::reread`), and so
+//! does each admission of an operation into the file, which writes it. The first look is taken before the watcher
+//! starts: `FSEvents` registers a stream after `FSEventStreamStart` returned and from "now", so it drops a change of its
+//! first moments without telling it (a write 25 ms after the start, 3 of 40 rounds on notify 8.2.1), which the first
+//! look of the task then finds.
 //!
 //! One task per repository reads the file and applies what it read, one read at a time, so a session never shows an older
 //! read after a newer one; the events that come while it reads are one read after it. The watch runs no git process: a
@@ -66,11 +69,10 @@ pub fn touch_stamp(git_common_dir: &Path) {
   }
 }
 
-/// What woke the task of a watch: a read of the registry was asked, or a look at the three files
+/// What woke the task of a watch: a look at the three files was asked
 #[derive(Default)]
 pub(crate) struct Wake {
   notify: Notify,
-  registry: AtomicBool,
   look: AtomicBool,
   /// The looks that found the stamp changed and asked the syncs of the sessions, counted before the read of the
   /// registry of the same look: a test that saw the patch of that read sees the count of that look
@@ -78,13 +80,8 @@ pub(crate) struct Wake {
 }
 
 impl Wake {
-  /// A read of the registry: a window gained the focus, an admission wrote the file
-  fn registry(&self) {
-    self.registry.store(true, Ordering::SeqCst);
-    self.notify.notify_one();
-  }
-
-  /// A look at the three files: an event of the directory, which tells what may have changed, not what did
+  /// A look at the three files: an event of the directory, which tells what may have changed, not what did, a focus of
+  /// a window, an admission that wrote the registry
   pub(crate) fn look(&self) {
     self.look.store(true, Ordering::SeqCst);
     self.notify.notify_one();
@@ -163,15 +160,8 @@ impl Watches {
     }
   }
 
-  /// Reads `registry` again for its sessions, when a window of one of them watches it
-  pub(crate) fn reread(&self, registry: &ProcessRegistry) {
-    if let Some(watch) = self.lock().get(registry) {
-      watch.wake.registry();
-    }
-  }
-
-  /// Looks at the files of `registry` for its sessions, as an event of its watch does, when a window of one of them
-  /// watches it
+  /// Looks at the files of `registry` for its sessions (the registry, the stamp, the journal), as an event of its watch
+  /// does, when a window of one of them watches it: a focus, an admission, an event the E2E server tells
   pub(crate) fn look(&self, registry: &ProcessRegistry) {
     if let Some(watch) = self.lock().get(registry) {
       watch.wake.look();
@@ -247,10 +237,13 @@ impl Drop for SessionWatch {
 fn start(sessions: &Arc<Sessions>, registry: &ProcessRegistry, watches: Watches) -> RepositoryWatch {
   let wake = Arc::new(Wake::default());
   let config = watches.config;
+  // the first look, before the watcher: a change after it is told by an event or found by the next look, also one in
+  // the first moments of the stream, which `FSEvents` drops
+  let fingerprints = fingerprints_in(registry.dir());
   let watcher = watcher(registry, &wake, config.events);
   let span = tracing::info_span!(parent: None, "registry_watch", registry = %registry.dir().display());
   let _entered = span.enter();
-  let task = tokio::spawn(run(Arc::clone(sessions), registry.clone(), watches, Arc::clone(&wake), config.recheck).in_current_span());
+  let task = tokio::spawn(run(Arc::clone(sessions), registry.clone(), watches, Arc::clone(&wake), fingerprints, config.recheck).in_current_span());
   RepositoryWatch {
     keys: HashMap::new(),
     wake,
@@ -296,12 +289,11 @@ fn fingerprints_in(dir: &Path) -> Fingerprints {
   Fingerprints::new(vec![dir.join(STAMP), crate::journal::journal_path_in(dir)])
 }
 
-/// The task of the watch of `registry`: each wake, and every `recheck` without one, reads the registry when a read or a
-/// look was asked, and on a look asks the syncs of a stamp and tells of the journal when their stat changed since the
-/// last look
-async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watches, wake: Arc<Wake>, recheck: Option<Duration>) {
+/// The task of the watch of `registry`: each look asked, and one every `recheck` without one, reads the registry, asks
+/// the syncs of a stamp and tells of the journal when their stat changed since the last look (`fingerprints`, the first
+/// taken before the watcher started)
+async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watches, wake: Arc<Wake>, mut fingerprints: Fingerprints, recheck: Option<Duration>) {
   let dir = registry.dir().to_path_buf();
-  let mut fingerprints = fingerprints_in(&dir);
   loop {
     let ticked = if let Some(every) = recheck {
       tokio::time::timeout(every, wake.notify.notified()).await.is_err()
@@ -309,20 +301,19 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
       wake.notify.notified().await;
       false
     };
-    let look = wake.look.swap(false, Ordering::SeqCst) || ticked;
-    let read = wake.registry.swap(false, Ordering::SeqCst) || look;
-    let mut changed = 0;
-    if look {
-      // a stat each, off the workers of the runtime: the drive may be slow under load
-      let taken = std::mem::replace(&mut fingerprints, Fingerprints::new(Vec::new()));
-      let looked = tokio::task::spawn_blocking(in_current_span(move || {
-        let mut taken = taken;
-        let changed = taken.look();
-        (taken, changed)
-      }))
-      .await;
-      (fingerprints, changed) = looked.unwrap_or_else(|_| (fingerprints_in(&dir), 0));
+    if !(wake.look.swap(false, Ordering::SeqCst) || ticked) {
+      continue;
     }
+    // a stat each, off the workers of the runtime: the drive may be slow under load
+    let taken = std::mem::replace(&mut fingerprints, Fingerprints::new(Vec::new()));
+    let looked = tokio::task::spawn_blocking(in_current_span(move || {
+      let mut taken = taken;
+      let changed = taken.look();
+      (taken, changed)
+    }))
+    .await;
+    let changed;
+    (fingerprints, changed) = looked.unwrap_or_else(|_| (fingerprints_in(&dir), 0));
     if changed & STAMP_CHANGED != 0 {
       wake.stamps.fetch_add(1, Ordering::SeqCst);
       for key in watches.keys(&registry) {
@@ -330,9 +321,7 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
         drop(sessions.sync(&key, SyncReason::Stamp));
       }
     }
-    if read {
-      show(&sessions, &registry, &watches).await;
-    }
+    show(&sessions, &registry, &watches).await;
     if changed & JOURNAL_CHANGED != 0 {
       watches.journaled(&registry);
     }

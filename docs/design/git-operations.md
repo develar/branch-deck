@@ -4419,8 +4419,11 @@ names of its files anywhere else):
   directory itself, a lost event (`need_rescan`: the queue of FSEvents or inotify overflowed) and an error are a look
   too (`an_event_that_may_be_a_change_of_the_directory_asks_for_a_look`). Until 2026-11-15 only an event of a known name
   or a lost event woke the task, and a window under an overloaded fseventsd showed another process's operations and
-  synced for a stamp only at a focus. The file is read again at once when a window of the session gains the focus
-  (`set_window_focus`) and after each admission of the app, which read it; a watch the system refused leaves the looks.
+  synced for a stamp only at a focus. A window of the session that gains the focus looks at once (`set_window_focus`:
+  the registry, the stamp and the journal), as does each admission of the app, which wrote the file; a watch the system
+  refused leaves the looks. The first look is taken before the watcher starts: `FSEvents` registers a stream after
+  `FSEventStreamStart` returned and from "now", so it drops a change of its first moments without telling it, which
+  the first look of the task then finds (`a_change_right_after_the_watch_started_is_a_change_at_the_first_look`).
 - **The stamp**: `brd` touches `$GIT_COMMON_DIR/branch-deck/stamp` (its Unix time and pid, written by a rename) after
   every command that succeeded and is no read (`bd-cli::execute`, the commands `READ_ONLY` of `brd --help` leaves out:
   a rewrite, a push, a start, a sync, an update, a pick, a park, a description), once, in one place. The watch asks each
@@ -4533,8 +4536,8 @@ Every operation of the remote that ended, of the app and of every `brd`, is one 
   git process. Clear Log (`journal::clear`, `clear_activity`) empties the journal of the repository under
   `operations.lock` and takes the entries of the project out of the journal of the page under its lock, with the
   errors the page told of the operations of that journal (an entry of the page that names an operation of a journal
-  shows in the projects of that journal, whichever repository was shown when it was told). The watch of the registry of a repository a window shows (`registry_watch`) sees its journal change and tells
-  the listener of the journal (`RegistryFiles::on_journal`): the app sends its windows `activity-changed`, and the main
+  shows in the projects of that journal, whichever repository was shown when it was told). The watch of the registry of a repository a window shows (`registry_watch`) sees its journal change, at an event,
+  at its look every 2 s or at a focus, and tells the listener of the journal (`RegistryFiles::on_journal`): the app sends its windows `activity-changed`, and the main
   window and the Activity window read again, as the main window does after each operation and each write of its own.
 - **The cost** (`sync_utils::operation_tally`): the tally of an operation begins at its admission; its git processes
   (`GitCommandExecutor`, at the spawn) and its HTTP requests (the clients of Patronus, GitHub and YouTrack, one per

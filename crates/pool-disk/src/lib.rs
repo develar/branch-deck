@@ -323,9 +323,11 @@ where
   disk_usage_core_inner(git_executor, params, Some(&mut on_progress), None)
 }
 
-/// The same report with `changes` as the history of the file system since a measurement (`changed_since`), the seam of
-/// the tests: the check runs as without it (on macOS deferred until the cached report is out), and waits for no
-/// `FSEvents`, which logs a write late on a loaded machine and answers `All` when its replay outlasts the wait
+/// The same report with `changes` as the history of the file system since a measurement, the seam of the tests: it
+/// answers where `changed_since` would, for the roots of one slot. On macOS that is the check deferred until the cached
+/// report is out, as without the seam; elsewhere, where the core reads no history and takes a cached slot as unchanged,
+/// it is the check of each cached slot. It waits for no `FSEvents`, which logs a write late on a loaded machine and
+/// answers `All` when its replay outlasts the wait
 #[cfg(test)]
 fn disk_usage_core_with_changes<F, G>(git_executor: &GitCommandExecutor, params: &DiskParams<'_>, mut on_progress: F, mut changes: G) -> Result<DiskUsage>
 where

@@ -2,7 +2,7 @@ use crate::registry::registry_test::{IdleHost, view_operations};
 use crate::registry::{Registry, RegistryFiles};
 use crate::registry_file::registry_file_test::{id, record, safe_push, session, sleeping_child};
 use crate::registry_file::{ProcessIdentity, ProcessRegistry};
-use crate::registry_watch::{Wake, touch_stamp, woken};
+use crate::registry_watch::{Wake, Watches, touch_stamp, woken};
 use domain_types::error::HolderTool;
 use domain_types::fixtures::land_intent;
 use domain_types::operation::{Origin, RunningOperation};
@@ -57,6 +57,27 @@ async fn watched(host: Arc<dyn SessionHost>, common_dir: &Path, config: WatchCon
   (registry, key, patched)
 }
 
+/// The journal of the registry of `common_dir` with one more line, as an operation of `bd` that ended writes it
+fn journal_line(common_dir: &Path) {
+  use std::io::Write as _;
+  let path = crate::journal::journal_path_in(&common_dir.join("branch-deck"));
+  std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+  let mut journal = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+  writeln!(journal, "{{}}").unwrap();
+}
+
+/// The sessions of an idle host and a listener of the journals, whose calls the receiver hears
+fn sessions_hearing_journals() -> (Arc<Sessions>, crate::registry::JournalListener, mpsc::UnboundedReceiver<()>) {
+  let sessions = Arc::new(Sessions::new(
+    tokio::runtime::Handle::current(),
+    Arc::new(IdleHost::default()),
+    Arc::new(OneClock(Arc::new(TestClock::new()))),
+  ));
+  let (told, heard) = mpsc::unbounded_channel();
+  let listener: crate::registry::JournalListener = Arc::new(move |_keys: &[SessionKey]| told.send(()).unwrap());
+  (sessions, listener, heard)
+}
+
 /// The operations of the view once `done` holds of them, read again after each patch; past `DEADLINE` the test fails
 /// with `missing`, what read nothing
 async fn after_patches(
@@ -108,6 +129,39 @@ fn heard_host() -> (Arc<IdleHost>, mpsc::UnboundedReceiver<()>) {
     ..IdleHost::default()
   };
   (Arc::new(host), syncs)
+}
+
+/// A window that watches a repository where `bd` runs the Safe Push of auth, with a host whose syncs the test hears
+struct WhileBdRuns {
+  directory: tempfile::TempDir,
+  file: ProcessRegistry,
+  child: std::process::Child,
+  host: Arc<IdleHost>,
+  syncs: mpsc::UnboundedReceiver<()>,
+  registry: Registry,
+  key: SessionKey,
+  patched: mpsc::UnboundedReceiver<()>,
+}
+
+/// `WhileBdRuns`, its watch learning of a change as `config` says, once the first look of the subscription showed the
+/// Safe Push of auth
+async fn watched_while_bd_runs(config: WatchConfig) -> WhileBdRuns {
+  let directory = tempfile::tempdir().unwrap();
+  let file = ProcessRegistry::of(directory.path()).unflushed();
+  let child = bd_runs_auth(&file);
+  let (host, syncs) = heard_host();
+  let (registry, key, mut patched) = watched(Arc::clone(&host) as Arc<dyn SessionHost>, directory.path(), config).await;
+  after_patches(&registry, &key, &mut patched, "the subscription read no registry", |operations| operations.len() == 1).await;
+  WhileBdRuns {
+    directory,
+    file,
+    child,
+    host,
+    syncs,
+    registry,
+    key,
+    patched,
+  }
 }
 
 /// An event of the system that names `path`
@@ -167,14 +221,18 @@ async fn a_window_shows_the_operations_another_process_runs_under_its_prefix_at_
 /// at a look that finds it as it was
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stamp_of_bd_syncs_the_session_a_window_shows_at_the_next_look_with_no_event_of_the_watch() {
-  let directory = tempfile::tempdir().unwrap();
-  let file = ProcessRegistry::of(directory.path()).unflushed();
-  let child = bd_runs_auth(&file);
-  let (host, mut syncs) = heard_host();
-  let (registry, key, mut patched) = watched(Arc::clone(&host) as Arc<dyn SessionHost>, directory.path(), LOOKS_ONLY).await;
+  let WhileBdRuns {
+    directory,
+    file,
+    child,
+    host,
+    mut syncs,
+    registry,
+    key,
+    mut patched,
+  } = watched_while_bd_runs(LOOKS_ONLY).await;
   let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
   let missing = "no look read the registry";
-  after_patches(&registry, &key, &mut patched, missing, |operations| operations.len() == 1).await;
   // `brd sync` marked the worktree synced, which the session read as never synced when it opened: a sync for a stamp
   // runs from now. A look reads that the record left, finds the stamp as it was and syncs nothing
   host.marked.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -198,20 +256,27 @@ async fn a_stamp_of_bd_syncs_the_session_a_window_shows_at_the_next_look_with_no
 /// changed, before any look; without an event nothing reads
 #[tokio::test(flavor = "multi_thread")]
 async fn an_event_of_any_name_of_the_directory_reads_the_registry_and_syncs_for_the_stamp_before_the_next_look() {
-  let directory = tempfile::tempdir().unwrap();
-  let file = ProcessRegistry::of(directory.path()).unflushed();
-  let (host, mut syncs) = heard_host();
-  let (registry, key, mut patched) = watched(Arc::clone(&host) as Arc<dyn SessionHost>, directory.path(), GIVEN_EVENTS).await;
+  // the first look of the subscription showed the Safe Push of auth: no look comes after it without an event
+  let WhileBdRuns {
+    directory,
+    file,
+    child,
+    host,
+    mut syncs,
+    registry,
+    key,
+    mut patched,
+  } = watched_while_bd_runs(GIVEN_EVENTS).await;
   // `brd sync` marked the worktree synced after the session opened: any sync for a stamp runs from now
   host.marked.store(true, std::sync::atomic::Ordering::SeqCst);
   let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
   let dir = WatchedDir::new(&directory.path().join("branch-deck"));
 
-  let child = bd_runs_auth(&file);
-  assert_eq!(view_operations(registry.sessions(), &key).await, Vec::new(), "nothing reads without an event");
+  file.insert_of_another_process(record("bd-docs", &agent(&child), &safe_push("docs"), unix_now())).unwrap();
+  assert_eq!(view_operations(registry.sessions(), &key).await.len(), 1, "nothing reads without an event");
   woken(&wake, &dir, &Ok(modified(&directory.path().join("branch-deck/.operations.json.tmpX4"))));
   let missing = "the event read no registry";
-  after_patches(&registry, &key, &mut patched, missing, |operations| operations.len() == 1).await;
+  after_patches(&registry, &key, &mut patched, missing, |operations| operations.len() == 2).await;
   assert_eq!(wake.stamps(), 0, "the stamp is as it was: the look asked no sync");
 
   touch_stamp(directory.path());
@@ -270,4 +335,52 @@ fn an_event_that_may_be_a_change_of_the_directory_asks_for_a_look() {
     assert!(looks(event), "a look");
   }
   assert!(!looks(Ok(modified(&directory.path().join("notes/lease/gate.log")))), "below the directory");
+}
+
+/// A window that gains the focus looks at once at the registry, the stamp and the journal: the journal of an operation of
+/// `bd` that ended tells Activity, and the stamp syncs, though no event and no look came (until 2026-11-15 a focus read
+/// the registry alone)
+#[tokio::test(flavor = "multi_thread")]
+async fn a_focus_looks_at_the_journal_and_the_stamp_too() {
+  let directory = tempfile::tempdir().unwrap();
+  let (sessions, listener, mut heard) = sessions_hearing_journals();
+  let dir = directory.path().to_path_buf();
+  let files = RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone())).unflushed();
+  let registry = Registry::watched_as(sessions, files.on_journal(move |keys| listener(keys)), GIVEN_EVENTS);
+  let key = session("user");
+  let child = bd_runs_auth(&ProcessRegistry::of(directory.path()).unflushed());
+  let (patches, mut patched) = mpsc::unbounded_channel();
+  registry.subscribe(&key, Box::new(Window(patches)), None).await.unwrap();
+  let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
+  // the first look of the subscription, whose stats came before its patch
+  after_patches(&registry, &key, &mut patched, "the subscription read no registry", |operations| operations.len() == 1).await;
+
+  journal_line(directory.path());
+  touch_stamp(directory.path());
+  registry.reread(&key).await;
+  tokio::time::timeout(DEADLINE, heard.recv())
+    .await
+    .unwrap_or_else(|_elapsed| panic!("the focus told no change of the journal within {DEADLINE:?}"))
+    .unwrap();
+  assert_eq!(wake.stamps(), 1, "the focus asked the syncs of the stamp");
+  end(child);
+}
+
+/// A change right after the watch started is a change at the first look: the first look is taken before the watcher,
+/// as `FSEvents` drops the changes of the first moments of a stream. The task of the watch runs only once the test
+/// awaits (one thread), so a first look of the task would find the line already there
+#[tokio::test]
+async fn a_change_right_after_the_watch_started_is_a_change_at_the_first_look() {
+  let directory = tempfile::tempdir().unwrap();
+  let (sessions, listener, mut heard) = sessions_hearing_journals();
+  let watches = Watches::new(Some(listener), GIVEN_EVENTS);
+  let registry = ProcessRegistry::of(directory.path());
+  let _watch = watches.watch(&sessions, &registry, &session("user"));
+
+  journal_line(directory.path());
+  watches.look(&registry);
+  tokio::time::timeout(DEADLINE, heard.recv())
+    .await
+    .unwrap_or_else(|_elapsed| panic!("the first look found no change of the journal within {DEADLINE:?}"))
+    .unwrap();
 }
