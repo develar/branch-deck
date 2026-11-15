@@ -85,8 +85,7 @@ async function setupSafePush(page: Page, setupRepo: SetupRepo, syncAndWaitForBra
   const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests(requests), patronus: availableRobots() })
   await syncAndWaitForBranches()
   await expect(getYourTurnCard(page)).toBeVisible()
-  // the menu of a row has the Safe Push of its pull request once Patronus answered (the target it merges into), and an
-  // open menu doesn't move: one opened before shows it at the next open only
+  // the Safe Push of a row's menu waits for the answer of Patronus (the target it merges into), enabled once it answered
   await waitForStepFacts(page.getByTestId("next-step-slot"))
   if (head !== undefined) {
     await repo.answerGitHub("GET", repoPath("pulls", 101), 200, { number: 101, head: { ref: "user-name/virtual/ABC-123", sha: head } })
@@ -1049,6 +1048,44 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await expect(review.getByTestId("review-safe-push")).toBeDisabled()
   })
+
+  test(
+    "should keep Approve and Safe Push… in the row's menu, waiting for Patronus, until it answers, and open the review for it then",
+    // the item changes in place under a resting pointer, its tooltip open
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD]), patronus: availableRobots() })
+      await repo.holdRemoteAnswers({ hold: ["robots"] })
+      await syncAndWaitForBranches()
+      await expect(getYourTurnCard(page)).toBeVisible()
+      await repo.arrival("robots")
+
+      // git names a repository Patronus knows: the Safe Push stands in its place before Patronus answers, waiting for it
+      await getReviewRow(page, 101).click({ button: "right" })
+      const items = page.getByRole("menuitem")
+      const safePush = page.getByRole("menuitem", { name: /^Approve and Safe Push…/ })
+      await expect(safePush).toHaveAttribute("aria-disabled", "true")
+      const opened = await items.allTextContents()
+      await safePush.hover()
+      await expect(openTooltip(page)).toHaveText("Waits for the answer of Patronus")
+
+      // Patronus answers while the menu is open: the item is enabled in its place, and the next open has the same items
+      await repo.holdRemoteAnswers({ release: ["robots"] })
+      await expect(safePush).not.toHaveAttribute("aria-disabled", "true")
+      await page.keyboard.press("Escape")
+      await expectClosed(page.getByRole("menu"))
+      await getReviewRow(page, 101).click({ button: "right" })
+      await expect(safePush).not.toHaveAttribute("aria-disabled", "true")
+      expect(await items.allTextContents()).toEqual(opened)
+
+      // the item opens the review of #101 with its confirmation
+      await safePush.click()
+      const review = await openedReview<PullRequestReviewWindowData>(page, 1)
+      expect(review.data).toMatchObject({ number: 101, intent: "safePush" })
+      const reviewPage = await openLinkedSubWindow(page, review)
+      await expect(reviewPage.getByTestId("review-safe-push-form").getByTestId("review-safe-push-start")).toBeVisible()
+    },
+  )
 
   test("should watch the robot of a reviewed pull request: listed by what it tests, its merge told", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD])

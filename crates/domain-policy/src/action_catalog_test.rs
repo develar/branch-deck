@@ -71,6 +71,7 @@ fn examples() -> Vec<(ActionId, ActionBlocker)> {
     (ActionId::Push, ActionBlocker::Rule { reason: parked }),
     (ActionId::SafePush, ActionBlocker::Step { blocker: StepBlocker::Syncing }),
     (ActionId::CreatePullRequest, ActionBlocker::Pending { fact: StepFact::PullRequests }),
+    (ActionId::SafePushPullRequest, ActionBlocker::Pending { fact: StepFact::Patronus }),
     (ActionId::RestartRobot, ActionBlocker::ProblemsFailed { message: s("502 Bad Gateway") }),
     (ActionId::Push, ActionBlocker::Syncing),
     (ActionId::SafePush, ActionBlocker::Cached),

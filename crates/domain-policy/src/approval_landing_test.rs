@@ -17,7 +17,7 @@ fn once_into_master(base: &str) -> ApprovalLanding {
 /// Where Patronus doesn't merge, before the target is known and for an own pull request nothing is said
 #[test]
 fn an_approval_counts_for_the_safe_push_of_its_own_pull_request_into_the_target_and_a_layer_above_once_it_goes_there() {
-  let cases: [(&str, Target<'_>, &str, bool, Option<ApprovalLanding>); 7] = [
+  let cases: [(&str, Target<'_>, &str, bool, Option<ApprovalLanding>); 8] = [
     ("the bottom, into master", MASTER, "master", false, Some(ApprovalLanding::OwnSafePush)),
     (
       "a layer into the one below",
@@ -29,6 +29,7 @@ fn an_approval_counts_for_the_safe_push_of_its_own_pull_request_into_the_target_
     ("another base", MASTER, "release/253", false, Some(once_into_master("release/253"))),
     ("an own pull request", MASTER, "alice/parts/33-auth", true, None),
     ("no Patronus", Target::NoPatronus, "alice/parts/33-auth", false, None),
+    ("before Patronus answered", Target::Pending, "master", false, None),
     ("before the first sync", Target::Unread, "master", false, None),
     ("the baseline no branch of origin", Target::None, "master", false, None),
   ];

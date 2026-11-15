@@ -658,8 +658,11 @@ const fn waits_for_approvals(kind: &StepKind) -> bool {
 /// What is known of the branch Patronus pushes into for the baseline, which merges a reviewed pull request
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target<'a> {
-  /// Patronus doesn't merge in the repository (or hasn't answered): no Safe Push
+  /// Patronus doesn't merge in the repository: no Safe Push
   NoPatronus,
+  /// Patronus knows the repository (`LandingRemote::patronus`) and hasn't answered yet: the Safe Push stands, disabled
+  /// with the wait for it, so a menu opened now has it in its place
+  Pending,
   /// Before the first sync
   Unread,
   /// The baseline is no branch of origin
@@ -705,6 +708,7 @@ pub fn review_actions(facts: &PullRequestFacts<'_>) -> Vec<ActionState> {
   let mut actions = vec![state(ActionId::Review, None), state(ActionId::Approve, own.clone().or(approved))];
   let safe_push = match facts.target {
     Target::NoPatronus => None,
+    Target::Pending => Some(Some(ActionBlocker::Pending { fact: StepFact::Patronus })),
     Target::Unread => Some(Some(ActionBlocker::TargetUnread)),
     Target::None => Some(Some(ActionBlocker::NoTarget)),
     Target::Branch(target) if target != facts.base => Some(Some(ActionBlocker::OtherBase {

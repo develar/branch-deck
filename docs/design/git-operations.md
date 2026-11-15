@@ -5802,7 +5802,8 @@ list without it, the requests the user answered with a comment, the reviews the 
 a list gives them) and the last pull request of every number, so the actions of a pull request a review window shows
 (`Demand::review_windows`) stay. The view derives the sections (`domain_policy::reviews`) and the actions of each pull
 request to review by `pull:<number>` (`domain_policy::actions::review_actions`, the target of the baseline from the
-sync's `TableHeader::target_branch`): no git of their own.
+sync's `TableHeader::target_branch`; before Patronus answers, its Safe Push waits for it where the sync's
+`LandingRemote::patronus` says Patronus knows the repository, so a menu has it in its place): no git of their own.
 
 The sign-ins of the app's accounts (`facts.auth`, `Fact<AuthStatus>`: GitHub and YouTrack, where each token comes
 from): one status of the app in every session, read through `FactSources::auth`, which asks the host's one reader

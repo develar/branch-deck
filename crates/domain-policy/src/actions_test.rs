@@ -1025,6 +1025,8 @@ fn an_approval_of_the_head_is_done_and_the_safe_push_waits_for_the_target_patron
   let older = review_actions(&PullRequestFacts { approved: Some("older"), ..facts });
   assert_eq!(reason_of(&older, Approve), None);
   let safe_push = |target| reason_of(&review_actions(&PullRequestFacts { target, ..facts }), SafePushPullRequest);
+  // Patronus knows the repository and hasn't answered: the Safe Push stands, waiting for it
+  assert_eq!(safe_push(Target::Pending), Some(ActionBlocker::Pending { fact: StepFact::Patronus }));
   assert_eq!(safe_push(Target::Unread), Some(ActionBlocker::TargetUnread));
   assert_eq!(safe_push(Target::None), Some(ActionBlocker::NoTarget));
   assert_eq!(

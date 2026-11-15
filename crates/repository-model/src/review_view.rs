@@ -168,11 +168,14 @@ pub fn review_groups_of(facts: &FactStore) -> BTreeMap<String, Vec<ReviewerGroup
     .collect()
 }
 
-/// The branch Patronus pushes into for the baseline, which merges a reviewed pull request: no Safe Push until Patronus
-/// says it lands the repository
+/// The branch Patronus pushes into for the baseline, which merges a reviewed pull request: no Safe Push where Patronus
+/// doesn't land the repository, which git tells of a repository it doesn't know before any answer
+/// (`LandingRemote::patronus`); a wait for its answer where it knows it
 fn target<'a>(state: &'a TableState, facts: &FactStore) -> Target<'a> {
   match facts.robots.view().head.value.as_ref().map(|head| &head.availability) {
-    None | Some(PatronusAvailability::NotPatronus) => Target::NoPatronus,
+    Some(PatronusAvailability::NotPatronus) => Target::NoPatronus,
+    None if !state.parts.header.landing.patronus => Target::NoPatronus,
+    None => Target::Pending,
     Some(_) => {
       let header = &state.parts.header;
       match &header.target_branch {

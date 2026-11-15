@@ -2268,6 +2268,18 @@ names before the start. The row's menu and the review MUST decide alike, by the 
 - **THEN** it is disabled with "Reading the branch Patronus pushes into…" before the first sync, or "Patronus pushes into a branch of origin: the baseline is none"
   [@test] crates/domain-policy/src/actions_test.rs (`an_approval_of_the_head_is_done_and_the_safe_push_waits_for_the_target_patronus_pushes_into`)
 
+#### Scenario: Before Patronus answers
+- **GIVEN** git names a repository Patronus knows (`LandingRemote.patronus`)
+- **WHEN** Patronus has not answered yet
+- **THEN** Approve and Safe Push… stands in its place in the row's menu, disabled with "Waits for the answer of Patronus",
+  as Request Review… does before GitHub answers
+- **AND** once Patronus answers it is decided as above in that place, in a menu open meanwhile too, and the next open
+  has the same items; enabled, it opens the review window with its confirmation
+- **AND** where git names no repository Patronus knows, it is absent until Patronus says it merges there
+  [@test] crates/domain-policy/src/actions_test.rs (`an_approval_of_the_head_is_done_and_the_safe_push_waits_for_the_target_patronus_pushes_into`)
+  [@test] crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review_and_what_its_approval_counts_for`)
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should keep Approve and Safe Push… in the row's menu, waiting for Patronus, until it answers, and open the review for it then`)
+
 ### Requirement: Safe Push of a reviewed pull request: It opens a confirmation below its button
 
 It MUST open a confirmation below its button: "Approves 1a2b3c4d, then comments /patronus merge on #101: Patronus

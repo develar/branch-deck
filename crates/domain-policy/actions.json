@@ -87,6 +87,13 @@
       }
     ],
     [
+      "safe-push-pull-request",
+      {
+        "code": "pending",
+        "fact": "patronus"
+      }
+    ],
+    [
       "restart-robot",
       {
         "code": "problemsFailed",

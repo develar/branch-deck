@@ -7,6 +7,7 @@ use crate::table::table_test::grouping;
 use domain_types::SyncEvent;
 use domain_types::actions::{ActionBlocker, ActionId, Availability};
 use domain_types::fixtures::{missing_approvals, review_request};
+use domain_types::next_step::StepFact;
 use domain_types::operation::ReviewedLayer;
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusReviewRequirement, PatronusRobotsResult, ReviewReadiness};
 use domain_types::pull_request::{GitHubAuthStatus, PullRequestAvailability, PullRequestReviewEvent, ReviewerState};
@@ -95,7 +96,7 @@ fn the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_
     answered: Vec::new(),
     others: Some(others),
   };
-  facts.apply(at(2), FactResult::ReviewRequests(result));
+  facts.apply(at(2), FactResult::ReviewRequests(result.clone()));
 
   let reviews = reviews_view(&state, &facts, &BTreeMap::new());
   let kinds: Vec<(ReviewSectionKind, Vec<u32>)> = reviews
@@ -158,6 +159,27 @@ fn the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_
   );
   // nothing where Patronus doesn't merge
   assert_eq!(approval_landing_of(&state, &FactStore::new(), &reviews), BTreeMap::new());
+
+  // before Patronus answered: where git says Patronus knows the repository the Safe Push stands, waiting for it, so a
+  // menu opened now has it in its place; where it doesn't, none
+  let mut unanswered = FactStore::new();
+  unanswered.apply(at(2), FactResult::ReviewRequests(result));
+  let safe_push_of_one = |state: &TableState| {
+    review_actions_of(state, &unanswered, &reviews)[&pull_key(1)]
+      .iter()
+      .find(|action| action.id == ActionId::SafePushPullRequest)
+      .map(|action| action.availability.clone())
+  };
+  assert_eq!(safe_push_of_one(&state), None);
+  let mut known = state;
+  known.parts.header.landing.patronus = true;
+  assert_eq!(
+    safe_push_of_one(&known),
+    Some(Availability::Disabled {
+      reason: ActionBlocker::Pending { fact: StepFact::Patronus }
+    })
+  );
+  assert_eq!(approval_landing_of(&known, &unanswered, &reviews), BTreeMap::new());
 }
 
 /// The reviewer groups of a pull request a review window shows come of the readiness of `request:<number>` by

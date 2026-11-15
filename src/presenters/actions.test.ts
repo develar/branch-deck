@@ -38,6 +38,7 @@ describe("the actions Rust offers", () => {
       "Parked: Unpark it to push",
       "Wait for the sync to finish",
       "Waits for GitHub to list the pull requests",
+      "Waits for the answer of Patronus",
       "Patronus didn't tell why the Safe Push failed (502 Bad Gateway): Check Approvals Again asks again",
       "Wait for the sync to finish",
       "Waits for the first sync",
