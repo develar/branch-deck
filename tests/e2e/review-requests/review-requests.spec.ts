@@ -384,6 +384,7 @@ test.describe("Review window", () => {
       window: reviewPage,
       review,
       opened,
+      fetched,
     } = await openRequestReview(page, 101, {
       beforeLoad: async window => {
         fetches = await routeReviewFetch(window, { progress: [42], release: new Promise<void>(resolve => (release = resolve)) })
@@ -414,6 +415,7 @@ test.describe("Review window", () => {
     expect(fetches).toHaveLength(1)
 
     release()
+    await fetched
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await expect(review.getByTestId("review-dialog-review")).toBeEnabled()
     // the files of the range beside the description
@@ -471,9 +473,10 @@ test.describe("Review window", () => {
     syncAndWaitForBranches,
   }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
-    const { window: reviewPage, review } = await openRequestReview(page, 101)
+    const { window: reviewPage, review, fetched } = await openRequestReview(page, 101)
     // the rail lists the commits newest first, as the column of the changes
     const commits = review.getByTestId("review-commit")
+    await fetched
     await expect(commits.first()).toBeVisible()
     const subjects = await commits.getByTestId("review-commit-subject").allTextContents()
     await commits.first().click()
@@ -517,11 +520,16 @@ test.describe("Review window", () => {
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
       let fetches: Record<string, unknown>[] = []
-      const { window: reviewPage, review } = await openRequestReview(page, 101, {
+      const {
+        window: reviewPage,
+        review,
+        fetched,
+      } = await openRequestReview(page, 101, {
         beforeLoad: async window => {
           fetches = await routeReviewFetch(window, { progress: [], release: Promise.resolve() })
         },
       })
+      await fetched
       await expect(review.getByTestId("review-commit").first()).toBeVisible()
       expect(fetches).toHaveLength(1)
 
@@ -533,8 +541,10 @@ test.describe("Review window", () => {
 
       // Back: the pull request again, fetched again
       const mac = await reviewPage.evaluate(() => navigator.userAgent.toLowerCase().includes("mac"))
+      const again = reviewFetched(reviewPage)
       await reviewPage.keyboard.press(mac ? "Meta+BracketLeft" : "Control+BracketLeft")
       await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+      await again
       await expect(review.getByTestId("review-commit").first()).toBeVisible()
       expect(fetches).toHaveLength(2)
       await expect(reviewPage.getByTestId("review-back")).toHaveCount(0)
@@ -784,7 +794,17 @@ test.describe("Review window", () => {
     await expect(getReviewRow(page, 101)).toBeVisible()
     await getReviewRow(page, 101).focus()
     await page.keyboard.press("d")
-    const review = (await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))).getByTestId("review-window")
+    let fetched!: Promise<unknown>
+    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
+    const review = (
+      await openLinkedSubWindow(page, opened, {
+        beforeLoad: async window => {
+          fetched = reviewFetched(window)
+        },
+      })
+    ).getByTestId("review-window")
+    // the commits once the fetch of the window answered, however long it takes under load
+    await fetched
     const tree = review.getByRole("tree", { name: "Changed files" })
     const commitSubjects = tree.getByTestId("review-commit-subject")
     const column = review.getByTestId("range-review-commits").getByTestId("range-review-commit")
@@ -809,23 +829,26 @@ test.describe("Review window", () => {
     expectErrorLog(page, /^Cannot fetch pull request #101: GitHub asked for credentials/)
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
     await repo.setReviewRequests(availableReviewRequests([OLD]), "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)")
-    const { review } = await openRequestReview(page, 101)
+    const { window, review } = await openRequestReview(page, 101)
     const failure = review.getByTestId("review-fetch-failed")
     await expect(failure).toContainText("Cannot fetch pull request #101")
     await expect(failure).toContainText("GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)")
 
     await repo.setReviewRequests(availableReviewRequests([OLD]))
+    const retried = reviewFetched(window)
     await failure.getByTestId("review-fetch-retry").click()
     await expect(failure).toBeHidden()
+    await retried
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
   })
 
   test("should approve the commit the review shows, in the review too, and keep its place once it left the list", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     // the main window runs the write
-    const { window: reviewPage, review } = await openRequestReview(page, 101)
+    const { window: reviewPage, review, fetched } = await openRequestReview(page, 101)
     const approve = review.getByTestId("review-approve")
     // nothing to approve before the commit the user sees is there
+    await fetched
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await expect(approve).toBeEnabled()
     await expect(review.getByTestId("review-request-changes")).toBeEnabled()
@@ -835,7 +858,7 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("commit-review")).toBeVisible()
     await expect(approve).toBeVisible()
     await repo.setReviewRequests(availableReviewRequests([RECENT]))
-    await pressDecisionKey(reviewPage, review, "a")
+    await runAndWaitForAnswer(reviewPage, "execute", () => pressDecisionKey(reviewPage, review, "a"))
     // the toast is the window's; the main window records it in Activity
     await expect(reviewToast(reviewPage, "Approved #101")).toBeVisible()
     await expect(reviewToast(page, "Approved #101")).toHaveCount(0)
@@ -864,7 +887,8 @@ test.describe("Review window", () => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     // GitHub holds the review: the write runs
     await repo.holdRemoteAnswers({ hold: ["submitReview"] })
-    const { window: reviewPage, review } = await openRequestReview(page, 101)
+    const { window: reviewPage, review, fetched } = await openRequestReview(page, 101)
+    await fetched
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await pressDecisionKey(reviewPage, review, "a")
     await expect(review.getByTestId("review-approve")).toBeDisabled()
@@ -874,7 +898,7 @@ test.describe("Review window", () => {
 
     // the window runs the approval in its own session: it says how it went, nothing asked of the main window
     await repo.arrival("submitReview")
-    await repo.holdRemoteAnswers({ release: ["submitReview"] })
+    await runAndWaitForAnswer(reviewPage, "execute", () => repo.holdRemoteAnswers({ release: ["submitReview"] }))
     await expect(reviewToast(reviewPage, "Approved #101")).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
     expect((await getEmittedEvents<ReviewRunRequest>(reviewPage, "review/run")).filter(it => it.itemId !== "read")).toEqual([])
@@ -891,9 +915,15 @@ test.describe("Review window", () => {
     await page.getByRole("menuitem", { name: "Request Changes…" }).click()
     const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
     expect(opened.data).toMatchObject({ number: 101, intent: "requestChanges" })
-    const reviewPage = await openLinkedSubWindow(page, opened)
+    let fetched!: Promise<unknown>
+    const reviewPage = await openLinkedSubWindow(page, opened, {
+      beforeLoad: async window => {
+        fetched = reviewFetched(window)
+      },
+    })
     const review = reviewPage.getByTestId("review-window")
     const form = reviewPage.getByTestId("review-request-changes-form")
+    await fetched
     await expect(form).toBeVisible()
     const send = form.getByTestId("review-request-changes-send")
     await expect(send).toBeDisabled()
@@ -914,16 +944,20 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-request-changes")).toBeFocused()
     // another request and back: the draft is the pull request's
     await review.getByTestId("review-dialog-body").focus()
+    const oauth = reviewFetched(reviewPage)
     await reviewPage.keyboard.press("ArrowDown")
     await expect(review.getByRole("heading", { name: "Add OAuth login" })).toBeVisible()
-    // a write waits for the commit the user sees
+    // a write waits for the commit the user sees, once the fetch answered
+    await oauth
     await pressDecisionKey(reviewPage, review, "r")
     await expect(comment).toHaveValue("")
     await expect(comment).toBeFocused()
     await reviewPage.keyboard.press("Escape")
     await review.getByTestId("review-dialog-body").focus()
+    const session = reviewFetched(reviewPage)
     await reviewPage.keyboard.press("ArrowUp")
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+    await session
     await pressDecisionKey(reviewPage, review, "r")
     await expect(comment).toHaveValue("a d o r: sort by the snapshot")
     // reopened while the last form still closes, the comment has the focus all the same
@@ -1175,7 +1209,8 @@ async function showChanges(window: Page, review: ReturnType<Page["getByTestId"]>
 /** The review window of #7 from Your Turn, its changes shown */
 async function openOwnedChanges(page: Page): Promise<{ window: Page; review: ReturnType<Page["getByTestId"]> }> {
   await expect(getYourTurnCard(page)).toBeVisible()
-  const { window, review } = await openRequestReview(page, 7)
+  const { window, review, fetched } = await openRequestReview(page, 7)
+  await fetched
   await showChanges(window, review)
   return { window, review }
 }
@@ -1193,8 +1228,11 @@ async function openOwnedChangesBeforeGroups(page: Page, repo: TestRepositoryBuil
 async function showOtherRequest(window: Page, review: ReturnType<Page["getByTestId"]>, key: "ArrowUp" | "ArrowDown", title: string): Promise<void> {
   await window.keyboard.press("Escape")
   await review.getByTestId("review-dialog-body").focus()
+  // each request the window shows is fetched as it shows, the one shown before too
+  const fetched = reviewFetched(window)
   await window.keyboard.press(key)
   await expect(review.getByRole("heading", { name: title })).toBeVisible()
+  await fetched
   await showChanges(window, review)
 }
 
