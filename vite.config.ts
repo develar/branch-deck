@@ -67,8 +67,10 @@ function preloadInterFont(): Plugin {
 
 /**
  * The Air build (`vite build --mode air`, docs/design/ide-embedding.md): the page of a view of the IDE, the same page
- * with the entry `src/air-main.ts`, into `dist-air/`. Its files stay separate (the lazy chunks, the highlight worker):
- * `brd mcp` serves each as the resource `ui://branch-deck/<path>`, `index.html` the page of every view
+ * with the entry `src/air-main.ts`, into `dist-air/`, or the directory `BRANCH_DECK_AIR_OUT_DIR` names (`pnpm build:air`
+ * builds into another one, which then takes the place of `dist-air/` whole: `scripts/build-air.mjs`). Its files stay
+ * separate (the lazy chunks, the highlight worker): `brd mcp` serves each as the resource `ui://branch-deck/<path>`,
+ * `index.html` the page of every view
  */
 function airBuild(): Plugin {
   let air = false
@@ -76,7 +78,7 @@ function airBuild(): Plugin {
     name: "air-build",
     config(_config, env) {
       air = env.mode === "air"
-      return air ? { build: { outDir: "dist-air" } } : null
+      return air ? { build: { outDir: process.env.BRANCH_DECK_AIR_OUT_DIR ?? "dist-air" } } : null
     },
     transformIndexHtml: {
       order: "pre",
