@@ -53,7 +53,6 @@ async function saveAppPrefix(page: Page, prefix: string): Promise<Page> {
 /** The repository was synced an hour ago (`repositoryState`, set through the test server before the page opens) */
 const SYNCED_AN_HOUR_AGO = 60 * 60 * 1000
 
-/** Adds a second recent project, never synced, to the injected store */
 /**
  * The first sync of a repository whose git identity git cannot form, whatever the global config says: the notes of the
  * sync fail with `no_identity`, and the git alert says it
@@ -69,6 +68,7 @@ async function syncWithoutIdentity(
   return { repo, alert: page.getByTestId("git-setup-alert") }
 }
 
+/** Adds a second recent project, never synced, to the injected store */
 async function addRecentProject(page: Page, path: string): Promise<void> {
   await page.addInitScript(path => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -606,10 +606,12 @@ test.describe("Git setup", () => {
     // the sync Sync Again asks for waits in its first step
     await repo.holdRemoteAnswers({ hold: ["sync"] })
     const syncs = await finishedSyncCount(page)
+    const failed = await page.getByTestId("sync-button").getAttribute("data-view-version")
     await again.click()
-    // its run runs, held in its first step
+    // its run runs, held in its first step, and the view says it runs: the patch of its start is the next one. Busy
+    // alone is the window's count of its requests, which comes before the view, still failed then
     await repo.arrival("sync")
-    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    await expect(page.getByTestId("sync-button")).not.toHaveAttribute("data-view-version", failed!)
     await expect(alert).toContainText("Git does not know your name and email")
     expect(await boxOf(again)).toEqual(before)
     await repo.holdRemoteAnswers({ release: ["sync"] })
