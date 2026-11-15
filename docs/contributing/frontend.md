@@ -177,9 +177,9 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   popover (`LockWaitNotice`) comes on the line of its buttons before them, or below them, never on a line of its own
   above them, and in a dialog over the lines of its footer, which keep their room (`LinesUnderLockWait`), its spinner in
   the place of the icon of the button; the first push of a repository on no service comes with its row, its facts
-  answered from git. Each case
+  answered from git; the alert of a failed sync stays while the next sync runs (`syncFailure`), as "Last synced" does. Each case
   has an E2E test: the pressed control keeps its place, its popup open (`repository-lock.spec.ts`,
-  `update-project.spec.ts`, `header.spec.ts`, `late-facts.spec.ts`, `patronus-actions.spec.ts`, `column-widths.spec.ts`)
+  `update-project.spec.ts`, `header.spec.ts`, `late-facts.spec.ts`, `patronus-actions.spec.ts`, `column-widths.spec.ts`, `onboarding.spec.ts`)
 - **A popup that goes took the hover of its trigger** (Base UI 1.9): each popup part shares the timers of its trigger's
   hover (`useHoverInteractionSharedState`) and cleared them as it unmounted at the end of its exit. The pointer back over
   the trigger of a popup closed otherwise than by its hover (its view hid, a press of an item) started a delay that the

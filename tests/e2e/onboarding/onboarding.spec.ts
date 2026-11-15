@@ -1,9 +1,10 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { CLOSE_SAVE_LIMIT_MS } from "../../../src/lib/settings-close"
 // @spec openspec/specs/repository/onboarding/spec.md
 import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow, pushFromRowMenu } from "../helpers/branch-helpers"
+import { boxOf } from "../helpers/header-helpers"
 import { expectPushedToast } from "../helpers/push-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import {
@@ -22,7 +23,7 @@ import {
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { openToast } from "../helpers/toast-helpers"
-import { holdNextAnswer, recordCommand, routeCommandError, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
+import { holdCommand, holdNextAnswer, recordCommand, routeCommandError, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 /** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
@@ -53,6 +54,21 @@ async function saveAppPrefix(page: Page, prefix: string): Promise<Page> {
 const SYNCED_AN_HOUR_AGO = 60 * 60 * 1000
 
 /** Adds a second recent project, never synced, to the injected store */
+/**
+ * The first sync of a repository whose git identity git cannot form, whatever the global config says: the notes of the
+ * sync fail with `no_identity`, and the git alert says it
+ */
+async function syncWithoutIdentity(
+  page: Page,
+  setupRepo: (templateName: string, options: { prepopulateStore: boolean }) => Promise<TestRepositoryBuilder>,
+): Promise<{ repo: TestRepositoryBuilder; alert: Locator }> {
+  expectErrorLog(page, /^Cannot sync the branches: Git user identity is not configured/)
+  const repo = await setupRepo("simple", { prepopulateStore: true })
+  await repo.setUserNameInTerminal("")
+  await page.getByTestId("ready-to-sync-button").click()
+  return { repo, alert: page.getByTestId("git-setup-alert") }
+}
+
 async function addRecentProject(page: Page, path: string): Promise<void> {
   await page.addInitScript(path => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -463,6 +479,42 @@ test.describe("Onboarding", () => {
 
     await expect(page.getByTestId("error-alert")).toContainText("The repository has no commits yet")
   })
+
+  // the alert stood only while no sync ran: each sync of a repository whose syncs fail took it away, the rows moving up
+  // under a still pointer, and brought it back as it failed again
+  test("keeps the alert of a failed sync above the rows while the next sync runs and fails again, and drops it once one syncs", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("simple")
+    await syncAndWaitForBranches()
+    // the next two requests fail as a disk would; the one after them syncs
+    await routeCommandError(page, "sync", { code: "internal", message: "The disk is full" }, { times: 2 })
+    const alert = page.getByTestId("error-alert")
+    const row = findBranchRow(page, "test-branch")
+    const syncs = await finishedSyncCount(page)
+    await page.getByTestId("sync-button").click()
+    await expect(alert).toContainText("The disk is full")
+    await expect(page.getByTestId("sync-button")).not.toHaveAttribute("aria-busy", "true")
+    // the pointer rests on the row; ⌘R syncs again, its request held, and it fails again
+    await row.hover()
+    const before = await boxOf(row)
+    const release = await holdCommand(page, "sync")
+    await emitTauriEvent(page, "sync_branches")
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    await expect(alert).toContainText("The disk is full")
+    expect(await boxOf(row)).toEqual(before)
+    release()
+    await expect(page.getByTestId("sync-button")).not.toHaveAttribute("aria-busy", "true")
+    await expect(alert).toContainText("The disk is full")
+    expect(await boxOf(row)).toEqual(before)
+
+    // a sync that syncs: the alert goes as it ends
+    await page.getByTestId("sync-button").click()
+    await waitForSyncComplete(page, syncs)
+    await expect(alert).toHaveCount(0)
+  })
 })
 
 test.describe("Deferred sync", () => {
@@ -546,13 +598,29 @@ test.describe("Git setup", () => {
     await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
   })
 
+  // the alert stood only while no sync ran: Sync Again took it away, its button from under the pointer that pressed it,
+  // and a sync that failed again brought it back
+  test("keeps the git alert and its Sync Again under the pointer while the sync it asked for runs and fails again", async ({ page, setupRepo }) => {
+    const { repo, alert } = await syncWithoutIdentity(page, setupRepo)
+    const again = alert.getByRole("button", { name: "Sync Again" })
+    const before = await boxOf(again)
+    // the sync Sync Again asks for waits in its first step
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
+    const syncs = await finishedSyncCount(page)
+    await again.click()
+    // its run runs, held in its first step
+    await repo.arrival("sync")
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    await expect(alert).toContainText("Git does not know your name and email")
+    expect(await boxOf(again)).toEqual(before)
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await waitForSyncComplete(page, syncs)
+    await expect(alert).toContainText("Git does not know your name and email")
+    expect(await boxOf(again)).toEqual(before)
+  })
+
   test("warns that git does not know the user's name and email when a sync fails on it, and syncs on Sync Again", async ({ page, setupRepo }) => {
-    expectErrorLog(page, /^Cannot sync the branches: Git user identity is not configured/)
-    const repo = await setupRepo("simple", { prepopulateStore: true })
-    // an identity git cannot form, whatever the global config says: the notes of the sync fail with `no_identity`
-    await repo.setUserNameInTerminal("")
-    await page.getByTestId("ready-to-sync-button").click()
-    const alert = page.getByTestId("git-setup-alert")
+    const { repo, alert } = await syncWithoutIdentity(page, setupRepo)
     await expect(alert).toContainText("Git does not know your name and email")
     await expect(alert.getByText('git config --global user.name "Your Name"')).toBeVisible()
     await expect(alert.getByText("git config --global user.email you@example.com")).toBeVisible()

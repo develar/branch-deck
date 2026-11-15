@@ -763,6 +763,26 @@ describe("a sync of the session", () => {
     expect(branchSyncStore.getState()).toMatchObject({ syncError: "Cannot read HEAD", branchOrder: ["a"], syncCount: 1 })
   })
 
+  it("keeps the failure the alerts show while the next sync runs, and drops it once a sync ended without one", async () => {
+    await open()
+    const refused = requestSessionSync("manual")
+    ;(await nextSync(1)).fail(internalError("boom"))
+    await refused
+    expect(branchSyncStore.getState().syncFailure).toEqual({ message: "boom", code: null })
+    // the next run: Sync is red no more, the alert stays as it was until the run ends
+    await send({ ...running, ...grouping("a") })
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, syncFailure: { message: "boom", code: null } })
+    // it failed on the identity: the git alert says it, also while the run after it runs
+    const noIdentity = { ...internalError("Git user identity is not configured"), code: "no_identity" as const }
+    await send({ sync: { kind: "failed", error: noIdentity } })
+    expect(branchSyncStore.getState().syncFailure).toEqual({ message: "Git user identity is not configured", code: "no_identity" })
+    await send(running)
+    expect(branchSyncStore.getState().syncFailure).toEqual({ message: "Git user identity is not configured", code: "no_identity" })
+    // a run that ended without a failure drops it
+    await send(idle)
+    expect(branchSyncStore.getState().syncFailure).toBeNull()
+  })
+
   it("subscribes first when asked before the window subscribed, and again after a failed subscription, whose failure it names", async () => {
     // a click while the page still loads the prefix: no subscription yet
     const synced = requestSessionSync("manual")

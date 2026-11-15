@@ -204,6 +204,16 @@ export interface BaselineStatus {
   readonly checkError: string | null
 }
 
+/** What failed of a sync, as its alert says it */
+export interface SyncFailure {
+  readonly message: string
+  /**
+   * The code of the error of a failed run of the session (`SyncState::Failed`): `no_identity` is the git alert's
+   * (`GitSetupAlert`), not the error alert's; null for a request that failed
+   */
+  readonly code: ErrorCode | null
+}
+
 export interface BranchSyncState {
   /** A sync runs in the session, or a request of this window for one has not answered yet (`syncBranches`) */
   isSyncing: boolean
@@ -214,10 +224,11 @@ export interface BranchSyncState {
   syncCount: number
   syncError: string | null
   /**
-   * The code of the error of the last run of the session when it failed (`SyncState::Failed`): `no_identity` is the git
-   * alert's (`GitSetupAlert`), not the error alert's; null otherwise
+   * The failure the alerts above the table show (the error alert, `GitSetupAlert`): of the last sync that ended, kept
+   * while the next one runs, as "Last synced" is, so an alert never goes and comes back for each sync of a repository
+   * whose syncs fail, and its Sync Again stays under the pointer that pressed it; null once a sync ended without one
    */
-  syncErrorCode: ErrorCode | null
+  syncFailure: SyncFailure | null
   /** The last sync git refused before it built anything (a rebase in progress, a detached HEAD); null otherwise */
   syncDeferred: SyncDeferral | null
   /** What the running sync of the session does; null while none runs */
@@ -409,7 +420,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   isSyncing: false,
   syncCount: 0,
   syncError: null,
-  syncErrorCode: null,
+  syncFailure: null,
   syncDeferred: null,
   syncStep: null,
   syncedRepositoryPath: null,

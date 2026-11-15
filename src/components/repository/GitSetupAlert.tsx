@@ -10,11 +10,13 @@ import { useSessionFailure } from "@/stores/repository"
  * What git itself stands in the way of, by the code of what failed (no check of its own): no usable git, missing or
  * too old (`git_not_found`, the failure of the subscription of the window; destructive, the summary as the title, the
  * install hint below), or a sync git cannot write the notes of without the user's name and email (`no_identity`, the
- * failure of the last run; warning, with the two `git config --global` commands). `null` when git is fine.
+ * failure of the last run, kept while the next one runs; warning, with the two `git config --global` commands). `null`
+ * when git is fine.
  */
 export function GitSetupAlert() {
   const failure = useSessionFailure()
-  const noIdentity = useBranchSync(state => state.syncErrorCode === "no_identity")
+  // the failure of the last sync, kept while the next one runs: Sync Again stays under the pointer that pressed it
+  const noIdentity = useBranchSync(state => state.syncFailure?.code === "no_identity")
   if (failure?.code === "git_not_found") {
     const [summary, ...hintLines] = failure.message.split("\n")
     return (

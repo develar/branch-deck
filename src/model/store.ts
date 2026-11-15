@@ -38,6 +38,7 @@ import type {
   BranchView,
   Commit,
   CommitSync,
+  ErrorCode,
   FactFamily,
   FactRefreshReason,
   News,
@@ -73,7 +74,7 @@ import type { BranchStructure } from "@/model/structure"
 import { NO_ROWS, ROOT_STRUCTURE, rowsOf } from "@/model/structure"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import { applyAuthFacts } from "@/stores/auth"
-import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
+import type { Branch, BranchSyncState, StackBranch, SyncedCommit, SyncFailure } from "@/stores/branch-sync"
 import { branchSyncStore, NO_SUBJECT_PARTS, useBranchSyncEntry } from "@/stores/branch-sync"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getSelectedRepositoryPath, setSessionAnswer } from "@/stores/repository"
@@ -617,9 +618,11 @@ function projectView(
       recordSynced(repositoryPath)
     }
   }
-  update.isSyncing = running || (session?.pending.count ?? 0) > 0
-  update.syncError = syncErrorOf(next)
-  update.syncErrorCode = next.sync.kind === "failed" ? next.sync.error.code : null
+  const isSyncing = running || (session?.pending.count ?? 0) > 0
+  const syncError = syncErrorOf(next)
+  update.isSyncing = isSyncing
+  update.syncError = syncError
+  update.syncFailure = alertedFailure(isSyncing, state.syncFailure, syncError, syncErrorCodeOf(next))
   update.syncDeferred = syncDeferredOf(next, state.syncDeferred)
   update.syncStep = next.sync.kind === "running" ? next.sync.step : null
 
@@ -788,6 +791,21 @@ function syncErrorOf(view: RepositoryView | null): string | null {
     return view.sync.error.message || "Failed to sync branches"
   }
   return view?.sync.kind === "running" ? null : requestError
+}
+
+/** The code of the error of the last run of the session when it failed; null otherwise */
+function syncErrorCodeOf(view: RepositoryView | null): ErrorCode | null {
+  return view?.sync.kind === "failed" ? view.sync.error.code : null
+}
+
+/**
+ * The failure the alerts above the table show (`BranchSyncState.syncFailure`): the one of now (`message`, `code`), but
+ * while a sync runs the one shown before, as "Last synced" stays: the alert of a failure goes only once a sync ended
+ * without one, and never goes and comes back for each sync that fails again
+ */
+function alertedFailure(syncing: boolean, shown: SyncFailure | null, message: string | null, code: ErrorCode | null): SyncFailure | null {
+  const now = message === null ? null : { message, code }
+  return syncing ? (shown ?? now) : now
 }
 
 /** Why git refused the last sync of `view`, the same object as `shown` while it says the same; null otherwise */
@@ -1018,7 +1036,7 @@ function resetTable(): void {
   branchSyncStore.setState({
     isSyncing: false,
     syncError: null,
-    syncErrorCode: null,
+    syncFailure: null,
     syncDeferred: null,
     syncStep: null,
     syncedRepositoryPath: null,
@@ -1142,7 +1160,10 @@ function countRequest(target: Session, delta: 1 | -1): void {
   const shown = session
   // the subscription made again for a session that went away counts the requests of the one it replaced
   if (shown !== null && shown.pending === target.pending) {
-    branchSyncStore.setState({ isSyncing: shown.view?.sync.kind === "running" || shown.pending.count > 0, syncError: syncErrorOf(shown.view) })
+    const isSyncing = shown.view?.sync.kind === "running" || shown.pending.count > 0
+    const syncError = syncErrorOf(shown.view)
+    const syncFailure = alertedFailure(isSyncing, branchSyncStore.getState().syncFailure, syncError, syncErrorCodeOf(shown.view))
+    branchSyncStore.setState({ isSyncing, syncError, syncFailure })
   }
 }
 
@@ -1162,7 +1183,7 @@ async function askSync(reason: SyncReason, askAgainOnPrefixChange: boolean): Pro
   const selectedPath = getSelectedRepositoryPath()
   if (selectedPath === "") {
     requestError = "Please enter a repository path"
-    branchSyncStore.setState({ syncError: requestError })
+    branchSyncStore.setState({ syncError: requestError, syncFailure: { message: requestError, code: null } })
     return null
   }
   ensureSession(selectedPath)
@@ -1304,7 +1325,9 @@ function failRequest(target: Session, message: string, error: unknown): void {
     logError("Cannot sync the branches", error)
   }
   requestError = shown
-  branchSyncStore.setState({ syncError: syncErrorOf(target.view) })
+  const syncError = syncErrorOf(target.view)
+  const state = branchSyncStore.getState()
+  branchSyncStore.setState({ syncError, syncFailure: alertedFailure(state.isSyncing, state.syncFailure, syncError, syncErrorCodeOf(target.view)) })
 }
 
 /** What a request that ended tells beyond the table: the repository is synced, or a focus found nothing changed */

@@ -25,9 +25,10 @@ import { useRowsGeneration } from "@/stores/view-rows"
  */
 export function BranchCreator() {
   const isSyncing = useBranchSync(state => state.isSyncing)
-  const syncError = useBranchSync(state => state.syncError)
+  // the failure of the last sync, kept while the next one runs (`syncFailure`): the alert stays where it is
+  const syncFailure = useBranchSync(state => state.syncFailure?.message ?? null)
   // a sync git could not write the notes of without the user's name: the git alert says it, with the commands
-  const syncNeedsIdentity = useBranchSync(state => state.syncErrorCode === "no_identity")
+  const syncNeedsIdentity = useBranchSync(state => state.syncFailure?.code === "no_identity")
   const syncDeferred = useBranchSync(state => state.syncDeferred)
   const baselineBranch = useBranchSync(state => state.baselineBranch)
   const syncedRepositoryPath = useBranchSync(state => state.syncedRepositoryPath)
@@ -59,7 +60,7 @@ export function BranchCreator() {
   const hasGitError = sessionFailure?.code === "git_not_found" || syncNeedsIdentity
 
   // a repository git cannot read is the error of the path (`pathValidation`, which the failed subscription sets)
-  const error = hasGitError || isSyncing ? null : syncError || pathValidation.error
+  const error = hasGitError ? null : syncFailure || pathValidation.error
   const hasError = hasGitError || !!error
   // on the first run (no repository, no recent project), and while the selected repository has no prefix
   const showWelcomeCard = !hasError && (hasRepository ? noBranchPrefix : !hasRecentProjects)
