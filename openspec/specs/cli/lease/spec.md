@@ -840,10 +840,10 @@ index and caches and the commit closest to the source.
 
 ### Requirement: Get: Each return records its number and its time
 
-Each return MUST record the number of the return in the pool (`returned`, one past the last) and its time
-(`returned_at`, Unix seconds, never before the last return of the pool). The number orders the free slots of one pool;
-the time orders the free slots of different pools for the shrink, and within one pool it follows the number. A state
-without the time reads as returned before every slot that has one, across pools.
+Each return MUST record the number of the return in the pool (`returned`, one past the highest number the pool gave,
+`last_returned`) and its time (`returned_at`, Unix seconds, never before the last return of the pool). The number orders
+the free slots of one pool; the time orders the free slots of different pools for the shrink, and within one pool it
+follows the number. A state without the time reads as returned before every slot that has one, across pools.
 
 #### Scenario: A state without the time of a return
 - **WHEN** a free slot has `returned` but no `returned_at`
@@ -855,6 +855,13 @@ without the time reads as returned before every slot that has one, across pools.
 - **THEN** its `returned_at` is the time of the last return of the pool
 - **AND** a get takes it first, and the trim and the shrink take it last, as before the step
   [@test] crates/lease-pool/src/lease_test.rs (`a_return_after_a_step_back_of_the_clock_is_the_warmest_free_slot_of_its_pool`)
+
+#### Scenario: A return after a reclaim took the highest number
+- **GIVEN** a reclaim gave the slot of the highest number of the pool a number below the other free slots
+- **WHEN** a slot is returned later
+- **THEN** its `returned` is one past that highest number, so no free period of a slot repeats the number of an
+  earlier one
+  [@test] crates/lease-pool/src/lease_test.rs (`no_free_period_of_a_slot_has_the_epoch_of_an_earlier_one`)
 
 ### Requirement: Get: Every checkout of the pool runs with a worker per core
 
@@ -1310,13 +1317,20 @@ which holds a power assertion and opens no file.
 
 The epoch of a worktree (`worktree_epoch`) MUST be the id of the lease its slot holds (`returned <n>` while free),
 `NotASlot` for a worktree that is no slot, and `Unknown` when the files that tell cannot be read or parsed; it MUST be
-read without git and without the lock of the pool, of each slot only its path, lease id and last return. The app keeps
-what it records of a slot under it ([Onboarding](../../repository/onboarding/spec.md)).
+read without git and without the lock of the pool, of each slot only its path, lease id, last return and reclaimed
+lease. The app keeps what it records of a slot under it ([Onboarding](../../repository/onboarding/spec.md)).
 
 #### Scenario: A slot leased again
 - **WHEN** a slot is leased, returned and leased again
 - **THEN** its epoch is each lease in turn, and that of its return between them; the main checkout has none
   [@test] crates/bd-lease/src/lease_test.rs (`the_epoch_of_a_slot_is_its_lease_and_changes_with_each_return_and_get`)
+
+#### Scenario: A reclaim gives a number of an earlier free period
+- **GIVEN** a slot returned with a number, leased, returned and leased again
+- **WHEN** a reclaim gives it that first number again
+- **THEN** its epoch is `returned <n> reclaimed <lease id>`, with the reclaimed lease, and none of its earlier free
+  periods
+  [@test] crates/lease-pool/src/lease_test.rs (`no_free_period_of_a_slot_has_the_epoch_of_an_earlier_one`)
 
 #### Scenario: A state of a later build, and one that cannot be parsed
 - **GIVEN** a later build wrote the state of the pool, with a state of a lease and a field this build does not know
@@ -2471,12 +2485,20 @@ coldest free slot of its pool. The output is `lease_reclaim` of `brd schema`, ex
 - **GIVEN** free slots of the pool, some returned before an idle lease went quiet and some after
 - **WHEN** reclaim returns the idle lease
 - **THEN** its `returned` is below that of every other free slot of the pool and is not its number before the lease
+- **AND** `last_returned` keeps the highest number of the pool
 - **AND** its `returned_at` is the earliest of the time its lease went quiet (the later of its get and the last change
   of the reflog of the slot) and the times of the other free slots, none when one of them has none
 - **AND** a brd that orders by the number alone and a brd that orders by the time first both take it last for a get
   and first for the trim and the shrink
   [@test] crates/lease-pool/src/lease_test.rs (`a_reclaimed_slot_is_the_coldest_free_slot_of_its_pool_by_number_and_by_time`)
   [@test] crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_reclaims_an_idle_lease_and_shrinks_its_slot_before_the_hot_one`)
+
+#### Scenario: A number of an earlier free period
+- **GIVEN** a reclaim gave its slot a number that a measure of `brd lease disk` of an earlier free period has
+- **WHEN** `brd lease disk` runs
+- **THEN** it measures the reclaimed slot again, as its measure names the reclaimed lease
+- **AND** the other free slots keep their measures
+  [@test] crates/pool-disk/src/disk_test.rs (`a_reclaimed_slot_with_the_number_of_an_earlier_free_period_is_measured_again`)
 
 #### Scenario: No number left below the other free slots
 - **GIVEN** a pool whose lowest free slot has the number 0, or 1 while the reclaimed slot had 0
@@ -2664,10 +2686,10 @@ The thread MUST make this buffer when it takes its first directory, not once per
 
 ### Requirement: Disk: The bytes of a slot are kept and refreshed by what changed
 
-The bytes of a slot MUST be kept in `$GIT_COMMON_DIR/branch-deck/disk.json` with its `returned`, whether it was leased,
-its FSEvents mark and the sizes of disjoint nodes under its roots. On macOS the default refresh MUST ask FSEvents what
-changed since that mark: an unchanged slot stays cached regardless of its age or lease; a changed path walks its
-nearest saved node. A slot that left the pool leaves the file.
+The bytes of a slot MUST be kept in `$GIT_COMMON_DIR/branch-deck/disk.json` with its `returned`, the lease that a
+reclaim or a takeover took from it, whether it was leased, its FSEvents mark and the sizes of disjoint nodes under its
+roots. On macOS the default refresh MUST ask FSEvents what changed since that mark: an unchanged slot stays cached
+regardless of its age or lease; a changed path walks its nearest saved node. A slot that left the pool leaves the file.
 
 #### Scenario: A changed file
 - **WHEN** FSEvents names a changed file of a slot

@@ -3,7 +3,7 @@
 //! takes minutes (two for the pools of the user's Mac, 1.25 TB) and says little: the tracked tree of a slot is an APFS
 //! clone that shares its blocks with the others. What a slot holds of its own is what a delete of it frees: the private
 //! size of its worktree (`walk`: the blocks no clone shares, as `getattrlistbulk` tells them), the directories its clean
-//! rules name (`target/`, `out/`) and its Bazel output bases outside it (`output_bases`), each walked apart, all side by side, and the bytes of a slot are kept in `disk.json` beside the state of its pool: a free slot does not change until a get leases it, so its bytes hold while its `returned` does;
+//! rules name (`target/`, `out/`) and its Bazel output bases outside it (`output_bases`), each walked apart, all side by side, and the bytes of a slot are kept in `disk.json` beside the state of its pool: a free slot does not change until a get leases it, so its bytes hold while its `returned` and the lease a reclaim took from it do;
 //! a leased slot is measured again after `LEASED_STALE`.
 
 use anyhow::Result;
@@ -136,6 +136,9 @@ pub struct SlotUsage {
   pub holder: Option<String>,
   /// The number of its last return in the pool
   pub returned: Option<u64>,
+  /// The lease that a reclaim or a takeover took from it (`Slot::reclaimed`): a reclaim can give it a number of an
+  /// earlier free period again (`lease_pool::lease::stamp_reclaimed`)
+  pub reclaimed: Option<String>,
   /// What its worktree holds of its own beside its build directories: the blocks its files share with no clone (a slot
   /// cloned from a template shares most of them until moves rewrite its files)
   pub worktree: u64,
@@ -201,6 +204,9 @@ struct MeasuredBase {
 struct Measured {
   /// `returned` of the slot when it was walked: a later return or a get makes it stale
   returned: Option<u64>,
+  /// `SlotUsage::reclaimed` when it was walked: another one makes it stale, as a reclaim can give `returned` again
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  reclaimed: Option<String>,
   /// Whether it was leased then
   leased: bool,
   at: u64,
@@ -431,6 +437,7 @@ fn disk_usage_core_inner(
         && previous.as_ref().is_some_and(|measured| {
           measured.worktree.is_some()
             && measured.returned == slot.returned
+            && measured.reclaimed.as_deref() == slot.reclaimed.as_ref().map(|reclaimed| reclaimed.lease_id.as_str())
             && measured.leased == leased
             && measured.roots.iter().map(|root| root.path.as_str()).eq(root_keys.iter().map(String::as_str))
             && root_keys.iter().all(|root| !root.is_empty())
@@ -537,6 +544,7 @@ fn disk_usage_core_inner(
         state: status.state,
         holder,
         returned: slot.returned,
+        reclaimed: slot.reclaimed.as_ref().map(|reclaimed| reclaimed.lease_id.clone()),
         worktree,
         build: shown_build,
         output_bases,
@@ -737,6 +745,7 @@ fn disk_usage_core_inner(
           slot.path.clone(),
           Measured {
             returned: slot.returned,
+            reclaimed: slot.reclaimed.clone(),
             leased: slot.state != SlotState::Free,
             at: slot.measured_at,
             mark: refreshing.mark,

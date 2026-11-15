@@ -26,8 +26,9 @@ use sync_utils::paths::display_path;
 
 /// The epoch of the worktree at `worktree`: `NotASlot` for a path that is no slot of a pool (the main checkout, a worktree
 /// of `git worktree add`, a submodule, a checkout of a separate git directory, a path that is no git worktree, a
-/// repository without a pool), `Lease` with the id of the lease of its slot or `returned <n>` of a free slot, `Unknown`
-/// when a file that tells could not be read or parsed
+/// repository without a pool), `Lease` with the id of the lease of its slot or `returned <n>` of a free slot
+/// (`returned <n> reclaimed <lease id>` while `Slot::reclaimed` names one), `Unknown` when a file that tells could not
+/// be read or parsed
 #[must_use]
 pub fn worktree_epoch(worktree: &Path) -> WorktreeEpoch {
   let dot_git = worktree.join(".git");
@@ -134,8 +135,8 @@ fn read_linked(worktree: &Path, dot_git: &[u8]) -> Result<Option<Linked>, Unread
   }))
 }
 
-/// What the epoch reads of the state of a pool: the path of each slot and its lease or last return. Every other field,
-/// and the state of a lease, is not read
+/// What the epoch reads of the state of a pool: the path of each slot and its lease or last return, with the lease that a
+/// reclaim or a takeover took from it. Every other field, and the state of a lease, is not read
 #[derive(Deserialize)]
 struct PoolSlots {
   #[serde(default)]
@@ -149,11 +150,36 @@ struct SlotEpoch {
   lease: Option<LeaseId>,
   #[serde(default)]
   returned: Option<u64>,
+  #[serde(default)]
+  reclaimed: Option<ReclaimedId>,
 }
 
 #[derive(Deserialize)]
 struct LeaseId {
   id: String,
+}
+
+#[derive(Deserialize)]
+struct ReclaimedId {
+  lease_id: String,
+}
+
+/// The epoch of each slot of the state `bytes` of a pool by its path, `None` for a state that cannot be parsed
+pub(crate) fn slot_epochs(bytes: &[u8]) -> Option<HashMap<String, String>> {
+  let parsed: PoolSlots = serde_json::from_slice(bytes).ok()?;
+  let epochs = parsed.slots.into_iter().map(|slot| {
+    let epoch = match (slot.lease, slot.returned) {
+      (Some(lease), _) => lease.id,
+      // a reclaim can give a number of an earlier free period of the slot again (`lease::stamp_reclaimed`)
+      (None, Some(returned)) => match slot.reclaimed {
+        Some(reclaimed) => format!("returned {returned} reclaimed {}", reclaimed.lease_id),
+        None => format!("returned {returned}"),
+      },
+      (None, None) => "free".to_owned(),
+    };
+    (slot.path, epoch)
+  });
+  Some(epochs.collect())
 }
 
 /// The epoch of each slot of a pool by its path, of the state file as it was when read
@@ -179,21 +205,7 @@ fn pool_slots(file: &Path) -> Result<SlotEpochs, Unreadable> {
   {
     return Ok(Arc::clone(slots));
   }
-  let parsed: PoolSlots = serde_json::from_slice(&bytes).map_err(|_unparsed| Unreadable)?;
-  let slots: SlotEpochs = Arc::new(
-    parsed
-      .slots
-      .into_iter()
-      .map(|slot| {
-        let epoch = match (slot.lease, slot.returned) {
-          (Some(lease), _) => lease.id,
-          (None, Some(returned)) => format!("returned {returned}"),
-          (None, None) => "free".to_owned(),
-        };
-        (slot.path, epoch)
-      })
-      .collect(),
-  );
+  let slots: SlotEpochs = Arc::new(slot_epochs(&bytes).ok_or(Unreadable)?);
   POOLS
     .lock()
     .unwrap_or_else(PoisonError::into_inner)

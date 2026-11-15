@@ -8,6 +8,7 @@ pub enum WorktreeEpoch {
   #[default]
   NotASlot,
   /// A slot of a lease pool: the id of the lease it holds, `returned <n>` while it is free after its last return
+  /// (`returned <n> reclaimed <lease id>` while its record of a reclaim or a takeover names a lease)
   Lease(String),
   /// The files that tell could not be read or parsed: an error of the disk, a read during a rename on Windows, a state
   /// a later build wrote in a form this one cannot read

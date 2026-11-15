@@ -80,6 +80,19 @@ pub const WORKTREE_INCLUDE: &str = ".worktreeinclude";
 pub struct LeaseStore {
   #[serde(default)]
   pub slots: Vec<Slot>,
+  /// The highest `Slot::returned` the pool gave. A reclaim numbers its slot below the other free slots, so the slot of
+  /// the highest number can hold a lower one later. A return takes one past this (`stamp_returned`), so no free slot
+  /// gets the number of an earlier free period again. `None` in a state of a brd before it: the highest number of the
+  /// slots counts then
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub last_returned: Option<u64>,
+}
+
+impl LeaseStore {
+  /// The highest number a return of the pool gave: `last_returned`, or a higher number of a slot
+  fn top_returned(&self) -> u64 {
+    self.slots.iter().filter_map(|slot| slot.returned).chain(self.last_returned).max().unwrap_or(0)
+  }
 }
 
 /// A linked worktree of the pool
@@ -120,32 +133,38 @@ pub struct Slot {
 /// for many reclaims
 pub(crate) const RECLAIM_ROOM: u64 = 1_000;
 
-/// Record a return of the slot `index` of `slots` at `now` (Unix seconds): one past the last number of the pool, and a
-/// time not before the last return of the pool. So a step back of the clock leaves the order of the pool by time, which
-/// the shrink across pools reads, the same as its order by number
-pub(crate) fn stamp_returned(slots: &mut [Slot], index: usize, now: u64) {
-  let last_number = slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
-  let last_time = slots.iter().filter_map(|slot| slot.returned_at).max().unwrap_or(0);
-  let slot = &mut slots[index];
-  slot.returned = Some(last_number + 1);
+/// Record a return of the slot `index` of `store` at `now` (Unix seconds): one past the highest number the pool gave,
+/// and a time not before the last return of the pool. So a step back of the clock leaves the order of the pool by time,
+/// which the shrink across pools reads, the same as its order by number
+pub(crate) fn stamp_returned(store: &mut LeaseStore, index: usize, now: u64) {
+  let number = store.top_returned() + 1;
+  let last_time = store.slots.iter().filter_map(|slot| slot.returned_at).max().unwrap_or(0);
+  let slot = &mut store.slots[index];
+  slot.returned = Some(number);
   slot.returned_at = Some(now.max(last_time));
+  store.last_returned = Some(number);
 }
 
-/// Record the return of the slot `index` of `slots` by a reclaim, its lease quiet since `quiet_at` (Unix seconds), as
-/// the coldest free slot of the pool. Its number is below that of every other free slot and is not its number before
-/// the lease, so no other free slot changes its epoch or its measure of `pool-disk`. Its time is not after that of
-/// any of them (`None` before a slot without one). So every brd orders it last for a get and first for the trim and
-/// the shrink, by the number alone (a brd before `returned_at`) or by the time first, and no clock moves it. With no
-/// number left below, the other free slots move up by `RECLAIM_ROOM` first. With no other free slot that was returned,
-/// it gets one past the last number of the pool and `quiet_at`
-pub(crate) fn stamp_reclaimed(slots: &mut [Slot], index: usize, quiet_at: u64) {
+/// Record the return of the slot `index` of `store` by a reclaim, its lease quiet since `quiet_at` (Unix seconds), as
+/// the coldest free slot of the pool. Its number is below that of every other free slot, so no other free slot changes
+/// its epoch or its measure of `pool-disk`. That number can be one that the slot had in an earlier free period, so the
+/// epoch and the measure of a reclaimed slot also name the reclaimed lease (`Reclaimed::lease_id`). The number is not
+/// its number before the lease either: a brd that compares only the number most likely kept that measure. Its time is
+/// not after that of any other free slot (`None` before a slot without one). So every brd orders it last for a get and
+/// first for the trim and the shrink, by the number alone (a brd before `returned_at`) or by the time first, and no
+/// clock moves it. With no number left below, the other free slots move up by `RECLAIM_ROOM` first. With no other free
+/// slot that was returned, it gets one past the highest number of the pool and `quiet_at`. `last_returned` keeps the
+/// highest number, which the slot can give up here
+pub(crate) fn stamp_reclaimed(store: &mut LeaseStore, index: usize, quiet_at: u64) {
+  let top = store.top_returned();
+  let slots = &mut store.slots;
   let own = slots[index].returned;
   let other_free = |(other, slot): &(usize, &Slot)| *other != index && slot.lease.is_none() && slot.returned.is_some();
   let lowest = slots.iter().enumerate().filter(other_free).filter_map(|(_, slot)| slot.returned).min();
   let Some(lowest) = lowest else {
-    let last_number = slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
-    slots[index].returned = Some(last_number + 1);
+    slots[index].returned = Some(top + 1);
     slots[index].returned_at = Some(quiet_at);
+    store.last_returned = Some(top + 1);
     return;
   };
   let time = slots
@@ -171,6 +190,7 @@ pub(crate) fn stamp_reclaimed(slots: &mut [Slot], index: usize, quiet_at: u64) {
   });
   slots[index].returned = Some(number);
   slots[index].returned_at = time;
+  store.last_returned = Some(store.top_returned().max(top));
 }
 
 /// A lease that was taken from its dead holder because its work had landed
@@ -3306,7 +3326,7 @@ fn return_once(
   };
   pool.update(params.lock_timeout, |store| {
     let index = leased_index(store, &path, &lease.id).ok_or_else(|| anyhow!("The lease of {path} changed while it was returned"))?;
-    stamp_returned(&mut store.slots, index, now());
+    stamp_returned(store, index, now());
     let slot = &mut store.slots[index];
     slot.lease = None;
     slot.dirty = false;
@@ -4156,7 +4176,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
     pool.update(params.lock_timeout, |store| {
       if let Some(index) = leased_index(store, &path, &lease.id) {
         // the coldest free slot of the pool, by its number and by its time, and no other free slot moves
-        stamp_reclaimed(&mut store.slots, index, quiet_at);
+        stamp_reclaimed(store, index, quiet_at);
         let slot = &mut store.slots[index];
         slot.lease = None;
         slot.dirty = false;

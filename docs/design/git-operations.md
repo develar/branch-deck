@@ -2251,7 +2251,11 @@ nothing but LFS puts the content back after a checkout of the blobs.
    slot gets a new epoch, and `pool-disk` keeps their measures (`measured.returned == slot.returned`): a moved number
    would give the slot a new epoch, and the next `brd lease disk` would walk it again. Only when no number is left
    below them (0, or 1 while the reclaimed slot had 0) do the other free slots move up, by `RECLAIM_ROOM` (1000) at
-   once, so that move comes once in many reclaims.
+   once, so that move comes once in many reclaims. The number below can be one that the slot had in an earlier free
+   period, and `disk.json` keeps the last measure of each path. So the epoch of a reclaimed slot
+   (`returned <n> reclaimed <lease id>`) and its measure name the reclaimed lease, and a measure without it is stale.
+   The state keeps the highest number the pool gave (`last_returned`): a reclaim of the slot of that number lowers the
+   highest number of the slots, and a return takes one past `last_returned`, so it gives no number twice.
    A pool only grows, and a free slot keeps its build outputs, `target/` inside it and its
    Bazel output bases outside it (`<output_user_root>/<md5 of the workspace>`, one per workspace, which no clean rule
    reaches): on 2026-11-02 they held 380 GB for 12 slots of idea-1. The trim keeps `branchdeck.leaseMaxSlots` (10)
@@ -2538,7 +2542,8 @@ counts them (`notes_bytes`), `brd lease status` names them for each lease.
 
 **The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`, `domain_types::worktree_epoch::WorktreeEpoch`): the
 path stays too, and the app keeps what it records of a worktree by its path. The epoch is `Lease` with the id of the
-lease the slot holds now (`returned <n>` of a free slot, by the number of its last return), `NotASlot` for a worktree
+lease the slot holds now (`returned <n>` of a free slot, by the number of its last return, and
+`returned <n> reclaimed <lease id>` while its record of a reclaim or a takeover names a lease), `NotASlot` for a worktree
 that is no slot (the main checkout, a worktree of `git worktree add`, a submodule and a checkout of a separate git
 directory, whose `.git` file names a git directory without a `commondir`, a path that is no git worktree), and
 `Unknown` when a file that tells could not be read or parsed. It is read without git and without the lock of the pool: the `.git` file

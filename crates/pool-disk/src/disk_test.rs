@@ -1,10 +1,10 @@
 use crate::{CachedNode, CachedRoot, WalkRequest, root_key, walk_requests};
-use crate::{DiskParams, DiskScope, DiskUsageProgress, build_dirs, disk_file, disk_usage_core, disk_usage_core_with_changes, disk_usage_core_with_progress};
+use crate::{DiskParams, DiskScope, DiskUsage, DiskUsageProgress, build_dirs, disk_file, disk_usage_core, disk_usage_core_with_changes, disk_usage_core_with_progress};
 use fs_walk::Walk;
 use fs_walk::changes::Changes;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
-use lease_pool::lease::{Lease, Pool, Slot};
+use lease_pool::lease::{Lease, Pool, Reclaimed, Slot};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use test_utils::git_test_utils::TestRepo;
@@ -379,6 +379,19 @@ fn a_slot_event_counts_the_slots_that_the_fsevents_check_left() {
   }
 }
 
+/// The default refresh of the pool of `dirs`, with no change since the last measure of each slot
+fn refresh_unchanged(git: &GitCommandExecutor, dirs: &RepositoryDirs) -> DiskUsage {
+  let params = DiskParams {
+    repository: dirs,
+    home: None,
+    scope: DiskScope::Repository,
+    fresh: false,
+    cached: false,
+    lock_timeout: Duration::from_secs(1),
+  };
+  disk_usage_core_with_changes(git, &params, |_| {}, |_: &[&Path]| Changes::Paths(Vec::new())).unwrap()
+}
+
 /// A reclaim leaves the measures of the other free slots valid: it returns the slot of the idle lease as of when the
 /// lease went quiet with a number of its own, so a free slot returned after that time keeps its `returned` and its
 /// measure in `disk.json`, and the next report walks only the reclaimed slot. The test gives the history of the file
@@ -442,16 +455,7 @@ fn a_reclaim_leaves_the_measures_of_the_other_free_slots_valid() {
       Ok(())
     })
     .unwrap();
-  let params = DiskParams {
-    repository: &dirs,
-    home: None,
-    scope: DiskScope::Repository,
-    fresh: false,
-    cached: false,
-    lock_timeout: Duration::from_secs(1),
-  };
-  let no_change = |_: &[&Path]| Changes::Paths(Vec::new());
-  disk_usage_core_with_changes(&git, &params, |_| {}, no_change).unwrap();
+  refresh_unchanged(&git, &dirs);
 
   let reclaim = lease_pool::lease::LeaseReclaimParams {
     git_common_dir: Path::new(&dirs.git_common_dir),
@@ -467,7 +471,7 @@ fn a_reclaim_leaves_the_measures_of_the_other_free_slots_valid() {
   let answer = lease_pool::lease::lease_reclaim_core(&git, &reclaim).unwrap();
   assert_eq!(answer.reclaimed.len(), 1, "skipped: {:?}, kept: {:?}", answer.skipped, answer.kept.len());
 
-  let usage = disk_usage_core_with_changes(&git, &params, |_| {}, no_change).unwrap();
+  let usage = refresh_unchanged(&git, &dirs);
   let report = |path: &Path| {
     let path = path.to_string_lossy();
     let slot = usage.pools[0].slots.iter().find(|slot| slot.path == path).unwrap();
@@ -477,4 +481,68 @@ fn a_reclaim_leaves_the_measures_of_the_other_free_slots_valid() {
   assert_eq!(report(&free[1]), (Some(3), true), "a free slot keeps its number and its measure");
   // below the other free slots, and not its number from before the lease
   assert_eq!(report(&idle), (Some(0), false), "the reclaimed slot is measured again");
+}
+
+/// A reclaim can give its slot a number that the slot had in an earlier free period (`lease_pool::lease::stamp_reclaimed`),
+/// so the measure of that period has the same `returned`. The measure of a reclaimed slot names the reclaimed lease: a
+/// measure without it, or with another, is stale, and the next `brd lease disk` walks the slot again
+#[test]
+fn a_reclaimed_slot_with_the_number_of_an_earlier_free_period_is_measured_again() {
+  let (_repo, git, dirs) = repository();
+  let slot_root = tempfile::tempdir().unwrap();
+  let slot_root = std::fs::canonicalize(slot_root.path()).unwrap();
+  let paths: Vec<std::path::PathBuf> = (1..=2).map(|n| slot_root.join(format!("{n}/repo"))).collect();
+  for path in &paths {
+    std::fs::create_dir_all(path.join("target")).unwrap();
+    std::fs::write(path.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
+    std::fs::write(path.join("target/output"), vec![2u8; 8192]).unwrap();
+  }
+  let slot = |path: &Path, returned: u64, reclaimed: Option<&str>| Slot {
+    name: format!("repo{returned}"),
+    path: path.to_string_lossy().into_owned(),
+    dirty: false,
+    dirty_check: None,
+    returned: Some(returned),
+    returned_at: Some(1_000 + returned),
+    lease: None,
+    reclaimed: reclaimed.map(|lease_id| Reclaimed {
+      lease_id: lease_id.to_owned(),
+      holder: "gone-agent".to_owned(),
+      leased_at: 900,
+      branch: None,
+      source: String::new(),
+      source_branch: None,
+      at: 1_500,
+      by_lease_id: None,
+      by_holder: None,
+    }),
+  };
+  let pool = Pool::new(Path::new(&dirs.git_common_dir));
+  let set_state = |first: Option<&str>| {
+    pool
+      .update(Duration::from_secs(1), |store| {
+        store.slots = vec![slot(&paths[0], 1, first), slot(&paths[1], 2, None)];
+        Ok(())
+      })
+      .unwrap();
+  };
+  let cached = || {
+    let usage = refresh_unchanged(&git, &dirs);
+    paths
+      .iter()
+      .map(|path| usage.pools[0].slots.iter().find(|slot| slot.path == path.to_string_lossy()).unwrap().cached)
+      .collect::<Vec<_>>()
+  };
+
+  // the first free period of the slot: measured, then cached
+  set_state(None);
+  assert_eq!(cached(), [false, false]);
+  assert_eq!(cached(), [true, true]);
+  // a later free period after a reclaim, with the same number
+  set_state(Some("idle"));
+  assert_eq!(cached(), [false, true], "the reclaimed slot is measured again, the other keeps its measure");
+  assert_eq!(cached(), [true, true], "the measure of the reclaimed slot names its lease");
+  // the next reclaim of another lease gives the number again
+  set_state(Some("idle-2"));
+  assert_eq!(cached(), [false, true]);
 }

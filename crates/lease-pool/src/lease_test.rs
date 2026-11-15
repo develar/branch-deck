@@ -1,11 +1,13 @@
+use crate::epoch::slot_epochs;
 #[cfg(unix)]
 use crate::lease::stop_servers;
 use crate::lease::{
-  DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, RECLAIM_ROOM, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates, stamp_reclaimed,
-  stamp_returned,
+  DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, RECLAIM_ROOM, Reclaimed, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates,
+  stamp_reclaimed, stamp_returned,
 };
 use crate::shrink::{next_free, shrink_order};
 use crate::trim::trim_order;
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
 #[cfg(unix)]
@@ -168,6 +170,7 @@ fn a_commit_during_the_check_stops_the_takeover() {
       lease: Some(get.clone()),
       reclaimed: None,
     }],
+    last_returned: None,
   };
   pool
     .update(Duration::from_secs(5), |store| {
@@ -249,6 +252,26 @@ fn orders(slots: &[Slot]) -> (Option<String>, Vec<String>, Vec<String>, Vec<Stri
   )
 }
 
+/// `stamp_reclaimed` of the slot `index` of the pool `slots`
+fn reclaim(slots: &mut Vec<Slot>, index: usize, quiet_at: u64) {
+  let mut store = LeaseStore {
+    slots: std::mem::take(slots),
+    last_returned: None,
+  };
+  stamp_reclaimed(&mut store, index, quiet_at);
+  *slots = store.slots;
+}
+
+/// `stamp_returned` of the slot `index` of the pool `slots`
+fn give_back(slots: &mut Vec<Slot>, index: usize, now: u64) {
+  let mut store = LeaseStore {
+    slots: std::mem::take(slots),
+    last_returned: None,
+  };
+  stamp_returned(&mut store, index, now);
+  *slots = store.slots;
+}
+
 /// `slot` under a lease that its return or reclaim holds
 fn returning(mut slot: Slot) -> Slot {
   slot.lease = Some(Lease::marker("lease", "agent", LeaseState::Returning));
@@ -277,7 +300,7 @@ fn a_reclaimed_slot_is_the_coldest_free_slot_of_its_pool_by_number_and_by_time()
     returning(returned_slot(dir.path(), 2, Some(2), Some(400))),
     returning(returned_slot(dir.path(), 9, Some(1), Some(300))),
   ];
-  stamp_reclaimed(&mut slots, 3, 1_000);
+  reclaim(&mut slots, 3, 1_000);
   slots[3].lease = None;
   let numbers = |slots: &[Slot]| slots.iter().map(|slot| (slot.returned, slot.returned_at)).collect::<Vec<_>>();
   assert_eq!(
@@ -298,7 +321,7 @@ fn a_reclaimed_slot_is_the_coldest_free_slot_of_its_pool_by_number_and_by_time()
     returned_slot(dir.path(), 4, Some(4), Some(1_100)),
     returning(returned_slot(dir.path(), 2, Some(7), Some(400))),
   ];
-  stamp_reclaimed(&mut slots, 2, 1_000);
+  reclaim(&mut slots, 2, 1_000);
   slots[2].lease = None;
   assert_eq!(numbers(&slots)[2], (Some(2), None));
   assert_coldest_first(&slots, &["slot2", "slot3", "slot4"]);
@@ -309,7 +332,7 @@ fn a_reclaimed_slot_is_the_coldest_free_slot_of_its_pool_by_number_and_by_time()
     returning(returned_slot(dir.path(), 9, Some(6), Some(300))),
     returning(returned_slot(dir.path(), 2, Some(2), Some(400))),
   ];
-  stamp_reclaimed(&mut slots, 2, 1_000);
+  reclaim(&mut slots, 2, 1_000);
   assert_eq!(numbers(&slots)[2], (Some(7), Some(1_000)));
 }
 
@@ -325,7 +348,7 @@ fn a_reclaim_with_no_number_left_below_moves_the_free_slots_up_once() {
       returning(returned_slot(dir.path(), 9, Some(2), Some(300))),
       returning(returned_slot(dir.path(), 2, own, Some(400))),
     ];
-    stamp_reclaimed(&mut slots, 3, 1_000);
+    reclaim(&mut slots, 3, 1_000);
     slots[3].lease = None;
     let numbers: Vec<Option<u64>> = slots.iter().map(|slot| slot.returned).collect();
     let room = RECLAIM_ROOM;
@@ -346,18 +369,139 @@ fn a_return_after_a_step_back_of_the_clock_is_the_warmest_free_slot_of_its_pool(
     returned_slot(dir.path(), 3, Some(3), Some(1_000)),
   ];
   slots[2].lease = Some(Lease::marker("lease", "agent", LeaseState::Returning));
-  stamp_returned(&mut slots, 2, 1_500);
+  give_back(&mut slots, 2, 1_500);
   slots[2].lease = None;
   assert_eq!((slots[2].returned, slots[2].returned_at), (Some(4), Some(2_000)));
   assert_coldest_first(&slots, &["slot1", "slot2", "slot3"]);
   // a clock that goes on records its own time
   slots[0].lease = Some(Lease::marker("lease", "agent", LeaseState::Returning));
-  stamp_returned(&mut slots, 0, 2_100);
+  give_back(&mut slots, 0, 2_100);
   assert_eq!((slots[0].returned, slots[0].returned_at), (Some(5), Some(2_100)));
   // a state that a brd without the bound wrote after a step back: the number orders the pool for a get and the trim
   let slots = [returned_slot(dir.path(), 1, Some(1), Some(2_000)), returned_slot(dir.path(), 2, Some(2), Some(1_500))];
   let (next, trim, _, _) = orders(&slots);
   assert_eq!((next, trim), (Some("slot2".to_owned()), vec!["slot1".to_owned(), "slot2".to_owned()]));
+}
+
+/// The slots of a pool through gets, returns and reclaims, with the epoch of each free period of each slot so far
+struct PoolLife {
+  store: LeaseStore,
+  epochs: Vec<HashSet<String>>,
+  leases: u32,
+  now: u64,
+  moves: u32,
+}
+
+impl PoolLife {
+  /// A pool of `count` leased slots under `root`
+  fn new(root: &Path, count: u64) -> Self {
+    let slots = (0..count).map(|n| returning(returned_slot(root, n, None, None))).collect();
+    Self {
+      store: LeaseStore { slots, last_returned: None },
+      epochs: (0..count).map(|_| HashSet::new()).collect(),
+      leases: 0,
+      now: 1_000,
+      moves: 0,
+    }
+  }
+
+  fn get(&mut self, index: usize) {
+    self.leases += 1;
+    let slot = &mut self.store.slots[index];
+    assert!(slot.lease.is_none(), "slot {index} is free");
+    slot.lease = Some(Lease::marker(&format!("lease{}", self.leases), "agent", LeaseState::Ready));
+    // as `reserve` does
+    slot.reclaimed = None;
+  }
+
+  fn give_back(&mut self, index: usize) {
+    self.now += 10;
+    stamp_returned(&mut self.store, index, self.now);
+    self.store.slots[index].lease = None;
+    self.check_free_period(index);
+  }
+
+  /// A reclaim of the lease of the slot `index`, as `lease_reclaim_core` does
+  fn reclaim(&mut self, index: usize) {
+    self.now += 10;
+    let others = |store: &LeaseStore| {
+      store
+        .slots
+        .iter()
+        .enumerate()
+        .filter(|(other, slot)| *other != index && slot.lease.is_none())
+        .map(|(_, slot)| slot.returned)
+        .collect::<Vec<_>>()
+    };
+    let before = others(&self.store);
+    stamp_reclaimed(&mut self.store, index, self.now - 5);
+    if others(&self.store) != before {
+      self.moves += 1;
+    }
+    let slot = &mut self.store.slots[index];
+    let lease = slot.lease.take().expect("a reclaim takes a lease");
+    slot.reclaimed = Some(Reclaimed::of(&lease, None));
+    self.check_free_period(index);
+  }
+
+  /// The epoch of the free slot `index` is none of an earlier free period of it: a record of the app under that epoch,
+  /// and a measure of `pool-disk`, which compares the same number and reclaimed lease, would read as current
+  fn check_free_period(&mut self, index: usize) {
+    let epochs = slot_epochs(&serde_json::to_vec(&self.store).unwrap()).unwrap();
+    let epoch = epochs[&self.store.slots[index].path].clone();
+    assert!(
+      self.epochs[index].insert(epoch.clone()),
+      "slot {index} has the epoch `{epoch}` of an earlier free period: {:?}",
+      self.store
+    );
+  }
+}
+
+/// A reclaim gives its slot a number below the other free slots, which can be one that the slot had in an earlier free
+/// period. The epoch of a reclaimed slot names the reclaimed lease, so it differs, and `last_returned` keeps the highest
+/// number the reclaimed slot gave up, so a later return does not repeat it either
+#[test]
+fn no_free_period_of_a_slot_has_the_epoch_of_an_earlier_one() {
+  let dir = tempfile::tempdir().unwrap();
+  // the review of the reclaim: A is returned with 1, B with 2 (dirty), C with 3; gets take C and A; A is returned with
+  // 4 and leased again, then reclaimed below B, with 1
+  let mut life = PoolLife::new(dir.path(), 3);
+  for index in 0..3 {
+    life.give_back(index);
+  }
+  life.get(2);
+  life.get(0);
+  life.give_back(0);
+  life.get(0);
+  life.reclaim(0);
+  assert_eq!(life.store.slots[0].returned, Some(1), "below the lowest other free slot");
+
+  // the slot of the highest number gives it up to a reclaim; its next return does not get it again
+  let mut life = PoolLife::new(dir.path(), 2);
+  life.give_back(1);
+  life.give_back(0);
+  life.get(0);
+  life.reclaim(0);
+  life.get(1);
+  life.get(0);
+  life.give_back(0);
+  assert_eq!((life.store.slots[0].returned, life.store.last_returned), (Some(3), Some(3)));
+
+  // a long life with every move: a get takes any free slot, as a dirty one is skipped
+  let mut life = PoolLife::new(dir.path(), 4);
+  let mut seed: u64 = 7;
+  for _ in 0..3_000 {
+    seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+    let index = usize::try_from((seed >> 33) % 4).unwrap();
+    if life.store.slots[index].lease.is_none() {
+      life.get(index);
+    } else if (seed >> 20) % 3 == 0 {
+      life.give_back(index);
+    } else {
+      life.reclaim(index);
+    }
+  }
+  assert!(life.moves > 0, "the life moved the free slots up");
 }
 
 /// A prune of a leased slot whose lease changed after the shrink read it (a return and a new get came between) prunes
