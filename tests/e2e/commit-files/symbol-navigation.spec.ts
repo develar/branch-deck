@@ -400,11 +400,18 @@ test(
     const inserted = changedParts(pair)
     await expect(inserted).toHaveText("helperScaled")
 
-    /** The underline of the link under the pointer: where it starts and how wide it is, in whole pixels */
-    const link = async () => {
-      const boxes = await Promise.all((await code.getByTestId("diff-link").all()).map(line => line.boundingBox()))
-      return boxes.map(box => [Math.round(box!.x), Math.round(box!.width)])
-    }
+    /**
+     * The underline of the link under the pointer: where each line of it starts and how wide it is, in whole pixels. One
+     * read of the page: a list of the links and then a box of each by its place lost a link the page drew anew between
+     * them (null, "reading 'x'"), which a move of the pointer does
+     */
+    const link = () =>
+      code.getByTestId("diff-link").evaluateAll(lines =>
+        lines
+          .map(line => line.getBoundingClientRect())
+          .filter(box => box.width > 0 || box.height > 0)
+          .map(box => [Math.round(box.x), Math.round(box.width)]),
+      )
     const place = async (part: Locator) => {
       const box = (await part.boundingBox())!
       return { x: box.x + box.width / 2, y: box.y + box.height / 2, underline: [Math.round(box.x), Math.round(box.width)] }
