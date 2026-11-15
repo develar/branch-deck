@@ -224,6 +224,8 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
   test("should open the popups of a row from its first hover or focus, and the branch menu only from the row", async ({ page }) => {
     const branchRow = findBranchRow(page, "test-branch")
     await waitForBranchSyncComplete(page, "test-branch")
+    // its first push shows once the facts of its landing came, and moves the status from under a pointer that came first
+    await expect(getPushButton(branchRow)).toBeVisible()
 
     // the status text mounts its tooltip under the pointer: one hover opens it
     await branchRow.getByTestId("branch-status").hover()
@@ -491,6 +493,9 @@ test.describe("Hover back over a trigger whose popup closed", () => {
         await expect(landing).toBeHidden()
       }
       await waitForTauriListener(page, "show_landing")
+      // the first pushes show once the facts of their landing came (`firstPushPending`), under load after the sync, and
+      // their track moves the Status column: a pointer that came over the status before them is no longer over it
+      await expect(push).toBeVisible()
 
       // the pointer back over the status before the closed tooltip went: the tooltip opens after the delay of its hover
       // (Base UI 1.9 cleared the delay as the closed tooltip went, and only the next move opened it: the patch of

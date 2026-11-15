@@ -995,7 +995,11 @@ branch at the commit it was pushed up to.
   the pointer of a hover). A rest on a row (`restOnBranchRow`) waits for the facts of the steps first: the last answer
   widens the step of some rows and the step track of the others follows a frame later (the observer of the columns),
   so for that frame their "⋯" sits left of its place; a hover that landed then met the "⋯" coming back under the still
-  pointer, which opens no tooltip (2 of 5 runs on the Studio). A flag or a width that a `ResizeObserver` writes
+  pointer, which opens no tooltip (2 of 5 runs on the Studio). A first push shows once the facts of its landing came
+  (`firstPushPending`: Patronus and the pull requests), under load seconds after the sync, and its track widens the
+  Actions column: a status hovered before it moved 52 px left from under the pointer, and its tooltip never opened (3 of 60
+  runs of `branch-row-layout.spec.ts` beside 12 busy loops, none of 160 once the test waited for the push button). A
+  hover of a row of an unpushed branch waits for its push first. A flag or a width that a `ResizeObserver` writes
   (`data-wide`, the tracks of the branch columns) is right in the first frame and after each report, and its reader
   waits for the report, the end of the sync and the facts of the steps (`waitForBranchLayout`), never for time:
   `column-widths.spec.ts` read the subjects of a 768px view while the first sync still ran, and the widths of every
