@@ -49,8 +49,10 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   (`zsh probe/run.sh`, `./probe/run.sh` whose first line names a shell, `. ./lib.sh`) are heavy when any command in them
   is (`brd-host: a heavy run by `pnpm e2e*` of [host] in its script`); a shell's script file that the client cannot
   read from the working tree (outside of it, absent, over 256 KiB) counts as heavy. Before 2026-11-15 a wrapper went
-  beside the run that held the turn. `eval`, `xargs`, `sudo`, `$'…'` and `caffeinate` are not read: a heavy run through
-  them says so with `--heavy`. Its wait
+  beside the run that held the turn. The wrapper itself counts too: a pattern that names it (`./probe/run.sh*`) matches.
+  Each script is read once a run, 64 at most, past which, as past four nested shells or scripts, a script counts as
+  heavy. `eval`, `xargs`, `sudo`, `$'…'`, `caffeinate` and a script by its path after a `cd` (`cd scripts &&
+  ./e2e.sh`, read from the root) are not read: a heavy run through them says so with `--heavy`. Its wait
   says `brd-host: run … waits … for the heavy turn of the host, … left: run … holds it …` at once and once a minute:
   a wait, not a hang. `brd-host runs studio` names the holder and the waiting runs. A wait past 2 h exits 75
   (`heavy_timeout`): never run it here then, as this Mac's load is what fails its tests; run it on the Studio again

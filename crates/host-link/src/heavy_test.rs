@@ -1,5 +1,5 @@
 use crate::config::RepoConfig;
-use crate::heavy::{MAX_SCRIPT_BYTES, Ran, commands_of, script_commands, script_in};
+use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, script_commands, script_in};
 use pretty_assertions::assert_eq;
 
 /// The patterns of `heavy` of this repository that the cases name
@@ -109,6 +109,12 @@ fn a_heavy_command_in_the_script_of_a_shell_makes_the_run_heavy() {
     (&["bash", "-c", "out=\"`pnpm e2e`\""], Some("`pnpm e2e*` of [host] in its script")),
     // a `#` inside a word is no comment
     (&["bash", "-c", "echo a#b; pnpm e2e"], Some("`pnpm e2e*` of [host] in its script")),
+    // a substitution in quotes ends at its own parenthesis: one in a subshell, one in quotes inside it, are not its end
+    (&["bash", "-c", "x=\"$( (cd probe; ls); pnpm e2e)\""], Some("`pnpm e2e*` of [host] in its script")),
+    (&["bash", "-c", "x=\"$(echo ')'; pnpm e2e)\""], Some("`pnpm e2e*` of [host] in its script")),
+    // an `env` that keeps the environment, its `-u` too
+    (&["env", "-u", "CI", "zsh", "-c", "pnpm e2e"], Some("`pnpm e2e*` of [host] in its script")),
+    (&["env", "--unset=CI", "pnpm", "e2e"], Some("`pnpm e2e*` of [host]")),
     // a shell nested past the depth that is read may run anything
     (
       &["sh", "-c", "sh -c 'sh -c \"sh -c \\\"sh -c echo\\\"\"'"],
@@ -193,18 +199,130 @@ fn a_script_splits_into_its_commands_and_their_words_as_a_shell_splits_it() {
   assert_eq!(commands("say ''"), vec![words(&["say", ""])]);
 }
 
+/// A command of the run itself
+fn command(line: &[&str]) -> Ran {
+  Ran::Command {
+    words: words(line),
+    scripted: false,
+  }
+}
+
 /// The commands a run runs, as the classification reads them: the keywords and wrappers before a command are no word of
-/// it, and a shell stands for what it runs
+/// it, and a shell comes first, then what it runs
 #[test]
-fn a_shell_stands_for_the_commands_it_runs() {
+fn a_shell_comes_before_the_commands_it_runs() {
+  let script = "do exec pnpm e2e; timeout --signal=KILL 60 cargo nextest run";
   assert_eq!(
-    commands_of(&words(&["zsh", "-euc", "do exec pnpm e2e; timeout --signal=KILL 60 cargo nextest run"]), &|_: &str| None),
-    vec![scripted(&["pnpm", "e2e"]), scripted(&["cargo", "nextest", "run"])]
+    commands_of(&words(&["zsh", "-euc", script]), &|_: &str| None),
+    vec![command(&["zsh", "-euc", script]), scripted(&["pnpm", "e2e"]), scripted(&["cargo", "nextest", "run"])]
   );
-  assert_eq!(commands_of(&words(&["sh", "-c", "a", "zero", "one"]), &|_: &str| None), vec![scripted(&["a"])]);
+  assert_eq!(
+    commands_of(&words(&["sh", "-c", "a", "zero", "one"]), &|_: &str| None),
+    vec![command(&["sh", "-c", "a", "zero", "one"]), scripted(&["a"])]
+  );
   assert_eq!(
     commands_of(&words(&["bash", "--norc", "--", "s.sh"]), &|_: &str| None),
-    vec![Ran::Unread("s.sh".to_owned())]
+    vec![command(&["bash", "--norc", "--", "s.sh"]), Ran::Unread("s.sh".to_owned())]
+  );
+}
+
+/// A pattern that names the wrapper itself catches it: the shell, the script run by its path, the binary that a shim of
+/// the shell starts (`./node_modules/.bin/playwright`, `#!/bin/sh`), in the run and in a script, though what the script
+/// runs is light
+#[test]
+fn a_pattern_that_names_the_wrapper_catches_it() {
+  let config = RepoConfig {
+    heavy: Some(
+      ["./probe/quiet.sh*", "zsh -c *", "bash probe/quiet.sh*", "./node_modules/.bin/playwright test*"]
+        .map(str::to_owned)
+        .to_vec(),
+    ),
+    ..RepoConfig::default()
+  };
+  let read = |path: &str| match path {
+    "probe/quiet.sh" => Some("#!/bin/sh\necho hi\n".to_owned()),
+    "node_modules/.bin/playwright" => Some("#!/bin/sh\nexec node playwright.js \"$@\"\n".to_owned()),
+    _ => None,
+  };
+  for (line, expected) in [
+    (&["./probe/quiet.sh", "a"][..], "`./probe/quiet.sh*` of [host]"),
+    (&["zsh", "-c", "echo hi"], "`zsh -c *` of [host]"),
+    (&["bash", "probe/quiet.sh"], "`bash probe/quiet.sh*` of [host]"),
+    (&["./node_modules/.bin/playwright", "test"], "`./node_modules/.bin/playwright test*` of [host]"),
+    (&["bash", "-c", "./probe/quiet.sh"], "`./probe/quiet.sh*` of [host] in its script"),
+  ] {
+    assert_eq!(config.heavy_reason(&words(line), &read), Some(expected.to_owned()), "{line:?}");
+  }
+  // the wrapper by what it runs: the shim of the binary is `playwright test` for `playwright test*`, in the run and in
+  // a script, though the shim runs only `node`
+  let by_what = RepoConfig {
+    heavy: Some(vec!["playwright test*".to_owned()]),
+    ..RepoConfig::default()
+  };
+  for line in [
+    &["./node_modules/.bin/playwright", "test", "x.spec.ts"][..],
+    &["bash", "-c", "cd . && node_modules/.bin/playwright test"],
+  ] {
+    assert!(by_what.heavy_reason(&words(line), &read).is_some(), "{line:?}");
+  }
+}
+
+/// A script file is read once a classification and `MAX_READS` paths at most: a script that sources itself, or calls
+/// itself again and again, reads one file; a chain longer than the reads counts as heavy, as a script not read
+#[test]
+fn a_script_is_read_once_and_the_reads_are_bounded() {
+  use std::cell::Cell;
+  let reads = Cell::new(0);
+  let counting = |text: String| {
+    reads.set(reads.get() + 1);
+    Some(text)
+  };
+  // sources itself 40 times; and calls itself 20 times, as a dispatcher of its own tasks
+  let itself = |path: &str| match path {
+    "probe/self.sh" => counting(format!("#!/bin/sh\n{}", ". ./probe/self.sh\n".repeat(40))),
+    "run.sh" => counting(format!("#!/bin/sh\n{}", "./run.sh task\n".repeat(20))),
+    _ => None,
+  };
+  assert_eq!(config().heavy_reason(&words(&["./probe/self.sh"]), &itself), None);
+  assert_eq!(reads.replace(0), 1, "the script that sources itself");
+  assert_eq!(config().heavy_reason(&words(&["bash", "-c", "./run.sh unit; ./run.sh e2e"]), &itself), None);
+  assert_eq!(reads.replace(0), 1, "the script that calls itself");
+  // a tree of scripts, each sourcing eight more (585 files to the depth that is read): past the reads, the next one
+  // may run anything
+  let chain = |path: &str| {
+    let at: usize = path.strip_prefix("chain/")?.strip_suffix(".sh")?.parse().ok()?;
+    counting((1..=8).map(|child| format!(". chain/{}.sh", at * 8 + child)).collect::<Vec<_>>().join("\n"))
+  };
+  assert_eq!(
+    config()
+      .heavy_reason(&words(&["bash", "-c", ". chain/0.sh"]), &chain)
+      .map(|reason| reason.starts_with("its script `chain/")),
+    Some(true)
+  );
+  assert!(reads.get() <= MAX_READS, "{} reads", reads.get());
+}
+
+/// A script that the depth would leave unread counts as heavy, run by its path or sourced, as a shell does: the fifth of
+/// a chain of scripts, each run by its path from the one before
+#[test]
+fn a_script_past_the_depth_counts_as_heavy() {
+  let chain = |path: &str| {
+    let names = ["a", "b", "c", "d", "e"];
+    let at = names.iter().position(|name| path == format!("probe/{name}.sh"))?;
+    Some(
+      names
+        .get(at + 1)
+        .map_or_else(|| "#!/bin/sh\npnpm e2e\n".to_owned(), |next| format!("#!/bin/sh\n./probe/{next}.sh\n")),
+    )
+  };
+  assert_eq!(
+    config().heavy_reason(&words(&["./probe/a.sh"]), &chain),
+    Some("its script `./probe/e.sh`, which brd-host cannot read for `heavy` of [host]".to_owned())
+  );
+  let sourced = |path: &str| (path == "lib/deep.sh").then(|| "pnpm e2e\n".to_owned());
+  assert_eq!(
+    config().heavy_reason(&words(&["sh", "-c", "sh -c 'sh -c \"sh -c \\\". lib/deep.sh\\\"\"'"]), &sourced),
+    Some("its script `lib/deep.sh`, which brd-host cannot read for `heavy` of [host]".to_owned())
   );
 }
 

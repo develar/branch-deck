@@ -22,7 +22,7 @@ run by its path or sourced. A shell's script file the client cannot read MUST co
 - **AND** `zsh -c "echo 'pnpm e2e'"`, `zsh -c 'cargo nextest run -p host-link'`, `zsh -l`, `bash -s -- x`, a binary of
   the tree run by its path and `source ~/.cargo/env` are no heavy runs
   [@test] crates/host-link/src/heavy_test.rs (`a_heavy_command_in_the_script_of_a_shell_makes_the_run_heavy`, `a_script_without_a_heavy_command_and_a_table_without_heavy_make_no_heavy_run`)
-  [@test] crates/host-link/src/heavy_test.rs (`a_script_splits_into_its_commands_and_their_words_as_a_shell_splits_it`, `a_shell_stands_for_the_commands_it_runs`)
+  [@test] crates/host-link/src/heavy_test.rs (`a_script_splits_into_its_commands_and_their_words_as_a_shell_splits_it`, `a_shell_comes_before_the_commands_it_runs`)
 
 #### Scenario: A script file the client cannot read
 - **WHEN** a shell of the command runs a script file outside the shipped working tree, absent from it, or over 256 KiB,

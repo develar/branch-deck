@@ -100,8 +100,8 @@ const RUNNERS: [&str; 6] = ["npx", "bunx", "yarn", "pnpm", "exec", "dlx"];
 /// the `env` and the assignments alone, so a pattern written with its runner (`pnpm exec playwright test*`) matches too
 fn heavy_line(command: &[String]) -> (String, String) {
   let mut words = command;
-  if words.first().is_some_and(|word| word == "env") {
-    words = &words[1..];
+  if let Some(end) = env_end(words) {
+    words = &words[end..];
   }
   while words.first().is_some_and(|word| is_assignment(word)) {
     words = &words[1..];
@@ -134,6 +134,28 @@ fn heavy_line(command: &[String]) -> (String, String) {
     return (std::iter::once("playwright").chain(line[at + 1..].iter().copied()).collect::<Vec<_>>().join(" "), written);
   }
   (line.join(" "), written)
+}
+
+/// The words of an `env` (`/usr/bin/env`) at the start of `words` that keeps the environment, with its `-u NAME`,
+/// `--unset NAME` and `--unset=NAME`: what to skip of `words` to its command; `None` for no `env`, or one with another
+/// option (`env -i`, which runs its command without the environment)
+pub(crate) fn env_end(words: &[String]) -> Option<usize> {
+  if words.first()?.rsplit('/').next() != Some("env") {
+    return None;
+  }
+  let mut at = 1;
+  while let Some(word) = words.get(at) {
+    if word == "-u" || word == "--unset" {
+      at += 2;
+    } else if word.starts_with("--unset=") || (word.starts_with("-u") && word.len() > 2) {
+      at += 1;
+    } else if word.starts_with('-') {
+      return None;
+    } else {
+      break;
+    }
+  }
+  Some(at)
 }
 
 /// `NAME=value`, with a name of letters, digits and `_` that does not start with a digit

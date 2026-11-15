@@ -5,7 +5,8 @@
 //! with `#!/bin/zsh`), and of one that a script sources (`. ./lib.sh`, `source lib.sh`), which the client reads from its
 //! checkout. A script file of a shell that it cannot read, and a shell nested deeper than `MAX_DEPTH`, are
 //! [`Ran::Unread`], which counts as a heavy run: a wrapper is how a heavy run of an agent slipped beside the one that
-//! held the turn (2026-11-15). A file run by its path without a shell's first line (a binary of the tree) and a file
+//! held the turn (2026-11-15). The command itself comes before what it runs, so a pattern that names the wrapper
+//! matches; each path is read once a classification, `MAX_READS` paths at most, past which a script counts as heavy. A file run by its path without a shell's first line (a binary of the tree) and a file
 //! sourced from outside the tree (`source ~/.cargo/env`) run nothing that counts.
 //!
 //! The script is split as a shell splits it, as far as a heavy command shows: at `;`, `&`, `&&`, `|`, `||`, a newline,
@@ -43,45 +44,101 @@ pub enum Ran {
   Unread(String),
 }
 
-/// The commands that `words` runs: itself, unless it is a shell with `-c` (the commands of its script) or with a script
-/// file (the commands of the file that `read` gives for its path without `./` before it, else [`Ran::Unread`])
+/// The reads of script files of one classification at most: past them a script counts as heavy, as one not read
+pub const MAX_READS: usize = 64;
+
+/// The commands that `words` runs: itself, then, for a shell with `-c`, the commands of its script, and for a script file
+/// (of a shell, run by its path with the first line of a shell, or sourced) the commands of the file that `read` gives
+/// for its path without `./` before it, else [`Ran::Unread`]. The command itself comes first, so a pattern that names the
+/// wrapper (`zsh -c *`, `./probe/run.sh*`) matches it. Each path is read once, at most `MAX_READS` paths in all: a script
+/// that sources itself or calls itself again reads nothing new
 pub fn commands_of(words: &[String], read: &dyn Fn(&str) -> Option<String>) -> Vec<Ran> {
-  let mut ran = Vec::new();
-  collect(words.to_vec(), read, 0, &mut ran);
-  ran
+  let mut reading = Reading {
+    read,
+    seen: std::collections::HashSet::new(),
+    ran: Vec::new(),
+  };
+  reading.collect(words.to_vec(), 0);
+  reading.ran
 }
 
-fn collect(words: Vec<String>, read: &dyn Fn(&str) -> Option<String>, depth: usize, ran: &mut Vec<Ran>) {
-  let words = without_prefixes(words);
-  let script = |script: &str, ran: &mut Vec<Ran>| {
-    for command in script_commands(script) {
-      collect(command, read, depth + 1, ran);
+/// One classification: the reader of the working tree, the paths it read, and what the command runs so far
+struct Reading<'a> {
+  read: &'a dyn Fn(&str) -> Option<String>,
+  seen: std::collections::HashSet<String>,
+  ran: Vec<Ran>,
+}
+
+/// A script file that a command may run: of a shell (read or not, it runs), run by its path (a script only with the
+/// first line of a shell), or sourced
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FileKind {
+  Shell,
+  ByPath,
+  Sourced,
+}
+
+impl Reading<'_> {
+  fn collect(&mut self, words: Vec<String>, depth: usize) {
+    let words = without_prefixes(words);
+    if words.is_empty() {
+      return;
     }
-  };
-  match shell_input(&words) {
-    // past the depth a shell may run anything: not read, it counts as heavy
-    Some(ShellInput::Script(_) | ShellInput::File(_)) if depth >= MAX_DEPTH => ran.push(Ran::Unread(words.join(" "))),
-    Some(ShellInput::Script(text)) => script(&text, ran),
-    Some(ShellInput::File(path)) => match read(inner_script_path(&path)) {
-      Some(text) => script(&text, ran),
-      None => ran.push(Ran::Unread(path)),
-    },
-    Some(ShellInput::Nothing) => {}
-    None => {
-      // a file of the tree run by its path whose first line names a shell, and one that a script sources, are scripts
-      // too; a binary of the tree and a file sourced from elsewhere run nothing that counts
-      let program = words.first().map_or("", String::as_str);
-      let sourced = matches!(program, "." | "source").then(|| words.get(1)).flatten();
-      let file = sourced.or_else(|| words.first().filter(|first| first.contains('/')));
-      let text = file
-        .filter(|_| depth < MAX_DEPTH)
-        .and_then(|path| read(inner_script_path(path)))
-        .filter(|text| sourced.is_some() || runs_a_shell(text));
-      match text {
-        Some(text) => script(&text, ran),
-        None if !words.is_empty() => ran.push(Ran::Command { words, scripted: depth > 0 }),
-        None => {}
+    self.ran.push(Ran::Command {
+      words: words.clone(),
+      scripted: depth > 0,
+    });
+    match shell_input(&words) {
+      // past the depth a shell may run anything: not read, it counts as heavy
+      Some(ShellInput::Script(_) | ShellInput::File(_)) if depth >= MAX_DEPTH => self.ran.push(Ran::Unread(words.join(" "))),
+      Some(ShellInput::Script(text)) => self.script(&text, depth),
+      Some(ShellInput::File(path)) => self.file(&path, FileKind::Shell, depth),
+      Some(ShellInput::Nothing) => {}
+      None => {
+        // a file of the tree run by its path whose first line names a shell, and one that a script sources, are scripts
+        // too; a binary of the tree and a file sourced from elsewhere run nothing that counts
+        let program = words[0].as_str();
+        if matches!(program, "." | "source") {
+          if let Some(path) = words.get(1) {
+            self.file(path, FileKind::Sourced, depth);
+          }
+        } else if program.contains('/') {
+          self.file(program, FileKind::ByPath, depth);
+        }
       }
+    }
+  }
+
+  fn script(&mut self, text: &str, depth: usize) {
+    for command in script_commands(text) {
+      self.collect(command, depth + 1);
+    }
+  }
+
+  /// The commands of the script file at `path`, once a classification: a file read before adds nothing. A file of a
+  /// shell that cannot be read, a script past the reads or past the depth may run anything and is [`Ran::Unread`]
+  fn file(&mut self, path: &str, kind: FileKind, depth: usize) {
+    let inner = inner_script_path(path).to_owned();
+    if self.seen.contains(&inner) {
+      return;
+    }
+    if self.seen.len() >= MAX_READS {
+      self.ran.push(Ran::Unread(path.to_owned()));
+      return;
+    }
+    self.seen.insert(inner.clone());
+    let text = (self.read)(&inner);
+    let is_script = match (&text, kind) {
+      (Some(text), FileKind::ByPath) => runs_a_shell(text),
+      (_, FileKind::Shell) | (Some(_), FileKind::Sourced) => true,
+      (None, _) => false,
+    };
+    match text {
+      Some(text) if is_script && depth < MAX_DEPTH => self.script(&text, depth),
+      // a script on the limit of the depth is not read, a shell's script that is not there runs anyway
+      Some(_) if is_script => self.ran.push(Ran::Unread(path.to_owned())),
+      None if kind == FileKind::Shell => self.ran.push(Ran::Unread(path.to_owned())),
+      _ => {}
     }
   }
 }
@@ -149,12 +206,14 @@ fn shell_input(words: &[String]) -> Option<ShellInput> {
 }
 
 /// `words` without the keywords, assignments and wrappers before its command, the options and the argument of `nice`
-/// and `timeout`, and an `env` (`/usr/bin/env`) without options; `env -i` stays, as a command of its own
+/// and `timeout`, and an `env` (`/usr/bin/env`) that keeps the environment (`env_end`); `env -i` stays, as a command
+/// of its own
 fn without_prefixes(words: Vec<String>) -> Vec<String> {
   let mut at = 0;
   while let Some(word) = words.get(at) {
-    let bare_env = word.rsplit('/').next() == Some("env") && !words.get(at + 1).is_some_and(|next| next.starts_with('-'));
-    if PREFIXES.contains(&word.as_str()) || crate::config::is_assignment(word) || bare_env {
+    if let Some(end) = crate::config::env_end(&words[at..]) {
+      at += end;
+    } else if PREFIXES.contains(&word.as_str()) || crate::config::is_assignment(word) {
       at += 1;
     } else if word == "nice" {
       at += 1;

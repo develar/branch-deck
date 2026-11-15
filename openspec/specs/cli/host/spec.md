@@ -2006,8 +2006,8 @@ keys of this build, and that a later Branch Deck may know it with the updates of
 
 `heavy` of `[host]` MUST be a list of patterns, none empty. A pattern MUST match a command's words joined by one space,
 whole, `*` any characters, the rest literal: as written after a leading `env` and `NAME=value` words, or by what it
-runs, `pnpm` without its options before the script, `playwright test` by any runner. A shell MUST count by what it runs:
-its `-c` script, a shell in it, a script file of the working tree. One it cannot read MUST count as heavy.
+runs (`pnpm` without its options, `playwright test` by any runner). A shell MUST count as itself and by what it runs:
+its `-c` script, a shell in it, a script of the working tree read once, 64 at most. One it cannot read is heavy.
 
 #### Scenario: The patterns of heavy
 - **WHEN** `heavy` is `["cargo nextest run*--workspace*", "pnpm e2e*", "pnpm test"]`
@@ -2032,13 +2032,26 @@ its `-c` script, a shell in it, a script file of the working tree. One it cannot
 - **AND** `zsh -c "echo 'pnpm e2e'"`, `zsh -c 'cargo nextest run -p host-link'`, `zsh -l`, `bash -s -- x`, a binary of
   the tree run by its path and `source ~/.cargo/env` are no heavy runs
   [@test] crates/host-link/src/heavy_test.rs (`a_heavy_command_in_the_script_of_a_shell_makes_the_run_heavy`, `a_script_without_a_heavy_command_and_a_table_without_heavy_make_no_heavy_run`)
-  [@test] crates/host-link/src/heavy_test.rs (`a_script_splits_into_its_commands_and_their_words_as_a_shell_splits_it`, `a_shell_stands_for_the_commands_it_runs`)
+  [@test] crates/host-link/src/heavy_test.rs (`a_script_splits_into_its_commands_and_their_words_as_a_shell_splits_it`, `a_shell_comes_before_the_commands_it_runs`)
 
 #### Scenario: A script file the client cannot read
 - **WHEN** a shell of the command runs a script file outside the shipped working tree, absent from it, or over 256 KiB,
   or a shell is nested deeper than four shells
 - **THEN** the run is heavy, and its line says `by its script `<path>`, which brd-host cannot read for `heavy` of [host]`
   [@test] crates/host-link/src/heavy_test.rs (`a_script_file_the_checkout_cannot_give_makes_the_run_heavy`, `a_script_file_is_read_from_the_working_tree_inside_it_and_within_its_size`)
+
+#### Scenario: A pattern that names the wrapper
+- **WHEN** `heavy` names the wrapper, `./probe/run.sh*`, `zsh -c *` or `./node_modules/.bin/playwright test*`, and what
+  the wrapper runs is light (`echo hi`, the shim of the binary)
+- **THEN** the run of the wrapper is heavy by that pattern, in the command of the run and in a script
+  [@test] crates/host-link/src/heavy_test.rs (`a_pattern_that_names_the_wrapper_catches_it`, `a_shell_comes_before_the_commands_it_runs`)
+
+#### Scenario: A script that reads itself, and the depth
+- **WHEN** a script sources itself 40 times or calls itself 20 times, a tree of scripts has more files than 64, or a
+  chain of scripts run by their paths goes past four
+- **THEN** the self-reading script is read once, the tree counts as heavy after 64 reads, and the script past the
+  depth counts as heavy
+  [@test] crates/host-link/src/heavy_test.rs (`a_script_is_read_once_and_the_reads_are_bounded`, `a_script_past_the_depth_counts_as_heavy`)
 
 ### Requirement: The environment of a run and `[host]`: A prepare step runs when its fingerprint changed
 
