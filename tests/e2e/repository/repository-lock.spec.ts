@@ -13,6 +13,7 @@ import {
 } from "../helpers/branch-helpers"
 import { boxOf } from "../helpers/header-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
+import { editCommitMessage } from "../helpers/preview-helpers"
 import { expectPushedToast, remotePushes } from "../helpers/push-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, openSubmenu, selectCommit } from "../helpers/selection-helpers"
 import { runAndWaitForSync, syncFromMenu, runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -35,13 +36,19 @@ async function setup(page: Page, setupRepo: (template: string) => Promise<TestRe
   return repo
 }
 
-/** Opens the squash dialog of "Add tokens" and "Add parser" and presses Squash; the dialog */
-async function squashTwo(page: Page): Promise<Locator> {
+/** Opens the squash dialog of "Add tokens" and "Add parser"; the dialog, its message focused */
+async function openSquashOfTwo(page: Page): Promise<Locator> {
   await selectCommit(getBranchCommitRow(page, ISSUE, "Add tokens"))
   await multiSelectCommit(getBranchCommitRow(page, ISSUE, "Add parser"))
   await getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions").getByRole("button", { name: "Squash" }).click()
   const dialog = page.getByTestId("squash-dialog")
   await expect(dialog.getByTestId("squash-message-editor")).toBeFocused()
+  return dialog
+}
+
+/** Opens the squash dialog of "Add tokens" and "Add parser" and presses Squash; the dialog */
+async function squashTwo(page: Page): Promise<Locator> {
+  const dialog = await openSquashOfTwo(page)
   await page.keyboard.press("ControlOrMeta+Enter")
   return dialog
 }
@@ -281,6 +288,30 @@ test.describe("A wait for the lock beside the button that started it", () => {
     const popover = page.getByTestId("squash-fixups-popover")
     await expectWaitBesideItsButton(page, popover, popover.getByTestId("squash-fixups-confirm"), "Canceled squashing the fixups before it started")
     await verifyCommitCount(auth, 3)
+    await repo.holdRepositoryLock(false)
+  })
+
+  // a dialog: whom it waits for comes over the lines of its footer, which keep their room, and the spinner takes the
+  // place of the icon of the button, so the footer keeps its height and the button its box (it moved 9 px down and
+  // widened 14 px to the left)
+  test("should say whom a squash waits for in the footer of its dialog, Squash under the pointer, and stop it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    await repo.holdRepositoryLock(true)
+    const dialog = await openSquashOfTwo(page)
+    await expectWaitBesideItsButton(page, dialog, dialog.getByRole("button", { name: /^(Loading )?Squash/ }), "Canceled squashing 2 commits before it started")
+    await verifyCommitCount(findBranchRow(page, ISSUE), 3)
+    await repo.holdRepositoryLock(false)
+  })
+
+  test("should say whom a reword waits for in the footer of the preview, Save under the pointer, and stop it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    await repo.holdRepositoryLock(true)
+    const editor = await editCommitMessage(page, getBranchCommitRow(page, ISSUE, "Add parser"))
+    await editor.press("End")
+    await page.keyboard.type(" again")
+    const preview = page.getByTestId("commit-preview")
+    await expectWaitBesideItsButton(page, preview, preview.getByRole("button", { name: /^(Loading )?Save/ }), "Canceled editing the commit message before it started")
+    await expect(getBranchCommitRow(page, ISSUE, "Add parser")).toBeVisible()
     await repo.holdRepositoryLock(false)
   })
 })

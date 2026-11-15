@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { TriangleAlertIcon } from "lucide-react"
+import { CombineIcon, TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
@@ -8,7 +8,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
-import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
+import { LinesUnderLockWait } from "@/components/shared/LockWaitNotice"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
 import { squashCommits } from "@/hooks/useSquashCommits"
 import type { Commit } from "@/lib/bindings"
@@ -142,8 +142,7 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
 
       <PreviewDialogFooter
         start={
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <LockWaitNotice surface={SQUASH_SURFACE} />
+          <LinesUnderLockWait surface={SQUASH_SURFACE}>
             {target !== undefined && <PrefixChangeHint before={target.message} after={draft} action="Squashing" />}
             {pushedCount > 0 && (
               <span data-testid="squash-pushed-warning" className="flex items-center gap-1.5 text-warning">
@@ -153,12 +152,13 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
                   : `${pushedCount} squashed commits are already pushed; the next push replaces them`}
               </span>
             )}
-          </div>
+          </LinesUnderLockWait>
         }
       >
         <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
         <Button size="xs" disabled={!canSquash} onClick={() => void squash()}>
-          {isSquashing && <Spinner data-icon="inline-start" />}
+          {/* the spinner in the place of the icon: the button keeps its box under the pointer that pressed it */}
+          {isSquashing ? <Spinner data-icon="inline-start" /> : <CombineIcon data-icon="inline-start" />}
           Squash
           <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
         </Button>

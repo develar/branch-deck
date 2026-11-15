@@ -1,6 +1,7 @@
 import { useRef, useState } from "react"
 import type { KeyboardEvent, ReactElement, ReactNode } from "react"
 import { cn } from "cn"
+import { CheckIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
@@ -10,7 +11,7 @@ import { CommitBodyView, NoDescription } from "@/components/commit/CommitBodyVie
 import { CommitFilesSection } from "@/components/commit/CommitFilesSection"
 import { CommitHeader } from "@/components/commit/CommitHeader"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
-import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
+import { LinesUnderLockWait } from "@/components/shared/LockWaitNotice"
 import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
@@ -250,10 +251,9 @@ export function CommitPreviewDialog({
           <PreviewDialogFooter
             start={
               isEditing ? (
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <LockWaitNotice surface={REWORD_SURFACE} />
+                <LinesUnderLockWait surface={REWORD_SURFACE}>
                   <PrefixChangeHint before={commit.message} after={draft} action="Saving" refusesStackProblems />
-                </div>
+                </LinesUnderLockWait>
               ) : (
                 <span className="tabular-nums" data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>
               )
@@ -263,7 +263,8 @@ export function CommitPreviewDialog({
               <>
                 <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
                 <Button size="xs" disabled={isSaving} onClick={() => void save()}>
-                  {isSaving && <Spinner data-icon="inline-start" />}
+                  {/* the spinner in the place of the icon: the button keeps its box under the pointer that pressed it */}
+                  {isSaving ? <Spinner data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
                   Save
                   <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
                 </Button>

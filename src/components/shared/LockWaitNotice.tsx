@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { cn } from "cn"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { cancelIntent } from "@/model/intents"
@@ -32,5 +33,20 @@ export function LockWaitNotice({ surface, className }: { surface: string; classN
       <span className="min-w-0 truncate">{operation?.lockWait}</span>
       <MenuItemButton item={item} variant="outline" data-testid="stop-waiting" />
     </span>
+  )
+}
+
+/**
+ * The lines of the footer of a dialog beside its buttons (its hints), with the lock wait of `surface` over them while
+ * it shows: they keep their room, hidden meanwhile, so the footer keeps its height and the buttons their boxes. A line
+ * of its own moved the pressed button down, and one in the row of the buttons squeezed the lines into more of them
+ */
+export function LinesUnderLockWait({ surface, children }: { surface: string; children: ReactNode }) {
+  const waits = presentStopWaiting(useSurfaceOperation(surface), cancelIntent) !== null
+  return (
+    <div className="relative flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className={cn("flex min-w-0 flex-col gap-0.5", waits && "invisible")}>{children}</div>
+      <LockWaitNotice surface={surface} className="absolute top-1/2 left-0 max-w-full -translate-y-1/2" />
+    </div>
   )
 }
