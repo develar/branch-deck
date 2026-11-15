@@ -433,10 +433,18 @@ pub fn halted(pid: u32) -> Option<bool> {
 }
 
 /// Whether the process that had `pid` and started at `started` has exited: it is gone, another process has the pid now,
-/// or it is a zombie, which waits only for its parent to reap it. Unlike `halted`, false for a stopped process
+/// or it is a zombie, which waits only for its parent to reap it and whose start neither platform tells (`is_running`).
+/// Unlike `halted`, false for a stopped process
 #[cfg(unix)]
 pub fn exited(pid: u32, started: u64) -> bool {
-  !is_running(pid, Some(started)) || platform::zombie(pid)
+  !is_running(pid, Some(started))
+}
+
+/// The parent of the process `pid` now, as the list of the platform tells it, for what a test says of a process that
+/// outlived a kill; `None` where it lists none or `pid` is gone
+#[cfg(test)]
+pub(crate) fn parent_of(pid: u32) -> Option<u32> {
+  platform::process_tree()?.into_iter().find(|process| process.pid == pid).map(|process| process.parent)
 }
 
 /// The signals of `signal`
@@ -448,7 +456,8 @@ enum Signal {
 }
 
 /// Whether the process that had `pid` and started at `started` still runs. A process whose start the system won't tell
-/// has exited (a zombie on Linux; on Windows one that a handle still keeps), unless it exists but is hidden from this
+/// has exited (a zombie: libproc of macOS describes none, measured on macOS 27, and the start of `/proc` is read only of
+/// one that is no zombie, `platform::started`; on Windows one that a handle still keeps), unless it exists but is hidden from this
 /// process (`runs_unseen`): where the system tells no process its start, not even this one's (a sandbox that denies the
 /// process info, macOS), this process runs and another one while it still exists to the kernel (`kill(pid, 0)`), and
 /// on Windows a process that won't open for this user (another user's, a protected one) runs. The start time then
@@ -574,14 +583,12 @@ mod platform {
   /// `PROC_PIDLISTTHREADS` of `sys/proc_info.h`: the flavor of `proc_pidinfo` that lists the thread handles of a process
   const PROC_PIDLISTTHREADS: c_int = 6;
 
-  /// A zombie (`SZOMB`), or stopped (`SSTOP`) with each thread suspended, asleep in an interruptible wait (it suspends as
-  /// its call returns) or ending. The signal sets `SSTOP` at once, while a thread runs on to the end of its call: a
-  /// kill read a git that had `SSTOP` and its thread running in a fork, and missed the ssh that the fork started
+  /// Stopped (`SSTOP`) with each thread suspended, asleep in an interruptible wait (it suspends as its call returns) or
+  /// ending. The signal sets `SSTOP` at once, while a thread runs on to the end of its call: a kill read a git that had
+  /// `SSTOP` and its thread running in a fork, and missed the ssh that the fork started. `None` for a zombie, which
+  /// libproc does not describe, as for a gone process
   pub(super) fn halted(pid: u32) -> Option<bool> {
     let info = bsd_info(pid)?;
-    if info.pbi_status == libc::SZOMB {
-      return Some(true);
-    }
     if info.pbi_status != libc::SSTOP {
       return Some(false);
     }
@@ -592,11 +599,6 @@ mod platform {
         .into_iter()
         .all(|thread| thread_info(pid, thread).is_none_or(|info| stopped.contains(&info.pth_run_state))),
     )
-  }
-
-  /// A zombie (`SZOMB`), which libproc still describes with its start
-  pub(super) fn zombie(pid: u32) -> bool {
-    bsd_info(pid).is_some_and(|info| info.pbi_status == libc::SZOMB)
   }
 
   /// The thread handles of the process `pid` (`PROC_PIDLISTTHREADS`); `None` when it tells none
@@ -765,18 +767,31 @@ mod platform {
       .collect()
   }
 
+  /// The pids of every process, newest first, then the zombies, as `proc_listallpids` lists them. A list that fills its
+  /// buffer may lack the oldest processes and the zombies (under a churn of processes the count read first fell short
+  /// by more than its room): it is read again into twice the room, until one does not fill it
   fn pids() -> Option<Vec<u32>> {
     // SAFETY: a null buffer of size 0 asks only for the number of pids
     let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
-    let count = usize::try_from(count).ok().filter(|count| *count > 0)?;
-    // room for the processes started since the count
-    let mut pids: Vec<libc::pid_t> = vec![0; count + 64];
-    let size = c_int::try_from(pids.len() * size_of::<libc::pid_t>()).ok()?;
-    // SAFETY: the buffer holds `size` bytes of pids; the call writes at most that many and returns how many pids it wrote
-    let written = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), size) };
-    pids.truncate(usize::try_from(written).ok()?);
-    Some(pids.into_iter().filter_map(|pid| u32::try_from(pid).ok()).filter(|pid| *pid != 0).collect())
+    let mut room = usize::try_from(count).ok().filter(|count| *count > 0)? + PID_ROOM;
+    for _ in 0..PID_READS {
+      let mut pids: Vec<libc::pid_t> = vec![0; room];
+      let size = c_int::try_from(pids.len() * size_of::<libc::pid_t>()).ok()?;
+      // SAFETY: the buffer holds `size` bytes of pids; the call writes at most that many and returns how many it wrote
+      let written = usize::try_from(unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), size) }).ok()?;
+      if written < room {
+        pids.truncate(written);
+        return Some(pids.into_iter().filter_map(|pid| u32::try_from(pid).ok()).filter(|pid| *pid != 0).collect());
+      }
+      room *= 2;
+    }
+    None
   }
+
+  /// The room for the processes started between the count and the list
+  const PID_ROOM: usize = 64;
+  /// The reads of the list, each into twice the room of the one before: a churn no read keeps up with tells no list
+  const PID_READS: usize = 8;
 
   /// `proc_pidinfo` of `flavor` into a zeroed `T`; `None` unless it filled the whole struct
   fn pid_info<T>(pid: u32, flavor: c_int) -> Option<T> {
@@ -861,11 +876,6 @@ mod platform {
   /// A zombie has exited: it waits only for its parent to reap it
   pub(super) fn started(pid: u32) -> Option<u64> {
     Stat::read(pid).filter(|stat| !stat.zombie).map(|stat| stat.started)
-  }
-
-  /// A zombie (`Z`): `started` already tells none for it
-  pub(super) fn zombie(pid: u32) -> bool {
-    Stat::read(pid).is_some_and(|stat| stat.zombie)
   }
 
   /// Each thread stopped (`T`, or `t` under a tracer), a zombie (`Z`) or dead (`X`): `/proc/<pid>/stat` has the state of
@@ -1069,11 +1079,6 @@ mod platform {
 
   pub(super) const fn halted(_pid: u32) -> Option<bool> {
     None
-  }
-
-  #[cfg(unix)]
-  pub(super) const fn zombie(_pid: u32) -> bool {
-    false
   }
 }
 

@@ -1,4 +1,6 @@
-use crate::child_process::{ChildPriority, ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child, run_child_lines, windowless_command_at};
+use crate::child_process::{
+  ChildPriority, ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child, run_child_lines, run_child_until_superseded, windowless_command_at,
+};
 #[cfg(unix)]
 use crate::process_scan::is_running;
 use crate::process_scan::{is_running as process_is_running, process_started};
@@ -47,55 +49,141 @@ fn kills_the_child_after_the_timeout() {
   assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
 }
 
-/// A kill ends the processes the child started too: its grandchild, which would sleep two minutes, ends within moments.
-/// The child is killed once its grandchild is known, with its start
-#[test]
-fn a_killed_child_leaves_no_process_it_started() {
-  let dir = tempfile::tempdir().unwrap();
-  let pid_file = dir.path().join("grandchild-pid");
-  // the pid of the background subshell, as the system names it: on Windows the sh of Git keeps a pid of its own
-  let pid_of_last = if cfg!(windows) { "cat /proc/$!/winpid" } else { "echo $!" };
-  let child = fake(&dir, &format!("(sleep 120; :) &\n{pid_of_last} > '{}'\nsleep 120", shell_path(&pid_file)));
-  let grandchild = std::cell::Cell::new(None);
-  let known = || {
-    if grandchild.get().is_none()
-      && let Some(pid) = std::fs::read_to_string(&pid_file).ok().and_then(|text| text.trim().parse::<u32>().ok())
-    {
-      grandchild.set(Some((pid, process_started(pid))));
+/// What the last kill of this thread found, for what a test says of a process that outlived it: the rounds of its tree
+/// on Unix, nothing on Windows, whose job takes every process at once
+#[cfg(unix)]
+type KillTrace = Option<crate::process_tree::KillReport>;
+#[cfg(not(unix))]
+type KillTrace = ();
+
+fn last_kill() -> KillTrace {
+  #[cfg(unix)]
+  return crate::process_tree::seam::last_kill();
+}
+
+/// Waits until each of `processes` has exited, as long as it takes: the slow timeout of nextest ends the test of one that
+/// outlives the kill. Meanwhile, once in a while, it says what such a process is: its parent now (1 when the system
+/// took it as an orphan), whether it is stopped, and whether the kill found it (`kill`)
+fn wait_for_the_exits(processes: &[(u32, Option<u64>)], what: &str, kill: &KillTrace) {
+  for &(pid, started) in processes {
+    let mut polls: u32 = 0;
+    while process_is_running(pid, started) {
+      polls += 1;
+      if polls % 2000 == 0 {
+        #[cfg(unix)]
+        let (halted, found) = (
+          crate::process_scan::halted(pid),
+          kill
+            .as_ref()
+            .map(|kill| (kill.settled, kill.rounds.iter().position(|round| round.iter().any(|process| process.pid == pid)))),
+        );
+        #[cfg(not(unix))]
+        let (halted, found) = ((), kill);
+        eprintln!(
+          "{what} {pid} runs on after the kill: its parent is {:?}, halted {halted:?}, (settled, the round that found it) {found:?}",
+          crate::process_scan::parent_of(pid)
+        );
+      }
+      std::thread::sleep(Duration::from_millis(5));
     }
-    grandchild.get().is_some()
-  };
-  let result = run_child(&mut Command::new(child), None, TIMEOUT, &known);
-  assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
-  let (pid, started) = grandchild.get().expect("the grandchild");
-  assert!(started.is_some(), "the grandchild runs when it is known");
-  let deadline = Instant::now() + Duration::from_mins(1);
-  while process_is_running(pid, started) {
-    assert!(Instant::now() < deadline, "the grandchild {pid} survived the kill of its parent");
-    std::thread::sleep(Duration::from_millis(5));
   }
 }
 
+/// The child of `fake` that starts a grandchild in the background (`(sleep 120; :) &`, which forks a sleep of its own)
+/// and writes its pid, as the system names it, into `pid_file`, then sleeps itself
+fn child_with_a_grandchild(dir: &tempfile::TempDir, pid_file: &std::path::Path) -> std::path::PathBuf {
+  // on Windows the sh of Git keeps a pid of its own
+  let pid_of_last = if cfg!(windows) { "cat /proc/$!/winpid" } else { "echo $!" };
+  fake(dir, &format!("(sleep 120; :) &\n{pid_of_last} > '{}'\nsleep 120", shell_path(pid_file)))
+}
+
+/// The pid in `pid_file` and its start, once the file names a process
+fn grandchild_of(pid_file: &std::path::Path) -> Option<(u32, Option<u64>)> {
+  let pid = std::fs::read_to_string(pid_file).ok()?.trim().parse::<u32>().ok()?;
+  Some((pid, process_started(pid)))
+}
+
+/// Runs the child of `child_with_a_grandchild` until its grandchild is known (into `grandchild`, with its start), then
+/// kills it: what the kill found
+fn kill_once_the_grandchild_runs(dir: &tempfile::TempDir, grandchild: &std::cell::Cell<Option<(u32, Option<u64>)>>) -> KillTrace {
+  let pid_file = dir.path().join("grandchild-pid");
+  let child = child_with_a_grandchild(dir, &pid_file);
+  let known = || {
+    if grandchild.get().is_none() {
+      grandchild.set(grandchild_of(&pid_file));
+    }
+    grandchild.get().is_some()
+  };
+  let result = run_child_until_superseded(&mut Command::new(child), None, &known);
+  assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
+  last_kill()
+}
+
+/// A kill ends the processes the child started too: its grandchild, which would sleep two minutes, exits. The child is
+/// killed once its grandchild is known, with its start; no deadline but nextest's
+#[test]
+fn a_killed_child_leaves_no_process_it_started() {
+  let dir = tempfile::tempdir().unwrap();
+  let grandchild = std::cell::Cell::new(None);
+  let kill = kill_once_the_grandchild_runs(&dir, &grandchild);
+  let (pid, started) = grandchild.get().expect("the grandchild");
+  assert!(started.is_some(), "the grandchild runs when it is known");
+  wait_for_the_exits(&[(pid, started)], "the grandchild", &kill);
+}
+
+/// A process that the scans of the first round miss (the seam of the tests hides the grandchild and its sleep) is
+/// killed in a later round: the child stays stopped until a round finds nothing below it, and the grandchild is below it
+/// still. Without the rounds the grandchild would outlive the kill, never stopped
+#[cfg(unix)]
+#[test]
+fn a_process_the_first_round_misses_is_killed_in_a_later_round() {
+  let dir = tempfile::tempdir().unwrap();
+  let grandchild = std::rc::Rc::new(std::cell::Cell::new(None::<(u32, Option<u64>)>));
+  let hidden = std::rc::Rc::clone(&grandchild);
+  crate::process_tree::seam::hide_from_scans(move |round, found| {
+    if let (0, Some((pid, _))) = (round, hidden.get()) {
+      found.retain(|process| process.pid != pid && process.parent != pid);
+    }
+  });
+  let kill = kill_once_the_grandchild_runs(&dir, &grandchild).expect("the kill of the tree");
+  let (pid, started) = grandchild.get().expect("the grandchild");
+  let found = kill.rounds.iter().position(|round| round.iter().any(|process| process.pid == pid));
+  assert!(found.is_some_and(|round| round > 0), "a later round kills the grandchild: {kill:?}");
+  wait_for_the_exits(&[(pid, started)], "the grandchild", &Some(kill));
+}
+
 /// A child that starts a process every 10 ms while it is killed leaves none of them: what it forks while the kill scans
-/// is a child of a process that the scan stopped or the next pass finds
+/// is a child of a process that the scan stopped or the next pass finds. The kill comes after 20 starts, however long
+/// they take; no deadline but nextest's
 #[test]
 fn a_killed_child_that_keeps_forking_leaves_no_process_it_started() {
   let dir = tempfile::tempdir().unwrap();
   let pids = dir.path().join("pids");
   let pid_of_last = if cfg!(windows) { "cat /proc/$!/winpid" } else { "echo $!" };
   let child = fake(&dir, &format!("while :; do\n  sleep 120 &\n  {pid_of_last} >> '{}'\n  sleep 0.01\ndone", shell_path(&pids)));
-  let forked = || std::fs::read_to_string(&pids).map_or(0, |text| text.lines().count());
-  let result = run_child(&mut Command::new(child), None, TIMEOUT, &|| forked() >= 20);
-  assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
-  let started: Vec<u32> = std::fs::read_to_string(&pids).unwrap().lines().filter_map(|pid| pid.trim().parse().ok()).collect();
-  assert!(started.len() >= 20, "{started:?}");
-  let deadline = Instant::now() + Duration::from_mins(1);
-  for pid in started {
-    while process_is_running(pid, None) {
-      assert!(Instant::now() < deadline, "the process {pid} that the child started survived the kill");
-      std::thread::sleep(Duration::from_millis(5));
+  // each process with its start, read as soon as its pid is written: a pid the system gives again is no survivor
+  let started: std::cell::RefCell<Vec<(u32, Option<u64>)>> = std::cell::RefCell::new(Vec::new());
+  let forked = || {
+    let written: Vec<u32> = std::fs::read_to_string(&pids)
+      .unwrap_or_default()
+      .lines()
+      .filter_map(|pid| pid.trim().parse().ok())
+      .collect();
+    let mut started = started.borrow_mut();
+    for &pid in &written[started.len().min(written.len())..] {
+      started.push((pid, process_started(pid)));
     }
-  }
+    started.len()
+  };
+  let result = run_child_until_superseded(&mut Command::new(child), None, &|| forked() >= 20);
+  assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
+  let kill = last_kill();
+  forked();
+  let started = started.into_inner();
+  assert!(started.len() >= 20, "{started:?}");
+  // one that exited before its start was read is gone
+  let started: Vec<(u32, Option<u64>)> = started.into_iter().filter(|(_, started)| started.is_some()).collect();
+  wait_for_the_exits(&started, "a process the child started", &kill);
 }
 
 #[test]

@@ -16,7 +16,13 @@
 //! their threads has stopped (`process_scan::halted`, up to `STOP_WAIT` in all: a thread in the middle of a fork
 //! finishes it first, and a load can delay that past the next scan), and scans again, until a pass finds nothing new (at
 //! most `MAX_PASSES`), then `SIGKILL`s them from the bottom up: a process only once each of its children has exited (a
-//! zombie, which its stopped parent keeps, or gone), the child last. So no stopped process outlives its parent: one
+//! zombie, which its stopped parent keeps, or gone). The child is killed only once a round of such passes finds nothing
+//! below it, never the first round (at most `MAX_ROUNDS` rounds): the child stays stopped meanwhile, so whatever an
+//! earlier round missed (a
+//! process the scan did not list, the late child of one that did not halt within the wait) is still below it, a child
+//! of a process still there, and the next round finds it. A process that did not halt is not killed in its round, nor
+//! are its ancestors, so a fork it finishes later lands below a living parent; a kill whose rounds or waits ran out
+//! kills what is left without waiting and says so (`KillReport::settled`). So no stopped process outlives its parent: one
 //! that did would go to launchd or init alive, and on macOS the kernel then sent SIGHUP, as to an orphaned process
 //! group with a stopped member, to the whole process group that the child shares with this process, this process too
 //! (the kill of a child with 20 stopped children, on every run of the macOS runners of CI and in most runs of a launchd
@@ -34,10 +40,28 @@
 
 use std::process::Child;
 
-/// The most scans of one kill on Unix: each pass stops what it found, so only a process that forked between a scan and
-/// its stop adds another
+/// The most scans of one round of a kill on Unix: each pass stops what it found, so only a process that forked between a
+/// scan and its stop adds another
 #[cfg(unix)]
 const MAX_PASSES: usize = 8;
+
+/// The most rounds of one kill on Unix: a round kills what its passes found and halted, and the child is killed after a
+/// round that found nothing below it, never the first: a tree takes two rounds, a child without children two scans
+#[cfg(unix)]
+const MAX_ROUNDS: usize = 8;
+
+/// What a kill of a tree on Unix did
+#[cfg(unix)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KillReport {
+  /// The processes below the child that each round killed, each after its parent, round by round: the last one is
+  /// empty for a settled kill
+  pub rounds: Vec<Vec<crate::process_scan::Descendant>>,
+  /// The kill made sure of the tree: its last round found nothing below the child, which had halted, and each process
+  /// halted before its kill and exited before its parent's. False when the rounds or the waits ran out: a process may
+  /// then outlive the kill
+  pub settled: bool,
+}
 
 /// The longest wait of a kill for the children of a process to exit before it kills the process: a killed process
 /// exits as soon as it runs again; one that won't (a thread stuck in a call) is waited for no longer, and its parent is
@@ -95,32 +119,86 @@ impl ProcessTree {
     }
     #[cfg(unix)]
     if let Some(root) = self.root {
-      let below = stopped_tree(root);
-      tracing::debug!(child = child.id(), below = ?below, "killing a process tree");
-      let deadline = std::time::Instant::now() + EXIT_WAIT;
-      kill_bottom_up(
-        root.0,
-        &below,
-        crate::process_scan::exited,
-        |process| {
-          crate::process_scan::kill(process.pid, process.started);
-        },
-        || {
-          let waited = std::time::Instant::now() < deadline;
-          if waited {
-            std::thread::sleep(std::time::Duration::from_millis(1));
-          }
-          waited
-        },
-      );
+      let report = kill_tree(root);
+      if report.settled {
+        tracing::debug!(child = child.id(), rounds = ?report.rounds, "killed a process tree");
+      } else {
+        tracing::warn!(child = child.id(), rounds = ?report.rounds, "a kill of a process tree ran out of its rounds or waits: a process may outlive it");
+      }
+      #[cfg(test)]
+      seam::LAST_KILL.set(Some(report));
     }
     let _ = child.kill();
   }
 }
 
+/// Kills the processes below `root` round by round (the module header), `root` stopped all along; the caller kills
+/// `root` itself
+#[cfg(unix)]
+fn kill_tree(root: (u32, u64)) -> KillReport {
+  let now = std::time::Instant::now();
+  let (stop_deadline, exit_deadline) = (now + STOP_WAIT, now + EXIT_WAIT);
+  let mut report = KillReport::default();
+  let mut waited = true;
+  for round in 0..MAX_ROUNDS {
+    let (below, not_halted) = stopped_tree(root, round, stop_deadline);
+    if below.is_empty() {
+      report.rounds.push(Vec::new());
+      // the first round's scans may have missed what is there: an empty round settles only after another one
+      if round > 0 {
+        report.settled = waited && not_halted.is_empty();
+        return report;
+      }
+      continue;
+    }
+    // a process that did not halt may still finish a fork: it and its ancestors stay for the next round
+    let kept = with_ancestors(&below, &not_halted);
+    let now_killed: Vec<crate::process_scan::Descendant> = below.into_iter().filter(|process| !kept.contains(&(process.pid, process.started))).collect();
+    waited &= kill_bottom_up(root.0, &now_killed, crate::process_scan::exited, kill, || wait_until(exit_deadline));
+    report.rounds.push(now_killed);
+  }
+  // out of rounds: what is left is killed without waiting
+  let (left, _) = stopped_tree(root, MAX_ROUNDS, std::time::Instant::now());
+  kill_bottom_up(root.0, &left, crate::process_scan::exited, kill, || false);
+  report.rounds.push(left);
+  report
+}
+
+#[cfg(unix)]
+fn kill(process: &crate::process_scan::Descendant) {
+  crate::process_scan::kill(process.pid, process.started);
+}
+
+/// Waits a millisecond while `deadline` is ahead, and says whether it waited
+#[cfg(unix)]
+fn wait_until(deadline: std::time::Instant) -> bool {
+  let waits = std::time::Instant::now() < deadline;
+  if waits {
+    std::thread::sleep(std::time::Duration::from_millis(1));
+  }
+  waits
+}
+
+/// The processes of `not_halted` that are in `below`, and their ancestors in it, by pid and start
+#[cfg(unix)]
+pub(crate) fn with_ancestors(below: &[crate::process_scan::Descendant], not_halted: &[(u32, u64)]) -> std::collections::HashSet<(u32, u64)> {
+  let mut kept = std::collections::HashSet::new();
+  for &(pid, started) in not_halted {
+    let mut current = below.iter().find(|process| process.pid == pid && process.started == started);
+    while let Some(process) = current {
+      if !kept.insert((process.pid, process.started)) {
+        break;
+      }
+      current = below.iter().find(|parent| parent.pid == process.parent);
+    }
+  }
+  kept
+}
+
 /// Kills each of `below` (each after its parent, as `process_scan::descendants` lists them) from the bottom up: a process
 /// once each of its children has `exited`, and returns once the children of `root` have, so the caller kills `root`
-/// last. `wait` waits a little and says whether to go on waiting; once it says no, the rest is killed without waiting
+/// last. `wait` waits a little and says whether to go on waiting; once it says no, the rest is killed without waiting.
+/// Whether every wait ended in the exit it waited for
 #[cfg(unix)]
 fn kill_bottom_up(
   root: u32,
@@ -128,7 +206,7 @@ fn kill_bottom_up(
   exited: impl Fn(u32, u64) -> bool,
   mut kill: impl FnMut(&crate::process_scan::Descendant),
   mut wait: impl FnMut() -> bool,
-) {
+) -> bool {
   let mut waiting = true;
   let mut children_exited = |parent: u32, waiting: &mut bool| {
     while *waiting && below.iter().any(|child| child.parent == parent && !exited(child.pid, child.started)) {
@@ -143,44 +221,87 @@ fn kill_bottom_up(
     kill(process);
   }
   children_exited(root, &mut waiting);
+  waiting
 }
 
-/// The processes below `root`, stopped, each after its parent: the root, then each pass of `process_scan::descendants`
-/// stops what it found, until a pass finds nothing new. A later pass finds only processes below those of the earlier
-/// ones, so the order holds across passes too
+/// The processes below `root` that have not exited, stopped, each after its parent: the root, then each pass of
+/// `process_scan::descendants` stops what it found, until a pass finds nothing new. A later pass finds only processes
+/// below those of the earlier ones, so the order holds across passes too. With them the processes, the root among them,
+/// that did not halt by `deadline`
 #[cfg(unix)]
-fn stopped_tree((pid, started): (u32, u64)) -> Vec<crate::process_scan::Descendant> {
-  let deadline = std::time::Instant::now() + STOP_WAIT;
-  stop_all(&[(pid, started)], deadline);
+fn stopped_tree((pid, started): (u32, u64), round: usize, deadline: std::time::Instant) -> (Vec<crate::process_scan::Descendant>, Vec<(u32, u64)>) {
+  let mut not_halted = stop_all(&[(pid, started)], deadline);
   let mut tree: Vec<crate::process_scan::Descendant> = Vec::new();
   for _ in 0..MAX_PASSES {
-    let found: Vec<crate::process_scan::Descendant> = crate::process_scan::descendants(pid, started)
+    // a zombie, which a stopped parent keeps, is no process to kill: on Linux the scan lists it
+    let mut found: Vec<crate::process_scan::Descendant> = crate::process_scan::descendants(pid, started)
       .into_iter()
       .filter(|found| !tree.iter().any(|known| known.pid == found.pid && known.started == found.started))
+      .filter(|found| !crate::process_scan::exited(found.pid, found.started))
       .collect();
+    seam::hide(round, &mut found);
     if found.is_empty() {
       break;
     }
-    stop_all(&found.iter().map(|process| (process.pid, process.started)).collect::<Vec<_>>(), deadline);
+    not_halted.extend(stop_all(&found.iter().map(|process| (process.pid, process.started)).collect::<Vec<_>>(), deadline));
     tree.extend(found);
   }
-  tree
+  (tree, not_halted)
 }
 
-/// Stops each of `processes` and waits until each has halted or gone, or `deadline` passed
+/// Stops each of `processes` and waits until each has halted or gone, or `deadline` passed; the ones that did not halt
 #[cfg(unix)]
-fn stop_all(processes: &[(u32, u64)], deadline: std::time::Instant) {
+fn stop_all(processes: &[(u32, u64)], deadline: std::time::Instant) -> Vec<(u32, u64)> {
   for &(pid, started) in processes {
     crate::process_scan::stop(pid, started);
   }
+  let mut not_halted = Vec::new();
   for &(pid, started) in processes {
     while crate::process_scan::is_running(pid, Some(started)) && crate::process_scan::halted(pid) == Some(false) {
       if std::time::Instant::now() >= deadline {
-        tracing::warn!(pid, "a process of a killed tree did not stop: a process it forks meanwhile may outlive the kill");
-        return;
+        tracing::warn!(pid, "a process of a killed tree did not stop in time: it stays for the next round of the kill");
+        not_halted.push((pid, started));
+        break;
       }
       std::thread::sleep(std::time::Duration::from_millis(1));
     }
+  }
+  not_halted
+}
+
+/// The seam of the tests: a scan that misses some processes (a hook that only a test sets), and what the last kill of
+/// this thread did
+#[cfg(unix)]
+pub(crate) mod seam {
+  use crate::process_scan::Descendant;
+  use std::cell::RefCell;
+
+  type Hide = Box<dyn FnMut(usize, &mut Vec<Descendant>)>;
+
+  thread_local! {
+    static HIDE: RefCell<Option<Hide>> = const { RefCell::new(None) };
+    #[cfg(test)]
+    pub(crate) static LAST_KILL: RefCell<Option<super::KillReport>> = const { RefCell::new(None) };
+  }
+
+  /// Every pass of the kills of this thread hands `hide` what it found, with its round, to leave some of it out
+  #[cfg(test)]
+  pub(crate) fn hide_from_scans(hide: impl FnMut(usize, &mut Vec<Descendant>) + 'static) {
+    HIDE.with(|cell| *cell.borrow_mut() = Some(Box::new(hide)));
+  }
+
+  pub(super) fn hide(round: usize, found: &mut Vec<Descendant>) {
+    HIDE.with(|cell| {
+      if let Some(hide) = cell.borrow_mut().as_mut() {
+        hide(round, found);
+      }
+    });
+  }
+
+  /// What the last kill of this thread did
+  #[cfg(test)]
+  pub(crate) fn last_kill() -> Option<super::KillReport> {
+    LAST_KILL.with(|cell| cell.borrow_mut().take())
   }
 }
 
