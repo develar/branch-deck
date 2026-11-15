@@ -444,7 +444,7 @@ fn a_return_takes_out_the_mark_of_a_sync_in_the_lease() {
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
   let mark = slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", sync_core::synced_mark::SYNCED_FILE]);
-  sync_core::synced_mark::mark_synced(Path::new(mark.trim()), PREFIX);
+  sync_core::synced_mark::mark_synced(&sync_core::lease_state::LeaseGuard::any(), Path::new(mark.trim()), PREFIX);
   assert!(sync_core::synced_mark::synced_before(&path, PREFIX));
 
   fixture.give_back(&path);
@@ -454,7 +454,7 @@ fn a_return_takes_out_the_mark_of_a_sync_in_the_lease() {
 
   // a free slot a return of an older build left marked: the get takes the mark out too
   fixture.give_back(&path);
-  sync_core::synced_mark::mark_synced(Path::new(mark.trim()), PREFIX);
+  sync_core::synced_mark::mark_synced(&sync_core::lease_state::LeaseGuard::any(), Path::new(mark.trim()), PREFIX);
   assert_eq!(path_of(&fixture.get(&[])), path);
   assert!(!sync_core::synced_mark::synced_before(&path, PREFIX));
 }
@@ -467,7 +467,7 @@ fn a_new_lease_of_a_slot_inherits_nothing_the_lease_before_left_in_its_git_direc
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
   // what a lease leaves, named here apart from the list the return goes by, so a file the list lacks fails
-  let lease_files = [sync_core::synced_mark::SYNCED_DIR, sync_core::synced_mark::SYNCED_FILE, sync_core::landed::STATE_FILE];
+  let lease_files = [sync_core::synced_mark::SYNCED_DIR, sync_core::synced_mark::SYNCED_FILE, sync_core::landed::LANDED_FILE];
   let leave = || {
     for file in lease_files {
       let at = slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", file]);

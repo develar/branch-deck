@@ -231,8 +231,8 @@ pub struct KnownBaseline {
   pub upstream_head: String,
   /// When the repository was last fetched
   pub fetched_at: Option<u32>,
-  /// The landed state of this worktree (`landed::STATE_FILE`)
-  pub landed_state: PathBuf,
+  /// The landed state of this worktree (`landed::LANDED_FILE`), a file of its lease, which only `lease_state` writes
+  pub(crate) landed_state: PathBuf,
 }
 
 /// `check_baseline_update_with` of the state a sync read: no guard, branch, upstream or commit is read again

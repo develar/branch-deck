@@ -756,16 +756,19 @@ fn branch_names(view: &RepositoryView) -> Vec<&str> {
   names
 }
 
-/// The session marks the worktree synced, not the sync, and only under the lease the run began under: a slot an agent
-/// returned and leased again while the run ran is a worktree this run did not sync, whose return took the mark of the
-/// lease before, so no mark of the run reaches the new lease; a run under one lease throughout marks it
+/// A run writes the files of the lease of its worktree (the mark of a sync, the landed state) only under the lease it
+/// began under: a slot an agent returned and leased again while the run ran is a worktree this run did not sync, whose
+/// return took the files of the lease before, so nothing of the run reaches the new lease, neither the mark, after which
+/// its session would sync of itself, nor where the branch was and what landed of it; a run under one lease throughout
+/// writes both
 #[tokio::test]
-async fn a_run_marks_the_worktree_synced_only_under_the_lease_it_began_under() {
+async fn a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under() {
   let repo = ahead_of_origin(&["(auth) Add auth"]);
   let key = SessionKey {
     worktree: repo.path_str().to_string(),
     prefix: "test".to_string(),
   };
+  let landed_state = repo.path().join(".git").join(sync_core::landed::LANDED_FILE);
   let leases = Arc::new(TestLeases::default());
   *leases.epoch.lock().unwrap() = lease("lease-a");
   *leases.leased_again_in_run.lock().unwrap() = Some(lease("lease-b"));
@@ -777,10 +780,12 @@ async fn a_run_marks_the_worktree_synced_only_under_the_lease_it_began_under() {
   sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
   assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "no mark of a run across two leases");
+  assert!(!landed_state.exists(), "no landed state of a run across two leases");
   assert!(snapshot(&sessions, &key).await.order.contains(&"auth".to_owned()), "the run built its table all the same");
 
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
   assert!(sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "a run under one lease marks it");
+  assert!(landed_state.exists(), "a run under one lease records where the branch is");
 }
 
 /// Two worktrees of one repository are two sessions, each with the table of its own HEAD

@@ -219,17 +219,21 @@ and decide no admission there; `brd` touches
 succeeded, of the app or of `brd`, names its branch prefix in the mark of its worktree (`branch-deck/synced.d/` in the
 git directory the `.git` of the worktree names, a file per prefix named by its hash and holding it, so no write reads
 another and a prefix of any length is marked; the file of lines of a build before,
-`branch-deck/synced`, is read and moved by the next mark): only `sync_core::synced_mark::mark_synced` writes it, through a
-temporary file and a rename, no git: at the end of a successful `sync_branches` of `brd`, and after a successful run of a
-session of the app (`GitSessionHost::run`, `SyncOptions::marks_synced` off), only while the slot holds the lease the run
-began under; only the hosts of the app's sessions read it (`SessionHost::synced_before` of the session's prefix, without
-git); only a lease slot takes it out, with every other file of the lease in the git directory of the slot
-(`lease_state::LEASE_FILES`: the landed state too), as it goes back (`finish_return` of a return, a takeover and a
-reclaim, first, so one that fails after it leaves none) and as a get reuses it (`move_reused_slot`), with
-`forget_lease_state` (`fs_retry`). Beside it, the landed
-state of the worktree (`branch-deck/landed.json`, `sync_core::landed`): written by the update check of a sync
-(`record_sync`) and by Update Project, its undo and a dismiss (`record_update` and the others under `landed.lock`), each
-through a temporary file and a rename. A start records what it sends before
+`branch-deck/synced`, is read and moved by the next mark): only `sync_core::synced_mark::mark_synced` decides it, at the
+end of a successful `sync_branches`, of `brd` and of a session of the app alike; only the hosts of the app's sessions
+read it (`SessionHost::synced_before` of the session's prefix, without git). Beside it, the landed state of the worktree
+(`branch-deck/landed.json`, `sync_core::landed`): decided by the update check of a sync (`record_sync`) and by Update
+Project, its undo and a dismiss (`record_update` and the others under `landed.lock`). Both are files of the lease of a
+slot (`lease_state::LEASE_FILES`), with one writer, `sync_core::lease_state` (`write_lease_file`, `remove_lease_file`,
+`lock_landed`; a temporary file and a rename, no git), each write under the guard of its caller (`LeaseGuard`): a sync
+of `brd` and an intent write at any time, a run of a session of the app only while the slot holds the lease the run
+began under (`SyncOptions::lease` of `GitSessionHost::run`, the epoch asked right before each write), so a run across a
+return and a new lease writes nothing into the files of the new lease. `lease_files_scan_test.rs` fails a name of
+these files, or a path of one, outside the modules of its table, and a write or a removal of a file in one of them but
+`lease_state.rs`. Only a lease slot takes them out, every file of the list at once, as it goes back (`finish_return` of
+a return, a takeover and a reclaim, first, so one that fails after it leaves none) and as a get reuses it
+(`move_reused_slot`, after its reservation changed the epoch, so it also takes what a run wrote during the return), with
+`forget_lease_state` (`fs_retry`). A start records what it sends before
 its request goes out; an answer lost after it went out is `EffectStatus::Unknown`, never sent again: its record stays
 `unknown` and holds for every process until a read of Patronus settles it (`operations::reconcile`, at an admission
 and after a list of the robots) or the user forgets it (Forget This Start, `brd operation forget`)

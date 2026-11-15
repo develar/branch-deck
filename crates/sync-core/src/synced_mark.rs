@@ -12,13 +12,15 @@
 //! A build before kept every prefix as a line of one file, `branch-deck/synced` (and one before it a time there), and
 //! one after it a file per prefix named by the hex of its bytes: the read takes both, a time never naming a prefix, and
 //! the next mark moves their prefixes into files of this build and removes them.
+//!
+//! The mark is a file of the lease of a slot of a lease pool: it is written and removed only through `lease_state`,
+//! under the guard of the sync (`LeaseGuard`), so a run of the app's session marks no slot leased again meanwhile.
 
+use crate::lease_state::{LeaseGuard, remove_lease_file, write_lease_file};
 use git_ops::lease_slot::git_dir_of;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use sync_utils::atomic_file::{AtomicWrite, write_atomically};
-use sync_utils::fs_retry;
 use tracing::warn;
 
 /// The mark of a build before in the git directory of a worktree, as `rev-parse --git-path` names it: a linked worktree
@@ -29,8 +31,9 @@ pub const SYNCED_FILE: &str = "branch-deck/synced";
 pub const SYNCED_DIR: &str = "branch-deck/synced.d";
 
 /// Names `prefix` in the mark of the git directory whose `SYNCED_FILE` is `mark` (`RepoFacts::synced_mark`), and moves
-/// the prefixes of a mark of a build before into files of their own. A failure is only logged, as the sync is done
-pub fn mark_synced(mark: &Path, prefix: &str) {
+/// the prefixes of a mark of a build before into files of their own, each write while `guard` holds. A failure is only
+/// logged, as the sync is done
+pub fn mark_synced(guard: &LeaseGuard, mark: &Path, prefix: &str) {
   let dir = dir_of(mark);
   let legacy = std::fs::read_to_string(mark).ok();
   let mut marked: Vec<&str> = legacy.as_deref().map(prefixes_of).into_iter().flatten().collect();
@@ -38,18 +41,21 @@ pub fn mark_synced(mark: &Path, prefix: &str) {
   for prefix in marked {
     let file = dir.join(file_name_of(prefix));
     if !names(&file, prefix) {
-      let written = std::fs::create_dir_all(&dir).and_then(|()| write_atomically(&file, prefix.as_bytes(), AtomicWrite::default()));
-      if let Err(error) = written {
-        warn!("cannot mark {} synced under {prefix}: {error}", dir.display());
-        return;
+      match write_lease_file(guard, &file, prefix.as_bytes()) {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+          warn!("cannot mark {} synced under {prefix}: {error}", dir.display());
+          return;
+        }
       }
     }
     if let Some(hex) = hex_name_of(prefix) {
-      remove(&dir.join(hex), "the mark of a build before");
+      remove_lease_file(guard, &dir.join(hex), "the mark of a build before");
     }
   }
   if legacy.is_some() {
-    remove(mark, "the mark of a build before");
+    remove_lease_file(guard, mark, "the mark of a build before");
   }
 }
 
@@ -97,12 +103,4 @@ fn hex(bytes: &[u8]) -> String {
 /// The directory of the mark beside `SYNCED_FILE` at `mark`
 fn dir_of(mark: &Path) -> PathBuf {
   mark.with_file_name(Path::new(SYNCED_DIR).file_name().unwrap_or_default())
-}
-
-/// Removes `path`, a file gone already being no failure; a failure is only logged
-fn remove(path: &Path, what: &str) {
-  match fs_retry::remove_file(path) {
-    Err(error) if error.kind() != std::io::ErrorKind::NotFound => warn!("cannot remove {what} {}: {error}", path.display()),
-    _ => {}
-  }
 }

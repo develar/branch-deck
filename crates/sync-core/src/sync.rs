@@ -13,6 +13,7 @@ use crate::conflict_chain::{ChainMemo, conflict_ref, move_conflict_refs};
 use crate::github_repository::GitHubRepository;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
+use crate::lease_state::LeaseGuard;
 use crate::remote_status::RemoteStatusMemo;
 use crate::repo_facts::{CommandFacts, RepoFacts, read_repo_facts};
 use crate::stack_branch::{BuildResult, FinishedStacks, StackBranchSync, StackBuilds, StackFinish, build_planned, finish_stack_branches, plan_stack_branches};
@@ -93,10 +94,11 @@ pub struct SyncOptions {
   /// `remote -v` lists, so a Space URL rewritten to the path would not reach the sync. `None` everywhere else: Patronus
   /// knows the repositories on Space (`LandingRemote::on_space`)
   pub test_patronus: Option<bool>,
-  /// The sync names its prefix in the mark of the worktree once it succeeded (`synced_mark`), as `brd sync` does; the
-  /// app's session marks the worktree itself (`SyncReport::synced_mark`), only while the slot of a lease pool holds the
-  /// lease the run began under, as a slot leased again during the run is a worktree this run did not sync
-  pub marks_synced: bool,
+  /// The guard of the writes of the sync into the files of the lease of the worktree (`lease_state`): the mark it names
+  /// its prefix in once it succeeded (`synced_mark`) and the landed state it records (`landed::record_sync`). Any time
+  /// by default, as `brd sync` writes; the app's session writes only while the slot of a lease pool holds the lease the
+  /// run began under, as a slot leased again during the run is a worktree this run did not sync
+  pub lease: LeaseGuard,
 }
 
 impl Default for SyncOptions {
@@ -110,7 +112,7 @@ impl Default for SyncOptions {
       config: None,
       facts: None,
       test_patronus: None,
-      marks_synced: true,
+      lease: LeaseGuard::any(),
     }
   }
 }
@@ -302,9 +304,6 @@ pub struct SyncReport {
   /// The commit the branches without a parent are built on, as the sync read it; `None` without branches. A trial
   /// build after the sync starts from it without reading it again
   pub base: Option<BuildBase>,
-  /// The mark of the worktree the sync names its prefix in once it succeeded (`synced_mark::SYNCED_FILE` in its git
-  /// directory), for a caller that marks it itself (`SyncOptions::marks_synced` off)
-  pub synced_mark: std::path::PathBuf,
   /// The GitHub repository of the branches, as the sync read it with the remotes (`LandingRemote::github`): a command
   /// after the sync takes it instead of reading the Space settings again
   pub github: Option<GitHubRepository>,
@@ -442,6 +441,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   detection_strategy: DetectionStrategy,
   archive_retention_days: u64,
   object_cache: &ObjectCache,
+  lease: &LeaseGuard,
   progress: &P,
 ) -> Result<PreparedSync> {
   // the directories once: the guards find the markers of an operation in progress, the facts `FETCH_HEAD` and the
@@ -495,7 +495,8 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     let known = facts.known_baseline();
     let grouping = grouping.clone();
     let progress = progress.clone();
-    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, resolve, &progress)
+    let lease = lease.clone();
+    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, resolve, &lease, &progress)
   }));
 
   // Use streaming commit processing, and the order of the history, for the stack branches
@@ -595,7 +596,6 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     companion_needs: BTreeMap::new(),
     retry: false,
     base: None,
-    synced_mark: facts.synced_mark(),
     github: landing.github.repository().and_then(GitHubRepository::of_full_name),
   };
   progress.send(SyncEvent::BranchesGrouped {
@@ -1029,7 +1029,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     config,
     facts: command_facts,
     test_patronus,
-    marks_synced,
+    lease,
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
@@ -1068,7 +1068,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     update_check,
   } = task
     .spawn({
-      let object_cache = object_cache.clone();
+      let (object_cache, lease) = (object_cache.clone(), lease.clone());
       move |git_executor, repository_path, branch_prefix, progress| {
         prepare_sync(
           git_executor,
@@ -1081,6 +1081,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
           detection_strategy,
           archive_retention_days,
           &object_cache,
+          &lease,
           progress,
         )
       }
@@ -1259,10 +1260,9 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   report.copies = copies.lock().map_or_default(|copies| copies.clone());
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   report.companion_needs = detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
-  // the worktree was synced: a session of the app opened later, or one that hears the stamp of `brd`, syncs of itself
-  if marks_synced {
-    mark_synced(&synced_mark, branch_prefix);
-  }
+  // the worktree was synced: a session of the app opened later, or one that hears the stamp of `brd`, syncs of itself;
+  // only while the lease of its slot holds (`SyncOptions::lease`)
+  mark_synced(&lease, &synced_mark, branch_prefix);
   Ok(report)
 }
 
@@ -1335,8 +1335,9 @@ fn virtual_tips(branches: &[ListedBranch], branch_prefix: &str) -> HashMap<Strin
 }
 
 /// Check the update of the checked out branch onto the baseline (`known`, as the sync read it; `None` for a local
-/// baseline), record what landed since the previous sync and send `BaselineStatus`. A failed check is logged and
-/// reported in the event, it never fails the sync; only a failure to send the event does.
+/// baseline), record what landed since the previous sync while `lease` holds and send `BaselineStatus`. A failed check
+/// is logged and reported in the event, it never fails the sync; only a failure to send the event does.
+#[expect(clippy::too_many_arguments, reason = "the inputs of the update check of a sync")]
 fn send_baseline_status(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
@@ -1344,6 +1345,7 @@ fn send_baseline_status(
   known: Option<&KnownBaseline>,
   grouping: &GroupingInputs,
   resolve: ResolveMode,
+  lease: &LeaseGuard,
   progress: &dyn ProgressReporter,
 ) -> Result<()> {
   let start = std::time::Instant::now();
@@ -1359,7 +1361,7 @@ fn send_baseline_status(
     }
   };
   let landed = match (&baseline_check, known) {
-    (Some(BaselineCheck { check, .. }), Some(known)) => record_sync(git_executor, repository_path, &known.landed_state, check, grouping).unwrap_or_else(|e| {
+    (Some(BaselineCheck { check, .. }), Some(known)) => record_sync(git_executor, repository_path, &known.landed_state, check, grouping, lease).unwrap_or_else(|e| {
       warn!(error = %format!("{e:#}"), "can't record the landed commits");
       Vec::new()
     }),

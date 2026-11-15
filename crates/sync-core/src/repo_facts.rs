@@ -8,8 +8,9 @@ use crate::baseline::{BaselineUpstream, KnownBaseline, TrackedUpstream, baseline
 use crate::config_snapshot::ConfigSnapshot;
 use crate::conflict_chain::CONFLICT_REFS;
 use crate::github_repository::{parse_github_repository, resolve_github_repository_with};
-use crate::landed::STATE_FILE;
+use crate::landed::LANDED_FILE;
 use crate::patronus::parse_space_repository;
+use crate::synced_mark::SYNCED_FILE;
 use anyhow::{Result, anyhow, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use domain_types::landing_route::{LandingRemote, LandingSetting, LocalGitHub};
@@ -19,7 +20,7 @@ use git_ops::commit_writer::{STALE_TEMP_REF_AGE, TEMP_REF_PREFIX, is_stale_temp_
 use git_ops::revs::{current_branch, known_dirs, resolve_commit};
 use history_rewrite::baseline::{NoBaseline, baseline_candidates, no_baseline};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::instrument;
 
 /// The repository as a sync found it at its start; every step of the sync works from these
@@ -42,8 +43,8 @@ pub(crate) struct RepoFacts {
   pub head: String,
   /// When the repository was last fetched (the time of `FETCH_HEAD`)
   pub fetched_at: Option<u32>,
-  /// The landed state of this worktree (`landed::STATE_FILE`)
-  pub landed_state: PathBuf,
+  /// The landed state of this worktree (`landed::LANDED_FILE`), a file of its lease, which only `lease_state` writes
+  pub(crate) landed_state: PathBuf,
   /// The branches under the prefix by name: virtual, archived, unapplied and stack (the archive step orders the archived
   /// ones by their tips, `branch_data_of`)
   pub branches: Vec<ListedBranch>,
@@ -64,7 +65,7 @@ impl RepoFacts {
   /// The mark the sync leaves in the worktree once it succeeded (`synced_mark::SYNCED_FILE`): beside the landed state,
   /// in `branch-deck/` of the git directory of the worktree
   pub(crate) fn synced_mark(&self) -> PathBuf {
-    self.landed_state.with_file_name("synced")
+    self.landed_state.with_file_name(Path::new(SYNCED_FILE).file_name().unwrap_or_default())
   }
 
   /// What the update check of the sync needs; `None` for a local baseline, which has nothing to update from
@@ -407,7 +408,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     baseline_tip,
   } = read_baseline_listing(git_executor, repo_path, Some(branch), Some(branch_prefix), true, known_remotes)?;
   let (fetch_head, landed_state, head, baseline_commit) = match (known_dirs(git_executor, repo_path), head_tip, baseline_tip) {
-    (Some(dirs), Some(head), Some(baseline_commit)) => (dirs.git_path("FETCH_HEAD"), dirs.git_path(STATE_FILE), head, baseline_commit),
+    (Some(dirs), Some(head), Some(baseline_commit)) => (dirs.git_path("FETCH_HEAD"), dirs.git_path(LANDED_FILE), head, baseline_commit),
     _ => read_head_and_baseline(git_executor, repo_path, &baseline, &baseline_ref)?,
   };
 
@@ -439,7 +440,7 @@ fn read_head_and_baseline(git_executor: &GitCommandExecutor, repo_path: &str, ba
       "--git-path",
       "FETCH_HEAD",
       "--git-path",
-      STATE_FILE,
+      LANDED_FILE,
       "HEAD^{commit}",
       &baseline_rev,
     ],

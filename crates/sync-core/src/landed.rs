@@ -13,9 +13,13 @@
 //!
 //! The report of what landed lives in `branch-deck/landed.json` in the git directory of the worktree, shared by the app
 //! and `bd`: each sync compares the local commits with the ones of the previous sync, so an update made elsewhere (the
-//! IDE, `git pull --rebase`) is reported too.
+//! IDE, `git pull --rebase`) is reported too. It is a file of the lease of a slot of a lease pool, written only through
+//! `lease_state`: the record of a sync under the guard of the sync (`LeaseGuard`), so a run of the app's session writes
+//! nothing into a slot leased again meanwhile; Update Project, its undo and a dismiss are intents of the user on the
+//! worktree as it is, which write at any time.
 
-use anyhow::{Context, Result};
+use crate::lease_state::{LeaseGuard, lock_landed, write_lease_file};
+use anyhow::Result;
 use domain_types::commit::Commit;
 use domain_types::landed::{LandedBranch, LandedCommit};
 use domain_types::update_project::UpdateCheck;
@@ -26,14 +30,13 @@ use git_ops::landed_pairing::{CommitKey, KeyedCommit, LandedDrop, LandedReads, b
 use git_ops::revs::{known_dirs, read_head};
 use git_ops::update_branch::UpdatePlan;
 use history_rewrite::commit_grouper::GroupingInputs;
-use history_rewrite::repository_lock::{RepositoryLock, lock_file};
+use history_rewrite::repository_lock::RepositoryLock;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::commit_subject::parse_subject;
 use sync_utils::timestamp::unix_now;
 use tracing::{debug, info, instrument, warn};
@@ -279,13 +282,13 @@ struct LandedState {
 
 /// The state file in the git directory of this worktree, as `rev-parse --git-path` names it: another worktree has its
 /// own HEAD. A sync reads its path with the other facts (`RepoFacts`)
-pub const STATE_FILE: &str = "branch-deck/landed.json";
+pub const LANDED_FILE: &str = "branch-deck/landed.json";
 
 fn state_path(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<PathBuf> {
   if let Some(dirs) = known_dirs(git_executor, repo_path) {
-    return Ok(dirs.git_path(STATE_FILE));
+    return Ok(dirs.git_path(LANDED_FILE));
   }
-  let path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", STATE_FILE], repo_path)?;
+  let path = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", LANDED_FILE], repo_path)?;
   Ok(PathBuf::from(path))
 }
 
@@ -296,11 +299,10 @@ fn load_state(path: &Path) -> Option<LandedState> {
     .ok()
 }
 
-/// Write through a temporary file and a rename (`write_atomically`): the app and `bd` may read it at any time
-fn save_state(path: &Path, state: &LandedState) -> Result<()> {
-  let dir = path.parent().context("landed state path without a directory")?;
-  std::fs::create_dir_all(dir)?;
-  write_atomically(path, &serde_json::to_vec(state)?, AtomicWrite::default())?;
+/// Write through a temporary file and a rename (`lease_state::write_lease_file`) while `guard` holds: the app and `bd`
+/// may read it at any time
+fn save_state(guard: &LeaseGuard, path: &Path, state: &LandedState) -> Result<()> {
+  write_lease_file(guard, path, &serde_json::to_vec(state)?)?;
   Ok(())
 }
 
@@ -324,10 +326,17 @@ fn expire(report: &mut Vec<LandedBranch>, now: u32) {
 }
 
 /// For the sync: if the local commits moved onto a newer upstream since the previous sync (an update here or elsewhere),
-/// add the commits that landed to the report; remember where the branch is. `path` is the state file of the worktree
-/// (`STATE_FILE`). Returns the undismissed report.
-#[instrument(skip(git_executor, check), fields(branch = %check.branch))]
-pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, path: &Path, check: &UpdateCheck, grouping: &GroupingInputs) -> Result<Vec<LandedBranch>> {
+/// add the commits that landed to the report; remember where the branch is, while `guard` holds (`SyncOptions::lease`).
+/// `path` is the state file of the worktree (`LANDED_FILE`). Returns the undismissed report.
+#[instrument(skip(git_executor, check, grouping), fields(branch = %check.branch))]
+pub fn record_sync(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  path: &Path,
+  check: &UpdateCheck,
+  grouping: &GroupingInputs,
+  guard: &LeaseGuard,
+) -> Result<Vec<LandedBranch>> {
   let previous = load_state(path);
   let mut state = previous.clone().unwrap_or_default();
   let same_branch = state.branch == check.branch && state.upstream == check.upstream && !state.head.is_empty();
@@ -367,7 +376,7 @@ pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, path: &Pa
   check.base.clone_into(&mut state.base);
   expire(&mut state.landed, unix_now());
   if previous.as_ref() != Some(&state) {
-    save_state(path, &state)?;
+    save_state(guard, path, &state)?;
   }
   Ok(state.landed)
 }
@@ -382,9 +391,7 @@ const STATE_LOCK_FILE: &str = "landed.lock";
 const STATE_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn lock_state(path: &Path) -> Result<RepositoryLock> {
-  let dir = path.parent().context("landed state path without a directory")?;
-  std::fs::create_dir_all(dir)?;
-  lock_file(dir.join(STATE_LOCK_FILE), STATE_LOCK_TIMEOUT, &|| debug!("waiting for the lock of the landed state"))
+  lock_landed(path, STATE_LOCK_FILE, STATE_LOCK_TIMEOUT)
 }
 
 /// For Update Project: add what this update landed to the report and remember the branch after it, so the next sync
@@ -413,7 +420,7 @@ pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: 
     }
     merge_report(&mut state.landed, found);
     expire(&mut state.landed, unix_now());
-    return save_state(&path, &state);
+    return save_state(&LeaseGuard::any(), &path, &state);
   }
   let mut before = state.clone();
   before.previous = None;
@@ -429,7 +436,7 @@ pub fn record_update(git_executor: &GitCommandExecutor, repo_path: &str, check: 
   check.upstream_head.clone_into(&mut state.upstream_head);
   // HEAD is on the upstream now
   check.upstream_head.clone_into(&mut state.base);
-  save_state(&path, &state)
+  save_state(&LeaseGuard::any(), &path, &state)
 }
 
 /// For the undo of an update that left `branch` at `new_head`: the state as it was before that update, when the state
@@ -443,7 +450,7 @@ pub fn restore_before_update(git_executor: &GitCommandExecutor, repo_path: &str,
   let Some(previous) = state.previous.filter(|_| state.branch == branch && state.head == new_head) else {
     return Ok(false);
   };
-  save_state(&path, &previous)?;
+  save_state(&LeaseGuard::any(), &path, &previous)?;
   Ok(true)
 }
 
@@ -464,5 +471,5 @@ pub fn dismiss_landed(git_executor: &GitCommandExecutor, repo_path: &str) -> Res
     return Ok(());
   }
   state.landed.clear();
-  save_state(&path, &state)
+  save_state(&LeaseGuard::any(), &path, &state)
 }

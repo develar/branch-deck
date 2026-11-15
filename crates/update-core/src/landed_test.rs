@@ -12,7 +12,8 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::check_baseline_update;
-use sync_core::landed::{STATE_FILE, dismiss_landed, read_report, record_sync, record_update};
+use sync_core::landed::{LANDED_FILE, dismiss_landed, read_report, record_sync, record_update};
+use sync_core::lease_state::LeaseGuard;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -61,8 +62,8 @@ fn landing(repo: &TestRepo) -> Vec<String> {
 /// What the check inside a sync records: the undismissed report
 fn record(repo: &TestRepo) -> Vec<String> {
   let check = check_baseline_update(repo.git_executor(), path(repo), "origin/master").unwrap().unwrap().check;
-  let state = repo.git(&["rev-parse", "--path-format=absolute", "--git-path", STATE_FILE]);
-  describe(&record_sync(repo.git_executor(), path(repo), Path::new(&state), &check, &GroupingInputs::default()).unwrap())
+  let state = repo.git(&["rev-parse", "--path-format=absolute", "--git-path", LANDED_FILE]);
+  describe(&record_sync(repo.git_executor(), path(repo), Path::new(&state), &check, &GroupingInputs::default(), &LeaseGuard::any()).unwrap())
 }
 
 /// `setup` with the local branches `auth` (login, logout) and `ui` (button); the ids of login and logout
@@ -126,7 +127,7 @@ fn undo_of_an_update_restores_the_report_from_before_it() {
 #[test]
 fn a_late_record_of_an_update_keeps_the_record_of_the_update_after_it() {
   let (Setup { upstream, clone }, login, logout) = auth_and_ui();
-  let state = clone.git(&["rev-parse", "--path-format=absolute", "--git-path", STATE_FILE]);
+  let state = clone.git(&["rev-parse", "--path-format=absolute", "--git-path", LANDED_FILE]);
   let landed_login = land_as(&upstream, &clone, &login, "Add login", &[("login.txt", "login\n")]);
   // update A, its record not written yet: the state is the one from before it
   let first = update(&clone).unwrap();

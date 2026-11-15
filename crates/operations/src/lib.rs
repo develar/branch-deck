@@ -102,6 +102,8 @@ pub mod witness;
 #[cfg(test)]
 mod http_budget_test;
 #[cfg(test)]
+mod lease_files_scan_test;
+#[cfg(test)]
 mod process_budget_test;
 #[cfg(test)]
 mod registry_scan_test;

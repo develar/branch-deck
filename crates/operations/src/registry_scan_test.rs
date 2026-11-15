@@ -20,21 +20,7 @@ fn only_their_writers_name_the_files_of_the_operations_registry_its_journal_and_
   let sources = production_sources();
   let mut report = Vec::new();
   for (name, allowed) in NAMES {
-    for (path, _) in allowed.iter().filter(|(path, _)| !sources.iter().any(|(source, _)| source == path)) {
-      report.push(format!("  {name}: {path} is no production source"));
-    }
-    for (path, text) in &sources {
-      let lines: Vec<usize> = text
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| !line.trim_start().starts_with("//") && line.contains(name))
-        .map(|(index, _)| index + 1)
-        .collect();
-      let expected = allowed.iter().find(|(allowed, _)| allowed == path).map_or(0, |(_, count)| *count);
-      if lines.len() != expected {
-        report.push(format!("  {name}: {path}: lines {lines:?}, but its entry says {expected}"));
-      }
-    }
+    report_names(name, allowed, &sources, |line| line.contains(name), &mut report);
   }
   assert!(
     report.is_empty(),
@@ -43,4 +29,24 @@ fn only_their_writers_name_the_files_of_the_operations_registry_its_journal_and_
      through `sync_core::baseline::fetch_baseline`",
     report.join("\n")
   );
+}
+
+/// Each line but a comment of each source of `sources` that names `name` (`names`), against the exact number of lines
+/// `allowed` gives its file (none for a file it does not name), into `report`; an entry whose file is no source too
+pub(crate) fn report_names(name: &str, allowed: &[(&str, usize)], sources: &[(String, String)], names: impl Fn(&str) -> bool, report: &mut Vec<String>) {
+  for (path, _) in allowed.iter().filter(|(path, _)| !sources.iter().any(|(source, _)| source == path)) {
+    report.push(format!("  {name}: {path} is no production source"));
+  }
+  for (path, text) in sources {
+    let lines: Vec<usize> = text
+      .lines()
+      .enumerate()
+      .filter(|(_, line)| !line.trim_start().starts_with("//") && names(line))
+      .map(|(index, _)| index + 1)
+      .collect();
+    let expected = allowed.iter().find(|(allowed, _)| allowed == path).map_or(0, |(_, count)| *count);
+    if lines.len() != expected {
+      report.push(format!("  {name}: {path}: lines {lines:?}, but its entry says {expected}"));
+    }
+  }
 }

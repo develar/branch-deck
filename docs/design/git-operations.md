@@ -2255,9 +2255,16 @@ first of `finish_return`, also of a takeover and a reclaim, and of `move_reused_
 `a_return_takes_out_the_mark_of_a_sync_in_the_lease`, `a_takeover_that_fails_leaves_no_mark_of_a_sync_in_the_slot`):
 the next lease is a worktree no sync built anything for, a window that opens it shows the Ready to Sync card, and
 nothing landed is reported of a branch it never had. A run of a session that began under one lease and ended under
-another marks nothing: the session writes the mark, not the sync, only under the epoch the run began under
-(`GitSessionHost::run`, `a_run_marks_the_worktree_synced_only_under_the_lease_it_began_under`), as the return took the
-mark of the lease before and this run synced no worktree of the new one.
+another writes nothing into the files of the lease, neither the mark nor the landed state: they have one writer
+(`sync_core::lease_state`, `lease_files_scan_test.rs`), which writes each under the guard of its caller (`LeaseGuard`),
+and the session gives its sync one that asks the epoch of the slot right before each write and holds only under the
+epoch the run began under (`SyncOptions::lease` of `GitSessionHost::run`;
+`a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under`,
+`a_sync_whose_lease_no_longer_holds_writes_no_file_of_the_lease`), as the return took the files of the lease before
+and this run synced no worktree of the new one. A write of the run before the return goes with the forget of the
+return; one between that forget and the end of the return, while the epoch still names the lease, goes with the forget
+of the get that reuses the slot, which comes after its reservation changed the epoch. Update Project, its undo and a
+dismiss are intents of the user on the worktree as it is and write at any time.
 
 **The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`, `domain_types::worktree_epoch::WorktreeEpoch`): the
 path stays too, and the app keeps what it records of a worktree by its path. The epoch is `Lease` with the id of the
