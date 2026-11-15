@@ -181,15 +181,17 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   that same rendering update: a ResizeObserver loop. Toast.Content of Base UI 1.9 set the height of its toast so; the
   same patch sets it in the next frame (an issue for upstream is drafted). Every observer of ours is made by
   `observeSize` (src/lib/observe-size.ts, `pnpm lint:arch` `resize-observer`). The update delivers by depth: after a
-  report only what is deeper than the elements it reported. A change while a callback of an observer runs (ours or a
-  library's) or in the microtasks right after it can resize any element, as the layout is the page's (a block above a
-  view that grows shrinks the view, a view hidden around a table empties its cells), so on one every element of ours no
-  deeper than the elements of the latest report leaves its observers, and is observed anew at the next task or the next
-  frame, whichever comes first (its size a frame later, as the loop would give it). A deeper one stays, the update
-  delivers it in that frame; one let go comes back at once when a report of shallower elements shows it deeper. A change
-  after the update (a task, as React renders) lets nothing go: the next update delivers it in its own frame. The page is
-  watched only while those callbacks run. An element first observed in the update, no deeper than the report (a block a
-  flushSync mounted, observed by its ref; a table mounted again), is observed only as the delivery ends.
+  report only what is deeper than the elements it reported. The page is watched from a report of an observer (ours or a
+  library's) to the end of its delivery, the next task or the next frame. A change in a callback or in the microtasks
+  right after it can resize any element, as the layout is the page's (a block above a view that grows shrinks the view,
+  a view hidden around a table empties its cells), so every element of ours no deeper than the elements of the latest
+  report leaves its observers and is observed anew as the delivery ends (its size a frame later, as the loop would give
+  it); a change later in the delivery (a flushSync of floating-ui three promises after the callback of Base UI, a
+  render of React in a task) lets go the elements it is in, so the new rows of a sync let go none of the cells of the
+  others. A deeper one stays, the update delivers it in that frame; one let go comes back at once when a report of
+  shallower elements shows it deeper. An element first observed in the delivery, no deeper than the report (a block a
+  flushSync mounted, observed by its ref; a table mounted again), is observed only as it ends. A change after the
+  delivery lets nothing go.
   The observers of the libraries go through the engine's own class with one step before their callback, which opens
   the delivery at the depth of their report as one of ours does (`watchTheLibraries`): the same class, prototype,
   methods and `instanceof`, the same entries in the same frame, none of their elements let go. An element let go so in

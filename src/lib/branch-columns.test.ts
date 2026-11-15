@@ -53,11 +53,9 @@ function deliver(elements: Element[]): void {
   ;(observer as unknown as { callback: ResizeObserverCallback }).callback(entries as unknown as ResizeObserverEntry[], observer as unknown as ResizeObserver)
 }
 
-/** The microtasks the engine runs after a callback, before the next one or the paint: the end of its delivery for the page */
+/** The microtasks the engine runs after a callback, then the next task: the delivery is over before the next update */
 async function checkpoint(): Promise<void> {
-  for (let count = 0; count < 4; count++) {
-    await Promise.resolve()
-  }
+  await new Promise(resolve => setTimeout(resolve, 5))
 }
 
 /** The observer's report of the items as they are laid out now */

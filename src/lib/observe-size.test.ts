@@ -106,6 +106,11 @@ class FakeMutationObserver {
     return this.pending.splice(0)
   }
 
+  /** Whether it observes a node: it records nothing otherwise */
+  get observing(): boolean {
+    return this.targets.length > 0
+  }
+
   /** A commit of React changed `nodes`: a record of each one under a node observed */
   commit(...nodes: Node[]): void {
     const watched = nodes.filter(changed =>
@@ -232,18 +237,41 @@ describe("observeSize", () => {
     expect(resizeObserver.observed.has(prologue.element)).toBe(true)
   })
 
-  it("leaves an element observed that a change after the update resizes: the next update delivers it in its own frame", async () => {
-    // a render of React in a task after the update: no update skips it, so the block keeps its observation, and the
-    // frame that follows reports its height
+  it("leaves an element observed that a change after the delivery resizes: the next update delivers it in its own frame", async () => {
+    // a render of React in a task after the delivery ended (the next task or frame): no update skips it, so the block keeps
+    // its observation, and the frame that follows reports its height
     const { observeSize } = await import("@/lib/observe-size")
     const prologue = element(body, "prologue")
     observeSize(() => {}).observe(prologue.element)
     const resizeObserver = FakeResizeObserver.all[0]!
     resizeObserver.report(prologue.element)
     await microtasks()
+    expect(FakeMutationObserver.current!.observing).toBe(true)
+    nextFrame()
+    // the page is watched no longer
+    expect(FakeMutationObserver.current!.observing).toBe(false)
     grow(prologue)
     await microtasks()
     expect(resizeObserver.observed.has(prologue.element)).toBe(true)
+  })
+
+  it("lets an element go that a change three microtasks after the callback resizes, still in the update", async () => {
+    // floating-ui sets the place of a popup with a flushSync three promises after the callback of the observer of Base UI:
+    // however many microtasks after a callback are of the update the delivery is in
+    const { observeSize } = await import("@/lib/observe-size")
+    const view = element(body, "view")
+    observeSize(() => {
+      void Promise.resolve()
+        .then(() => undefined)
+        .then(() => undefined)
+        .then(() => grow(view))
+    }).observe(view.element)
+    const resizeObserver = FakeResizeObserver.all[0]!
+    resizeObserver.report(view.element)
+    await microtasks()
+    expect(resizeObserver.observed.has(view.element)).toBe(false)
+    nextFrame()
+    expect(resizeObserver.observed.has(view.element)).toBe(true)
   })
 
   it("lets every element of ours go that a change anywhere in the delivery can resize, and leaves one deeper than the report observed", async () => {
@@ -341,6 +369,84 @@ describe("observeSize", () => {
     expect(rows!.observed.has(row.element)).toBe(false)
     expect(rows!.observed.has(block.element)).toBe(true)
     await microtasks()
+    nextFrame()
+    expect(rows!.observed.has(row.element)).toBe(true)
+  })
+
+  it("lets go after the microtasks of the callback only the elements a change is in, not every one of the depth", async () => {
+    // a render of React in a task after the update, before the delivery ends, mounts a row: the cells of the other rows
+    // keep their observations, so a sync of many rows lets go no cell of every row
+    const { observeSize } = await import("@/lib/observe-size")
+    const table = element(body, "table")
+    const cells = Array.from({ length: 3 }, (_, index) => element(table.element as unknown as FakeNode, `cell-${index}`))
+    const ofCells = observeSize(() => {})
+    for (const cell of cells) {
+      ofCells.observe(cell.element)
+    }
+    ofCells.observe(table.element)
+    const resizeObserver = FakeResizeObserver.all[0]!
+    resizeObserver.report(...cells.map(cell => cell.element))
+    await microtasks()
+    grow(cells[0]!)
+    await microtasks()
+    expect(cells.map(cell => resizeObserver.observed.has(cell.element))).toEqual([false, true, true])
+    // the table, above the change
+    expect(resizeObserver.observed.has(table.element)).toBe(false)
+  })
+
+  /**
+   * A view whose callback inserts a row (`mount` runs the insertion: at once, or in a microtask after it), and an observer
+   * of the row that observes it as its ref does; after the delivery of the view, whether the row is observed
+   */
+  const rowMountedBy = async (mount: (insert: () => void) => void) => {
+    const { observeSize } = await import("@/lib/observe-size")
+    const view = element(body, "view")
+    let row: { element: Element } | null = null
+    let late: FakeResizeObserver | null = null
+    observeSize(() =>
+      mount(() => {
+        row = element(body, "row")
+        commit(row.element as unknown as Node)
+        observeSize(() => {}).observe(row.element)
+        late = FakeResizeObserver.all.at(-1)!
+      }),
+    ).observe(view.element)
+    FakeResizeObserver.all[0]!.report(view.element)
+    await microtasks()
+    return () => late!.observed.has(row!.element)
+  }
+
+  it("observes a row a callback inserted and first observed only as the delivery ends", async () => {
+    const observed = await rowMountedBy(insert => insert())
+    expect(observed()).toBe(false)
+    await nextTask()
+    expect(observed()).toBe(true)
+  })
+
+  it("observes a row a commit of React inserted and first observed in a microtask after the callback only as the delivery ends", async () => {
+    const observed = await rowMountedBy(insert => queueMicrotask(insert))
+    expect(observed()).toBe(false)
+    nextFrame()
+    expect(observed()).toBe(true)
+  })
+
+  it("observes an element first observed microtasks after the callback, with no change, only as the delivery ends", async () => {
+    // an effect three promises after the callback (as floating-ui's flushSync after the observer of Base UI) observes an
+    // element in place: still in the update, with no change of its own to let it go
+    const { observeSize } = await import("@/lib/observe-size")
+    const view = element(body, "view")
+    const row = element(body, "row")
+    const ofRows = observeSize(() => {})
+    observeSize(() => {
+      void Promise.resolve()
+        .then(() => undefined)
+        .then(() => undefined)
+        .then(() => ofRows.observe(row.element))
+    }).observe(view.element)
+    const [rows, ofView] = FakeResizeObserver.all
+    ofView!.report(view.element)
+    await microtasks()
+    expect(rows!.observed.has(row.element)).toBe(false)
     nextFrame()
     expect(rows!.observed.has(row.element)).toBe(true)
   })

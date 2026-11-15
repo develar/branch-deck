@@ -6,18 +6,20 @@
  * a report it takes only those deeper than the shallowest element it reported, and an observation resized at that depth
  * or above is one it skips, a ResizeObserver loop.
  *
- * - A change in the rendering update, in a callback of an observer (ours or a library's) or in the microtasks right after
- *   it, can resize any element: the layout is the page's (a block above a view that grows shrinks the view, a view hidden
- *   around a table empties its cells). On such a change every element of ours no deeper than the elements of the latest
- *   report leaves its observers at once and is observed anew as the delivery ends, at the next task or the next frame,
- *   whichever comes first: its size a frame later, as the loop would have it; one the change left at its size is reported
- *   again at that size, which changes nothing. No layout is read to tell them apart, which would add one to each callback
- *   that changes the page; the releases do not grow with the rows (on the 141 rows of `branch_table_large` a sync that
- *   changes nothing lets nothing go, the menu of a row observes its one element). An element first observed then, no deeper,
- *   is observed only as the delivery ends (a block mounted by a flushSync in a callback, a table mounted again). A deeper
- *   element stays: the update delivers it at its depth, in the frame of its change; one let go comes back as soon as a
- *   report of shallower elements shows it deeper than they are. A change after the update (a task, as React renders)
- *   lets nothing go: the next update delivers it, in its own frame. The page is watched only while such a callback runs.
+ * - The page is watched from a report of an observer (ours or a library's) to the end of its delivery, the next task or
+ *   the next frame, whichever comes first. A change in a callback or in the microtasks right after it can resize any
+ *   element: the layout is the page's (a block above a view that grows shrinks the view, a view hidden around a table
+ *   empties its cells), so every element of ours no deeper than the elements of the latest report leaves its observers
+ *   at once and is observed anew as the delivery ends: its size a frame later, as the loop would have it; one the change
+ *   left at its size is reported again at that size, which changes nothing (no layout is read to tell them apart, which
+ *   would add one to each callback that changes the page). A change later in the delivery lets go the elements it is in:
+ *   one of the update however many promises after a callback (floating-ui's flushSync after the observer of Base UI), or
+ *   a render of React in a task before the delivery ends, whose new rows let go only the elements above them, never the
+ *   cells of every row (docs/design/rendering-performance.md, "The observers of sizes"). An element first observed in
+ *   the delivery, no deeper, is observed only as it ends (a block a flushSync in a callback mounted, observed by its ref;
+ *   a table mounted again; an element in place an effect observes). A deeper element stays: the update delivers it at
+ *   its depth, in the frame of its change; one let go comes back as soon as a report of shallower elements shows it
+ *   deeper than they are. A change after the delivery lets nothing go: the next update delivers it, in its own frame.
  * - The observers of the libraries (Base UI, the panels) report through the engine's `ResizeObserver` with one step
  *   before their callback (`watchTheLibraries`): their report opens the delivery at its depth as one of ours does, so a
  *   change of their callback that resizes an element of ours lets it go. Passive: theirs is the engine's class, prototype
@@ -87,8 +89,8 @@ const observing = new Map<Element, Set<SizeObserver>>()
  * observed element as it found it; null between deliveries
  */
 let delivery: { depth: number; readonly depths: Map<Element, number>; readonly reported: Set<Element> } | null = null
-/** A callback of an observer runs, or the microtasks right after it: a change now is one of the rendering update */
-let updating = false
+/** A callback of an observer runs, or the microtasks right after it: a change now can resize any element */
+let spanning = false
 /** That callback is one of ours: a change of it counts toward a cycle */
 let delivering = false
 /** The end of the delivery is asked for */
@@ -101,7 +103,7 @@ let frameRequested = false
 /** The frames within the last `CYCLE_FRAMES` whose delivery let each element go, and whether its cycle was logged */
 const cycles = new Map<Element, { frames: number[]; logged: boolean }>()
 
-/** The changes of the page while a callback of an observer runs */
+/** The changes of the page from a report of an observer to the end of the delivery */
 const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(records => settle(records))
 /** What can resize an element: a node added or removed, a text, a class, a style, hidden */
 const CHANGES: MutationObserverInit = { subtree: true, childList: true, characterData: true, attributeFilter: ["class", "style", "hidden"] }
@@ -205,9 +207,13 @@ function openDelivery(entries: readonly ResizeObserverEntry[]): NonNullable<type
   return open
 }
 
-/** A callback of an observer begins, `own` one of ours: the page is watched for its changes until it and its microtasks end */
+/**
+ * A callback of an observer begins, `own` one of ours: the page is watched for its changes until the delivery ends, as
+ * however many microtasks after the callback are of the update (a flushSync of floating-ui three promises after the
+ * callback of Base UI)
+ */
 function beforeCallback(own: boolean): void {
-  updating = true
+  spanning = true
   delivering = own
   if (mutations !== null && !watching && typeof document !== "undefined") {
     mutations.observe(document.documentElement, CHANGES)
@@ -215,18 +221,14 @@ function beforeCallback(own: boolean): void {
   }
 }
 
-/** The changes of a callback, then those of the microtasks it left (a commit of React that waited), are of the update */
+/** The changes of a callback, then those of the microtasks it left (a commit of React that waited), count for its owner */
 function afterCallback(): void {
   settle(mutations?.takeRecords() ?? [])
   queueMicrotask(() =>
     queueMicrotask(() => {
       settle(mutations?.takeRecords() ?? [])
-      updating = false
+      spanning = false
       delivering = false
-      if (watching) {
-        mutations?.disconnect()
-        watching = false
-      }
     }),
   )
 }
@@ -242,15 +244,19 @@ function depthIn(open: NonNullable<typeof delivery>, element: Element): number {
 }
 
 /**
- * The page changed (`records`, watched only while a callback of an observer runs): every observed element no deeper than
- * the elements of the latest report leaves its observers, as the change may have resized it
+ * The page changed (`records`, watched from a report to the end of its delivery), every observed element no deeper than
+ * the elements of the latest report that the change may have resized leaves its observers: in a callback of an observer
+ * or the microtasks right after it, any (the layout is the page's); later, the elements the change is in (a change of the
+ * update three promises after a callback; a render of React in a task after the update, whose new rows let go only the
+ * elements above them, never the cells of every row)
  */
 function settle(records: readonly MutationRecord[]): void {
   const open = delivery
   if (open === null || records.length === 0) {
     return
   }
-  for (const element of observing.keys()) {
+  const candidates = spanning ? observing.keys() : changedAbove(records)
+  for (const element of candidates) {
     const depth = depthIn(open, element)
     if (!released.has(element) && depth <= open.depth) {
       // after a report of it in this update, by a callback of ours: what a cycle is made of. One not reported in it yet
@@ -258,6 +264,21 @@ function settle(records: readonly MutationRecord[]): void {
       release(element, depth, delivering && open.reported.has(element))
     }
   }
+}
+
+/** The observed elements at or above the nodes `records` changed */
+function changedAbove(records: readonly MutationRecord[]): Set<Element> {
+  const above = new Set<Element>()
+  const walked = new Set<Node>()
+  for (const record of records) {
+    for (let current: Node | null = record.target; current !== null && !walked.has(current); current = parentOf(current)) {
+      walked.add(current)
+      if (observing.has(current as Element)) {
+        above.add(current as Element)
+      }
+    }
+  }
+  return above
 }
 
 /** `element` leaves its observers until the delivery ends */
@@ -311,6 +332,11 @@ function endDelivery(): void {
   }
   ending = false
   delivery = null
+  if (watching) {
+    // what changed since is the next update's to report: every element is observed anew now
+    mutations?.disconnect()
+    watching = false
+  }
   for (const [element, release] of released) {
     if (release.ofOurs) {
       countCycle(element, release)
@@ -476,7 +502,7 @@ export class SizeObserver {
     by.add(this)
     // in the rendering update, no deeper than its report: the update would skip this first observation
     const open = delivery
-    if (updating && open !== null) {
+    if (open !== null) {
       const depth = depthIn(open, element)
       if (depth <= open.depth) {
         this.gone.add(element)
