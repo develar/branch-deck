@@ -15,6 +15,7 @@ import {
   verifyBranchState,
   verifyCommitCount,
 } from "../helpers/branch-helpers"
+import { boxOf } from "../helpers/header-helpers"
 import {
   availableRobots,
   missingApprovals,
@@ -139,6 +140,14 @@ async function setupOlderWithPushedCommits(
 /** The commit of the remote branch of JIRA-456 */
 async function remoteTipOfJira(repo: TestRepositoryBuilder): Promise<string | undefined> {
   return (await repo.getRemoteBranches())[virtualBranch("JIRA-456")]
+}
+
+/** The test id of the control at the middle of `box`, where a click left the pointer */
+function underThePointer(page: Page, box: { x: number; y: number; width: number; height: number }): Promise<string | null> {
+  return page.evaluate(
+    ([x, y]) => document.elementFromPoint(x!, y!)?.closest("[data-testid=safe-push-button], [data-testid=stop-waiting]")?.getAttribute("data-testid") ?? null,
+    [box.x + box.width / 2, box.y + box.height / 2],
+  )
 }
 
 /**
@@ -335,6 +344,39 @@ test.describe("Patronus actions", () => {
     expect(executes).toHaveLength(2)
     await expectPushedToRemote(repo, ["JIRA-456"])
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
+  })
+
+  // the step track stands at the end of the row: Stop Waiting that came on the right of the button moved it about 100 px
+  // from under the pointer that pressed it, and came there itself; on its left it moves nothing that pointer is on
+  test("should show Stop Waiting where the Safe Push button stays under the pointer that pressed it, its hover saying whom it waits for", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const held = await holdRemotePushes(repo)
+    await repo.holdRepositoryLock(true)
+    const button = slotSafePush(page, "JIRA-456")
+    const before = await boxOf(button)
+    // the click rests the pointer on the middle of the button
+    await button.click()
+    const stop = findBranchRow(page, "JIRA-456").getByRole("button", { name: "Stop Waiting" })
+    await expect(stop).toBeVisible()
+    await expect(button).toHaveAccessibleName(WAITING_FOR_HOLDER)
+    expect(await boxOf(button)).toEqual(before)
+    expect(await underThePointer(page, before), "the button is under the pointer, not Stop Waiting").toBe("safe-push-button")
+    // the next hover of the button says whom it waits for
+    await page.mouse.move(0, 0)
+    await button.hover()
+    await expect(openTooltip(page)).toHaveText(WAITING_FOR_HOLDER)
+
+    // the holder is done: Stop Waiting goes as the push goes, and the button stays where it was
+    await repo.holdRepositoryLock(false)
+    await held.arrived()
+    await expect(stop).toHaveCount(0)
+    expect(await boxOf(button)).toEqual(before)
+    await runAndWaitForAnswer(page, "execute", () => held.release())
+    await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
   })
 
   test("should run two Safe Pushes and a move started while another process holds the repository lock once it released it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

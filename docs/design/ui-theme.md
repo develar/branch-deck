@@ -579,7 +579,9 @@ shows.
 - **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The labels of
   the steps fit (`openspec/specs/branch/next-step/spec.md`); the cap is a backstop. A step with actions beside its slot (`data-beside-slot`:
   Open in Patronus and Forget This Start of a start whose answer was lost, Stop Waiting of a wait for the lock) is as
-  wide as they are, as buttons don't truncate: capped, they lay over the "⋯" of the row, which took their clicks.
+  wide as they are, as buttons don't truncate: capped, they lay over the "⋯" of the row, which took their clicks. They
+  come before the button: the track stands at the end of the row, so after it they moved the button about 100 px from
+  under the pointer that pressed it, and Stop Waiting came there (`fixedEdge` of `SafePushButton`).
 - **Late facts move no column**: the answers of the remote come after the first rows (the pull request chips, the
   steps, the robots), so until they are in ([Facts without an answer](../../openspec/specs/branch/next-step/spec.md#facts-without-an-answer))
   each track is at least as wide as once they were in the last time (the floors of `ColumnRegistry.setLayout`, the

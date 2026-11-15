@@ -50,6 +50,13 @@ export interface SafePushButtonProps {
    * it pushes too) its accessible name and its hover
    */
   compact?: boolean
+  /**
+   * The edge of its place that stands where it is: the actions beside it (Stop Waiting, those of a start whose answer was
+   * lost) come on the other side, so they move nothing under the pointer that pressed it. `end` in the step track of a
+   * row or a header, which stand at the end of the row, and in the footer of the preview; `start` among the buttons of
+   * the robot details, which start their line
+   */
+  fixedEdge?: "end" | "start"
   className?: string
 }
 
@@ -85,6 +92,7 @@ export function SafePushButton({
   placement = "row",
   wholeStack,
   compact = false,
+  fixedEdge = "end",
   className,
 }: SafePushButtonProps) {
   const closePreview = useClosePreview()
@@ -200,15 +208,23 @@ export function SafePushButton({
     </Tooltip>
   )
   // the actions beside the slot are no label the cap of the step track truncates: the track takes their width. One
-  // wrapper whether they are there or not: the button keeps its element, its focus and its hover as they come and go
+  // wrapper whether they are there or not: the button keeps its element, its focus and its hover as they come and go.
+  // On the side away from the edge that stands: after the button in the track of a row, which stands at the end of the
+  // row, they moved the button about 100 px from under the pointer that pressed it, and Stop Waiting came there
   const beside = lostItems.length > 0 || stopWaiting !== null
-  return (
-    <span className="inline-flex max-w-full min-w-0 items-center gap-1" data-beside-slot={beside ? "" : undefined}>
-      {button}
+  const besideItems = (
+    <>
       {lostItems.map(lostItem => (
         <MenuItemButton key={lostItem.id} item={lostItem} variant="outline" data-testid={lostItem.id} />
       ))}
       {lostItems.length === 0 && stopWaiting !== null && <MenuItemButton item={stopWaiting} variant="outline" data-testid="stop-waiting" />}
+    </>
+  )
+  return (
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1" data-beside-slot={beside ? "" : undefined}>
+      {fixedEdge === "end" && besideItems}
+      {button}
+      {fixedEdge === "start" && besideItems}
     </span>
   )
 }

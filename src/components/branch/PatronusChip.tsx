@@ -278,7 +278,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
         // the form is below the row: an open branch preview closes first (`SafePushButton`)
         leading={
           needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && stackRoot === undefined ? (
-            <SafePushButton branch={branch} variant="outline" />
+            <SafePushButton branch={branch} variant="outline" fixedEdge="start" />
           ) : null
         }
       />
