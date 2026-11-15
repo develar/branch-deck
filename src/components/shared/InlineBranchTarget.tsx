@@ -147,7 +147,6 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
   return (
     <div className="relative overflow-hidden" data-testid="inline-branch-target">
       {isMoving && <InlineRowProgressBar />}
-      <LockWaitNotice surface={MOVE_TARGET_SURFACE} />
       <InlineInputDialog
         ref={dialogRef}
         title={`Move ${commitCount} to a branch`}
@@ -186,6 +185,8 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
         }
         afterControls={
           <>
+            {/* below the line of the input and its buttons, which it moves from under no pointer */}
+            <LockWaitNotice surface={MOVE_TARGET_SURFACE} />
             {targets.length > 0 && (
               <div className="flex flex-col gap-2" data-testid="branch-target-chips">
                 <p className="text-xs text-muted-foreground">Existing branches:</p>

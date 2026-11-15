@@ -38,6 +38,7 @@ export function InlineDropConfirm({ commits, onCancel, onDropped }: InlineDropCo
       submitIcon={<Trash2Icon data-icon="inline-start" />}
       submitVariant="destructive"
       focusSubmit
+      notice={<LockWaitNotice surface={DROP_SURFACE} className="mr-auto" />}
       onCancel={onCancel}
       onSubmit={() => {
         void dropCommits(commits, DROP_SURFACE).then(dropped => {
@@ -66,7 +67,6 @@ export function InlineDropConfirm({ commits, onCancel, onDropped }: InlineDropCo
           drop. Undo brings them back. A pushed branch needs a push again, and its open pull request keeps the commits until then.
         </p>
       </Callout>
-      <LockWaitNotice surface={DROP_SURFACE} />
     </InlineForm>
   )
 }

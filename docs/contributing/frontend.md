@@ -169,6 +169,12 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   never moves (`frozenMenuGroups` in `MenuItems`: an item that leaves stays disabled in its place, one that comes shows
   at the next open, the openings counted by the menu roots, `useMenuOpenings`), so only a scroll of the menu moves a
   trigger from under the pointer there; an item that takes the place of another shares its `slot`.
+- **What comes late beside a hovered control goes where it moves nothing**: the header stands at its end, so a control
+  that comes in it goes on the left of the controls it would move (Stop Waiting of Update); a lock wait of a form or a
+  popover (`LockWaitNotice`) comes on the line of its buttons before them, or below them, never on a line of its own
+  above them; the first push of a repository on no service comes with its row, its facts answered from git. Each case
+  has an E2E test: the pressed control keeps its place, its popup open (`repository-lock.spec.ts`,
+  `update-project.spec.ts`, `late-facts.spec.ts`)
 - **A popup that goes took the hover of its trigger** (Base UI 1.9): each popup part shares the timers of its trigger's
   hover (`useHoverInteractionSharedState`) and cleared them as it unmounted at the end of its exit. The pointer back over
   the trigger of a popup closed otherwise than by its hover (its view hid, a press of an item) started a delay that the

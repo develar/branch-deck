@@ -21,6 +21,11 @@ export interface InlineFormProps {
   showActions?: boolean
   /** Replaces the default Cancel/Submit buttons */
   actions?: ReactNode
+  /**
+   * On the line of the default buttons, before them (`LockWaitNotice` with `mr-auto`): a line of its own above them moved
+   * the buttons from under the pointer that had pressed one
+   */
+  notice?: ReactNode
   cancelText?: string
   submitText?: string
   submitIcon?: ReactNode
@@ -58,6 +63,7 @@ export function InlineForm({
   dataTestId,
   className,
   contentClassName = "flex max-w-3xl flex-col gap-4",
+  notice,
   children,
   showActions = true,
   actions,
@@ -202,6 +208,7 @@ export function InlineForm({
             {actions ??
               (showActions && (
                 <div className="flex items-center justify-end gap-2 pt-2">
+                  {notice}
                   <Button size="xs" variant="ghost" onClick={onCancel}>
                     {cancelText}
                   </Button>

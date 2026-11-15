@@ -98,8 +98,9 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
         </div>
       )}
 
-      <LockWaitNotice surface={surface} />
-      <div className="flex justify-end gap-2">
+      {/* on the line of the buttons, before them: a line of its own above them moved Squash from under the pointer */}
+      <div className="flex items-center justify-end gap-2">
+        <LockWaitNotice surface={surface} className="mr-auto" />
         <Button size="xs" variant="ghost" disabled={isSquashing} onClick={onClose}>
           Cancel
         </Button>

@@ -354,7 +354,7 @@ no record names MUST refuse it after 10 s.
 
 A move started from a menu MUST show its spinner on the "⋯" of its row, whose hover says whom it waits for and whose
 click offers Stop Waiting (`cancel_operation`), which ends the wait with nothing moved; the surface that started it
-MUST say the same.
+MUST say the same, where it moves no button the pointer pressed: on the line of its buttons, before them, or below them.
 
 #### Scenario: The wait of a move started from a menu
 - **WHEN** a move started from a menu waits for the lock
@@ -367,8 +367,10 @@ MUST say the same.
 #### Scenario: The surface that started it says the same
 - **WHEN** a rewrite of the engine waits
 - **THEN** the surface that started it says whom it waits for, and its Stop Waiting stops the wait by its operation
+- **AND** the notice comes where the button the pointer pressed stays: on the line of the buttons of the drop and of the squash of the fixups, before them, below the input of the move to a branch
   [@test] src/lib/rewrite-run.test.ts (`shows whom a rewrite of the engine waits for and stops the wait by its operation`)
   [@test] src/lib/rewrite-run.test.ts (`says behind which rewrite of this window it waits in the queue of the session`)
+  [@test] tests/e2e/repository/repository-lock.spec.ts (`should say whom a drop waits for on the line of its buttons, Drop under the pointer, and stop it`, `should say whom a move to a branch waits for below its input, Move under the pointer, and stop it`, `should say whom a squash of fixups waits for on the line of its buttons, Squash under the pointer, and stop it`)
 
 ### Requirement: Move operation: Once the holder released the lock the move runs on what it left
 

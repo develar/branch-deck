@@ -11,11 +11,13 @@ import {
   getPushButton,
   verifyCommitCount,
 } from "../helpers/branch-helpers"
+import { boxOf } from "../helpers/header-helpers"
+import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { expectPushedToast, remotePushes } from "../helpers/push-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, openSubmenu, selectCommit } from "../helpers/selection-helpers"
 import { runAndWaitForSync, syncFromMenu, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordCommand, recordRewrites, expectClosed, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
+import { animationsEnded, recordCommand, recordRewrites, expectClosed, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -220,5 +222,65 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await expectPushedToast(page, "JIRA-456")
     expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
     await expectNothingToPush(row)
+  })
+})
+
+/**
+ * `button` of `form` pressed with the pointer while another process holds the repository lock: whom the rewrite waits
+ * for comes in `form` where it moves the button from under the pointer by nothing (`LockWaitNotice`, on the line of the
+ * buttons before them, or below them; a line of its own above them moved them), and its Stop Waiting stops the rewrite
+ */
+async function expectWaitBesideItsButton(page: Page, form: Locator, button: Locator, canceled: string): Promise<void> {
+  await animationsEnded(form)
+  const before = await boxOf(button)
+  const cancels = await recordCommand(page, "cancel_operation")
+  await button.click()
+  const notice = form.getByTestId("lock-wait-notice")
+  await expect(notice).toContainText(WAITING)
+  // where it stood: a spinner that came in place of no icon widens it to its end, the pressed point still on it
+  const after = await boxOf(button)
+  expect({ x: after.x, y: after.y, height: after.height }).toEqual({ x: before.x, y: before.y, height: before.height })
+  expect(after.width).toBeGreaterThanOrEqual(before.width)
+  await runAndWaitForAnswer(page, "execute", () => notice.getByRole("button", { name: "Stop Waiting" }).click())
+  await expect(page.getByText(canceled)).toBeVisible()
+  expect(cancels).toHaveLength(1)
+}
+
+test.describe("A wait for the lock beside the button that started it", () => {
+  test("should say whom a drop waits for on the line of its buttons, Drop under the pointer, and stop it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    await repo.holdRepositoryLock(true)
+    await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
+    await clickContextMenuItem(page, "Drop Commit…")
+    const form = page.getByTestId("drop-commits-form")
+    await expectWaitBesideItsButton(page, form, form.getByRole("button", { name: "Drop Commit" }), "Canceled dropping 1 commit before it started")
+    await verifyCommitCount(findBranchRow(page, ISSUE), 3)
+    await repo.holdRepositoryLock(false)
+  })
+
+  test("should say whom a move to a branch waits for below its input, Move under the pointer, and stop it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    await repo.holdRepositoryLock(true)
+    await selectCommit(getBranchCommitRow(page, ISSUE, "Add parser"))
+    await getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions").getByRole("button", { name: "Move to…" }).click()
+    const input = inlineBranchCreator.getInput(page)
+    await expect(input).toBeFocused()
+    await page.keyboard.type("docs")
+    const form = inlineBranchCreator.getPortal(page)
+    await expectWaitBesideItsButton(page, form, form.getByRole("button", { name: /^(Loading )?Move$/ }), "Canceled moving 1 commit to docs before it started")
+    await verifyCommitCount(findBranchRow(page, "docs"), 1)
+    await repo.holdRepositoryLock(false)
+  })
+
+  test("should say whom a squash of fixups waits for on the line of its buttons, Squash under the pointer, and stop it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("fixups")
+    await syncAndWaitForBranches()
+    await repo.holdRepositoryLock(true)
+    const auth = findBranchRow(page, "auth")
+    await auth.getByRole("button", { name: "1 fixup" }).click()
+    const popover = page.getByTestId("squash-fixups-popover")
+    await expectWaitBesideItsButton(page, popover, popover.getByTestId("squash-fixups-confirm"), "Canceled squashing the fixups before it started")
+    await verifyCommitCount(auth, 3)
+    await repo.holdRepositoryLock(false)
   })
 })
