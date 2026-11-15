@@ -772,13 +772,18 @@ fn branch_names(view: &RepositoryView) -> Vec<&str> {
 /// A repository with a commit of `auth` ahead of its origin, a slot of a lease pool under the lease `lease-a`
 /// (`TestLeases`), its session opened by a window: the repository, the key, the leases and the sessions
 async fn opened_under_lease_a() -> (TestRepo, SessionKey, Arc<TestLeases>, Sessions) {
+  opened_under(lease("lease-a")).await
+}
+
+/// `opened_under_lease_a`, the slot under the epoch `epoch` as the session opens
+async fn opened_under(epoch: WorktreeEpoch) -> (TestRepo, SessionKey, Arc<TestLeases>, Sessions) {
   let repo = ahead_of_origin(&["(auth) Add auth"]);
   let key = SessionKey {
     worktree: repo.path_str().to_string(),
     prefix: "test".to_string(),
   };
   let leases = Arc::new(TestLeases::default());
-  *leases.epoch.lock().unwrap() = lease("lease-a");
+  *leases.epoch.lock().unwrap() = epoch;
   let environment = TestEnvironment {
     leases: Arc::clone(&leases),
     ..TestEnvironment::default()
@@ -885,19 +890,7 @@ async fn a_refused_run_and_a_stamp_at_once_open_the_session_anew_once() {
 /// unknown), as the slot may hold another lease than the one it opened under
 #[tokio::test]
 async fn a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease() {
-  let repo = ahead_of_origin(&["(auth) Add auth"]);
-  let key = SessionKey {
-    worktree: repo.path_str().to_string(),
-    prefix: "test".to_string(),
-  };
-  let leases = Arc::new(TestLeases::default());
-  *leases.epoch.lock().unwrap() = WorktreeEpoch::Unknown;
-  let environment = TestEnvironment {
-    leases: Arc::clone(&leases),
-    ..TestEnvironment::default()
-  };
-  let (sessions, _clock) = with_environment(GitCommandExecutor::new(), environment);
-  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  let (repo, key, leases, sessions) = opened_under(WorktreeEpoch::Unknown).await;
   let landed_state = sync_core::lease_state::LeasePaths::of_worktree(repo.path()).unwrap().landed();
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
   assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "no mark while the epoch is unknown");
