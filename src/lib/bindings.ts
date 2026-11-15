@@ -339,6 +339,11 @@ export const commands = {
 	 */
 	addCompanion: (params: AddCompanionParams) => typedError<RepositoryConfig | null, ApiError>(__TAURI_INVOKE("add_companion", { params })),
 	/**
+	 *  Settings → Landing of a companion: Unlink takes back its side of a half link (its `branchdeck.primary`), as
+	 *  `brd companion unlink`; answers the settings read again
+	 */
+	unlinkPrimary: (params: UnlinkPrimaryParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("unlink_primary", { params })),
+	/**
 	 *  Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
 	 *  on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
 	 *  settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.
@@ -10597,6 +10602,11 @@ export type UnknownReadinessReason =
 "approvalsNotEvaluated" | 
 /**  The branch has too many commits to check, as in the IDE; the robot checks them anyway */
 "skipped";
+
+export type UnlinkPrimaryParams = {
+	/**  The companion repository whose side of a half link goes */
+	repositoryPath: string,
+};
 
 export type UnlinkPullRequestParams = {
 	repositoryPath: string,

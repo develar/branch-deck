@@ -712,9 +712,12 @@ by the name of its directory and the other companions of the primary by their na
 takes it back, `brd companion list` prints them; `brd status --companions` adds the status of each (`companions`:
 `name`, `path`, its `status`, or the `error` why it can not be read). It prints `companions` (`name`, `path`, `problem` when it can not be
 read, `link_problem` when its link is half: it names another primary, or none), `primary` (of a companion),
-`primary_problem` (the primary is gone, or does not list it) and `changed`. A half link (a write cut short, a `git
+`primary_problem` (the primary is gone, can not be read, or does not list it) and `changed`. In a companion,
+`brd companion unlink` takes back its side of such a half link (its `branchdeck.primary`); refused while the primary
+lists it (`brd companion remove` there). A half link (a write cut short, a `git
 config` by hand) is repaired by the next write of the pair: `brd companion add` links both sides again (and takes over
-a companion whose primary is gone or does not list it), `remove` unlists it here and unsets the companion's side only
+a companion whose primary does not list it; one whose primary is gone or can not be read, a disk not mounted now, is
+refused: unlink it in the companion first), `remove` unlists it here and unsets the companion's side only
 while it names this repository. Each write reads and writes both configs under the companion locks of both
 repositories (`branch-deck/companions.lock` of each git directory), so two writes of one repository from two
 processes run one after the other.
@@ -724,7 +727,8 @@ in `landing_needs`), and `brd status` still answers.
 Refusals, nothing written: `invalid_arguments` (exit 2): <path> is no directory or no git repository, the name is no
 name (letters, digits, -, _ and .), a companion has one primary, a companion has no companions, a repository is no
 companion of itself, a name of another companion here (remove it first), a companion listed here under another
-name, or `remove` names no companion. `locked` (exit 3): another process held a companion lock past the wait (10 s);
+name, a companion whose primary can not be read, `remove` names no companion, or `unlink` in a repository that names
+no primary or whose primary lists it. `locked` (exit 3): another process held a companion lock past the wait (10 s);
 retry once it is done.
 ";
 

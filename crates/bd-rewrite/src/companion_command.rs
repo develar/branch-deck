@@ -12,7 +12,7 @@ use history_rewrite::repository_lock::RepositoryLocked;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::Path;
-use sync_core::companion_write::write_companion;
+use sync_core::companion_write::{unlink_primary, write_companion};
 use sync_core::companions::directory_name;
 use sync_core::repository_config::{CompanionSetting, read_repository_config};
 
@@ -28,6 +28,9 @@ pub enum CompanionCommand {
   Add(CompanionAddArgs),
   /// Remove the companion <name>: its key here, and the primary of the companion while it names this repository
   Remove(CompanionRemoveArgs),
+  /// In a companion, unlink the primary it names (its `branchdeck.primary`): the side of a half link on it, its primary
+  /// gone, not readable or not listing it; refused while the primary lists it (remove it there)
+  Unlink,
   /// List the companions of this repository, or its primary when it is a companion. Read only
   List,
 }
@@ -90,6 +93,12 @@ pub fn companion(context: &RepoContext, args: &CompanionArgs) -> Result<Companio
       write(context, &remove.name, None)?;
       true
     }
+    CompanionCommand::Unlink => {
+      let unlinked = unlink_primary(&context.git, &context.repository);
+      context.forget_config();
+      unlinked.map_err(|error| refusal(&error))?;
+      true
+    }
     CompanionCommand::List => false,
   };
   let config = read_repository_config(&context.git, &context.repository)?;
@@ -108,10 +117,16 @@ pub fn companion(context: &RepoContext, args: &CompanionArgs) -> Result<Companio
 fn write(context: &RepoContext, name: &str, path: Option<&str>) -> Result<(), CliError> {
   let written = write_companion(&context.git, &context.repository, name, path);
   context.forget_config();
-  written.map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
+  written.map_err(|error| refusal(&error))
+}
+
+/// The refusal of a write of a companion: `locked` for a companion lock another process held past the wait, else
+/// `invalid_arguments` with the reason
+fn refusal(error: &anyhow::Error) -> CliError {
+  match error.downcast_ref::<RepositoryLocked>() {
     Some(locked) => CliError::new(ErrorCode::Locked, locked.to_string()),
     None => CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")),
-  })
+  }
 }
 
 fn summary(setting: CompanionSetting) -> CompanionSummary {

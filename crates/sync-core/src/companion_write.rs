@@ -15,8 +15,10 @@
 //! a problem of the link that Settings and `brd companion list` show on the side that has it
 //! (`companions::half_link_problem`, `companions::primary_link_problem`), and the next add or removal of the pair
 //! repairs it: an add of a companion that names this primary already writes the key of the primary, an add of a
-//! companion whose primary does not list it (or is gone) takes it over, a removal unsets the side of the companion only
-//! while it names this primary.
+//! companion whose primary can be read and does not list it takes it over, a removal unsets the side of the companion
+//! only while it names this primary. A primary that can not be read (its path gone, a disk not mounted now, a config
+//! that fails to read) is unknown, not absent: an add of its companion elsewhere is refused with how to unlink it, and
+//! the companion unlinks it on its side (`unlink_primary`, Unlink of its Settings, `brd companion unlink`).
 
 use crate::companions::same_path;
 use crate::config_snapshot::ConfigSnapshot;
@@ -147,9 +149,16 @@ pub fn write_companion_under(git: &GitCommandExecutor, repository_path: &str, na
   let named_already = before.as_deref().is_some_and(|other| same_path(Path::new(other), Path::new(&primary)));
   match before.as_deref() {
     Some(_) if named_already => {}
-    // a half link of another primary that does not list the companion: taken over
-    Some(other) if lists(git, other, companion) => bail!("{companion} is a companion of {other} already: a companion has one primary"),
-    _ => run_config_write(git, companion, "--local", PRIMARY_CONFIG_KEY, Some(&primary))?,
+    Some(other) => match primary_says(git, other, companion) {
+      PrimarySays::Lists => bail!("{companion} is a companion of {other} already: a companion has one primary"),
+      // an unmounted disk, a config that fails to read: the link there may stand, and a take-over would lose it
+      PrimarySays::Unknown(why) => bail!(
+        "{companion} names {other} as its primary, which can not be read ({why}): remove it there once {other} can be read, or unlink it in the Settings of {companion} (brd companion unlink there)"
+      ),
+      // a half link of a primary that does not list the companion: taken over
+      PrimarySays::Unlisted => run_config_write(git, companion, "--local", PRIMARY_CONFIG_KEY, Some(&primary))?,
+    },
+    None => run_config_write(git, companion, "--local", PRIMARY_CONFIG_KEY, Some(&primary))?,
   }
   if let Err(error) = run_config_write(git, repository_path, "--local", &key, Some(companion)) {
     // the side named just now goes back to what it was
@@ -170,12 +179,59 @@ fn names(git: &GitCommandExecutor, companion: &str, primary: &str) -> Result<boo
   )
 }
 
-/// Whether the primary at `primary` lists the repository at `companion` among its companions: a primary that is gone or
-/// no git repository lists none, one whose config can not be read lists it, so it is never taken over by a read that
-/// failed
-fn lists(git: &GitCommandExecutor, primary: &str, companion: &str) -> bool {
-  companion_problem(primary).is_none()
-    && ConfigSnapshot::read(git, primary).map_or(true, |config| config.companions().values().any(|path| same_path(Path::new(path), Path::new(companion))))
+/// What the primary at `primary` says of the repository at `companion`
+#[derive(Debug, PartialEq, Eq)]
+enum PrimarySays {
+  /// It lists it among its companions: the link stands on both sides
+  Lists,
+  /// It can be read and lists it not: a half link of the companion's side
+  Unlisted,
+  /// It can not be read, with why: its path is gone (a disk not mounted now) or holds no git repository, or its config
+  /// fails to read. What it lists is unknown, not absent
+  Unknown(String),
+}
+
+/// What the primary at `primary` says of the repository at `companion` (`PrimarySays`)
+fn primary_says(git: &GitCommandExecutor, primary: &str, companion: &str) -> PrimarySays {
+  if let Some(problem) = companion_problem(primary) {
+    return PrimarySays::Unknown(problem);
+  }
+  match ConfigSnapshot::read(git, primary) {
+    Ok(config) if config.companions().values().any(|path| same_path(Path::new(path), Path::new(companion))) => PrimarySays::Lists,
+    Ok(_) => PrimarySays::Unlisted,
+    Err(error) => PrimarySays::Unknown(format!("{error:#}")),
+  }
+}
+
+/// Unlinks the repository at `repository_path` from the primary its config names (`branchdeck.primary`, unset), the
+/// side a half link leaves on a companion whose primary does not list it or can not be read; under the companion locks
+/// of both repositories, asked again under them. Refused while the primary lists it: a link of both sides goes by a
+/// removal there
+///
+/// # Errors
+/// It names no primary, its primary lists it, a lock not taken in time, a failed read or write of its config
+#[instrument(skip(git))]
+pub fn unlink_primary(git: &GitCommandExecutor, repository_path: &str) -> Result<()> {
+  unlink_primary_with(git, repository_path, &|| debug!("waiting for the lock of a companion"))
+}
+
+/// `unlink_primary`, `on_wait` once while another holds a companion lock
+pub(crate) fn unlink_primary_with(git: &GitCommandExecutor, repository_path: &str, on_wait: &dyn Fn()) -> Result<()> {
+  for _ in 0..COMPANION_TRIES {
+    let Some(primary) = ConfigSnapshot::read(git, repository_path)?.primary().map(str::to_owned) else {
+      bail!("{repository_path} names no primary");
+    };
+    let _locks = lock_companions(git, &[Some(repository_path), Some(&primary)], on_wait)?;
+    if ConfigSnapshot::read(git, repository_path)?.primary() != Some(primary.as_str()) {
+      continue;
+    }
+    let own = main_worktree(git, repository_path)?;
+    if primary_says(git, &primary, &own) == PrimarySays::Lists {
+      bail!("{primary} lists {own} as its companion: remove it there");
+    }
+    return run_config_write(git, repository_path, "--local", PRIMARY_CONFIG_KEY, None);
+  }
+  bail!("The primary of {repository_path} changed while it was unlinked: ask again")
 }
 
 /// The companion locks of the repositories of `repositories`, each the one of its common git directory, taken in the

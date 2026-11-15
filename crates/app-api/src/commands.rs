@@ -315,6 +315,10 @@ macro_rules! for_each_command {
       /// of `set_companion`; `null` when the user canceled the dialog
       app(SettingsWriter) json add_companion(params: $crate::app::repository_config::AddCompanionParams) -> Option<sync_core::repository_config::RepositoryConfig> = $crate::app::repository_config::add_companion;
 
+      /// Settings → Landing of a companion: Unlink takes back its side of a half link (its `branchdeck.primary`), as
+      /// `brd companion unlink`; answers the settings read again
+      app(SettingsWriter) json unlink_primary(params: $crate::app::repository_config::UnlinkPrimaryParams) -> sync_core::repository_config::RepositoryConfig = $crate::app::repository_config::unlink_primary;
+
       /// Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
       /// on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
       /// settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.

@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { InlineCode } from "@/components/shared/InlineCode"
-import { addCompanion, removeCompanion } from "@/hooks/useConfigWrite"
+import { addCompanion, primaryLinkItems, removeCompanion } from "@/hooks/useConfigWrite"
 import type { RepositoryConfigRead } from "@/hooks/useRepositoryConfig"
 import type { RepositoryConfig } from "@/lib/bindings"
 import { repositoryName } from "@/lib/repository-config"
@@ -12,8 +12,8 @@ import { hasFolderDialog } from "@/lib/title-bar"
  * this one names as `companion:branch` (`brd need`), each with its path, why it can not be read and why its link is
  * half (it names another primary, or none: Add Companion… links it again, Remove unlists it); Add Companion… picks one
  * with the folder dialog, named by its directory, Remove takes it back, both sides of both repositories as
- * `brd companion` writes them. A companion lists its primary instead, with why that link is broken: companions are
- * added there. Where the host has no folder dialog (the IDE) the desktop app adds them
+ * `brd companion` writes them. A companion lists its primary instead, with why that link is broken and Unlink to take
+ * back its side (`primaryLinkItems`): companions are added there. Where the host has no folder dialog (the IDE) the desktop app adds them
  */
 export function CompanionsSetting({ path, config, showWritten }: { path: string; config: RepositoryConfig; showWritten: RepositoryConfigRead["showWritten"] }) {
   const [writing, setWriting] = useState(false)
@@ -32,6 +32,13 @@ export function CompanionsSetting({ path, config, showWritten }: { path: string;
             {config.primaryProblem}
           </p>
         )}
+        {primaryLinkItems(path, config, run, showWritten).map(item => (
+          <div key={item.id}>
+            <Button size="xs" variant="outline" title={item.description} disabled={writing || item.disabled} onClick={() => item.onSelect({ surface: item.id ?? null })}>
+              {item.label}
+            </Button>
+          </div>
+        ))}
       </div>
     )
   }

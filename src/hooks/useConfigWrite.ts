@@ -4,6 +4,8 @@ import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { nextWriteOrder } from "@/lib/field-writes"
 import type { WriteAnswer } from "@/lib/field-writes"
+import type { MenuItem } from "@/lib/menu"
+import { repositoryName } from "@/lib/repository-config"
 
 export interface ConfigWrite {
   /** A write runs: its controls are disabled */
@@ -73,6 +75,38 @@ export function addCompanion(path: string, showWritten: (answer: RepositoryConfi
 /** Removes the companion `name` of the repository at `path` (`set_companion`), both sides; as `addCompanion` */
 export function removeCompanion(path: string, name: string, showWritten: (answer: RepositoryConfig) => void): Promise<boolean> {
   return answered(commands.setCompanion({ repositoryPath: path, name, path: null }), `Cannot remove the companion ${name}`, showWritten)
+}
+
+/**
+ * Unlink of a companion: takes back its side of a half link (`unlink_primary`: its `branchdeck.primary`, refused while
+ * the primary lists it); as `addCompanion`
+ */
+function unlinkPrimary(path: string, showWritten: (answer: RepositoryConfig) => void): Promise<boolean> {
+  return answered(commands.unlinkPrimary({ repositoryPath: path }), "Cannot unlink the primary", showWritten)
+}
+
+/**
+ * The actions of the link of the repository at `path` to its primary, the one builder of every surface that offers them
+ * (Settings → Landing of a companion): Unlink while the link is half or broken (`RepositoryConfig.primaryProblem`), none
+ * otherwise; `run` runs the write, which `showWritten` gets the settings of
+ */
+export function primaryLinkItems(
+  path: string,
+  config: RepositoryConfig,
+  run: (write: () => Promise<boolean>) => void,
+  showWritten: (answer: RepositoryConfig) => void,
+): MenuItem[] {
+  if (config.primary === null || config.primaryProblem === null) {
+    return []
+  }
+  return [
+    {
+      id: "unlink-primary",
+      label: "Unlink",
+      description: `Takes back this repository's side of the link: it names ${repositoryName(config.primary)} as its primary no more`,
+      onSelect: () => run(() => unlinkPrimary(path, showWritten)),
+    },
+  ]
 }
 
 function answered(

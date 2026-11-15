@@ -1,4 +1,4 @@
-use crate::companion_write::{COMPANION_LOCK, Written, companion_of_write, write_companion, write_companion_under};
+use crate::companion_write::{COMPANION_LOCK, Written, companion_of_write, unlink_primary, unlink_primary_with, write_companion, write_companion_under};
 use crate::companions::companions_test::{main_worktree as main, snapshot};
 use crate::regroup_test::path;
 use crate::repository_config::read_repository_config;
@@ -158,11 +158,83 @@ fn a_half_link_is_the_problem_of_the_side_that_has_it_and_the_next_write_repairs
   assert!(snapshot(&app).companions().is_empty());
   assert_eq!(snapshot(&ci).primary(), Some(main(&other).as_str()));
 
-  // a companion whose primary is gone is taken over by the next add
+  // a companion whose primary is gone (a disk not mounted now) is no companion of none: the add is refused with how to
+  // unlink it, and once the companion unlinked it on its side the add links both
   let gone = tempfile::tempdir().unwrap();
   let gone_path = gone.path().join("app").to_str().unwrap().to_owned();
   set(&ci, "branchdeck.primary", &gone_path);
   assert_eq!(primary_problem(&ci), Some(format!("{gone_path} is gone")));
+  let refused = write_companion(app.git_executor(), path(&app), "ci", Some(path(&ci))).unwrap_err().to_string();
+  assert!(
+    refused.contains(&format!("names {gone_path} as its primary, which can not be read ({gone_path} is gone)")),
+    "{refused}"
+  );
+  assert!(refused.contains("unlink it in the Settings of"), "{refused}");
+  unlink_primary(ci.git_executor(), path(&ci)).unwrap();
+  assert_eq!(snapshot(&ci).primary(), None);
   add_ci();
   assert_eq!((link_problem(&app), primary_problem(&ci)), (vec![None], None));
+}
+
+/// A primary whose config fails to read is unknown, not absent (the probe of the review: the config of the first primary
+/// broken, the second adds the companion): the add is refused with the primary it names and how to unlink it, and the
+/// companion stays the first one's
+#[test]
+fn a_companion_of_a_primary_whose_config_fails_to_read_is_not_taken_over() {
+  let (first, ci, second) = (baseline_repo(), baseline_repo(), baseline_repo());
+  write_companion(first.git_executor(), path(&first), "ci", Some(path(&ci))).unwrap();
+  let first_main = main(&first);
+  let config = first.path().join(".git/config");
+  let mut text = std::fs::read_to_string(&config).unwrap();
+  text.push_str("\n[broken\n");
+  std::fs::write(&config, text).unwrap();
+  let refused = write_companion(second.git_executor(), path(&second), "ci", Some(path(&ci))).unwrap_err().to_string();
+  assert!(refused.contains(&format!("names {first_main} as its primary, which can not be read")), "{refused}");
+  assert!(refused.contains("brd companion unlink"), "{refused}");
+  assert_eq!(snapshot(&ci).primary(), Some(first_main.as_str()), "not taken over");
+  assert!(snapshot(&second).companions().is_empty());
+}
+
+/// Unlink of a companion takes back the side a half link left on it (its `branchdeck.primary`): of a primary that does
+/// not list it, or can not be read. A link of both sides goes by a removal in the primary, and a repository that names no
+/// primary has nothing to unlink
+#[test]
+fn unlink_takes_back_the_side_of_a_half_link_on_the_companion_only() {
+  let (app, ci, other) = (baseline_repo(), baseline_repo(), baseline_repo());
+  write_companion(app.git_executor(), path(&app), "ci", Some(path(&ci))).unwrap();
+  let refused = unlink_primary(ci.git_executor(), path(&ci)).unwrap_err().to_string();
+  assert!(
+    refused.contains(&format!("{} lists {} as its companion: remove it there", main(&app), main(&ci))),
+    "{refused}"
+  );
+  assert_eq!(snapshot(&ci).primary(), Some(main(&app).as_str()));
+
+  set(&ci, "branchdeck.primary", &main(&other));
+  unlink_primary(ci.git_executor(), path(&ci)).unwrap();
+  assert_eq!(snapshot(&ci).primary(), None, "a primary that does not list it");
+  let none = unlink_primary(ci.git_executor(), path(&ci)).unwrap_err().to_string();
+  assert!(none.contains("names no primary"), "{none}");
+}
+
+/// An unlink waits for the companion lock another process holds, then asks again which primary the companion names: a
+/// primary that came meanwhile and lists it keeps it (refused), where an unlink of what it read before the lock would
+/// leave that primary listing a companion that names none
+#[test]
+fn an_unlink_that_waits_for_another_process_asks_again_which_primary_the_companion_names() {
+  let (app, ci, other) = (baseline_repo(), baseline_repo(), baseline_repo());
+  set(&ci, "branchdeck.primary", &main(&other));
+  let held = held_by_another_process(&ci);
+  let (waits, waiting) = mpsc::channel();
+  let unlink = std::thread::spawn({
+    let (git, ci_path) = (ci.git_executor().clone(), path(&ci).to_owned());
+    move || unlink_primary_with(&git, &ci_path, &move || waits.send(()).unwrap())
+  });
+  waiting.recv().expect("the unlink waits for the companion lock another process holds");
+  // the other process adds ci to app while it holds the lock: both sides
+  set(&app, "branchdeck.companion.ci.path", &main(&ci));
+  set(&ci, "branchdeck.primary", &main(&app));
+  drop(held);
+  let refused = unlink.join().unwrap().unwrap_err().to_string();
+  assert!(refused.contains("lists"), "{refused}");
+  assert_eq!(snapshot(&ci).primary(), Some(main(&app).as_str()));
 }

@@ -360,6 +360,11 @@
     "transport": "json"
   },
   {
+    "name": "unlink_primary",
+    "class": "app",
+    "transport": "json"
+  },
+  {
     "name": "open_sub_window",
     "class": "app",
     "transport": "json"

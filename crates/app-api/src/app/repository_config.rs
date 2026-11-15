@@ -90,8 +90,43 @@ pub async fn set_companion(ctx: &AppContext, params: SetCompanionParams) -> Resu
   operation(async move {
     let SetCompanionParams { repository_path, name, path } = params;
     let config = write_companion(&ctx.config_writers, &ctx.git, &repository_path, name, path).await?;
-    repository_config_changed(&*ctx.events, repository_path, RepositoryConfigKey::Companions);
-    Ok(config)
+    Ok(companions_changed(ctx, repository_path, config))
+  })
+  .await
+}
+
+/// The settings a write of the companions of the repository at `repository_path` answers, told to the main window
+/// (`repository_config_changed`), which syncs again
+fn companions_changed(ctx: &AppContext, repository_path: String, config: RepositoryConfig) -> RepositoryConfig {
+  repository_config_changed(&*ctx.events, repository_path, RepositoryConfigKey::Companions);
+  config
+}
+
+#[derive(Debug, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlinkPrimaryParams {
+  /// The companion repository whose side of a half link goes
+  pub repository_path: String,
+}
+
+/// Unlinks the companion repository at `repository_path` from the primary its config names
+/// (`sync_core::companion_write::unlink_primary`: the side of a half link on it, refused while the primary lists it) in
+/// the writer of its config, and answers the settings read again; the main window syncs again, as the names a need of
+/// the companion resolves change with it
+#[instrument(skip_all, fields(repository_path = %params.repository_path))]
+pub async fn unlink_primary(ctx: &AppContext, params: UnlinkPrimaryParams) -> Result<RepositoryConfig, ApiError> {
+  operation(async move {
+    let repository_path = params.repository_path;
+    let (git, path) = (ctx.git.clone(), repository_path.clone());
+    let config = ctx
+      .config_writers
+      .write(&repository_path, WriteScope::Local, None, move || {
+        sync_core::companion_write::unlink_primary(&git, &path)?;
+        sync_core::repository_config::read_repository_config(&git, &path)
+      })
+      .await?
+      .ok_or_else(|| ApiError::internal("A write without a number is never superseded"))?;
+    Ok(companions_changed(ctx, repository_path, config))
   })
   .await
 }
@@ -115,8 +150,7 @@ pub async fn add_companion(ctx: &AppContext, params: AddCompanionParams) -> Resu
     };
     let name = sync_core::companions::directory_name(path.trim_end_matches(['/', '\\']));
     let config = write_companion(&ctx.config_writers, &ctx.git, &params.repository_path, name, Some(path)).await?;
-    repository_config_changed(&*ctx.events, params.repository_path, RepositoryConfigKey::Companions);
-    Ok(Some(config))
+    Ok(Some(companions_changed(ctx, params.repository_path, config)))
   })
   .await
 }

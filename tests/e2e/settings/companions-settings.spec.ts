@@ -66,7 +66,7 @@ test.describe("Settings → Landing, Companions", () => {
     await waitForSyncComplete(page, syncs)
   })
 
-  test("should show the problem of a primary that does not list this companion", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show the problem of a primary that does not list this companion, and unlink it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")
     const app = await repo.addCompanionRepository("app")
     // this repository names a primary that never listed it
@@ -76,5 +76,12 @@ test.describe("Settings → Landing, Companions", () => {
     const companions = window.getByRole("region", { name: "Companions" })
     await expect(companions.getByTestId("companions-primary")).toHaveText("A companion of app: a need here names its branches as app:branch. Add companions there.")
     await expect(companions.getByTestId("companions-primary-problem")).toHaveText(`${app} does not list this repository as a companion: add it again there to link it`)
+
+    // Unlink takes back this side of the link: a repository of no primary, which can have companions of its own
+    const syncs = await finishedSyncCount(page)
+    await companions.getByRole("button", { name: "Unlink" }).click()
+    await expect(companions.getByTestId("companions-primary")).toHaveCount(0)
+    await expect(companions.getByTestId("companions-empty")).toBeVisible()
+    await waitForSyncComplete(page, syncs)
   })
 })

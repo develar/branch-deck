@@ -861,7 +861,11 @@ of the branch from it (`domain_policy::declared_needs`), the next step and every
   companion list` (`half_link_problem`: the companion names another primary or none, one `git config --local --get`
   per companion; `primary_link_problem`: the primary is gone or does not list it, one `ConfigSnapshot::read` of the
   primary), and the next write of the pair repairs it: an add links both sides again and takes over a companion whose
-  primary is gone or does not list it, a removal unsets the side of the companion only while it names this primary. Its branch is read of what
+  primary can be read and does not list it, a removal unsets the side of the companion only while it names this
+  primary. A primary that can not be read (its path gone, a disk not mounted now, a config that fails to read) is
+  unknown, not absent: an add of its companion by another primary is refused with how to unlink it, and the companion
+  takes back its side itself (`companion_write::unlink_primary`: Unlink of its Settings, `brd companion unlink`, under
+  the companion locks, refused while the primary lists it). Its branch is read of what
   the last sync of the companion left, never by a sync of it: `ConfigSnapshot::read` (its prefix), one `for-each-ref`
   of its branches under the prefix and one `log` of the integration notes of their tips (`branch_integration::common`),
   three processes per companion and none while no need names one. The detection of the sync reads them, drops the
