@@ -22,7 +22,7 @@ use crate::lease_clean::{
   remove_together,
 };
 use crate::lease_notes::{LeaseNotes, close_notes, notes_root, open_notes};
-use crate::shrink::{ShrinkParams, Shrunk, lock_pressure, shrink_core};
+use crate::shrink::{CachedBuild, ShrinkParams, Shrunk, lock_pressure, shrink_core};
 use crate::state_file::StateFile;
 use crate::trim::{EvictParams, TrimParams, Trimmed, evict_core, machine_pools, trim_core};
 use anyhow::{Context, Result, anyhow, bail};
@@ -376,6 +376,10 @@ pub struct Lease {
   /// The last check of the idle lease that found work
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub idle_check: Option<IdleCheck>,
+  /// When a clean last pruned the stale build output of the slot by the cargo rules of the lease (`prune_leased_slot`),
+  /// unix seconds: the shrink passes over the slot within the smallest `age` of those rules
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pruned_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -415,6 +419,7 @@ impl Lease {
       holder_started: None,
       taking_over: None,
       idle_check: None,
+      pruned_at: None,
     }
   }
 
@@ -439,7 +444,7 @@ impl Lease {
 
   /// Whether the lease is `ready` and of an agent, no host slot: `is_idle` once its holder is gone, and a reclaim names
   /// it when no holder was recorded (`IdleSkip::HolderUnknown`)
-  fn is_agent_ready(&self) -> bool {
+  pub(crate) fn is_agent_ready(&self) -> bool {
     self.state == LeaseState::Ready && !self.holder.starts_with(HOST_HOLDER_PREFIX)
   }
 }
@@ -739,7 +744,7 @@ fn describe_shrunk(Freed { slots, bytes }: Freed) -> String {
     String::new()
   } else {
     format!(
-      "; the get deleted the build output of {slots} free slot(s) of the pools of this machine by their clean rules with keep 0, {}",
+      "; the get cleaned the build output of {slots} slot(s) of the pools of this machine, the stale output of the leased ones by their cargo rules and the free ones by their clean rules with keep 0, {}",
       describe_size(bytes)
     )
   }
@@ -909,6 +914,9 @@ pub struct LeaseGetParams<'a> {
   pub progress: Option<&'a dyn Fn(GetStep)>,
   /// The space of the volume of a path; `None`: `free_space::volume_space`. A test tells a volume of its own
   pub space: Option<&'a SpaceOf<'a>>,
+  /// The bytes of the build dirs of the slots of a pool as `disk.json` last measured them, for the order of the leased
+  /// slots in a shrink (`ShrinkParams::cached_build`); `None`: by `leased_at` alone
+  pub cached_build: Option<&'a CachedBuild<'a>>,
 }
 
 impl LeaseGetParams<'_> {
@@ -943,7 +951,8 @@ pub enum GetStep {
   /// Below the minimum free space, after the reclaim: the free slots past `branchdeck.leaseMaxSlots` of every pool of
   /// the machine are deleted with their Bazel output bases (`trim`), without the clones lock
   Trim,
-  /// Below the minimum free space, after the trim: the build output of the free slots of every pool of the machine is
+  /// Below the minimum free space, after the trim: the stale build output of the leased slots of every pool of the
+  /// machine is pruned by the cargo rules of their leases, the largest first, then the build output of the free slots is
   /// deleted by their clean rules with keep 0, the ones returned longest ago first (`shrink`), without the clones lock
   Shrink,
   /// Below the minimum free space, after the shrink: free slots of every pool of the machine below
@@ -1003,7 +1012,7 @@ impl fmt::Display for GetStep {
         f.write_str("deleting the free slots past `branchdeck.leaseMaxSlots` of the pools of this machine with their Bazel output bases: the free space is below the minimum")
       }
       Self::Shrink => f.write_str(
-        "deleting the build output of the free slots of the pools of this machine, returned longest ago first, by their clean rules with keep 0: the free space is below the minimum",
+        "pruning the stale build output of the leased slots of the pools of this machine by their cargo rules, then deleting the build output of the free slots, returned longest ago first, by their clean rules with keep 0: the free space is below the minimum",
       ),
       Self::Evict => f.write_str(
         "deleting free slots below `branchdeck.leaseMaxSlots` of the pools of this machine, returned longest ago first, with their Bazel output bases: the free space is below the minimum after the shrink",
@@ -1236,6 +1245,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
     holder_started: holder.as_ref().and_then(|process| process.started),
     taking_over: None,
     idle_check: None,
+    pruned_at: None,
   };
 
   let mut skipped = Vec::new();
@@ -1830,7 +1840,7 @@ fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_fre
     return Ok(FreeSpace::Evict);
   }
   let shrink = relief.shrunk.as_ref().map_or_else(Freed::default, |shrunk| Freed {
-    slots: shrunk.slots.len(),
+    slots: shrunk.leased.len() + shrunk.slots.len(),
     bytes: shrunk.freed_bytes(),
   });
   let evict = relief.evicted.as_ref().map_or_else(Freed::default, |evicted| Freed {
@@ -1965,6 +1975,7 @@ fn shrink_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>
       target: shrink_target(min_free),
       available: &available,
       lock_timeout: params.lock_timeout,
+      cached_build: params.cached_build,
     },
   )
 }
@@ -3315,13 +3326,19 @@ fn finish_return(
     detach_waiting_for_head_lock(git_executor, path)?;
   }
   // the rules of the source, as the seed is read; the slot's own when the source is gone. They never fail the return
-  let rules_from = Some(Path::new(&lease.source))
-    .filter(|source| !lease.source.is_empty() && source.is_dir())
-    .unwrap_or_else(|| Path::new(path));
-  let (cleaned, clean_error) = match clean.map(|overrides| read_clean_rules(rules_from).map(|rules| overrides.apply(rules))) {
+  let (cleaned, clean_error) = match clean.map(|overrides| read_clean_rules(lease_rules_dir(lease, path)).map(|rules| overrides.apply(rules))) {
     None => (Vec::new(), None),
     Some(Ok(rules)) => (
-      apply_clean_rules_with(git_executor, path, &rules, CleanMode::Trash(trash), CleanOptions { cargo_lock_wait }),
+      apply_clean_rules_with(
+        git_executor,
+        path,
+        &rules,
+        CleanMode::Trash(trash),
+        CleanOptions {
+          cargo_lock_wait,
+          ..CleanOptions::default()
+        },
+      ),
       None,
     ),
     Some(Err(error)) => (Vec::new(), Some(format!("{error:#}"))),
@@ -3333,6 +3350,75 @@ fn finish_return(
     clean_error,
     notes,
   })
+}
+
+/// The checkout whose `.branchdeck.toml` holds the clean rules of `lease` of the slot `path`: the source the lease
+/// recorded, as the seed is read; the slot's own when the source is gone
+pub(crate) fn lease_rules_dir<'a>(lease: &'a Lease, path: &'a str) -> &'a Path {
+  Some(Path::new(&lease.source))
+    .filter(|source| !lease.source.is_empty() && source.is_dir())
+    .unwrap_or_else(|| Path::new(path))
+}
+
+/// What the prune of a leased slot did (`prune_leased_slot`)
+#[derive(Debug, Clone)]
+pub(crate) struct LeasedPrune {
+  /// What each cargo rule did
+  pub(crate) cleaned: Vec<Cleaned>,
+  /// The profile dirs it left for a held lock of cargo, when it pruned none: cargo builds in the slot
+  pub(crate) building: Vec<String>,
+}
+
+/// The cargo rules of the source of `lease` (`lease_rules_dir`) on its leased slot `path`, with their own `keep` and
+/// `age`, never its `delete` rules, which name the files of its holder (`notes.local`, test results). Each profile dir
+/// is pruned under the locks of cargo, taken first, and only while the slot, read then under the pool lock, still holds
+/// `lease` in state `ready`: a return or a get that came between them keeps it. No wait for a held lock: cargo builds
+/// there. A prune that pruned a profile dir stamps the lease (`Lease::pruned_at`). `None`: the lease changed first
+pub(crate) fn prune_leased_slot(
+  git_executor: &GitCommandExecutor,
+  pool: &Pool,
+  lock_timeout: Duration,
+  (path, lease): (&str, &Lease),
+  mode: CleanMode<'_>,
+) -> Result<Option<LeasedPrune>> {
+  let rules = read_clean_rules(lease_rules_dir(lease, path))?;
+  let still_holds = || {
+    pool
+      .update(lock_timeout, |store| {
+        Ok(leased_slot(store, path, &lease.id).and_then(|slot| slot.lease.as_ref()).is_some_and(Lease::is_agent_ready))
+      })
+      .unwrap_or_else(|error| {
+        warn!(slot = %path, error = %format!("{error:#}"), "cannot read the lease of a slot to prune");
+        false
+      })
+  };
+  let options = CleanOptions {
+    cargo_only: true,
+    still_holds: Some(&still_holds),
+    ..CleanOptions::default()
+  };
+  let cleaned = apply_clean_rules_with(git_executor, path, &rules, mode, options);
+  let pruned: usize = cleaned.iter().map(|rule| rule.profiles.pruned).sum();
+  if pruned == 0 && cleaned.iter().any(|rule| rule.profiles.changed) {
+    return Ok(None);
+  }
+  if mode.applies() && pruned > 0 {
+    let stamped = pool.update(lock_timeout, |store| {
+      if let Some(current) = leased_slot(store, path, &lease.id).and_then(|slot| slot.lease.as_mut()) {
+        current.pruned_at = Some(now());
+      }
+      Ok(())
+    });
+    if let Err(error) = stamped {
+      warn!(slot = %path, error = %format!("{error:#}"), "cannot stamp the prune of a leased slot");
+    }
+  }
+  let building = if pruned == 0 {
+    cleaned.iter().flat_map(|rule| rule.profiles.held.clone()).collect()
+  } else {
+    Vec::new()
+  };
+  Ok(Some(LeasedPrune { cleaned, building }))
 }
 
 /// Detach HEAD of the slot; while git's background maintenance holds `HEAD.lock` of the slot (`pack-refs`, `reflog
@@ -3590,6 +3676,8 @@ pub struct LeaseCleanParams<'a> {
   pub repository: &'a RepositoryDirs,
   /// The free slots of the pool
   pub free: bool,
+  /// The leased slots of the pool, each by the cargo rules of its lease (`prune_leased_slot`)
+  pub leased: bool,
   /// Worktrees to clean
   pub dirs: &'a [PathBuf],
   /// Delete, the default; false (`--dry-run`) only measures
@@ -3606,30 +3694,38 @@ pub struct CleanTarget {
   pub path: String,
   /// Why it was not cleaned: a lease, a process in it
   pub skipped: Option<String>,
+  /// The holder of its lease: only its cargo rules ran, with their own `keep` and `age` (`prune_leased_slot`)
+  pub leased_by: Option<String>,
   pub cleaned: Vec<Cleaned>,
   /// What the trash kept: a path that could not be deleted
   pub trash_left: Vec<String>,
 }
 
 /// Apply the rules of `.branchdeck.toml` of the repository, read once, to the free slots, to `dirs`, or to the
-/// repository itself. A slot of the pool with a lease or with a process in it is skipped, as a get would skip it; a
-/// checkout that is no slot is cleaned as asked. The rules that can't be read are the error, and nothing is cleaned
+/// repository itself. A free slot of the pool with a process in it is skipped, as a get would skip it; a checkout that is
+/// no slot is cleaned as asked. A slot with a `ready` lease of an agent, named or by `leased`, gets only the cargo rules
+/// of its lease with their own `keep` and `age` (`prune_leased_slot`), and is skipped with an override; a slot with
+/// another lease is skipped. The rules that can't be read are the error, and nothing is cleaned
 pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanParams<'_>) -> Result<(Vec<CleanTarget>, bool)> {
   let rules = params.overrides.apply(read_clean_rules(Path::new(&params.repository.top_level))?);
   let pool = Pool::new(Path::new(&canonical_path(Path::new(&params.repository.git_common_dir))));
   let store = pool.read()?;
   let mut paths: Vec<String> = Vec::new();
+  let listed = |leased: bool| {
+    store
+      .slots
+      .iter()
+      .filter(move |slot| slot.lease.as_ref().map_or(!leased, |lease| leased && lease.is_agent_ready()) && Path::new(&slot.path).is_dir())
+      .map(|slot| slot.path.clone())
+  };
   if params.free {
-    paths.extend(
-      store
-        .slots
-        .iter()
-        .filter(|slot| slot.lease.is_none() && Path::new(&slot.path).is_dir())
-        .map(|slot| slot.path.clone()),
-    );
+    paths.extend(listed(false));
+  }
+  if params.leased {
+    paths.extend(listed(true));
   }
   paths.extend(params.dirs.iter().map(|dir| canonical_path(dir)));
-  if !params.free && params.dirs.is_empty() {
+  if !params.free && !params.leased && params.dirs.is_empty() {
     paths.push(canonical_path(Path::new(&params.repository.top_level)));
   }
   let mut seen = HashSet::new();
@@ -3641,10 +3737,34 @@ pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanPa
   let mut targets: Vec<CleanTarget> = paths
     .into_iter()
     .map(|path| {
+      let target = |skipped: Option<String>, leased_by: Option<String>, cleaned: Vec<Cleaned>| CleanTarget {
+        path: path.clone(),
+        skipped,
+        leased_by,
+        cleaned,
+        trash_left: Vec::new(),
+      };
+      let leased = store
+        .slots
+        .iter()
+        .find(|slot| slot.path == path)
+        .and_then(|slot| slot.lease.clone())
+        .filter(Lease::is_agent_ready);
+      if let Some(lease) = leased {
+        let holder = lease.holder.clone();
+        if params.overrides != CleanOverrides::default() {
+          return target(Some(format!("leased by {holder}: --keep and --age apply only to a slot without a lease")), None, Vec::new());
+        }
+        return match prune_leased_slot(git_executor, &pool, params.lock_timeout, (&path, &lease), mode) {
+          Ok(Some(pruned)) => target(None, Some(holder), pruned.cleaned),
+          Ok(None) => target(Some(format!("leased by {holder}: the lease changed during the clean")), None, Vec::new()),
+          Err(error) => target(Some(format!("{error:#}")), Some(holder), Vec::new()),
+        };
+      }
       let is_slot = store.slots.iter().any(|slot| slot.path == path);
       let processes = busy_processes(&scan.inside(Path::new(&path)));
-      // a slot is cleaned only under the `cleaning` marker, set while it is free, so no get leases it meanwhile; a dry
-      // run deletes nothing and only reads the state again
+      // a free slot is cleaned only under the `cleaning` marker, set while it is free, so no get leases it meanwhile; a
+      // dry run deletes nothing and only reads the state again
       let leased = if !is_slot {
         Ok(None)
       } else if params.apply && processes.is_empty() {
@@ -3673,12 +3793,7 @@ pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanPa
       if is_slot && params.apply && skipped.is_none() {
         release_marker(&pool, params.lock_timeout, &path, &marker.id);
       }
-      CleanTarget {
-        path,
-        skipped,
-        cleaned,
-        trash_left: Vec::new(),
-      }
+      target(skipped, None, cleaned)
     })
     .collect();
   // every slot is free again: the delete of what the rules moved into the trash keeps no get waiting

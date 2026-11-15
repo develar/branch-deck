@@ -2230,7 +2230,18 @@ nothing but LFS puts the content back after a checkout of the blobs.
    free slot keeps the warm build output of its last lease, since the cargo rule of a return keeps the 8 newest units of
    every group (variant hygiene, not a bound on size), and a get takes the slot returned last, so the output of the
    others waits for a lease that rarely comes; on 2026-11-03 that was 50 to 59 GiB in each free slot of branch-deck,
-   and no trim touched a pool within its limit. The shrink applies the clean rules of each free slot (its own
+   and no trim touched a pool within its limit. First the shrink prunes each slot with a `ready` lease of an agent
+   (`shrink::prune_leased_slots`, `lease::prune_leased_slot`): only the cargo rules of the lease, read where the return
+   reads them, with their own `keep` and `age`, so the units its next build reads stay. Its `delete` rules name the
+   files of the holder (`notes.local`, test results), and a marker would replace the lease, so it applies none of them
+   and sets none. It takes the locks of cargo of a profile dir first and then reads the slot under the pool lock: a
+   return or a get that came between keeps the slot. A slot where cargo builds stays (`shrunk.building`). A prune
+   stamps the lease (`pruned_at`), and the shrink passes over the slot within the smallest `age` of its cargo rules,
+   when no kept unit can be old enough to go. The largest build output goes first, as `disk.json` last measured it
+   (`pool_disk::cached_build_bytes`, a read without a walk), then the slots without a size, leased longest ago first.
+   On 2026-11-15 the leased slots of branch-deck held 48 to 120 GB of `target/` each, which no step reached, while the
+   shrink took the warm output of the free slots. The keeper of `brd-host` orders the leased slots by `leased_at`
+   alone. Then the shrink applies the clean rules of each free slot (its own
    `.branchdeck.toml`) with keep 0 and age 0, under the `cleaning` marker as `brd lease clean` does, through the trash
    of its pool, deleted once the marker is gone: the slots of every pool by `returned_at`, the time of the return
    (`returned` counts within one pool), the one returned longest ago first, and the slot each pool's next get would

@@ -14,7 +14,9 @@ use bd_core::context::{RepoContext, RepoOptions, counted_git};
 use bd_core::sync_command::sync;
 use clap::Parser;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
-use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReclaimArgs, LeaseReturnArgs, lease_get, lease_get_reporting, lease_reclaim, lease_return};
+use bd_lease::lease_command::{
+  LeaseCleanArgs, LeaseContext, LeaseGetArgs, LeaseReclaimArgs, LeaseReturnArgs, lease_clean, lease_get, lease_get_reporting, lease_reclaim, lease_return,
+};
 use bd_lease::trim_command::{LeaseTrimArgs, lease_trim};
 use bd_lease::workspace_command::workspace_with;
 use bd_remote::land_command::{LandArgs, LandOutput, land};
@@ -1423,6 +1425,7 @@ fn get_on(context: &LeaseContext, environment: &bd_core::context::Environment, s
       lock_timeout: context.lock_timeout,
       progress: None,
       space: Some(space),
+      cached_build: None,
     },
   )
 }
@@ -1531,6 +1534,38 @@ fn a_lease_get_that_shrinks_and_evicts() {
   assert_eq!(got.shrunk.as_ref().map(|shrunk| shrunk.slots.len()), Some(3), "{got:?}");
   assert_eq!(got.evicted.as_ref().map(lease_pool::trim::Trimmed::removed_slots), Some(1), "{got:?}");
   assert_git_processes(&context.git, &[("config", 3), ("ls-files", 3), ("rev-parse", 3), ("status", 1), ("worktree", 1)]);
+}
+
+/// `brd lease clean --leased` of two leased slots with the clean rule `cargo target`: the `rev-parse` of its context and
+/// one `ls-files` of the rules of each slot; no `status` and no git per profile dir
+#[test]
+fn a_lease_clean_of_the_leased_slots() {
+  let repo = repo_with_branches();
+  repo.create_commit_with_files(
+    "Add the clean rules",
+    &[
+      (".gitignore", "/target/\n"),
+      (".branchdeck.toml", "[lease]\nclean = [{ cargo = \"target\" }, { delete = \"out\" }]\n"),
+    ],
+  );
+  let (_home, environment) = lease_environment(&repo);
+  let slots = [leased_slot(&environment), leased_slot(&environment)];
+  for slot in &slots {
+    std::fs::create_dir_all(slot.join("target/debug")).unwrap();
+    std::fs::write(slot.join("target/debug/.cargo-lock"), "").unwrap();
+  }
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let cleaned = lease_clean(
+    &context,
+    &environment,
+    &LeaseCleanArgs {
+      leased: true,
+      ..LeaseCleanArgs::default()
+    },
+  )
+  .unwrap();
+  assert_eq!(cleaned.targets.iter().filter(|target| target.leased_by.is_some()).count(), 2, "{cleaned:?}");
+  assert_git_processes(&context.git, &[("ls-files", 2), ("rev-parse", 1)]);
 }
 
 /// `brd lease return` with `branchdeck.leaseMaintenance`: the processes of a return and one `maintenance run --auto

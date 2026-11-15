@@ -198,6 +198,7 @@ fn a_trash_whose_delete_stopped_is_left_to_the_next_sweep() {
     error: None,
     trashed: vec![moved],
     deferred: Vec::new(),
+    profiles: crate::lease_clean::Profiles::default(),
   }];
   assert!(!holds_gone_runs(&root));
   let (left, complete) = trash.empty_until(&mut cleaned, &|| true);
@@ -1155,6 +1156,15 @@ fn a_cargo_lock_that_is_released_during_the_wait_is_taken() {
   assert!(taken.is_ok(), "{:?}", taken.err());
 }
 
+/// A profile dir at `target/debug` of `root` with two units of `app`: `old`, built 3 hours ago, and `new`, 2 hours ago
+#[cfg(unix)]
+fn old_and_new_units(root: &Path) -> PathBuf {
+  let profile = profile_dir(root);
+  unit(&profile.join("build/app/old"), Duration::from_hours(3));
+  unit(&profile.join("build/app/new"), Duration::from_hours(2));
+  profile
+}
+
 /// The trash of the run is on another volume: the stale units go into `.brd-trash/` of their profile dir under the
 /// locks, and its delete comes with the trash, after the release; a `.brd-trash/` dir of a gone run is swept
 #[cfg(unix)]
@@ -1162,9 +1172,7 @@ fn a_cargo_lock_that_is_released_during_the_wait_is_taken() {
 fn a_cargo_rule_on_another_volume_moves_its_units_beside_them() {
   let (checkout, git) = git_checkout();
   let root = checkout.path();
-  let profile = profile_dir(root);
-  unit(&profile.join("build/app/old"), Duration::from_hours(3));
-  unit(&profile.join("build/app/new"), Duration::from_hours(2));
+  let profile = old_and_new_units(root);
   let gone = profile.join(".brd-trash/999999999-1-gone");
   output(&gone.join("0/fingerprint/dep"), Duration::from_hours(5));
   let trash_root = root.join("trash");
@@ -1270,4 +1278,35 @@ fn a_unit_that_a_build_wrote_after_the_walk_is_built_again() {
   assert!(!read.built_again());
   output(&path.join("fingerprint/lib-app"), Duration::ZERO);
   assert!(read.built_again());
+}
+
+/// The check of the lease comes under the locks of cargo, taken first: the check finds `.cargo-build-lock` held, and a
+/// check that fails leaves every unit in place and marks the rule `changed`
+#[cfg(unix)]
+#[test]
+fn a_lease_that_changed_once_the_locks_are_held_leaves_the_profile_dir_as_it_is() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = old_and_new_units(root);
+  let checked_under_the_lock = std::cell::Cell::new(None);
+  let still_holds = || {
+    let lock = std::fs::File::open(profile.join(".cargo-build-lock")).unwrap();
+    checked_under_the_lock.set(Some(matches!(lock.try_lock(), Err(std::fs::TryLockError::WouldBlock))));
+    false
+  };
+  let options = crate::lease_clean::CleanOptions {
+    cargo_only: true,
+    still_holds: Some(&still_holds),
+    ..crate::lease_clean::CleanOptions::default()
+  };
+  let rules = parse_clean_rules("[lease]\nclean = [{ cargo = \"target\", keep = 1, age = \"1h\" }, { delete = \"notes.local\" }]\n").unwrap();
+  std::fs::create_dir_all(root.join("notes.local")).unwrap();
+  let cleaned = crate::lease_clean::apply_clean_rules_with(&git, root.to_str().unwrap(), &rules, CleanMode::Delete, options);
+  assert_eq!(checked_under_the_lock.get(), Some(true));
+  assert_eq!(
+    cleaned.iter().map(|rule| (rule.rule.as_str(), rule.profiles.changed)).collect::<Vec<_>>(),
+    [("cargo target", true)]
+  );
+  assert_eq!(entry_names(&profile.join("build/app")), ["new", "old"]);
+  assert!(root.join("notes.local").exists(), "a cargo-only clean applies no delete rule");
 }

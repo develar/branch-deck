@@ -143,6 +143,7 @@ fn a_commit_during_the_check_stops_the_takeover() {
     holder_started: None,
     taking_over: None,
     idle_check: None,
+    pruned_at: None,
   };
   let get = Lease {
     taking_over: Some(Box::new(lease("idle", LeaseState::Ready))),
@@ -239,4 +240,52 @@ fn a_reclaimed_slot_comes_before_the_free_slots_returned_after_its_lease_went_qu
   assert_eq!(reclaim_stamp(&slots, quiet_at), (4, vec![4, 5]));
   assert_eq!(reclaim_stamp(&slots[..4], quiet_at), (10, Vec::new()), "no free slot returned after it");
   assert_eq!(reclaim_stamp(&slots, 1_150), (5, vec![5]));
+}
+
+/// A prune of a leased slot whose lease changed after the shrink read it (a return and a new get came between) prunes
+/// nothing: under the locks of cargo the slot holds another lease
+#[cfg(unix)]
+#[test]
+fn the_prune_of_a_leased_slot_whose_lease_changed_prunes_nothing() {
+  let common = tempfile::tempdir().unwrap();
+  let slot_dir = tempfile::tempdir().unwrap();
+  let slot = slot_dir.path();
+  let git = git_executor::git_command_executor::GitCommandExecutor::new();
+  git.execute_command(&["init", "-q"], slot.to_str().unwrap()).unwrap();
+  std::fs::write(slot.join(".branchdeck.toml"), "[lease]\nclean = [{ cargo = \"target\", keep = 0, age = \"0s\" }]\n").unwrap();
+  let unit = slot.join("target/debug/build/app/old/fingerprint");
+  std::fs::create_dir_all(&unit).unwrap();
+  std::fs::write(unit.join("dep"), "x").unwrap();
+  std::fs::write(slot.join("target/debug/.cargo-lock"), "").unwrap();
+  let read = Lease::marker("old", "agent", LeaseState::Ready);
+  let current = Lease::marker("new", "agent", LeaseState::Ready);
+  let pool = Pool::new(common.path());
+  let path = slot.to_string_lossy().into_owned();
+  pool
+    .update(Duration::from_secs(5), |store: &mut LeaseStore| {
+      store.slots.push(Slot {
+        name: "slot".to_string(),
+        path: path.clone(),
+        dirty: false,
+        dirty_check: None,
+        returned: None,
+        returned_at: None,
+        lease: Some(current.clone()),
+        reclaimed: None,
+      });
+      Ok(())
+    })
+    .unwrap();
+  let trash = crate::lease_clean::Trash::new(&pool.trash_dir());
+  let pruned = crate::lease::prune_leased_slot(&git, &pool, Duration::from_secs(5), (&path, &read), crate::lease_clean::CleanMode::Trash(&trash)).unwrap();
+  assert!(pruned.is_none(), "{pruned:?}");
+  assert!(unit.exists());
+  let stamped = pool.read().unwrap().slots[0].lease.as_ref().and_then(|lease| lease.pruned_at);
+  assert_eq!(stamped, None);
+  let pruned = crate::lease::prune_leased_slot(&git, &pool, Duration::from_secs(5), (&path, &current), crate::lease_clean::CleanMode::Trash(&trash))
+    .unwrap()
+    .unwrap();
+  assert_eq!(pruned.cleaned[0].profiles.pruned, 1);
+  assert!(!unit.exists());
+  assert!(pool.read().unwrap().slots[0].lease.as_ref().and_then(|lease| lease.pruned_at).is_some());
 }

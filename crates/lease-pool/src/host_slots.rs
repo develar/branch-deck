@@ -1472,6 +1472,7 @@ fn clean_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
   Ok(CleanTarget {
     path: slot.path,
     skipped: None,
+    leased_by: None,
     cleaned,
     trash_left,
   })
@@ -1485,6 +1486,7 @@ pub fn clean_host_slots(git_executor: &GitCommandExecutor, params: &HostSlotsPar
   let skipped = |path: &str, reason: String| CleanTarget {
     path: path.to_string(),
     skipped: Some(reason),
+    leased_by: None,
     cleaned: Vec::new(),
     trash_left: Vec::new(),
   };
@@ -1520,6 +1522,7 @@ pub fn clean_host_slots(git_executor: &GitCommandExecutor, params: &HostSlotsPar
         read_clean_rules(Path::new(&slot.path)).map(|rules| CleanTarget {
           path: slot.path.clone(),
           skipped: None,
+          leased_by: None,
           cleaned: apply_clean_rules(git_executor, &slot.path, &overrides.apply(rules), CleanMode::Measure),
           trash_left: Vec::new(),
         })
@@ -1618,6 +1621,7 @@ pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>
       lock_timeout: params.lock_timeout,
       progress: None,
       space: None,
+      cached_build: None,
     },
     round,
   )?;
@@ -1881,6 +1885,7 @@ fn fill_one(
       lock_timeout: params.lock_timeout,
       progress: Some(&report),
       space: None,
+      cached_build: None,
     },
   );
   let got = match got {

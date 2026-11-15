@@ -152,6 +152,7 @@ fn get_slot(git: &GitCommandExecutor, dirs: &RepositoryDirs, home: Option<&std::
       lock_timeout: Duration::from_secs(10),
       progress: None,
       space: None,
+      cached_build: None,
     },
   )?;
   let lease_id = got.slot.lease.as_ref().map_or_else(String::new, |lease| lease.id.clone());

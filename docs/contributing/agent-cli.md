@@ -1228,11 +1228,17 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `target/` (an agent's scratch) and the cargo rule prunes the kept profile dirs; `clean_error` when the file does not
   parse, the return succeeds anyway; `--no-clean` applies none. A get leaves out of a cloned slot what the `delete`
   rules delete.
-  `brd lease clean [--free] [--dry-run] [<dir>...]` applies the rules now to the free slots, the given worktrees, or
-  the checkout of `-C`; it deletes by default, `--dry-run` only reports (`dry_run`, `freed_bytes`); `freed_bytes`
-  counts blocks an APFS clone shares too, `volume_freed_bytes` is what the volume gained; a slot with a
-  lease or a process is `skipped`; a file that does not parse is `invalid_arguments`. On both commands `--keep <n>`
-  and `--age <duration>` set `keep` and `age` of every cargo rule for that call.
+  `brd lease clean [--free] [--leased] [--dry-run] [<dir>...]` applies the rules now to the free slots, the given
+  worktrees, or the checkout of `-C`; it deletes by default, `--dry-run` only reports (`dry_run`, `freed_bytes`);
+  `freed_bytes` counts blocks an APFS clone shares too, `volume_freed_bytes` is what the volume gained; a free slot
+  with a process is `skipped`; a file that does not parse is `invalid_arguments`. A slot with a `ready` lease of an
+  agent, by `--leased` or named, gets only the cargo rules of its lease with their own `keep` and `age`, under the
+  locks of cargo, and keeps its lease (`leased_by`; `pruned_at` in `brd lease status`). On both commands `--keep <n>`
+  and `--age <duration>` set `keep` and `age` of every cargo rule for that call, never of a leased slot: `--leased`
+  refuses them, and a named leased slot with one is `skipped`. A cargo rule skips a profile dir whose lock of cargo is
+  held, with the `error` `the lock of cargo is held (a build or another clean): <dir>`. The shrink of a get below the
+  minimum prunes the leased slots first (`shrunk.leased`, each with its `holder`; `shrunk.building` for one in which
+  cargo builds), then cleans the free slots (`shrunk.slots`).
 - `processes_checked: false`: the platform has no process scan (Windows), and nothing was refused for a process.
 
 ### `brd fold [--branch <b>] [--expect-head <id>] [--dry-run]`

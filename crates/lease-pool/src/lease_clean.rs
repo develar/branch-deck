@@ -368,6 +368,19 @@ pub struct Cleaned {
   /// the trash of a cargo rule in its profile dir (`.brd-trash/`). `Trash::empty` deletes it after `trashed` and counts
   /// its bytes; a delete that stops leaves the rest in place for the next clean
   pub deferred: Vec<PathBuf>,
+  /// What a cargo rule did with its profile dirs
+  pub profiles: Profiles,
+}
+
+/// What a cargo rule did with its profile dirs (`Cleaned::profiles`)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Profiles {
+  /// How many it pruned, or measured in a dry run
+  pub pruned: usize,
+  /// The ones it left as they are for a held lock of cargo, relative to the checkout: `target/debug`
+  pub held: Vec<String>,
+  /// It stopped under the locks, as `CleanOptions::still_holds` no longer held (the lease of the slot changed)
+  pub changed: bool,
 }
 
 /// How `apply_clean_rules` applies the rules
@@ -384,16 +397,22 @@ pub enum CleanMode<'a> {
 }
 
 impl CleanMode<'_> {
-  const fn applies(self) -> bool {
+  pub(crate) const fn applies(self) -> bool {
     !matches!(self, Self::Measure)
   }
 }
 
 /// How a clean meets the locks of cargo (`apply_clean_rules_with`)
-#[derive(Debug, Clone, Copy, Default)]
-pub struct CleanOptions {
+#[derive(Clone, Copy, Default)]
+pub struct CleanOptions<'a> {
   /// How long a cargo rule waits for a held lock of cargo of a profile dir before it skips that dir; zero skips at once
   pub cargo_lock_wait: Duration,
+  /// Only the cargo rules run, the others are neither applied nor reported: the prune of a leased slot, whose `delete`
+  /// rules name the files of its holder. The whole list still gives the scope of a cargo rule (`cargo_scope`)
+  pub cargo_only: bool,
+  /// Asked under the locks of cargo of each profile dir, before its stale units move: false leaves the rest of the rule
+  /// undone (`Profiles::changed`). The prune of a leased slot asks whether its lease is still the one it read
+  pub still_holds: Option<&'a dyn Fn() -> bool>,
 }
 
 /// Apply `rules` to `checkout`, or only measure them. One `ls-files` for the paths of all rules; a rule whose path is
@@ -404,7 +423,7 @@ pub fn apply_clean_rules(git_executor: &GitCommandExecutor, checkout: &str, rule
 }
 
 /// `apply_clean_rules` with `options`
-pub fn apply_clean_rules_with(git_executor: &GitCommandExecutor, checkout: &str, rules: &[ParsedRule], mode: CleanMode<'_>, options: CleanOptions) -> Vec<Cleaned> {
+pub fn apply_clean_rules_with(git_executor: &GitCommandExecutor, checkout: &str, rules: &[ParsedRule], mode: CleanMode<'_>, options: CleanOptions<'_>) -> Vec<Cleaned> {
   apply_rules(checkout, rules, &tracked_by_rules(git_executor, checkout, rules), mode, options)
 }
 
@@ -423,10 +442,18 @@ pub fn apply_tracked_rules(checkout: &str, rules: &[ParsedRule], tracked: &Track
   apply_rules(checkout, rules, tracked, mode, CleanOptions::default())
 }
 
-fn apply_rules(checkout: &str, rules: &[ParsedRule], tracked: &TrackedPaths, mode: CleanMode<'_>, options: CleanOptions) -> Vec<Cleaned> {
+fn apply_rules(checkout: &str, rules: &[ParsedRule], tracked: &TrackedPaths, mode: CleanMode<'_>, options: CleanOptions<'_>) -> Vec<Cleaned> {
   let tracked = &tracked.0;
+  let applies = |rule: &ParsedRule| {
+    !options.cargo_only
+      || match rule {
+        Ok(rule) => matches!(rule, CleanRule::Cargo { .. }),
+        Err((described, _)) => described.starts_with("cargo "),
+      }
+  };
   rules
     .iter()
+    .filter(|rule| applies(rule))
     .map(|rule| {
       let started = Instant::now();
       let outcome = match rule {
@@ -437,6 +464,7 @@ fn apply_rules(checkout: &str, rules: &[ParsedRule], tracked: &TrackedPaths, mod
           error: Some(reason.clone()),
           trashed: Vec::new(),
           deferred: Vec::new(),
+          profiles: Profiles::default(),
         },
         Ok(rule) => {
           let mut moved = Moved::default();
@@ -445,9 +473,9 @@ fn apply_rules(checkout: &str, rules: &[ParsedRule], tracked: &TrackedPaths, mod
             Ok(tracked) => check_path(Path::new(checkout), rule, tracked)
               .and_then(|target| run_rule(rule, cargo_scope(rules, rule).as_deref(), &target, (mode, options), &mut moved)),
           };
-          let (freed_bytes, error) = match result {
-            Ok(removals) => (removals.freed, removals.error()),
-            Err(error) => (0, Some(format!("{error:#}"))),
+          let (freed_bytes, error, profiles) = match result {
+            Ok(removals) => (removals.freed, removals.error(), removals.profiles),
+            Err(error) => (0, Some(format!("{error:#}")), Profiles::default()),
           };
           Cleaned {
             rule: rule.describe(),
@@ -456,6 +484,7 @@ fn apply_rules(checkout: &str, rules: &[ParsedRule], tracked: &TrackedPaths, mod
             error,
             trashed: moved.trashed,
             deferred: moved.deferred,
+            profiles,
           }
         }
       };
@@ -489,6 +518,7 @@ fn check_path(checkout: &Path, rule: &CleanRule, tracked: &[String]) -> Result<P
 struct Removals {
   freed: u64,
   failed: Vec<String>,
+  profiles: Profiles,
 }
 
 impl Removals {
@@ -525,7 +555,7 @@ struct Moved {
 }
 
 /// Apply `rule` at `target`; `scope` names the entries of a cargo rule's dir it prunes (`cargo_scope`)
-fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, (mode, options): (CleanMode<'_>, CleanOptions), moved: &mut Moved) -> Result<Removals> {
+fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, (mode, options): (CleanMode<'_>, CleanOptions<'_>), moved: &mut Moved) -> Result<Removals> {
   let mut removals = Removals::default();
   let Ok(metadata) = target.symlink_metadata() else { return Ok(removals) };
   match rule {
@@ -558,6 +588,9 @@ fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, (mode, opti
           .collect(),
       };
       for (profile, walked) in profiles {
+        if removals.profiles.changed {
+          break;
+        }
         // the profile dir as the messages name it, relative to the checkout: `target/debug`
         let named = Path::new(dir).join(profile.strip_prefix(target).unwrap_or(&profile));
         let pruned = ProfilePrune {
@@ -590,7 +623,7 @@ impl ProfilePrune<'_> {
   /// when the rule deletes, move the others, each one only while no build wrote it since the read. Then the stale
   /// objects of the kept units, after the release when `age` is at least `UNLOCKED_OBJECT_AGE`. A held lock skips the
   /// dir, its error in the error of the rule
-  fn run(&self, mode: CleanMode<'_>, options: CleanOptions, removals: &mut Removals, moved: &mut Moved) {
+  fn run(&self, mode: CleanMode<'_>, options: CleanOptions<'_>, removals: &mut Removals, moved: &mut Moved) {
     let started = Instant::now();
     let cutoff = SystemTime::now().checked_sub(self.age).unwrap_or(SystemTime::UNIX_EPOCH);
     // the walk before the locks, which a build of a large profile dir would wait for: a build meanwhile only writes new
@@ -609,6 +642,9 @@ impl ProfilePrune<'_> {
       match CargoLock::take(self.profile, options.cargo_lock_wait) {
         Ok(lock) => Some(lock),
         Err(error) => {
+          if matches!(error, NotLocked::Held) {
+            removals.profiles.held.push(self.named.display().to_string());
+          }
           removals.failed.push(format!("{error}: {}", self.named.display()));
           return;
         }
@@ -616,6 +652,14 @@ impl ProfilePrune<'_> {
     } else {
       None
     };
+    // under the locks: no clean of another lease starts here once its holder got the slot
+    if let Some(still_holds) = options.still_holds
+      && !still_holds()
+    {
+      removals.profiles.changed = true;
+      return;
+    }
+    removals.profiles.pruned += 1;
     let locked_at = Instant::now();
     let mut own_trash = None;
     let mut built_again = 0;

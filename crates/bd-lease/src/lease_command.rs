@@ -173,10 +173,15 @@ impl CleanOverrideArgs {
 }
 
 #[derive(Debug, Default, clap::Args)]
+#[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]
 pub struct LeaseCleanArgs {
   /// Every free slot of the pool
   #[arg(long)]
   pub free: bool,
+  /// Every slot with a `ready` lease of an agent: only the cargo rules of its lease, with their own `keep` and `age`,
+  /// under the locks of cargo; the lease stays
+  #[arg(long, conflicts_with_all = ["host", "keep", "age"])]
+  pub leased: bool,
   /// Every idle host slot (`bd-host`), each with the rules of its own `.branchdeck.toml`
   #[arg(long, conflicts_with_all = ["free", "dirs"])]
   pub host: bool,
@@ -710,6 +715,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     lock_timeout: context.lock_timeout,
     progress: Some(progress),
     space: None,
+    cached_build: Some(&pool_disk::cached_build_bytes),
   };
   let got = lease_get_core(&context.git, &params).map_err(lease_error)?;
   lease_get_output(context, &got)
@@ -1116,6 +1122,10 @@ pub struct LeaseOutput {
   /// lease without them (a host slot, a lease of an older brd)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub notes: Option<String>,
+  /// When a clean last pruned the stale build output of the slot by the cargo rules of the lease, unix seconds: the
+  /// shrink of a get passes over the slot within the smallest `age` of those rules
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub pruned_at: Option<u64>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1163,6 +1173,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
             holder: old.holder.clone(),
           }),
           notes: read_notes(&notes_root, &lease.id).map(|notes| notes.dir.to_string_lossy().into_owned()),
+          pruned_at: lease.pruned_at,
         }),
         reclaimed: status.slot.reclaimed.as_ref().map(ReclaimedOutput::of),
         processes: status.processes.as_deref().map(processes_output),
@@ -1418,6 +1429,9 @@ pub struct CleanTargetOutput {
   /// Why it was not cleaned: a lease, a process in it
   #[serde(skip_serializing_if = "Option::is_none")]
   pub skipped: Option<String>,
+  /// The holder of the lease of a leased slot: only the cargo rules of its lease ran, and the lease stays
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub leased_by: Option<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub cleaned: Vec<CleanedOutput>,
   /// What the trash kept: paths a rule moved there that could not be deleted
@@ -1443,6 +1457,7 @@ pub fn lease_clean(context: &LeaseContext, environment: &Environment, args: &Lea
     let params = LeaseCleanParams {
       repository: &context.dirs,
       free: args.free,
+      leased: args.leased,
       dirs: &dirs,
       apply: !args.dry_run,
       overrides,
@@ -1460,6 +1475,7 @@ pub fn lease_clean(context: &LeaseContext, environment: &Environment, args: &Lea
     .map(|target| CleanTargetOutput {
       path: target.path.clone(),
       skipped: target.skipped.clone(),
+      leased_by: target.leased_by.clone(),
       cleaned: cleaned_output(&target.cleaned),
       trash_left: target.trash_left.clone(),
     })

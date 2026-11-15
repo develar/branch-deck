@@ -7,7 +7,13 @@
 //! takes last, until the volume has the minimum and its margin (`lease::shrink_target`): the worktree stays, only what
 //! the rules name goes. Only the slots on the volume the get measures are candidates (`free_space::Volume`).
 //!
-//! A slot is cleaned only while it is free, under the `cleaning` marker that keeps every get off it, as `brd lease clean`
+//! First the shrink prunes the slots with a `ready` lease of an agent, by the cargo rules of each lease with their own
+//! `keep` and `age` (`lease::prune_leased_slot`): a slot stays hot, as the units its builds read stay, and a long session
+//! piled up 48 to 120 GB of stale units and objects in a slot on 2026-11-15. The largest build output goes first, as
+//! `disk.json` of `pool-disk` last measured it (`ShrinkParams::cached_build`); a prune stamps the lease, and a slot is
+//! pruned again only after the smallest `age` of its rules. Then the free slots, by their rules with keep 0 and age 0.
+//!
+//! A free slot is cleaned only while it is free, under the `cleaning` marker that keeps every get off it, as `brd lease clean`
 //! cleans one; what the rules remove goes into the trash of its pool and is deleted once the marker is gone, and the
 //! free space is measured after each slot (one `statfs`).
 //!
@@ -19,16 +25,17 @@
 //! that needs nothing more behind it.
 
 use crate::free_space::{AvailableBytes, Volume};
-use crate::lease::{Lease, LeaseState, LeaseStore, Pool, SkipReason, SkippedSlot, Slot, busy_processes, release_marker};
-use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, read_clean_rules};
+use crate::lease::{Lease, LeaseState, LeaseStore, Pool, SkipReason, SkippedSlot, Slot, busy_processes, lease_rules_dir, prune_leased_slot, release_marker};
+use crate::lease_clean::{CleanMode, CleanOverrides, CleanRule, Cleaned, Trash, apply_clean_rules, read_clean_rules};
 use crate::trim::{machine_pools, mark_free};
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::RepositoryDirs;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLock, lock_file_while_held};
 use std::cmp::Reverse;
+use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::ProcessScan;
 use tracing::{debug, instrument, warn};
@@ -69,11 +76,21 @@ pub struct ShrinkParams<'a> {
   pub available: &'a AvailableBytes<'a>,
   /// The wait for the pool lock, for the `cleaning` marker of a slot
   pub lock_timeout: Duration,
+  /// The bytes of the build dirs of each slot of the pool of a common dir as `disk.json` last measured them, by slot
+  /// path, read without a walk (`pool_disk::cached_build_bytes`); `None`: the leased slots go by `leased_at` alone
+  pub cached_build: Option<&'a CachedBuild<'a>>,
 }
+
+/// The bytes of the build dirs of each slot of the pool of a common dir, by slot path (`ShrinkParams::cached_build`)
+pub type CachedBuild<'a> = dyn Fn(&Path) -> HashMap<String, u64> + 'a;
 
 /// What a shrink did
 #[derive(Debug, Clone, Default)]
 pub struct Shrunk {
+  /// The leased slots it pruned by the cargo rules of their leases, in the order it pruned them
+  pub leased: Vec<ShrunkSlot>,
+  /// The leased slots it left as they are, as cargo builds in them
+  pub building: Vec<BuildingSlot>,
   /// The free slots it cleaned, in the order it cleaned them
   pub slots: Vec<ShrunkSlot>,
   /// The free slots it left alone because a process works in them
@@ -85,8 +102,18 @@ pub struct Shrunk {
 impl Shrunk {
   /// The bytes on disk the deletes freed
   pub fn freed_bytes(&self) -> u64 {
-    self.slots.iter().map(ShrunkSlot::freed_bytes).sum()
+    self.leased.iter().chain(&self.slots).map(ShrunkSlot::freed_bytes).sum()
   }
+}
+
+/// A leased slot that a shrink left as it is: the lock of cargo of every profile dir its cargo rules found is held
+#[derive(Debug, Clone)]
+pub struct BuildingSlot {
+  pub name: String,
+  pub path: String,
+  pub holder: String,
+  /// The profile dirs whose lock is held, relative to the slot: `target/debug`
+  pub profiles: Vec<String>,
 }
 
 /// A free slot whose build output a shrink deleted
@@ -94,6 +121,8 @@ impl Shrunk {
 pub struct ShrunkSlot {
   pub name: String,
   pub path: String,
+  /// The holder of the lease of a leased slot; `None` for a free slot
+  pub holder: Option<String>,
   /// `$GIT_COMMON_DIR` of its repository, canonical
   pub git_common_dir: String,
   /// What each of its rules did
@@ -153,6 +182,9 @@ pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>)
       }
     }
   }
+  if !prune_leased_slots(git_executor, params, (&pools, &volume), &enough, &mut shrunk) {
+    return shrunk;
+  }
   let slots: Vec<&[Slot]> = pools.iter().map(|(_, store)| store.slots.as_slice()).collect();
   let order = shrink_order(&slots, |slot| present(slot) && !shrunk.busy.iter().any(|busy| busy.path == slot.path));
   let marker = Lease::marker("shrink", "brd lease get (shrink)", LeaseState::Cleaning);
@@ -189,6 +221,7 @@ pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>)
     let cleaned_slot = ShrunkSlot {
       name: slot.name.clone(),
       path: slot.path.clone(),
+      holder: None,
       git_common_dir: git_common_dir.clone(),
       cleaned,
       trash_left,
@@ -200,6 +233,121 @@ pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>)
     }
   }
   shrunk
+}
+
+/// Prune the leased slots of `pools` on `volume` by the cargo rules of their leases (`lease::prune_leased_slot`), in the
+/// order of `leased_order`, until the volume has the target: before each slot one `statfs`, and the delete stops at it
+/// too. A slot whose prune of the same lease is younger than the smallest `age` of its cargo rules is passed over, so is
+/// a host slot and a lease in another state than `ready`. Whether the shrink goes on to the free slots: false once the
+/// volume has the target or a delete stopped
+fn prune_leased_slots(
+  git_executor: &GitCommandExecutor,
+  params: &ShrinkParams<'_>,
+  (pools, volume): (&[(String, LeaseStore)], &Volume),
+  enough: &dyn Fn() -> bool,
+  shrunk: &mut Shrunk,
+) -> bool {
+  let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
+  let mut candidates: Vec<LeasedCandidate<'_>> = Vec::new();
+  for (index, (git_common_dir, store)) in pools.iter().enumerate() {
+    let sizes = params.cached_build.map_or_default(|cached| cached(Path::new(git_common_dir)));
+    for slot in &store.slots {
+      let Some(lease) = slot.lease.as_ref().filter(|lease| lease.is_agent_ready()) else {
+        continue;
+      };
+      if !Path::new(&slot.path).is_dir() || !volume.holds(Path::new(&slot.path)) {
+        continue;
+      }
+      if let Some(pruned_at) = lease.pruned_at
+        && now.saturating_sub(pruned_at) < smallest_cargo_age(lease, &slot.path).as_secs()
+      {
+        debug!(slot = %slot.path, "a leased slot was pruned within the age of its cargo rules");
+        continue;
+      }
+      candidates.push(LeasedCandidate {
+        pool: index,
+        slot,
+        lease,
+        build_bytes: sizes.get(&slot.path).copied(),
+      });
+    }
+  }
+  for candidate in leased_order(candidates) {
+    if (params.available)(params.volume).is_none_or(|available| available >= params.target) {
+      return false;
+    }
+    let git_common_dir = &pools[candidate.pool].0;
+    let pool = Pool::new(Path::new(git_common_dir));
+    let trash = Trash::new(&pool.trash_dir());
+    let pruned = match prune_leased_slot(git_executor, &pool, params.lock_timeout, (&candidate.slot.path, candidate.lease), CleanMode::Trash(&trash)) {
+      Ok(Some(pruned)) => pruned,
+      Ok(None) => {
+        debug!(slot = %candidate.slot.path, "the lease of a slot the shrink chose changed");
+        continue;
+      }
+      Err(error) => {
+        warn!(slot = %candidate.slot.path, error = %format!("{error:#}"), "cannot prune a leased slot");
+        continue;
+      }
+    };
+    if !pruned.building.is_empty() {
+      shrunk.building.push(BuildingSlot {
+        name: candidate.slot.name.clone(),
+        path: candidate.slot.path.clone(),
+        holder: candidate.lease.holder.clone(),
+        profiles: pruned.building,
+      });
+      continue;
+    }
+    let mut cleaned = pruned.cleaned;
+    let (trash_left, complete) = trash.empty_until(&mut cleaned, enough);
+    let pruned_slot = ShrunkSlot {
+      name: candidate.slot.name.clone(),
+      path: candidate.slot.path.clone(),
+      holder: Some(candidate.lease.holder.clone()),
+      git_common_dir: git_common_dir.clone(),
+      cleaned,
+      trash_left,
+    };
+    debug!(slot = %candidate.slot.path, freed = pruned_slot.freed_bytes(), complete, "the stale build output of a leased slot is pruned");
+    shrunk.leased.push(pruned_slot);
+    if !complete {
+      return false;
+    }
+  }
+  true
+}
+
+/// The smallest `age` of the cargo rules of `lease` of the slot `path`; zero without one or with rules that can't be
+/// read, so the slot is never passed over for its stamp then
+fn smallest_cargo_age(lease: &Lease, path: &str) -> Duration {
+  read_clean_rules(lease_rules_dir(lease, path))
+    .unwrap_or_default()
+    .iter()
+    .filter_map(|rule| match rule {
+      Ok(CleanRule::Cargo { age, .. }) => Some(*age),
+      _ => None,
+    })
+    .min()
+    .unwrap_or_default()
+}
+
+/// A leased slot the shrink may prune
+pub struct LeasedCandidate<'a> {
+  /// The index of its pool
+  pub pool: usize,
+  pub slot: &'a Slot,
+  pub lease: &'a Lease,
+  /// The bytes of its build dirs as `disk.json` last measured them, of any age
+  pub build_bytes: Option<u64>,
+}
+
+/// The order of the leased slots a shrink prunes: the largest build output first, then the ones `disk.json` has no
+/// size of, leased longest ago first. Before it, the order by `leased_at` alone walked the oldest lease first, which
+/// can hold the smallest target
+pub fn leased_order(mut candidates: Vec<LeasedCandidate<'_>>) -> Vec<LeasedCandidate<'_>> {
+  candidates.sort_by_key(|candidate| (candidate.build_bytes.is_none(), Reverse(candidate.build_bytes.unwrap_or(0)), candidate.lease.leased_at));
+  candidates
 }
 
 /// The free slots of `pools` that `usable` admits (its directory is there, no process works in it), in the order a

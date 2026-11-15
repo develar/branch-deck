@@ -1,5 +1,5 @@
 use crate::lease::{Lease, LeaseState, Slot};
-use crate::shrink::shrink_order;
+use crate::shrink::{LeasedCandidate, leased_order, shrink_order};
 use pretty_assertions::assert_eq;
 
 /// A slot `name` of the state, free unless `lease`, returned as the `returned`-th of its pool at `returned_at`
@@ -72,4 +72,34 @@ fn the_next_slot_of_a_pool_is_the_one_its_get_would_take() {
   );
   assert_eq!(names(&shrink_order(&[&[dirty]], |_| true)), [(0, "dirty".to_string())]);
   assert_eq!(names(&shrink_order(&[&[][..]], |_| true)), Vec::<(usize, String)>::new());
+}
+
+/// The leased slots go by the bytes of their build dirs as `disk.json` last measured them, the largest first, then the
+/// ones it has no size of, leased longest ago first
+#[test]
+fn the_leased_slots_go_largest_first_then_by_leased_at() {
+  let slots: Vec<Slot> = ["small", "large", "unknown-new", "unknown-old"]
+    .iter()
+    .enumerate()
+    .map(|(index, name)| {
+      let mut slot = leased(slot(name, None, None), LeaseState::Ready);
+      if let Some(lease) = slot.lease.as_mut() {
+        lease.leased_at = [10, 20, 40, 30][index];
+      }
+      slot
+    })
+    .collect();
+  let sizes = [Some(5), Some(50), None, None];
+  let candidates: Vec<LeasedCandidate<'_>> = slots
+    .iter()
+    .zip(sizes)
+    .map(|(slot, build_bytes)| LeasedCandidate {
+      pool: 0,
+      slot,
+      lease: slot.lease.as_ref().unwrap(),
+      build_bytes,
+    })
+    .collect();
+  let order: Vec<&str> = leased_order(candidates).iter().map(|candidate| candidate.slot.name.as_str()).collect();
+  assert_eq!(order, ["large", "small", "unknown-old", "unknown-new"]);
 }

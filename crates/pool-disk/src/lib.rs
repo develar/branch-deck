@@ -20,7 +20,7 @@ use lease_pool::output_bases::{OutputBase, orphans};
 use lease_pool::state_file::StateFile;
 use lease_pool::trim::{Machine, main_worktree, max_slots, trim_order};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_utils::paths::display_path;
@@ -930,6 +930,19 @@ fn walk_requests(changes: &Changes, roots: &[Walk], root_keys: &[String], cached
       requests
     }
   }
+}
+
+/// The bytes of the build dirs of each slot of the pool of `git_common_dir` as `disk.json` last measured them, of any
+/// age, by slot path: a read of the file without its lock or a walk, for the order of the leased slots in a shrink
+/// (`lease_pool::shrink::ShrinkParams::cached_build`). Empty when the file is missing or can't be read
+pub fn cached_build_bytes(git_common_dir: &Path) -> HashMap<String, u64> {
+  disk_file(git_common_dir).read::<DiskFile>().map_or_default(|file| {
+    file
+      .slots
+      .into_iter()
+      .map(|(path, measured)| (path, measured.build.iter().map(|dir| dir.bytes).sum()))
+      .collect()
+  })
 }
 
 fn disk_file(git_common_dir: &Path) -> StateFile {

@@ -1729,6 +1729,7 @@ impl ShrinkFixture {
         lock_timeout: context.lock_timeout,
         progress: Some(progress),
         space: Some(space),
+        cached_build: None,
       },
     )
   }
@@ -2131,7 +2132,7 @@ fn a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_n
   assert_eq!((available, freed.trim.slots, freed.shrink.slots, freed.evict.slots), (53 * GIB, 0, 3, 2), "{message}");
   assert!(freed.shrink.bytes >= 3 * UNIT_BYTES as u64 && freed.evict.bytes > 0, "{message}");
   assert!(
-    message.contains("the get deleted the build output of 3 free slot(s) of the pools of this machine")
+    message.contains("the get cleaned the build output of 3 slot(s) of the pools of this machine")
       && message.contains("then it deleted 2 free slot(s) below `branchdeck.leaseMaxSlots`"),
     "{message}"
   );
@@ -2871,4 +2872,133 @@ fn a_get_and_a_return_beside_a_held_sync_do_not_wait_for_it() {
     fixture.give_back(&path);
   });
   assert_eq!(states(&fixture.status()), [(slot_path(&path), "free".to_string())]);
+}
+
+/// A slot of a `ShrinkFixture` leased again, by `holder`, with nine more units of `git-ops` built 3 hours ago and later:
+/// with the fresh unit of the fixture, the rule `keep = 8` leaves the two oldest stale. The paths of those two
+#[cfg(unix)]
+fn leased_with_stale_units(shrink: &ShrinkFixture, holder: &str) -> (String, Vec<PathBuf>) {
+  let leased = path_of(&shrink.fixture.get(&["--holder", holder]));
+  let units: Vec<PathBuf> = (0..9u64)
+    .map(|index| {
+      let unit = Path::new(&leased).join(format!("target/debug/build/git-ops/{index:016x}"));
+      std::fs::create_dir_all(unit.join("fingerprint")).unwrap();
+      std::fs::write(unit.join("fingerprint/dep"), vec![b'x'; UNIT_BYTES]).unwrap();
+      let built = std::time::SystemTime::now() - Duration::from_mins(180 + 10 * (9 - index));
+      for path in [unit.join("fingerprint/dep"), unit.join("fingerprint"), unit.clone()] {
+        std::fs::File::open(path).unwrap().set_modified(built).unwrap();
+      }
+      unit
+    })
+    .collect();
+  (leased, units[..2].to_vec())
+}
+
+/// Below the minimum a get prunes the leased slots first, by the cargo rules of their leases with their own `keep` and
+/// `age`: the leased slot loses its two stale units only, keeps its lease, its newer units and its `notes.local`, and the
+/// stamp of the prune; the free slots keep their units, as the prune lifted the volume
+#[cfg(unix)]
+#[test_log::test]
+fn a_shrink_prunes_the_leased_slots_by_their_own_keep_and_age_before_the_free_slots() {
+  let shrink = ShrinkFixture::new();
+  let (leased, stale) = leased_with_stale_units(&shrink, "busy-agent");
+  let space = |_: &Path| {
+    let gone = stale.iter().all(|unit| !unit.exists());
+    Some(lease_pool::free_space::VolumeSpace {
+      available: if gone { 120 } else { 50 } * GIB,
+      total: VOLUME_BYTES,
+    })
+  };
+  let got = shrink.get_on(&space, &|_| {}).unwrap();
+  let shrunk = got.shrunk.as_ref().expect("a shrink");
+  let pruned: Vec<(&str, Option<&str>)> = shrunk.leased.iter().map(|slot| (slot.path.as_str(), slot.holder.as_deref())).collect();
+  assert_eq!(pruned, [(leased.as_str(), Some("busy-agent"))]);
+  assert!(shrunk.slots.is_empty(), "{shrunk:?}");
+  assert!(stale.iter().all(|unit| !unit.exists()));
+  assert!(ShrinkFixture::unit(&leased).exists() && Path::new(&leased).join("target/debug/build/git-ops/0000000000000002").exists());
+  assert!(Path::new(&leased).join("notes.local").exists());
+  let others: Vec<bool> = shrink.slots.iter().filter(|slot| **slot != leased).map(|slot| ShrinkFixture::unit(slot).exists()).collect();
+  assert_eq!(others, [true, true]);
+  let status = shrink.fixture.status();
+  let entry = status["slots"].as_array().unwrap().iter().find(|slot| slot["path"] == json!(leased)).cloned().unwrap();
+  assert_eq!(entry["lease"]["holder"], json!("busy-agent"), "{entry}");
+  assert!(entry["lease"]["pruned_at"].as_u64().is_some(), "{entry}");
+  let printed = shrink.printed(&got);
+  assert_eq!(printed["shrunk"]["leased"][0]["holder"], json!("busy-agent"), "{printed}");
+}
+
+/// A second get below the minimum within the `age` of the cargo rule passes over the leased slot it pruned: a stale unit
+/// that a build left there since stays, and the shrink goes on to the free slots
+#[cfg(unix)]
+#[test_log::test]
+fn a_second_shrink_within_the_age_passes_over_a_pruned_leased_slot() {
+  let shrink = ShrinkFixture::new();
+  let (leased, stale) = leased_with_stale_units(&shrink, "busy-agent");
+  let lifted = |_: &Path| {
+    Some(lease_pool::free_space::VolumeSpace {
+      available: if stale.iter().all(|unit| !unit.exists()) { 120 } else { 50 } * GIB,
+      total: VOLUME_BYTES,
+    })
+  };
+  let first = shrink.get_on(&lifted, &|_| {}).unwrap();
+  assert_eq!(first.shrunk.as_ref().unwrap().leased.len(), 1);
+  // a unit older than any that stays is stale again
+  let again = Path::new(&leased).join("target/debug/build/git-ops/00000000000000ff");
+  std::fs::create_dir_all(again.join("fingerprint")).unwrap();
+  std::fs::write(again.join("fingerprint/dep"), "x").unwrap();
+  let old = std::time::SystemTime::now() - Duration::from_hours(10);
+  for path in [again.join("fingerprint/dep"), again.join("fingerprint"), again.clone()] {
+    std::fs::File::open(path).unwrap().set_modified(old).unwrap();
+  }
+  let free: Vec<String> = shrink.slots.iter().filter(|slot| **slot != leased && **slot != first.slot.path).cloned().collect();
+  let free_unit = ShrinkFixture::unit(&free[0]);
+  let low_until_a_free_slot_goes = |_: &Path| {
+    Some(lease_pool::free_space::VolumeSpace {
+      available: if free_unit.exists() { 50 } else { 120 } * GIB,
+      total: VOLUME_BYTES,
+    })
+  };
+  let second = shrink.get_on(&low_until_a_free_slot_goes, &|_| {}).unwrap();
+  let shrunk = second.shrunk.as_ref().unwrap();
+  // the lease of the first get is no stamped one: it is pruned, and frees nothing
+  assert_eq!(
+    shrunk.leased.iter().map(|slot| slot.path.clone()).collect::<Vec<_>>(),
+    std::slice::from_ref(&first.slot.path),
+    "{shrunk:?}"
+  );
+  assert_eq!(shrunk.slots.iter().map(|slot| slot.path.clone()).collect::<Vec<_>>(), free);
+  assert!(again.exists(), "the stamp passes over the slot");
+}
+
+/// A process holds `.cargo-build-lock` of the leased slot, as a build does: the shrink leaves the slot as it is and names
+/// it in `building`, then cleans the free slot
+#[cfg(unix)]
+#[test_log::test]
+fn a_shrink_passes_over_a_leased_slot_whose_cargo_lock_is_held() {
+  let shrink = ShrinkFixture::new();
+  let (leased, stale) = leased_with_stale_units(&shrink, "building-agent");
+  let lock = Path::new(&leased).join("target/debug/.cargo-build-lock");
+  std::fs::write(&lock, "").unwrap();
+  let held = std::fs::File::open(&lock).unwrap();
+  held.try_lock().unwrap();
+  let first_free = shrink.slots.iter().find(|slot| **slot != leased).cloned().unwrap();
+  let free_unit = ShrinkFixture::unit(&first_free);
+  let space = |_: &Path| {
+    Some(lease_pool::free_space::VolumeSpace {
+      available: if free_unit.exists() { 50 } else { 120 } * GIB,
+      total: VOLUME_BYTES,
+    })
+  };
+  let got = shrink.get_on(&space, &|_| {}).unwrap();
+  drop(held);
+  let shrunk = got.shrunk.as_ref().unwrap();
+  let building: Vec<(&str, &str, &[String])> = shrunk
+    .building
+    .iter()
+    .map(|slot| (slot.path.as_str(), slot.holder.as_str(), slot.profiles.as_slice()))
+    .collect();
+  assert_eq!(building, [(leased.as_str(), "building-agent", &["target/debug".to_string()][..])]);
+  assert!(shrunk.leased.is_empty() && stale.iter().all(|unit| unit.exists()), "{shrunk:?}");
+  assert_eq!(shrunk.slots.iter().map(|slot| slot.path.clone()).collect::<Vec<_>>(), [first_free]);
+  assert_eq!(shrink.printed(&got)["shrunk"]["building"][0]["holder"], json!("building-agent"));
 }

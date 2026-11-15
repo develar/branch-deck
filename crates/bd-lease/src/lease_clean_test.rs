@@ -208,10 +208,10 @@ fn a_bad_file_does_not_fail_the_return() {
 }
 
 /// `brd lease clean --free` cleans the free slots and skips one with a process in it; a leased slot named on the command
-/// line is skipped; with --dry-run nothing is deleted
+/// line gets only its cargo rules, so its e2e results stay; with --dry-run nothing is deleted
 #[cfg(unix)]
 #[test_log::test]
-fn clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing() {
+fn clean_skips_a_busy_slot_and_a_dry_run_deletes_nothing() {
   let fixture = Fixture::new();
   commit_rules(&fixture, RULES);
   let slots: Vec<String> = (0..3).map(|_| path_of(&fixture.get(&[]))).collect();
@@ -241,7 +241,8 @@ fn clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing() {
   assert_eq!(skipped.len(), 3, "{output}");
   assert_eq!(skipped[0], (slots[0].as_str(), None));
   assert!(skipped[1].0 == slots[1] && skipped[1].1.unwrap().contains("sleep"), "{output}");
-  assert!(skipped[2].0 == slots[2] && skipped[2].1.unwrap().starts_with("leased by"), "{output}");
+  assert_eq!(skipped[2], (slots[2].as_str(), None), "{output}");
+  assert!(output["targets"][2]["leased_by"].is_string(), "{output}");
   assert!(!Path::new(&slots[0]).join("tests/results").exists());
   assert!(Path::new(&slots[1]).join("tests/results").exists() && Path::new(&slots[2]).join("tests/results").exists());
 
@@ -252,6 +253,64 @@ fn clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing() {
   let returned = fixture.give_back(&slots[2]);
   assert_covered(&outputs["lease_return"], &outputs["lease_return"], &returned, "lease_return with cleaned");
   assert_eq!(git(&fixture.repo, &["status", "--porcelain"]), "");
+}
+
+/// `brd lease clean --leased` applies only the cargo rules of each leased slot, with their own `keep` and `age`: the dry
+/// run deletes nothing and names what the cargo rule would free; the run prunes the stale unit, keeps `tests/results`
+/// of a `delete` rule and the lease, and names the holder (`leased_by`)
+#[cfg(unix)]
+#[test_log::test]
+fn clean_leased_applies_only_the_cargo_rules_of_a_leased_slot() {
+  let fixture = Fixture::new();
+  commit_rules(&fixture, RULES);
+  let got = fixture.get(&["--holder", "keeper"]);
+  let path = path_of(&got);
+  let slot = Path::new(&path);
+  cargo_units(slot);
+  file(slot, "tests/results/trace.zip", 4096);
+
+  let (exit_code, dry_run) = fixture.run(&["lease", "clean", "--leased", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{dry_run}");
+  assert_eq!(rules_of(&dry_run["targets"][0]["cleaned"]), [("cargo target".to_string(), None)], "{dry_run}");
+  assert!(dry_run["freed_bytes"].as_u64().unwrap() > 0, "{dry_run}");
+  assert!(slot.join("target/debug/build/git-ops/old").exists(), "a dry run deletes nothing");
+
+  let (exit_code, output) = fixture.run(&["lease", "clean", "--leased"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["targets"][0]["leased_by"], json!("keeper"), "{output}");
+  assert!(!slot.join("target/debug/build/git-ops/old").exists() && slot.join("target/debug/build/git-ops/new").exists());
+  assert!(slot.join("tests/results/trace.zip").exists());
+  let status = fixture.status();
+  assert_eq!(status["slots"][0]["lease"]["lease_id"], got["lease_id"], "{status}");
+  assert!(status["slots"][0]["lease"]["pruned_at"].is_u64(), "{status}");
+  let (_, schema) = fixture.run(&["schema", "--all"]);
+  assert_covered(
+    &schema["outputs"]["lease_clean"],
+    &schema["outputs"]["lease_clean"],
+    &output,
+    "lease_clean of a leased slot",
+  );
+}
+
+/// `--keep` and `--age` never apply to a leased slot: a named one with an override is skipped and says why, and
+/// `--leased` with one is invalid
+#[cfg(unix)]
+#[test_log::test]
+fn the_overrides_never_apply_to_a_leased_slot() {
+  let fixture = Fixture::new();
+  commit_rules(&fixture, RULES);
+  let path = path_of(&fixture.get(&["--holder", "keeper"]));
+  cargo_units(Path::new(&path));
+  let (exit_code, output) = fixture.run(&["lease", "clean", &path, "--keep", "0"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    output["targets"][0]["skipped"],
+    json!("leased by keeper: --keep and --age apply only to a slot without a lease"),
+    "{output}"
+  );
+  assert!(Path::new(&path).join("target/debug/build/git-ops/old").exists());
+  let (exit_code, refused) = fixture.run(&["lease", "clean", "--leased", "--age", "0s"]);
+  assert_error(&refused, exit_code, (2, "invalid_arguments"));
 }
 
 /// While `brd lease clean --free` cleans a free slot, the slot is `cleaning`: a get neither leases it, so the clean never

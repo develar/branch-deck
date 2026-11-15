@@ -53,7 +53,8 @@ Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<
   unit hash of a workspace crate does not depend on the checkout's path, so worktrees would overwrite each other's
   units. Cargo never deletes a stale unit, so the return of a lease applies the clean rules of `.branchdeck.toml` (the
   stale units of `target/`, the e2e artifacts); `brd lease clean --free` applies them to the free slots now
-  (`--dry-run` only reports). Dependencies are built with workspace-wide features (`.cargo/config.toml`) and line
+  (`--dry-run` only reports). A get below the minimum free space also prunes the stale units and objects of the leased
+  slots by their cargo rules, under the locks of cargo, so a build that starts meanwhile waits a moment. Dependencies are built with workspace-wide features (`.cargo/config.toml`) and line
   tables only.
 - **Disk**: a get refuses as `low_disk_space` when the volume of the pool has less free space than
   `branchdeck.leaseMinFree` (git config, the machine's: `200G` on the user's Mac); tell the user, never pass

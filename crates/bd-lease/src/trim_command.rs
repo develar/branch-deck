@@ -8,7 +8,7 @@ use bd_core::error::{CliError, ProcessOutput};
 use bd_core::output::SchemaVersion;
 use lease_pool::free_space::available_bytes;
 use lease_pool::lease::{SkipReason, SkippedSlot};
-use lease_pool::shrink::Shrunk;
+use lease_pool::shrink::{Shrunk, ShrunkSlot};
 use lease_pool::trim::{RemovedBase, TrimParams, Trimmed, trim_core};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -189,11 +189,18 @@ fn busy_output(skipped: &[SkippedSlot]) -> Vec<BusySlotOutput> {
     .collect()
 }
 
-/// What the shrink of a get below the minimum free space did, after the trim: the free slots of the pools of this
-/// machine whose build output it deleted by their clean rules with keep 0, the ones returned longest ago first
+/// What the shrink of a get below the minimum free space did, after the trim: the leased slots of the pools of this
+/// machine whose stale build output it pruned by the cargo rules of their leases, the largest first, then the free slots
+/// whose build output it deleted by their clean rules with keep 0, the ones returned longest ago first
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ShrunkOutput {
-  /// In the order it cleaned them, until the volume had the minimum and a tenth of it free
+  /// The leased slots, in the order it pruned them; each names its `holder`
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub leased: Vec<ShrunkSlotOutput>,
+  /// The leased slots it left as they are: cargo builds in them, the lock of cargo of every profile dir is held
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub building: Vec<BuildingSlotOutput>,
+  /// The free slots, in the order it cleaned them, until the volume had the minimum and a tenth of it free
   pub slots: Vec<ShrunkSlotOutput>,
   /// The free slots it left alone: a process works in them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -208,6 +215,9 @@ pub struct ShrunkOutput {
 pub struct ShrunkSlotOutput {
   pub slot: String,
   pub path: String,
+  /// The holder of the lease of a leased slot
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub holder: Option<String>,
   /// `$GIT_COMMON_DIR` of its repository
   pub git_common_dir: String,
   pub freed_bytes: u64,
@@ -218,21 +228,45 @@ pub struct ShrunkSlotOutput {
   pub trash_left: Vec<String>,
 }
 
+/// A leased slot the shrink left as it is, as cargo builds in it
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct BuildingSlotOutput {
+  pub slot: String,
+  pub path: String,
+  pub holder: String,
+  /// The profile dirs whose lock of cargo is held, relative to the slot
+  pub profiles: Vec<String>,
+}
+
 impl ShrunkOutput {
   pub fn of(shrunk: &Shrunk) -> Self {
-    Self {
-      slots: shrunk
-        .slots
+    let slots = |slots: &[ShrunkSlot]| {
+      slots
         .iter()
         .map(|slot| ShrunkSlotOutput {
           slot: slot.name.clone(),
           path: slot.path.clone(),
+          holder: slot.holder.clone(),
           git_common_dir: slot.git_common_dir.clone(),
           freed_bytes: slot.freed_bytes(),
           cleaned: cleaned_output(&slot.cleaned),
           trash_left: slot.trash_left.clone(),
         })
+        .collect()
+    };
+    Self {
+      leased: slots(&shrunk.leased),
+      building: shrunk
+        .building
+        .iter()
+        .map(|slot| BuildingSlotOutput {
+          slot: slot.name.clone(),
+          path: slot.path.clone(),
+          holder: slot.holder.clone(),
+          profiles: slot.profiles.clone(),
+        })
         .collect(),
+      slots: slots(&shrunk.slots),
       busy: busy_output(&shrunk.busy),
       freed_bytes: shrunk.freed_bytes(),
       processes_checked: shrunk.process_scan,
