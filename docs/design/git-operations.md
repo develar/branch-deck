@@ -2790,15 +2790,21 @@ On macOS the dev default `split-debuginfo=unpacked` keeps the objects of rustc (
 set per invocation. rustc deletes the old incremental sessions, but not their objects: on 2026-11-15 a manual pass
 deleted 140,254 of them in the branch-deck slots and gave back about 110 GB. A session of `incremental/` links the
 objects that the next build of its crate reuses, under new names in `out/`. So in a kept unit the rule deletes an old
-object of an incremental compile only when no session holds its inode (`stale_objects`). The debug map of an
+object of an incremental compile only when no session of any dir of `incremental/` holds its inode, kept or stale, as
+the pass reads them (`stale_objects`). The debug map of an
 executable names the members of each rlib, not their objects in `out/`, so a unit that links only an rlib loses every
 other old object. Another unit (an executable, a test harness, a build script) keeps the objects of each invocation
 that names an inode of its newest mtime. An object of a compile without incremental (`<crate>.<hex>-cgu.<n>`) stays,
-as its name tells no invocation. The objects are read after the release of the locks, whatever the `age`: an object
-that a running rustc writes is newer than every current output of its unit, since rustc writes the rmeta before its
-objects and the rlib or the executable after the objects it reads. So an object goes only when it is older than the
-newest rlib, rmeta or executable of its unit, and a unit with none of them keeps every object. No assumption on the
-compile time is left, and the locks are held only for the moves of the stale units. The objects are deleted in place
+as its name tells no invocation. An object goes only when it is older than the newest rlib, rmeta or executable of
+its unit, and a unit with none of them keeps every object. The objects are read after the release of the locks,
+whatever the `age`, so a build may run meanwhile. Two guards keep what it reads, whatever the compile time. An object
+that it compiles is newer than the start of the run, so younger than `age`. An object that it links again from a
+session is a hard link, with the old mtime of its inode: on a probe of nightly 2026-10-28, the reused objects of a
+second build were 2 s older than its new rmeta, with 3 links each. The newest output is no guard for such a link; the
+sessions are. A stale dir of `incremental/` that a build wrote after the walk stays, as built again, so the pass reads
+every dir there, not only the kept ones. rustc renames its working session before it writes the rlib and then deletes
+the old one, so a session that vanishes during the read is read again by a new list; a read that fails at each of 4
+tries keeps every object of the profile dir. The locks are held only for the moves of the stale units. The objects are deleted in place
 when the caller empties its trash (`Cleaned::deferred`): a return once the slot is free, the prune of a leased slot
 while the lease holds. One count of entries serves all, and none is renamed into the trash: a rename cost 2.0 ms
 against 0.87 ms for an unlink. A dry run counts an inode once, when every link of it is a stale object.

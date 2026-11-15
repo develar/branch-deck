@@ -31,10 +31,11 @@
 //! A cargo rule that deletes takes the locks of cargo of each profile dir exclusive (`CargoLock`) while it moves the
 //! stale units that it read before: no build, check or test of cargo works there meanwhile, and a build that starts
 //! waits. A held lock skips that profile dir. After the release it reads the stale objects of rustc in the kept units
-//! (`stale_objects`). An object that a build writes meanwhile is newer than the current outputs of its unit, and such
-//! an object stays, whatever the compile time. The objects go in place, never through the trash, when the caller
-//! empties its trash (`Cleaned::deferred`): a return once the slot is free, the prune of a leased slot while the lease
-//! holds.
+//! (`stale_objects`). A build may run meanwhile, and two guards keep what it reads, whatever the compile time. An
+//! object that it compiles is younger than `age`, as the run started before it. An object that it links again from a
+//! session of `incremental/` keeps its old mtime, but the sessions of every dir there hold its inode, read at the pass.
+//! The objects go in place, never through the trash, when the caller empties its trash (`Cleaned::deferred`): a return
+//! once the slot is free, the prune of a leased slot while the lease holds.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -670,11 +671,11 @@ impl ProfilePrune<'_> {
       removals.add(self.remove_unit(&unit.paths, mode, &mut own_trash, &mut moved.trashed));
     }
     let held = locked_at.elapsed();
-    // a build that waits starts now, while the objects are read: what it writes is newer than the outputs of its unit,
-    // which `stale_objects` keeps
+    // a build that waits starts now, while the objects are read: what it compiles is newer than `cutoff`, and what it
+    // links again from a session `stale_objects` reads in every dir of `incremental/`
     drop(lock);
     let objects_started = Instant::now();
-    let objects = stale_objects(&kept, cutoff);
+    let objects = stale_objects(&kept, &self.profile.join("incremental"), cutoff);
     let object_count = objects.len();
     match mode {
       CleanMode::Measure => removals.freed += measure_objects(&objects),
@@ -1509,26 +1510,25 @@ fn incremental_invocation(name: &str) -> Option<&str> {
 /// The stale objects of rustc in the `kept` units, older than `cutoff` and older than the newest output of their unit
 /// (`final_output`). Only the objects of an incremental compile go:
 ///
-/// - first the sessions of the kept dirs of `incremental/`, the inode of each file. A session links the objects that
-///   the next build of its crate reuses, under new names, so an object whose inode a session holds stays;
+/// - first the sessions of every dir of `incremental`, as it is now, the inode of each file (`held_inodes`). A session
+///   links the objects that the next build of its crate reuses, under new names, so an object whose inode a session
+///   holds stays. A dir that the walk found stale but did not move, as a build wrote it since, counts too;
 /// - a unit that links only an rlib (`.rlib`, `.rmeta`, `.d` and objects): no reader opens its objects after the compile,
 ///   as the debug map of an executable names the members of the rlib. Each other object goes;
 /// - another unit (an executable, a test harness, a build script, a dylib) names its own objects in its debug map: the
 ///   objects of each invocation that names an inode of the newest mtime of the unit stay, the others go.
 ///
-/// An object of a compile without incremental stays, as its name tells no invocation. An object that a running rustc
-/// writes is newer than every current output of its unit: rustc writes the rmeta before the objects, and the rlib or
-/// the executable after the objects it reads. So that object stays, whatever the compile time and without the locks of
-/// cargo, and a unit with no output yet keeps every object
+/// An object of a compile without incremental stays, as its name tells no invocation. The pass runs without the locks
+/// of cargo, so a build may run meanwhile. Two guards keep what it reads: `cutoff`, taken before the locks, keeps each
+/// object that it compiles, and the sessions keep each object that it links again from one, which has the old mtime of
+/// its inode. The newest output is no guard for such a link. A unit with no output yet keeps every object
 #[cfg(unix)]
-fn stale_objects(kept: &[Unit], cutoff: SystemTime) -> Vec<StaleObject> {
+fn stale_objects(kept: &[Unit], incremental: &Path, cutoff: SystemTime) -> Vec<StaleObject> {
   use std::os::unix::fs::MetadataExt;
-  let held: HashSet<u64> = kept
-    .iter()
-    .filter(|unit| unit.incremental)
-    .flat_map(|unit| &unit.paths)
-    .flat_map(|dir| session_inodes(dir))
-    .collect();
+  let Some(held) = held_inodes(incremental) else {
+    debug!(incremental = %incremental.display(), "the read of a session failed at each try, the objects stay");
+    return Vec::new();
+  };
   let mut stale = Vec::new();
   for unit in kept.iter().filter(|unit| !unit.incremental) {
     let files = output_files(unit);
@@ -1607,18 +1607,54 @@ fn final_output(name: &str) -> bool {
 
 /// No inode off Unix: no object is known to be stale
 #[cfg(not(unix))]
-const fn stale_objects(_kept: &[Unit], _cutoff: SystemTime) -> Vec<StaleObject> {
+const fn stale_objects(_kept: &[Unit], _incremental: &Path, _cutoff: SystemTime) -> Vec<StaleObject> {
   Vec::new()
 }
 
-/// The inodes of the files of the sessions (`s-*`, the working ones too) of the incremental dir `dir`
+/// How many times `session_inodes` reads the sessions of a dir while one of them vanishes between the list and its read
 #[cfg(unix)]
-fn session_inodes(dir: &Path) -> Vec<u64> {
-  subdirs(dir)
-    .into_iter()
-    .filter(|session| session.file_name().is_some_and(|name| name.to_string_lossy().starts_with("s-")))
-    .flat_map(|session| std::fs::read_dir(session).map_or_default(|entries| entries.flatten().map(|entry| entry_inode(&entry)).collect::<Vec<_>>()))
-    .collect()
+const SESSION_READS: usize = 4;
+
+/// The inodes that the sessions of every dir of `incremental` hold; `None` when the read of a session of a dir failed
+/// at each of `SESSION_READS` reads
+#[cfg(unix)]
+fn held_inodes(incremental: &Path) -> Option<HashSet<u64>> {
+  let mut held = HashSet::new();
+  for dir in subdirs(incremental) {
+    held.extend(session_inodes(&dir, &read_session)?);
+  }
+  Some(held)
+}
+
+/// The inodes of the files of one session dir
+#[cfg(unix)]
+fn read_session(session: &Path) -> std::io::Result<Vec<u64>> {
+  Ok(std::fs::read_dir(session)?.flatten().map(|entry| entry_inode(&entry)).collect())
+}
+
+/// The inodes of the files of the sessions (`s-*`, the working ones too) of the incremental dir `dir`, each read by
+/// `read`. A running rustc renames its working session once it compiled, then deletes the old one, with the same inodes:
+/// a session that vanished between the list and its read is read again under its new name, by a new list. `None` when
+/// the read of one failed at each of `SESSION_READS` reads
+#[cfg(unix)]
+fn session_inodes(dir: &Path, read: &impl Fn(&Path) -> std::io::Result<Vec<u64>>) -> Option<Vec<u64>> {
+  let mut inodes = Vec::new();
+  for _ in 0..SESSION_READS {
+    let mut vanished = false;
+    for session in subdirs(dir) {
+      if !session.file_name().is_some_and(|name| name.to_string_lossy().starts_with("s-")) {
+        continue;
+      }
+      match read(&session) {
+        Ok(read) => inodes.extend(read),
+        Err(_) => vanished = true,
+      }
+    }
+    if !vanished {
+      return Some(inodes);
+    }
+  }
+  None
 }
 
 /// A file that rustc wrote for a unit

@@ -1140,6 +1140,86 @@ fn an_object_newer_than_the_outputs_of_its_unit_stays_whatever_its_age() {
   assert_eq!(entry_names(&first).len(), 3);
 }
 
+/// A stale incremental dir that a build wrote after the walk stays, as built again. Its session holds an old object of
+/// a kept unit, which rustc links into `out/` again for a reused part of the crate: the object stays, and the old object
+/// that no session holds goes
+#[cfg(unix)]
+#[test]
+fn an_object_that_a_stale_incremental_dir_built_again_holds_stays() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  let hours = |hours: u64| Duration::from_hours(hours);
+  let out = profile.join("build/app/h1/out");
+  output(&out.join("libapp-h1.rlib"), hours(3));
+  output(&out.join("libapp-h1.rmeta"), hours(2));
+  let object = |name: &str| out.join(format!("app-h1.{name}.rcgu.o"));
+  output(&object("cgu0.0aaaaaa"), hours(4));
+  output(&object("cgu1.0aaaaaa"), hours(4));
+  unit(&profile.join("build/app/h1"), hours(2));
+  let newest = profile.join("incremental/app-new");
+  std::fs::create_dir_all(newest.join("s-2-def")).unwrap();
+  unit(&newest, hours(2));
+  let stale = profile.join("incremental/app-old");
+  let session = stale.join("s-1-abc");
+  std::fs::create_dir_all(&session).unwrap();
+  std::fs::hard_link(object("cgu1.0aaaaaa"), session.join("cgu1.o")).unwrap();
+  age(&session, hours(3));
+  age(&stale, hours(3));
+  // a build of the crate between the walk and the locks writes a new session
+  let still_holds = || {
+    age(&session, Duration::ZERO);
+    true
+  };
+  let options = crate::lease_clean::CleanOptions {
+    still_holds: Some(&still_holds),
+    ..crate::lease_clean::CleanOptions::default()
+  };
+  let rules = parse_clean_rules("[lease]\nclean = [{ cargo = \"target\", keep = 1, age = \"1h\" }]\n").unwrap();
+  let cleaned = crate::lease_clean::apply_clean_rules_with(&git, root.to_str().unwrap(), &rules, CleanMode::Delete, options);
+  assert_eq!((cleaned[0].freed_bytes, &cleaned[0].error), (8192, &None), "{cleaned:?}");
+  assert_eq!(entry_names(&profile.join("incremental")), ["app-new", "app-old"]);
+  assert_eq!(entry_names(&out), ["app-h1.cgu1.0aaaaaa.rcgu.o", "libapp-h1.rlib", "libapp-h1.rmeta"]);
+}
+
+/// rustc renames its working session and deletes the old one between the list of the sessions and their read: a new
+/// list reads the renamed session, so its inodes are held. A session that cannot be read at each try holds no answer
+#[cfg(unix)]
+#[test]
+fn a_session_that_rustc_renames_during_the_read_is_read_under_its_new_name() {
+  use std::os::unix::fs::MetadataExt;
+  let dir = tempfile::tempdir().unwrap();
+  let incremental = dir.path().join("app-x");
+  let (old, working, done) = (incremental.join("s-1-old"), incremental.join("s-2-working"), incremental.join("s-2-done"));
+  std::fs::create_dir_all(&old).unwrap();
+  std::fs::create_dir_all(&working).unwrap();
+  std::fs::write(old.join("cgu0.o"), "").unwrap();
+  std::fs::hard_link(old.join("cgu0.o"), working.join("cgu0.o")).unwrap();
+  std::fs::write(working.join("cgu1.o"), "").unwrap();
+  let inode = |path: &Path| path.symlink_metadata().unwrap().ino();
+  let expected = {
+    let mut inodes = vec![inode(&working.join("cgu0.o")), inode(&working.join("cgu1.o"))];
+    inodes.sort_unstable();
+    inodes
+  };
+  let finalized = std::cell::Cell::new(false);
+  let read = |session: &Path| {
+    if !finalized.replace(true) {
+      std::fs::rename(&working, &done).unwrap();
+      std::fs::remove_dir_all(&old).unwrap();
+      return Err(std::io::Error::from(std::io::ErrorKind::NotFound));
+    }
+    crate::lease_clean::read_session(session)
+  };
+  let mut held = crate::lease_clean::session_inodes(&incremental, &read).unwrap();
+  held.sort_unstable();
+  held.dedup();
+  assert_eq!(held, expected);
+
+  let refused = |_: &Path| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+  assert_eq!(crate::lease_clean::session_inodes(&incremental, &refused), None);
+}
+
 /// A registry build script named `build_script_build`, as the build scripts of the workspace in `incremental/`, a
 /// registry library and a release executable: their objects are of a compile without incremental, and every one stays
 #[cfg(unix)]
