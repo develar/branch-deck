@@ -493,8 +493,8 @@ test.describe("Hover back over a trigger whose popup closed", () => {
         await expect(landing).toBeHidden()
       }
       await waitForTauriListener(page, "show_landing")
-      // the first pushes show once the facts of their landing came (`firstPushPending`), under load after the sync, and
-      // their track moves the Status column: a pointer that came over the status before them is no longer over it
+      // the first pushes come with their rows: the session answers what git tells of a repository on no service with
+      // them (late-facts.spec.ts), so no track that comes after moves the Status column from under the pointer
       await expect(push).toBeVisible()
 
       // the pointer back over the status before the closed tooltip went: the tooltip opens after the delay of its hover

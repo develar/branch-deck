@@ -317,8 +317,18 @@ impl TestFactSources {
 }
 
 impl FactSources for TestFactSources {
+  /// A fake Patronus that doesn't know the repository answers with no request: its gate holds that answer, as its route
+  /// of the robots holds the answer of one that does (a test of what git tells of the remote holds what the service says)
   fn robots<'a>(&'a self, key: &'a SessionKey, since: Option<u32>, background: bool) -> Read<'a, PatronusRobotsResult> {
-    Box::pin(self.robots_read(key, |repository| &repository.patronus_list_calls, self.services.robots(key, since, background)))
+    Box::pin(async move {
+      let unasked = self.state().is_ok_and(|state| space_of(&state, &key.worktree).ok().flatten().is_none());
+      if unasked && let Err(error) = self.gate(key, HeldAnswer::Robots, "list the robots").await {
+        return PatronusRobotsResult::from(PatronusAvailability::Error { message: error.message });
+      }
+      self
+        .robots_read(key, |repository| &repository.patronus_list_calls, self.services.robots(key, since, background))
+        .await
+    })
   }
 
   fn poll<'a>(&'a self, key: &'a SessionKey, known: Vec<KnownRobotStatus>) -> Read<'a, PatronusRobotsResult> {
@@ -351,9 +361,14 @@ impl FactSources for TestFactSources {
   }
 
   /// Counted; the listing holds the repository as a command does: its deletion waits for it (the fake reads the heads
-  /// from its files)
+  /// from its files). Of branches on no repository of GitHub it answers with no request: the gate of the fake GitHub
+  /// holds that answer, as its route holds the listing of one
   fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
     Box::pin(async move {
+      let unasked = matches!(self.services.host().github_repository(key).await, Ok(None));
+      if unasked && let Err(error) = self.gate(key, HeldAnswer::PullRequests, "list the pull requests").await {
+        return PullRequestsResult::unavailable(PullRequestAvailability::Error { message: error.message });
+      }
       let held = match self.count(key, |repository| &repository.pull_request_calls) {
         Ok(state) => holding(&state, key),
         Err(error) => Err(error),

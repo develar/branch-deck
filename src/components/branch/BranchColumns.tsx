@@ -4,6 +4,7 @@ import { cn } from "cn"
 import { saveSettledLayout, settledTracks, useLayoutSettled, useSettledLayout } from "@/hooks/useSettledLayout"
 import type { BranchTrack, BranchTrackGroup } from "@/lib/branch-columns"
 import { ColumnRegistry, TRACK_CONTENT_CLASS, TRACK_ITEM_CLASS } from "@/lib/branch-columns"
+import type { PendingFact } from "@/presenters/next-step"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useSelectedProjectPath } from "@/stores/repository"
 
@@ -61,12 +62,13 @@ function useSettledColumns(registry: ColumnRegistry): void {
 
 /**
  * An item of `track`, as wide as the widest item of the track in the view; its content measured at its natural width,
- * capped where the track truncates. Nothing inside, it is 0 wide, and so is the track when no row fills it.
+ * capped where the track truncates. Nothing inside, it is 0 wide, and so is the track when no row fills it. `waitsFor`
+ * names the fact its item waits for to show (`data-waits-for`, as a pending step does): what comes with it may widen it
  */
-export function ColumnTrack({ track, className, children }: { track: BranchTrack; className?: string; children: ReactNode }) {
+export function ColumnTrack({ track, waitsFor = null, className, children }: { track: BranchTrack; waitsFor?: PendingFact | null; className?: string; children: ReactNode }) {
   const registry = use(ColumnRegistryContext)
   return (
-    <div className={cn("flex shrink-0", TRACK_ITEM_CLASS[track])} data-track={track}>
+    <div className={cn("flex shrink-0", TRACK_ITEM_CLASS[track])} data-track={track} data-waits-for={waitsFor ?? undefined}>
       <div
         ref={element => (element === null || registry === null ? undefined : registry.observe(element, track))}
         className={cn("flex w-max min-w-0 items-center", TRACK_CONTENT_CLASS[track], className)}

@@ -133,15 +133,19 @@ export async function waitForSyncComplete(page: Page, previousCount: number, tim
 /**
  * Waits until the branch view stands where what its rows show puts it: the sync after `previousCount` ended (the
  * `finishedSyncCount` read before the action that started it, so a later sync is waited for too, never a count the
- * page already passed), no step waits for a fact (`waitForStepFacts`), and the observer of the columns reported
- * the frame of the last answer (`resizeReportsDelivered`). What that `ResizeObserver` writes (the widths of the tracks
- * `--bd-track-*`, `data-wide`) and every box it moves is read after it, never at the first row of a running sync, as
- * `syncAndWaitForBranches` returns: while the sync runs a track only widens ("syncing 3/7…"), and a step says
- * "Checking…" until its facts came (docs/design/e2e-testing.md, "Under load")
+ * page already passed), no step and no push waits for a fact (`waitForStepFacts` over the next-step slots and the push
+ * tracks: a first push shows once Patronus and GitHub answered whether its landing pushes it), and the observer of the
+ * columns reported the frame of the last answer (`resizeReportsDelivered`). What that `ResizeObserver` writes (the
+ * widths of the tracks `--bd-track-*`, `data-wide`) and every box it moves is read after it, never at the first row of
+ * a running sync, as `syncAndWaitForBranches` returns: while the sync runs a track only widens ("syncing 3/7…"), and a
+ * step says "Checking…" until its facts came (docs/design/e2e-testing.md, "Under load"). `heldFacts`: the test holds
+ * an answer of the fakes (`holdRemoteAnswers`), so no wait for the facts
  */
-export async function waitForBranchLayout(page: Page, previousCount: number): Promise<void> {
+export async function waitForBranchLayout(page: Page, previousCount: number, { heldFacts = false }: { heldFacts?: boolean } = {}): Promise<void> {
   await waitForSyncComplete(page, previousCount)
-  await waitForStepFacts(page.getByTestId("next-step-slot"))
+  if (!heldFacts) {
+    await waitForStepFacts(page.getByTestId("next-step-slot").or(page.locator("[data-track=push]")))
+  }
   await resizeReportsDelivered(page)
 }
 

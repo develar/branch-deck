@@ -74,9 +74,15 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   // header of an island, also while that push runs
   const pushesChildren =
     !upToDate && !stackPushInHeader && pushAction === "upToDate" && !branch.blocked && hold === null && !isPushing && (offersChildren || startedStackPush !== null)
+  // the fact the push waits for to show (a first push, Push with Children), named on its track as a pending step names
+  // its own: none while a Safe Push holds the branch or the push runs, which show or hide it whatever the answers say
+  const childrenWait = childrenToPush && pushAction === "upToDate" && !branch.blocked
+  const pushWaitsFor = canPush && idle && hold === null && (firstPushWaits || childrenWait) ? landingPending : null
   return (
     <ActionTracks>
-      <ColumnTrack track="push">{canPush && <PushSlot branch={branch} upToDate={upToDate} pushesChildren={pushesChildren} stackPushInHeader={stackPushInHeader} />}</ColumnTrack>
+      <ColumnTrack track="push" waitsFor={pushWaitsFor}>
+        {canPush && <PushSlot branch={branch} upToDate={upToDate} pushesChildren={pushesChildren} stackPushInHeader={stackPushInHeader} />}
+      </ColumnTrack>
       <ColumnTrack track="step">
         <NextStepSlot branch={branch} wholeStackInHeader={stackPushInHeader} />
       </ColumnTrack>

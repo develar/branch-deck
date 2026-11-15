@@ -3,16 +3,17 @@
 // @spec openspec/specs/branch/stack-island/spec.md
 // @spec openspec/specs/branch/branch-preview/spec.md
 // @spec openspec/specs/branch/stacked-branches/spec.md
+// @spec openspec/specs/branch/branch-row/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow } from "../helpers/branch-helpers"
+import { findBranchRow, getPushButton } from "../helpers/branch-helpers"
 import type { Box } from "../helpers/header-helpers"
 import { boxOf } from "../helpers/header-helpers"
-import { AWAITING_CODE_OWNER, availableRobots, robot } from "../helpers/patronus-helpers"
-import { availablePullRequests, pullRequest, reviewer } from "../helpers/pull-request-helpers"
+import { AWAITING_CODE_OWNER, availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
+import { availablePullRequests, pullRequest, reviewer, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { availableReviewRequests, getYourTurnCard, reviewRequest } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
-import { pushedRemote } from "../helpers/sync-helpers"
+import { finishedSyncCount, pushedRemote, syncBranches, waitForBranchLayout } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, waitForStepFacts, waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
 
@@ -167,6 +168,57 @@ test.describe("Late facts", () => {
     await expect(lines.getByTestId("stack-island-pull-requests")).toHaveText("1 pull request open · 1 approved")
     await expect(lines).not.toHaveAttribute("data-reserved")
     expect(await boxOf(firstRow)).toEqual(settled)
+  })
+
+  // a repository on neither Space nor GitHub: whether a landing pushes the branch first is known of git, with no
+  // request, so its session answers it with the rows, and the first push comes with its row while the answers of the
+  // fakes are held: none comes after it to widen the push track and move the status under the pointer (52 px, the
+  // tooltip of the status never opened)
+  test("should show the first push of a branch with its row in a repository on no service, the status under the pointer as the services answer", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("stacked_branches", { patronus: unavailableRobots({ status: "notPatronus" }), pullRequests: unavailablePullRequests({ status: "notGitHub" }) })
+    await repo.holdRemoteAnswers({ hold: ["robots", "pullRequests"] })
+    const syncs = await finishedSyncCount(page)
+    await syncBranches(page)
+    await waitForBranchLayout(page, syncs, { heldFacts: true })
+    await repo.arrival("robots")
+    await repo.arrival("pullRequests")
+    // auth and session not pushed: their pushes are their own, with their rows
+    const auth = findBranchRow(page, "auth")
+    await expect(auth.getByTestId("push-button")).toBeVisible()
+    await expect(getPushButton(findBranchRow(page, "session"))).toBeVisible()
+    await expect(auth.locator("[data-track=push]")).not.toHaveAttribute("data-waits-for")
+    const status = auth.getByTestId("branch-status")
+    const tooltip = page.getByRole("tooltip").filter({ hasText: "The branch isn't on the remote yet: the push creates it." })
+    await status.hover()
+    await expect(tooltip.and(page.locator("[data-open]"))).toBeVisible()
+    const before = await boxOf(status)
+
+    // the services answer what the session said: the status stays under the pointer, its tooltip open
+    const listings = await repo.getPullRequestCalls()
+    await repo.holdRemoteAnswers({ release: ["robots", "pullRequests"] })
+    await expect.poll(() => repo.getPullRequestCalls()).toBeGreaterThan(listings)
+    expect(await boxOf(status)).toEqual(before)
+    await expect(tooltip.and(page.locator("[data-open]"))).toBeVisible()
+  })
+
+  // a repository on GitHub whose answer is late: the first push shows only with it (its landing may push the branch),
+  // and its track says what it waits for, so a test that reads the layout waits for it (`waitForBranchLayout`)
+  test("should name the answer a first push waits for on its track, and show the push with it", async ({ page, setupRepo }) => {
+    // auth not on the remote: GitHub rejects the token, so no landing pushes it, once it answered
+    const repo = await setupRepo("stacked_branches", { pullRequests: unavailablePullRequests({ status: "notAuthenticated", source: "branchDeck" }) })
+    await repo.holdRemoteAnswers({ hold: ["pullRequests"] })
+    const syncs = await finishedSyncCount(page)
+    await syncBranches(page)
+    await waitForBranchLayout(page, syncs, { heldFacts: true })
+    await repo.arrival("pullRequests")
+    const auth = findBranchRow(page, "auth")
+    const pushTrack = auth.locator("[data-track=push]")
+    await expect(pushTrack).toHaveAttribute("data-waits-for", "pullRequests")
+    await expect(auth.getByTestId("push-button")).toHaveCount(0)
+
+    await repo.holdRemoteAnswers({ release: ["pullRequests"] })
+    await expect(auth.getByTestId("push-button")).toBeEnabled()
+    await expect(pushTrack).not.toHaveAttribute("data-waits-for")
   })
 
   test("should hold the push track of a pushed root while GitHub answers, its Push with Children as wide as it was", async ({ page, setupRepo, syncAndWaitForBranches }) => {

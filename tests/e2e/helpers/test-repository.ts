@@ -636,8 +636,9 @@ export class TestRepositoryBuilder {
   /**
    * Holds the answers `hold` of the fakes from now on, fails `fail` and releases `release`
    * (`/remote-gates`): a held request of the page reaches its fake and waits there, so a test sees the page before the
-   * answer, then after it; a released failing one answers again. The deletion of the repository releases what is still
-   * held
+   * answer, then after it; a released failing one answers again. A fake that is no service of the repository (a
+   * Patronus not on Space, a GitHub of no repository) holds the answer it gives with no request as well. The deletion
+   * of the repository releases what is still held
    */
   async holdRemoteAnswers({ hold = [], fail = [], release = [] }: { hold?: HeldAnswer[]; fail?: HeldAnswer[]; release?: HeldAnswer[] }): Promise<void> {
     await this.setFixture("remote-gates", { hold, fail, release })

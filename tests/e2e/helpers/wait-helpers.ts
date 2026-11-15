@@ -93,7 +93,8 @@ const STEP_FACTS = Object.keys({
 } satisfies Record<StepFact, true>)
 
 /**
- * Waits until no step of the next-step `slots` waits for a fact (`data-waits-for` of "Checking…"), however long the test
+ * Waits until no step of the next-step `slots` waits for a fact (`data-waits-for` of "Checking…", or of a push track
+ * whose first push waits for Patronus and GitHub, as `waitForBranchLayout` passes them), however long the test
  * lets it take: under load every answer takes seconds and they come one after another (the landing needs after the
  * sync, the approvals after the robots), so one assertion over all of them failed at a load of 150-200, and the 5 s of
  * each fact failed at 30 workers (the readiness, in the setup of `next-step.spec.ts`). A second round takes a fact

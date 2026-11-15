@@ -561,6 +561,65 @@ async fn the_host_hears_each_table_a_sync_commits() {
   assert_eq!(*host.commits.lock().unwrap(), [("/repo".to_string(), "origin/master".to_string())]);
 }
 
+/// The events of a sync that builds `auth`, whose grouping names `landing`
+fn auth_built_on(landing: LandingRemote) -> Vec<SyncEvent> {
+  let mut events = auth_built();
+  if let SyncEvent::BranchesGrouped { landing: grouped, .. } = &mut events[0] {
+    **grouped = landing;
+  }
+  events
+}
+
+/// The patches a window on `/repo` gets of a sync that builds `auth`, whose grouping names `landing`
+async fn patches_of_a_sync_on(landing: LandingRemote) -> Vec<ViewPatch> {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  synced_window_with(&sessions, &host, "/repo", auth_built_on(landing)).await.2
+}
+
+/// What the patches of a window say of the robots and of the pull requests of the remote, with the branches they bring:
+/// per patch, its branches, the availability of Patronus, of GitHub
+fn remote_heads(patches: &[ViewPatch]) -> Vec<(Vec<String>, Option<PatronusAvailability>, Option<PullRequestAvailability>)> {
+  patches
+    .iter()
+    .map(|patch| {
+      let facts = patch.changes.facts.as_ref();
+      (
+        patch.changes.branches.keys().cloned().collect::<Vec<String>>(),
+        facts
+          .and_then(|facts| facts.robots.as_ref()?.head.as_ref()?.value.as_ref())
+          .map(|head| head.availability.clone()),
+        facts.and_then(|facts| facts.pull_requests.as_ref()?.head.as_ref()?.value.clone()),
+      )
+    })
+    .filter(|(branches, robots, pull_requests)| !branches.is_empty() || robots.is_some() || pull_requests.is_some())
+    .collect()
+}
+
+/// What git tells of the remote without a request comes with the rows of a sync, in their patch: a repository Patronus
+/// doesn't know has no robots, branches on no repository of GitHub no pull requests, so a row shows its first push with
+/// itself (openspec/specs/branch/branch-row/spec.md). A repository Patronus knows, on GitHub, waits for their answers
+#[tokio::test]
+async fn the_facts_git_tells_of_the_remote_come_with_the_rows_of_a_sync() {
+  let off_services = LandingRemote {
+    github: LocalGitHub::None,
+    ..LandingRemote::default()
+  };
+  assert_eq!(
+    remote_heads(&patches_of_a_sync_on(off_services).await),
+    [(vec!["auth".to_string()], Some(PatronusAvailability::NotPatronus), Some(PullRequestAvailability::NotGitHub))]
+  );
+  let on_services = LandingRemote {
+    on_space: true,
+    patronus: true,
+    github: LocalGitHub::Repository {
+      name: "acme/monorepo".to_string(),
+    },
+    ..LandingRemote::default()
+  };
+  assert_eq!(remote_heads(&patches_of_a_sync_on(on_services).await), [(vec!["auth".to_string()], None, None)]);
+}
+
 /// A failed sync keeps the table of the sync before, its rows as they were, with the error; a deferred one keeps it
 /// too and says nothing failed, only why it waits (`Deferred`), until the next run; its ticket gets the code
 #[tokio::test]
@@ -632,6 +691,9 @@ async fn a_focus_after_a_failed_sync_reads_only_the_fingerprint() {
 #[derive(Default)]
 struct TestEnvironment {
   syncs_on_focus: bool,
+  /// Patronus knows the repository (`LandingRemote::patronus`, the test seam of a sync): its robots wait for the
+  /// answers the test gives, which a repository it doesn't know has with its grouping
+  patronus: bool,
   config_prefix: Option<String>,
   facts: Arc<HostFacts>,
   leases: Arc<TestLeases>,
@@ -665,7 +727,10 @@ impl SessionEnvironment for TestEnvironment {
       *self.leases.epoch.lock().unwrap_or_else(PoisonError::into_inner) = epoch;
     }
     Ok(RunSetup {
-      options: SyncOptions::default(),
+      options: SyncOptions {
+        test_patronus: self.patronus.then_some(true),
+        ..SyncOptions::default()
+      },
       prefix: self.config_prefix.clone().unwrap_or_else(|| key.prefix.clone()),
     })
   }
@@ -709,15 +774,17 @@ impl SessionEnvironment for TestEnvironment {
 
 /// Sessions that sync with `git`, on a clock the test moves; a focus syncs
 fn with_git(git: GitCommandExecutor) -> (Sessions, TestClock) {
-  with_git_facts(git, Arc::default())
+  with_git_facts(git, Arc::default(), false)
 }
 
-/// `with_git` whose host answers the landing needs and the view of the robots with `facts`
-fn with_git_facts(git: GitCommandExecutor, facts: Arc<HostFacts>) -> (Sessions, TestClock) {
+/// `with_git` whose host answers the landing needs and the view of the robots with `facts`, of a repository `patronus`
+/// knows or not (`TestEnvironment::patronus`)
+fn with_git_facts(git: GitCommandExecutor, facts: Arc<HostFacts>, patronus: bool) -> (Sessions, TestClock) {
   with_environment(
     git,
     TestEnvironment {
       syncs_on_focus: true,
+      patronus,
       facts,
       ..TestEnvironment::default()
     },
@@ -1063,7 +1130,8 @@ async fn a_focus_with_unchanged_inputs_reads_only_the_fingerprint() {
   for syncs_on_focus in [true, false] {
     let (git, sessions, window) = watched_with_focus(&key, syncs_on_focus).await;
     sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
-    let synced = snapshot(&sessions, &key).await;
+    // the robots of a repository Patronus doesn't know come with the grouping, the landing needs computed over them
+    let synced = view_when(&sessions, &key, |view| view.patronus.landing_needs == FactState::Fresh).await;
     window.take();
 
     let before = git.process_stats().unwrap().counts();
@@ -1108,13 +1176,19 @@ fn remote_tip(view: &RepositoryView, branch: &str) -> Option<String> {
 
 /// A window on a session synced once by `events`
 async fn synced_window(sessions: &Sessions, host: &ScriptedHost, worktree: &str, events: Vec<SyncEvent>) -> (SessionKey, Window) {
+  let (key, window, _) = synced_window_with(sessions, host, worktree, events).await;
+  (key, window)
+}
+
+/// `synced_window`, with the patches that sync sent the window
+async fn synced_window_with(sessions: &Sessions, host: &ScriptedHost, worktree: &str, events: Vec<SyncEvent>) -> (SessionKey, Window, Vec<ViewPatch>) {
   host.push(events, Ok(report(false, &[])));
   let key = key(worktree);
   let window = Window::default();
   sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
   sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
-  window.take();
-  (key, window)
+  let patches = window.take();
+  (key, window, patches)
 }
 
 /// A push without a sync: its outcome reaches the window as one patch of the remote status it left, and the answer names
@@ -1949,7 +2023,7 @@ async fn util_and_flow(facts: &Arc<HostFacts>) -> (TestRepo, Sessions, SessionKe
     landing_in: None,
   };
   *facts.needs.lock().unwrap() = Needs::from([("flow".to_string(), vec![need])]);
-  let (sessions, _clock) = with_git_facts(GitCommandExecutor::new(), Arc::clone(facts));
+  let (sessions, _clock) = with_git_facts(GitCommandExecutor::new(), Arc::clone(facts), true);
   let key = SessionKey {
     worktree: repo.path_str().to_string(),
     prefix: "test".to_string(),

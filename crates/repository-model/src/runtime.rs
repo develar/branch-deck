@@ -44,7 +44,9 @@
 
 use crate::branch_table::BranchTable;
 use crate::derive::wanted_readiness;
-use crate::facts::{AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, PatronusOf, RobotsDigest, Seq, TableFacts, derive_patronus, robots_digest};
+use crate::facts::{
+  AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, PatronusOf, RobotsDigest, RobotsRead, Seq, TableFacts, derive_patronus, robots_digest,
+};
 use crate::moved_remote::{FetchedRemote, MovedFetches};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
@@ -59,8 +61,9 @@ use crate::table::{RemoteSubject, TableState};
 use crate::warm_start::{CachedSession, frame_of};
 use domain_policy::landing_route::rules_target;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::patronus::PatronusRobot;
-use domain_types::pull_request::PullRequestReviewEvent;
+use domain_types::landing_route::LocalGitHub;
+use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotsResult};
+use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent, PullRequestsResult};
 use domain_types::repository_view::PatronusView;
 use domain_types::review_request::ReviewRequest;
 use domain_types::session::{
@@ -1123,7 +1126,11 @@ impl Actor {
       return;
     }
     let building = matches!(self.state.sync(), SyncState::Running { step } if *step != SyncStep::Detection);
+    let grouped = matches!(event, SyncEvent::BranchesGrouped { .. });
     self.state.apply(event);
+    if grouped {
+      self.answer_local_facts();
+    }
     let built = matches!(self.state.sync(), SyncState::Running { step: SyncStep::Detection });
     if building && built {
       // the table of the run is committed: its tips are known before the detection and the update check end
@@ -1131,6 +1138,44 @@ impl Actor {
     } else if self.flush_at.is_none() {
       let at = self.last_flush.map_or_else(Instant::now, |last| last + PATCH_INTERVAL);
       self.flush_at = Some(at);
+    }
+  }
+
+  /// The facts of the remote that git tells without a request, answered as the grouping of a run names the landing (not
+  /// before: the header of a session before its first grouping names none), so they come
+  /// in the patch with the rows the table fixes, not one later (openspec/specs/branch/branch-row/spec.md): a repository
+  /// Patronus doesn't know has no robots (`LandingRemote::patronus`, which the list answers with no request), branches
+  /// on no repository of GitHub no pull requests (`LocalGitHub::None`). A fact already answered, or kept by the frame of
+  /// an earlier run, stays; the scheduler's own answer comes later with the same words
+  fn answer_local_facts(&mut self) {
+    let landing = &self.state.header().landing;
+    let (patronus, github) = (landing.patronus, landing.github.clone());
+    if !patronus && self.facts.robots.view().head.value.is_none() {
+      let observation = self.local_observation();
+      let result = PatronusRobotsResult::from(PatronusAvailability::NotPatronus);
+      self.facts.apply(
+        observation,
+        FactResult::Robots {
+          read: RobotsRead::List { full: true },
+          result,
+        },
+      );
+    }
+    if github == LocalGitHub::None && self.facts.pull_requests.view().head.value.is_none() {
+      let observation = self.local_observation();
+      self
+        .facts
+        .apply(observation, FactResult::PullRequests(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)));
+    }
+  }
+
+  /// An observation of the session now, of no request
+  fn local_observation(&mut self) -> Observation {
+    Observation {
+      seq: self.state.next_seq(),
+      inputs: 0,
+      at: self.life.now(),
+      observed_at: unix_now(),
     }
   }
 
