@@ -1,17 +1,20 @@
 //! `brd companion`: the companion repositories of a primary (openspec/specs/branch/declared-needs/spec.md#companion-repositories),
 //! whose branches a need names as `<companion>:<branch>`. The same write as Settings → Landing
-//! (`sync_core::repository_config::write_companion`): `branchdeck.companion.<name>.path` in the local config of the
-//! primary, `branchdeck.primary` in the local config of the companion
+//! (`sync_core::companion_write::write_companion`, under the companion locks of both repositories):
+//! `branchdeck.companion.<name>.path` in the local config of the primary, `branchdeck.primary` in the local config of the
+//! companion
 
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
+use history_rewrite::repository_lock::RepositoryLocked;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::Path;
+use sync_core::companion_write::write_companion;
 use sync_core::companions::directory_name;
-use sync_core::repository_config::{CompanionSetting, read_repository_config, write_companion};
+use sync_core::repository_config::{CompanionSetting, read_repository_config};
 
 #[derive(Debug, clap::Args)]
 pub struct CompanionArgs {
@@ -53,6 +56,9 @@ pub struct CompanionOutput {
   /// The primary of this repository when it is a companion
   #[serde(skip_serializing_if = "Option::is_none")]
   pub primary: Option<String>,
+  /// Why the link to `primary` is broken: the primary is gone, or does not list this repository (an add there links it)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub primary_problem: Option<String>,
   /// Whether this call wrote the config
   pub changed: bool,
 }
@@ -65,6 +71,9 @@ pub struct CompanionSummary {
   /// Why it can not be read (its path is gone, it is no git repository): its needs refuse with this reason
   #[serde(skip_serializing_if = "Option::is_none")]
   pub problem: Option<String>,
+  /// Why its link is half: it names another primary, or none (an add links both sides, a removal unlists it)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub link_problem: Option<String>,
 }
 
 pub fn companion(context: &RepoContext, args: &CompanionArgs) -> Result<CompanionOutput, CliError> {
@@ -89,16 +98,20 @@ pub fn companion(context: &RepoContext, args: &CompanionArgs) -> Result<Companio
     repository: context.repository.clone(),
     companions: config.companions.into_iter().map(summary).collect(),
     primary: config.primary,
+    primary_problem: config.primary_problem,
     changed,
   })
 }
 
-/// The write, refused as `invalid_arguments` with the reason of `write_companion`; the command's config is read again
-/// after it
+/// The write, refused as `invalid_arguments` with the reason of `write_companion`, `locked` while another process held a
+/// companion lock past its wait; the command's config is read again after it
 fn write(context: &RepoContext, name: &str, path: Option<&str>) -> Result<(), CliError> {
   let written = write_companion(&context.git, &context.repository, name, path);
   context.forget_config();
-  written.map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))
+  written.map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
+    Some(locked) => CliError::new(ErrorCode::Locked, locked.to_string()),
+    None => CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")),
+  })
 }
 
 fn summary(setting: CompanionSetting) -> CompanionSummary {
@@ -106,5 +119,6 @@ fn summary(setting: CompanionSetting) -> CompanionSummary {
     name: setting.name,
     path: setting.path,
     problem: setting.problem,
+    link_problem: setting.link_problem,
   }
 }

@@ -44,4 +44,37 @@ test.describe("Settings → Landing, Companions", () => {
     await expect(empty).toBeVisible()
     await expect(row).toHaveCount(0)
   })
+
+  test("should show a companion that names no primary as a half link, and link both sides again with Add Companion…", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links")
+    const ciConfig = await repo.addCompanionRepository("ci-config")
+    // the key of the primary alone, as an add cut short or a `git config` by hand leaves it
+    await repo.setCompanionLinkInTerminal({ name: "ci-config", path: ciConfig })
+    await syncAndWaitForBranches()
+    const window = await openSettingsWindow(page, { page: "landing", scope: "repository" })
+    const companions = window.getByRole("region", { name: "Companions" })
+    const row = companions.getByTestId("companion-row")
+    const halfLink = row.getByTestId("companion-link-problem")
+    await expect(halfLink).toHaveText(`${ciConfig} names no primary: add it again to link it, or remove it`)
+
+    await repo.setDialogPick(ciConfig)
+    const syncs = await finishedSyncCount(page)
+    await companions.getByRole("button", { name: "Add Companion…" }).click()
+    await expect(halfLink).toHaveCount(0)
+    await expect(row).toHaveCount(1)
+    await expect(row).toContainText("ci-config")
+    await waitForSyncComplete(page, syncs)
+  })
+
+  test("should show the problem of a primary that does not list this companion", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links")
+    const app = await repo.addCompanionRepository("app")
+    // this repository names a primary that never listed it
+    await repo.setCompanionLinkInTerminal({ path: app })
+    await syncAndWaitForBranches()
+    const window = await openSettingsWindow(page, { page: "landing", scope: "repository" })
+    const companions = window.getByRole("region", { name: "Companions" })
+    await expect(companions.getByTestId("companions-primary")).toHaveText("A companion of app: a need here names its branches as app:branch. Add companions there.")
+    await expect(companions.getByTestId("companions-primary-problem")).toHaveText(`${app} does not list this repository as a companion: add it again there to link it`)
+  })
 })

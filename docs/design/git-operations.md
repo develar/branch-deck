@@ -837,8 +837,18 @@ of the branch from it (`domain_policy::declared_needs`), the next step and every
   the one drop of the stores, `drop_values`: only that name, the line with its last name).
 - A name of a companion (`<companion>:<branch>`) is resolved by the companion registry (`sync_core::companions`): a
   primary lists its companions (`branchdeck.companion.<name>.path`), each companion its primary (`branchdeck.primary`,
-  the one key Branch Deck writes into another repository's config, `repository_config::write_companion`); a companion
-  names its primary by its directory and the other companions of the primary by their names. Its branch is read of what
+  the one key Branch Deck writes into another repository's config, `companion_write::write_companion`); a companion
+  names its primary by its directory and the other companions of the primary by their names. A write of a companion
+  (an add, a removal) is one write of two configs: it asks which companion it touches, takes the companion locks of
+  both repositories (`branch-deck/companions.lock` in each common git directory, in the order of the directories, the
+  app also holding the writers of both configs), asks again under them (another companion now: it writes nothing and
+  asks once more), then reads and writes both configs under them, so two writes of one pair from two processes run one
+  after the other and each reads what the other wrote (`companion_write_test.rs`). A half link, one side of a link the
+  other lacks (a write cut short, a `git config` by hand), is the problem of the side that has it in Settings and `brd
+  companion list` (`half_link_problem`: the companion names another primary or none, one `git config --local --get`
+  per companion; `primary_link_problem`: the primary is gone or does not list it, one `ConfigSnapshot::read` of the
+  primary), and the next write of the pair repairs it: an add links both sides again and takes over a companion whose
+  primary is gone or does not list it, a removal unsets the side of the companion only while it names this primary. Its branch is read of what
   the last sync of the companion left, never by a sync of it: `ConfigSnapshot::read` (its prefix), one `for-each-ref`
   of its branches under the prefix and one `log` of the integration notes of their tips (`branch_integration::common`),
   three processes per companion and none while no need names one. The detection of the sync reads them, drops the
@@ -4883,8 +4893,8 @@ no operation.
   before each sync of a session and keeps its git prefix for the commands after it (`BranchPrefixes`); `brd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `brd push` and `brd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
   The sync also sends the linked repositories for project selection: a primary validates each companion with one
-  `git config --local --list`, and a companion reads the primary's snapshot to list its siblings and validates each
-  linked path the same way. An unreadable path stays in the view with its reason; it does not fail the sync.
+  `git config --local --get branchdeck.primary` (exit 1 is a repository that names none, 128 no repository), and a
+  companion reads the primary's snapshot to list its siblings and validates each linked path the same way. An unreadable path stays in the view with its reason; it does not fail the sync.
   `brd commits` takes its symbol setting from the same `RepoContext::config`. The configured GitHub
   repository of the pull requests is one snapshot, for a caller that needs one key. `get_branch_prefix_from_git_config_sync` keeps its own read for the app, with its
   errors (a repository that is not accessible).
@@ -4902,12 +4912,12 @@ no operation.
 - **Writes at once**: the app writes each config file through its one writer (`app_api::app::config_writer`): a task
   per file, the canonical common git directory of the repository (every worktree and every spelling of its path writes
   the same `config`, `two_spellings_of_one_repository_write_through_one_task`) or the global config, that runs the writes
-  of Settings and of the companions one after the other in the order they came (an add of a companion in three steps,
-  each in the writer of the config it reads and writes: the check of the primary, the companion's `branchdeck.primary`
-  with the check that it has one primary, so of two primaries that add one companion at once the second is refused,
-  then the key of the primary, whose failure takes back the primary the companion named;
-  `a_companion_writes_each_side_in_the_writer_of_its_own_config`,
-  `of_two_primaries_that_add_one_companion_at_once_the_second_is_refused_in_the_writer_of_the_companion`), so a prefix
+  of Settings and of the companions one after the other in the order they came (a write of a companion holds the tasks
+  of both configs, the primary's and the companion's, for its whole span, `ConfigWriters::write_together`, taken one by
+  one in the order of their files, so it never interleaves with another write of either and two of them never wait for
+  each other: `a_write_together_holds_the_writers_of_its_configs_until_it_ends`,
+  `two_writes_together_of_one_pair_named_in_opposite_orders_both_end`,
+  `an_add_and_a_removal_of_one_linked_pair_at_once_run_one_after_the_other`), so a prefix
   saved on blur and a switch flipped right after never race for `config.lock`, and no lock is held across git
   (`two_writes_of_different_keys_at_once_are_both_on_disk`: the writes at once cost the git processes of the same
   writes one by one, no write tried again). A lock is then another process's (`brd describe`, a `git config` of the

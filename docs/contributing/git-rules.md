@@ -328,14 +328,18 @@ Git config writes are only the `branchdeck.*` keys of Settings → Branches, Lan
 (`repository_config.rs`: one `--get-regexp --show-scope` read, `--replace-all` or `--unset-all`, refused when the
 worktree config or `git -c` sets the key), `--local` (`.git/config`), or `--global` only where the request names the
 global scope (`set_repository_config` with `scope: "global"`, the tab "All repositories"); the companion repositories
-of Settings → Landing and `brd companion` (`write_companion`: `branchdeck.companion.<name>.path` in the local config
-of the primary and `branchdeck.primary` in the local config of the companion, the one write of Branch Deck into
-another repository's config); and the branch descriptions of `brd describe`
+of Settings → Landing and `brd companion` (`companion_write::write_companion`: `branchdeck.companion.<name>.path` in
+the local config of the primary and `branchdeck.primary` in the local config of the companion, the one write of Branch
+Deck into another repository's config, every read and write of both under the companion locks of both repositories,
+`branch-deck/companions.lock` of each common git directory, taken in the order of the directories); and the branch
+descriptions of `brd describe`
 ([Repository settings](../design/git-operations.md#repository-settings)).
 
 The app writes each config file through its one writer (`app_api::app::config_writer`): a task per file (the common git
 directory of the repository, every worktree of which writes the same `config`, or the global config) that runs the
-writes one after the other in the order they came, never a lock held across git; a write of a page of Settings names
+writes one after the other in the order they came, never a lock held across git (a write of a companion holds the
+tasks of both configs for its whole span, `write_together`, taken in the order of their files, so no two writes wait
+for each other); a write of a page of Settings names
 its number (`seq`) and is applied only when newer than the last write of its key of that page (`sync_utils::page_writes`),
 an older one answering null. A `config.lock` is then another process's: the write tries again for about a second and
 fails with an error that says the lock is held (`run_config_write`).

@@ -7,7 +7,9 @@
 //! the request names it (`WriteScope`; never the route), and `bd` reads the same keys.
 
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
-use crate::config_snapshot::{ConfigSnapshot, SYMBOLS_CONFIG_KEY, SymbolMode, companion_name};
+use crate::companion_write::{main_worktree, write_companion};
+use crate::companions::{half_link_problem, primary_link_problem};
+use crate::config_snapshot::{SYMBOLS_CONFIG_KEY, SymbolMode, companion_name};
 use crate::github_repository::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_of};
 use crate::patronus::parse_space_repository;
 use crate::push_size::{PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
@@ -17,7 +19,6 @@ use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::{is_valid_branch_prefix, normalize_branch_prefix};
 use domain_types::landing_route::{LANDING_CONFIG_KEY, LandingSetting};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::git_common_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -176,6 +177,9 @@ pub struct RepositoryConfig {
   pub companions: Vec<CompanionSetting>,
   /// The primary of this repository when it is a companion (`branchdeck.primary`)
   pub primary: Option<String>,
+  /// Why the link to `primary` is half or broken: the primary is gone or no git repository, or lists no companion at
+  /// this path (`companions::primary_link_problem`); an add of this repository there links it again
+  pub primary_problem: Option<String>,
   /// The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set
   pub detected_github_repository: Option<DetectedGitHubRepository>,
   /// The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`)
@@ -197,6 +201,9 @@ pub struct CompanionSetting {
   pub path: String,
   /// Why it can not be read: its path is gone, or it is no git repository; a need of it refuses with this reason
   pub problem: Option<String>,
+  /// Why its link is half: it names another primary, or none (`companions::half_link_problem`); an add of it links both
+  /// sides again, a removal unlists it. Needs of it are read all the same
+  pub link_problem: Option<String>,
 }
 
 /// The route of a repository that names none, and why: `origin` pushes to Space or not
@@ -466,6 +473,7 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
       .rfind(|entry| entry.key == "branchdeck.primary")
       .and_then(|entry| entry.value.clone())
       .filter(|path| !path.trim().is_empty()),
+    primary_problem: None,
     detected_github_repository: origin.detected_github_repository,
     landing_default: LandingDefault::of(origin.on_space),
     seq: 0,
@@ -553,10 +561,18 @@ pub fn read_repository_config(git: &GitCommandExecutor, repository_path: &str) -
       ..repository_config_from_entries(&entries, OriginFacts::default())
     });
   }
-  let config = RepositoryConfig {
+  let mut config = RepositoryConfig {
     seq,
     ..repository_config_from_entries(&entries, read_origin_facts(git, repository_path)?)
   };
+  // a half link: a readable companion that names another primary, or none; a primary that does not list this one
+  if config.primary.is_some() || config.companions.iter().any(|companion| companion.problem.is_none()) {
+    let own = main_worktree(git, repository_path)?;
+    for companion in config.companions.iter_mut().filter(|companion| companion.problem.is_none()) {
+      companion.link_problem = half_link_problem(git, &own, &companion.path);
+    }
+    config.primary_problem = config.primary.as_deref().and_then(|primary| primary_link_problem(git, &own, primary));
+  }
   Ok(config)
 }
 
@@ -612,6 +628,7 @@ fn companion_settings(entries: &[ConfigEntry]) -> Vec<CompanionSetting> {
     .into_iter()
     .map(|(name, path)| CompanionSetting {
       problem: companion_problem(&path),
+      link_problem: None,
       name,
       path,
     })
@@ -633,7 +650,7 @@ pub fn companion_paths(entries: &[ConfigEntry]) -> BTreeMap<String, String> {
 }
 
 /// Why the companion at `path` can not be read, without a process: its directory is gone, or holds no git repository
-fn companion_problem(path: &str) -> Option<String> {
+pub(crate) fn companion_problem(path: &str) -> Option<String> {
   let path = Path::new(path);
   if !path.is_dir() {
     Some(format!("{} is gone", path.display()))
@@ -644,168 +661,7 @@ fn companion_problem(path: &str) -> Option<String> {
   }
 }
 
-/// A name of a companion: a need writes it before `:`, git config keeps it as a subsection
-fn validate_companion_name(name: &str) -> Result<()> {
-  if name.is_empty() || !name.chars().all(|char| char.is_ascii_alphanumeric() || matches!(char, '-' | '_' | '.')) {
-    bail!("{name:?} is no name of a companion: use letters, digits, -, _ and .");
-  }
-  Ok(())
-}
-
-/// The main worktree of the repository at `path` (the parent of its common git dir), the path both sides of a
-/// companion name each other by: a lease and a linked worktree name their repository
-fn main_worktree(git: &GitCommandExecutor, path: &str) -> Result<String> {
-  let common = git_common_dir(git, path)?;
-  let common = Path::new(&common);
-  let main = if common.file_name().is_some_and(|name| name == ".git") {
-    common.parent().unwrap_or(common)
-  } else {
-    common
-  };
-  Ok(main.to_string_lossy().into_owned())
-}
-
-/// Add the repository at `path` as the companion `name` of the repository at `repository_path`, its primary, or remove
-/// it (`None`): `branchdeck.companion.<name>.path` in the local config of the primary, `branchdeck.primary` in the
-/// local config of the companion, both the paths of the main worktrees. A companion has one primary, a primary is no
-/// companion, a repository is no companion of itself. A removal unsets the primary of the companion only while it names
-/// this repository, and of a companion that is gone only the key of the primary. Three steps, each in the config of one
-/// repository, which the app runs each in the writer of that config (`app::repository_config::write_companion`): the
-/// primary's check (`write_companion_of_primary`), the companion's side with its check (`write_companion_side`), and of
-/// an add the key of the primary (`finish_companion_of_primary`), whose failure takes back a side named just now
-#[instrument(skip(git))]
-pub fn write_companion(git: &GitCommandExecutor, repository_path: &str, name: &str, path: Option<&str>) -> Result<()> {
-  let Some(side) = write_companion_of_primary(git, repository_path, name, path)? else {
-    return Ok(());
-  };
-  let named_now = write_companion_side(git, &side)?;
-  if let Err(error) = finish_companion_of_primary(git, &side) {
-    if named_now
-      && let Some(undo) = side.undo()
-      && let Err(undo_error) = write_companion_side(git, &undo)
-    {
-      warn!("cannot take back the primary of {}: {undo_error:#}", undo.companion());
-    }
-    return Err(error);
-  }
-  Ok(())
-}
-
-/// The write of a companion change in the config of the companion (`write_companion`), one config file apart from the
-/// primary's, so the app runs it in the writer of that file
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CompanionSide {
-  /// An add: `branchdeck.primary` of `companion` names `primary` unless it names another one already, then `key` of the
-  /// primary at `repository` names the companion (`finish_companion_of_primary`)
-  Claim {
-    companion: String,
-    primary: String,
-    repository: String,
-    key: String,
-  },
-  /// A removal, whose key of the primary is unset already: `branchdeck.primary` of `companion` goes while it names
-  /// `primary`
-  UnsetIfPrimary { companion: String, primary: String },
-}
-
-impl CompanionSide {
-  /// The repository whose config the write changes
-  #[must_use]
-  pub fn companion(&self) -> &str {
-    match self {
-      Self::Claim { companion, .. } | Self::UnsetIfPrimary { companion, .. } => companion,
-    }
-  }
-
-  /// What takes back the claim of an add whose key of the primary could not be written: the primary of the companion
-  /// goes while it names this primary
-  #[must_use]
-  pub fn undo(&self) -> Option<Self> {
-    match self {
-      Self::Claim { companion, primary, .. } => Some(Self::UnsetIfPrimary {
-        companion: companion.clone(),
-        primary: primary.clone(),
-      }),
-      Self::UnsetIfPrimary { .. } => None,
-    }
-  }
-}
-
-/// The first step of `write_companion`, in the config of the primary alone: a removal unsets the key of the primary; an
-/// add checks what the primary and the path tell and writes nothing yet. The write it leaves for the config of the
-/// companion (`write_companion_side`), none for a removed companion that is gone
-pub fn write_companion_of_primary(git: &GitCommandExecutor, repository_path: &str, name: &str, path: Option<&str>) -> Result<Option<CompanionSide>> {
-  validate_companion_name(name)?;
-  let key = format!("branchdeck.companion.{name}.path");
-  let primary = main_worktree(git, repository_path)?;
-  let own = ConfigSnapshot::read(git, repository_path)?;
-  let Some(path) = path.map(str::trim).filter(|path| !path.is_empty()) else {
-    let Some(path) = own.companions().get(name).cloned() else {
-      bail!("{name} is no companion of {primary}");
-    };
-    run_config_write(git, repository_path, "--local", &key, None)?;
-    return Ok(companion_problem(&path).is_none().then_some(CompanionSide::UnsetIfPrimary { companion: path, primary }));
-  };
-  if let Some(of) = own.primary() {
-    bail!("{primary} is a companion of {of}: only a primary has companions");
-  }
-  if let Some(problem) = companion_problem(path) {
-    bail!("{problem}");
-  }
-  let companion = main_worktree(git, path)?;
-  if companion == primary {
-    bail!("{primary} can not be a companion of itself");
-  }
-  Ok(Some(CompanionSide::Claim {
-    companion,
-    primary,
-    repository: repository_path.to_owned(),
-    key,
-  }))
-}
-
-/// The write of `side` in the config of the companion, with its check in the same step: a claim names the primary
-/// unless the companion names another one already (a companion has one primary), so of two primaries that add one
-/// companion at once the second is refused; an unset only while it still names the primary. Answers whether it named
-/// the primary just now, which a failure of the next step takes back (`CompanionSide::undo`)
-pub fn write_companion_side(git: &GitCommandExecutor, side: &CompanionSide) -> Result<bool> {
-  match side {
-    CompanionSide::Claim { companion, primary, .. } => match ConfigSnapshot::read(git, companion)?.primary() {
-      Some(other) if other != primary => bail!("{companion} is a companion of {other} already: a companion has one primary"),
-      Some(_) => Ok(false),
-      None => {
-        run_config_write(git, companion, "--local", PRIMARY_CONFIG_KEY, Some(primary))?;
-        Ok(true)
-      }
-    },
-    CompanionSide::UnsetIfPrimary { companion, primary } => {
-      if ConfigSnapshot::read(git, companion)?.primary() == Some(primary.as_str()) {
-        run_config_write(git, companion, "--local", PRIMARY_CONFIG_KEY, None)?;
-      }
-      Ok(false)
-    }
-  }
-}
-
-/// The last step of an add, in the config of the primary again: its key names the companion, while the primary is still
-/// no companion itself; nothing for a removal
-pub fn finish_companion_of_primary(git: &GitCommandExecutor, side: &CompanionSide) -> Result<()> {
-  let CompanionSide::Claim {
-    companion,
-    primary,
-    repository,
-    key,
-  } = side
-  else {
-    return Ok(());
-  };
-  if let Some(of) = ConfigSnapshot::read(git, repository)?.primary() {
-    bail!("{primary} is a companion of {of}: only a primary has companions");
-  }
-  run_config_write(git, repository, "--local", key, Some(companion))
-}
-
-/// `write_companion`, then the settings read again
+/// `companion_write::write_companion`, then the settings read again
 #[instrument(skip(git))]
 pub fn set_companion(git: &GitCommandExecutor, repository_path: &str, name: &str, path: Option<&str>) -> Result<RepositoryConfig> {
   write_companion(git, repository_path, name, path)?;
@@ -834,7 +690,7 @@ fn config_writes() -> u32 {
 /// error to unset. The app writes a file one write at a time through its one writer of the file
 /// (`app_api::app::config_writer`), so a lock of the file is another process's (`brd describe`, a `git config` of the
 /// user): tried again for about a second, then an error that says so; a write done counts in `CONFIG_WRITES`
-fn run_config_write(git: &GitCommandExecutor, repository_path: &str, file: &str, config_key: &str, value: Option<&str>) -> Result<()> {
+pub(crate) fn run_config_write(git: &GitCommandExecutor, repository_path: &str, file: &str, config_key: &str, value: Option<&str>) -> Result<()> {
   let args: Vec<&str> = match value {
     Some(value) => vec!["config", file, "--replace-all", config_key, value],
     None => vec!["config", file, "--unset-all", config_key],

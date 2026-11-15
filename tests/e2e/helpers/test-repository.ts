@@ -590,6 +590,15 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * Writes one side of a companion link into the local config of the repository behind the app's back, as a `git config`
+   * in a terminal or a write cut short leaves it: `branchdeck.companion.<name>.path` with a name, else
+   * `branchdeck.primary`
+   */
+  async setCompanionLinkInTerminal(link: { name?: string; path: string }): Promise<void> {
+    await this.setFixture("companion-link", link)
+  }
+
+  /**
    * The folder the native dialog of the app picks from now on (`browse_repository`, the Browse button): `path`, or
    * `null`, the user cancels; without the fixture it picks the repository's own path
    */

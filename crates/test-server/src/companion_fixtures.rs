@@ -1,7 +1,9 @@
 //! The companion repositories of a test repository (openspec/specs/branch/declared-needs/spec.md#companion-repositories): a test
 //! asks for one (`POST /repositories/{id}/companion`) and gets the path of a new repository of one commit beside the
 //! test repository, `<id>.companions/<name>` under the root of the server, deleted with the test repository. The folder
-//! dialog of Add Companion… then picks it (`POST /repositories/{id}/dialog-pick`)
+//! dialog of Add Companion… then picks it (`POST /repositories/{id}/dialog-pick`). A test writes one side of a link
+//! behind the app's back (`POST /repositories/{id}/companion-link`), as a `git config` in a terminal or a write cut short
+//! leaves it: a half link
 
 use crate::state::AppState;
 use axum::Json;
@@ -45,4 +47,21 @@ pub async fn add_companion(Path(id): Path<String>, State(state): State<Arc<AppSt
     tracing::warn!(id, error = %format!("{error:#}"), "cannot create the companion");
     StatusCode::INTERNAL_SERVER_ERROR
   })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompanionLinkFixture {
+  /// `branchdeck.companion.<name>.path` of the test repository; without it, its `branchdeck.primary`
+  name: Option<String>,
+  path: String,
+}
+
+/// `POST /repositories/{id}/companion-link`: one side of a link in the local config of the test repository, written
+/// behind the app's back
+pub async fn set_companion_link(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<CompanionLinkFixture>) -> StatusCode {
+  let key = fixture
+    .name
+    .map_or_else(|| "branchdeck.primary".to_owned(), |name| format!("branchdeck.companion.{name}.path"));
+  crate::sync_overrides::set_in_terminal(&state, &id, key, fixture.path).await
 }

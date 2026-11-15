@@ -53,10 +53,16 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   reviewExperimental: { value: true, scope: "system", localSet: false, invalid: null, fallbackValue: true, fallbackScope: "system" },
   agentPullRequestOff: "The route into master is Push (branchdeck.landing): the work lands without a pull request",
   companions: [
-    { name: "ci-config", path: "/Users/jane/src/ci-config", problem: null },
-    { name: "deploy-scripts", path: "/Users/jane/src/deploy-scripts", problem: "/Users/jane/src/deploy-scripts is gone" },
+    {
+      name: "ci-config",
+      path: "/Users/jane/src/ci-config",
+      problem: null,
+      linkProblem: "/Users/jane/src/ci-config names /Users/jane/src/web as its primary: add it again to link it here, or remove it",
+    },
+    { name: "deploy-scripts", path: "/Users/jane/src/deploy-scripts", problem: "/Users/jane/src/deploy-scripts is gone", linkProblem: null },
   ],
   primary: null,
+  primaryProblem: null,
   detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
   landingDefault: { route: "pullRequest", onSpace: false },
   seq: 0,

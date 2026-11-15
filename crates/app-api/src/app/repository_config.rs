@@ -4,6 +4,7 @@
 //! (`repository_config_changed`) and acts for the selected repository. Each goes through the one writer of the config
 //! file (`config_writer`), a write of a page of Settings in the order of its number there
 
+use crate::api_error::IntoApiError;
 use crate::app::config_writer::{ConfigWriters, page_write};
 use crate::context::AppContext;
 use crate::events::repository_config_changed;
@@ -13,8 +14,9 @@ use domain_types::error::ApiError;
 use domain_types::settings::{GitBranchPrefix, WriteOrder};
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
+use sync_core::companion_write::{COMPANION_TRIES, Written, companion_moved, companion_of_write, write_companion_under};
 use sync_core::repository_config::{ConfigScope, RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, set_config};
-use tracing::{instrument, warn};
+use tracing::{debug, instrument};
 
 #[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -81,7 +83,7 @@ pub struct SetCompanionParams {
   pub path: Option<String>,
 }
 
-/// Adds or removes a companion repository (`sync_core::repository_config::write_companion`: both sides) and answers the
+/// Adds or removes a companion repository (`sync_core::companion_write::write_companion`: both sides) and answers the
 /// settings read again; the main window syncs again, as the states of the branches a need names change with it
 #[instrument(skip_all, fields(repository_path = %params.repository_path, name = %params.name))]
 pub async fn set_companion(ctx: &AppContext, params: SetCompanionParams) -> Result<RepositoryConfig, ApiError> {
@@ -119,12 +121,10 @@ pub async fn add_companion(ctx: &AppContext, params: AddCompanionParams) -> Resu
   .await
 }
 
-/// `sync_core::repository_config::set_companion` through the writers of the configs it changes, each step in the writer
-/// of the config it reads and writes: the check of the primary (and of a removal its key unset) in the writer of the
-/// config of the repository at `repository_path`, the `branchdeck.primary` of the companion with the check that it has
-/// one primary in the writer of the companion's, so of two primaries that add one companion at once the second is
-/// refused before it wrote anything, then of an add the key of the primary in its writer again, whose failure takes
-/// back the primary the companion named just now, then the settings of the repository read again in its writer
+/// `sync_core::companion_write::write_companion` while it holds the writers of both configs it reads and writes
+/// (`ConfigWriters::write_together`): the one of the repository at `repository_path` and the one of the companion the
+/// write touches (`companion_of_write`, asked first, then once more under the companion locks), so no write of Settings to
+/// either config runs inside it, then the settings read again there. A companion that changed meanwhile asks again
 pub(crate) async fn write_companion(
   writers: &ConfigWriters,
   git: &GitCommandExecutor,
@@ -132,40 +132,24 @@ pub(crate) async fn write_companion(
   name: String,
   path: Option<String>,
 ) -> Result<RepositoryConfig, ApiError> {
-  let (primary_git, repository) = (git.clone(), repository_path.to_owned());
-  let primary = move || sync_core::repository_config::write_companion_of_primary(&primary_git, &repository, &name, path.as_deref());
-  let side = writers.write(repository_path, WriteScope::Local, None, primary).await?.flatten();
-  if let Some(side) = side {
-    let (side_git, claim) = (git.clone(), side.clone());
-    let named_now = writers
-      .write(side.companion(), WriteScope::Local, None, move || {
-        sync_core::repository_config::write_companion_side(&side_git, &claim)
-      })
-      .await?
-      .unwrap_or(false);
-    let (finish_git, add) = (git.clone(), side.clone());
-    let finished = writers
-      .write(repository_path, WriteScope::Local, None, move || {
-        sync_core::repository_config::finish_companion_of_primary(&finish_git, &add)
-      })
-      .await;
-    if let Err(error) = finished {
-      if named_now && let Some(undo) = side.undo() {
-        let (undo_git, companion) = (git.clone(), undo.companion().to_owned());
-        let undone = writers
-          .write(&companion, WriteScope::Local, None, move || {
-            sync_core::repository_config::write_companion_side(&undo_git, &undo)
-          })
-          .await;
-        if let Err(undo_error) = undone {
-          warn!(companion, "cannot take back the primary of the companion: {}", undo_error.message);
+  for _ in 0..COMPANION_TRIES {
+    let (asked_git, repository, asked_name, asked_path) = (git.clone(), repository_path.to_owned(), name.clone(), path.clone());
+    let companion = run_blocking(move || companion_of_write(&asked_git, &repository, &asked_name, asked_path.as_deref())).await?;
+    let of_companion = companion.clone();
+    let held: Vec<&str> = std::iter::once(repository_path).chain(of_companion.as_deref()).collect();
+    let (git, repository, name, path) = (git.clone(), repository_path.to_owned(), name.clone(), path.clone());
+    let written = writers
+      .write_together(&held, move || {
+        let on_wait = || debug!("waiting for the lock of a companion another process holds");
+        match write_companion_under(&git, &repository, &name, path.as_deref(), companion.as_deref(), &on_wait)? {
+          Written::Done => sync_core::repository_config::read_repository_config(&git, &repository).map(Some),
+          Written::Moved => Ok(None),
         }
-      }
-      return Err(error);
+      })
+      .await?;
+    if let Some(config) = written {
+      return Ok(config);
     }
   }
-  let (read_git, repository) = (git.clone(), repository_path.to_owned());
-  let read = move || sync_core::repository_config::read_repository_config(&read_git, &repository);
-  let config = writers.write(repository_path, WriteScope::Local, None, read).await?;
-  config.ok_or_else(|| ApiError::internal("A write without a number is never superseded"))
+  Err(companion_moved(repository_path, &name).into_api_error())
 }

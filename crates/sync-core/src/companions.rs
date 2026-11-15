@@ -6,6 +6,7 @@
 //! integration notes of their tips (`branch_integration::common`), three processes per companion.
 
 use crate::config_snapshot::ConfigSnapshot;
+use crate::repository_config::PRIMARY_CONFIG_KEY;
 use branch_integration::common::{BranchData, branch_data_of, list_branches};
 use domain_types::branch_integration::BranchIntegrationStatus;
 use domain_types::branch_names::{BranchKind, kept_branch_name, strip_branch_namespace};
@@ -84,14 +85,56 @@ const fn link_role_order(role: LinkRole) -> u8 {
 }
 
 fn repository_problem(git: &GitCommandExecutor, path: &str) -> Option<String> {
+  local_primary(git, path).err()
+}
+
+/// The primary the local config of the repository at `path` names (`branchdeck.primary`), by one process; `Err` with
+/// why it can not be read: its path is gone, or holds no git repository
+fn local_primary(git: &GitCommandExecutor, path: &str) -> Result<Option<String>, String> {
   if !Path::new(path).is_dir() {
-    return Some(format!("{path} is gone"));
+    return Err(format!("{path} is gone"));
   }
-  match git.execute_command_with_status(&["config", "--local", "--list"], path) {
-    Ok((_, 0)) => None,
-    Ok(_) => Some(format!("{path} is no git repository")),
-    Err(error) => Some(format!("{path} is no git repository: {error:#}")),
+  match git.execute_command_with_status(&["config", "--local", "--get", PRIMARY_CONFIG_KEY], path) {
+    Ok((output, 0)) => Ok(Some(output.trim().to_string()).filter(|primary| !primary.is_empty())),
+    // a repository whose config names none
+    Ok((_, 1)) => Ok(None),
+    Ok(_) => Err(format!("{path} is no git repository")),
+    Err(error) => Err(format!("{path} is no git repository: {error:#}")),
   }
+}
+
+/// Why the link of the companion at `companion` of the primary whose main worktree is `primary` is half, by one process:
+/// the companion names another primary, or none, so only the primary names the link; the next add of it links both
+/// sides, a removal unlinks the primary's (`companion_write`). `None` for a link of both sides, and for a companion that
+/// can not be read, whose problem its path has
+#[must_use]
+pub fn half_link_problem(git: &GitCommandExecutor, primary: &str, companion: &str) -> Option<String> {
+  match local_primary(git, companion).ok()? {
+    Some(named) if same_path(Path::new(&named), Path::new(primary)) => None,
+    Some(named) => Some(format!("{companion} names {named} as its primary: add it again to link it here, or remove it")),
+    None => Some(format!("{companion} names no primary: add it again to link it, or remove it")),
+  }
+}
+
+/// Why the link of a companion whose main worktree is `companion` to the primary at `primary` its config names is
+/// broken, by one process at most: the primary is gone or no git repository, or lists no companion at that path, so
+/// only the companion names the link; an add of it there links both sides again. `None` for a link of both sides and a
+/// primary whose config can not be read
+#[must_use]
+pub fn primary_link_problem(git: &GitCommandExecutor, companion: &str, primary: &str) -> Option<String> {
+  let primary_path = Path::new(primary);
+  if !primary_path.is_dir() {
+    return Some(format!("{primary} is gone"));
+  }
+  if !primary_path.join(".git").exists() {
+    return Some(format!("{primary} is no git repository"));
+  }
+  let lists = ConfigSnapshot::read(git, primary)
+    .ok()?
+    .companions()
+    .values()
+    .any(|path| same_path(Path::new(path), Path::new(companion)));
+  (!lists).then(|| format!("{primary} does not list this repository as a companion: add it again there to link it"))
 }
 
 /// The name a repository goes by in the needs of its companions: the name of its directory
@@ -99,7 +142,7 @@ pub fn directory_name(path: &str) -> String {
   Path::new(path).file_name().map_or_else(|| path.to_string(), |name| name.to_string_lossy().into_owned())
 }
 
-fn same_path(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
   a == b || std::fs::canonicalize(a).ok().zip(std::fs::canonicalize(b).ok()).is_some_and(|(a, b)| a == b)
 }
 
@@ -193,4 +236,4 @@ fn state_of(data: &BranchData, prefix: &str, branch: &str) -> CompanionNeed {
 
 #[cfg(test)]
 #[path = "companions_test.rs"]
-mod companions_test;
+pub(crate) mod companions_test;

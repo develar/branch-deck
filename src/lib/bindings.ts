@@ -1914,6 +1914,11 @@ export type CompanionSetting = {
 	path: string,
 	/**  Why it can not be read: its path is gone, or it is no git repository; a need of it refuses with this reason */
 	problem: string | null,
+	/**
+	 *  Why its link is half: it names another primary, or none (`companions::half_link_problem`); an add of it links both
+	 *  sides again, a removal unlists it. Needs of it are read all the same
+	 */
+	linkProblem: string | null,
 };
 
 /**  A task of the range: parts of its units */
@@ -7426,6 +7431,11 @@ export type RepositoryConfig = {
 	companions: CompanionSetting[],
 	/**  The primary of this repository when it is a companion (`branchdeck.primary`) */
 	primary: string | null,
+	/**
+	 *  Why the link to `primary` is half or broken: the primary is gone or no git repository, or lists no companion at
+	 *  this path (`companions::primary_link_problem`); an add of this repository there links it again
+	 */
+	primaryProblem: string | null,
 	/**  The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set */
 	detectedGithubRepository: DetectedGitHubRepository | null,
 	/**  The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`) */

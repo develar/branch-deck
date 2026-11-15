@@ -6,11 +6,11 @@
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::baseline::check_baseline_update;
 use crate::baseline_push::{BaselinePush, push_baseline};
+use crate::companion_write::write_companion;
 use crate::moved_remote::{MovedBranch, fetch_moved_remotes};
 use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
-use crate::repository_config::write_companion;
 use crate::review_fetch::review_fetch_test::stack_fixture;
 use crate::review_fetch::{fetch_review_pairs, fetch_review_stack, local_review_pairs};
 use crate::review_target::ReviewMemo;

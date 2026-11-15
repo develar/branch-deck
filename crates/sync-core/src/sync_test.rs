@@ -646,7 +646,7 @@ async fn branches_grouped_carries_related_repositories() -> anyhow::Result<()> {
   let companion = repo_with_initial_commit();
   let primary_path = primary.path().to_str().unwrap().to_string();
   let companion_path = companion.path().to_str().unwrap().to_string();
-  crate::repository_config::write_companion(primary.git_executor(), &primary_path, "ci", Some(&companion_path))?;
+  crate::companion_write::write_companion(primary.git_executor(), &primary_path, "ci", Some(&companion_path))?;
   let config = crate::config_snapshot::ConfigSnapshot::read(primary.git_executor(), &primary_path)?;
   let linked_path = config.companions().get("ci").unwrap().clone();
 

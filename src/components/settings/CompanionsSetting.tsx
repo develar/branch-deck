@@ -9,10 +9,11 @@ import { hasFolderDialog } from "@/lib/title-bar"
 
 /**
  * "Companions" (openspec/specs/branch/declared-needs/spec.md#companion-repositories): the repositories whose branches a need of
- * this one names as `companion:branch` (`brd need`), each with its path and why it can not be read; Add Companion… picks
- * one with the folder dialog, named by its directory, Remove takes it back, both sides of both repositories as
- * `brd companion` writes them. A companion lists its primary instead: companions are added there. Where the host has
- * no folder dialog (the IDE) the desktop app adds them
+ * this one names as `companion:branch` (`brd need`), each with its path, why it can not be read and why its link is
+ * half (it names another primary, or none: Add Companion… links it again, Remove unlists it); Add Companion… picks one
+ * with the folder dialog, named by its directory, Remove takes it back, both sides of both repositories as
+ * `brd companion` writes them. A companion lists its primary instead, with why that link is broken: companions are
+ * added there. Where the host has no folder dialog (the IDE) the desktop app adds them
  */
 export function CompanionsSetting({ path, config, showWritten }: { path: string; config: RepositoryConfig; showWritten: RepositoryConfigRead["showWritten"] }) {
   const [writing, setWriting] = useState(false)
@@ -22,9 +23,16 @@ export function CompanionsSetting({ path, config, showWritten }: { path: string;
   }
   if (config.primary !== null) {
     return (
-      <p className="text-sm text-muted-foreground" data-testid="companions-primary">
-        {`A companion of ${repositoryName(config.primary)}: a need here names its branches as ${repositoryName(config.primary)}:branch. Add companions there.`}
-      </p>
+      <div className="flex flex-col gap-1">
+        <p className="text-sm text-muted-foreground" data-testid="companions-primary">
+          {`A companion of ${repositoryName(config.primary)}: a need here names its branches as ${repositoryName(config.primary)}:branch. Add companions there.`}
+        </p>
+        {config.primaryProblem !== null && (
+          <p className="text-xs text-warning" data-testid="companions-primary-problem">
+            {config.primaryProblem}
+          </p>
+        )}
+      </div>
     )
   }
   return (
@@ -43,6 +51,11 @@ export function CompanionsSetting({ path, config, showWritten }: { path: string;
                   {companion.path}
                 </span>
                 {companion.problem !== null && <span className="text-xs text-warning">{`Not readable: ${companion.problem}`}</span>}
+                {companion.linkProblem !== null && (
+                  <span className="text-xs text-warning" data-testid="companion-link-problem">
+                    {companion.linkProblem}
+                  </span>
+                )}
               </div>
               <Button
                 size="xs"

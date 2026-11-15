@@ -167,6 +167,7 @@ const EMPTY_CONFIG: RepositoryConfig = {
   agentPullRequestOff: null,
   companions: [],
   primary: null,
+  primaryProblem: null,
   detectedGithubRepository: null,
   landingDefault: { route: "pullRequest", onSpace: false },
   seq: 0,

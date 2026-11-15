@@ -178,22 +178,22 @@ pub struct UserNameRequest {
 
 /// Sets `branchdeck.branchPrefix` in `.git/config` of the repository behind the app's back
 pub async fn set_branch_prefix_in_terminal(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(request): Json<BranchPrefixRequest>) -> StatusCode {
-  set_in_terminal(&state, &id, "branchdeck.branchPrefix", request.prefix).await
+  set_in_terminal(&state, &id, "branchdeck.branchPrefix".to_owned(), request.prefix).await
 }
 
 /// Sets `user.name` in `.git/config` of the repository behind the app's back: an empty one is an identity git cannot
 /// form, over any global config (`git var GIT_COMMITTER_IDENT` fails), so a write of notes or commits is `no_identity`
 pub async fn set_user_name_in_terminal(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(request): Json<UserNameRequest>) -> StatusCode {
-  set_in_terminal(&state, &id, "user.name", request.name).await
+  set_in_terminal(&state, &id, "user.name".to_owned(), request.name).await
 }
 
 /// `git config --local <key> <value>` in the repository `id`, as a terminal runs it
-async fn set_in_terminal(state: &AppState, id: &str, key: &'static str, value: String) -> StatusCode {
+pub(crate) async fn set_in_terminal(state: &AppState, id: &str, key: String, value: String) -> StatusCode {
   let Some(path) = state.repositories.get(id).map(|repository| repository.path.clone()) else {
     return StatusCode::UNPROCESSABLE_ENTITY;
   };
-  let git = state.git_executor.clone();
-  let written = tokio::task::spawn_blocking(in_current_span(move || git.execute_command(&["config", "--local", key, &value], &path))).await;
+  let (git, written_key) = (state.git_executor.clone(), key.clone());
+  let written = tokio::task::spawn_blocking(in_current_span(move || git.execute_command(&["config", "--local", &written_key, &value], &path))).await;
   match written {
     Ok(Ok(_)) => StatusCode::OK,
     Ok(Err(error)) => {

@@ -195,6 +195,7 @@ describe("newer", () => {
     reviewExperimental: setting({}),
     companions: [],
     primary: null,
+    primaryProblem: null,
     detectedGithubRepository: null,
     landingDefault: { route: "pullRequest", onSpace: false },
     seq,
