@@ -12,6 +12,7 @@ use domain_types::patronus::PatronusPushMode;
 use domain_types::repository_view::PatronusView;
 use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind, UndoToken};
 use domain_types::session::{SyncReason, ViewPatch};
+use domain_types::worktree_epoch::WorktreeEpoch;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions};
@@ -898,9 +899,9 @@ impl SessionHost for Seeded {
     self.host.inputs(key)
   }
 
-  fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun {
+  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun {
     self.runs.fetch_add(1, Ordering::SeqCst);
-    let (run, mut released, failure) = (self.host.run(key, reporter), self.released.clone(), Arc::clone(&self.failure));
+    let (run, mut released, failure) = (self.host.run(key, opened, reporter), self.released.clone(), Arc::clone(&self.failure));
     Box::pin(async move {
       let _ = released.wait_for(|released| *released).await;
       let failed = failure.lock().unwrap().take();

@@ -421,7 +421,8 @@ local then and match the upstream now MUST be added, once.
 ### Requirement: Report: A sync records the branch only under the lease it began under
 
 A sync of the app's session MUST write the landed state of the worktree only while the slot of a lease pool holds the
-lease the run began under; a sync of `brd`, Update Project, its undo and a dismiss write it at any time.
+lease the session opened under, the lease of its view; a sync of `brd`, Update Project, its undo and a dismiss write it
+at any time.
 
 #### Scenario: A sync across a lease change
 - **GIVEN** a sync of the app's session began under one lease of the slot

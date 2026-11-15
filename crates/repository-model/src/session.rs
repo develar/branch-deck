@@ -167,10 +167,12 @@ pub trait SessionHost: Send + Sync + 'static {
   /// which runs the sync. Blocking: the runtime calls it on the blocking pool
   fn inputs(&self, key: &SessionKey) -> Option<SyncInputs>;
 
-  /// One sync of the session; its events go to `reporter`, the session's mailbox. A deferred sync (a rebase in
-  /// progress, a detached HEAD, a branch under the prefix) answers its `ApiError` code (`operation_in_progress`,
-  /// `detached_head`, `managed_branch`)
-  fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun;
+  /// One sync of the session that opened under the lease `opened` (`SessionLife::opened_epoch`); its events go to
+  /// `reporter`, the session's mailbox. A deferred sync (a rebase in progress, a detached HEAD, a branch under the
+  /// prefix) answers its `ApiError` code (`operation_in_progress`, `detached_head`, `managed_branch`); a run of a
+  /// worktree that holds another lease than `opened` syncs nothing and answers `plan_changed` (`lease_began`), and the
+  /// session opens anew for that lease
+  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun;
 
   /// Whether a window of `key` that gains focus syncs (the app's `autoSyncOnFocus`)
   fn syncs_on_focus(&self, key: &SessionKey) -> bool;
@@ -346,6 +348,22 @@ impl SessionLife {
 /// The worktree of a session holds another lease now than the session opened under (`Sessions::lease_guard`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnotherLease;
+
+/// The lease an operation of a session that opened under `opened` acts under, the worktree holding `now`: the one the
+/// session opened under, when it knew one, the lease of its view; else the lease now. `AnotherLease` when the worktree
+/// holds another known lease than the session opened under (`Sessions::lease_guard`, `SessionHost::run`)
+///
+/// # Errors
+/// `AnotherLease`, as above
+pub fn lease_began(opened: WorktreeEpoch, now: WorktreeEpoch) -> Result<WorktreeEpoch, AnotherLease> {
+  if opened.recorded().is_none() {
+    return Ok(now);
+  }
+  if now.recorded().is_some() && now != opened {
+    return Err(AnotherLease);
+  }
+  Ok(opened)
+}
 
 /// An operation of a session in flight (a request that waits, a run, a check): the session stays while one lives
 pub(crate) struct Busy(Arc<SessionLife>);
@@ -601,20 +619,12 @@ impl Sessions {
   /// holds another known lease now than the session opened under: the operation would act on a worktree of another lease
   /// before the session opens anew for it
   pub async fn lease_guard(&self, key: &SessionKey) -> Result<LeaseGuard, AnotherLease> {
-    let opened = self.lock().get(key).and_then(|entry| entry.life.epoch());
+    let opened = self.lock().get(key).and_then(|entry| entry.life.epoch()).unwrap_or(WorktreeEpoch::Unknown);
     let (host, of) = (Arc::clone(&self.host), key.clone());
     let now = tokio::task::spawn_blocking(in_current_span(move || host.epoch(&of)))
       .await
       .unwrap_or(WorktreeEpoch::Unknown);
-    let began = match opened {
-      Some(opened) if opened.recorded().is_some() => {
-        if now.recorded().is_some() && now != opened {
-          return Err(AnotherLease);
-        }
-        opened
-      }
-      _ => now,
-    };
+    let began = lease_began(opened, now)?;
     if began == WorktreeEpoch::NotASlot {
       return Ok(LeaseGuard::any());
     }

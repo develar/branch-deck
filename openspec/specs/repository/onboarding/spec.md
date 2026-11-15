@@ -1507,11 +1507,19 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
 - **WHEN** the slot is returned and leased again before the run ended
 - **THEN** the run writes no file of the lease of the slot: it marks no worktree synced, so the session of the new lease
   does not sync of itself, and records no landed state, so the new lease reports nothing landed of a branch it never
-  had; the sync asks the epoch of the slot right before each write and writes only under the lease the run began under
+  had; the sync asks the epoch of the slot right before each write and writes only under the lease its session opened
+  under, the lease of its view
 - **AND** a run under one lease throughout writes both
   [@test] crates/repository-model/src/session_test.rs (`a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under`)
   [@test] crates/sync-core/src/lease_state_test.rs (`a_sync_whose_lease_no_longer_holds_writes_no_file_of_the_lease`, `a_write_under_a_guard_that_no_longer_holds_leaves_the_file_of_the_lease_as_it_is`)
   [@test] crates/operations/src/lease_files_scan_test.rs (`only_their_one_writer_writes_the_files_of_a_lease_and_only_the_modules_of_the_table_name_them`)
+
+#### Scenario: A run that begins under another lease
+- **GIVEN** a session opened under one lease of the slot, and the slot holds another lease, its stamp not heard yet
+- **WHEN** a sync of the session begins, asked by the user or by a rewrite
+- **THEN** it syncs nothing and writes no file of the lease: the request is answered with nothing done, and the session
+  opens anew for the new lease, whose sync marks it
+  [@test] crates/repository-model/src/session_test.rs (`a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the_session_opens_anew`)
 
 #### Scenario: A stamp of a new lease during a check
 - **GIVEN** a check of the inputs of a focus of the session under the lease before is in flight, and no run

@@ -2327,15 +2327,19 @@ first of `finish_return`, also of a takeover and a reclaim, and of `move_reused_
 `a_new_lease_of_a_slot_inherits_nothing_the_lease_before_left_in_its_git_directory`,
 `a_return_takes_out_the_mark_of_a_sync_in_the_lease`, `a_takeover_that_fails_leaves_no_mark_of_a_sync_in_the_slot`):
 the next lease is a worktree no sync built anything for, a window that opens it shows the Ready to Sync card, and
-nothing landed is reported of a branch it never had. A run of a session that began under one lease and ended under
-another writes nothing into the files of the lease, neither the mark nor the landed state: they have one writer
+nothing landed is reported of a branch it never had. A run of a session that opened under one lease writes nothing
+into the files of another lease, neither the mark nor the landed state, whether the slot was leased again during the
+run or before it began: they have one writer
 (`sync_core::lease_state`, `lease_files_scan_test.rs`, which also builds their paths, `LeasePaths`), which writes each
 under the guard of its caller (`LeaseGuard`) and under the lock of the lease, which an async caller waits for on the
 blocking pool (the mark at the end of `sync_branches`:
 `the_mark_of_a_sync_waits_for_the_lock_of_the_lease_off_the_worker_of_the_runtime`), and the session gives its sync one that asks the epoch of the slot right
-before each write and holds only under the epoch the run began under (`SyncOptions::lease` of `GitSessionHost::run`;
+before each write and holds only under the lease the session opened under, the lease of its view (`SyncOptions::lease`
+of `GitSessionHost::run`, `session::lease_began` as for `Sessions::lease_guard`;
 `a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under`,
-`a_sync_whose_lease_no_longer_holds_writes_no_file_of_the_lease`), as the return took the files of the lease before
+`a_sync_whose_lease_no_longer_holds_writes_no_file_of_the_lease`); a run that begins while the slot holds another
+known lease syncs nothing (`plan_changed`), its requests are skipped and the session opens anew for that lease
+(`a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the_session_opens_anew`), as the return took the files of the lease before
 and this run synced no worktree of the new one. So do the intents of a window and `brd`: Update Project, the undo of a
 rewrite and a dismiss name the epoch of the view they were asked on, are refused (`plan_changed`) on another epoch or
 on a slot that holds another lease than their session opened under, and write under the lease of that view

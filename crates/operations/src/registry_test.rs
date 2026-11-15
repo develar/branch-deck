@@ -6,6 +6,7 @@ use domain_types::fixtures::{land_intent, push_intent};
 use domain_types::operation::{OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Resource, RunningMove, RunningOperation};
 use domain_types::patronus::PatronusPushMode;
 use domain_types::repository_view::PatronusView;
+use domain_types::worktree_epoch::WorktreeEpoch;
 use pretty_assertions::assert_eq;
 use repository_model::facts::{Needs, PatronusOf};
 use repository_model::patronus_view::ContentMemo;
@@ -30,7 +31,7 @@ impl SessionHost for IdleHost {
     None
   }
 
-  fn run(&self, _key: &SessionKey, _reporter: RunReporter) -> SyncRun {
+  fn run(&self, _key: &SessionKey, _opened: WorktreeEpoch, _reporter: RunReporter) -> SyncRun {
     if let Some(runs) = &self.runs {
       let _ = runs.send(());
     }

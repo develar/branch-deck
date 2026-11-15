@@ -50,7 +50,9 @@ use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
 use crate::review_readings::ReadAheadAnswer;
-use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
+use crate::session::{
+  AnotherLease, Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter, lease_began,
+};
 use crate::state::{Joined, View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
@@ -1142,12 +1144,21 @@ impl Actor {
     };
     let decision = self.scheduler.run_finished(run, inputs, end, self.is_watched());
     self.in_flight = None;
+    // a run of a worktree that holds another lease than the session opened under synced nothing (`leased_anew`): the
+    // session opens anew for that lease, as for a stamp that found it (`reopen_for_lease`), and the requests it served
+    // were skipped, as for a stamp that came while the session waited for its run
+    let refused_for_lease = matches!(&result, Err(error) if error.code == ErrorCode::PlanChanged);
+    if refused_for_lease && self.reopen_after_run.is_none() {
+      tracing::info!(worktree = %self.key.worktree, "The slot of the worktree holds another lease: the session opens anew for it");
+      self.events.emit(&self.key, SessionEventKind::Closed);
+      self.reopen_after_run = Some(Waiter::unheard(&self.life));
+    }
     if let Some(waiter) = self.reopen_after_run.take() {
       // the slot holds another lease since the run started: its table is of no session, and no recheck and no follow-up
       // of the session before runs; the requests it served get its end, those that waited get nothing
       let version = self.version();
       for (served, settled) in decision.resolve {
-        served.settle(settled, version);
+        served.settle(if refused_for_lease { Ok(SyncOutcome::Skipped) } else { settled }, version);
       }
       for waited in self.scheduler.abandon() {
         waited.settle(Ok(SyncOutcome::Skipped), version);
@@ -1305,7 +1316,7 @@ impl Actor {
     self.run_seq = self.state.begin_sync();
     self.facts.table.started(self.life.now());
     self.flush();
-    let (host, key) = (Arc::clone(&self.host), self.key.clone());
+    let (host, key, opened) = (Arc::clone(&self.host), self.key.clone(), self.life.opened_epoch());
     tokio::spawn(
       async move {
         // before the sync: a commit made while it runs is a change the next focus syncs
@@ -1314,7 +1325,7 @@ impl Actor {
           None => read_inputs(Arc::clone(&host), key.clone()).await,
         };
         let reporter = RunReporter { run, mailbox: mailbox.clone() };
-        let result = host.run(&key, reporter).await;
+        let result = host.run(&key, opened, reporter).await;
         let _ = mailbox.send(Message::RunFinished {
           run,
           inputs,
@@ -1425,6 +1436,15 @@ const fn is_deferred(error: &ApiError) -> bool {
   matches!(
     error.code,
     ErrorCode::OperationInProgress | ErrorCode::DetachedHead | ErrorCode::ManagedBranch | ErrorCode::PrefixChanged
+  )
+}
+
+/// The refusal of a run of a session whose worktree holds another lease than the session opened under: nothing synced,
+/// and the session opens anew for that lease (`finish_run`)
+fn leased_anew(key: &SessionKey) -> ApiError {
+  ApiError::new(
+    ErrorCode::PlanChanged,
+    format!("{} holds another lease than its session opened under: the session opens anew for it", key.worktree),
   )
 }
 
@@ -1584,17 +1604,19 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       .ok()
   }
 
-  fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun {
+  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun {
     let (git, environment, key) = (self.git_of(key), Arc::clone(&self.environment), key.clone());
     Box::pin(async move {
-      // the epoch of the worktree as the run begins: the sync writes the files of the lease (its mark, the landed state)
-      // only while the slot holds it, as a slot leased again during the run is a worktree this run did not sync, whose
-      // return took the files of the lease before
+      // the lease the session opened under, the lease of its view (`lease_began`): the sync writes the files of the lease
+      // (its mark, the landed state) only while the slot holds it, as a slot leased again before or during the run is a
+      // worktree this session did not sync, whose return took the files of the lease before; a slot that holds another
+      // lease already is synced by the session that opens anew for it
       let setup = {
         let (environment, key) = (Arc::clone(&environment), key.clone());
         tokio::task::spawn_blocking(in_current_span(move || (environment.epoch(&key), environment.run_setup(&key)))).await
       };
-      let (began_under, setup) = setup.map_err(|error| ApiError::internal(format!("The sync preparation task failed: {error}")))?;
+      let (now, setup) = setup.map_err(|error| ApiError::internal(format!("The sync preparation task failed: {error}")))?;
+      let began_under = lease_began(opened, now).map_err(|AnotherLease| leased_anew(&key))?;
       let RunSetup { mut options, prefix } = setup.map_err(|error| environment.api_error(error))?;
       if prefix != key.prefix {
         return Err(prefix_changed(&key.prefix, &prefix));

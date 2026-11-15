@@ -209,7 +209,7 @@ impl SessionHost for ScriptedHost {
     inputs
   }
 
-  fn run(&self, _key: &SessionKey, reporter: RunReporter) -> SyncRun {
+  fn run(&self, _key: &SessionKey, _opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun {
     *self.runs.lock().unwrap() += 1;
     let script = self.scripts.lock().unwrap().pop_front().expect("a script for every run");
     self.reporters.lock().unwrap().push(reporter.clone());
@@ -775,11 +775,12 @@ async fn opened_under_lease_a() -> (TestRepo, SessionKey, Arc<TestLeases>, Sessi
   (repo, key, leases, sessions)
 }
 
-/// A run writes the files of the lease of its worktree (the mark of a sync, the landed state) only under the lease it
-/// began under: a slot an agent returned and leased again while the run ran is a worktree this run did not sync, whose
-/// return took the files of the lease before, so nothing of the run reaches the new lease, neither the mark, after which
-/// its session would sync of itself, nor where the branch was and what landed of it; a run under one lease throughout
-/// writes both
+/// A run writes the files of the lease of its worktree (the mark of a sync, the landed state) only under the lease its
+/// session opened under: a slot an agent returned and leased again while the run ran is a worktree this run did not
+/// sync, whose return took the files of the lease before, so nothing of the run reaches the new lease, neither the mark,
+/// after which its session would sync of itself, nor where the branch was and what landed of it. The next run of that
+/// session syncs nothing and the session opens anew for the new lease, as a run that begins under another lease does; a
+/// run under one lease throughout writes both
 #[tokio::test]
 async fn a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under() {
   let (repo, key, leases, sessions) = opened_under_lease_a().await;
@@ -790,9 +791,37 @@ async fn a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under
   assert!(!landed_state.exists(), "no landed state of a run across two leases");
   assert!(snapshot(&sessions, &key).await.order.contains(&"auth".to_owned()), "the run built its table all the same");
 
+  assert_eq!(
+    outcome(sessions.sync(&key, SyncReason::Manual)).await,
+    Ok(SyncOutcome::Skipped),
+    "the session of lease-a syncs no more"
+  );
+  assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix));
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
   assert!(sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "a run under one lease marks it");
   assert!(landed_state.exists(), "a run under one lease records where the branch is");
+}
+
+/// A run of a session opened under `lease-a` that begins once the slot holds `lease-b` (returned and leased again, its
+/// stamp not heard yet), asked by a rewrite or by the user, syncs nothing and writes no file of the next lease: neither
+/// the mark, after which the session of `lease-b` would sync of itself, nor the landed state. The request is skipped and
+/// the session opens anew for `lease-b`, whose next sync marks it
+#[tokio::test]
+async fn a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the_session_opens_anew() {
+  for reason in [SyncReason::AfterRewrite, SyncReason::Manual] {
+    let (repo, key, leases, sessions) = opened_under_lease_a().await;
+    let landed_state = sync_core::lease_state::LeasePaths::of_worktree(repo.path()).unwrap().landed();
+    *leases.epoch.lock().unwrap() = lease("lease-b");
+    assert_eq!(outcome(sessions.sync(&key, reason)).await, Ok(SyncOutcome::Skipped), "{reason:?}");
+    assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "{reason:?}: no mark of lease-b");
+    assert!(!landed_state.exists(), "{reason:?}: no landed state of lease-b");
+
+    assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+    assert!(
+      sync_core::synced_mark::synced_before(&key.worktree, &key.prefix),
+      "{reason:?}: the session of lease-b marks it"
+    );
+  }
 }
 
 /// The guard an operation of a session writes the files of the lease under (an intent of a window: Update Project, its
