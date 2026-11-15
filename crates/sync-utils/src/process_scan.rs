@@ -544,7 +544,8 @@ mod unscanned {
   }
 
   /// No signals here, so no moment to compare a start with
-  pub(super) const fn start_clock() -> Option<super::StartClock> {
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn start_clock() -> Option<super::StartClock> {
     None
   }
 }
