@@ -474,7 +474,8 @@ test.describe("Onboarding", () => {
   test("says that a repository without commits has nothing to sync yet", async ({ page, setupRepo }) => {
     expectErrorLog(page, /^Cannot sync the branches: The repository has no commits yet/)
     await setupRepo("empty_git", { prepopulateStore: true })
-    await page.getByTestId("ready-to-sync-button").click()
+    // the alert comes with the answer of the sync, which takes seconds under load: the look at it waits for the answer
+    await runAndWaitForAnswer(page, "sync", () => page.getByTestId("ready-to-sync-button").click())
 
     await expect(page.getByTestId("error-alert")).toContainText("The repository has no commits yet")
   })
