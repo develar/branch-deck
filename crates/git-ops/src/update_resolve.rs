@@ -13,6 +13,7 @@ use crate::commit_writer::{
 };
 use crate::generated::generated_of;
 use crate::landed_pairing::{LandedCandidate, LandedDrop, PathLines, interdiffs};
+use crate::lfs::WorktreeMove;
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::paths::{ChangedPath, changed_paths, commits_touching};
 use crate::ref_transaction::RefTransaction;
@@ -826,7 +827,27 @@ pub struct PreparedStart {
   signed: Option<WrittenCommits>,
 }
 
+impl SessionState {
+  /// The move of the working tree of `worktree` that the finish of the session applies, as far as it is known before the
+  /// lock: from HEAD as the session knows it to the upstream tip it replays onto (the local commits on top come from the
+  /// store already). What the objects of Git LFS are fetched for before the lock (`lfs::prefetch_lfs_objects`)
+  pub fn worktree_move(&self, worktree: &str) -> WorktreeMove {
+    WorktreeMove {
+      worktree: worktree.to_string(),
+      from: self.head.clone(),
+      to: self.upstream_head.clone(),
+      branch: (self.branch != "HEAD").then(|| self.branch.clone()),
+    }
+  }
+}
+
 impl PreparedStart {
+  /// `SessionState::worktree_move` of the session it starts: a session that its words resolve at once finishes there,
+  /// under the lock
+  pub fn worktree_move(&self, worktree: &str) -> WorktreeMove {
+    self.state.worktree_move(worktree)
+  }
+
   /// Write the state of the session, with the directory of its copies (`dir`, which brd created when `dir_created`),
   /// and create its session ref in one transaction that deletes the temporary refs; a ref of the worktree's session
   /// that exists already fails it, and nothing changes. A session that is ready at once finishes there: the update

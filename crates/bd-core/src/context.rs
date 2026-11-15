@@ -226,11 +226,14 @@ impl RepoContext {
 
     // the config the sync reads too: one `git config` for the prefix, the settings and the descriptions
     let mut config = None;
+    let mut git = git;
     let prefix = if let Some(prefix) = options.prefix {
       cli_branch_prefix(prefix)
     } else {
       let snapshot = ConfigSnapshot::read(&git, &repository)?;
       let git_prefix = snapshot.branch_prefix();
+      // where Git LFS keeps its objects, for the fetch before a move, from the read that is there anyway
+      git = git.with_fact(snapshot.lfs_storage());
       config = Some(snapshot);
       resolve_branch_prefix(&git_prefix, environment.settings.global_user_branch_prefix.as_deref())
     };

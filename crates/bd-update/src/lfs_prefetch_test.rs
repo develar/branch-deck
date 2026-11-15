@@ -4,7 +4,7 @@
 //! the lock was held (its holder record exists) and whether the store had the object; `git lfs fetch` is an arm of the
 //! git of `LockSpanGit`, which logs the lock state of every git, that puts the objects of `fetchable` into the store
 
-use bd_cli::fixture_test::{LockSpanGit, repo_on_baseline};
+use bd_cli::fixture_test::{LockSpanGit, repo_on_baseline, run_json};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -37,8 +37,13 @@ impl Lfs {
   /// The filter as `git lfs install` sets it, in the config of `repo`: the smudge command logs `locked` or `free`, then
   /// `store` or `network` for its object, and passes the pointer through; `clean` passes it through as well
   fn new(repo: &TestRepo) -> Self {
+    Self::with_store(repo, "lfs")
+  }
+
+  /// `new` with the store in `store` of the git dir (`lfs.storage` when it is not `lfs`)
+  fn with_store(repo: &TestRepo, store: &str) -> Self {
     let directory = tempfile::tempdir().unwrap();
-    let objects = repo.path().join(".git").join("lfs").join("objects");
+    let objects = repo.path().join(".git").join(store).join("objects");
     std::fs::create_dir_all(&objects).unwrap();
     let holder = repo.path().join(".git").join("branch-deck.lock.holder");
     let (objects_text, holder_text, log) = (objects.display(), holder.display(), directory.path().join("smudge.log"));
@@ -93,25 +98,45 @@ impl Lfs {
 
   /// `brd <args>`, which must succeed, the logs of the git and of the smudge filter starting empty
   fn run(&self, args: &[&str]) -> Value {
+    self.run_exiting(args, 0)
+  }
+
+  /// `brd <args>`, which must exit with `exit_code`, the logs starting empty
+  fn run_exiting(&self, args: &[&str], exit_code: i32) -> Value {
     let _ = std::fs::remove_file(self.directory.path().join("smudge.log"));
-    let (exit_code, output) = self.wrapped.run(args);
-    assert_eq!(exit_code, 0, "{output}");
+    let (code, output) = self.wrapped.run(args);
+    assert_eq!(code, exit_code, "{output}");
     output
   }
 
-  /// The last run fetched the object `n` before the lock, once, of the file that changes at the commit HEAD is at now,
-  /// and the move under the lock smudged it from the store: never from the network under the lock
-  fn assert_prefetched(&self, repo: &TestRepo, n: u8) {
+  /// What the smudge filter logged in the last run
+  fn smudges(&self) -> Vec<String> {
+    let log = std::fs::read_to_string(self.directory.path().join("smudge.log")).unwrap_or_default();
+    log.lines().map(str::to_string).collect()
+  }
+
+  /// The last run fetched the object `n` once, before the lock, the file that changes at the commit HEAD is at now
+  fn assert_fetched_before_the_lock(&self, repo: &TestRepo, n: u8) {
+    self.assert_fetched_before_the_lock_at(&repo.head(), n);
+  }
+
+  /// The last run fetched the object `n` once, before the lock, the file that changes at the commit `to`
+  fn assert_fetched_before_the_lock_at(&self, to: &str, n: u8) {
     assert_eq!(self.wrapped.locked_runs("lfs"), [false], "one fetch, before the lock: {:#?}", self.wrapped.commands());
-    let fetch = format!(" lfs fetch --include model.bin origin {}", repo.head());
+    let fetch = format!(" lfs fetch --include model.bin origin {to}");
     assert!(
       self.wrapped.commands().iter().any(|(_, args)| args.ends_with(&fetch)),
       "{fetch}: {:#?}",
       self.wrapped.commands()
     );
-    let smudges = std::fs::read_to_string(self.directory.path().join("smudge.log")).unwrap_or_default();
-    assert_eq!(smudges.lines().collect::<Vec<_>>(), ["locked store"], "{:#?}", self.wrapped.commands());
     assert!(self.object(n).is_file(), "the fetch stored the object {n}");
+  }
+
+  /// `assert_fetched_before_the_lock`, and the move under the lock smudged the file from the store: never from the
+  /// network under the lock
+  fn assert_prefetched(&self, repo: &TestRepo, n: u8) {
+    self.assert_fetched_before_the_lock(repo, n);
+    assert_eq!(self.smudges(), ["locked store"], "{:#?}", self.wrapped.commands());
   }
 }
 
@@ -141,12 +166,17 @@ impl Hermetic {
 
 /// A repository whose baseline has the model `1` and whose branch `feature` changes it to `2`, the store with `2`
 fn feature_changes_the_model() -> (TestRepo, Lfs, String) {
+  feature_changes_the_model_in("lfs")
+}
+
+/// `feature_changes_the_model` with the store in `store` of the git dir
+fn feature_changes_the_model_in(store: &str) -> (TestRepo, Lfs, String) {
   let (repo, ids) = repo_on_baseline(
     &[ATTRIBUTES, ("model.bin", &pointer(1))],
     &[HistoryCommit::new("(feature) Change the model", &[("model.bin", &pointer(2))])],
     ".",
   );
-  let lfs = Lfs::new(&repo);
+  let lfs = Lfs::with_store(&repo, store);
   lfs.store(2);
   (repo, lfs, ids[0].clone())
 }
@@ -269,4 +299,59 @@ fn a_repository_that_skips_download_errors_moves_when_the_fetch_failed() {
   lfs.run(&["drop", &commit]);
   assert_eq!(lfs.wrapped.locked_runs("lfs"), [false], "{:#?}", lfs.wrapped.commands());
   assert_eq!(model(&repo), pointer(1));
+}
+
+/// An update that conflicts starts a resolve session, whose start may finish under the lock when the words resolve every
+/// round, and `brd update --continue` replays and finishes under the lock: both fetch the objects of the files the
+/// upstream changes (from HEAD to the upstream tip the check read) before the lock, and the finish smudges from the store
+#[test_log::test]
+fn a_session_start_and_its_continue_fetch_the_objects_of_git_lfs_before_the_lock() {
+  let _hermetic = Hermetic::new();
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[ATTRIBUTES, ("model.bin", &pointer(1)), ("shared.txt", "one\ntwo\nthree\n")]);
+  clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
+  let upstream_tip = upstream.create_commit_with_files(
+    "Change line 2 and the model upstream",
+    &[("shared.txt", "one\ntheirs\nthree\n"), ("model.bin", &pointer(2))],
+  );
+  clone.git(&["fetch", "-q", "origin"]);
+  let lfs = Lfs::new(&clone);
+  lfs.store(1);
+
+  lfs.fetchable(2);
+  let round = lfs.run_exiting(&["update", "--no-fetch"], 1);
+  assert_eq!(round["state"], json!("conflict"), "{round}");
+  lfs.assert_fetched_before_the_lock_at(&upstream_tip, 2);
+  assert_eq!(lfs.smudges(), Vec::<String>::new(), "a round moves no file");
+
+  lfs.forget(2);
+  lfs.fetchable(2);
+  let file = round["session"]["files"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|file| file["path"] == json!("shared.txt"))
+    .unwrap();
+  std::fs::write(file["edit"].as_str().unwrap(), "one\ntheirs and mine\nthree\n").unwrap();
+  let done = lfs.run(&["update", "--continue", "--round", "1"]);
+  assert_eq!(done["state"], json!("rebase"), "{done}");
+  lfs.assert_fetched_before_the_lock_at(&upstream_tip, 2);
+  assert_eq!(lfs.smudges(), ["locked store"], "{:#?}", lfs.wrapped.commands());
+  assert_eq!(model(&clone), pointer(2));
+}
+
+/// A store that `lfs.storage` keeps away from `$GIT_COMMON_DIR/lfs` is checked where the config that brd reads anyway
+/// puts it (`ConfigSnapshot`, a command without `--prefix`), with no process more, so the drop fetches what that store
+/// lacks before the lock
+#[test_log::test]
+fn a_store_that_lfs_storage_moves_is_checked_where_the_config_puts_it() {
+  let _hermetic = Hermetic::new();
+  let (repo, lfs, commit) = feature_changes_the_model_in("store");
+  append_config(repo.path(), &[("lfs.storage", "store"), ("branchdeck.branchPrefix", "test-user")]);
+  assert!(!repo.path().join(".git").join("lfs").exists());
+  lfs.fetchable(1);
+  let _ = std::fs::remove_file(lfs.wrapped.dir().join("log"));
+  let (exit_code, output) = run_json(&lfs.wrapped.environment, &["drop", &commit]);
+  assert_eq!(exit_code, 0, "{output}");
+  lfs.assert_fetched_before_the_lock(&repo, 1);
+  assert_eq!(lfs.smudges(), ["locked store"], "{:#?}", lfs.wrapped.commands());
 }

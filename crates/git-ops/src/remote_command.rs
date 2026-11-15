@@ -3,7 +3,7 @@
 //! Key Decision 8). The variants with progress are `sync_core::remote_command`'s, on these constants.
 
 use anyhow::Result;
-use git_executor::git_command_executor::{GitCommandExecutor, GitOutput};
+use git_executor::git_command_executor::{GitCommandExecutor, GitOutput, ProgressStop};
 use std::time::Duration;
 
 /// Config for every git command that talks to a remote (push, fetch).
@@ -53,6 +53,20 @@ pub const LFS_DEADLINE: Duration = Duration::from_mins(30);
 /// `execute_remote_command` killed after `deadline` (`LFS_DEADLINE`)
 pub fn execute_remote_command_within(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, deadline: Duration) -> Result<String> {
   git_executor.cmd(&remote_args(&[], args), repository_path).env(&REMOTE_ENV).timeout(deadline).text()
+}
+
+/// `execute_remote_command_within` killed as well once `canceled` says so (`StoppedCommand::Cancelled`)
+pub fn execute_remote_command_until(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, deadline: Duration, canceled: &dyn Fn() -> bool) -> Result<()> {
+  let stop = ProgressStop {
+    idle_timeout: None,
+    is_cancelled: canceled,
+  };
+  git_executor
+    .cmd(&remote_args(&[], args), repository_path)
+    .env(&REMOTE_ENV)
+    .timeout(deadline)
+    .progress(&mut |_| {}, &stop)?;
+  Ok(())
 }
 
 /// `execute_remote_command_accepting` that keeps git's stderr and exit code too: an accepted failure (a `push` whose

@@ -1,5 +1,6 @@
 use crate::lease_slot::lease_config;
-use crate::lfs::{ChangedPointer, fetch_config, include_of, pointer_oid, pull_lfs_files, skips_download_errors};
+use crate::lfs::{ChangedPointer, fetch_config, include_lists, include_pattern, pointer_oid, pull_lfs_files, skips_download_errors};
+use crate::remote_command::{LFS_DEADLINE, execute_remote_command_until};
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
 use test_utils::env_vars::EnvVars;
@@ -55,29 +56,45 @@ fn a_pointer_names_its_object() {
   assert_eq!(pointer_oid(&[0xff, 0xfe]), None);
 }
 
-/// The fetch includes the paths it needs, comma separated; a path that Git LFS would read as a pattern or as two, or a
-/// list past 8 KiB, fetches every object of the commit the store lacks instead
+/// Each path is a pattern of the `--include` of Git LFS that matches it: a character of a pattern and a leading `!` or
+/// `#` escaped, a comma and a blank at an end (which Git LFS splits at or trims) a `?`
 #[test]
-fn the_fetch_includes_the_paths_it_needs_unless_one_reads_as_a_pattern() {
-  let pointers = |paths: &[&str]| {
-    paths
-      .iter()
-      .map(|path| ChangedPointer {
-        path: (*path).to_string(),
-        oid: String::new(),
-      })
-      .collect::<Vec<_>>()
-  };
-  let include = |paths: &[&str]| {
-    let pointers = pointers(paths);
-    include_of(&pointers.iter().collect::<Vec<_>>())
-  };
-  assert_eq!(include(&["model.bin", "data/big file.bin"]).as_deref(), Some("model.bin,data/big file.bin"));
-  for odd in ["a,b.bin", "*.bin", "a?.bin", "[a].bin", "a\\b.bin", "!a.bin", "#a.bin"] {
-    assert_eq!(include(&["model.bin", odd]), None, "{odd}");
+fn a_path_is_a_pattern_of_the_include_that_matches_it() {
+  for (path, pattern) in [
+    ("data/big file.bin", "data/big file.bin"),
+    ("a,b.bin", "a?b.bin"),
+    ("*.bin", "\\*.bin"),
+    ("a?[b]\\c.bin", "a\\?\\[b\\]\\\\c.bin"),
+    ("!a.bin", "\\!a.bin"),
+    ("#a.bin", "\\#a.bin"),
+    ("x/!a#.bin", "x/!a#.bin"),
+    (" lead.bin", "?lead.bin"),
+    ("trail.bin ", "trail.bin?"),
+  ] {
+    assert_eq!(include_pattern(path), pattern, "{path}");
   }
-  let long = "d/".repeat(5000);
-  assert_eq!(include(&[long.as_str()]), None);
+}
+
+/// The paths of a fetch are lists of at most 8 KiB each, so a long list is several fetches, never one without
+/// `--include`, which could pull every object of a commit the store lacks
+#[test]
+fn the_paths_of_a_fetch_are_lists_of_at_most_8_kib() {
+  let pointers: Vec<ChangedPointer> = (0..1000)
+    .map(|n| ChangedPointer {
+      path: format!("assets/textures/a-long-directory-name/model-{n:04}.bin"),
+      oid: String::new(),
+    })
+    .collect();
+  let lists = include_lists(&pointers.iter().collect::<Vec<_>>());
+  assert!(lists.len() > 1, "{}", lists.len());
+  assert!(lists.iter().all(|list| list.len() <= 8 * 1024));
+  let paths: Vec<&str> = lists.iter().flat_map(|list| list.split(',')).collect();
+  assert_eq!(paths, pointers.iter().map(|pointer| pointer.path.as_str()).collect::<Vec<_>>());
+  let one = ChangedPointer {
+    path: "model.bin".to_owned(),
+    oid: String::new(),
+  };
+  assert_eq!(include_lists(&[&one]), ["model.bin"]);
 }
 
 /// The fetch takes the remote Git LFS takes by default: the remote of the branch, else `remote.lfsdefault`, else the
@@ -180,5 +197,18 @@ fn a_hung_lfs_pull_is_killed_at_its_deadline() {
   let started = std::time::Instant::now();
   let error = pull_lfs_files(&git, repo.path_str()).unwrap_err();
   assert!(format!("{error:#}").contains("did not finish within"), "{error:#}");
+  assert!(started.elapsed() < std::time::Duration::from_secs(30), "{:?}", started.elapsed());
+}
+
+/// A fetch before a move ends as its operation is canceled (the Stop Waiting of the app), with the processes it started
+#[test]
+fn a_fetch_ends_as_its_operation_is_canceled() {
+  let fake = tempfile::tempdir().unwrap();
+  let fake_git = fake_executable(fake.path(), "git", "case \" $* \" in *\" lfs fetch \"*) sleep 60; exit 0;; esac\nexec git \"$@\"");
+  let git = executor_of_fake_git(&fake_git);
+  let repo = TestRepo::new();
+  let started = std::time::Instant::now();
+  let error = execute_remote_command_until(&git, &["lfs", "fetch"], repo.path_str(), LFS_DEADLINE, &|| true).unwrap_err();
+  assert!(format!("{error:#}").contains("canceled"), "{error:#}");
   assert!(started.elapsed() < std::time::Duration::from_secs(30), "{:?}", started.elapsed());
 }

@@ -367,32 +367,42 @@ reads them as they change. So the objects come first: before each lock, the core
   files (`Prepared::worktree_moves`: an unapply, a reapply, a drop and the undo of each, the undo of an update and of a
   pick, the target and the source that follows), so a witness that missed and a computation once more without the lock
   fetch again; before the lock of Update Project and of `brd update` (`UpdatePlan::worktree_move`), and of a pick
-  (`PickPlan::worktree_moves`, the target and the source that follows).
+  (`PickPlan::worktree_moves`, the target and the source that follows). A resolve session computes its finish under
+  the lock (the start that its words finish at once, every round of `brd update --continue`), so its fetch takes what
+  is known before: the paths that change from HEAD to the upstream tip the check read (`SessionState::worktree_move`),
+  before the lock of the start and of each `--continue`; the local commits on top come from the store already.
 - **What**: nothing without `$GIT_COMMON_DIR/lfs/objects`, no process: a repository without objects of LFS, also where
-  the filter is configured for every repository (the system config of Git for Windows). Else the paths the move
-  changes (`diff-tree`), their filter at the target (`check-attr --source`), the pointers of those `lfs` converts (one
+  the filter is configured for every repository (the system config of Git for Windows). Where the operation read its
+  config anyway (`ConfigSnapshot`: `brd` without `--prefix`, `brd update --continue`), its `lfs.storage` is a fact of its
+  executor (`LfsStorage`) and the check takes the `objects` there, no process more. Else the paths the move changes
+  (`diff-tree`), their filter at the target (`check-attr --source`), the pointers of those `lfs` converts (one
   `cat-file`), and the objects the store lacks (`<objects>/<oid[0..2]>/<oid[2..4]>/<oid>`, no process). Only with one
   missing: one `config` (whether the smudge downloads, `LfsConfig::smudge`: not with `--skip` or
   `GIT_LFS_SKIP_SMUDGE`, then the smudge under the lock writes the pointers itself; `lfs.storage`; the remote as Git
   LFS picks it: the remote of the branch, `remote.lfsdefault`, the one remote, `origin`), then
-  `git lfs fetch --include=<the paths> <remote> <target>` under the policy of a remote command
-  (`git_ops::remote_command`). A path with a comma or a character of a pattern, or a list past 8 KiB, fetches every
-  object of the target the store lacks instead.
+  `git lfs fetch --include <the paths> <remote> <target>` under the policy of a remote command
+  (`git_ops::remote_command`), one fetch per 8 KiB of paths (`include_lists`): never one without `--include`, which in a
+  partial store could pull gigabytes. Each path is a pattern that matches it (`include_pattern`): Git LFS splits the
+  list at its commas, trims each item and matches it as a wildmatch, so a character of a pattern (`*?[]\`) and a
+  leading `!` or `#` are escaped by a backslash, and a comma or a blank at an end, which no escape keeps, is `?`.
 - **A failed fetch** is the error of the operation, before its lock, nothing written: the computation is discarded;
   unless the repository lives on the pointers of what it can not download (`lfs.skipdownloaderrors`,
   `GIT_LFS_SKIP_DOWNLOAD_ERRORS`, read only then), where the move goes on and its smudge writes them, after one more try
-  under the lock. The fetch ends at `LFS_DEADLINE` (30 min), killed with the processes it started, as the pull of a new
-  lease slot.
-- **Not covered**: a computation under the lock (a witness that missed past `CHECKS_WITHOUT_THE_LOCK`, a rewrite
-  under a lock its caller holds, the files of an interrupted move that follow under the lock, the round and the finish
-  of `brd update --continue` and the start of a resolve session that its words finish), whose target is known only
-  there; a repository whose `lfs.storage` keeps the store away from `$GIT_COMMON_DIR/lfs` and has no
-  `$GIT_COMMON_DIR/lfs/objects` either, which a check without a process can not tell from one without LFS. There the
-  smudge downloads under the lock as before.
+  under the lock. Each fetch ends at `LFS_DEADLINE` (30 min), killed with the processes it started, as the pull of a
+  new lease slot, and as the operation is canceled: the Stop Waiting of the app's wait for the lock
+  (`LockWait::canceled`), which a bounded wait of `brd` never is.
+- **Not covered**: a computation under the lock whose target is known only there (a witness that missed past
+  `CHECKS_WITHOUT_THE_LOCK`, a rewrite under a lock its caller holds, the files of an interrupted move that follow under
+  the lock); a repository whose `lfs.storage` keeps the store away from `$GIT_COMMON_DIR/lfs`, has no
+  `$GIT_COMMON_DIR/lfs/objects` either, and whose operation read no config before (the app's moves, `brd` with
+  `--prefix`): a check without a process can not tell it from one without LFS. There the smudge downloads under the
+  lock as before.
 - Tests: `crates/bd-update/src/lfs_prefetch_test.rs` (a fake smudge that logs the lock and the store, a fake
   `git lfs fetch` beside the git of `LockSpanGit`, one test per family: Update Project, an unapply and a reapply, a
-  drop, a pick, each with its undo; a move whose objects are stored, a failed fetch), the processes:
-  `a_drop_of_a_file_of_git_lfs_fetches_what_the_store_lacks_before_the_lock` (`crates/sync-core/src/process_budget_test.rs`).
+  drop, a pick, each with its undo, a resolve session's start and `--continue`; a move whose objects are stored, a
+  failed fetch, a store that `lfs.storage` moves), `crates/git-ops/src/lfs_test.rs` (the patterns, the lists, the
+  cancel), the processes: `a_drop_of_a_file_of_git_lfs_fetches_what_the_store_lacks_before_the_lock`
+  (`crates/sync-core/src/process_budget_test.rs`).
 
 A new slot of a lease pool is the other case: its checkout under the clones lock writes the pointers, and the get
 pulls the content after the release ("Lease").

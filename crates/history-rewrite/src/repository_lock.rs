@@ -380,6 +380,11 @@ impl fmt::Debug for LockWait<'_> {
 }
 
 impl LockWait<'_> {
+  /// Whether the one this wait is for stopped it (the Stop Waiting of the app); a bounded wait is never canceled
+  pub fn canceled(&self) -> bool {
+    matches!(self, Self::WhileHeld(waiter) if waiter.canceled())
+  }
+
   /// The lock of the repository at `repository_path`, waited for as this wait says
   pub fn lock(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<RepositoryLock> {
     self.lock_with(git_executor, repository_path, &|| {})
@@ -948,7 +953,7 @@ fn lock_witnessed<P: Prepared, E: From<anyhow::Error>>(
   let mut computed = 1;
   loop {
     // the network before the lock: what the smudge filter of Git LFS of the move would download under it
-    if let Err(error) = prefetch_lfs_objects(git_executor, &prepared.worktree_moves(repository_path)) {
+    if let Err(error) = prefetch_lfs_objects(git_executor, &prepared.worktree_moves(repository_path), &|| lock_wait.canceled()) {
       prepared.discard(git_executor, repository_path);
       return Err(error.into());
     }

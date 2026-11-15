@@ -7,7 +7,7 @@ use crate::attributes::read_attributes;
 use crate::lease_slot::linked_worktree;
 use crate::object_texts::read_blob_bytes;
 use crate::paths::changed_path_names;
-use crate::remote_command::{LFS_DEADLINE, execute_remote_command_within};
+use crate::remote_command::{LFS_DEADLINE, execute_remote_command_until, execute_remote_command_within};
 use crate::revs::{git_common_dir, known_dirs};
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -22,8 +22,8 @@ const POINTER_MAX_BYTES: usize = 1024;
 /// The first line of a pointer file of Git LFS
 const POINTER_VERSION: &str = "version https://git-lfs.github.com/spec/v1";
 
-/// The longest `--include` of a fetch: a longer list fetches every object of the commit the store lacks, so the command
-/// line stays far from the 32K characters of Windows
+/// The longest `--include` of one fetch: a longer list is fetched in several, each of at most this many characters, so
+/// the command line stays far from the 32K characters of Windows
 const MAX_INCLUDE_CHARS: usize = 8 * 1024;
 
 /// Git LFS as the config tells it
@@ -86,6 +86,13 @@ impl LfsKeys {
   }
 }
 
+/// `lfs.storage` as an operation read it with the rest of its config (`sync_core::config_snapshot::ConfigSnapshot`), a
+/// fact of its executor (`GitCommandExecutor::with_fact`): the check of the store before a move takes the objects there,
+/// with no process. Without the fact the check takes `$GIT_COMMON_DIR/lfs/objects`, and a repository whose store is
+/// elsewhere is fetched for by no move
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LfsStorage(pub Option<String>);
+
 /// A move of a working tree that its files follow under the repository lock (`read-tree -m -u`): `worktree` from the
 /// commit `from` to the commit `to`, on `branch` (`None` detached)
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,31 +104,37 @@ pub struct WorktreeMove {
 }
 
 /// Fetch, before the repository lock, the objects of Git LFS that `moves` need and the store lacks, so the smudge
-/// filter of their moves under the lock reads the store only. Nothing without `$GIT_COMMON_DIR/lfs/objects`, no process
-/// then; else one `diff-tree` of each move, one `check-attr` of its changed paths at `to` and one `cat-file` of the
+/// filter of their moves under the lock reads the store only. Nothing without `$GIT_COMMON_DIR/lfs/objects` (or the
+/// `objects` of `LfsStorage`, a fact of the executor), no process then; else one `diff-tree` of each move, one `check-attr` of its changed paths at `to` and one `cat-file` of the
 /// pointers of those that the filter `lfs` converts. Only when an object is missing: one `config` (whether the smudge
-/// downloads, `lfs.storage`, the remote) and one `git lfs fetch --include=<the paths> <remote> <to>` under the policy of a
-/// remote command. A failed fetch is the error of the move, before its lock, nothing written
+/// downloads, `lfs.storage`, the remote) and `git lfs fetch --include <the paths> <remote> <to>` under the policy of a
+/// remote command, one per `MAX_INCLUDE_CHARS` of paths (`include_lists`), each ended at `LFS_DEADLINE` or when
+/// `canceled` says so (the Stop Waiting of the app's operation). A failed fetch is the error of the move, before its
+/// lock, nothing written, but where the repository skips download errors (`skips_download_errors`)
 ///
 /// # Errors
 /// A read of git, the fetch
-#[instrument(skip(git_executor, moves))]
-pub fn prefetch_lfs_objects(git_executor: &GitCommandExecutor, moves: &[WorktreeMove]) -> Result<()> {
+#[instrument(skip(git_executor, moves, canceled))]
+pub fn prefetch_lfs_objects(git_executor: &GitCommandExecutor, moves: &[WorktreeMove], canceled: &dyn Fn() -> bool) -> Result<()> {
   for worktree_move in moves {
-    prefetch_move(git_executor, worktree_move)?;
+    prefetch_move(git_executor, worktree_move, canceled)?;
   }
   Ok(())
 }
 
-fn prefetch_move(git_executor: &GitCommandExecutor, worktree_move: &WorktreeMove) -> Result<()> {
+fn prefetch_move(git_executor: &GitCommandExecutor, worktree_move: &WorktreeMove, canceled: &dyn Fn() -> bool) -> Result<()> {
   let WorktreeMove { worktree, from, to, branch } = worktree_move;
   let common_dir = common_dir_of(git_executor, worktree)?;
-  let default_objects = LfsConfig::default().objects(&common_dir);
-  if !default_objects.is_dir() {
+  let known = LfsConfig {
+    storage: git_executor.fact::<LfsStorage>().and_then(|storage| storage.0.clone()),
+    ..LfsConfig::default()
+  };
+  let known_objects = known.objects(&common_dir);
+  if !known_objects.is_dir() {
     return Ok(());
   }
   let pointers = changed_pointers(git_executor, worktree, from, to)?;
-  if missing(&pointers, &default_objects).is_empty() {
+  if missing(&pointers, &known_objects).is_empty() {
     return Ok(());
   }
   let config = fetch_config(git_executor, worktree, branch.as_deref())?;
@@ -134,22 +147,20 @@ fn prefetch_move(git_executor: &GitCommandExecutor, worktree_move: &WorktreeMove
   if missing.is_empty() {
     return Ok(());
   }
-  let include = include_of(&missing);
-  let mut args = vec!["lfs", "fetch"];
-  if let Some(include) = &include {
-    args.extend(["--include", include.as_str()]);
-  }
-  args.extend([config.remote.as_str(), to.as_str()]);
   debug!(objects = missing.len(), remote = %config.remote, "fetching the objects of Git LFS of the move before the lock");
-  match execute_remote_command_within(git_executor, &args, worktree, deadline()) {
-    Ok(_) => Ok(()),
-    // the smudge writes the pointers of what it can not download, as the repository asks
-    Err(error) if skips_download_errors(git_executor, worktree) => {
-      warn!(error = %format!("{error:#}"), "cannot fetch the files of Git LFS before the move; lfs.skipdownloaderrors: the move goes on");
-      Ok(())
+  for include in include_lists(&missing) {
+    let args = ["lfs", "fetch", "--include", include.as_str(), config.remote.as_str(), to.as_str()];
+    match execute_remote_command_until(git_executor, &args, worktree, deadline(), canceled) {
+      Ok(()) => {}
+      // the smudge writes the pointers of what it can not download, as the repository asks
+      Err(error) if skips_download_errors(git_executor, worktree) => {
+        warn!(error = %format!("{error:#}"), "cannot fetch the files of Git LFS before the move; lfs.skipdownloaderrors: the move goes on");
+        return Ok(());
+      }
+      Err(error) => return Err(error.context(format!("Cannot fetch the files of Git LFS of {to} before the move"))),
     }
-    Err(error) => Err(error.context(format!("Cannot fetch the files of Git LFS of {to} before the move"))),
   }
+  Ok(())
 }
 
 /// Whether `name` is set in the environment to a value git reads as true
@@ -246,16 +257,45 @@ fn missing<'a>(pointers: &'a [ChangedPointer], objects: &Path) -> Vec<&'a Change
     .collect()
 }
 
-/// The `--include` of the fetch of `missing`: their paths, comma separated; `None` (every object of the commit the store
-/// lacks) when a path holds a comma or a character of a pattern, which Git LFS would read as one, or the list is long.
-/// A path without a slash matches that name in every directory: more, never fewer
-pub(crate) fn include_of(missing: &[&ChangedPointer]) -> Option<String> {
-  let plain = |path: &str| !path.contains(|c: char| ",*?[]\\!#".contains(c));
-  if !missing.iter().all(|pointer| plain(&pointer.path)) {
-    return None;
+/// The `--include` lists of the fetch of `missing`: their paths as patterns of Git LFS (`include_pattern`), comma
+/// separated, each list of at most `MAX_INCLUDE_CHARS` characters (a longer path is a list of its own)
+pub(crate) fn include_lists(missing: &[&ChangedPointer]) -> Vec<String> {
+  let mut lists: Vec<String> = Vec::new();
+  for pattern in missing.iter().map(|pointer| include_pattern(&pointer.path)) {
+    match lists.last_mut() {
+      Some(list) if list.len() + 1 + pattern.len() <= MAX_INCLUDE_CHARS => {
+        list.push(',');
+        list.push_str(&pattern);
+      }
+      _ => lists.push(pattern),
+    }
   }
-  let include = missing.iter().map(|pointer| pointer.path.as_str()).collect::<Vec<_>>().join(",");
-  (include.len() <= MAX_INCLUDE_CHARS).then_some(include)
+  lists
+}
+
+/// `path` as a pattern of the `--include` of Git LFS, which splits its list at the commas, trims each item and matches
+/// it as a wildmatch: a character of a pattern (`*?[]\`) and a leading `!` or `#` escaped by a backslash, a comma and a
+/// blank at an end, which no escape keeps, by `?`, the one character there. A path without a slash matches its name in
+/// every directory: more, never fewer
+pub(crate) fn include_pattern(path: &str) -> String {
+  let last = path.chars().count().saturating_sub(1);
+  let mut pattern = String::with_capacity(path.len());
+  for (index, c) in path.chars().enumerate() {
+    match c {
+      ',' => pattern.push('?'),
+      ' ' | '\t' if index == 0 || index == last => pattern.push('?'),
+      '*' | '?' | '[' | ']' | '\\' => {
+        pattern.push('\\');
+        pattern.push(c);
+      }
+      '!' | '#' if index == 0 => {
+        pattern.push('\\');
+        pattern.push(c);
+      }
+      _ => pattern.push(c),
+    }
+  }
+  pattern
 }
 
 /// `git lfs pull` in the worktree `worktree`, under the policy of a remote command: the objects that the store lacks

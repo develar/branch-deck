@@ -16,6 +16,7 @@ use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::commit_signing::Signing;
+use git_ops::lfs::LfsStorage;
 use git_ops::update_branch::AttributesFileSetting;
 use git_ops::word_resolve::ResolveMode;
 use std::collections::{BTreeMap, HashMap};
@@ -27,7 +28,7 @@ use tracing::{instrument, warn};
 /// `commit.gpgsign`, `core.attributesFile` (the global file of attributes the preview of an update watches) and every
 /// `branch.<name>.description`, as `--get-regexp` matches them: the section and the key lowercase, the branch name and
 /// the name of a companion as they are
-const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental|primary|companion\..+\.path)|commit\.gpgsign|core\.attributesfile|branch\..+\.description)$";
+const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental|primary|companion\..+\.path)|commit\.gpgsign|core\.attributesfile|lfs\.storage|branch\..+\.description)$";
 
 /// The git config key of the symbol mode (`off`, `report`, `on`)
 pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
@@ -70,6 +71,8 @@ pub struct ConfigSnapshot {
   attributes_file: Option<ConfigEntry>,
   /// Name -> path of each companion repository (`branchdeck.companion.<name>.path`), the name as it is written
   companions: BTreeMap<String, String>,
+  /// The last `lfs.storage` with a value: where Git LFS keeps its objects instead of `$GIT_COMMON_DIR/lfs`
+  lfs_storage: Option<String>,
 }
 
 impl ConfigSnapshot {
@@ -103,6 +106,11 @@ impl ConfigSnapshot {
       .rfind(|entry| entry.key == "commit.gpgsign")
       .map(|entry| entry.value.clone().unwrap_or_else(|| "true".to_string()));
     let attributes_file = all_entries.iter().rfind(|entry| entry.key == "core.attributesfile").cloned();
+    let lfs_storage = all_entries
+      .iter()
+      .rfind(|entry| entry.key == "lfs.storage")
+      .and_then(|entry| entry.value.clone())
+      .filter(|storage| !storage.is_empty());
     let entries: Vec<ConfigEntry> = all_entries.into_iter().filter(|entry| entry.key.starts_with("branchdeck.")).collect();
     let companions = companion_paths(&entries);
     Self {
@@ -111,7 +119,14 @@ impl ConfigSnapshot {
       signing,
       attributes_file,
       companions,
+      lfs_storage,
     }
+  }
+
+  /// `lfs.storage` as a fact of the executor of the operation that read this (`git_ops::lfs::LfsStorage`): the fetch of
+  /// Git LFS before a move checks the store there with no process
+  pub fn lfs_storage(&self) -> LfsStorage {
+    LfsStorage(self.lfs_storage.clone())
   }
 
   /// The settings as Settings → Repository resolves them, without the detected GitHub repository

@@ -597,7 +597,7 @@ fn land(
       return Ok((plan, applied));
     }
     // the objects of Git LFS of the moves before the lock: the smudge filter under it reads the store only
-    prefetch_lfs_objects(git_executor, &plan.worktree_moves(target))?;
+    prefetch_lfs_objects(git_executor, &plan.worktree_moves(target), &|| options.lock_wait.canceled())?;
     plan.wait_for_index_locks(git_executor, target)?;
     let lock = options.lock(git_executor, target)?;
     if finish_pending(git_executor, worktrees)? || !recheck_pick(git_executor, target, &mut plan)? {

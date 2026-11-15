@@ -17,6 +17,7 @@ use git_ops::commit_utils::get_commits_info;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
 use git_ops::generated::{GeneratedFile, merged_generated_files};
 use git_ops::landed_pairing::{Interdiff, LandedDrop, LandedProof, interdiffs};
+use git_ops::lfs::prefetch_lfs_objects;
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
 use git_ops::update_resolve::{
@@ -546,6 +547,13 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
   let worktree = current_worktree(git_executor, repo_path)?;
   let session = read_session(git_executor, repo_path, &worktree.id)?.ok_or_else(|| anyhow::Error::new(NoSession { worktree: worktree.id.clone() }))?;
   let previous = session.state().clone();
+  let config = ConfigSnapshot::read(git_executor, repo_path)?;
+  // the round and the finish run under the lock: what the finish needs of Git LFS is fetched before it, the store where
+  // the config read once puts it
+  let git_executor = &git_executor.with_fact(config.lfs_storage());
+  if !options.dry_run {
+    prefetch_lfs_objects(git_executor, &[previous.worktree_move(repo_path)], &|| false)?;
+  }
   let signing = if options.dry_run { Signing::Off } else { commit_signing(git_executor, repo_path)? };
   let mut lock = if !options.dry_run && previous.status == SessionStatus::Applied {
     let lock = lock_repository(git_executor, repo_path, lock_timeout)?;
@@ -574,7 +582,7 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
     drop_empty: options.drop_empty.clone(),
     landed: options.landed.clone(),
   };
-  let resolve = ConfigSnapshot::read(git_executor, repo_path)?.resolve_mode()?;
+  let resolve = config.resolve_mode()?;
   let step = prepare_continue_session(git_executor, repo_path, &worktree, session, options.round, &input, options.dry_run, resolve, signing)
     .map_err(|e| explain_refusal(git_executor, repo_path, &previous, e))?;
   let step = match step {

@@ -248,6 +248,20 @@ where the repository skips download errors (`lfs.skipdownloaderrors`); the fetch
 - **THEN** the drop goes on, and its smudge writes the pointer as the repository asks
   [@test] crates/bd-update/src/lfs_prefetch_test.rs (`a_repository_that_skips_download_errors_moves_when_the_fetch_failed`)
 
+#### Scenario: Many paths, paths that read as patterns, a cancel
+- **WHEN** the paths to fetch pass 8 KiB, or a path holds a comma, a blank at an end or a character of a pattern
+- **THEN** they are fetched in lists of at most 8 KiB, never without `--include`, each path a pattern that matches it
+- **AND** a fetch ends as the operation is canceled
+  [@test] crates/git-ops/src/lfs_test.rs (`the_paths_of_a_fetch_are_lists_of_at_most_8_kib`)
+  [@test] crates/git-ops/src/lfs_test.rs (`a_path_is_a_pattern_of_the_include_that_matches_it`)
+  [@test] crates/git-ops/src/lfs_test.rs (`a_fetch_ends_as_its_operation_is_canceled`)
+
+#### Scenario: A store that lfs.storage moves
+- **GIVEN** `lfs.storage` keeps the store away from `$GIT_COMMON_DIR/lfs`
+- **WHEN** `brd drop` runs, which reads the config anyway
+- **THEN** the store is checked where the config puts it, and the drop fetches what it lacks before the lock
+  [@test] crates/bd-update/src/lfs_prefetch_test.rs (`a_store_that_lfs_storage_moves_is_checked_where_the_config_puts_it`)
+
 ### Requirement: Lock and engine: The drop and its undo are rewrites of the engine
 
 The drop MUST be the rewrite `drop` of the engine and its undo the rewrite `undo` of its `drop:<previous>..<new>`

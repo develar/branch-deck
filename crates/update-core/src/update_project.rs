@@ -262,7 +262,15 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     let locked = (|| -> Result<_> {
       // the objects of Git LFS of the move are fetched before the lock, so the smudge filter under it reads the store only,
       // and the index lock of another process is waited for before it, not under it
-      prefetch_lfs_objects(git_executor, &Vec::from_iter(prepared.plan.worktree_move(repo_path)))?;
+      // a conflict that starts a session fetches what its finish needs: the start may finish under this lock, the words
+      // resolving every round
+      let moves = Vec::from_iter(
+        prepared
+          .plan
+          .worktree_move(repo_path)
+          .or_else(|| start.as_ref().map(|start| start.worktree_move(repo_path))),
+      );
+      prefetch_lfs_objects(git_executor, &moves, &|| options.lock_wait.canceled())?;
       let lock = lock_for_files(options.lock_wait, git_executor, repo_path, prepared.plan.moves_files(), &|| {
         on_progress(UpdatePhase::Waiting.into());
       })?;
