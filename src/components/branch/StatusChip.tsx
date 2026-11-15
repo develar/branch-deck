@@ -1,4 +1,5 @@
-import type { ReactNode } from "react"
+import { useRef, useState } from "react"
+import type { ComponentProps, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { HoverDescription } from "@/components/shared/HoverDescription"
@@ -33,13 +34,25 @@ export interface StatusChipProps {
  */
 export function StatusChip({ label, color, data, children, details, detailsTestId, onActivate, onOpenChange, className, controlKey }: StatusChipProps) {
   const Root = onActivate === undefined ? Popover : HoverDescription
+  const trigger = useRef<HTMLButtonElement>(null)
+  const held = useHeldAnchor(trigger)
   return (
-    <Root lazy controlKey={controlKey} onOpenChange={onOpenChange}>
+    <Root
+      lazy
+      controlKey={controlKey}
+      onOpenChange={open => {
+        if (!open) {
+          held.reset()
+        }
+        onOpenChange?.(open)
+      }}
+    >
       <PopoverTrigger
         openOnHover
         delay={300}
         render={
           <button
+            ref={trigger}
             type="button"
             {...data}
             aria-label={label}
@@ -58,11 +71,70 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
       >
         {children}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 gap-3 p-3" data-testid={detailsTestId}>
+      <PopoverContent align="start" anchor={held.anchor} className="w-80 gap-3 p-3" data-testid={detailsTestId} {...held.popupProps}>
         {details}
       </PopoverContent>
     </Root>
   )
+}
+
+/** The anchor of a popover that holds still: the place its trigger had */
+type HeldAnchor = Exclude<ComponentProps<typeof PopoverContent>["anchor"], undefined>
+
+/**
+ * The anchor of the details while the pointer is in them, or a press that began in them lasts: the place the chip had
+ * as the pointer came, so the card holds still under it while the chip moves (the Status column of a row moves as its
+ * Actions widen: Stop Waiting comes in the slot of a start pressed in the card, and the card followed its chip 97 px
+ * away from the pointer). Once the pointer left the card and no press lasts, the card follows its chip again: the
+ * trigger is its anchor once more, which places it anew (docs/contributing/frontend.md, "What comes late beside a hovered
+ * control")
+ */
+function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
+  anchor: HeldAnchor | undefined
+  popupProps: Pick<ComponentProps<"div">, "onPointerEnter" | "onPointerLeave" | "onPointerDown">
+  reset: () => void
+} {
+  const [anchor, setAnchor] = useState<HeldAnchor | undefined>(undefined)
+  const inside = useRef(false)
+  const pressing = useRef(false)
+  const release = () => {
+    if (!inside.current && !pressing.current) {
+      setAnchor(undefined)
+    }
+  }
+  return {
+    anchor,
+    popupProps: {
+      onPointerEnter: () => {
+        inside.current = true
+        const element = trigger.current
+        if (element !== null) {
+          const rect = element.getBoundingClientRect()
+          setAnchor(current => current ?? { getBoundingClientRect: () => rect })
+        }
+      },
+      onPointerLeave: () => {
+        inside.current = false
+        release()
+      },
+      onPointerDown: () => {
+        pressing.current = true
+        window.addEventListener(
+          "pointerup",
+          () => {
+            pressing.current = false
+            release()
+          },
+          { once: true },
+        )
+      },
+    },
+    reset: () => {
+      inside.current = false
+      pressing.current = false
+      setAnchor(undefined)
+    },
+  }
 }
 
 /** The `size-1.5` dot of a chip, as the status dot of the row */

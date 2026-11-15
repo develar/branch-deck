@@ -51,7 +51,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
-import { expectClosed, holdIntent, recordCommand, recordRewrites, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
+import { animationsEnded, expectClosed, holdIntent, recordCommand, recordRewrites, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 /** Whom a push waits for while another process holds the repository lock: here the test server */
@@ -148,6 +148,62 @@ function underThePointer(page: Page, box: { x: number; y: number; width: number;
     ([x, y]) => document.elementFromPoint(x!, y!)?.closest("[data-testid=safe-push-button], [data-testid=stop-waiting]")?.getAttribute("data-testid") ?? null,
     [box.x + box.width / 2, box.y + box.height / 2],
   )
+}
+
+/** Whether `point` is in `box` */
+function contains(box: { x: number; y: number; width: number; height: number }, point: { x: number; y: number }): boolean {
+  return point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height
+}
+
+/**
+ * The robot card hangs from the chip in the Status column, which moves left as Stop Waiting widens the step track of the
+ * row: the card followed it 97 px from under the pointer that pressed its Safe Push, and at 700 px closed. While the
+ * pointer is in it the card holds still; once it left for the chip, the card stands by the chip again, where an open
+ * puts it (at 700 px, where the card is below the chip)
+ */
+async function holdsTheRobotCardUnderThePointer(
+  page: Page,
+  setupRepo: Parameters<typeof setupRobots>[1],
+  syncAndWaitForBranches: Parameters<typeof setupRobots>[2],
+  height: number,
+): Promise<void> {
+  await page.setViewportSize({ width: 960, height })
+  const repo = await setupStarts(page, withMissingApprovals(setupRepo), syncAndWaitForBranches, FAILED)
+  const robot = chip(page, "ABC-123")
+  await expect(robot).toHaveText("Needs review")
+  const card = await hoverStatusChip(page, robot, "patronus-popover")
+  // its open zooms it in: the boxes once it stands
+  await animationsEnded(card)
+  const button = card.getByTestId("safe-push-button")
+  const chipBefore = await boxOf(robot)
+  // the start in the backend: the merge profiles its check reads right before it asks for the repository lock
+  await repo.holdRemoteAnswers({ hold: ["profiles"] })
+  await repo.holdRepositoryLock(true)
+  const pressed = await boxOf(button)
+  const point = { x: pressed.x + pressed.width / 2, y: pressed.y + pressed.height / 2 }
+  // the click rests the pointer on the middle of the button
+  await button.click()
+  await repo.arrival("profiles")
+  await repo.holdRemoteAnswers({ release: ["profiles"] })
+  await expect(findBranchRow(page, "ABC-123").getByRole("button", { name: "Stop Waiting" })).toBeVisible()
+  await expect(button).toHaveAccessibleName(WAITING_FOR_HOLDER)
+  expect((await boxOf(robot)).x, "the chip moved left").toBeLessThan(chipBefore.x)
+  expect(contains(await boxOf(button), point), "the press point is in Safe Push").toBe(true)
+
+  if (height === 700) {
+    // the pointer leaves for the chip: the card stays open and moves to the chip, where an open of it puts it
+    const held = await boxOf(card)
+    await robot.hover()
+    await expect.poll(async () => (await boxOf(card)).x).not.toBe(held.x)
+    await animationsEnded(card)
+    const followed = await boxOf(card)
+    await page.mouse.move(0, 0)
+    await expectClosed(card)
+    const reopened = await hoverStatusChip(page, robot, "patronus-popover")
+    await animationsEnded(reopened)
+    expect(await boxOf(reopened)).toEqual(followed)
+  }
+  await repo.holdRepositoryLock(false)
 }
 
 /**
@@ -383,6 +439,23 @@ test.describe("Patronus actions", () => {
     await runAndWaitForAnswer(page, "execute", () => held.release())
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
   })
+
+  test(
+    "should hold the robot card under the pointer that pressed its Safe Push as Stop Waiting comes in the row, 700 px high",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await holdsTheRobotCardUnderThePointer(page, setupRepo, syncAndWaitForBranches, 700)
+    },
+  )
+
+  // the card lies over its chip, which no pointer reaches but through the card
+  test(
+    "should hold the robot card under the pointer that pressed its Safe Push as Stop Waiting comes in the row, 420 px high",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await holdsTheRobotCardUnderThePointer(page, setupRepo, syncAndWaitForBranches, 420)
+    },
+  )
 
   test("should run two Safe Pushes and a move started while another process holds the repository lock once it released it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
