@@ -10,7 +10,8 @@ import { expandBranch, findBranchRow } from "../e2e/helpers/branch-helpers"
 import { diffRows } from "../e2e/helpers/diff-helpers"
 import type { PullRequestsFixture } from "../e2e/helpers/pull-request-helpers"
 import { pullRequest, reviewer, VIEWER_LOGIN } from "../e2e/helpers/pull-request-helpers"
-import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
+import { pressAndExpectReviewOpened } from "../e2e/helpers/review-window-helpers"
+import { getSubWindowReadyOpen, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
 import { closeToast, openToast } from "../e2e/helpers/toast-helpers"
 import { expectClosed } from "../e2e/helpers/wait-helpers"
 
@@ -104,9 +105,7 @@ test("README: the branches of a day of work", async ({ page, setupRepo, syncAndW
   // Review Changes of the branch menu: the review window of `conflicts`, its files in one scrolling view
   await page.emulateMedia({ colorScheme: "light" })
   await findBranchRow(page, "conflicts").click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Review Changes" }).click()
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-  const review = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[0]!)
+  const review = await openLinkedSubWindow(page, await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 1))
   await review.setViewportSize({ width: 1280, height: 760 })
   await expect(review.getByTestId("review-file-header").first()).toBeVisible()
   await expect.poll(() => getSubWindowReadyOpen(review)).not.toBeNull()

@@ -26,9 +26,10 @@ import type { BranchReviewWindowData } from "../../src/types/sub-window"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../e2e/helpers/branch-helpers"
 import { openCommitPreview } from "../e2e/helpers/preview-helpers"
+import { pressAndExpectReviewOpened } from "../e2e/helpers/review-window-helpers"
 import { SPLIT_DIFFS } from "../e2e/helpers/setup-options"
 import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
-import { getOpenedSubWindows, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
+import { openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../e2e/helpers/sub-window-helpers"
 import { HUGE_LINES, hugeFileCommit, largeCommit } from "./diff-fixtures"
 import type { SyntheticFile } from "./diff-fixtures"
@@ -247,11 +248,7 @@ async function openReviewData(page: Page): Promise<OpenedSubWindow<BranchReviewW
   const subject = "a prompt that waits for its turn keeps the session row running"
   const preview = await openCommitPreview(page, getBranchCommitRow(page, "session", subject))
   await expect(preview.getByRole("heading", { level: 2 })).toHaveText(subject)
-  await page.keyboard.press("d")
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-  const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
-  expect(opened?.windowId).toBe("review")
-  return opened!
+  return pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1)
 }
 
 /** A layout of the diffs a scenario runs in: the name of its button, and the options of the repository that store it */

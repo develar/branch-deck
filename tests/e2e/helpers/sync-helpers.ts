@@ -191,10 +191,10 @@ export async function runAndWaitForSync(page: Page, action: () => Promise<unknow
  * a stream of its events with its answer last: the answer is the end of that stream, not its first bytes, so a stream
  * that began before the call (an `execute` that waits for the lock) counts too
  */
-export function nextAnswer(page: Page, command: string, count = 1): Promise<unknown> {
+export function nextAnswer(page: Page, command: string, count = 1, timeout = 0): Promise<unknown> {
   let answered = 0
   // the request finishes with the last byte of its answer: a stream that began before this call ends after it too
-  return page.waitForEvent("requestfinished", { predicate: request => request.url().endsWith(`/invoke/${command}`) && ++answered === count, timeout: 0 })
+  return page.waitForEvent("requestfinished", { predicate: request => request.url().endsWith(`/invoke/${command}`) && ++answered === count, timeout })
 }
 
 /** Runs `action`, which starts `command` at the end of a chain of commands, and waits for the answer of that command */

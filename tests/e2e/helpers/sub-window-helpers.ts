@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test"
-import { expect } from "../fixtures/base-test"
+import { expect, test } from "../fixtures/base-test"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
-import { runAndWaitForAnswer } from "./sync-helpers"
+import { nextAnswer } from "./sync-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
 
 /** A sub-window the page opened (`open_sub_window`, recorded by the desktop of the test server, `TestDesktop`) */
@@ -58,6 +58,9 @@ export async function getOpenedSubWindows<T = unknown>(page: Page): Promise<Open
   return opens.filter(open => open.opener === label && open.page === pages[label]).map(({ opener: _opener, page: _page, ...open }) => open as OpenedSubWindow<T>)
 }
 
+/** How long before the timeout of a test a press that opens no sub-window fails, with its own words */
+const OPEN_FAILS_BEFORE_THE_TEST = 5_000
+
 /**
  * Runs `press` (a click, a key, an event of the native menu), which makes `page` open the sub-window `windowId`, and
  * returns the `count`-th window `page` opened, which is that one. The opens are read once the open answered
@@ -65,7 +68,14 @@ export async function getOpenedSubWindows<T = unknown>(page: Page): Promise<Open
  * of the recorded opens after the press, which gave up after the 5 s of an assertion
  */
 export async function pressAndExpectOpened<T = unknown>(page: Page, press: () => Promise<unknown>, windowId: string, count: number): Promise<OpenedSubWindow<T>> {
-  await runAndWaitForAnswer(page, "open_sub_window", press)
+  // however long the open takes, but a press that opens nothing says so before the timeout of the test, which would
+  // name no cause
+  const timeout = test.info().timeout
+  const answered = nextAnswer(page, "open_sub_window", 1, timeout === 0 ? 0 : Math.max(timeout - OPEN_FAILS_BEFORE_THE_TEST, 1_000))
+  await press()
+  await answered.catch((error: unknown) => {
+    throw new Error(`No open_sub_window answered after the press that opens ${windowId}: ${error instanceof Error ? error.message : String(error)}`)
+  })
   const opens = await getOpenedSubWindows<T>(page)
   expect(opens.map(open => open.windowId)).toHaveLength(count)
   const opened = opens[count - 1]!
