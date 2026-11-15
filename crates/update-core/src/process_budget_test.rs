@@ -104,6 +104,7 @@ fn a_bd_update_reads_the_generated_files_both_sides_changed() {
     fetch: false,
     lock_wait: LockWait::default(),
     onto: None,
+    lease: &LeaseGuard::any(),
   };
   let BdUpdate::Update { result, regenerate, .. } = update_and_resolve(&git, path(&fixture.clone), options, None).unwrap() else {
     panic!("a clean update started a resolve session");
