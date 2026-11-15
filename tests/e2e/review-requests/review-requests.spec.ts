@@ -1078,11 +1078,18 @@ test.describe("Review window", () => {
       await expect(safePush).not.toHaveAttribute("aria-disabled", "true")
       expect(await items.allTextContents()).toEqual(opened)
 
-      // the item opens the review of #101 with its confirmation
-      await safePush.click()
+      // the item opens the review of #101 (`open_sub_window`, seconds under load), which shows the confirmation once it
+      // fetched the pull request, however long that takes
+      await runAndWaitForAnswer(page, "open_sub_window", () => safePush.click())
       const review = await openedReview<PullRequestReviewWindowData>(page, 1)
       expect(review.data).toMatchObject({ number: 101, intent: "safePush" })
-      const reviewPage = await openLinkedSubWindow(page, review)
+      let fetched!: Promise<unknown>
+      const reviewPage = await openLinkedSubWindow(page, review, {
+        beforeLoad: async window => {
+          fetched = reviewFetched(window)
+        },
+      })
+      await fetched
       await expect(reviewPage.getByTestId("review-safe-push-form").getByTestId("review-safe-push-start")).toBeVisible()
     },
   )
