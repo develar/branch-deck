@@ -26,6 +26,10 @@ async function testBrowseRepository(
   // First run (no repository, no recent projects): the welcome card asks for the repository, it renders shortly after
   // the header
   await expect(page.getByTestId("welcome-card").getByRole("heading", { name: "Select a Git repository" })).toBeVisible()
+  // the work on its way is of a selected repository, as Activity is: no landing indicator in the header yet
+  const header = page.getByTestId("configuration-header")
+  await expect(header.getByTestId("sync-button")).toBeVisible()
+  await expect(header.getByTestId(/^landing-indicator/)).toHaveCount(0)
 
   // Capture initial state (before clicking browse) - same for both tests
   await captureHtmlSnapshot(page.locator("body"), "browse-repository-initial")
@@ -42,6 +46,8 @@ async function testBrowseRepository(
     // Sync is enabled while the branch prefix still loads; the card the snapshot shows comes once it is loaded, its line
     // about coding agents once the status of the Agent CLI and the rule of the repository answered
     await expect(page.getByTestId("ready-to-sync-card").getByTestId("agents-hint")).toBeVisible()
+    // the selected repository has its landing indicator: empty, in its place, before the first work comes
+    await expect(header.getByTestId("landing-indicator-empty")).toBeDisabled()
 
     // Capture final state (valid repository selected)
     await captureHtmlSnapshot(page.locator("body"), `browse-repository-${snapshotSuffix}`)

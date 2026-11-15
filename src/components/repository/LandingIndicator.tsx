@@ -105,11 +105,14 @@ function useIsLoadingRows(): boolean {
   return useBranchSync(state => state.branchOrder.length === 0 && state.syncedRepositoryPath !== selected) && lastBranchCount > 0
 }
 
-/** The button with nothing to open, while the rows load (`busy`) or nothing is on the way: as wide as it will be */
+/**
+ * The button with nothing to open, while the rows load (`busy`) or nothing is on the way: as wide as it will be. Empty,
+ * it shows nothing, its node in its box; the node of the rows that load says that something will come
+ */
 function LandingIndicatorPlace({ busy, label }: { busy: boolean; label: string }) {
   return (
     <Button variant="ghost" size="sm" disabled aria-busy={busy || undefined} aria-label={label} data-testid={busy ? "landing-indicator-loading" : "landing-indicator-empty"}>
-      <span aria-hidden className="relative flex size-4 items-center justify-center">
+      <span aria-hidden className={cn("relative flex size-4 items-center justify-center", !busy && "invisible")}>
         <LaneNodeDot kind="waiting" />
       </span>
       <span aria-hidden className="invisible tabular-nums">

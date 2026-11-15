@@ -66,16 +66,19 @@ export function ConfigurationHeader() {
               // hidden while empty: an empty flex item would still take a gap
               <div className="flex items-center gap-1 empty:hidden">
                 <UpdateProjectButton />
-                <LandingIndicator
-                  renderPullRequest={renderReviewChips}
-                  footer={
-                    <>
-                      <UpdateStateLine />
-                      <PullRequestStatusLine />
-                      <PatronusStatusLine />
-                    </>
-                  }
-                />
+                {/* of the selected repository, as Activity: the Welcome screen has no work on its way */}
+                {hasSelectedProject && (
+                  <LandingIndicator
+                    renderPullRequest={renderReviewChips}
+                    footer={
+                      <>
+                        <UpdateStateLine />
+                        <PullRequestStatusLine />
+                        <PatronusStatusLine />
+                      </>
+                    }
+                  />
+                )}
                 {/* the log of the selected repository, empty or not */}
                 {hasSelectedProject && <ActivityButton />}
               </div>

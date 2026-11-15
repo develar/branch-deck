@@ -62,7 +62,7 @@ export interface LandingOverview {
   readonly safePushRuns: boolean
 }
 
-/** Nothing on the way to master, nothing that ran in the last day: the header button is hidden */
+/** Nothing on the way to master, nothing that ran in the last day: the header button keeps its place, empty and disabled */
 export function isLandingOverviewEmpty(overview: LandingOverview): boolean {
   return (
     overview.yourMove.length === 0 &&
