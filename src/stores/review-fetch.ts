@@ -73,26 +73,40 @@ let latestKey: string | null = null
 let latestOp: OperationId | null = null
 
 /**
- * Fetches the pull request unless its range is fetched or being fetched (a retry after a failure fetches again): Rust
- * fetches nothing when both commits are local, else writes `refs/branch-deck/review/<n>/…`, which the session prunes
- * once no review window shows the pull request.
+ * Fetches the pull request unless its range is fetched, being fetched or failed: Rust fetches nothing when both commits
+ * are local, else writes `refs/branch-deck/review/<n>/…`, which the session prunes once no review window shows the pull
+ * request. The window asks each time it shows the request, also when the session gives it the same request anew (a
+ * patch of the review requests, a kept view shown again), so a failure stays on screen until Retry
+ * (`retryReviewFetch`) or another request
  */
 export function startReviewFetch(repositoryPath: string, request: ReviewRequest): void {
-  start(reviewFetchKey(repositoryPath, request), repositoryPath, { kind: "fetchReview", number: request.number }, `pull request #${request.number}`)
+  start(reviewFetchKey(repositoryPath, request), repositoryPath, { kind: "fetchReview", number: request.number }, `pull request #${request.number}`, false)
+}
+
+/** Retry of a failed fetch of the pull request: fetches it again, unless it is fetched or being fetched */
+export function retryReviewFetch(repositoryPath: string, request: ReviewRequest): void {
+  start(reviewFetchKey(repositoryPath, request), repositoryPath, { kind: "fetchReview", number: request.number }, `pull request #${request.number}`, true)
 }
 
 /**
- * Fetches the stack of `top` down to `bottom` under `key` (`reviewStackFetchKey`) unless it is fetched or being
- * fetched: Rust chains its layers, fetches the head of the top with the base of the bottom and cuts the range into the
- * layers
+ * Fetches the stack of `top` down to `bottom` under `key` (`reviewStackFetchKey`) unless it is fetched, being fetched or
+ * failed (`retryReviewStackFetch` fetches a failed one again): Rust chains its layers, fetches the head of the top with
+ * the base of the bottom and cuts the range into the layers
  */
 export function startReviewStackFetch(repositoryPath: string, key: string, top: number, bottom: number): void {
-  start(key, repositoryPath, { kind: "fetchReviewStack", top, bottom }, `the stack of #${top}`)
+  start(key, repositoryPath, { kind: "fetchReviewStack", top, bottom }, `the stack of #${top}`, false)
 }
 
-function start(key: string, repositoryPath: string, intent: Extract<Intent, { kind: "fetchReview" | "fetchReviewStack" }>, what: string): void {
+/** Retry of a failed fetch of the stack under `key`: fetches it again, unless it is fetched or being fetched */
+export function retryReviewStackFetch(repositoryPath: string, key: string, top: number, bottom: number): void {
+  start(key, repositoryPath, { kind: "fetchReviewStack", top, bottom }, `the stack of #${top}`, true)
+}
+
+/** Starts the fetch under `key` unless the window's latest is that one and stands: fetched, being fetched, or failed
+ * and not asked `again` */
+function start(key: string, repositoryPath: string, intent: Extract<Intent, { kind: "fetchReview" | "fetchReviewStack" }>, what: string, again: boolean): void {
   const current = reviewFetchStore.getState().fetches[key]
-  if (current !== undefined && current.status !== "failed" && latestKey === key) {
+  if (current !== undefined && latestKey === key && (current.status !== "failed" || !again)) {
     return
   }
   // another request of the window: its fetch stops, the range goes

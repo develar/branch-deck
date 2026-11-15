@@ -19,7 +19,16 @@ import { askReviewRun, PULL_REQUEST_READ, PULL_REQUEST_SAFE_PUSH } from "@/lib/r
 import { showReviewWindowPullRequest } from "@/model/demand"
 import { refreshSessionFacts, useRowPart } from "@/model/store"
 import { useBranchSync } from "@/stores/branch-sync"
-import { reviewFetchKey, reviewStackFetchKey, startReviewFetch, startReviewStackFetch, stopReviewFetch, useReviewFetch } from "@/stores/review-fetch"
+import {
+  retryReviewFetch,
+  retryReviewStackFetch,
+  reviewFetchKey,
+  reviewStackFetchKey,
+  startReviewFetch,
+  startReviewStackFetch,
+  stopReviewFetch,
+  useReviewFetch,
+} from "@/stores/review-fetch"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 import { approveStack, getReviewBusy, isApprovingStack, reviewRequestsStore, submitReview } from "@/stores/review-requests"
 import { reviewRowsOf, reviewsStore } from "@/stores/reviews"
@@ -112,7 +121,7 @@ export function PullRequestReviewWindow({ data, back, onPlace }: { data: ShownPu
     openToken: shown.token,
     openedAt,
     fetch,
-    fetchAgain: () => startReviewFetch(repositoryPath, request),
+    fetchAgain: () => retryReviewFetch(repositoryPath, request),
     reading: readings?.readings[0] ?? null,
     selected,
     onSelect: setSelected,
@@ -223,7 +232,7 @@ export function PullRequestStackReviewWindow({ data, back }: { data: ShownStack;
     openToken: data.openedAt,
     openedAt: data.openedAt,
     fetch,
-    fetchAgain: () => startReviewStackFetch(repositoryPath, key, top, bottom),
+    fetchAgain: () => retryReviewStackFetch(repositoryPath, key, top, bottom),
     reading: index === -1 ? null : (readings?.readings[index] ?? null),
     selected,
     onSelect: choose,
