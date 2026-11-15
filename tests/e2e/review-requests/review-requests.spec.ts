@@ -93,6 +93,16 @@ async function setupSafePush(page: Page, setupRepo: SetupRepo, syncAndWaitForBra
   return repo
 }
 
+/** Approve and Safe Push of the pull request `number` on `head`, as a window asks for it (`Intent::SubmitReview`) */
+function approveAndLand(number: number, head: string) {
+  return { kind: "submitReview", number, verdict: "approve", commit: head, body: null, thenLand: true }
+}
+
+/** The refusal of Approve and Safe Push by the backend before the approval, as a direct call answers it */
+function refusedReview(code: string, words: string) {
+  return { status: "error", error: expect.objectContaining({ code, message: `${words}: nothing was approved or started` }) }
+}
+
 /** The calls of the window API of a page: `close` is Escape closing the review window */
 function windowCalls(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])
@@ -1086,7 +1096,7 @@ test.describe("Review window", () => {
     },
   )
 
-  test("should refuse in the backend an Approve and Safe Push the session offers not, before the approval: while Patronus has not answered, and into another base", async ({
+  test("should refuse in the backend an Approve and Safe Push the session offers not, before the approval: while Patronus has not answered, into another base, of a pull request it lists not, and one whose base changed after its plan", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -1098,30 +1108,43 @@ test.describe("Review window", () => {
     await repo.arrival("robots")
     // a window of a state before, or another client, asks for what no menu offers now: the backend decides as the
     // menus do (`review_actions`), before it approves anything
-    const approveAndLand = (request: ReturnType<typeof reviewRequest>) => ({
-      kind: "submitReview",
-      number: request.number,
-      verdict: "approve",
-      commit: request.headRefOid,
-      body: null,
-      thenLand: true,
-    })
-    const refused = (code: string, words: string) => ({ status: "error", error: expect.objectContaining({ code, message: `${words}: nothing was approved or started` }) })
-    const waits = refused("plan_changed", "Waits for the answer of Patronus")
-    expect(await repo.invoke("prepare", { repositoryPath: repo.path, intent: approveAndLand(OLD) })).toEqual(waits)
-    expect(await repo.invoke("execute", { repositoryPath: repo.path, intent: approveAndLand(OLD), fingerprint: "", accepted: [] })).toEqual(waits)
+    const prepare = (number: number, head: string) =>
+      repo.invoke("prepare", { repositoryPath: repo.path, intent: approveAndLand(number, head) }) as Promise<{ fingerprint?: string; status?: string }>
+    expect(await prepare(OLD.number, OLD.headRefOid)).toEqual(refusedReview("plan_changed", "Waits for the answer of Patronus"))
 
-    // Patronus answered: #101 into master is offered, #103 into release/253 is not
+    // Patronus answered: #101 into master is offered, #103 into release/253 is not, nor #999, which no listing has
     await repo.holdRemoteAnswers({ release: ["robots"] })
-    await expect
-      .poll(async () => ((await repo.invoke("prepare", { repositoryPath: repo.path, intent: approveAndLand(OLD) })) as { fingerprint?: string } | null)?.fingerprint)
-      .toEqual(expect.any(String))
-    expect(await repo.invoke("execute", { repositoryPath: repo.path, intent: approveAndLand(RELEASE), fingerprint: "", accepted: [] })).toEqual(
-      refused("pull_request_other_base", "Patronus starts a Safe Push only from a pull request into master: #103 goes into release/253"),
-    )
+    await expect.poll(async () => (await prepare(OLD.number, OLD.headRefOid)).fingerprint).toEqual(expect.any(String))
+    const offered = await prepare(OLD.number, OLD.headRefOid)
+    const intoRelease = refusedReview("pull_request_other_base", "Patronus starts a Safe Push only from a pull request into master: #103 goes into release/253")
+    expect(await prepare(RELEASE.number, RELEASE.headRefOid)).toEqual(intoRelease)
+    expect(await prepare(999, OLD.headRefOid)).toEqual(refusedReview("no_pull_request", "The repository lists no pull request #999 to review"))
+
+    // #101 goes into release/253 after the plan a window took: its run on that plan, its fingerprint the one accepted, is
+    // refused once admitted, as the session has it then
+    await repo.setReviewRequests(availableReviewRequests([{ ...OLD, baseRefName: "release/253", baseIsDefault: false }, RELEASE]))
+    const moved = refusedReview("pull_request_other_base", "Patronus starts a Safe Push only from a pull request into master: #101 goes into release/253")
+    await focusPastReviewRequestsAge(page, repo, async () => JSON.stringify(await prepare(OLD.number, OLD.headRefOid)).includes("pull_request_other_base"))
+    const run = { repositoryPath: repo.path, intent: approveAndLand(OLD.number, OLD.headRefOid), fingerprint: offered.fingerprint, accepted: [] }
+    expect(await repo.invoke("execute", run)).toEqual(moved)
     // nothing was approved or commented
     expect(await gitHubRequests(repo, "POST", "pulls", "*", "reviews")).toEqual([])
     expect(await gitHubRequests(repo, "POST", "issues", "*", "comments")).toEqual([])
+  })
+
+  test("should refuse in the backend an Approve and Safe Push where Patronus merges nothing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the repository is on no Patronus: the menu of the row has Approve… and no Approve and Safe Push…
+    const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    await getReviewRow(page, 101).click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Approve…" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: /^Approve and Safe Push/ })).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expectClosed(page.getByRole("menu"))
+    // another client asks for it anyway: refused before the approval
+    expect(await repo.invoke("prepare", { repositoryPath: repo.path, intent: approveAndLand(OLD.number, OLD.headRefOid) })).toEqual(
+      refusedReview("not_on_space", "Patronus merges no pull request of this repository"),
+    )
+    expect(await gitHubRequests(repo, "POST", "pulls", "*", "reviews")).toEqual([])
   })
 
   test("should watch the robot of a reviewed pull request: listed by what it tests, its merge told", async ({ page, setupRepo, syncAndWaitForBranches }) => {

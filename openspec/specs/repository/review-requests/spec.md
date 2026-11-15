@@ -2287,10 +2287,16 @@ plan and the run of Approve and Safe Push MUST refuse a Safe Push the session of
 the code of its blocker.
 
 #### Scenario: A Safe Push the session offers not, asked anyway
-- **WHEN** a window of a state before or another client asks for Approve and Safe Push the session offers not: while Patronus has not answered, into another base, where Patronus merges nothing
-- **THEN** the backend refuses its plan and its run before the approval, with the code of its blocker (`plan_changed` "Waits for the answer of Patronus", `pull_request_other_base`, `not_on_space`) and "nothing was approved or started"; GitHub gets no review and no comment
+- **WHEN** a window of a state before or another client asks for Approve and Safe Push the session offers not: while Patronus has not answered, into another base, of a pull request the session lists not, where Patronus merges nothing
+- **THEN** the backend refuses its plan before the approval, with the code of its blocker (`plan_changed` "Waits for the answer of Patronus", `pull_request_other_base`, `no_pull_request`, `not_on_space`) and "nothing was approved or started"; GitHub gets no review and no comment
   [@test] crates/operations/src/review_test.rs (`a_safe_push_of_a_review_runs_only_where_the_session_offers_it_and_each_blocker_refuses_it_by_its_code`)
-  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should refuse in the backend an Approve and Safe Push the session offers not, before the approval: while Patronus has not answered, and into another base`)
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should refuse in the backend an Approve and Safe Push the session offers not, before the approval: while Patronus has not answered, into another base, of a pull request it lists not, and one whose base changed after its plan`, `should refuse in the backend an Approve and Safe Push where Patronus merges nothing`)
+
+#### Scenario: The base changed after the plan a window took
+- **GIVEN** a window took the plan of Approve and Safe Push of #101 into master, its fingerprint
+- **WHEN** #101 goes into release/253, and the window runs that plan
+- **THEN** the run refuses it once admitted, before the approval (`pull_request_other_base`): its fingerprint, the intent's, is no check of it
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should refuse in the backend an Approve and Safe Push the session offers not, before the approval: while Patronus has not answered, into another base, of a pull request it lists not, and one whose base changed after its plan`)
 
 ### Requirement: Safe Push of a reviewed pull request: It opens a confirmation below its button
 
