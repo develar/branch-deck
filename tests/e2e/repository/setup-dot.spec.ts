@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { expect, test, expectErrorLog } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 
 /** The main window reads the items again, as once the CLIs were read (`setup-changed`), and opens the dot */
 async function openSetup(page: Page) {
@@ -89,7 +89,7 @@ test.describe("Setup dot", () => {
     const popover = await openSetup(page)
     const item = popover.getByTestId("setup-item")
     await expect(item).toHaveText(/teamcity 1\.7\.0 is out/)
-    await item.getByRole("button", { name: "Update" }).click()
+    await runAndWaitForAnswer(page, "run_cli_tool_action", () => item.getByRole("button", { name: "Update" }).click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Updated teamcity to 1.7.0" })).toBeVisible()
     expect(await repo.getCliToolsLog()).toContain("brew upgrade jetbrains/utils/teamcity")
     await expect(page.getByTestId("settings-button").getByTestId("setup-dot")).toHaveCount(0)

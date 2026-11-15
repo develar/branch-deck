@@ -22,7 +22,7 @@ import {
   reopenLinkedSubWindow,
 } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
 
@@ -833,7 +833,7 @@ testWithIssueLinks("should keep the Activity panel the main window opened when a
   await page.setViewportSize({ width: 2000, height: 1000 })
   // a push, so that the main window has activity to show
   const pushed = findBranchRow(page, "ABC-123")
-  await getPushButton(pushed).click()
+  await runAndWaitForAnswer(page, "execute", () => getPushButton(pushed).click())
   await expectNothingToPush(pushed)
   const opened = await reviewPoolSizeCommit(page)
 

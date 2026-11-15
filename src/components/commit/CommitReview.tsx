@@ -1460,7 +1460,8 @@ function ReviewLayout({
         break
       case "nextChange":
       case "previousChange": {
-        const shown = code.current?.moveChange(action === "nextChange" ? 1 : -1)
+        // from the file the tree selects while the diffs showed no change yet: a chip that shows more files keeps it
+        const shown = code.current?.moveChange(action === "nextChange" ? 1 : -1, undefined, selectedPath)
         if (shown !== undefined) {
           select(shown.path, null)
           // of a file in parts the part of the change

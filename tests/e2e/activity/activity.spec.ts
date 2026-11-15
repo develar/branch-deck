@@ -30,7 +30,7 @@ import { waitForStorePersistence, expectClosed, holdNextAnswer } from "../helper
 testWithIssueLinks.describe("Activity", () => {
   testWithIssueLinks("should record the pushes with the remote commits a force push dropped, and show the branch", async ({ page, issueLinksRepo }) => {
     const row = findBranchRow(page, "ABC-123")
-    await getPushButton(row).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(row).click())
     await expectNothingToPush(row)
     // a commit of ABC-123 made since, and one someone else pushed onto its remote branch, which a fetch brought
     await issueLinksRepo.commit("(ABC-123) Note the session ttl", { "session.md": "ttl\n" }, 1704182460)
@@ -73,8 +73,8 @@ testWithIssueLinks.describe("Activity", () => {
   })
 
   testWithIssueLinks("should filter by the chips of the kinds and the search, an open starting over at its chip", async ({ page }) => {
-    await getPushButton(findBranchRow(page, "feature-auth")).click()
-    await getPushButton(findBranchRow(page, "ABC-123")).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(findBranchRow(page, "feature-auth")).click())
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(findBranchRow(page, "ABC-123")).click())
     const window = await openActivityWindow(page)
     const filter = window.getByTestId("activity-filter")
     // a chip shows while it counts an entry: no robot, no update yet
@@ -175,7 +175,7 @@ testWithIssueLinks.describe("Activity", () => {
 
   testWithIssueLinks("should read the log from the journal of the repository after a reload", async ({ page, syncAndWaitForBranches }) => {
     const row = findBranchRow(page, "feature-auth")
-    await getPushButton(row).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(row).click())
     await expectNothingToPush(row)
     // the push is in the journal of the repository, which a new page reads: no window keeps the log
     await page.reload()
@@ -234,7 +234,7 @@ testWithIssueLinks.describe("Activity", () => {
 
   testWithIssueLinks("should mark an unavailable journal", async ({ page, issueLinksRepo }) => {
     const row = findBranchRow(page, "feature-auth")
-    await getPushButton(row).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(row).click())
     await expectNothingToPush(row)
     await expect(activityButton(page)).toBeVisible()
 
@@ -273,7 +273,7 @@ testWithIssueLinks.describe("Activity side panel", () => {
   testWithIssueLinks("should toggle the side panel from the header button, show a branch from it, and remember it open", async ({ page }) => {
     // a real push, to the template's own origin
     const row = findBranchRow(page, "ABC-123")
-    await getPushButton(row).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(row).click())
     await expectNothingToPush(row)
 
     await activityButton(page).click()
@@ -304,7 +304,7 @@ testWithIssueLinks.describe("Activity side panel", () => {
   testWithIssueLinks("should take the focus into the panel only when the keyboard opened it, and give it back on Escape", async ({ page }) => {
     // a real push, to the template's own origin
     const row = findBranchRow(page, "feature-auth")
-    await getPushButton(row).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(row).click())
     await expectNothingToPush(row)
     const panel = activityPanel(page)
 

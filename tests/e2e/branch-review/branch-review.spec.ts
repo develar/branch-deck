@@ -667,6 +667,31 @@ test.describe("Branch review window", () => {
     await expect(position).toHaveText("All Changes · File 3 / 4")
   })
 
+  test("should step N and P from the selected file once Show All Files shows the files above it, before the diffs showed a change", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    await openReviewOf(page, "login")
+    const position = page.getByTestId("review-position")
+    const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
+    await expect(position).toHaveText("All Changes · File 1 / 4")
+    // the one file of Monorepo, README.md, stays selected when All shows the three files above it
+    await owner("Monorepo").click()
+    await expect(position).toHaveText("All Changes · File 1 / 1 · Monorepo")
+    await page.getByRole("button", { name: "Show All Files" }).click()
+    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
+    await expect(position).toHaveText("All Changes · File 4 / 4")
+    // P from README.md, not from the first file: the change of login.js before it; N from there the one of README.md
+    await page.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
+    await page.keyboard.press("p")
+    await expect(position).toHaveText("All Changes · File 3 / 4")
+    await page.keyboard.press("n")
+    await expect(position).toHaveText("All Changes · File 4 / 4")
+  })
+
   test("should navigate the long card to the next visible file of the chosen owner chip", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("stacked_ownership")
     // a long file of Auth Team first in the tree, before the files of the others

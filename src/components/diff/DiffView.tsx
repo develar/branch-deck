@@ -208,10 +208,13 @@ export interface DiffViewHandle {
   scrollToPrologue: () => void
   /**
    * Shows the next (1) or previous (-1) block of changed lines, from the last one shown in the file at the top; into
-   * the next file at the end of one. Collapsed files, and with `accept` the files it refuses, are skipped. Returns the
-   * file it shows and the key of its section; undefined, and nothing moves, when no block is left in that direction
+   * the next file at the end of one. Collapsed files, and with `accept` the files it refuses, are skipped. While the
+   * view has shown no block and no scroll told the file at its top, it starts from the top of `from`, the file the
+   * reader is at (the file the tree selects: a filter that shows more files above it keeps it), else from the first
+   * file. Returns the file it shows and the key of its section; undefined, and nothing moves, when no block is left in
+   * that direction
    */
-  moveChange: (direction: 1 | -1, accept?: (path: string) => boolean) => { path: string; key: string } | undefined
+  moveChange: (direction: 1 | -1, accept?: (path: string) => boolean, from?: string | null) => { path: string; key: string } | undefined
   /**
    * The key of the notes (`REVIEW_KEYS.notes`): shows the old lines of every note in view that opens (Inline shows
    * its run once), or hides them once they all show; the view stays at its top row. A note is in view when its row is
@@ -1822,9 +1825,10 @@ export function DiffView({
         showSection(index, part, step)
       }
     },
-    moveChange: (direction, accept) => {
+    moveChange: (direction, accept, from) => {
       const order = prepared.map(file => file.key)
-      const start = changeCursor.current ?? { key: visibleKey.current ?? order[0] ?? "", index: -1 }
+      const fromKey = from == null ? undefined : prepared.find(file => file.path === from)?.key
+      const start = changeCursor.current ?? { key: visibleKey.current ?? fromKey ?? order[0] ?? "", index: -1 }
       let fileIndex = order.indexOf(start.key)
       let index = start.index + direction
       if (fileIndex === -1) {

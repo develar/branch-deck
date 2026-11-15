@@ -145,9 +145,9 @@ export function CommitReviewCode({
       setFileViews([])
       review.current?.scrollToSection(key, part, step)
     },
-    moveChange: (direction, accept) => {
+    moveChange: (direction, accept, from) => {
       setFileViews([])
-      return review.current?.moveChange(direction, accept)
+      return review.current?.moveChange(direction, accept, from)
     },
     scrollToPrologue: () => {
       setFileViews([])

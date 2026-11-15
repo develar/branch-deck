@@ -101,7 +101,7 @@ test.describe("Stacks of GitHub", () => {
     // the menu shows the items it opened with: Link GitHub Stack comes with the listing, which the chip of #7 shows
     await expect(findBranchRow(page, "login").getByTestId("pull-request-chip")).toBeVisible()
     await openContextMenu(page, findBranchRow(page, "login"))
-    await clickContextMenuItem(page, "Link GitHub Stack")
+    await runAndWaitForAnswer(page, "execute", () => clickContextMenuItem(page, "Link GitHub Stack"))
     await expect(page.locator("[data-slot=toast]", { hasText: "Linked the GitHub stack of login" })).toBeVisible()
     // login's #7 goes into auth's branch first, then the stack of both: GitHub refuses the retarget of a member
     expect(gitHubWrites(await repo.getGitHubLog())).toEqual([
@@ -117,7 +117,7 @@ test.describe("Stacks of GitHub", () => {
     await syncAndWaitForBranches()
     const row = findBranchRow(page, "login")
     await waitForStepFacts(row.getByTestId("next-step-slot"))
-    await row.getByTestId("next-step-slot").getByRole("button", { name: "Link Stack" }).click()
+    await runAndWaitForAnswer(page, "execute", () => row.getByTestId("next-step-slot").getByRole("button", { name: "Link Stack" }).click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Linked the GitHub stack of login" })).toBeVisible()
     expect(gitHubWrites(await repo.getGitHubLog())).toEqual([["POST", repoPath("stacks"), { pull_requests: [6, 7] }]])
   })
