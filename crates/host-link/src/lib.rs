@@ -8,6 +8,7 @@
 //! - `proto`: the protocol host-link, its schema, its port, its requests and replies, and the features of an agent
 //! - `refusal`: the refusal codes of brd-host and their exit codes
 //! - `config`: `[host]` of `.branchdeck.toml` of a commit, which both ends parse
+//! - `heavy`: what the command of a run runs, through the script of a shell, for `heavy` of `[host]`
 //! - `digest`: the SHA-256 of a binary or a certificate as hex, the name of a build and a fingerprint
 //! - `tls`: TLS 1.3 on the provider of the app, and the self-signed certificate of an end
 
@@ -18,6 +19,7 @@ pub mod digest;
 #[cfg(target_os = "macos")]
 #[expect(unsafe_code, reason = "posix_spawn with the private disclaim attribute of libSystem, which std cannot pass")]
 mod disclaim;
+pub mod heavy;
 pub mod identity;
 pub mod proto;
 pub mod refusal;
@@ -26,6 +28,8 @@ pub mod tls;
 
 #[cfg(test)]
 mod digest_test;
+#[cfg(test)]
+mod heavy_test;
 #[cfg(test)]
 mod proto_test;
 #[cfg(test)]

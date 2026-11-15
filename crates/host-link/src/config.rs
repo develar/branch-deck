@@ -17,6 +17,7 @@
 //! that an older agent refuses names the feature of an agent that reads it ([`RepoConfig::needs_features`]), so the
 //! client refuses before the start. The other tables of `.branchdeck.toml` are not the agent's, and they stay unread.
 
+use crate::heavy::Ran;
 use crate::proto::feature;
 use serde::Deserialize;
 use serde::de::Visitor;
@@ -52,6 +53,27 @@ impl RepoConfig {
     self.heavy.iter().flatten().find(|pattern| glob_matches(pattern, &line)).map(String::as_str)
   }
 
+  /// Why a run of `command` is heavy by `heavy`, `None` when it is not: the first pattern that matches the command, or
+  /// a command that the script of a shell it starts runs (`zsh -c '…; pnpm e2e …'`, a script file that `read` gives from
+  /// the checkout), or a script file of a shell that `read` cannot give, which may run anything ([`crate::heavy`]).
+  /// A table without `heavy` makes no run heavy
+  pub fn heavy_reason(&self, command: &[String], read: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    self.heavy.as_ref()?;
+    let mut unread = None;
+    for ran in crate::heavy::commands_of(command, read) {
+      match ran {
+        Ran::Command { words, scripted } => {
+          if let Some(pattern) = self.heavy_entry(&words) {
+            let wrapped = if scripted { " in its script" } else { "" };
+            return Some(format!("`{pattern}` of [host]{wrapped}"));
+          }
+        }
+        Ran::Unread(path) => unread = unread.or(Some(path)),
+      }
+    }
+    unread.map(|path| format!("its script `{path}`, which brd-host cannot read for `heavy` of [host]"))
+  }
+
   /// The features of the agent that reads this table: an agent without one refuses every run of the commit with
   /// `bad_config`, as an unknown key, so the client refuses before the start. `heavy` needs `feature::HEAVY`, even empty
   pub fn needs_features(&self) -> Vec<&'static str> {
@@ -73,7 +95,7 @@ fn heavy_line(command: &[String]) -> String {
 }
 
 /// `NAME=value`, with a name of letters, digits and `_` that does not start with a digit
-fn is_assignment(word: &str) -> bool {
+pub(crate) fn is_assignment(word: &str) -> bool {
   word.split_once('=').is_some_and(|(name, _)| {
     name.chars().next().is_some_and(|first| first == '_' || first.is_ascii_alphabetic()) && name.chars().all(|char| char == '_' || char.is_ascii_alphanumeric())
   })

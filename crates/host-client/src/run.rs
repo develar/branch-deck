@@ -49,6 +49,7 @@ use crate::record::{RunFiles, RunRecord};
 use crate::{Client, Timing, short};
 use git_ops::host_client::{FARTHEST, Scan};
 use host_link::channel::Closer;
+use host_link::heavy::script_in;
 use host_link::proto::{PackTarget, Phase, Reply, Request, RunInfo, RunSpec, Stream, feature};
 use host_link::refusal::{Code, Exit, Reached, Refusal};
 use std::fmt::Write as _;
@@ -271,7 +272,8 @@ impl Client<'_> {
     let heavy = if options.heavy {
       Some("--heavy".to_owned())
     } else {
-      config.heavy_entry(request.command).map(|pattern| format!("`{pattern}` of [host]"))
+      // a shell may run a heavy command in its script, or in a script file of the working tree that the run ships
+      config.heavy_reason(request.command, &|path| script_in(checkout.root(), path))
     };
     let needs = config.needs_features();
     let outputs = if options.outputs { config.outputs } else { Vec::new() };
