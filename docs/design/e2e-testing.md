@@ -620,8 +620,10 @@ of Tauri: the page runs on its own shim (`src/platform/air/`). The global setup 
 (`pnpm build:air`, by the same hash of the inputs), a new directory that `dist-air` links to once it is finished
 ([IDE Embedding](ide-embedding.md)). A second `pnpm e2e` in the same checkout refuses at its global setup
 (`target/e2e-run.lock`, `scripts/checkout-lock.mjs`: a hard link of a file its pid is written in first, so no start
-reads it empty; the lock of a run that ended is moved aside first and dropped only if it is still that run's, so two
-starts that take it over at once never both run): its build of `dist/` would empty it under the pages of the first.
+reads it empty; the lock of a run that ended is taken over by one start at a time, the holder of `<lock>.takeover`
+(made the same way, exclusive), which alone removes a lock, so starts that take it over at once never both run, and
+the others refuse; a start removes the files of the starts that ended, and on Windows tries a call that another
+process holds the file of again for about a second): its build of `dist/` would empty it under the pages of the first.
 
 - **The fake IDE** (`openFakeIde` of `fake-host.ts`): one page of the test server's origin (its `/health`, then the
   content of the host page), so its WebSocket to the server is a loopback one. Each view is a frame at the origin of the
