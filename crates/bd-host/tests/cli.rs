@@ -659,8 +659,8 @@ fn trim_plans_and_deletes_the_free_slots_of_the_host() {
   drop(agent);
 }
 
-/// `brd-host disk`: the agent answers what the pools of its host hold, as `brd lease disk` writes it; without an alias
-/// every host of the client
+/// `brd-host disk`: the agent answers what the pools of its host hold, as `brd lease disk --all` writes it; without an
+/// alias every host of the client
 #[test]
 fn disk_reports_the_pools_of_the_host() {
   let world = World::new();

@@ -6,7 +6,7 @@
 use crate::lease_test::{Fixture, path_of, slot_path, states};
 #[cfg(unix)]
 use crate::lease_test::{Killed, busy_in};
-use bd_cli::fixture_test::{assert_error, canonical, git};
+use bd_cli::fixture_test::{assert_error, canonical, git, repo_on_baseline, run_json};
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -255,4 +255,64 @@ fn the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is
     (&Value::from("ready"), &Value::from(false))
   );
   assert_eq!(slot(&report(&["--fresh"]), first)["cached"], false);
+}
+
+#[test_log::test]
+fn the_disk_report_names_the_pool_of_the_repository_and_with_all_every_pool() {
+  let trim = TrimFixture::new();
+  let fixture = &trim.fixture;
+  // a second repository with a pool under the same home, and an output base of a gone slot of that pool
+  let (other, _) = repo_on_baseline(&[("a.txt", "a\n")], &[], ".");
+  let (exit_code, got) = run_json(&fixture.environment(other.path()), &["lease", "get", "--holder", "other"]);
+  assert_eq!(exit_code, 0, "{got}");
+  let other_pool = Path::new(&path_of(&got)).parent().unwrap().parent().unwrap().to_path_buf();
+  let other_gone = trim.base("other-gone");
+  std::fs::create_dir_all(other_gone.join("execroot/_main/bazel-out")).unwrap();
+  std::fs::write(other_gone.join("DO_NOT_BUILD_HERE"), other_pool.join("99/repo").to_string_lossy().as_bytes()).unwrap();
+  std::fs::write(other_gone.join("execroot/_main/bazel-out/action"), vec![7u8; BASE_BYTES]).unwrap();
+  let report = |args: &[&str]| {
+    let (exit_code, output) = fixture.run(&[&["lease", "disk"][..], args].concat());
+    assert_eq!(exit_code, 0, "{output}");
+    output
+  };
+  let pools = |output: &Value| -> Vec<String> {
+    output["pools"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|pool| pool["git_common_dir"].as_str().unwrap().to_string())
+      .collect()
+  };
+  let orphans = |output: &Value| -> Vec<(String, u64)> {
+    output["orphans"].as_array().map_or_else(Vec::new, |orphans| {
+      orphans
+        .iter()
+        .map(|base| (base["path"].as_str().unwrap().to_string(), base["bytes"].as_u64().unwrap()))
+        .collect()
+    })
+  };
+  let gone = trim.base("gone").to_string_lossy().into_owned();
+  let other_gone = other_gone.to_string_lossy().into_owned();
+  let own = canonical(&fixture.repo.path().join(".git")).to_string_lossy().into_owned();
+  // the default reports the pool of the repository and its orphan only
+  let output = report(&[]);
+  assert_eq!(pools(&output), std::slice::from_ref(&own), "{output}");
+  assert_eq!(
+    orphans(&output).into_iter().map(|(path, _)| path).collect::<Vec<_>>(),
+    std::slice::from_ref(&gone),
+    "{output}"
+  );
+  // --all reports every pool of the machine and every orphan
+  let all = report(&["--all"]);
+  assert_eq!(pools(&all).len(), 2, "{all}");
+  assert_eq!(pools(&all)[0], own, "{all}");
+  let all_orphans = orphans(&all);
+  assert_eq!(all_orphans.iter().map(|(path, _)| path.clone()).collect::<Vec<_>>(), [gone.clone(), other_gone], "{all}");
+  // the orphan grows, and a default run measures it again into the file of its own pool only: --all --cached gives the
+  // latest measure, not the older one that the file of the other pool keeps
+  std::fs::write(trim.base("gone").join("execroot/_main/bazel-out/more"), vec![8u8; 2 * BASE_BYTES]).unwrap();
+  let grown = orphans(&report(&[]))[0].1;
+  assert!(grown >= all_orphans[0].1 + 2 * BASE_BYTES as u64, "{grown} {all_orphans:?}");
+  let cached = report(&["--all", "--cached"]);
+  assert_eq!(orphans(&cached)[0], (gone, grown), "{cached}");
 }

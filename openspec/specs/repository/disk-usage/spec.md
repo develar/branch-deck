@@ -35,7 +35,7 @@ Date: 2026-11-02
 The lease pools of agent worktrees take most of a developer Mac's disk: a slot keeps what its builds wrote, `target/`
 inside it and its Bazel output bases outside it, tens of gigabytes each, and the hosts that run the remote runs keep
 pools of their own. Disk Usage shows, for this Mac and each host of `brd-host`, what each pool holds and which free
-slots a trim deletes next, the same report as `brd lease disk` and `brd-host disk` ([brd lease](../../cli/lease/spec.md#disk),
+slots a trim deletes next, the same report as `brd lease disk --all` and `brd-host disk` ([brd lease](../../cli/lease/spec.md#disk),
 [brd-host](../../cli/host/spec.md#disk)), and trims this Mac's pools to their limit. "Show Disk Usage…" of the command
 palette opens it.
 

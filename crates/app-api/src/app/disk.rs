@@ -12,7 +12,7 @@ use git_ops::revs::repository_dirs;
 use lease_pool::lease::SlotState;
 use lease_pool::trim::{TrimParams, trim_core};
 use pool_disk::report::{DiskReport, PoolReport, SlotReport};
-use pool_disk::{DiskParams, DiskUsageProgress, disk_usage_core_with_progress};
+use pool_disk::{DiskParams, DiskScope, DiskUsageProgress, disk_usage_core_with_progress};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -189,6 +189,7 @@ pub async fn disk_usage(ctx: &AppContext, params: DiskUsageParams, events: Sink<
       let disk = DiskParams {
         repository: &dirs,
         home: home.as_deref(),
+        scope: DiskScope::Machine,
         fresh: params.fresh,
         cached: false,
         lock_timeout: LOCK_TIMEOUT,

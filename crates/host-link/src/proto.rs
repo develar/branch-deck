@@ -119,8 +119,8 @@ pub enum Request {
   Runs,
   /// The lend table of each repository that the agent served. Reply: `Reply::Slots`
   Slots,
-  /// What the pools of the host hold on disk (`pool_disk`, as `brd lease disk` reports it), `fresh`: every slot walked
-  /// again. Replies: `Reply::Heartbeat` while the agent walks, then `Reply::Disk`. Feature `feature::DISK`
+  /// What the pools of the host hold on disk (`pool_disk`, as `brd lease disk --all` reports it), `fresh`: every slot
+  /// walked again. Replies: `Reply::Heartbeat` while the agent walks, then `Reply::Disk`. Feature `feature::DISK`
   Disk {
     #[serde(default, skip_serializing_if = "is_false")]
     fresh: bool,

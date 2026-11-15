@@ -1,6 +1,6 @@
-//! `brd lease disk`: what the pools of this machine hold on disk, the bytes the builds of each slot wrote (its clean rule
-//! directories and its Bazel output bases), the output bases of the main worktrees and the orphans
-//! (openspec/specs/cli/lease/spec.md, "Disk"). The core and the shape of the report are `pool_disk`; read only but for
+//! `brd lease disk`: what the pool of the repository holds on disk (`--all`: every pool of this machine), the bytes the
+//! builds of each slot wrote (its clean rule directories and its Bazel output bases), the output bases of the main
+//! worktrees and the orphans (openspec/specs/cli/lease/spec.md, "Disk"). The core and the shape of the report are `pool_disk`; read only but for
 //! `disk.json`, the bytes it keeps
 
 use crate::lease_command::{LeaseContext, lease_error};
@@ -8,7 +8,7 @@ use bd_core::context::Environment;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use pool_disk::report::DiskReport;
-use pool_disk::{DiskParams, disk_usage_core};
+use pool_disk::{DiskParams, DiskScope, disk_usage_core};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -20,6 +20,9 @@ pub struct LeaseDiskArgs {
   /// Read `disk.json` only, without measuring any path
   #[arg(long, conflicts_with = "fresh")]
   pub cached: bool,
+  /// Report every pool of this machine, not only the pool of the repository
+  #[arg(long)]
+  pub all: bool,
 }
 
 /// `brd lease disk`
@@ -30,11 +33,13 @@ pub struct LeaseDiskOutput {
   pub report: DiskReport,
 }
 
-/// `context` is of a checkout of the repository that asks: its pool is reported wherever it lives
+/// `context` is of a checkout of the repository that asks: its pool is reported wherever it lives; `--all` adds every
+/// pool under `~/.branch-deck/pool`
 pub fn lease_disk(context: &LeaseContext, environment: &Environment, args: &LeaseDiskArgs) -> Result<LeaseDiskOutput, CliError> {
   let params = DiskParams {
     repository: &context.dirs,
     home: environment.home.as_deref(),
+    scope: if args.all { DiskScope::Machine } else { DiskScope::Repository },
     fresh: args.fresh,
     cached: args.cached,
     lock_timeout: context.lock_timeout,

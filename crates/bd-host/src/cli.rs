@@ -90,7 +90,7 @@ enum Command {
   /// of this machine
   Slots(SlotsArgs),
   /// What the lease pools of a host hold on disk, of every host without an alias: per slot the bytes its builds wrote,
-  /// as `brd lease disk` reports them there
+  /// as `brd lease disk --all` reports them there
   Disk {
     /// The alias of the host file; without it every host of the client
     alias: Option<String>,

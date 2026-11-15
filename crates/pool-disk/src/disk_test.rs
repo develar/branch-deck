@@ -1,5 +1,5 @@
 use crate::{CachedNode, CachedRoot, WalkRequest, root_key, walk_requests};
-use crate::{DiskParams, DiskUsageProgress, build_dirs, disk_file, disk_usage_core, disk_usage_core_with_changes, disk_usage_core_with_progress};
+use crate::{DiskParams, DiskScope, DiskUsageProgress, build_dirs, disk_file, disk_usage_core, disk_usage_core_with_changes, disk_usage_core_with_progress};
 use fs_walk::Walk;
 use fs_walk::changes::Changes;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -91,6 +91,7 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   let params = DiskParams {
     repository: &dirs,
     home: None,
+    scope: DiskScope::Machine,
     fresh: true,
     cached: false,
     lock_timeout: Duration::from_secs(1),
@@ -174,6 +175,7 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   let partial_params = DiskParams {
     repository: &dirs,
     home: None,
+    scope: DiskScope::Machine,
     fresh: false,
     cached: false,
     lock_timeout: Duration::from_secs(1),
@@ -195,6 +197,7 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   let fresh_params = DiskParams {
     repository: &dirs,
     home: None,
+    scope: DiskScope::Machine,
     fresh: true,
     cached: false,
     lock_timeout: Duration::from_secs(1),
@@ -205,6 +208,7 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   let cached_only_params = DiskParams {
     repository: &dirs,
     home: None,
+    scope: DiskScope::Machine,
     fresh: false,
     cached: true,
     lock_timeout: Duration::from_secs(1),

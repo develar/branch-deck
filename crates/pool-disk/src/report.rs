@@ -9,7 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// What the pools of one machine hold on disk
+/// What the pools of the report hold on disk: the pool of the repository, or every pool of the machine
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DiskReport {
   /// The free bytes of the volume; omitted where the system does not tell
@@ -18,7 +18,7 @@ pub struct DiskReport {
   /// `branchdeck.leaseMinFree`, in bytes: below it a get, and the keeper of a host, free space
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub min_free: Option<u64>,
-  /// Every pool of the machine
+  /// The pools of the report: of the repository, or every pool of the machine
   pub pools: Vec<PoolReport>,
   /// The Bazel output bases whose slot is gone: a trim deletes them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]

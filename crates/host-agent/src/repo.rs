@@ -20,7 +20,7 @@ use lease_pool::host_refs::{HostRef, HostRefRefusal, IngestedPack, have, ingest,
 use lease_pool::host_slots::{HostSlotRefusal, HostSlotsParams, changes_run, snapshot_run, trim};
 use pool_disk::report::DiskReport;
 use pool_disk::trim_report::TrimReport;
-use pool_disk::{DiskParams, disk_usage_core};
+use pool_disk::{DiskParams, DiskScope, disk_usage_core};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -80,12 +80,13 @@ impl Repository {
     }
   }
 
-  /// What the pools of the host hold on disk, as `brd lease disk` reports it (`pool_disk`), as the JSON of
+  /// What the pools of the host hold on disk, as `brd lease disk --all` reports it (`pool_disk`), as the JSON of
   /// `Reply::Disk`: the pools of this repository and of the home of the agent; `fresh` walks every slot again
   pub(crate) fn disk(&self, fresh: bool) -> Result<serde_json::Value, Refusal> {
     let params = DiskParams {
       repository: &self.dirs,
       home: Some(&self.home),
+      scope: DiskScope::Machine,
       fresh,
       cached: false,
       lock_timeout: DEFAULT_LOCK_TIMEOUT,

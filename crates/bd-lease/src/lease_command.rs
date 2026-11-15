@@ -69,8 +69,9 @@ pub enum LeaseCommand {
   /// A get does it itself once the free space is below `branchdeck.leaseMinFree`. A slot with a process in it stays;
   /// --plan only says what would go
   Trim(crate::trim_command::LeaseTrimArgs),
-  /// What the pools of this machine hold on disk: per slot the bytes its builds wrote (the directories of its clean
-  /// rules, its Bazel output bases), the output bases of the main worktrees and of gone slots, the free space
+  /// What the pool of the repository holds on disk: per slot the bytes its builds wrote (the directories of its clean
+  /// rules, its Bazel output bases), the output bases of the main worktree and of gone slots, the free space; --all
+  /// reports every pool of this machine
   ///
   /// The bytes of a free slot are kept in `disk.json` until it is leased again, so a repeat takes a moment; --fresh
   /// walks every slot again

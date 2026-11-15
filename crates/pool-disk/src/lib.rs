@@ -1,9 +1,9 @@
-//! `pool-disk`: what the pools of this machine hold on disk (`brd lease disk`, the Disk window of the app; openspec/specs/cli/lease/spec.md,
-//! "Disk"). A `du` of a pool takes minutes (two for the pools of the user's Mac, 1.25 TB) and says little: the tracked
-//! tree of a slot is an APFS clone that shares its blocks with the others. What a slot holds of its own is what a delete
-//! of it frees: the private size of its worktree (`walk`: the blocks no clone shares, as `getattrlistbulk` tells them),
-//! the directories its clean rules name (`target/`, `out/`) and its Bazel output bases outside it (`output_bases`),
-//! each walked apart, all side by side, and the bytes of a slot are kept in `disk.json` beside the state of its pool: a free slot does not change until a get leases it, so its bytes hold while its `returned` does;
+//! `pool-disk`: what the lease pools hold on disk (`brd lease disk`: the pool of its repository, with `--all` every pool of
+//! this machine; the Disk window of the app: every pool; openspec/specs/cli/lease/spec.md, "Disk"). A `du` of a pool
+//! takes minutes (two for the pools of the user's Mac, 1.25 TB) and says little: the tracked tree of a slot is an APFS
+//! clone that shares its blocks with the others. What a slot holds of its own is what a delete of it frees: the private
+//! size of its worktree (`walk`: the blocks no clone shares, as `getattrlistbulk` tells them), the directories its clean
+//! rules name (`target/`, `out/`) and its Bazel output bases outside it (`output_bases`), each walked apart, all side by side, and the bytes of a slot are kept in `disk.json` beside the state of its pool: a free slot does not change until a get leases it, so its bytes hold while its `returned` does;
 //! a leased slot is measured again after `LEASED_STALE`.
 
 use anyhow::Result;
@@ -34,12 +34,24 @@ const DISK_LOCK: &str = "disk.lock";
 /// How long the bytes of a leased slot hold: its builds write while it is leased
 pub const LEASED_STALE: Duration = Duration::from_mins(15);
 
+/// Which pools `disk_usage_core` reports
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiskScope {
+  /// The pool of the repository that asks, with its orphans: `brd lease disk`
+  Repository,
+  /// The pool of the repository and every pool under `~/.branch-deck/pool` of `DiskParams::home`, with every orphan of
+  /// them, as the trim finds them: `brd lease disk --all`, the Disk window of the app, the agent of `brd-host`
+  Machine,
+}
+
 /// What `disk_usage_core` reports
 pub struct DiskParams<'a> {
   /// A checkout of the repository that asks: its pool is reported wherever it lives, and its config gives the minimum
   pub repository: &'a RepositoryDirs,
   /// The home directory of the default pools (`~/.branch-deck/pool`)
   pub home: Option<&'a Path>,
+  /// The pool of the repository only, or every pool of the machine
+  pub scope: DiskScope,
   /// Measure every slot again, whatever `disk.json` holds
   pub fresh: bool,
   /// Read `disk.json` only, without measuring any path
@@ -48,7 +60,7 @@ pub struct DiskParams<'a> {
   pub lock_timeout: Duration,
 }
 
-/// What the pools of this machine hold
+/// What the pools of the report hold: the pool of the repository, or every pool of the machine (`DiskScope`)
 #[derive(Debug, Clone, Default)]
 pub struct DiskUsage {
   /// The free bytes of the volume of the repository; `None` where the system does not tell
@@ -293,7 +305,7 @@ struct SlotRefreshPlan<'a> {
   bases: Vec<BaseUsage>,
 }
 
-/// What the pools of this machine hold: every slot of each pool with the directories its clean rules name and its
+/// What the pools of `params.scope` hold: every slot of each pool with the directories its clean rules name and its
 /// output bases, each with its bytes (from `disk.json` while they hold, else walked, all walks of the call side by
 /// side), the output bases of the main worktrees and the orphans. One `config` of the repository for its minimum, one
 /// per pool for its limit; no `status`
@@ -327,7 +339,12 @@ fn disk_usage_core_inner(
   mut changes_override: Option<&mut ChangesOverride<'_>>,
 ) -> Result<DiskUsage> {
   let started = Instant::now();
-  let machine = Machine::read(params.repository, params.home);
+  // without a home `Machine::read` takes the pool of the repository alone, with the output bases of its checkouts
+  let home = match params.scope {
+    DiskScope::Repository => None,
+    DiskScope::Machine => params.home,
+  };
+  let machine = Machine::read(params.repository, home);
   let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
   let config = lease_config(git_executor, &params.repository.top_level)?;
   let mut usage = DiskUsage {
@@ -526,10 +543,19 @@ fn disk_usage_core_inner(
     usage.pools.push(report);
     files.push((file, cached, mark_updates));
   }
-  let cached_orphans: BTreeMap<String, MeasuredBase> = files
-    .iter()
-    .flat_map(|(_, file, _)| file.orphans.iter().map(|(path, measured)| (path.clone(), *measured)))
-    .collect();
+  // a run writes the orphans of its scope into the file of each pool it reads, so the file of another pool can keep an
+  // older measure of an orphan: the latest measure wins
+  let mut cached_orphans: BTreeMap<String, MeasuredBase> = BTreeMap::new();
+  for (path, measured) in files.iter().flat_map(|(_, file, _)| &file.orphans) {
+    cached_orphans
+      .entry(path.clone())
+      .and_modify(|kept| {
+        if measured.at > kept.at {
+          *kept = *measured;
+        }
+      })
+      .or_insert(*measured);
+  }
   for base in orphans(&machine.bases, &machine.pool_dirs) {
     let orphan_index = usage.orphans.len();
     let mut orphan = base_usage(base);

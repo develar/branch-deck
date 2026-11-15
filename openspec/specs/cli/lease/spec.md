@@ -1,6 +1,6 @@
 ---
 name: brd lease
-description: Requirements for brd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source, else takes over an idle lease whose work landed, else adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand, trim deletes the free slots past branchdeck.leaseMaxSlots of every pool of the machine with their Bazel output bases, which a get does itself below the minimum free space before it deletes the build output of the free slots of every pool by their clean rules, the ones returned longest ago first, and then free slots below the limit, disk reports what the pools hold on disk; the host slots are leases of the pool that a lend table lends to one run at a time, which the agent of brd-host drives in process.
+description: Requirements for brd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source, else takes over an idle lease whose work landed, else adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand, trim deletes the free slots past branchdeck.leaseMaxSlots of every pool of the machine with their Bazel output bases, which a get does itself below the minimum free space before it deletes the build output of the free slots of every pool by their clean rules, the ones returned longest ago first, and then free slots below the limit, disk reports what the pool of the repository holds on disk, or with --all every pool of the machine; the host slots are leases of the pool that a lend table lends to one run at a time, which the agent of brd-host drives in process.
 style: plain-1
 targets:
   - crates/bd-lease/src/lease_command.rs
@@ -140,6 +140,9 @@ same HEAD stays the same commit.
   the free slots.
 - On the user's Mac a report of `brd lease disk` from the file takes half a second, a walk of every slot with its
   worktree (32 slots, 12 of them of idea-1 with 1.4M files each, 860 GB) five minutes.
+- On 2026-11-15 a report of every pool of the user's Mac ran more than 12 minutes and printed nothing: the reason the
+  report measures the pool of its repository unless `--all` is given. A `--cached` report of branch-deck then took
+  0.14 to 0.78 s with 1 pool and 3 git processes, against 0.54 to 1.07 s with 5 pools and 7 git processes.
 
 ## Requirements
 
@@ -2320,11 +2323,12 @@ of `brd schema`, exit 0.
 - **THEN** it names what would go and deletes nothing
   [@test] crates/bd-lease/src/trim_test.rs (`a_trim_plan_names_what_would_go_and_deletes_nothing`)
 
-### Requirement: Disk: The disk report names the bytes of every slot of the machine
+### Requirement: Disk: The disk report names the bytes of every slot of the pool of the repository
 
-`brd lease disk [--cached] [--fresh]` MUST report every pool of this machine (as the trim finds them) without a `du` of
-a slot: per slot its `state`, `holder`, `returned` and the bytes its builds wrote, the directories its clean rules name
-and its Bazel output bases (`output_bases`), each with its bytes, their sum (`bytes`), `measured_at` and `cached`.
+`brd lease disk [--all] [--cached] [--fresh]` MUST report the pool of the repository it runs in (`-C`, else the
+current directory) and its orphans. With `--all` it MUST report every pool and every orphan of this machine, as the
+trim finds them. Without a `du`, per slot it MUST name `state`, `holder`, `returned`, the bytes its builds wrote
+(`build`, `output_bases`), their sum (`bytes`), `measured_at` and `cached`.
 
 #### Scenario: The bytes of each slot
 - **WHEN** `brd lease disk` runs
@@ -2336,6 +2340,13 @@ and its Bazel output bases (`output_bases`), each with its bytes, their sum (`by
 - **WHEN** the clean rules of a slot name nested directories
 - **THEN** the report names the outermost of them, `build`
   [@test] crates/pool-disk/src/disk_test.rs (`the_build_dirs_of_a_slot_are_the_outermost_dirs_its_clean_rules_name`)
+
+#### Scenario: The pool of the repository and every pool
+- **WHEN** `brd lease disk` runs in a repository, and the machine also has the pool of another repository
+- **THEN** the report names the pool of the repository and its orphans only
+- **AND** `--all` names every pool and every orphan of the machine, and `--all --cached` the latest measure of each
+  orphan
+  [@test] crates/bd-lease/src/trim_test.rs (`the_disk_report_names_the_pool_of_the_repository_and_with_all_every_pool`)
 
 ### Requirement: Disk: The report names what each pool holds and what a trim deletes next
 
