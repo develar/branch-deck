@@ -1095,6 +1095,9 @@ async fn a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease_and_o
     let found = outcome(sessions.sync(&key, found_by)).await;
     assert!(found.is_ok(), "{found_by:?}: nothing failed: {found:?}");
     assert!(!marked(), "{found_by:?}: the session of no lease marks nothing of lease-a");
+    // a refused run answers its requests before the actor opens the session anew (`finish_run`, then `reopened`): a
+    // message after the reopen is its barrier
+    assert!(sessions.view_version(&key).await.is_some(), "{found_by:?}: the session is open");
     assert_eq!(opens(), 2, "{found_by:?}: the open and one reopen under lease-a");
     for _ in 0..2 {
       assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced), "{found_by:?}");
