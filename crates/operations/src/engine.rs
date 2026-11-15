@@ -102,11 +102,11 @@ fn words(value: &impl serde::Serialize) -> String {
 ///
 /// # Errors
 /// `invalid_arguments` for an invalid review; the refusal of the Safe Push of a review the session offers not
-/// (`review::safe_push_refusal`)
+/// (`review::safe_push_refusal`), of a restart it offers not (`robot::restart_refusal_of`)
 pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> Result<Option<Plan>, ApiError> {
   match intent {
     Intent::Land(start) => Ok(land::prepare(sessions, key, start).await),
-    Intent::RestartRobot { robot_id } => Ok(robot::prepare_restart(sessions, key, &robot_id).await.map(|planned| planned.plan)),
+    Intent::RestartRobot { robot_id } => Ok(robot::prepare_restart(sessions, key, &robot_id).await?.map(|planned| planned.plan)),
     Intent::CancelRobot { robot_id } => Ok(robot::prepare_cancel(sessions, key, &robot_id).await.map(|(plan, _)| plan)),
     Intent::Retarget { number } => Ok(pull_request::prepare_retarget(sessions, key, number).await),
     Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::LinkStack { .. } => {

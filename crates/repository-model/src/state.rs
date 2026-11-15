@@ -14,7 +14,7 @@
 //! window is the page's to know (a Tauri channel to a page that went away never fails a send, so the session can't tell
 //! which page got the patch of the table of this run): it remembers the end it saw beside the seed (`src/model/store.ts`).
 
-use crate::action_view::{ActionSources, actions_of};
+use crate::action_view::{ActionSources, actions_of, robot_actions_with};
 use crate::derive::{attention_of, github_layers_of, landed_states_of, landing_route_of, lands_of, next_steps_of, open_pull_requests_of, push_view};
 use crate::facts::FactStore;
 use crate::patch::{Now, apply_changes, changed, changes, diff_views, kept_parts, keyed_facts_change, pull_requests_change, robots_change};
@@ -182,6 +182,19 @@ struct Derived {
   review_stacks: BTreeMap<String, ReviewStackApproval>,
   reviews: ReviewsView,
   route: LandingRoute,
+}
+
+/// The actions of the robot `robot_id` as the view derives them now (`robot:<id>` of `RepositoryView::actions`), over the
+/// next steps of the rows as they are, but the operations of the session over them (`robot_actions_with`), for the
+/// engine that runs its restart (`operations::robot`); none for a robot the session lists not
+#[must_use]
+pub fn robot_actions_now(state: &TableState, facts: &FactStore, robot_id: &str) -> Option<Vec<ActionState>> {
+  let parts = &state.parts;
+  let landed = landed_states_of(state, facts);
+  let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
+  let github_layers = github_layers_of(state, facts, &route, &landed);
+  let open = open_pull_requests_of(state, facts, parts.header.prefix.as_str(), &github_layers);
+  robot_actions_with(state, facts, robot_id, &next_steps_of(state, facts, &open, &landed))
 }
 
 impl Derived {

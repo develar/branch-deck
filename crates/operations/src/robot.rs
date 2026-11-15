@@ -30,8 +30,10 @@ use crate::run_frame::{SyncWait, wait_for_facts};
 use crate::witness::Witness;
 use domain_policy::holds::is_active;
 use domain_policy::pull_request::base_of;
+use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, Subject};
+use domain_types::next_step::StepFact;
 use domain_types::operation::{
   EffectRecord, EffectStatus, Fingerprint, Intent, NewsKey, OperationId, OperationResult, OperationStep, Outcome, Plan, Resource, RobotResult, RunningMove,
 };
@@ -45,6 +47,7 @@ use remote_facts::service_sources::ServiceHost;
 use repository_model::derive::{LandSources, with_land_sources};
 use repository_model::facts::listed_robots;
 use repository_model::session::{SessionKey, Sessions};
+use repository_model::state::robot_actions_now;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tracing::{debug, instrument};
@@ -226,16 +229,59 @@ pub fn cancel_plan(robots: &[PatronusRobot], robot_id: &str) -> Option<Plan> {
   Some(plan)
 }
 
-/// The plan of the restart of `robot_id` in the open session of `key`, over the facts it holds now (`restart_planned`);
-/// `None` before its Patronus view, or for a robot it offers no restart of
-pub async fn prepare_restart(sessions: &Sessions, key: &SessionKey, robot_id: &str) -> Option<Planned> {
+/// The plan of the restart of `robot_id` in the open session of `key`, over the facts it holds now (`restart_planned`),
+/// refused where the session offers the restart not as the menus decide it (`restart_refusal_of` of the actions of
+/// `robot:<id>`, `repository_model::state::robot_actions_now`); `None` before its Patronus view, or for a robot it
+/// offers no restart of
+///
+/// # Errors
+/// The refusal of `restart_refusal_of`, before any push or restart
+pub async fn prepare_restart(sessions: &Sessions, key: &SessionKey, robot_id: &str) -> Result<Option<Planned>, ApiError> {
   let (prefix, robot_id) = (key.prefix.clone(), robot_id.to_string());
-  sessions
+  let read = sessions
     .read(key, move |state, facts| {
-      with_land_sources(state, facts, &prefix, |sources| restart_planned(sources, &robot_id)).flatten()
+      let planned = with_land_sources(state, facts, &prefix, |sources| restart_planned(sources, &robot_id)).flatten();
+      let refusal = planned
+        .as_ref()
+        .and_then(|_| restart_refusal_of(&robot_id, robot_actions_now(state, facts, &robot_id).as_deref()));
+      (planned, refusal)
     })
-    .await
-    .flatten()
+    .await;
+  match read {
+    Some((_, Some(refusal))) => Err(refusal),
+    Some((planned, None)) => Ok(planned),
+    None => Ok(None),
+  }
+}
+
+/// What refuses the restart of `robot_id` by the actions of the robot as the menus have them (`actions`: none for a robot
+/// the session lists not), with the code `bd` would fail with and the words of the menu: no restart offered (a robot of
+/// no row of the table is pushed by nobody), the reason of its failure still to come from Patronus or not told, the
+/// approvals its Safe Push waits for, which a restart would fail on again. A reason of the rules (`Rule`: a robot that
+/// holds it, what landed it) is a blocker of the plan, refused by its run; `None` where it runs
+#[must_use]
+pub fn restart_refusal_of(robot_id: &str, actions: Option<&[ActionState]>) -> Option<ApiError> {
+  let refusal = |code: ErrorCode, words: String| Some(ApiError::new(code, format!("{words}: nothing was pushed or restarted")));
+  let restart = actions?.iter().find(|action| matches!(action.id, ActionId::RestartRobot | ActionId::PushAndRestartRobot));
+  let Some(restart) = restart else {
+    return refusal(ErrorCode::InvalidArguments, format!("The session offers no restart of robot {robot_id}"));
+  };
+  let Availability::Disabled { reason } = &restart.availability else {
+    return None;
+  };
+  match reason {
+    ActionBlocker::Pending { fact: StepFact::RobotProblems } => refusal(ErrorCode::PlanChanged, "Waits for Patronus to tell why the Safe Push failed".to_owned()),
+    ActionBlocker::ProblemsFailed { message } => refusal(ErrorCode::PatronusError, format!("Patronus didn't tell why the Safe Push failed ({message})")),
+    // the approvals the Safe Push of its branch waits for (`robot_actions`: a step that waits for them)
+    ActionBlocker::Step { .. } => refusal(
+      ErrorCode::ApprovalsMissing,
+      "Its Safe Push waits for approvals, which a restart would fail on again".to_owned(),
+    ),
+    ActionBlocker::Cached => refusal(ErrorCode::PlanChanged, "Waits for the first sync: the rows are the frame of an earlier run".to_owned()),
+    // a reason of the rules is a blocker of the plan: its run refuses it in the words of the guards
+    ActionBlocker::Rule { .. } => None,
+    other => refusal(ErrorCode::PlanChanged, format!("The restart of robot {robot_id} waits: {other:?}")),
+  }
 }
 
 /// The plan of the cancel of `robot_id` in the open session of `key` (`cancel_plan`) and the user's robots it holds
@@ -300,13 +346,15 @@ fn unknown_robot(robot_id: &str, done: &str, action: &str) -> ApiError {
 #[instrument(skip_all, fields(robot_id))]
 pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &str, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   let sessions = registry.sessions();
-  let planned = prepare_restart(sessions, key, robot_id).await;
+  // a refusal now refuses it once admitted too, unless an operation it waits for changes it
+  let planned = prepare_restart(sessions, key, robot_id).await.ok().flatten();
   let request = restart_request(robot_id, planned.as_ref());
   run(registry, key, request, events, async |guard| {
     let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await;
-    // decided again once admitted: an operation it waited for changed what it decides on
+    // decided again once admitted: an operation it waited for changed what it decides on; refused before its push and
+    // its restart where the session offers the restart not
     let planned = prepare_restart(sessions, key, robot_id)
-      .await
+      .await?
       .ok_or_else(|| unknown_robot(robot_id, "restarted", "restart"))?;
     run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, waited.waited).await
   })

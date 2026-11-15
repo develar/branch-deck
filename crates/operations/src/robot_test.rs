@@ -2,7 +2,7 @@ use crate::http_budget_test::{TIP, table};
 use crate::land_execute::land_execute_test::{ALPHA, Fixture, fixture, statuses};
 use crate::land_execute::{Accepted, Planned, Steps, run_planned};
 use crate::pull_request::{retarget_plan, retarget_request};
-use crate::robot::{cancel, cancel_plan, cancel_request, restart_planned, restart_request};
+use crate::robot::{cancel, cancel_plan, cancel_request, restart_planned, restart_refusal_of, restart_request};
 use crate::witness::Witness;
 use domain_policy::admission::admit;
 use domain_types::fixtures::{pull_request, robot};
@@ -426,4 +426,79 @@ fn a_retarget_moves_an_open_pull_request_into_the_target_and_nothing_else() {
   listed.pull_requests.get_mut("auth").unwrap().state = PullRequestState::Closed;
   assert_eq!(retarget_plan(&listed, 7, "master"), None);
   assert_eq!(retarget_plan(&listed, 8, "master"), None);
+}
+
+/// A restart runs only where the session offers it, as the menus decide it (`robot_actions`): each blocker of the
+/// restart refuses it before any push or restart with the code `bd` would fail with and the words of the menu; no restart
+/// offered refuses it; a reason of the rules is left to the blockers of the plan; an enabled one runs
+#[test]
+fn a_restart_runs_only_where_the_session_offers_it_and_each_blocker_refuses_it_by_its_code() {
+  use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability};
+  use domain_types::error::ErrorCode;
+  use domain_types::next_step::{StepBlocker, StepFact};
+  let restart = |id: ActionId, reason: Option<ActionBlocker>| {
+    vec![
+      ActionState {
+        id,
+        availability: reason.map_or(Availability::Enabled, |reason| Availability::Disabled { reason }),
+      },
+      ActionState {
+        id: ActionId::OpenRobot,
+        availability: Availability::Enabled,
+      },
+    ]
+  };
+  let cases = [
+    (
+      restart(ActionId::RestartRobot, Some(ActionBlocker::Pending { fact: StepFact::RobotProblems })),
+      ErrorCode::PlanChanged,
+      "Waits for Patronus to tell why the Safe Push failed",
+    ),
+    (
+      restart(
+        ActionId::PushAndRestartRobot,
+        Some(ActionBlocker::ProblemsFailed {
+          message: "502 Bad Gateway".to_owned(),
+        }),
+      ),
+      ErrorCode::PatronusError,
+      "Patronus didn't tell why the Safe Push failed (502 Bad Gateway)",
+    ),
+    (
+      restart(ActionId::RestartRobot, Some(ActionBlocker::Step { blocker: StepBlocker::Step })),
+      ErrorCode::ApprovalsMissing,
+      "Its Safe Push waits for approvals, which a restart would fail on again",
+    ),
+    (
+      restart(ActionId::RestartRobot, Some(ActionBlocker::Cached)),
+      ErrorCode::PlanChanged,
+      "Waits for the first sync: the rows are the frame of an earlier run",
+    ),
+    (
+      vec![ActionState {
+        id: ActionId::OpenRobot,
+        availability: Availability::Enabled,
+      }],
+      ErrorCode::InvalidArguments,
+      "The session offers no restart of robot r1",
+    ),
+  ];
+  for (actions, code, words) in cases {
+    let refusal = restart_refusal_of("r1", Some(&actions)).unwrap_or_else(|| panic!("{actions:?} restarts"));
+    assert_eq!((refusal.code, refusal.message), (code, format!("{words}: nothing was pushed or restarted")), "{actions:?}");
+  }
+  let held = ActionBlocker::Rule {
+    reason: Reason::Parked {
+      branch: "auth".to_owned(),
+      with: None,
+      note: String::new(),
+    },
+  };
+  assert_eq!(
+    restart_refusal_of("r1", Some(&restart(ActionId::RestartRobot, Some(held)))),
+    None,
+    "a reason of the rules is the plan's"
+  );
+  assert_eq!(restart_refusal_of("r1", Some(&restart(ActionId::PushAndRestartRobot, None))), None);
+  assert_eq!(restart_refusal_of("r1", None), None, "a robot the session lists not has no plan");
 }

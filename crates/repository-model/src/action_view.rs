@@ -28,7 +28,7 @@ use domain_types::commit::Commit;
 use domain_types::landing::{LandDecisions, Landed, StartRoute};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
-use domain_types::patronus::PatronusRobotStatus;
+use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, PatronusView, RobotOf};
@@ -239,36 +239,14 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
     let offered = with_operations(stack_actions(&facts), of, operations);
     actions.insert(key, offered);
   }
-  let table_robots: HashSet<&str> = part
-    .view
-    .branches
-    .values()
-    .filter_map(|facts| facts.robot_id.as_deref())
-    .chain(part.view.stacks.values().filter_map(|facts| facts.robot_id.as_deref()))
-    .collect();
+  let table_robots = table_robots(&part.view);
   for robot in robots.robots.values() {
-    let row = robot.branch_name.as_deref().filter(|name| parts.branches.contains_key(*name));
-    let of_table = row.is_some() || table_robots.contains(robot.id.as_str());
-    let problems = if robot.status != PatronusRobotStatus::Failure || !of_table {
-      Problems::Known
-    } else if let Some(message) = robots.problems_failed.get(&robot.id) {
-      Problems::Failed(message)
-    } else if robots.needs_review.contains_key(&robot.id) {
-      Problems::Known
-    } else {
-      Problems::Pending
-    };
-    let facts = RobotFacts {
-      robot,
-      restart: part.view.restarts.get(&robot.id),
-      pushes: row.is_some() || (robot.branch_name.is_none() && robot.stack_root.is_some()),
-      needs_review: robots.needs_review.get(&robot.id).copied(),
-      failing: robots.failing.contains(&robot.id),
-      problems,
-      step: row.and_then(|name| sources.steps.get(name)).map(|view| &view.step),
-      cached: robots_cached,
-    };
-    let offered = with_operations(robot_actions(&facts), Of::Robot { id: &robot.id }, operations);
+    let of_table = table_robots.contains(robot.id.as_str());
+    let offered = with_operations(
+      actions_of_robot(state, facts, robot, of_table, sources.steps, robots_cached),
+      Of::Robot { id: &robot.id },
+      operations,
+    );
     actions.insert(format!("robot:{}", robot.id), offered);
   }
   // the branches kept outside HEAD (`unapplied:<full name>`, `archived:<full name>`)
@@ -305,6 +283,57 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
     }
   }
   actions
+}
+
+/// The robots the Patronus view names for a branch or a whole stack of the table
+fn table_robots(view: &PatronusView) -> HashSet<&str> {
+  view
+    .branches
+    .values()
+    .filter_map(|facts| facts.robot_id.as_deref())
+    .chain(view.stacks.values().filter_map(|facts| facts.robot_id.as_deref()))
+    .collect()
+}
+
+/// The actions of `robot` (`robot:<id>`) over the next steps of the rows (`steps`), as the rules decide them, without the
+/// operations of the session; `of_table`: the Patronus view names it for a subject of the table; `cached`: the robots
+/// are of the cached frame of an earlier run (`FrameReads::Robots`)
+fn actions_of_robot(state: &TableState, facts: &FactStore, robot: &PatronusRobot, of_table: bool, steps: &BTreeMap<String, NextStepView>, cached: bool) -> Vec<ActionState> {
+  let parts = &state.parts;
+  let part = facts.patronus.part();
+  let robots = facts.robots.view();
+  let row = robot.branch_name.as_deref().filter(|name| parts.branches.contains_key(*name));
+  let of_table = row.is_some() || of_table;
+  let problems = if robot.status != PatronusRobotStatus::Failure || !of_table {
+    Problems::Known
+  } else if let Some(message) = robots.problems_failed.get(&robot.id) {
+    Problems::Failed(message)
+  } else if robots.needs_review.contains_key(&robot.id) {
+    Problems::Known
+  } else {
+    Problems::Pending
+  };
+  let robot_facts = RobotFacts {
+    robot,
+    restart: part.view.restarts.get(&robot.id),
+    pushes: row.is_some() || (robot.branch_name.is_none() && robot.stack_root.is_some()),
+    needs_review: robots.needs_review.get(&robot.id).copied(),
+    failing: robots.failing.contains(&robot.id),
+    problems,
+    step: row.and_then(|name| steps.get(name)).map(|view| &view.step),
+    cached,
+  };
+  robot_actions(&robot_facts)
+}
+
+/// The actions of the robot `robot_id` as `actions_of` derives them (`robot:<id>`) over the next steps `steps`, but the
+/// operations of the session laid over them, which the engine that runs one of them admits by itself
+/// (`operations::robot`: its own operation runs then); none for a robot the session lists not
+#[must_use]
+pub fn robot_actions_with(state: &TableState, facts: &FactStore, robot_id: &str, steps: &BTreeMap<String, NextStepView>) -> Option<Vec<ActionState>> {
+  let robot = facts.robots.view().robots.values().find(|robot| robot.id == robot_id)?;
+  let of_table = table_robots(&facts.patronus.part().view).contains(robot_id);
+  Some(actions_of_robot(state, facts, robot, of_table, steps, reads_cached_frame(state, facts, FrameReads::Robots)))
 }
 
 /// The branch and the branches stacked on it that aren't parked: what Push with Children reads the statuses of

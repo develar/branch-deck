@@ -407,6 +407,35 @@ test.describe("Next step before the answers", () => {
     await expect(failedSlot).toHaveAttribute("data-step", "restart")
     await expect(step).toBeEnabled()
   })
+
+  test("should refuse in the backend a restart the session offers not, before any push or restart: while Patronus tells why the Safe Push failed, and once it failed to tell it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const { repo, step } = await setupFailedRobot(page, setupRepo, syncAndWaitForBranches)
+    await expectHeld(repo, "robotProblems")
+    // a window of a state before, or another client, asks for the restart no menu offers now: the backend decides as
+    // the menus do (`robot_actions`), before it pushes or restarts anything
+    const restart = { repositoryPath: repo.path, intent: { kind: "restartRobot", robotId: "failed-robot" } }
+    const run = { ...restart, fingerprint: "", accepted: [] }
+    const refused = (code: string, message: string | RegExp) => ({
+      status: "error",
+      error: expect.objectContaining({ code, message: typeof message === "string" ? message : expect.stringMatching(message) }),
+    })
+    const waits = refused("plan_changed", "Waits for Patronus to tell why the Safe Push failed: nothing was pushed or restarted")
+    expect(await repo.invoke("prepare", restart)).toEqual(waits)
+    expect(await repo.invoke("execute", run)).toEqual(waits)
+
+    // Patronus fails to tell it: refused with the failure
+    await repo.holdRemoteAnswers({ fail: ["robotProblems"], release: ["robotProblems"] })
+    await expect(step).toHaveText("Restart Safe Push")
+    await expect(step).toBeDisabled()
+    const notTold = refused("patronus_error", /^Patronus didn't tell why the Safe Push failed \(.+\): nothing was pushed or restarted$/)
+    await expect.poll(async () => repo.invoke("prepare", restart)).toEqual(notTold)
+    expect(await repo.invoke("execute", run)).toEqual(notTold)
+    expect((await repo.getPatronusLog()).restarts).toEqual([])
+  })
 })
 
 /** The menu of the row of JIRA-456, opened by a right click */
