@@ -12,20 +12,24 @@
 //! `drop` of its name in that block (of the last name of a tuple, where `lock_prepared` puts the lock), and a guard that
 //! its block hands on as its value (`Some(guard)`) lives on in the binding that takes it. A lock also lives in the block
 //! of an `if let`, a `while let` or a `match` on it (the value it matches lives to its end: `if let
-//! PressureTurn::Taken(_pressure) = pressure_turn(…)`), in the body of a function that takes it as a parameter, and from
-//! an assignment of it, or of a name a holder bound, to a variable bound before (`clones_lock = Some(lock)`) to the end of
-//! that variable's block or its release there (`drop(name)`, `drop(name.take())`, `name.take()`, `name = None`). A guard
-//! handed to a function that keeps it in a field or returns it is not followed, nor an `impl Trait` answer (`-> impl
-//! Drop`), nor a call of the network inside a function the scope calls: the lock span tests of the cores
-//! (`test_utils::lock_span`) name every git that runs under the lock. A file is exempt only with its reason and its exact
-//! number of hits.
+//! PressureTurn::Taken(_pressure) = pressure_turn(…)`), in the body of a function that takes it as a parameter, by value
+//! or by reference (`lock: &RepositoryLock`, `held: &Option<RepositoryLock>`: the caller holds it while the body runs),
+//! from an assignment of it, or of a name a holder bound, to a variable bound before (`clones_lock = Some(lock)`) to the
+//! end of that variable's block or its release there (`drop(name)`, `drop(name.take())`, `name.take()`, `name = None`),
+//! and from an assignment to a field (`holder.held = Some(lock_file(…)?)`, through a `&mut` or `self`) to the end of the
+//! block. A guard handed to a function that keeps it in a field or returns it is not followed, nor an `impl Trait`
+//! answer (`-> impl Drop`), nor a lock erased into a `Box<dyn Any>`, nor a call of the network inside a function the
+//! scope calls: the lock span tests of the cores (`test_utils::lock_span`) name every git that runs under the lock. A
+//! file is exempt only with its reason and its exact number of hits.
 //!
 //! A lock is the call of a function whose answer holds a `RepositoryLock` (`lock_functions`: every one of the scanned
-//! sources, whatever its name), or of what the file types as a `Locker` (the closure of a start that takes it). A type
-//! holds one by a field, a variant's field or an alias (`lock_types`: `CloneTurn::Locked { lock }`, `PressureTurn`,
-//! `OwnFetch`, `type Held = RepositoryLock`, to the fixed point), in an `Option`, a `Result`, a `Vec`, a `Box` or a tuple;
-//! not behind a reference (`held_lock: Option<&RepositoryLock>` borrows the lock of a caller), not as the answer of a
-//! closure type (`Locker`), not in another container (`Arc`, a map: out of scope). So the repository lock (`lock_repository*`, `LockWait::lock*`,
+//! sources, whatever its name), of what the file types as a `Locker` (the closure of a start that takes it), or of a
+//! closure that takes one, with or without an argument: a parameter whose closure type answers a lock (`take: impl
+//! FnOnce() -> Result<RepositoryLock>`), a binding whose closure body calls a lock function (`let take = || lock_file(…)`).
+//! A type holds one by a field, a variant's field or an alias (`lock_types`: `CloneTurn::Locked { lock }`,
+//! `PressureTurn`, `OwnFetch`, `type Held = RepositoryLock`, to the fixed point), in an `Option`, a `Result`, a `Vec`, a
+//! `Box` or a tuple, also behind a reference (`RewriteOptions::held_lock`: the lock of a caller, held while the borrow
+//! lives); not as the answer of a closure type (`Locker`), not in another container (`Arc`, a map: out of scope). So the repository lock (`lock_repository*`, `LockWait::lock*`,
 //! `RewriteOptions::lock_prepared`, the `lock` of `bd`) and every file lock of `repository_lock::lock_file` are one
 //! class with every wrapper of one: the locks of the files of a lease and of the companions (`lock_lease`,
 //! `lock_landed`, `lock_state`, `lock_companions`, under which the reads and writes of git config are by design), of the
@@ -269,6 +273,13 @@ fn calls_locker(value: &str, lockers: &[&str]) -> bool {
     .any(|name| calls(value, name, true, |before| !before.ends_with([':', '.'])).any(|at| has_argument(value, at)))
 }
 
+/// Whether `value` calls one of `takers`, closures that take a lock, by its bare name, with or without an argument
+fn calls_taker(value: &str, takers: &[&str]) -> bool {
+  let value = block_values(value);
+  let value = value.as_str();
+  takers.iter().any(|name| calls(value, name, true, |before| !before.ends_with([':', '.'])).next().is_some())
+}
+
 /// The names that the file of `code` declares with a type that names `ty`: a parameter, a field or a binding
 /// (`github: &GitHubService`, `patronus: Option<Arc<PatronusService>>`, `let lock: Locker`)
 fn typed_names<'a>(code: &'a str, ty: &str) -> Vec<&'a str> {
@@ -368,12 +379,22 @@ fn locks_across(source: &Source, reaches: impl Fn(&str, &[&str]) -> bool) -> Vec
   let types = lock_types_with(&code);
   let own = functions_answering(&code, &types);
   let functions: Vec<&LockFunction> = lock_functions().iter().chain(&own).collect();
-  let gives_lock = |value: &str| calls_locker(value, &lockers) || calls_lock_function(value, &functions);
+  let parameters = lock_parameters(&code, &types);
+  // the closures that take a lock, called with or without an argument: a parameter that answers one, a binding whose
+  // body takes one (`let take = || lock_file(…)`)
+  let mut takers: Vec<&str> = parameters.iter().filter(|parameter| parameter.takes).map(|parameter| parameter.name).collect();
+  for binding in &all {
+    if closure_body(&code[binding.value.clone()]).is_some_and(|body| calls_locker(body, &lockers) || calls_lock_function(body, &functions)) {
+      takers.extend(&binding.names);
+    }
+  }
+  let gives_lock = |value: &str| calls_locker(value, &lockers) || calls_taker(value, &takers) || calls_lock_function(value, &functions);
   let mut lines = Vec::new();
   let mut held: Vec<(&str, Range<usize>)> = Vec::new();
   for binding in &all {
-    // a `Locker` holds the closure that takes the lock, not the lock
-    if binding.ty.as_ref().is_some_and(|ty| words(&code[ty.clone()], "Locker").next().is_some()) || !gives_lock(&code[binding.value.clone()]) {
+    // a `Locker` or a closure holds what takes the lock, not the lock
+    let value = &code[binding.value.clone()];
+    if binding.ty.as_ref().is_some_and(|ty| words(&code[ty.clone()], "Locker").next().is_some()) || closure_body(value).is_some() || !gives_lock(value) {
       continue;
     }
     held.extend(binding.names.iter().map(|name| (*name, binding.scope.clone())));
@@ -390,13 +411,13 @@ fn locks_across(source: &Source, reaches: impl Fn(&str, &[&str]) -> bool) -> Vec
       lines.push(line_at(&code, block.at));
     }
   }
-  for parameter in lock_parameters(&code, &types) {
+  for parameter in parameters.iter().filter(|parameter| !parameter.takes) {
     held.push((parameter.name, parameter.body.clone()));
     if reaches(&code[parameter.life.clone()], &services) {
       lines.push(line_at(&code, parameter.at));
     }
   }
-  for assignment in assignments(&code, &all) {
+  for assignment in assignments(&code, &all).into_iter().chain(field_assignments(&code)) {
     let value = &code[assignment.value.clone()];
     let names_a_lock = held.iter().any(|(name, scope)| {
       scope.contains(&assignment.value.start) && (value.trim() == *name || value.trim().strip_prefix("Some(").and_then(|rest| rest.strip_suffix(')')).map(str::trim) == Some(name))
@@ -474,6 +495,8 @@ fn conditional_bindings(code: &str) -> Vec<BlockBinding<'_>> {
 struct LockParameter<'a> {
   at: usize,
   name: &'a str,
+  /// A closure that answers a lock (`take: impl FnOnce() -> Result<RepositoryLock>`): its calls take one, as a `Locker`
+  takes: bool,
   body: Range<usize>,
   life: Range<usize>,
 }
@@ -524,14 +547,16 @@ fn lock_parameters<'a>(code: &'a str, types: &[String]) -> Vec<LockParameter<'a>
       }) {
         let ty = &parameter[colon + 1..];
         let names = names_of(&parameter[..colon]);
+        let takes = closure_answer(ty).is_some_and(|answer| types.iter().any(|lock| holds(answer, lock)));
         if let [name] = names.as_slice()
-          && types.iter().any(|lock| holds(ty, lock))
+          && (takes || types.iter().any(|lock| holds(ty, lock)))
         {
           let body = &code[body_open + 1..body_close];
           let life = first_at_top(body, |text, index| drops(text, index, name)).unwrap_or(body.len());
           found.push(LockParameter {
             at: start + parameter.find(name).unwrap_or(0),
             name,
+            takes,
             body: body_open + 1..body_close,
             life: body_open + 1..body_open + 1 + life,
           });
@@ -566,6 +591,64 @@ fn arm_patterns(block: &str) -> Vec<&str> {
     rest = rest.strip_prefix(',').unwrap_or(rest);
   }
   patterns
+}
+
+/// The answer of a closure type or a function type (`impl FnOnce() -> Result<RepositoryLock>`, `&dyn Fn(&T) -> X`,
+/// `fn() -> X`): the type after its `->` outside the parentheses of its parameters; `None` for another type
+fn closure_answer(ty: &str) -> Option<&str> {
+  let fn_at = ["FnOnce(", "FnMut(", "Fn(", "fn("]
+    .iter()
+    .filter_map(|name| ty.find(name).map(|at| at + name.len() - 1))
+    .min()?;
+  let close = fn_at + 1 + first_at_top(&ty[fn_at + 1..], |_, _| false)?;
+  ty[close + 1..].trim_start().strip_prefix("->")
+}
+
+/// Whether the initializer `value` of a binding is a closure (`|| …`, `move |x| …`), and its body
+fn closure_body(value: &str) -> Option<&str> {
+  let value = value.trim_start();
+  let value = value.strip_prefix("move").filter(|rest| rest.starts_with([' ', '|'])).map_or(value, str::trim_start);
+  let rest = value.strip_prefix('|')?;
+  let close = rest.find('|')?;
+  Some(&rest[close + 1..])
+}
+
+/// The assignments to a field of `code` (`holder.held = Some(lock_file(…)?)`, through a `&mut` or `self`): a statement
+/// whose left side is a path of names with a `.`; the field keeps what it is given, as this code sees it, to the end of
+/// the block of the statement
+fn field_assignments(code: &str) -> Vec<Assignment> {
+  let bytes = code.as_bytes();
+  let mut found = Vec::new();
+  for (equals, _) in code.match_indices('=') {
+    if matches!(bytes.get(equals + 1), Some(b'=' | b'>'))
+      || matches!(
+        bytes.get(equals.wrapping_sub(1)),
+        Some(b'=' | b'!' | b'<' | b'>' | b'+' | b'-' | b'*' | b'/' | b'|' | b'&' | b'^' | b'%')
+      )
+    {
+      continue;
+    }
+    let start = code[..equals].rfind([';', '{', '}']).map_or(0, |at| at + 1);
+    let target = code[start..equals].trim();
+    let path = target.split('.').collect::<Vec<_>>();
+    if path.len() < 2
+      || !path
+        .iter()
+        .all(|part| !part.is_empty() && part.bytes().all(is_word) && !part.starts_with(|c: char| c.is_ascii_digit()))
+    {
+      continue;
+    }
+    let Some(end) = top_byte(&code[equals + 1..], b';', |_, _| true).map(|end| equals + 1 + end) else {
+      continue;
+    };
+    let block_end = first_at_top(&code[end + 1..], |_, _| false).map_or(code.len(), |close| end + 1 + close);
+    found.push(Assignment {
+      at: start + (code[start..equals].len() - code[start..equals].trim_start().len()),
+      value: equals + 1..end,
+      life: end + 1..block_end,
+    });
+  }
+  found
 }
 
 /// An assignment to a variable a `let` bound before (`name = value;`): its value, and where the value it gives lives:
@@ -732,16 +815,6 @@ fn holds(text: &str, ty: &str) -> bool {
 /// `holds` of the occurrence of a type at `at` of `text`
 fn held_at(text: &str, at: usize) -> bool {
   let bytes = text.as_bytes();
-  // behind a reference, its lifetime and `mut` (the quote of a lifetime is blanked as a literal by `code_text`)
-  let mut before = text[..at].trim_end();
-  before = before.strip_suffix("mut").filter(|rest| !rest.ends_with(is_word_char)).map_or(before, str::trim_end);
-  let lifetime = before.trim_end_matches(is_word_char).trim_end();
-  if lifetime.len() < before.len() && lifetime.ends_with(['&', '\'']) {
-    before = lifetime.trim_end_matches('\'').trim_end();
-  }
-  if before.ends_with('&') {
-    return false;
-  }
   let mut index = at;
   loop {
     // the bracket that encloses `index`, outside the `>` of a `->`
@@ -1031,7 +1104,8 @@ fn a_lock_function_answers_a_repository_lock() {
 }
 
 /// A type holds a lock by a field, a variant's field or an alias, in an `Option`, a `Result`, a `Vec`, a `Box` or a
-/// tuple, and so does a type that holds one of those; not a reference, the answer of a closure type or another container
+/// tuple, also behind a reference (`held_lock: Option<&'a RepositoryLock>`: the lock lives while the borrow does), and so
+/// does a type that holds one of those; not the answer of a closure type, not in another container
 #[test]
 fn a_lock_type_holds_a_repository_lock_by_a_field_a_variant_or_an_alias() {
   let code = code_text(
@@ -1054,7 +1128,18 @@ fn a_lock_type_holds_a_repository_lock_by_a_field_a_variant_or_an_alias() {
   let types = lock_types_of(vec!["RepositoryLock".to_owned()], &type_declarations(&code));
   assert_eq!(
     types,
-    ["CloneTurn", "FetchTurn", "Locks", "OwnFetch", "Pair", "PressureTurn", "RepositoryLock", "ReviewHeld"]
+    [
+      "CloneTurn",
+      "FetchTurn",
+      "Locks",
+      "OwnFetch",
+      "Pair",
+      "PressureTurn",
+      "RepositoryLock",
+      "ReviewHeld",
+      "RewriteOptions",
+      "Shared"
+    ]
   );
 }
 
@@ -1160,9 +1245,9 @@ fn a_repository_lock_lives_across_no_call_of_the_network() {
 }
 
 /// A lock that a type holds is a lock: a variant matched by `match` and kept in a variable bound before, a variant matched
-/// by `if let`, an alias, a struct with a lock field, a parameter that takes one; it lives to the release of the variable
-/// it was kept in. A struct that borrows a lock or holds a closure that takes one holds none, and an `impl Drop` answer is
-/// out of scope
+/// by `if let`, an alias, a struct with a lock field, a parameter that takes one, also by reference, and a struct that
+/// borrows one; it lives to the release of the variable it was kept in. A struct that holds a closure that takes one
+/// holds none (`Locker`), and an `impl Drop` answer is out of scope
 #[test]
 fn a_lock_that_a_type_holds_lives_across_no_call_of_the_network() {
   let (source, hits) = marked(&[
@@ -1232,20 +1317,26 @@ fn a_lock_that_a_type_holds_lives_across_no_call_of_the_network() {
     "  execute_remote_command(git, &[\"fetch\"], path)?;",
     "  Ok(())",
     "}",
-    "fn a_borrowed_lock(git: &GitCommandExecutor, held_lock: Option<&RepositoryLock>) -> Result<()> {",
+    "fn a_borrowed_lock(git: &GitCommandExecutor, held_lock: Option<&RepositoryLock>) -> Result<()> { // hit",
     "  execute_remote_command(git, &[\"fetch\"], path)?;",
     "  Ok(())",
     "}",
     "struct Options<'a> { held_lock: Option<&'a RepositoryLock>, waiter: Arc<dyn Fn() -> Result<RepositoryLock>> }",
     "fn options() -> Options<'static> { todo!() }",
     "fn options_that_borrow_and_take_a_lock(git: &GitCommandExecutor) -> Result<()> {",
-    "  let options = options();",
+    "  let options = options(); // hit",
     "  execute_remote_command(git, &[\"fetch\"], path)?;",
     "  Ok(())",
     "}",
     "fn hold_opaque(path: &Path) -> impl Drop { todo!() }",
     "fn an_impl_drop_out_of_scope(git: &GitCommandExecutor) -> Result<()> {",
     "  let _held = hold_opaque(path);",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn hold_erased(path: &Path) -> Result<Box<dyn std::any::Any>> { todo!() }",
+    "fn an_erased_lock_out_of_scope(git: &GitCommandExecutor) -> Result<()> {",
+    "  let _held = hold_erased(path)?;",
     "  execute_remote_command(git, &[\"fetch\"], path)?;",
     "  Ok(())",
     "}",
@@ -1482,8 +1573,14 @@ fn a_std_guard_lives_across_no_git_and_is_handed_to_no_call_that_runs_it() {
 /// The calls, by their whole name, that the repository lock never lives across
 const LONG_CALLS: [&str; 5] = ["sync", "sync_branches", "wait_while_locked", "wait_for_index", "wait_for_index_locks"];
 
-/// No repository lock lives across a sync or a wait for the index today; an exemption names its file, reason and count
-const EXEMPT_LONG_LOCKS: [Exemption; 0] = [];
+/// The one wait for the index that a lock may seem to live across; an exemption names its file, reason and count
+const EXEMPT_LONG_LOCKS: [Exemption; 1] = [Exemption {
+  path: "crates/update-core/src/pick.rs",
+  hits: 1,
+  reason: "`land` takes `&RewriteOptions`, which borrows the lock of a caller that holds it (`held_lock`): with one it \
+           breaks out of its checks without the lock at once and checks under that lock, and only without one it waits for \
+           the index locks of other processes (`wait_for_index_locks`), before it takes its own",
+}];
 
 /// Whether `scope` calls a sync or waits for the index lock
 fn reaches_a_long_call(scope: &str, _services: &[&str]) -> bool {
@@ -1519,7 +1616,7 @@ fn a_repository_lock_lives_across_no_sync_and_no_wait_for_the_index() {
     "  drop(lock);",
     "  Ok(synced)",
     "}",
-    "fn the_wait_under_the_lock(options: &RewriteOptions, git: &GitCommandExecutor, plan: &PickPlan) -> Result<()> {",
+    "fn the_wait_under_the_lock(options: &RewriteOptions, git: &GitCommandExecutor, plan: &PickPlan) -> Result<()> { // hit",
     "  let lock = options.lock(git, target)?; // hit",
     "  plan.wait_for_index_locks(git, target)?;",
     "  Ok(())",
@@ -1539,4 +1636,61 @@ fn a_repository_lock_lives_across_no_sync_and_no_wait_for_the_index() {
     "use bd_core::sync_command::{SyncOutput, lock, sync};",
   ]);
   assert_eq!(locks_across_a_long_call(&source), hits);
+}
+
+/// A lock is held through a borrow and a field too, and taken through a closure: a parameter of `&Option<RepositoryLock>`
+/// (its `if let Some(_lock) = held.as_ref()` as well), a field assigned the lock through a `&mut` to the end of the
+/// block, a closure parameter that answers a lock and a closure binding that takes one, called with no argument. A name
+/// bound again (`let lock = 5`) keeps the lock it shadows to the end of the block
+#[test]
+fn a_lock_held_through_a_borrow_or_a_field_or_taken_through_a_closure_lives_across_no_call_of_the_network() {
+  let (source, hits) = marked(&[
+    "struct Holder { held: Option<RepositoryLock> }",
+    "fn a_field(holder: &mut Holder, git: &GitCommandExecutor, path: &Path) -> Result<()> { // hit",
+    "  holder.held = Some(lock_file(path.to_path_buf(), timeout, &|| {})?); // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn a_field_of_self(&mut self, git: &GitCommandExecutor) -> Result<()> {",
+    "  {",
+    "    self.turn = lock_file(self.path.clone(), timeout, &|| {})?; // hit",
+    "    execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  }",
+    "  Ok(())",
+    "}",
+    "fn a_borrowed_option(git: &GitCommandExecutor, held: &Option<RepositoryLock>) -> Result<()> { // hit",
+    "  if let Some(_lock) = held.as_ref() {",
+    "    execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  }",
+    "  Ok(())",
+    "}",
+    "fn a_closure_parameter(git: &GitCommandExecutor, take: impl FnOnce() -> Result<RepositoryLock>) -> Result<()> {",
+    "  let _lock = take()?; // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn a_closure_binding(git: &GitCommandExecutor, path: &Path) -> Result<()> {",
+    "  let take = move || lock_file(path.to_path_buf(), timeout, &|| {});",
+    "  let _lock = take()?; // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn a_closure_never_called(git: &GitCommandExecutor, path: &Path) -> Result<()> {",
+    "  let take = || lock_file(path.to_path_buf(), timeout, &|| {});",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn a_shadowed_lock(git: &GitCommandExecutor, path: &Path) -> Result<()> {",
+    "  let lock = lock_file(path.to_path_buf(), timeout, &|| {})?; // hit",
+    "  let lock = 5u8;",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn a_closure_that_answers_no_lock(git: &GitCommandExecutor, read: impl Fn() -> Result<String>) -> Result<()> {",
+    "  let text = read()?;",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+  ]);
+  assert_eq!(locks_across_network(&source), hits);
 }

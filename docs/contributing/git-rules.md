@@ -45,10 +45,12 @@ async mutex or `RwLock` (`let … = ….lock().await`) lives across another `.aw
 is one shared future, not a mutex), no guard of the repository lock, nor of any other file lock (a lock is the call of
 any function of the scanned sources whose answer holds a `RepositoryLock`, whatever its name: `lock_file`,
 `StateFile::lock_at`, the locks of a lease and of the companions, a wrapper of one, a type that holds one by a field, a
-variant or an alias such as `CloneTurn` and `PressureTurn`, in an `Option`, a `Result`, a `Vec`, a `Box` or a tuple and
-never behind a reference; held by a `let`, an `if let`, a `while let` or a `match` on it, a parameter, or an assignment to
-a variable bound before, to its release; an `impl Trait` answer is out of scope; `fetch_baseline` holds its own turn at
-the fetch lock across its fetch by design, an exemption), across `execute_remote_command*`,
+variant or an alias such as `CloneTurn` and `PressureTurn`, in an `Option`, a `Result`, a `Vec`, a `Box` or a tuple,
+also behind a reference, or a closure that answers one; held by a `let`, an `if let`, a `while let` or a `match` on it, a
+parameter by value or by reference, an assignment to a variable bound before, to its release, or to a field, to the end
+of the block; an `impl Trait` answer and a `Box<dyn Any>` are out of scope; `fetch_baseline` holds its own turn at the
+fetch lock across its fetch by design, and `pick::land` waits for the index locks only without the lock its
+`&RewriteOptions` may borrow: the two exemptions), across `execute_remote_command*`,
 `fetch_baseline`, `push_baseline`, `push_leased`, HTTP (`reqwest`, a method of a GitHub, Patronus or YouTrack
 service) or `block_on` ([invariant 2](../design/rust-domain-authority.md#инварианты)), nor across a sync (`sync`,
 `sync_branches`) or a wait for the index lock of another process (`wait_while_locked`, `wait_for_index`,
