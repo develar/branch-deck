@@ -324,8 +324,9 @@ fn the_directories_of_an_operation_are_read_once() {
 fn network_commands_run_through_remote_command() {
   check(
     "a network command runs on a plain executor call",
-    "run push, fetch and ls-remote with sync_core::remote_command::execute_remote_command* (docs/contributing/git-rules.md, Network \
-     commands): the credential helpers stay, prompts are off, stalled HTTP transfers abort and the locale is C",
+    "run push, fetch, ls-remote and git lfs with execute_remote_command* of git_ops::remote_command or sync_core::remote_command \
+     (docs/contributing/git-rules.md, Network commands): the credential helpers stay, prompts are off, stalled HTTP transfers abort \
+     and the locale is C",
     &[Exemption {
       path: "crates/bd-cli/src/schema.rs",
       hits: 1,
@@ -339,7 +340,7 @@ fn network_commands_run_through_remote_command() {
           .any(|rest| rest.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_').starts_with('('))
       });
       list_lines(source, |list| {
-        matches!(list.subcommand(), Some("push" | "fetch" | "pull" | "ls-remote" | "clone")) && (!calls_remote_command || is_executor_argument(list.before))
+        matches!(list.subcommand(), Some("push" | "fetch" | "pull" | "ls-remote" | "clone" | "lfs")) && (!calls_remote_command || is_executor_argument(list.before))
       })
     },
   );

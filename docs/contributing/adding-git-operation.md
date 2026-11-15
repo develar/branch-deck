@@ -46,8 +46,9 @@ are [Git Rules](git-rules.md), the flows and the reasons in [Git Operations](../
   has a writer of its own that no session reads, as the reviewed refs); the
   app's Tauri wrapper and the E2E server's route come from the entry and run the same body.
 - **Reuse a helper** before writing a parser or a process: `ref_transaction`, `commit_writer`, `commit_chain`,
-  `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `snapshot`, `repository_lock`
-  and `regroup` in `history_rewrite`; `repo_facts`, `baseline` and `remote_command` in `sync_core`.
+  `cat_file_batch`, `object_texts`, `history`, `rewrite_guard`, `revs`, `remote_command` and `lfs` in `git_ops`;
+  `snapshot`, `repository_lock` and `regroup` in `history_rewrite`; `repo_facts`, `baseline` and `remote_command` (with
+  progress) in `sync_core`.
 - **Same commit**: the spec, the flow's section in [Git Operations](../design/git-operations.md), and a test in
   `process_budget_test.rs` that pins its processes by subcommand; a core that takes the repository lock, its row of
   [Lock spans](../design/git-operations.md#lock-spans) and the test of its span; the scan tests stay green, the
@@ -93,7 +94,7 @@ modules by area; the layers are the
   (and the push URL of `origin` of them) and the baseline of its context (`RepoContext::command_facts`, `baseline`,
   forgotten after a wait for the lock) and passes them to its sync (`SyncOptions::facts`) and its cores, the
   baseline with its upstream comes from one `read_baseline` (with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`), and an operation that reads the directories in several steps takes them once at its entry
-  (`with_dirs_of`); under the lock only the witness of what it read is read again. A remote only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
+  (`with_dirs_of`); under the lock only the witness of what it read is read again. A remote only through `remote_command`. A move whose files follow names them in `Prepared::worktree_moves` (or passes its `worktree_move` to `git_ops::lfs::prefetch_lfs_objects` before a lock of its own), so the objects of Git LFS are fetched before the lock ([Git LFS](../design/git-operations.md#git-lfs)). The params and results the app passes derive `specta::Type` (feature `specta`).
 - **The operation** (`crates/operations/src/<family>.rs`, for an action on the remote: a push, a start, a restart or a
   cancel of a robot, a write to a pull request or an issue): the intent of its family (`domain_types::operation::Intent`)
   runs in the frame of `operations::engine::run`, admitted by the in-process registry (`operations::registry`, by the
@@ -171,7 +172,8 @@ Reuse one of these before writing a parser or a process of your own.
 | `resolve_commit_ids` | `history_rewrite::commit_ids` | the ids of a request, abbreviated or full, among the commits ahead of the baseline |
 | `CacheMemo`, `ConflictMemo` | `sync_core::cache_memo` | merges, commit trees and conflict views in the object cache |
 | `lock_repository`, `RewriteOptions`, `ensure_expected_head` | `history_rewrite::repository_lock` | the repository lock and the expected HEAD |
-| `execute_remote_command` (`_accepting`, `_with_progress`, `_with_progress_until`) | `sync_core::remote_command` | every push and fetch |
+| `execute_remote_command` (`_accepting`, `_output`); `_with_progress`, `_with_progress_until` | `git_ops::remote_command`; `sync_core::remote_command` | every push and fetch, `git lfs` |
+| `prefetch_lfs_objects`, `WorktreeMove` | `git_ops::lfs` | the objects of Git LFS a move of the files needs, before the repository lock (`Prepared::worktree_moves`) |
 | `push_refs` | `sync_core::push_lease` | one leased `push --porcelain` of many refs |
 | `detect_baseline_branch`; `check_sync_guards` | `history_rewrite::baseline`; `sync_core::sync` | the baseline outside a sync; the guards of a sync |
 | `with_dirs_of`, `known_dirs`, `git_common_dir`, `RepositoryDirs::git_path` | `git_ops::revs` | the directories of the repository, read once at the entry of an operation and carried by its executor: a path in the git directory with no `rev-parse` |

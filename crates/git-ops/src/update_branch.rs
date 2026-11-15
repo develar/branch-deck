@@ -12,6 +12,7 @@ use crate::commit_writer::{WrittenCommits, current_committer, write_notes_to_ref
 use crate::crlf::conversions;
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
 use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_before_replay, read_landed, with_patch_identical};
+use crate::lfs::WorktreeMove;
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
@@ -186,6 +187,18 @@ impl UpdatePlan {
   /// Whether the files follow the update it applies: a clean update that changes them
   pub const fn moves_files(&self) -> bool {
     matches!(self.check.state, UpdateState::Clean { .. }) && self.files_change
+  }
+
+  /// The move of the working tree of `worktree` that the update applies, when its files follow (`moves_files`): what the
+  /// objects of Git LFS are fetched for before the lock (`lfs::prefetch_lfs_objects`)
+  pub fn worktree_move(&self, worktree: &str) -> Option<WorktreeMove> {
+    let to = self.new_head.as_ref().filter(|_| self.moves_files())?;
+    Some(WorktreeMove {
+      worktree: worktree.to_string(),
+      from: self.checked.head.clone(),
+      to: to.clone(),
+      branch: Some(self.checked.branch.clone()),
+    })
   }
 
   /// Whether this is the check before an apply that found a conflict: the start of a resolve session
@@ -1475,6 +1488,16 @@ impl UpdateUndo {
     self.files_change
   }
 
+  /// The move of the working tree of `worktree` that the undo applies, when its files follow
+  pub fn worktree_move(&self, worktree: &str) -> Option<WorktreeMove> {
+    self.files_change.then(|| WorktreeMove {
+      worktree: worktree.to_string(),
+      from: self.head.clone(),
+      to: self.new_head.clone(),
+      branch: self.head_ref.branch().map(str::to_string),
+    })
+  }
+
   /// The local paths that stop the files from following, as `UpdateState::Blocked` lists them; empty if they can
   pub fn blocked(&self) -> &[String] {
     &self.blocked
@@ -1699,6 +1722,14 @@ impl HeadRef {
   /// branch. A check and a resolve session record what they read this way
   pub(crate) fn of(name: &str) -> Self {
     if name == "HEAD" { Self::Detached } else { Self::Branch(name.to_string()) }
+  }
+
+  /// The branch; `None` when detached
+  pub(crate) fn branch(&self) -> Option<&str> {
+    match self {
+      Self::Branch(branch) => Some(branch),
+      Self::Detached => None,
+    }
   }
 
   /// The branch, or `HEAD` when detached: how messages name what moved

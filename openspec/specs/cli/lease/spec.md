@@ -47,7 +47,7 @@ targets:
   - crates/history-rewrite/src/repository_lock.rs
   - crates/git-ops/src/lease_slot.rs
   - crates/git-executor/src/worktree_safety_test.rs
-  - crates/sync-core/src/lfs.rs
+  - crates/git-ops/src/lfs.rs
 ---
 
 # brd lease
@@ -950,8 +950,8 @@ of the files of LFS, so that no filter of LFS runs under a lock of the pool, and
 - **WHEN** neither `filter.lfs.process` nor, without it, `filter.lfs.smudge` names a command, the command has
   `--skip`, or git's environment has a `GIT_LFS_SKIP_SMUDGE` that is true
 - **THEN** the smudge of LFS does not download, and the checkout of a new slot runs the filter as git does
-  [@test] crates/git-ops/src/lease_slot_test.rs (`the_smudge_of_git_lfs_downloads_unless_it_skips`)
-  [@test] crates/git-ops/src/lease_slot_test.rs (`the_objects_of_git_lfs_are_where_lfs_storage_puts_them`)
+  [@test] crates/git-ops/src/lfs_test.rs (`the_smudge_of_git_lfs_downloads_unless_it_skips`)
+  [@test] crates/git-ops/src/lfs_test.rs (`the_objects_of_git_lfs_are_where_lfs_storage_puts_them`)
 
 ### Requirement: Get: A slot freed while a get waits for the clones lock ends the wait
 

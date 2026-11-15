@@ -8,12 +8,13 @@
 //! remote has now. The status, and so the lease, compares with the remote-tracking ref: a background fetch that
 //! moves it shows up as the commits a push drops (`behind`), which a push replaces only once the user saw them.
 
-use crate::remote_command::{execute_remote_command, execute_remote_command_accepting, execute_remote_command_output, execute_remote_command_with_progress};
+use crate::remote_command::execute_remote_command_with_progress;
 use crate::transfer_progress::{TransferProgress, TransferProgressAnalyzer};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::unique_temp_ref;
 use git_ops::ref_transaction::RefTransaction;
+use git_ops::remote_command::{execute_remote_command, execute_remote_command_accepting, execute_remote_command_output};
 use git_ops::revs::ref_tips;
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, instrument};

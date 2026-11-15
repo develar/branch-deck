@@ -349,7 +349,7 @@ pub fn read_gh_token(gh: &Path, timeout: Duration) -> Option<Token> {
   (!value.is_empty()).then_some(Token { value, source: TokenSource::Gh })
 }
 
-/// Config of `git credential fill`, as for a fetch (`sync_core::remote_command`): stored credentials only, nothing
+/// Config of `git credential fill`, as for a fetch (`git_ops::remote_command`): stored credentials only, nothing
 /// asks for new ones
 const CREDENTIAL_ARGS: [&str; 4] = ["-c", "credential.interactive=false", "credential", "fill"];
 

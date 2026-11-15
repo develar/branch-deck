@@ -11,6 +11,7 @@ use domain_types::error::ErrorCode;
 use domain_types::rewrite::{UnapplyBranchResult, UndoneUnapply};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
+use git_ops::lfs::WorktreeMove;
 use git_ops::revs::{is_object_id, with_dirs_of};
 use git_ops::unapply::{DropKind, DropPlan, UnappliedMove, apply_unapply, apply_unapply_undo, check_drop, check_unapply_undo};
 use git_ops::update_branch::UndoCheck;
@@ -183,6 +184,10 @@ impl Prepared for PreparedUnapply {
 
   fn moves_files(&self) -> bool {
     self.plan.files_change()
+  }
+
+  fn worktree_moves(&self, repository_path: &str) -> Vec<WorktreeMove> {
+    self.plan.worktree_move(repository_path).into_iter().collect()
   }
 }
 

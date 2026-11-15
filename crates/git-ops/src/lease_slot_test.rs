@@ -1,7 +1,6 @@
-use crate::lease_slot::{CheckoutWorkers, SlotMove, attach_new_branch, lease_config, linked_worktree, move_clean_slot, register_slot, unlock_slot};
+use crate::lease_slot::{CheckoutWorkers, SlotMove, attach_new_branch, linked_worktree, move_clean_slot, register_slot, unlock_slot};
 use std::path::PathBuf;
-use test_utils::env_vars::EnvVars;
-use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::git_test_utils::TestRepo;
 use test_utils::process_budget::{assert_processes, counting};
 
 /// A repository with a commit, and the path of a slot that is not there yet in a directory of its own
@@ -179,50 +178,4 @@ fn a_new_branch_is_attached_in_one_transaction_and_an_existing_one_fails_it() {
   fixture.repo.git(&["checkout", "--quiet", "--detach", &fixture.first]);
   assert!(attach_new_branch(fixture.repo.git_executor(), slot, "feature", &fixture.first).is_err());
   assert_eq!(fixture.head(), (fixture.first.clone(), "HEAD".to_string()));
-}
-
-/// The smudge filter of Git LFS downloads when `filter.lfs.process`, else `filter.lfs.smudge`, names a command without
-/// `--skip` and `GIT_LFS_SKIP_SMUDGE` is not true: a new slot is then checked out with the pointers and pulled after the
-/// clones lock (`LfsConfig::smudge`). A `process` that is set, empty too, hides the `smudge`, as in git
-#[test]
-fn the_smudge_of_git_lfs_downloads_unless_it_skips() {
-  // the filter of a `git lfs install` of the developer or of the runner stays out
-  let global = tempfile::NamedTempFile::new().unwrap();
-  let _isolated = EnvVars::set(&[("GIT_CONFIG_NOSYSTEM", "1".as_ref()), ("GIT_CONFIG_GLOBAL", global.path().as_os_str())]);
-  let repo = TestRepo::new();
-  let config = repo.path().join(".git").join("config");
-  let local = std::fs::read_to_string(&config).unwrap();
-  let smudges = |section: &str| {
-    std::fs::write(&config, format!("{local}[filter \"lfs\"]\n{section}")).unwrap();
-    lease_config(repo.git_executor(), repo.path_str()).unwrap().lfs.smudge
-  };
-  let cases = [
-    ("\trequired = true\n", false),
-    ("\tprocess = git-lfs filter-process\n", true),
-    ("\tprocess = git-lfs filter-process --skip\n", false),
-    ("\tsmudge = git-lfs smudge -- %f\n", true),
-    ("\tsmudge = git-lfs smudge --skip -- %f\n", false),
-    ("\tsmudge = git-lfs smudge -- %f\n\tprocess = git-lfs filter-process --skip\n", false),
-    ("\tprocess = git-lfs filter-process --skip\n\tprocess = git-lfs filter-process\n", true),
-    ("\tsmudge = git-lfs smudge -- %f\n\tprocess =\n", false),
-  ];
-  for (section, expected) in cases {
-    assert_eq!(smudges(section), expected, "{section}");
-  }
-  let downloading = "\tprocess = git-lfs filter-process\n";
-  let _skip = EnvVars::set(&[("GIT_LFS_SKIP_SMUDGE", "1")]);
-  assert!(!smudges(downloading), "GIT_LFS_SKIP_SMUDGE=1");
-  let _no_skip = EnvVars::set(&[("GIT_LFS_SKIP_SMUDGE", "0")]);
-  assert!(smudges(downloading), "GIT_LFS_SKIP_SMUDGE=0");
-}
-
-/// The objects of Git LFS are in `lfs/objects` of the common directory, or in `objects` of `lfs.storage`, relative to it
-#[test]
-fn the_objects_of_git_lfs_are_where_lfs_storage_puts_them() {
-  let repo = TestRepo::new();
-  let common = PathBuf::from("/common");
-  let objects = || lease_config(repo.git_executor(), repo.path_str()).unwrap().lfs.objects(&common);
-  assert_eq!(objects(), common.join("lfs").join("objects"));
-  append_config(repo.path(), &[("lfs.storage", "store")]);
-  assert_eq!(objects(), common.join("store").join("objects"));
 }

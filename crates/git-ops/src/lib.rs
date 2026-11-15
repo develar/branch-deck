@@ -75,6 +75,12 @@
 //! Safe Push:
 //! - `trial_rebase`: the rebase of a branch onto the target tip that Patronus runs, tried on objects only
 //!
+//! The network:
+//! - `remote_command`: the policy of every git that talks to a remote (push, fetch, `git lfs`), whose variants with
+//!   progress are `sync_core::remote_command`'s
+//! - `lfs`: Git LFS as the config tells it, the fetch of the objects a move of a working tree needs, before the
+//!   repository lock, and the pull of a new slot of a lease pool after its clones lock
+//!
 //! The lease pool:
 //! - `lease_slot`: the git of a slot of `brd lease`, the one other writer of a working tree: a slot is pool property
 //! - `worktree_snapshot`: the tree of the files of a worktree as `git add --all` stages them, in a copy of its index,
@@ -109,6 +115,7 @@ pub mod host_objects;
 pub mod index_lock;
 pub mod landed_pairing;
 pub mod lease_slot;
+pub mod lfs;
 pub mod merge_conflict;
 pub mod merge_memo;
 pub mod merge_tree_output;
@@ -122,6 +129,7 @@ pub mod push_contents;
 pub mod pushed_tracking;
 pub mod reapply;
 pub mod ref_transaction;
+pub mod remote_command;
 pub mod replay;
 pub mod resolve_check;
 pub mod reviewed_refs;
@@ -204,7 +212,11 @@ mod push_contents_test;
 mod pushed_tracking_test;
 
 #[cfg(test)]
+mod lfs_test;
+#[cfg(test)]
 mod ref_transaction_test;
+#[cfg(test)]
+mod remote_command_test;
 
 #[cfg(test)]
 mod reviewed_refs_test;

@@ -16,6 +16,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{get_commit_list_at, read_messages_and_paths};
 use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::copy_commit::virtual_message_of;
+use git_ops::lfs::{WorktreeMove, prefetch_lfs_objects};
 use git_ops::pick::{
   AppliedPick, PickCheck, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PickedCommit, SubjectPrefix, apply_pick, check_pick_undo, check_pick_with_signing,
   recheck_pick,
@@ -573,6 +574,8 @@ fn land(
       let applied = apply(&plan)?;
       return Ok((plan, applied));
     }
+    // the objects of Git LFS of the moves before the lock: the smudge filter under it reads the store only
+    prefetch_lfs_objects(git_executor, &plan.worktree_moves(target))?;
     plan.wait_for_index_locks(git_executor, target)?;
     let lock = options.lock(git_executor, target)?;
     if finish_pending(git_executor, worktrees)? || !recheck_pick(git_executor, target, &mut plan)? {
@@ -929,6 +932,15 @@ impl Prepared for PickUndo {
 
   /// A checked undo writes no object
   fn discard(&self, _git_executor: &GitCommandExecutor, _repository_path: &str) {}
+
+  /// The undo of the target and of the source that followed, each in its directory
+  fn worktree_moves(&self, repository_path: &str) -> Vec<WorktreeMove> {
+    let mut moves = self.target.as_ref().map_or_else(Vec::new, |target| target.worktree_moves(repository_path));
+    if let Some((path, checked, _)) = &self.source {
+      moves.extend(checked.worktree_moves(path));
+    }
+    moves
+  }
 }
 
 /// The top level of the worktree `id` of the repository of `repo_path`: `main`, the first of `git worktree list`, or a

@@ -24,6 +24,7 @@ use domain_types::rewrite::{AmendCommandResult, AutosquashScope, CommitReword, R
 use domain_types::robot_landing::RobotLandingRequest;
 use domain_types::{BranchError, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_executor::git_info::GitInfo;
 use git_ops::commit_signing::SigningFailed;
 use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::drop_commits::{DropCommitsParams, drop_commits_core};
@@ -36,7 +37,9 @@ use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
-use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
+use test_utils::env_vars::EnvVars;
+use test_utils::fake_executable::fake_executable;
+use test_utils::git_test_utils::{TestRepo, append_config, stack_ahead_of_bare_origin};
 use test_utils::process_budget::{
   FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, processes, repo_on_origin, with_added_processes,
 };
@@ -721,6 +724,73 @@ async fn a_drop_of_commits() {
       ("update-index", 2),
       ("update-ref", 2),
     ],
+  );
+}
+
+/// The pointer file of Git LFS of the object `n`, and the object id in it
+fn lfs_pointer(n: u8) -> (String, String) {
+  let oid = format!("{n:02x}").repeat(32);
+  (format!("version https://git-lfs.github.com/spec/v1\noid sha256:{oid}\nsize 12\n"), oid)
+}
+
+/// The processes of a drop of the commit of beta that changes `model.bin`, a file of Git LFS (its filter passes the
+/// pointers through), from the pointer of the object `1` to that of `2`: `store` says what `.git/lfs/objects` has
+/// (`None`: no store, a repository without LFS). Its git answers `git lfs fetch` without a remote
+fn processes_of_a_drop_of_a_file_of_git_lfs(store: Option<&[u8]>) -> Vec<(String, u32)> {
+  // the filter of a `git lfs install` stays out: Git for Windows configures `git-lfs filter-process` in its system config
+  let global = tempfile::NamedTempFile::new().unwrap();
+  let _isolated = EnvVars::set(&[("GIT_CONFIG_NOSYSTEM", "1".as_ref()), ("GIT_CONFIG_GLOBAL", global.path().as_os_str())]);
+  let repo = repo_on_origin();
+  repo.create_commit_with_files("Add the model", &[(".gitattributes", "*.bin filter=lfs\n"), ("model.bin", &lfs_pointer(1).0)]);
+  let beta = repo.create_commit("(beta) Change the model", "model.bin", &lfs_pointer(2).0);
+  append_config(repo.path(), &[("filter.lfs.smudge", "cat"), ("filter.lfs.clean", "cat")]);
+  if let Some(objects) = store {
+    let dir = repo.path().join(".git").join("lfs").join("objects");
+    std::fs::create_dir_all(&dir).unwrap();
+    for n in objects {
+      let oid = lfs_pointer(*n).1;
+      std::fs::create_dir_all(dir.join(&oid[..2]).join(&oid[2..4])).unwrap();
+      std::fs::write(dir.join(&oid[..2]).join(&oid[2..4]).join(&oid), "").unwrap();
+    }
+  }
+  let fake = tempfile::tempdir().unwrap();
+  let fake_git = fake_executable(fake.path(), "git", "case \" $* \" in *\" lfs fetch \"*) exit 0;; esac\nexec git \"$@\"");
+  let version = GitCommandExecutor::new().get_info().unwrap().version.clone();
+  let git = GitCommandExecutor::with_info(GitInfo {
+    version,
+    path: fake_git.to_str().unwrap().to_owned(),
+  })
+  .with_process_stats("test");
+  let params = DropCommitsParams {
+    repository_path: path(&repo),
+    commit_ids: vec![beta],
+    dry_run: false,
+  };
+  drop_commits_core(&git, &params, &RewriteOptions::default()).unwrap();
+  processes(&git)
+}
+
+/// The fetch of the objects of Git LFS of a drop before its lock (`git_ops::lfs::prefetch_lfs_objects`): nothing in a
+/// repository without the store of LFS; where the store has the object of the file the drop brings back, the paths the
+/// move changes (`diff-tree`), their filter at the target (`check-attr`) and the pointer (`cat-file`); where it lacks it,
+/// also the config (whether the smudge downloads, the remote) and `git lfs fetch`
+#[test]
+fn a_drop_of_a_file_of_git_lfs_fetches_what_the_store_lacks_before_the_lock() {
+  let without_lfs = processes_of_a_drop_of_a_file_of_git_lfs(None);
+  let plus = |additions: &[(&str, u32)]| {
+    let mut counts: BTreeMap<String, u32> = without_lfs.iter().cloned().collect();
+    for (name, count) in additions {
+      *counts.entry((*name).to_string()).or_default() += count;
+    }
+    counts.into_iter().collect::<Vec<_>>()
+  };
+  assert_eq!(
+    processes_of_a_drop_of_a_file_of_git_lfs(Some(&[1, 2])),
+    plus(&[("cat-file", 1), ("check-attr", 1), ("diff-tree", 1)])
+  );
+  assert_eq!(
+    processes_of_a_drop_of_a_file_of_git_lfs(Some(&[2])),
+    plus(&[("cat-file", 1), ("check-attr", 1), ("config", 1), ("diff-tree", 1), ("lfs", 1)])
   );
 }
 

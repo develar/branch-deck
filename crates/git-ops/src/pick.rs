@@ -11,6 +11,7 @@ use crate::commit_signing::Signing;
 use crate::commit_writer::{NewCommit, NewParent, read_raw_commits, write_commits};
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
 use crate::landed_pairing::present_by_patch_id;
+use crate::lfs::WorktreeMove;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, changed_paths, parse_commits};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
@@ -202,6 +203,31 @@ impl PickPlan {
   /// Whether the files of the target follow its move: its index and working tree change
   pub const fn files_change(&self) -> bool {
     !self.changed.is_empty()
+  }
+
+  /// The moves of working trees that the plan applies and their files follow: of the target `target`, and of the source
+  /// that follows. What the objects of Git LFS are fetched for before the lock (`lfs::prefetch_lfs_objects`)
+  pub fn worktree_moves(&self, target: &str) -> Vec<WorktreeMove> {
+    let mut moves = Vec::new();
+    if !self.changed.is_empty() {
+      moves.push(WorktreeMove {
+        worktree: target.to_string(),
+        from: self.check.head.clone(),
+        to: self.check.new_head.clone(),
+        branch: Some(self.check.branch.clone()),
+      });
+    }
+    if let (Some(follow), Some(follow_check)) = (&self.follow, &self.check.follow)
+      && !follow.changed.is_empty()
+    {
+      moves.push(WorktreeMove {
+        worktree: follow_check.worktree.clone(),
+        from: follow_check.head.clone(),
+        to: self.check.new_head.clone(),
+        branch: follow.head_ref.branch().map(str::to_string),
+      });
+    }
+    moves
   }
 
   /// Whether applying the plan moves a HEAD: the target's, or the source's that follows onto another commit. One that

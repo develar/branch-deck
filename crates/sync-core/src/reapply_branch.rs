@@ -12,6 +12,7 @@ use domain_types::error::ErrorCode;
 use domain_types::rewrite::{ReapplyBranchResult, UndoneReapply};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
+use git_ops::lfs::WorktreeMove;
 use git_ops::pick::{PickPlan, PickRequest, PickSource, PickState, PickedCommit, check_pick_with_signing};
 use git_ops::reapply::{RestoredChain, UnappliedRef, apply_reapply, apply_reapply_undo, check_reapply_undo, restore_chain_messages};
 use git_ops::revs::with_dirs_of;
@@ -146,6 +147,10 @@ impl Prepared for PreparedReapply {
 
   fn moves_files(&self) -> bool {
     self.plan.files_change()
+  }
+
+  fn worktree_moves(&self, repository_path: &str) -> Vec<WorktreeMove> {
+    self.plan.worktree_moves(repository_path)
   }
 }
 

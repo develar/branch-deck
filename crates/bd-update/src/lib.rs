@@ -19,6 +19,8 @@ pub mod update_command;
 mod drop_test;
 #[cfg(test)]
 mod error_code_test;
+#[cfg(all(test, unix))]
+mod lfs_prefetch_test;
 #[cfg(test)]
 mod pick_test;
 #[cfg(test)]

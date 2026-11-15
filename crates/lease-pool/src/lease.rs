@@ -29,6 +29,7 @@ use git_ops::lease_slot::{
   detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name, lease_config, linked_worktree, move_clean_slot, move_slot, refresh_cloned_index, register_slot,
   slot_changes, start_deferred_maintenance, unlock_slot,
 };
+use git_ops::lfs::pull_lfs_files;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, resolve_commit, short_id};
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::{LockHolder, LockWaitCanceled, RepositoryLock, lock_file_while_held};
@@ -42,7 +43,6 @@ use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::lease_state::forget_lease_state;
-use sync_core::lfs::pull_lfs_files;
 use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
@@ -956,7 +956,7 @@ pub enum GetStep {
   /// checked out instead
   CheckoutEveryFile { slot: String, reason: String },
   /// The download of the files of Git LFS of a new slot and their content in place of the pointers that its checkout
-  /// wrote, after the release of the clones lock (`sync_core::lfs::pull_lfs_files`)
+  /// wrote, after the release of the clones lock (`git_ops::lfs::pull_lfs_files`)
   LfsPull { slot: String },
   /// The copy of the paths that `.worktreeinclude` names
   Seed { slot: String, paths: usize },

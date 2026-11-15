@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 use domain_types::error::{AGENT_CLI_NAME, HolderTool, LockHolderInfo};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::copy_commit::CopyCommitError;
+use git_ops::lfs::{WorktreeMove, prefetch_lfs_objects};
 use git_ops::revs::{checked_out_branch, git_common_dir, head_and_tips, with_dirs_of};
 use git_ops::reword_commits::PreparedReword;
 use git_ops::rewrite_guard::HeadMoved;
@@ -842,6 +843,13 @@ pub trait Prepared {
   fn moves_files(&self) -> bool {
     false
   }
+
+  /// The moves of working trees whose files follow its write, the one of `repository_path` and of another worktree
+  /// that follows: the objects of Git LFS they need are fetched before each lock (`lfs::prefetch_lfs_objects`), so the
+  /// smudge filter under the lock reads the store only
+  fn worktree_moves(&self, _repository_path: &str) -> Vec<WorktreeMove> {
+    Vec::new()
+  }
 }
 
 /// The error of a rewrite core: whether it is `HeadMoved`, which a computation before the repository lock meets when
@@ -938,6 +946,11 @@ fn lock_witnessed<P: Prepared, E: From<anyhow::Error>>(
   }
   let mut computed = 1;
   loop {
+    // the network before the lock: what the smudge filter of Git LFS of the move would download under it
+    if let Err(error) = prefetch_lfs_objects(git_executor, &prepared.worktree_moves(repository_path)) {
+      prepared.discard(git_executor, repository_path);
+      return Err(error.into());
+    }
     let lock = match lock_for_files(lock_wait, git_executor, repository_path, prepared.moves_files(), &|| {}) {
       Ok(lock) => lock,
       Err(error) => {
@@ -1106,6 +1119,13 @@ impl Prepared for UndoCheck {
   fn moves_files(&self) -> bool {
     matches!(self, Self::Ready(undo) if undo.files_change())
   }
+
+  fn worktree_moves(&self, repository_path: &str) -> Vec<WorktreeMove> {
+    match self {
+      Self::Ready(undo) => undo.worktree_move(repository_path).into_iter().collect(),
+      Self::AlreadyUndone { .. } => Vec::new(),
+    }
+  }
 }
 
 /// A checked drop of commits (`git_ops::unapply::check_drop`) with what its core read for its answer (`facts`)
@@ -1127,6 +1147,10 @@ impl<T> Prepared for WithFacts<DropPlan, T> {
   fn moves_files(&self) -> bool {
     self.prepared.files_change()
   }
+
+  fn worktree_moves(&self, repository_path: &str) -> Vec<WorktreeMove> {
+    self.prepared.worktree_move(repository_path).into_iter().collect()
+  }
 }
 
 /// A prepared move and the mark of pending files its witness reads absent
@@ -1146,6 +1170,10 @@ impl<P: Prepared> Prepared for Marked<'_, P> {
 
   fn moves_files(&self) -> bool {
     self.prepared.moves_files()
+  }
+
+  fn worktree_moves(&self, repository_path: &str) -> Vec<WorktreeMove> {
+    self.prepared.worktree_moves(repository_path)
   }
 }
 

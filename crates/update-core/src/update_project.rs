@@ -12,6 +12,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::generated::GeneratedFile;
 use git_ops::landed_pairing::{LandedDrop, LandedReads};
+use git_ops::lfs::prefetch_lfs_objects;
 use git_ops::revs::{Worktree, current_worktree, is_object_id, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
   GuardRefusal, LandedLookup, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update_before_lock_with_signing, check_update_guards_on,
@@ -259,7 +260,9 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   let mut checks = 1;
   let lock = loop {
     let locked = (|| -> Result<_> {
-      // the index lock of another process is waited for before the repository lock, not under it
+      // the objects of Git LFS of the move are fetched before the lock, so the smudge filter under it reads the store only,
+      // and the index lock of another process is waited for before it, not under it
+      prefetch_lfs_objects(git_executor, &Vec::from_iter(prepared.plan.worktree_move(repo_path)))?;
       let lock = lock_for_files(options.lock_wait, git_executor, repo_path, prepared.plan.moves_files(), &|| {
         on_progress(UpdatePhase::Waiting.into());
       })?;

@@ -297,7 +297,8 @@ each merge of its output starts with its status, 1 clean, 0 conflicted (`parse_b
 
 ## Network commands
 
-Network commands (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
+Network commands (push, fetch, `git lfs`) run through `execute_remote_command` (`crates/git-ops/src/remote_command.rs`;
+the variants with progress in `crates/sync-core/src/remote_command.rs`):
 the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated
 `--progress` lines). Never pass `-c credential.helper=`.
 

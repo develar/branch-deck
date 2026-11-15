@@ -7,6 +7,7 @@
 
 use crate::commit_signing::Signing;
 use crate::copy_commit::CopyCommitError;
+use crate::lfs::WorktreeMove;
 use crate::paths::changed_paths;
 use crate::ref_transaction::RefTransaction;
 use crate::rewrite_plan::{PreparedRewrite, RefusalKind, prepare_drop_commits, refused_in};
@@ -99,6 +100,16 @@ impl DropPlan {
   /// Whether the files follow the drop: the index and the working tree change
   pub const fn files_change(&self) -> bool {
     self.files_change
+  }
+
+  /// The move of the working tree of `worktree` that the drop applies, when its files follow
+  pub fn worktree_move(&self, worktree: &str) -> Option<WorktreeMove> {
+    self.files_change.then(|| WorktreeMove {
+      worktree: worktree.to_string(),
+      from: self.head().to_string(),
+      to: self.new_head().to_string(),
+      branch: Some(self.branch.clone()),
+    })
   }
 
   /// The replayed commits that keep the mapping notes of their originals, newest first: a sync keeps their virtual

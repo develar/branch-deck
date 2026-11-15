@@ -332,6 +332,10 @@ taken and deletes it before the release), then runs the real git.
 | `brd land` by a push into the target (its sync before the lock, then the start above) | `for-each-ref` (the witness of the copy, the remote-tracking ref of the baseline and the checked out branch) | `a_land_by_a_push_locks_only_the_witness` (`crates/bd-remote/src/land_test.rs`) |
 | `brd request-review` (its sync before the lock, then the request; the lock only for the push of `--push`) | `for-each-ref` (the full witness and the freeze of the push) | `a_request_locks_only_the_witness_and_the_freeze_of_its_push` (`crates/bd-remote/src/request_review_test.rs`) |
 
+The `read-tree` of these rows is the move of the files (`read-tree -m -u`), and in a repository of Git LFS it runs the
+smudge filter, which downloads what the store lacks: every core whose move writes files fetches those objects before
+its lock ("Git LFS" below), so its smudge under the lock reads the store only.
+
 **One exception remains**, pinned as it is, and no change adds a computation under it: `brd update --continue`, which
 holds the lock from its read of the session to the end of its finish (the commit of the round, the replay of the rest,
   the exact check of the finish and the move); it is in "Follow-ups".
@@ -349,6 +353,45 @@ repository lock across the update's fetch or sync.
 network push and every request to a remote service (`crates/git-executor/src/concurrency_scan_test.rs`), the restart
 of a robot on its remote branch (`a_restart_on_the_remote_branch_takes_no_lock`), the delete of an unapplied branch
 (its CAS), and the dry runs.
+
+### Git LFS
+
+A move whose files follow writes them under the repository lock (`read-tree -m -u`, Lock spans above), and in a
+repository of Git LFS git runs the smudge filter for every file the filter `lfs` converts: it downloads each object the
+store lacks, so the lock was held across the network, and every rewrite of the app and of `brd` waited for the
+download. A pointer in the user's working tree, even for a moment, is no way out: the files are the user's, an IDE
+reads them as they change. So the objects come first: before each lock, the core fetches what its move needs
+(`git_ops::lfs::prefetch_lfs_objects`), and the smudge under the lock reads the store only.
+
+- **Where**: `lock_witnessed` of `history_rewrite::repository_lock`, before each lock of a computed rewrite that moves
+  files (`Prepared::worktree_moves`: an unapply, a reapply, a drop and the undo of each, the undo of an update and of a
+  pick, the target and the source that follows), so a witness that missed and a computation once more without the lock
+  fetch again; before the lock of Update Project and of `brd update` (`UpdatePlan::worktree_move`), and of a pick
+  (`PickPlan::worktree_moves`, the target and the source that follows).
+- **What**: nothing without `$GIT_COMMON_DIR/lfs/objects`, no process: a repository without objects of LFS, also where
+  the filter is configured for every repository (the system config of Git for Windows). Else the paths the move
+  changes (`diff-tree`), their filter at the target (`check-attr --source`), the pointers of those `lfs` converts (one
+  `cat-file`), and the objects the store lacks (`<objects>/<oid[0..2]>/<oid[2..4]>/<oid>`, no process). Only with one
+  missing: one `config` (whether the smudge downloads, `LfsConfig::smudge`: not with `--skip` or
+  `GIT_LFS_SKIP_SMUDGE`, then the smudge under the lock writes the pointers itself; `lfs.storage`; the remote as Git
+  LFS picks it: the remote of the branch, `remote.lfsdefault`, the one remote, `origin`), then
+  `git lfs fetch --include=<the paths> <remote> <target>` under the policy of a remote command
+  (`git_ops::remote_command`). A path with a comma or a character of a pattern, or a list past 8 KiB, fetches every
+  object of the target the store lacks instead.
+- **A failed fetch** is the error of the operation, before its lock, nothing written: the computation is discarded.
+- **Not covered**: a computation under the lock (a witness that missed past `CHECKS_WITHOUT_THE_LOCK`, a rewrite
+  under a lock its caller holds, the files of an interrupted move that follow under the lock, the round and the finish
+  of `brd update --continue` and the start of a resolve session that its words finish), whose target is known only
+  there; a repository whose `lfs.storage` keeps the store away from `$GIT_COMMON_DIR/lfs` and has no
+  `$GIT_COMMON_DIR/lfs/objects` either, which a check without a process can not tell from one without LFS. There the
+  smudge downloads under the lock as before.
+- Tests: `crates/bd-update/src/lfs_prefetch_test.rs` (a fake smudge that logs the lock and the store, a fake
+  `git lfs fetch` beside the git of `LockSpanGit`, one test per family: Update Project, an unapply and a reapply, a
+  drop, a pick, each with its undo; a move whose objects are stored, a failed fetch), the processes:
+  `a_drop_of_a_file_of_git_lfs_fetches_what_the_store_lacks_before_the_lock` (`crates/sync-core/src/process_budget_test.rs`).
+
+A new slot of a lease pool is the other case: its checkout under the clones lock writes the pointers, and the get
+pulls the content after the release ("Lease").
 
 ### Minimum Git version
 
@@ -2130,7 +2173,7 @@ nothing out). Where the smudge of LFS downloads (`LfsConfig::smudge`: `filter.lf
 environment has no `GIT_LFS_SKIP_SMUDGE` that is true; read with the other keys of the pool, no process more), that
 checkout writes the pointers (`LfsFiles::Pointers`: `-c filter.lfs.process= -c filter.lfs.smudge= -c
 filter.lfs.required=false`, so no filter of LFS starts and a `required` one does not fail on its empty command), and
-the get runs `git lfs pull` in the slot after the release, before the seed (`sync_core::lfs::pull_lfs_files`, the
+the get runs `git lfs pull` in the slot after the release, before the seed (`git_ops::lfs::pull_lfs_files`, the
 policy of a remote command; `GetStep::LfsPull`): it downloads what the store lacks and replaces the pointers, the index
 refreshed. Only where the repository keeps objects of LFS (`lfs/objects` of the common directory, or of `lfs.storage`,
 no process): Git for Windows configures the filter in its system config for every repository, and a pull in a
@@ -3815,7 +3858,7 @@ its commits.
   fetches before it takes it).
 
 Code: `crates/operations/src/review_fetch.rs`, `crates/sync-core/src/review_fetch.rs`,
-`crates/sync-core/src/remote_command.rs`, `crates/git-executor/src/git_command_executor.rs`,
+`crates/sync-core/src/remote_command.rs`, `crates/git-ops/src/remote_command.rs`, `crates/git-executor/src/git_command_executor.rs`,
 `crates/repository-model/src/runtime.rs` (the prune), `crates/app-api/src/session/operations.rs` (the close of a window),
 `crates/app-api/src/reads/review_prefetch.rs` (the read ahead).
 
@@ -4569,7 +4612,7 @@ on Space when `branchdeck.githubRepository` names none, the sync's one `cat-file
 
 Code: `crates/bd-remote/src/push_command.rs`, `crates/bd-remote/src/push_refusals.rs`, `crates/operations/src/push.rs`,
 `crates/operations/src/land_execute.rs`, `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_lease.rs`,
-`crates/sync-core/src/remote_command.rs`.
+`crates/git-ops/src/remote_command.rs`.
 
 #### Agent Safe Push (`brd safe-push`)
 
@@ -5864,8 +5907,9 @@ recovery hint (`git reset -q`).
    fetched, every push was rejected, even a Force Push the user confirmed and even after the commit was brought into
    the branch.
 
-8. **Decision**: commands that talk to a remote (push, the fetch for Update Project, and the review fetch) go through
-   `execute_remote_command` in `crates/sync-core/src/remote_command.rs`. It adds
+8. **Decision**: commands that talk to a remote (push, the fetch for Update Project, the review fetch, `git lfs fetch`
+   and `git lfs pull`) go through `execute_remote_command` in `crates/git-ops/src/remote_command.rs` (the variants with
+   progress in `crates/sync-core/src/remote_command.rs`, on the same config). It adds
    `-c credential.interactive=false -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30`, `GCM_INTERACTIVE=never` and
    `LC_ALL=C LANGUAGE=` on top of the executor's `GIT_TERMINAL_PROMPT=0`.
    **Rationale**:
@@ -6075,8 +6119,8 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
 ## References
 
 - Implementation: `crates/git-executor/src/git_info.rs`, `crates/git-executor/src/git_command_executor.rs`,
-  `crates/sync-core/src/remote_command.rs`, `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_lease.rs`,
-  `crates/git-ops/src/rewrite_guard.rs`, `crates/git-ops/src/ref_transaction.rs`,
+  `crates/git-ops/src/remote_command.rs`, `crates/sync-core/src/remote_command.rs`, `crates/sync-core/src/push.rs`,
+  `crates/sync-core/src/push_lease.rs`, `crates/git-ops/src/rewrite_guard.rs`, `crates/git-ops/src/ref_transaction.rs`,
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/replay.rs`, `crates/git-ops/src/amend_operations.rs`,
   `crates/git-ops/src/squash_commits.rs`,
