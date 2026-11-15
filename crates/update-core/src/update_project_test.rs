@@ -698,28 +698,38 @@ fn preview_compares_a_symlink_by_its_target() {
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
 }
 
-/// A clone that holds `win.txt` as it was committed, with CRLF, the `attributes` that came after it (none for an empty
-/// line), and the fetched upstream commit that changes it
+/// A clone that holds `win.txt` as it was committed, with CRLF, and `lf.txt` with LF, the `attributes` that came after
+/// them (none for an empty line), and the fetched upstream commit that changes both
 fn crlf_clone(attributes: &str) -> Setup {
-  let (upstream, clone) = TestRepo::upstream_and_clone(&[("win.txt", "one\r\ntwo\r\n"), ("other.txt", "other\n")]);
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("win.txt", "one\r\ntwo\r\n"), ("lf.txt", "one\ntwo\n")]);
   if !attributes.is_empty() {
     upstream.create_commit("Set the line ends of the texts", ".gitattributes", &format!("{attributes}\n"));
     git(&clone, &["pull", "-q", "--ff-only"]);
   }
-  upstream.create_commit("Change win.txt upstream", "win.txt", "one\r\ntwo\r\nthree\r\n");
+  upstream.create_commit_with_files("Change the texts upstream", &[("win.txt", "one\r\ntwo\r\nthree\r\n"), ("lf.txt", "one\ntwo\nthree\n")]);
   git(&clone, &["fetch", "-q", "origin"]);
   Setup { upstream, clone }
 }
 
-/// The preview of `clone` with `win.txt` written as `content`, its modification time older than the racy margin, so a
-/// second preview takes the probe of the first: the state of both, which must agree
+/// `file` of `clone` written as `content`, its modification time older than the racy margin, so the probe of the next
+/// preview answers for it
+fn write_trusted(clone: &TestRepo, file: &str, content: &str) {
+  write(clone, file, content);
+  let opened = fs::File::options().write(true).open(clone.path().join(file)).unwrap();
+  opened.set_modified(std::time::SystemTime::now() - Duration::from_secs(5)).unwrap();
+}
+
+/// The preview of `clone` with `win.txt` written as `content` (`write_trusted`), and a second one, which takes the probe
+/// of the first: the state of both, which must agree
 fn trusted_previews(clone: &TestRepo, content: &str) -> UpdateState {
-  write(clone, "win.txt", content);
-  let file = fs::File::options().write(true).open(clone.path().join("win.txt")).unwrap();
-  file.set_modified(std::time::SystemTime::now() - Duration::from_secs(5)).unwrap();
-  drop(file);
+  trusted_previews_of(clone, "win.txt", content)
+}
+
+/// `trusted_previews` of `file`
+fn trusted_previews_of(clone: &TestRepo, file: &str, content: &str) -> UpdateState {
+  write_trusted(clone, file, content);
   let first = preview(clone);
-  assert_eq!(preview(clone), first, "the probe of a trusted file says what its hash said: {content:?}");
+  assert_eq!(preview(clone), first, "the probe of a trusted file says what its hash said: {file} {content:?}");
   first
 }
 
@@ -765,19 +775,61 @@ fn preview_does_not_block_a_crlf_blob_under_core_autocrlf() {
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
 }
 
-/// Where git converts the bytes (`text`, `eol` without `text=auto`), the same file is a change of git, and the preview
-/// blocks as the exact check does; beside `ident`, which the preview does not model, it leans to blocked. The attributes
-/// of the working tree, which `hash-object` and `check-attr` read, change from case to case, the file written again each
-/// time, so no probe of another case answers
+/// Where git converts the bytes (`text`, `text=input`, an `eol` without `text=auto`, the old `crlf` and `crlf=input`),
+/// the same file is a change of git, and the preview blocks as the exact check does; beside `ident`, which the preview
+/// does not model, it leans to blocked. The attributes of the working tree, which `hash-object` and `check-attr` read,
+/// change from case to case, the file written again each time
 #[test]
 fn preview_blocks_a_crlf_blob_where_git_converts_it() {
   let Setup { upstream: _upstream, clone } = crlf_clone("");
-  for attributes in ["*.txt text eol=lf", "*.txt text eol=crlf", "*.txt eol=lf", "*.txt text=auto eol=lf ident"] {
+  for attributes in [
+    "*.txt text eol=lf",
+    "*.txt text eol=crlf",
+    "*.txt text=input",
+    "*.txt eol=lf",
+    "*.txt crlf",
+    "*.txt crlf=input",
+    "*.txt text=auto eol=lf ident",
+  ] {
     write(&clone, ".gitattributes", &format!("{attributes}\n"));
     assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), blocked(&["win.txt"]), "{attributes}");
   }
-  write(&clone, ".gitattributes", "*.txt text=auto eol=lf\n");
+  for attributes in ["*.txt text=auto eol=lf", "*.txt -crlf", "*.txt crlf=auto"] {
+    write(&clone, ".gitattributes", &format!("{attributes}\n"));
+    assert_eq!(
+      trusted_previews(&clone, "one\r\ntwo\r\n"),
+      UpdateState::Clean { kind: UpdateKind::FastForward },
+      "{attributes}"
+    );
+  }
+}
+
+/// A file whose filtered id is its blob, an LF file without attributes or under `-text` and a CRLF one under `-text`, is
+/// answered by the probe of a trusted hash as no change
+#[test]
+fn the_probe_of_a_file_its_filters_keep_answers_no_change() {
+  let Setup { upstream: _upstream, clone } = crlf_clone("");
+  let clean = UpdateState::Clean { kind: UpdateKind::FastForward };
+  assert_eq!(trusted_previews_of(&clone, "lf.txt", "one\ntwo\n"), clean, "no attributes");
+  write(&clone, ".gitattributes", "*.txt -text\n");
+  assert_eq!(trusted_previews_of(&clone, "lf.txt", "one\ntwo\n"), clean, "-text");
+  assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), clean, "-text");
+}
+
+/// The probe answers only under the attribute sources it hashed under: a file the filters of `-text` keep, then
+/// `text eol=lf` written beside it, without a touch of the file, is the change git sees
+#[test]
+fn a_change_of_the_attributes_is_seen_without_a_touch_of_the_file() {
+  let Setup { upstream: _upstream, clone } = crlf_clone("");
+  write_trusted(&clone, ".gitattributes", "*.txt -text\n");
   assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), UpdateState::Clean { kind: UpdateKind::FastForward });
+  write_trusted(&clone, ".gitattributes", "*.txt text eol=lf\n");
+  assert_eq!(preview(&clone), blocked(&["win.txt"]));
+  fs::create_dir_all(clone.path().join(".git/info")).unwrap();
+  write_trusted(&clone, ".gitattributes", "*.txt -text\n");
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
+  write_trusted(&clone, ".git/info/attributes", "*.txt text eol=lf\n");
+  assert_eq!(preview(&clone), blocked(&["win.txt"]), "info/attributes outranks .gitattributes");
 }
 
 #[test]

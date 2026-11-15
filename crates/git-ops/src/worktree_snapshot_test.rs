@@ -4,7 +4,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::path::{Path, PathBuf};
 use test_utils::git_test_utils::TestRepo;
-use test_utils::process_budget::{assert_processes, counting};
+use test_utils::process_budget::{assert_processes, counting, processes};
 
 const TEXT: CommitText<'static> = CommitText {
   name: "snapshot",
@@ -137,37 +137,82 @@ fn the_commit_of_a_worktree_is_what_add_all_stages_from_its_files_or_a_copy_of_i
   assert!(leftover.is_empty(), "the copy goes with its directory: {leftover:?}");
 }
 
+const CRLF: &str = "one\r\ntwo\r\n";
+const CRLF_EDIT: &str = "one\r\ntwo\r\nthree\r\n";
+const LF_EDIT: &str = "one\ntwo\nthree\n";
+
+/// A repository whose `files` were committed with CRLF, then `attributes`, then each of `edited` written as
+/// `CRLF_EDIT`: the commit of its worktree, which must be what `add --all` stages, and its processes
+fn crlf_snapshot(files: &[&str], attributes: &str, edited: &[&str]) -> (TestRepo, WorktreeCommit, GitCommandExecutor) {
+  let repo = TestRepo::new();
+  let committed: Vec<(&str, &str)> = files.iter().map(|file| (*file, CRLF)).collect();
+  repo.create_commit_with_files("Add files", &committed);
+  repo.create_commit("Set the line ends", ".gitattributes", attributes);
+  for file in edited {
+    std::fs::write(repo.path().join(file), CRLF_EDIT).unwrap();
+  }
+  let expected = added_tree(&repo);
+  let git = counting();
+  let written = commit(&git, &repo, &LeaseConfig::default());
+  assert_eq!(written.tree, expected, "the tree `add --all` stages");
+  (repo, written, git)
+}
+
+/// The blob of `file` in `commit`
+fn blob_of(repo: &TestRepo, commit: &str, file: &str) -> Vec<u8> {
+  repo
+    .git_executor()
+    .cmd(&["cat-file", "blob", &format!("{commit}:{file}")], repo.path_str())
+    .bytes()
+    .unwrap()
+}
+
 /// A tracked file whose blob holds CRLF, edited under `text=auto`, keeps its CRLF in what `add` stages (the safer
 /// autocrlf), though `hash-object` normalizes it: the commit from the files takes it as it is (`--no-filters`), with one
 /// `check-attr` and one `cat-file` of its index blob more. A file under `text` and a new file take the conversion, as
 /// `add` does
 #[test]
 fn a_crlf_blob_edited_under_text_auto_keeps_its_crlf_as_add_does() {
-  let repo = TestRepo::new();
-  repo.create_commit_with_files("Add files", &[("win.txt", "one\r\ntwo\r\n"), ("strict.crlf", "one\r\ntwo\r\n")]);
-  repo.create_commit("Set the line ends", ".gitattributes", "*.txt text=auto eol=lf\n*.crlf text eol=lf\n");
-  for file in ["win.txt", "strict.crlf", "new.txt"] {
-    std::fs::write(repo.path().join(file), "one\r\ntwo\r\nthree\r\n").unwrap();
-  }
-  let expected = added_tree(&repo);
-
-  let git = counting();
-  let written = commit(&git, &repo, &LeaseConfig::default());
-  assert_eq!(written.tree, expected);
-  let blob = |file: &str| {
-    repo
-      .git_executor()
-      .cmd(&["cat-file", "blob", &format!("{}:{file}", written.commit)], repo.path_str())
-      .bytes()
-      .unwrap()
-  };
-  assert_eq!(blob("win.txt"), b"one\r\ntwo\r\nthree\r\n");
-  assert_eq!(blob("strict.crlf"), b"one\ntwo\nthree\n");
-  assert_eq!(blob("new.txt"), b"one\ntwo\nthree\n");
+  let (repo, written, git) = crlf_snapshot(
+    &["win.txt", "strict.crlf"],
+    "*.txt text=auto eol=lf\n*.crlf text eol=lf\n",
+    &["win.txt", "strict.crlf", "new.txt"],
+  );
+  assert_eq!(blob_of(&repo, &written.commit, "win.txt"), CRLF_EDIT.as_bytes());
+  assert_eq!(blob_of(&repo, &written.commit, "strict.crlf"), LF_EDIT.as_bytes());
+  assert_eq!(blob_of(&repo, &written.commit, "new.txt"), LF_EDIT.as_bytes());
   assert_processes(
     &git,
     &[("cat-file", 1), ("check-attr", 1), ("fast-import", 1), ("hash-object", 2), ("status", 1), ("update-ref", 1)],
   );
+}
+
+/// The old `crlf` converts as `text` does and `-text` keeps the bytes: the filters of `hash-object` give what `add`
+/// stages, so neither reads the index blob; a binary file with a lone CR holds no CRLF and costs no `check-attr`
+#[test]
+fn the_old_crlf_attribute_and_text_off_take_the_filters_as_add_does() {
+  let (repo, written, git) = crlf_snapshot(&["old.txt", "raw.txt"], "old.txt crlf\nraw.txt -text\n", &["old.txt", "raw.txt"]);
+  assert_eq!(blob_of(&repo, &written.commit, "old.txt"), LF_EDIT.as_bytes());
+  assert_eq!(blob_of(&repo, &written.commit, "raw.txt"), CRLF_EDIT.as_bytes());
+  assert_processes(&git, &[("check-attr", 1), ("fast-import", 1), ("hash-object", 1), ("status", 1), ("update-ref", 1)]);
+
+  // a binary file alone: no CRLF, no `check-attr`
+  repo.git(&["add", "--all"]);
+  repo.git(&["commit", "-qm", "Take the edits"]);
+  repo.create_commit("Add data.bin", "data.bin", "a\rb\0");
+  std::fs::write(repo.path().join("data.bin"), "a\rb\0c").unwrap();
+  let git = counting();
+  assert_eq!(commit(&git, &repo, &LeaseConfig::default()).tree, added_tree(&repo));
+  assert_processes(&git, &[("fast-import", 1), ("hash-object", 1), ("status", 1), ("update-ref", 1)]);
+}
+
+/// `ident` beside a kept CRLF blob changes the bytes besides the line ends, which `add` alone gives: the commit takes
+/// the index copy, and is what `add` stages, its CRLF kept
+#[test]
+fn ident_beside_a_kept_crlf_blob_takes_the_index_copy() {
+  let (repo, written, git) = crlf_snapshot(&["id.txt"], "id.txt text=auto ident\n", &["id.txt"]);
+  assert_eq!(blob_of(&repo, &written.commit, "id.txt"), CRLF_EDIT.as_bytes());
+  assert!(processes(&git).iter().any(|(command, _)| command == "write-tree"), "the index copy: {:?}", processes(&git));
 }
 
 /// A clean worktree is HEAD after one status; the index copy takes more paths than `PATHSPEC_ADD_MAX` in one add of

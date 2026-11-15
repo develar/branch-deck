@@ -7,7 +7,8 @@
 //! One `status` of the index of the worktree (read only) names the paths that differ from HEAD; their files go into
 //! the commit as `add` would take them: a file by `hash-object -w --stdin-paths` (the clean filters and the end of line
 //! conversion of its path apply; a tracked file that `add` keeps as it is by the safer autocrlf, `crlf`, by
-//! `--no-filters`) with the mode of its executable bit, a link by its target, a directory with `.git` as
+//! `--no-filters`, and the index copy where `ident` or a `filter` would apply to such a file too) with the mode of its
+//! executable bit, a link by its target, a directory with `.git` as
 //! the gitlink of its HEAD, a missing file as a deletion, and an untracked directory (the `normal` mode) by its files
 //! that `ls-files --others --exclude-standard` names; then one `fast-import` writes the commit from the tree of HEAD.
 //! In idea-1 (1.4M files, a 138 MB index) the `add` of one file into a copy of the index took 1.5 s and the
@@ -19,7 +20,7 @@ use crate::cat_file_batch::{BatchEntry, read_objects};
 use crate::commit_files::MAX_BLOB_BYTES;
 use crate::commit_signing::Signing;
 use crate::commit_writer::{EditedCommit, TreeEdit, write_edited_commit};
-use crate::crlf::{crlf_kept_paths, is_crlf_text};
+use crate::crlf::{LineEnds, conversions, is_crlf_text};
 use crate::lease_slot::LeaseConfig;
 use crate::ref_transaction::RefTransaction;
 use crate::revs::is_object_id;
@@ -231,7 +232,9 @@ fn file_edits(git: &GitCommandExecutor, worktree: &str, entries: &[StatusEntry])
     return Ok(None);
   }
   if !files.is_empty() {
-    let as_they_are = kept_as_they_are(git, worktree, entries, &files)?;
+    let Some(as_they_are) = kept_as_they_are(git, worktree, entries, &files)? else {
+      return Ok(None);
+    };
     let (raw, filtered): (Vec<HashedFile>, Vec<HashedFile>) = files.into_iter().partition(|file| as_they_are.contains(&file.path));
     for (files, args) in [
       (filtered, &["hash-object", "-w", "--stdin-paths"][..]),
@@ -256,26 +259,32 @@ fn file_edits(git: &GitCommandExecutor, worktree: &str, entries: &[StatusEntry])
 }
 
 /// The tracked files of `files` that `add` stages as they are, though `hash-object`, which reads no index, normalizes
-/// them (`crlf`): a file that holds a CR, whose blob in the index is text with CRLF, under attributes that leave git the
-/// safer autocrlf. One `check-attr` and one `cat-file --batch` of their index blobs (an index blob over
-/// `MAX_BLOB_BYTES` takes the filters); none when no tracked file holds a CR
-fn kept_as_they_are(git: &GitCommandExecutor, worktree: &str, entries: &[StatusEntry], files: &[HashedFile]) -> Result<HashSet<String>> {
+/// them (`crlf`): a file that holds a CRLF, under the `auto` conversion of its line ends, whose blob in the index is text
+/// with CRLF (the safer autocrlf). `None` when such a file has `ident`, a `filter` or a `working-tree-encoding` too,
+/// whose bytes `add` alone gives (the index copy takes it). One `check-attr` of the tracked files that hold a CRLF and
+/// one `cat-file --batch` of the index blobs of those under `auto` (a blob over `MAX_BLOB_BYTES` takes the filters);
+/// none when no tracked file holds a CRLF
+fn kept_as_they_are(git: &GitCommandExecutor, worktree: &str, entries: &[StatusEntry], files: &[HashedFile]) -> Result<Option<HashSet<String>>> {
   let tracked: HashSet<&str> = entries.iter().filter(|entry| entry.code != "??").map(|entry| entry.path.as_str()).collect();
   let root = Path::new(worktree);
-  let with_cr: Vec<&str> = files
+  let with_crlf: Vec<&str> = files
     .iter()
     .map(|file| file.path.as_str())
-    .filter(|path| tracked.contains(path) && holds_cr(&root.join(path)))
+    .filter(|path| tracked.contains(path) && holds_crlf(&root.join(path)))
     .collect();
-  if with_cr.is_empty() {
-    return Ok(HashSet::new());
+  if with_crlf.is_empty() {
+    return Ok(Some(HashSet::new()));
   }
-  let kept = crlf_kept_paths(git, worktree, with_cr.iter().copied())?;
-  let paths: Vec<&str> = with_cr.into_iter().filter(|path| kept.contains(*path)).collect();
-  if paths.is_empty() {
-    return Ok(HashSet::new());
+  // `-text` keeps the bytes and the conversion of `text` gives `add`'s: the filters of `hash-object` are right for both
+  let found = conversions(git, worktree, with_crlf.iter().copied())?;
+  let auto: Vec<&str> = with_crlf
+    .into_iter()
+    .filter(|path| found.get(*path).is_some_and(|conversion| conversion.line_ends == LineEnds::Auto))
+    .collect();
+  if auto.is_empty() {
+    return Ok(Some(HashSet::new()));
   }
-  let names: Vec<String> = paths.iter().map(|path| format!(":{path}")).collect();
+  let names: Vec<String> = auto.iter().map(|path| format!(":{path}")).collect();
   let crlf = read_objects(
     git,
     worktree,
@@ -283,19 +292,29 @@ fn kept_as_they_are(git: &GitCommandExecutor, worktree: &str, entries: &[StatusE
     MAX_BLOB_BYTES,
     |entry| matches!(entry, BatchEntry::Object { kind: "blob", content, .. } if is_crlf_text(&content)),
   )?;
-  Ok(paths.into_iter().zip(crlf).filter(|(_, crlf)| *crlf).map(|(path, _)| path.to_string()).collect())
+  let kept: Vec<&str> = auto.into_iter().zip(crlf).filter(|(_, crlf)| *crlf).map(|(path, _)| path).collect();
+  if kept.iter().any(|path| found[*path].other) {
+    return Ok(None);
+  }
+  Ok(Some(kept.into_iter().map(str::to_string).collect()))
 }
 
-/// Whether the file at `path` holds a CR, read in chunks; a file that can't be read holds none, and `hash-object` says
-/// why
-fn holds_cr(path: &Path) -> bool {
+/// Whether the file at `path` holds a CRLF, read in chunks (a lone CR, as in a binary file, is none); a file that can't
+/// be read holds none, and `hash-object` says why
+fn holds_crlf(path: &Path) -> bool {
   let Ok(mut file) = std::fs::File::open(path) else { return false };
   let mut buffer = vec![0; 64 << 10];
+  let mut after_cr = false;
   loop {
     match file.read(&mut buffer) {
       Ok(0) | Err(_) => return false,
-      Ok(count) if memchr::memchr(b'\r', &buffer[..count]).is_some() => return true,
-      Ok(_) => {}
+      Ok(count) => {
+        let chunk = &buffer[..count];
+        if (after_cr && chunk[0] == b'\n') || memchr::memmem::find(chunk, b"\r\n").is_some() {
+          return true;
+        }
+        after_cr = chunk[count - 1] == b'\r';
+      }
     }
   }
 }

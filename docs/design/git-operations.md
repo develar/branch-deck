@@ -1497,21 +1497,24 @@ Details:
     the repository, `commit_utils::blob_id`). A file whose filtered id differs, but whose length is the size of the
     blob of its index entry, is compared as it is too: the id of its bytes without the filters
     (`commit_utils::file_blob_id`, what `hash-object --no-filters` gives, hashed in-process in chunks). Equal to H's
-    blob, it does not block only where git keeps such bytes (`crlf::crlf_kept_paths`, one `check-attr` of these files
-    in each preview, since a change of the attributes moves no stamp): the safer autocrlf of `convert.c`, which adds a
-    file whose blob holds CRLF as it is when its conversion is `auto` (`text=auto`, or neither `text` nor `eol`, which
-    leaves it to `core.autocrlf`) or none (`-text`), though `hash-object`, which reads no index, normalizes it. So a blob
-    committed with CRLF under `text=auto eol=lf` is no local change, and `brd update` asks the user nothing about it.
-    Under `text` or an `eol` without `text=auto` git converts the bytes and shows the same file as ` M` at once; the
-    preview blocks it, as the exact check does. Comparing content, a file that was only touched does not block, and
+    blob, it does not block only where git keeps such bytes (`crlf::conversions`, one `check-attr` of these files): the
+    safer autocrlf of `convert.c`, which adds a file whose blob holds CRLF as it is when its conversion is `auto`
+    (`text=auto`, the old `crlf=auto`, or none of `text`, `crlf` and `eol`, which leaves it to `core.autocrlf`) or none
+    (`-text`, `-crlf`), though `hash-object`, which reads no index, normalizes it. So a blob committed with CRLF under
+    `text=auto eol=lf` is no local change, and `brd update` asks the user nothing about it. Under `text`, `text=input`,
+    the old `crlf` or `crlf=input` (which git reads where `text` is unspecified), or an `eol` without `text=auto`, git
+    converts the bytes and shows the same file as ` M` at once; the preview blocks it, as the exact check does. Comparing content, a file that was only touched does not block, and
     the index is never written.
     `status`, `diff-files` and `diff-index` take no `--pathspec-from-file`, and as arguments thousands of pathspecs
     are matched against every index entry: `status` with 2,105 pathspecs took 5–12 s on a 50k-file index.
   - **Cache.** Per repository, in memory: the replay outcome (conflict, or the new tip and the changed paths) keyed by
     H, U and the excluded previous tips, and a probe of the local state. The probe keeps the index blobs for one
     index file (git writes a new file, a new inode, on every change) and, per hashed file, its stat data, when it was
-    hashed and its blobs (with the filters, and as it is once read), trusted like git's racy check only when the file
-    was modified at least 2 s before it was hashed; the attributes of a file kept as it is are read again. An unchanged state therefore costs no replay, no `cat-file` and no `hash-object`, only an `lstat` per
+    hashed, under which attribute sources (the `.gitattributes` of each directory of its path, `info/attributes` of the
+    shared git directory, the global file at its default place; another `core.attributesFile` is not watched), its
+    blobs (with the filters, and as it is once read) and whether git keeps it as it is; it answers only while the
+    stamps of the file and of those sources stay, and like git's racy check only when neither changed in the 2 s before
+    the hash: a change of the attributes, the file untouched, is seen as git sees it. An unchanged state therefore costs no replay, no `cat-file` and no `hash-object`, only an `lstat` per
     changed path; after a fetch only the newly changed paths are read.
   - Its replay sets `GIT_COMMITTER_DATE=@0 +0000`, so a replay after a cache miss writes the same objects again; such
     a plan can't be applied.
@@ -2742,10 +2745,12 @@ tree of a client (`brd-host run`) are one function, `git_ops::worktree_snapshot:
 the commit on HEAD of what `git add --all` would stage, without a write of the index. One `status` of the index, read
 only, names the paths; their files become blobs (`hash-object -w --stdin-paths`, which applies the clean filters and
 the end of line of each path), links, gitlinks and deletions, and one `fast-import` writes the commit from the tree of
-HEAD. `hash-object` reads no index, so a tracked file that `add` keeps as it is by the safer autocrlf (`crlf`: its blob
-in the index is text with CRLF, under `text=auto`, `-text` or no `text` and `eol`) is hashed with `--no-filters`: one
-`check-attr` of the tracked files that hold a CR and one `cat-file --batch` of their index blobs, none when no tracked
-file holds one. The `status` lists untracked files in the configured mode (`UntrackedFiles`): yonderd forced `normal`, and in
+HEAD. `hash-object` reads no index, so a tracked file that `add` keeps as it is by the safer autocrlf (`crlf`: it holds a
+CRLF, its conversion is `auto`, its blob in the index is text with CRLF) is hashed with `--no-filters`: one `check-attr`
+of the tracked files that hold a CRLF (a lone CR, as in a binary file, is none) and one `cat-file --batch` of the index
+blobs of those under `auto` (`-text` keeps the bytes and `text` converts them as `add` does, so the filters are right
+for both), none when no tracked file holds a CRLF. Such a file under `ident`, a `filter` or a `working-tree-encoding`,
+whose bytes only `add` gives, makes the commit take the copy of the index. The `status` lists untracked files in the configured mode (`UntrackedFiles`): yonderd forced `normal`, and in
 idea-1, which configures `all`, a `status` with `normal` walked every directory in 41 s, with `all` it took 2 s.
 yonder built the tree in a copy of the index instead: an add of the paths and a `write-tree`. Measured on 2026-10-28
 in a lease of idea-1 (1.4M files, a 138 MB index, load 60–80), median seconds:

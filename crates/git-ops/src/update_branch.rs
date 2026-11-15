@@ -9,7 +9,7 @@
 use crate::commit_signing::{Signing, sign_range};
 use crate::commit_utils::{blob_id, file_blob_id};
 use crate::commit_writer::{WrittenCommits, current_committer, write_notes_to_refs};
-use crate::crlf::crlf_kept_paths;
+use crate::crlf::conversions;
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
 use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_before_replay, read_landed, with_patch_identical};
 use crate::merge_tree_output::parse_merge_tree_batch;
@@ -30,7 +30,7 @@ use domain_types::update_project::{AppliedUpdate, FirstConflict, UpdateCheck, Up
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 use sync_utils::list_cut::kept;
@@ -930,7 +930,7 @@ impl PreviewCache {
 }
 
 /// The stat data that tells whether a file may have changed since it was read, as git's index does
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FileStamp {
   len: u64,
   modified: Option<SystemTime>,
@@ -967,6 +967,77 @@ struct LocalProbe {
   index_ids: HashMap<Vec<u8>, Option<IndexBlob>>,
   /// Per hashed file: its stamp, when it was hashed and its blob ids
   files: HashMap<Vec<u8>, HashedFile>,
+  /// `info/attributes` of the git directory the worktrees share, read once
+  info_attributes: Option<PathBuf>,
+}
+
+/// The files of attributes that decide how git converts a file of the working tree, as a key of what the probe read
+/// under them: the `.gitattributes` of each directory of its path, `info/attributes` of the shared git directory and the
+/// global file at its default place (`$XDG_CONFIG_HOME/git/attributes`, `~/.config/git/attributes`; another
+/// `core.attributesFile` is not watched). Each stamped once per preview
+struct AttributeSources {
+  root: PathBuf,
+  fixed: Vec<PathBuf>,
+  stamps: HashMap<PathBuf, Option<FileStamp>>,
+}
+
+/// The key of the attribute sources of a path: a hash of their stamps, and when the newest of them changed
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AttributesKey {
+  hash: u64,
+  modified: Option<SystemTime>,
+}
+
+impl AttributesKey {
+  /// Whether no source changed within the racy margin of `read_at`: as a file, one rewritten in place within the
+  /// granularity of its time keeps its stamp
+  fn is_trusted(&self, read_at: SystemTime) -> bool {
+    self.modified.is_none_or(|modified| modified + RACY_MARGIN <= read_at)
+  }
+}
+
+impl AttributeSources {
+  fn new(root: &Path, info_attributes: Option<&Path>) -> Self {
+    let global = std::env::var_os("XDG_CONFIG_HOME")
+      .filter(|dir| !dir.is_empty())
+      .map(PathBuf::from)
+      .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+      .map(|config| config.join("git/attributes"));
+    Self {
+      root: root.to_path_buf(),
+      fixed: info_attributes.map(Path::to_path_buf).into_iter().chain(global).collect(),
+      stamps: HashMap::new(),
+    }
+  }
+
+  /// The key of `path` (relative to the root), from the stamps of its sources
+  fn key(&mut self, path: &Path) -> AttributesKey {
+    let mut sources = self.fixed.clone();
+    let mut dir = self.root.clone();
+    sources.push(dir.join(".gitattributes"));
+    if let Some(parent) = path.parent() {
+      for component in parent.components() {
+        dir.push(component);
+        sources.push(dir.join(".gitattributes"));
+      }
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut modified = None;
+    for source in sources {
+      let stamp = self
+        .stamps
+        .entry(source.clone())
+        .or_insert_with(|| std::fs::metadata(&source).ok().map(|metadata| FileStamp::of(&metadata)));
+      std::hash::Hash::hash(&(&source, &*stamp), &mut hasher);
+      if let Some(time) = stamp.as_ref().and_then(|stamp| stamp.modified) {
+        modified = modified.max(Some(time));
+      }
+    }
+    AttributesKey {
+      hash: std::hash::Hasher::finish(&hasher),
+      modified,
+    }
+  }
 }
 
 /// The blob of an index entry
@@ -981,11 +1052,16 @@ struct IndexBlob {
 struct HashedFile {
   stamp: FileStamp,
   read_at: SystemTime,
+  /// The attribute sources it was hashed under: the filters and the conversion are theirs
+  attributes: AttributesKey,
   /// Its blob id with the clean filters (`hash-object --stdin-paths`)
   id: String,
   /// The blob id of its bytes as they are (`commit_utils::file_blob_id`), read only once `id` differed from the old blob
   /// and the file has its length
   raw: Option<String>,
+  /// Whether git keeps its bytes as they are when its blob holds them (`crlf::Conversion::keeps_a_crlf_blob`), read once
+  /// it is the old blob as it is
+  kept: Option<bool>,
 }
 
 /// How a hashed file compares with an old blob
@@ -1002,6 +1078,12 @@ enum Sameness {
 }
 
 impl HashedFile {
+  /// Whether this hash answers for the file now: the same stamp and attribute sources, neither changed within the racy
+  /// margin of the hash
+  fn answers(&self, stamp: &FileStamp, attributes: AttributesKey) -> bool {
+    self.stamp == *stamp && self.attributes == attributes && self.stamp.is_trusted(self.read_at) && attributes.is_trusted(self.read_at)
+  }
+
   fn compare(&self, old_id: &str) -> Sameness {
     if self.id == old_id {
       return Sameness::Filtered;
@@ -2083,9 +2165,11 @@ const SYMLINK_MODE: &str = "120000";
 ///   `probe` hashed them). Comparing content, a file that was only touched does not block, without refreshing the index.
 /// - a file whose filtered id differs, but whose length is the old blob's, is compared as it is too
 ///   (`commit_utils::file_blob_id`, the id `hash-object --no-filters` gives, in process): when its bytes are the old blob,
-///   it does not block where git keeps them (`crlf::crlf_kept_paths`, one `check-attr` of such files, each preview: a
-///   blob committed with CRLF under `text=auto`, which `hash-object` normalizes but git does not), and blocks where git
-///   converts them (`text`, an `eol` without `text=auto`).
+///   it does not block where git keeps them (`crlf::conversions`, one `check-attr` of such files: a blob committed with
+///   CRLF under `text=auto`, which `hash-object` normalizes but git does not), and blocks where git converts them
+///   (`text`, the old `crlf`, an `eol` without `text=auto`).
+/// - `probe` answers for a file while its stamp and the stamps of its attribute sources (`AttributeSources`) stay, and
+///   none of them changed within the racy margin of its hash: its ids and whether git keeps it as it is.
 ///
 /// The update itself runs the exact dry run again. Where the two differ (a sparse checkout, an executable bit with
 /// `core.fileMode=false`, a path with a newline, a file kept as it is under `ident`, a `filter` or a
@@ -2107,6 +2191,7 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
   }
 
   read_index_ids(git_executor, repo_path, changed, &tracked, probe)?;
+  let mut sources = AttributeSources::new(root, probe.info_attributes.as_deref());
   let mut sparse_checkout: Option<bool> = None;
   let mut to_hash = Vec::new();
   // the files whose filtered id is not the old blob, with their length: the id of their bytes as they are tells
@@ -2142,14 +2227,16 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
           continue;
         }
         let stamp = FileStamp::of(&metadata);
+        let attributes = sources.key(file);
         match probe.files.get(&c.path) {
-          Some(file) if file.stamp == stamp && file.stamp.is_trusted(file.read_at) => match file.compare(&c.old_id) {
-            Sameness::Filtered => {}
-            Sameness::AsItIs => kept_by_git.push(i),
-            Sameness::Differs => blocked[i] = true,
-            Sameness::Unread => as_they_are.push((i, stamp.len)),
+          Some(file) if file.answers(&stamp, attributes) => match (file.compare(&c.old_id), file.kept) {
+            (Sameness::Filtered, _) => {}
+            (Sameness::AsItIs, Some(kept)) => blocked[i] = !kept,
+            (Sameness::AsItIs, None) => kept_by_git.push(i),
+            (Sameness::Differs, _) => blocked[i] = true,
+            (Sameness::Unread, _) => as_they_are.push((i, stamp.len)),
           },
-          _ => to_hash.push((i, stamp)),
+          _ => to_hash.push((i, stamp, attributes)),
         }
       }
       Ok(_) => blocked[i] = true,
@@ -2159,21 +2246,23 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
   if !to_hash.is_empty() {
     let read_at = SystemTime::now();
     let mut input = Vec::new();
-    for (i, _) in &to_hash {
+    for (i, _, _) in &to_hash {
       input.extend_from_slice(&changed[*i].path);
       input.push(b'\n');
     }
     let ids = git_executor.cmd(&["hash-object", "--stdin-paths"], repo_path).stdin(&input).bytes()?;
     let ids = String::from_utf8(ids)?;
-    for ((i, stamp), id) in to_hash.into_iter().zip(ids.lines()) {
+    for ((i, stamp, attributes), id) in to_hash.into_iter().zip(ids.lines()) {
       if id != changed[i].old_id {
         as_they_are.push((i, stamp.len));
       }
       let file = HashedFile {
         stamp,
         read_at,
+        attributes,
         id: id.to_string(),
         raw: None,
+        kept: None,
       };
       probe.files.insert(changed[i].path.clone(), file);
     }
@@ -2196,12 +2285,19 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
       file.raw = Some(raw);
     }
   }
-  // the old blob as it is: no change only where git keeps such bytes (the safer autocrlf); the attributes are read each
-  // preview, as a change of them moves no stamp
+  // the old blob as it is: no change only where git keeps such bytes (the safer autocrlf); the probe keeps the verdict
+  // under the attribute sources it was read under
   if !kept_by_git.is_empty() {
-    let kept = crlf_kept_paths(git_executor, repo_path, kept_by_git.iter().filter_map(|&i| std::str::from_utf8(&changed[i].path).ok()))?;
+    let found = conversions(git_executor, repo_path, kept_by_git.iter().filter_map(|&i| std::str::from_utf8(&changed[i].path).ok()))?;
     for i in kept_by_git {
-      blocked[i] = std::str::from_utf8(&changed[i].path).map_or(true, |path| !kept.contains(path));
+      let kept = std::str::from_utf8(&changed[i].path)
+        .ok()
+        .and_then(|path| found.get(path))
+        .is_some_and(|conversion| conversion.keeps_a_crlf_blob());
+      blocked[i] = !kept;
+      if let Some(file) = probe.files.get_mut(&changed[i].path) {
+        file.kept = Some(kept);
+      }
     }
   }
   for i in links {
@@ -2240,6 +2336,7 @@ fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &
       Some(dirs) => dirs.git_path("index").to_string_lossy().into_owned(),
       None => git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?,
     };
+    probe.info_attributes = Some(info_attributes_of(git_executor, repo_path, Path::new(&path)));
     probe.index_path = Some(path.clone());
     path
   };
@@ -2276,6 +2373,17 @@ fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &
     probe.index_ids.insert(path.to_vec(), blob);
   }
   Ok(())
+}
+
+/// `info/attributes` of the git directory the worktrees share: of the known directories, else of the one that holds the
+/// index (`index`), which a linked worktree names in its `commondir` file
+fn info_attributes_of(git_executor: &GitCommandExecutor, repo_path: &str, index: &Path) -> PathBuf {
+  if let Some(dirs) = known_dirs(git_executor, repo_path) {
+    return Path::new(&dirs.git_common_dir).join("info/attributes");
+  }
+  let git_dir = index.parent().unwrap_or(index);
+  let common = std::fs::read_to_string(git_dir.join("commondir")).map_or_else(|_| git_dir.to_path_buf(), |common| git_dir.join(common.trim()));
+  common.join("info/attributes")
 }
 
 fn is_sparse_checkout(git_executor: &GitCommandExecutor, repo_path: &str) -> bool {
