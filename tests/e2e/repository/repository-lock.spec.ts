@@ -250,19 +250,20 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await push.click()
     await expect(push).toHaveAttribute("aria-busy", "true")
     await expect(push).toHaveAttribute("aria-disabled", "true")
-    // away from the button, its description closed: a hover then is the hover alone, the timers of the page stopped so
-    // that it opens no description (an open one tints the button by `aria-expanded`)
+    // away from the button, its description closed: the look at rest
     await push.evaluate(button => (button as HTMLElement).blur())
     await page.mouse.move(0, 0)
     await expect(push).toHaveAttribute("aria-expanded", "false")
     await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" })
-    const background = () => push.evaluate(button => getComputedStyle(button).backgroundColor)
-    const rest = await background()
-    await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 1000))
+    const look = () =>
+      push.evaluate(button => ({ background: getComputedStyle(button).backgroundColor, hovered: button.matches(":hover"), expanded: button.getAttribute("aria-expanded") }))
+    const rest = await look()
+    // the hover alone: the description it opens tints the button by `aria-expanded`, so Escape closes it, and it opens
+    // again only with a move of the pointer (`hoverOpensOnMove`)
     await push.hover()
-    expect(await background()).toEqual(rest)
+    await page.keyboard.press("Escape")
     await expect(push).toHaveAttribute("aria-expanded", "false")
-    await page.clock.resume()
+    expect(await look()).toEqual({ ...rest, hovered: true })
     await runAndWaitForAnswer(page, "execute", () => repo.holdRepositoryLock(false))
   })
 
