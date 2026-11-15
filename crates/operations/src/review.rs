@@ -8,8 +8,11 @@
 //! robot is looked for among the user's robots for `PATRONUS_REVIEWED_ROBOT_WAIT` after the reply (Patronus may count it
 //! as the author's), and one found goes into the session. A review asks the session for the review requests again at
 //! once, so the reviewed request leaves the list. The operation holds the review of the pull request
-//! (`PullRequestField::Review`): a second write of the same pull request waits for it; the same one joins it. Nothing
-//! of it reads the facts of the session: its plan is the intent's.
+//! (`PullRequestField::Review`): a second write of the same pull request waits for it; the same one joins it. Its plan
+//! is the intent's; only a Safe Push reads the session: it runs where the session offers it, as the menus decide it
+//! (`repository_model::review_view::review_actions_of`, `domain_policy::actions::review_actions`), else its plan and
+//! its run refuse it before the review with the code of its blocker (`safe_push_refusal`), so a window of a state
+//! before (Patronus had not answered, the pull request went into another base) or another client approves nothing.
 //!
 //! Approve N Pull Requests of a stack a review window shows (`Intent::ApproveStack`, "Review window: Approve N Pull
 //! Requests approves every layer the window shows") holds the review of every layer: its plan is an approval of each
@@ -27,8 +30,10 @@ use crate::registry::{Answer, OperationRequest, Registry, RunningGuard};
 use crate::robot_start::{CommentStart, NoRobot, RobotWait, github_request_failure, start_by_comment};
 use domain_policy::refresh::PATRONUS_REVIEWED_ROBOT_WAIT;
 use domain_policy::stack_approval::{LayerCheck, LayerFacts, head_checks, stack_approval};
+use domain_types::actions::{ActionBlocker, ActionId, Availability};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, StartRoute};
+use domain_types::next_step::StepFact;
 use domain_types::operation::{
   EffectRecord, EffectStatus, Intent, NewsKey, OperationResult, OperationStep, Plan, PullRequestField, Resource, ReviewResult, ReviewedLayer, StartComment,
 };
@@ -41,8 +46,9 @@ use remote_facts::fact_sources::Read;
 use remote_facts::pull_request_writes::{read_pull_request_head, submit_pull_request_review};
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::service_sources::ServiceHost;
+use repository_model::review_view::{pull_key, review_actions_of, reviews_view};
 use repository_model::session::{SessionKey, Sessions};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
 use tracing::{Instrument, instrument};
@@ -79,6 +85,101 @@ pub fn review_plan(intent: &Intent) -> Result<Plan, ApiError> {
   });
   let effects = review.into_iter().chain(start).collect();
   Ok(write_plan(intent.clone(), effects, Vec::new(), Some(*number), [], []))
+}
+
+/// The plan of the review `intent` in the session of `key` (`review_plan`), refused as its run refuses it where the
+/// session offers its Safe Push not (`safe_push_refusal`); `None` for a Safe Push in a session that is not open
+///
+/// # Errors
+/// As `review_plan`; the refusal of its Safe Push
+pub async fn prepare_review(sessions: &Sessions, key: &SessionKey, intent: &Intent) -> Result<Option<Plan>, ApiError> {
+  let plan = review_plan(intent)?;
+  let Some(number) = safe_pushed(intent) else {
+    return Ok(Some(plan));
+  };
+  let Some(offer) = offered_safe_push(sessions, key, number).await else {
+    return Ok(None);
+  };
+  safe_push_refusal(number, offer).map_or(Ok(Some(plan)), Err)
+}
+
+/// The pull request whose Safe Push the review `intent` starts (`then_land`)
+const fn safe_pushed(intent: &Intent) -> Option<u32> {
+  match intent {
+    Intent::SubmitReview { number, then_land: true, .. } => Some(*number),
+    _ => None,
+  }
+}
+
+/// What the session offers of the Safe Push of a reviewed pull request, as the menus have it
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SafePushOffer {
+  /// The session has no actions of the pull request: none it lists to review
+  NoPullRequest,
+  /// It offers no Safe Push of it: Patronus merges nothing in the repository
+  NoSafePush,
+  /// Its Safe Push, enabled, disabled with its blocker, or running
+  Offered(Availability),
+}
+
+/// The Safe Push of the pull request `number` in the session of `key` as the menus have it now (`review_actions_of`
+/// over the view of Reviews); `None` for a session that is not open
+async fn offered_safe_push(sessions: &Sessions, key: &SessionKey, number: u32) -> Option<SafePushOffer> {
+  sessions
+    .read(key, move |state, facts| {
+      // the own pull requests that are the user's move change no action: no steps
+      let reviews = reviews_view(state, facts, &BTreeMap::new());
+      let actions = review_actions_of(state, facts, &reviews).remove(&pull_key(number));
+      actions.map_or(SafePushOffer::NoPullRequest, |actions| {
+        actions
+          .into_iter()
+          .find(|action| action.id == ActionId::SafePushPullRequest)
+          .map_or(SafePushOffer::NoSafePush, |action| SafePushOffer::Offered(action.availability))
+      })
+    })
+    .await
+}
+
+/// What refuses the Safe Push of the review `intent` in the session of `key` once its operation was admitted, before
+/// the review: `safe_push_refusal` of what the session offers now. Nothing for a review without one
+///
+/// # Errors
+/// The refusal of `safe_push_refusal`; `invalid_arguments` for a session that is not open
+async fn refuse_unoffered_safe_push(sessions: &Sessions, key: &SessionKey, intent: &Intent) -> Result<(), ApiError> {
+  let Some(number) = safe_pushed(intent) else {
+    return Ok(());
+  };
+  let offer = offered_safe_push(sessions, key, number)
+    .await
+    .ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, "The repository has no session to review in"))?;
+  safe_push_refusal(number, offer).map_or(Ok(()), Err)
+}
+
+/// The refusal of the Safe Push of the reviewed pull request `number` by what the session offers of it, with the code
+/// `bd` would fail with and the words of the menu; `None` where it runs (or a start of it joins the one that runs).
+/// Nothing was approved or started then
+#[must_use]
+pub fn safe_push_refusal(number: u32, offer: SafePushOffer) -> Option<ApiError> {
+  let refusal = |code: ErrorCode, words: String| Some(ApiError::new(code, format!("{words}: nothing was approved or started")));
+  let reason = match offer {
+    SafePushOffer::NoPullRequest => return refusal(ErrorCode::NoPullRequest, format!("The repository lists no pull request #{number} to review")),
+    SafePushOffer::NoSafePush => return refusal(ErrorCode::NotOnSpace, "Patronus merges no pull request of this repository".to_owned()),
+    SafePushOffer::Offered(Availability::Disabled { reason }) => reason,
+    SafePushOffer::Offered(Availability::Enabled | Availability::Running { .. } | Availability::Queued { .. } | Availability::Waits { .. }) => return None,
+  };
+  match reason {
+    ActionBlocker::Pending { fact: StepFact::Patronus } => refusal(ErrorCode::PlanChanged, "Waits for the answer of Patronus".to_owned()),
+    ActionBlocker::TargetUnread => refusal(ErrorCode::PlanChanged, "Reading the branch Patronus pushes into".to_owned()),
+    ActionBlocker::Cached => refusal(ErrorCode::PlanChanged, "Waits for the first sync: the rows are the frame of an earlier run".to_owned()),
+    ActionBlocker::NoTarget => refusal(ErrorCode::NotOnSpace, "Patronus pushes into a branch of origin: the baseline is none".to_owned()),
+    ActionBlocker::OtherBase { number, base, target } => refusal(
+      ErrorCode::PullRequestOtherBase,
+      format!("Patronus starts a Safe Push only from a pull request into {target}: #{number} goes into {base}"),
+    ),
+    ActionBlocker::OwnPullRequest => refusal(ErrorCode::ReviewRefused, format!("GitHub takes no review of its author: #{number} is the user's own")),
+    // no other blocker refuses the Safe Push of a pull request to review (`review_actions`)
+    other => refusal(ErrorCode::PlanChanged, format!("The Safe Push of #{number} waits: {other:?}")),
+  }
 }
 
 /// What a review asks the registry for: the review of each pull request it writes (a second write of one waits, the
@@ -259,6 +360,9 @@ pub async fn execute_review(registry: &Registry, key: &SessionKey, intent: Inten
   let number = plan.pull_request.unwrap_or_default();
   let sessions = registry.sessions();
   run(registry, key, review_request(&intent), events, async |guard| {
+    // the Safe Push as the session offers it once admitted, whatever plan the caller showed: no review of a pull
+    // request whose Safe Push it would not start
+    refuse_unoffered_safe_push(sessions, key, &intent).await?;
     check_admitted(guard, &accepted, &plan)?;
     let (github, repository) = review_github(sessions, services, key).await?;
     let mut review = Review {

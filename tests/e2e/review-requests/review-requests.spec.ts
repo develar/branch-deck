@@ -1094,6 +1094,44 @@ test.describe("Review window", () => {
     },
   )
 
+  test("should refuse in the backend an Approve and Safe Push the session offers not, before the approval: while Patronus has not answered, and into another base", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RELEASE]), patronus: availableRobots() })
+    await repo.holdRemoteAnswers({ hold: ["robots"] })
+    await syncAndWaitForBranches()
+    await expect(getYourTurnCard(page)).toBeVisible()
+    await repo.arrival("robots")
+    // a window of a state before, or another client, asks for what no menu offers now: the backend decides as the
+    // menus do (`review_actions`), before it approves anything
+    const approveAndLand = (request: ReturnType<typeof reviewRequest>) => ({
+      kind: "submitReview",
+      number: request.number,
+      verdict: "approve",
+      commit: request.headRefOid,
+      body: null,
+      thenLand: true,
+    })
+    const refused = (code: string, words: string) => ({ status: "error", error: expect.objectContaining({ code, message: `${words}: nothing was approved or started` }) })
+    const waits = refused("plan_changed", "Waits for the answer of Patronus")
+    expect(await repo.invoke("prepare", { repositoryPath: repo.path, intent: approveAndLand(OLD) })).toEqual(waits)
+    expect(await repo.invoke("execute", { repositoryPath: repo.path, intent: approveAndLand(OLD), fingerprint: "", accepted: [] })).toEqual(waits)
+
+    // Patronus answered: #101 into master is offered, #103 into release/253 is not
+    await repo.holdRemoteAnswers({ release: ["robots"] })
+    await expect
+      .poll(async () => ((await repo.invoke("prepare", { repositoryPath: repo.path, intent: approveAndLand(OLD) })) as { fingerprint?: string } | null)?.fingerprint)
+      .toEqual(expect.any(String))
+    expect(await repo.invoke("execute", { repositoryPath: repo.path, intent: approveAndLand(RELEASE), fingerprint: "", accepted: [] })).toEqual(
+      refused("pull_request_other_base", "Patronus starts a Safe Push only from a pull request into master: #103 goes into release/253"),
+    )
+    // nothing was approved or commented
+    expect(await gitHubRequests(repo, "POST", "pulls", "*", "reviews")).toEqual([])
+    expect(await gitHubRequests(repo, "POST", "issues", "*", "comments")).toEqual([])
+  })
+
   test("should watch the robot of a reviewed pull request: listed by what it tests, its merge told", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD])
     // the page's clock is at 2024-01-02 10:00Z; the robot runs on no branch of the user's

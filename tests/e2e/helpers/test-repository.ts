@@ -322,6 +322,23 @@ export class TestRepositoryBuilder {
     return (await response.json()) as RepositoryView | null
   }
 
+  /**
+   * Runs the command `command` of the app in the session of the repository as another client does, not a page: no
+   * window, no channel (a window of a state before, a second client). Its answer: its value, as Tauri resolves an
+   * `invoke` with it, or `{ status: "error", error }`, what the backend decides whatever a page offers
+   */
+  async invoke(command: string, params: Record<string, unknown>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/invoke/${command}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Repository-Id": this.id },
+      body: JSON.stringify(params),
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to run ${command} in ${this.path}: ${response.status} ${await response.text()}`)
+    }
+    return response.json()
+  }
+
   /** The commit a ref of the repository is at, e.g. the copy of a branch a sync built (`user-name/virtual/<branch>`) */
   async revision(name: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/repositories/${this.id}/revision?name=${encodeURIComponent(name)}`)

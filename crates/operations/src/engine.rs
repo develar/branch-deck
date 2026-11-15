@@ -101,7 +101,8 @@ fn words(value: &impl serde::Serialize) -> String {
 /// pull request)
 ///
 /// # Errors
-/// `invalid_arguments` for an invalid review
+/// `invalid_arguments` for an invalid review; the refusal of the Safe Push of a review the session offers not
+/// (`review::safe_push_refusal`)
 pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> Result<Option<Plan>, ApiError> {
   match intent {
     Intent::Land(start) => Ok(land::prepare(sessions, key, start).await),
@@ -113,7 +114,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     }
     Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. } => Ok(close::prepare_close(sessions, key, &intent).await),
     Intent::DisableAutoMerge { number } => Ok(auto_merge::prepare_disable(sessions, key, number).await),
-    Intent::SubmitReview { .. } => review::review_plan(&intent).map(Some),
+    Intent::SubmitReview { .. } => review::prepare_review(sessions, key, &intent).await,
     Intent::ApproveStack { .. } => review::prepare_approve_stack(sessions, key, &intent).await,
     Intent::SetIssueState { .. } => issue::issue_plan(&intent).map(Some),
     Intent::Push(push) => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),

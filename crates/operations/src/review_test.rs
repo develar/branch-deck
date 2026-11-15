@@ -1,7 +1,10 @@
-use crate::review::{approve_stack_plan, review_plan};
+use crate::review::{SafePushOffer, approve_stack_plan, review_plan, safe_push_refusal};
 use domain_policy::stack_approval::LayerFacts;
+use domain_types::actions::{ActionBlocker, Availability};
+use domain_types::error::ErrorCode;
 use domain_types::landing::{PlannedEffect, StartRoute};
-use domain_types::operation::{Intent, ReviewedLayer};
+use domain_types::next_step::StepFact;
+use domain_types::operation::{Intent, OperationId, ReviewedLayer};
 use domain_types::pull_request::PullRequestReviewEvent;
 use pretty_assertions::assert_eq;
 
@@ -82,4 +85,66 @@ fn a_stack_approval_approves_each_layer_on_its_shown_head_but_those_approved_on_
   assert_eq!(plan.effects, [approve(302, "b"), approve(303, "c")]);
   assert_eq!(approve_stack_plan(&intent, &known).unwrap().fingerprint, plan.fingerprint);
   approve_stack_plan(&Intent::ApproveStack { top: 303, layers: Vec::new() }, &[]).unwrap_err();
+}
+
+/// The Safe Push of a reviewed pull request runs only where the session offers it, as the menus decide it: each blocker
+/// refuses it with the code `bd` would fail with and the words of the menu, before the review; an enabled one, or one
+/// a start joins, runs
+#[test]
+fn a_safe_push_of_a_review_runs_only_where_the_session_offers_it_and_each_blocker_refuses_it_by_its_code() {
+  let disabled = |reason: ActionBlocker| SafePushOffer::Offered(Availability::Disabled { reason });
+  let cases = [
+    (
+      disabled(ActionBlocker::Pending { fact: StepFact::Patronus }),
+      ErrorCode::PlanChanged,
+      "Waits for the answer of Patronus",
+    ),
+    (disabled(ActionBlocker::TargetUnread), ErrorCode::PlanChanged, "Reading the branch Patronus pushes into"),
+    (
+      disabled(ActionBlocker::Cached),
+      ErrorCode::PlanChanged,
+      "Waits for the first sync: the rows are the frame of an earlier run",
+    ),
+    (
+      disabled(ActionBlocker::NoTarget),
+      ErrorCode::NotOnSpace,
+      "Patronus pushes into a branch of origin: the baseline is none",
+    ),
+    (
+      disabled(ActionBlocker::OtherBase {
+        number: 103,
+        base: "release/253".to_owned(),
+        target: "master".to_owned(),
+      }),
+      ErrorCode::PullRequestOtherBase,
+      "Patronus starts a Safe Push only from a pull request into master: #103 goes into release/253",
+    ),
+    (
+      disabled(ActionBlocker::OwnPullRequest),
+      ErrorCode::ReviewRefused,
+      "GitHub takes no review of its author: #103 is the user's own",
+    ),
+    (SafePushOffer::NoSafePush, ErrorCode::NotOnSpace, "Patronus merges no pull request of this repository"),
+    (
+      SafePushOffer::NoPullRequest,
+      ErrorCode::NoPullRequest,
+      "The repository lists no pull request #103 to review",
+    ),
+  ];
+  for (offer, code, words) in cases {
+    let refusal = safe_push_refusal(103, offer.clone()).unwrap_or_else(|| panic!("{offer:?} runs"));
+    assert_eq!((refusal.code, refusal.message), (code, format!("{words}: nothing was approved or started")), "{offer:?}");
+  }
+  let op = OperationId("01JREVIEW000000000000000000".to_owned());
+  for runs in [
+    Availability::Enabled,
+    Availability::Running { op: op.clone() },
+    Availability::Queued {
+      op: op.clone(),
+      behind: op.clone(),
+    },
+    Availability::Waits { op },
+  ] {
+    assert_eq!(safe_push_refusal(103, SafePushOffer::Offered(runs.clone())), None, "{runs:?}");
+  }
 }

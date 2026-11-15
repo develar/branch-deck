@@ -269,7 +269,10 @@ is not stacked") once it got the lock.
 - **The review of a pull request**: Approve, Request Changes and Approve and Safe Push are an operation of the session
   in Rust (`SubmitReview` of `operations::review`, holding the review of the pull request: a second write of it waits,
   the same one joins); `getReviewBusy` reads them from `RepositoryView.operations`, for the review list and the review
-  window, each from its own session. Approve N Pull Requests of a stack (`ApproveStack`) holds the review of every
+  window, each from its own session. Its Safe Push runs where the session offers it as the menus decide it
+  (`review_actions_of`): its plan and its run, once admitted, refuse it before the review with the code of its blocker
+  (`safe_push_refusal`: `plan_changed` while Patronus has not answered, `pull_request_other_base`, `not_on_space`), so a
+  window of a state before or another client approves nothing. Approve N Pull Requests of a stack (`ApproveStack`) holds the review of every
   layer, so an Approve of one layer waits for it: its plan is an approval of each layer on the head the window showed
   but those the session knows approved on it (`domain_policy::stack_approval`, decided again once admitted), and GitHub's
   head of every layer is read before the first write; the layer whose head moved and the layers above it are skipped
