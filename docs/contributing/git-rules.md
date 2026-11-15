@@ -39,12 +39,16 @@ for the worktree safety scan too: `production_sources`, the production part of `
 `test-utils`, whose fixtures run git through `git_command`): git starts only in `GitCommandExecutor` (and
 `git_info.rs`'s discovery); the brd crates (`crates/bd-*`) and src-tauri start no git of their own; no `--no-pager`, no `credential.helper=`; `update-ref` only in
 `ref_transaction.rs`; `cat-file --batch*` only in `cat_file_batch.rs`; `--name-only`, `--name-status` and `--raw`
-only with `-z`; paths after `--` only with `--literal-pathspecs`; `push`, `fetch` and `ls-remote` only through
-`execute_remote_command*`. The concurrency scan on the same sources (`concurrency_scan_test.rs`): no guard of an
+only with `-z`; paths after `--` only with `--literal-pathspecs`; `push`, `fetch`, `ls-remote` and `git lfs` only
+through `execute_remote_command*`. The concurrency scan on the same sources (`concurrency_scan_test.rs`): no guard of an
 async mutex or `RwLock` (`let … = ….lock().await`) lives across another `.await` of its scope (a read others wait for
 is one shared future, not a mutex), no guard of the repository lock, nor of any other file lock (a lock is the call of
-any function of the scanned sources whose answer names `RepositoryLock`, whatever its name: `lock_file`,
-`StateFile::lock_at`, the locks of a lease and of the companions, a wrapper of one), across `execute_remote_command*`,
+any function of the scanned sources whose answer holds a `RepositoryLock`, whatever its name: `lock_file`,
+`StateFile::lock_at`, the locks of a lease and of the companions, a wrapper of one, a type that holds one by a field, a
+variant or an alias such as `CloneTurn` and `PressureTurn`, in an `Option`, a `Result`, a `Vec`, a `Box` or a tuple and
+never behind a reference; held by a `let`, an `if let`, a `while let` or a `match` on it, a parameter, or an assignment to
+a variable bound before, to its release; an `impl Trait` answer is out of scope; `fetch_baseline` holds its own turn at
+the fetch lock across its fetch by design, an exemption), across `execute_remote_command*`,
 `fetch_baseline`, `push_baseline`, `push_leased`, HTTP (`reqwest`, a method of a GitHub, Patronus or YouTrack
 service) or `block_on` ([invariant 2](../design/rust-domain-authority.md#инварианты)), nor across a sync (`sync`,
 `sync_branches`) or a wait for the index lock of another process (`wait_while_locked`, `wait_for_index`,

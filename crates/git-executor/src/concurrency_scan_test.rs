@@ -10,14 +10,22 @@
 //! Checked on the production sources like the git scans (`source_scan_test.rs`), on their code without literals and
 //! comments, by the `let` bindings: a guard lives from its statement to the end of the block that holds it or to the
 //! `drop` of its name in that block (of the last name of a tuple, where `lock_prepared` puts the lock), and a guard that
-//! its block hands on as its value (`Some(guard)`) lives on in the binding that takes it. A guard handed to a function,
-//! kept in a field or returned is not followed, nor a call of the network inside a function the scope calls: the lock span
-//! tests of the cores (`test_utils::lock_span`) name every git that runs under the lock. A file is exempt only with its
-//! reason and its exact number of hits.
+//! its block hands on as its value (`Some(guard)`) lives on in the binding that takes it. A lock also lives in the block
+//! of an `if let`, a `while let` or a `match` on it (the value it matches lives to its end: `if let
+//! PressureTurn::Taken(_pressure) = pressure_turn(…)`), in the body of a function that takes it as a parameter, and from
+//! an assignment of it, or of a name a holder bound, to a variable bound before (`clones_lock = Some(lock)`) to the end of
+//! that variable's block or its release there (`drop(name)`, `drop(name.take())`, `name.take()`, `name = None`). A guard
+//! handed to a function that keeps it in a field or returns it is not followed, nor an `impl Trait` answer (`-> impl
+//! Drop`), nor a call of the network inside a function the scope calls: the lock span tests of the cores
+//! (`test_utils::lock_span`) name every git that runs under the lock. A file is exempt only with its reason and its exact
+//! number of hits.
 //!
-//! A lock is the call of a function that answers a `RepositoryLock` (`lock_functions`: every one of the scanned sources,
-//! in a `Result`, an `Option`, a tuple or a `Vec`, whatever its name), or of what the file types as a `Locker` (the
-//! closure of a start that takes it). So the repository lock (`lock_repository*`, `LockWait::lock*`,
+//! A lock is the call of a function whose answer holds a `RepositoryLock` (`lock_functions`: every one of the scanned
+//! sources, whatever its name), or of what the file types as a `Locker` (the closure of a start that takes it). A type
+//! holds one by a field, a variant's field or an alias (`lock_types`: `CloneTurn::Locked { lock }`, `PressureTurn`,
+//! `OwnFetch`, `type Held = RepositoryLock`, to the fixed point), in an `Option`, a `Result`, a `Vec`, a `Box` or a tuple;
+//! not behind a reference (`held_lock: Option<&RepositoryLock>` borrows the lock of a caller), not as the answer of a
+//! closure type (`Locker`), not in another container (`Arc`, a map: out of scope). So the repository lock (`lock_repository*`, `LockWait::lock*`,
 //! `RewriteOptions::lock_prepared`, the `lock` of `bd`) and every file lock of `repository_lock::lock_file` are one
 //! class with every wrapper of one: the locks of the files of a lease and of the companions (`lock_lease`,
 //! `lock_landed`, `lock_state`, `lock_companions`, under which the reads and writes of git config are by design), of the
@@ -57,8 +65,14 @@ const SERVICE_CONSTRUCTORS: [&str; 3] = ["github_service", "patronus_service", "
 /// and count as the exemptions of the git scans do
 const EXEMPT_GUARDS: [Exemption; 0] = [];
 
-/// No repository lock lives across the network today; an exemption here names its file, reason and count as above
-const EXEMPT_LOCKS: [Exemption; 0] = [];
+/// The one lock held across the network by design; an exemption here names its file, reason and count as above
+const EXEMPT_LOCKS: [Exemption; 1] = [Exemption {
+  path: "crates/sync-core/src/baseline.rs",
+  hits: 1,
+  reason: "`fetch_baseline` holds its own turn at the fetch lock of the tracking ref (`FetchTurn::Own`, `OwnFetch`) across \
+           that fetch: a second fetch of the ref, of any process, waits for it and takes its result, one transfer for both \
+           (`fetch_lock`); it is no repository lock, and nothing but fetches waits for it",
+}];
 
 const fn is_word(byte: u8) -> bool {
   byte.is_ascii_alphanumeric() || byte == b'_'
@@ -119,12 +133,7 @@ fn bindings(code: &str) -> Vec<Binding<'_>> {
       continue;
     };
     let statement = &code[start..end];
-    // the `=` of the binding, not of `==`, `=>`, `<=`, `>=` or `!=`
-    let Some(equals) = top_byte(statement, b'=', |bytes, index| {
-      !matches!(bytes.get(index + 1), Some(b'=' | b'>')) && !matches!(bytes.get(index.wrapping_sub(1)), Some(b'=' | b'!' | b'<' | b'>'))
-    }) else {
-      continue;
-    };
+    let Some(equals) = binding_equals(statement) else { continue };
     let pattern = &statement[..equals];
     // without its type: a `:` of its own, not of a path
     let typed = top_byte(pattern, b':', |bytes, index| {
@@ -143,6 +152,13 @@ fn bindings(code: &str) -> Vec<Binding<'_>> {
     });
   }
   found
+}
+
+/// The `=` of the binding that `text` starts after its `let`, not of `==`, `=>`, `<=`, `>=` or `!=`
+fn binding_equals(text: &str) -> Option<usize> {
+  top_byte(text, b'=', |bytes, index| {
+    !matches!(bytes.get(index + 1), Some(b'=' | b'>')) && !matches!(bytes.get(index.wrapping_sub(1)), Some(b'=' | b'!' | b'<' | b'>'))
+  })
 }
 
 /// The names a pattern binds
@@ -338,26 +354,263 @@ fn locks_across_network(source: &Source) -> Vec<usize> {
   locks_across(source, reaches_network)
 }
 
-/// The lines of `source` that bind the repository lock where `reaches` finds a call in its life; `reaches` gets that
-/// life and the names of the file's services
+/// The lines of `source` that take or keep the repository lock where `reaches` finds a call in its life; `reaches` gets
+/// that life and the names of the file's services. A holder is a `let` whose initializer gives a lock, an `if let`, a
+/// `while let` or a `match` on one (its block: the value it matches lives to its end), and an assignment of a lock, or
+/// of a name a holder bound, to a variable bound before (`clones_lock = Some(lock)`), to the end of that variable's
+/// block or its release there (`drop(name)`, `drop(name.take())`, `name.take()`, `name = None`)
 fn locks_across(source: &Source, reaches: impl Fn(&str, &[&str]) -> bool) -> Vec<usize> {
   let code = code_text(&source.text);
   let all = bindings(&code);
   let services = service_names(&code, &all);
   let lockers = typed_names(&code, "Locker");
-  // the lock functions of every scanned source, and those of this one, which a case of a test declares
-  let own = lock_functions_of(&code);
+  // the lock types and functions of every scanned source, with those of this one, which a case of a test declares
+  let types = lock_types_with(&code);
+  let own = functions_answering(&code, &types);
   let functions: Vec<&LockFunction> = lock_functions().iter().chain(&own).collect();
-  all
-    .iter()
+  let gives_lock = |value: &str| calls_locker(value, &lockers) || calls_lock_function(value, &functions);
+  let mut lines = Vec::new();
+  let mut held: Vec<(&str, Range<usize>)> = Vec::new();
+  for binding in &all {
     // a `Locker` holds the closure that takes the lock, not the lock
-    .filter(|binding| binding.ty.as_ref().is_none_or(|ty| words(&code[ty.clone()], "Locker").next().is_none()))
-    .filter(|binding| {
-      let value = &code[binding.value.clone()];
-      (calls_locker(value, &lockers) || calls_lock_function(value, &functions)) && reaches(lifetime(&code, &all, binding), &services)
-    })
-    .map(|binding| line_at(&code, binding.at))
-    .collect()
+    if binding.ty.as_ref().is_some_and(|ty| words(&code[ty.clone()], "Locker").next().is_some()) || !gives_lock(&code[binding.value.clone()]) {
+      continue;
+    }
+    held.extend(binding.names.iter().map(|name| (*name, binding.scope.clone())));
+    if reaches(lifetime(&code, &all, binding), &services) {
+      lines.push(line_at(&code, binding.at));
+    }
+  }
+  for block in conditional_bindings(&code) {
+    if !gives_lock(&code[block.value.clone()]) {
+      continue;
+    }
+    held.extend(block.names.iter().map(|name| (*name, block.scope.clone())));
+    if reaches(&code[block.scope.clone()], &services) {
+      lines.push(line_at(&code, block.at));
+    }
+  }
+  for parameter in lock_parameters(&code, &types) {
+    held.push((parameter.name, parameter.body.clone()));
+    if reaches(&code[parameter.life.clone()], &services) {
+      lines.push(line_at(&code, parameter.at));
+    }
+  }
+  for assignment in assignments(&code, &all) {
+    let value = &code[assignment.value.clone()];
+    let names_a_lock = held.iter().any(|(name, scope)| {
+      scope.contains(&assignment.value.start) && (value.trim() == *name || value.trim().strip_prefix("Some(").and_then(|rest| rest.strip_suffix(')')).map(str::trim) == Some(name))
+    });
+    if (names_a_lock || gives_lock(value)) && reaches(&code[assignment.life.clone()], &services) {
+      lines.push(line_at(&code, assignment.at));
+    }
+  }
+  lines.sort_unstable();
+  lines.dedup();
+  lines
+}
+
+/// The binding of an `if let`, a `while let` or a `match`: what it matches (`value`), the names its pattern or its arms
+/// bind, and its block, where the value it matches lives
+struct BlockBinding<'a> {
+  at: usize,
+  names: Vec<&'a str>,
+  value: Range<usize>,
+  scope: Range<usize>,
+}
+
+/// The `if let`, `while let` and `match` of `code`, each with its block (a let chain: from its first `let`, to the `&&`)
+fn conditional_bindings(code: &str) -> Vec<BlockBinding<'_>> {
+  let bytes = code.as_bytes();
+  let mut found = Vec::new();
+  for keyword in ["let", "match"] {
+    for at in words(code, keyword) {
+      let start = at + keyword.len();
+      let (names, value_start) = if keyword == "let" {
+        let before = code[..at].trim_end();
+        if !["if", "while", "&&"].iter().any(|word| ends_with_word(before, word)) {
+          continue;
+        }
+        let Some(equals) = binding_equals(&code[start..]) else { continue };
+        (names_of(&code[start..start + equals]), start + equals + 1)
+      } else {
+        (Vec::new(), start)
+      };
+      // the block: the first `{` outside the parentheses and brackets of the value
+      let mut depth = 0usize;
+      let Some(open) = bytes[value_start..].iter().enumerate().find_map(|(index, &byte)| {
+        match byte {
+          b'(' | b'[' => depth += 1,
+          b')' | b']' => depth = depth.saturating_sub(1),
+          b'{' if depth == 0 => return Some(value_start + index),
+          _ => {}
+        }
+        None
+      }) else {
+        continue;
+      };
+      let value = &code[value_start..open];
+      let value_end = value_start + value.find("&&").unwrap_or(value.len());
+      let Some(close) = first_at_top(&code[open + 1..], |_, _| false) else { continue };
+      let names = if keyword == "match" {
+        arm_patterns(&code[open + 1..open + 1 + close]).into_iter().flat_map(names_of).collect()
+      } else {
+        names
+      };
+      found.push(BlockBinding {
+        at,
+        names,
+        value: value_start..value_end,
+        scope: open + 1..open + 1 + close,
+      });
+    }
+  }
+  found.sort_by_key(|block| block.at);
+  found
+}
+
+/// A parameter that a function takes a lock by (`lock: RepositoryLock`, `lock: Option<RepositoryLock>`): the lock lives
+/// in its body to its end or the `drop` of the name
+struct LockParameter<'a> {
+  at: usize,
+  name: &'a str,
+  body: Range<usize>,
+  life: Range<usize>,
+}
+
+/// The parameters of the functions of `code` whose type holds one of `types` (`holds`)
+fn lock_parameters<'a>(code: &'a str, types: &[String]) -> Vec<LockParameter<'a>> {
+  let mut found = Vec::new();
+  for at in words(code, "fn") {
+    let after_fn = at + 2 + (code[at + 2..].len() - code[at + 2..].trim_start().len());
+    let name_len = code[after_fn..].bytes().take_while(|&byte| is_word(byte)).count();
+    let Some(generics) = generics_len(&code[after_fn + name_len..]) else { continue };
+    let open = after_fn + name_len + generics;
+    if !code[open..].starts_with('(') {
+      continue;
+    }
+    let Some(close) = first_at_top(&code[open + 1..], |_, _| false).map(|close| open + 1 + close) else {
+      continue;
+    };
+    // the body: the first `{` after the answer and a `where`, outside brackets; none for a declaration (`;`)
+    let mut depth = 0usize;
+    let Some(body_open) = code[close + 1..]
+      .bytes()
+      .enumerate()
+      .find_map(|(index, byte)| {
+        match byte {
+          b'(' | b'[' | b'<' => depth += 1,
+          b')' | b']' => depth = depth.saturating_sub(1),
+          b'>' if code.as_bytes()[close + index] != b'-' => depth = depth.saturating_sub(1),
+          b'{' if depth == 0 => return Some(Some(close + 1 + index)),
+          b';' if depth == 0 => return Some(None),
+          _ => {}
+        }
+        None
+      })
+      .flatten()
+    else {
+      continue;
+    };
+    let Some(body_close) = first_at_top(&code[body_open + 1..], |_, _| false).map(|end| body_open + 1 + end) else {
+      continue;
+    };
+    let mut start = open + 1;
+    while start < close {
+      let end = top_byte(&code[start..close], b',', |_, _| true).map_or(close, |comma| start + comma);
+      let parameter = &code[start..end];
+      if let Some(colon) = top_byte(parameter, b':', |bytes, index| {
+        bytes.get(index + 1) != Some(&b':') && bytes.get(index.wrapping_sub(1)) != Some(&b':')
+      }) {
+        let ty = &parameter[colon + 1..];
+        let names = names_of(&parameter[..colon]);
+        if let [name] = names.as_slice()
+          && types.iter().any(|lock| holds(ty, lock))
+        {
+          let body = &code[body_open + 1..body_close];
+          let life = first_at_top(body, |text, index| drops(text, index, name)).unwrap_or(body.len());
+          found.push(LockParameter {
+            at: start + parameter.find(name).unwrap_or(0),
+            name,
+            body: body_open + 1..body_close,
+            life: body_open + 1..body_open + 1 + life,
+          });
+        }
+      }
+      start = end + 1;
+    }
+  }
+  found
+}
+
+/// The patterns of the arms of the block of a `match`, without their guards (`Turn::Locked { lock, .. } if ready`)
+fn arm_patterns(block: &str) -> Vec<&str> {
+  let mut patterns = Vec::new();
+  let mut rest = block;
+  loop {
+    rest = rest.trim_start();
+    let bytes = rest.as_bytes();
+    let Some(arrow) = first_at_top(rest, |_, index| bytes[index] == b'=' && bytes.get(index + 1) == Some(&b'>')).filter(|&arrow| bytes[arrow] == b'=') else {
+      break;
+    };
+    let pattern = &rest[..arrow];
+    patterns.push(words(pattern, "if").next().map_or(pattern, |guard| &pattern[..guard]));
+    let body = rest[arrow + 2..].trim_start();
+    let offset = rest.len() - body.len();
+    let end = if let Some(block) = body.strip_prefix('{') {
+      first_at_top(block, |_, _| false).map_or(body.len(), |close| close + 2)
+    } else {
+      top_byte(body, b',', |_, _| true).unwrap_or(body.len())
+    };
+    rest = rest[offset + end..].trim_start();
+    rest = rest.strip_prefix(',').unwrap_or(rest);
+  }
+  patterns
+}
+
+/// An assignment to a variable a `let` bound before (`name = value;`): its value, and where the value it gives lives:
+/// to the end of the block of that `let`, or to the first release of the name there
+struct Assignment {
+  at: usize,
+  value: Range<usize>,
+  life: Range<usize>,
+}
+
+/// The assignments of `code` to the names of its bindings `all`, each in the scope of the binding of its name
+fn assignments(code: &str, all: &[Binding<'_>]) -> Vec<Assignment> {
+  let mut found = Vec::new();
+  for binding in all {
+    for name in &binding.names {
+      let scope = &code[binding.scope.clone()];
+      for at in words(scope, name) {
+        // a statement of its own: `name = …;`, not `==`, `=>`, a field (`.name`), a path or a pattern
+        let before = scope[..at].trim_end().bytes().next_back();
+        if !matches!(before, None | Some(b';' | b'{' | b'}')) {
+          continue;
+        }
+        let after = &scope[at + name.len()..];
+        let Some(rest) = after.trim_start().strip_prefix('=') else { continue };
+        if rest.starts_with(['=', '>']) {
+          continue;
+        }
+        let value_start = binding.scope.start + at + name.len() + (after.len() - rest.len());
+        let Some(end) = top_byte(&code[value_start..], b';', |_, _| true) else { continue };
+        let life_start = value_start + end + 1;
+        let life = &code[life_start..binding.scope.end];
+        let release = [format!("drop({name})"), format!("drop({name}.take())"), format!("{name}.take()"), format!("{name} = None")]
+          .iter()
+          .filter_map(|release| life.find(release.as_str()))
+          .min()
+          .unwrap_or(life.len());
+        found.push(Assignment {
+          at: binding.scope.start + at,
+          value: value_start..value_start + end,
+          life: life_start..life_start + release,
+        });
+      }
+    }
+  }
+  found
 }
 
 /// A function that answers a type, as `functions_answering` finds it: a `RepositoryLock` (`lock_functions_of`), a
@@ -373,15 +626,17 @@ struct LockFunction {
   arguments: bool,
 }
 
-/// The functions that `code` declares with an answer that names `RepositoryLock` (`-> Result<RepositoryLock>`,
-/// `-> std::io::Result<Vec<RepositoryLock>>`, `-> Result<(Prepared, RepositoryLock)>`)
+/// The functions that `code` declares with an answer that holds a `RepositoryLock` (`-> Result<RepositoryLock>`,
+/// `-> std::io::Result<Vec<RepositoryLock>>`, `-> Result<(Prepared, RepositoryLock)>`, `-> Result<CloneTurn>`): one of
+/// the lock types of every scanned source (`lock_types`), not behind a reference
 fn lock_functions_of(code: &str) -> Vec<LockFunction> {
-  functions_answering(code, "RepositoryLock")
+  functions_answering(code, lock_types())
 }
 
-/// The functions that `code` declares with an answer that names the type `ty`: their parameters to their closing
-/// parenthesis, past their generics, their answer from its `->` to the body, a `;` or a `where`
-fn functions_answering(code: &str, ty: &str) -> Vec<LockFunction> {
+/// The functions that `code` declares with an answer that holds one of the types `types` (not behind a reference): their
+/// parameters to their closing parenthesis, past their generics, their answer from its `->` to the body, a `;` or a
+/// `where`
+fn functions_answering<T: AsRef<str>>(code: &str, types: &[T]) -> Vec<LockFunction> {
   words(code, "fn")
     .filter_map(|at| {
       let after = code[at + 2..].trim_start();
@@ -399,7 +654,7 @@ fn functions_answering(code: &str, ty: &str) -> Vec<LockFunction> {
       let (parameters, rest) = (&parameters[..close], parameters[close + 1..].trim_start());
       let answer = rest.strip_prefix("->")?;
       let end = answer_end(answer);
-      words(&answer[..end], ty).next()?;
+      types.iter().any(|ty| holds(&answer[..end], ty.as_ref())).then_some(())?;
       let first = top_byte(parameters, b',', |_, _| true).map_or(parameters, |comma| &parameters[..comma]);
       let method = words(first, "self").next().is_some();
       let beside = if method {
@@ -464,6 +719,159 @@ fn answer_end(text: &str) -> usize {
     }
   }
   text.len()
+}
+
+/// Whether `text` (an answer, the fields of a type) holds `ty`: as a field, a variant's field, the type of an alias or an
+/// answer, in `Option`, `Result`, `Vec`, `Box` and tuples, not behind a reference (`&'a RepositoryLock` borrows a lock
+/// another holds), not the answer of a closure or a function type (`Arc<dyn Fn() -> Result<RepositoryLock>>`), not in
+/// another container (`DashMap<String, T>`, `Arc<T>`: out of scope)
+fn holds(text: &str, ty: &str) -> bool {
+  words(text, ty).any(|at| held_at(text, at))
+}
+
+/// `holds` of the occurrence of a type at `at` of `text`
+fn held_at(text: &str, at: usize) -> bool {
+  let bytes = text.as_bytes();
+  // behind a reference, its lifetime and `mut` (the quote of a lifetime is blanked as a literal by `code_text`)
+  let mut before = text[..at].trim_end();
+  before = before.strip_suffix("mut").filter(|rest| !rest.ends_with(is_word_char)).map_or(before, str::trim_end);
+  let lifetime = before.trim_end_matches(is_word_char).trim_end();
+  if lifetime.len() < before.len() && lifetime.ends_with(['&', '\'']) {
+    before = lifetime.trim_end_matches('\'').trim_end();
+  }
+  if before.ends_with('&') {
+    return false;
+  }
+  let mut index = at;
+  loop {
+    // the bracket that encloses `index`, outside the `>` of a `->`
+    let mut depth = 0usize;
+    let open = (0..index).rev().find(|&i| match bytes[i] {
+      b')' | b']' | b'}' => {
+        depth += 1;
+        false
+      }
+      b'>' if i == 0 || bytes[i - 1] != b'-' => {
+        depth += 1;
+        false
+      }
+      b'(' | b'[' | b'{' | b'<' if depth == 0 => true,
+      b'(' | b'[' | b'{' | b'<' => {
+        depth -= 1;
+        false
+      }
+      _ => false,
+    });
+    // an answer of a function type at its level: `Fn(…) -> Result<…>`
+    let level = &text[open.map_or(0, |open| open + 1)..index];
+    if answers_at_top(level) {
+      return false;
+    }
+    let Some(open) = open else { return true };
+    let name = text[..open].trim_end();
+    let name = &name[name.trim_end_matches(is_word_char).len()..];
+    match bytes[open] {
+      b'{' => return true,
+      b'(' if matches!(name, "Fn" | "FnMut" | "FnOnce" | "fn") => return false,
+      b'(' => index = open,
+      b'<' if matches!(name, "Option" | "Result" | "Vec" | "Box") => index = open - name.len(),
+      _ => return false,
+    }
+  }
+}
+
+/// Whether `level`, the text of one bracket level before an item, has a `->` at its top after its last comma there
+fn answers_at_top(level: &str) -> bool {
+  let bytes = level.as_bytes();
+  let mut depth = 0usize;
+  let mut answers = false;
+  for (index, &byte) in bytes.iter().enumerate() {
+    match byte {
+      b'(' | b'[' | b'{' | b'<' => depth += 1,
+      b'>' if index > 0 && bytes[index - 1] == b'-' => answers |= depth == 0,
+      b')' | b']' | b'}' | b'>' => depth = depth.saturating_sub(1),
+      b',' if depth == 0 => answers = false,
+      _ => {}
+    }
+  }
+  answers
+}
+
+fn is_word_char(c: char) -> bool {
+  c.is_ascii_alphanumeric() || c == '_'
+}
+
+/// A type that `code` declares, with what it holds: the fields of a struct, the variants of an enum, the type an alias
+/// names
+struct TypeDeclaration<'a> {
+  name: &'a str,
+  body: &'a str,
+}
+
+/// The structs, enums and aliases of `code`
+fn type_declarations(code: &str) -> Vec<TypeDeclaration<'_>> {
+  let mut found = Vec::new();
+  for keyword in ["struct", "enum", "type"] {
+    for at in words(code, keyword) {
+      let after = code[at + keyword.len()..].trim_start();
+      let name = &after[..after.bytes().take_while(|&byte| is_word(byte)).count()];
+      if !name.starts_with(|c: char| c.is_ascii_uppercase()) {
+        continue;
+      }
+      let offset = code.len() - after.len() + name.len();
+      let Some(generics) = generics_len(&code[offset..]) else { continue };
+      let rest = &code[offset + generics..];
+      let body = if keyword == "type" {
+        let Some(equals) = rest.strip_prefix('=') else { continue };
+        top_byte(equals, b';', |_, _| true).map(|end| &equals[..end])
+      } else {
+        // past a `where` clause to the fields; a unit struct holds nothing
+        let open = rest.find(['{', '(', ';']);
+        match open.map(|open| (open, rest.as_bytes()[open])) {
+          Some((open, b'{' | b'(')) => first_at_top(&rest[open + 1..], |_, _| false).map(|close| &rest[open + 1..open + 1 + close]),
+          _ => None,
+        }
+      };
+      if let Some(body) = body {
+        found.push(TypeDeclaration { name, body });
+      }
+    }
+  }
+  found
+}
+
+/// `RepositoryLock` and every type of `declarations` that holds one of `known` or of each other, to the fixed point:
+/// a struct or an enum by a field, an alias by its type, through `Option`, `Result`, `Vec` and tuples
+fn lock_types_of(known: Vec<String>, declarations: &[TypeDeclaration<'_>]) -> Vec<String> {
+  let mut types = known;
+  loop {
+    let more: Vec<String> = declarations
+      .iter()
+      .filter(|declaration| !types.iter().any(|ty| ty == declaration.name) && types.iter().any(|ty| holds(declaration.body, ty)))
+      .map(|declaration| declaration.name.to_owned())
+      .collect();
+    if more.is_empty() {
+      types.sort_unstable();
+      types.dedup();
+      return types;
+    }
+    types.extend(more);
+  }
+}
+
+/// The lock types of every scanned source (`lock_types_of`)
+fn lock_types() -> &'static [String] {
+  static ALL: OnceLock<Vec<String>> = OnceLock::new();
+  ALL.get_or_init(|| {
+    let codes: Vec<String> = production_sources().iter().map(|source| code_text(&source.text)).collect();
+    let declarations: Vec<TypeDeclaration<'_>> = codes.iter().flat_map(|code| type_declarations(code)).collect();
+    lock_types_of(vec!["RepositoryLock".to_owned()], &declarations)
+  })
+}
+
+/// The lock types of every scanned source and of `code`, which a case of a test declares
+fn lock_types_with(code: &str) -> Vec<String> {
+  lock_types_of(lock_types().to_vec(), &type_declarations(code))
 }
 
 /// The lock functions of every scanned source (`lock_functions_of`), each name and kind once
@@ -606,9 +1014,48 @@ fn a_lock_function_answers_a_repository_lock() {
   ];
   assert_eq!(found, expected.map(|(name, method, arguments)| (name.to_owned(), method, arguments)));
   let names: Vec<&str> = lock_functions().iter().map(|function| function.name.as_str()).collect();
-  for name in ["lock_repository", "lock_file", "lock_at", "lock_lease", "lock_companions", "lock_prepared", "lock_with"] {
+  for name in [
+    "lock_repository",
+    "lock_file",
+    "lock_at",
+    "lock_lease",
+    "lock_companions",
+    "lock_prepared",
+    "lock_with",
+    "lock_clones",
+    "pressure_turn",
+    "take_fetch_turn",
+  ] {
     assert!(names.contains(&name), "{name} is a lock function of the scanned sources: {names:?}");
   }
+}
+
+/// A type holds a lock by a field, a variant's field or an alias, in an `Option`, a `Result`, a `Vec`, a `Box` or a
+/// tuple, and so does a type that holds one of those; not a reference, the answer of a closure type or another container
+#[test]
+fn a_lock_type_holds_a_repository_lock_by_a_field_a_variant_or_an_alias() {
+  let code = code_text(
+    &[
+      "pub enum CloneTurn { SlotFreed { waited: Option<Duration> }, Locked { lock: RepositoryLock, waited: Option<Duration> } }",
+      "enum PressureTurn { Taken(Option<RepositoryLock>), Waited }",
+      "struct OwnFetch { lock: RepositoryLock, outcomes: PathBuf }",
+      "pub enum FetchTurn { Joined { previous: Option<String> }, Own(OwnFetch) }",
+      "type ReviewHeld = RepositoryLock;",
+      "struct Locks(Vec<Box<RepositoryLock>>);",
+      "struct Pair<T> where T: Clone { inner: Result<(T, ReviewHeld), String> }",
+      "pub struct RewriteOptions<'a> { pub expect_head: Option<String>, pub held_lock: Option<&'a RepositoryLock> }",
+      "struct Shared { lock: &'static mut RepositoryLock }",
+      "type Locker = Arc<dyn Fn(&dyn Fn(Option<&LockHolder>), &dyn Fn() -> bool) -> Result<RepositoryLock, ApiError> + Send + Sync>;",
+      "struct Repositories { by_id: DashMap<String, OwnFetch>, shared: Arc<RepositoryLock> }",
+      "struct Unit;",
+    ]
+    .join("\n"),
+  );
+  let types = lock_types_of(vec!["RepositoryLock".to_owned()], &type_declarations(&code));
+  assert_eq!(
+    types,
+    ["CloneTurn", "FetchTurn", "Locks", "OwnFetch", "Pair", "PressureTurn", "RepositoryLock", "ReviewHeld"]
+  );
 }
 
 #[test]
@@ -712,6 +1159,100 @@ fn a_repository_lock_lives_across_no_call_of_the_network() {
   assert_eq!(locks_across_network(&source), hits);
 }
 
+/// A lock that a type holds is a lock: a variant matched by `match` and kept in a variable bound before, a variant matched
+/// by `if let`, an alias, a struct with a lock field, a parameter that takes one; it lives to the release of the variable
+/// it was kept in. A struct that borrows a lock or holds a closure that takes one holds none, and an `impl Drop` answer is
+/// out of scope
+#[test]
+fn a_lock_that_a_type_holds_lives_across_no_call_of_the_network() {
+  let (source, hits) = marked(&[
+    "enum Turn { Free, Locked { lock: RepositoryLock, waited: Option<Duration> } }",
+    "fn take_turn(pool: &Pool) -> Result<Turn> { todo!() }",
+    "fn kept_in_a_variable_bound_before(pool: &Pool, git: &GitCommandExecutor) -> Result<()> {",
+    "  let mut held: Option<RepositoryLock> = None;",
+    "  loop {",
+    "    match take_turn(&pool)? {",
+    "      Turn::Free => continue,",
+    "      Turn::Locked { lock, waited } => {",
+    "        held = Some(lock); // hit",
+    "      }",
+    "    }",
+    "    execute_remote_command(git, &[\"fetch\"], path)?;",
+    "    drop(held.take());",
+    "    execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  }",
+    "}",
+    "fn released_by_none(pool: &Pool, git: &GitCommandExecutor) -> Result<()> {",
+    "  let mut held = None;",
+    "  if let Turn::Locked { lock, .. } = take_turn(&pool)? {",
+    "    held = Some(lock);",
+    "  }",
+    "  held = None;",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn the_network_in_the_match(pool: &Pool, git: &GitCommandExecutor) -> Result<()> {",
+    "  match take_turn(&pool)? { // hit",
+    "    Turn::Locked { .. } => execute_remote_command(git, &[\"fetch\"], path)?,",
+    "    Turn::Free => {}",
+    "  }",
+    "  Ok(())",
+    "}",
+    "enum PressureTurn { Taken(Option<RepositoryLock>), Waited }",
+    "fn pressure_turn(git: &GitCommandExecutor) -> PressureTurn { todo!() }",
+    "fn a_turn_matched_by_if_let(git: &GitCommandExecutor) -> Result<()> {",
+    "  if let PressureTurn::Taken(_pressure) = pressure_turn(git) { // hit",
+    "    execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  }",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  let PressureTurn::Taken(_pressure) = pressure_turn(git) else { return Ok(()) }; // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "type ReviewHeld = RepositoryLock;",
+    "fn hold_review(path: &Path) -> Result<ReviewHeld> { todo!() }",
+    "fn an_alias(git: &GitCommandExecutor) -> Result<()> {",
+    "  let _held = hold_review(path)?; // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "struct ReviewGuard { _lock: RepositoryLock, path: PathBuf }",
+    "fn guard_review(path: &Path) -> Result<ReviewGuard> { todo!() }",
+    "fn a_struct_that_holds_one(git: &GitCommandExecutor) -> Result<()> {",
+    "  let _guard = guard_review(path)?; // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn under_a_lock_it_takes(git: &GitCommandExecutor, lock: RepositoryLock) -> Result<()> { // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn a_lock_it_drops_first(git: &GitCommandExecutor, lock: Option<RepositoryLock>) -> Result<()> {",
+    "  drop(lock);",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn a_borrowed_lock(git: &GitCommandExecutor, held_lock: Option<&RepositoryLock>) -> Result<()> {",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "struct Options<'a> { held_lock: Option<&'a RepositoryLock>, waiter: Arc<dyn Fn() -> Result<RepositoryLock>> }",
+    "fn options() -> Options<'static> { todo!() }",
+    "fn options_that_borrow_and_take_a_lock(git: &GitCommandExecutor) -> Result<()> {",
+    "  let options = options();",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn hold_opaque(path: &Path) -> impl Drop { todo!() }",
+    "fn an_impl_drop_out_of_scope(git: &GitCommandExecutor) -> Result<()> {",
+    "  let _held = hold_opaque(path);",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+  ]);
+  assert_eq!(locks_across_network(&source), hits);
+}
+
 // A std mutex across git: a check of its own, apart from the async guards and the repository lock above. The guard of
 // a `std` mutex is held only to look up and to keep, never across a git process: whoever takes the mutex meanwhile (a
 // view of the session and the checks of a push share the memo of its content walks) would wait for that git. A guard
@@ -767,7 +1308,7 @@ fn unwrapped(value: &str) -> &str {
 
 /// The functions of `code` that answer the guard of a std mutex (`-> MutexGuard<…>`), by name
 fn guard_functions_of(code: &str) -> Vec<String> {
-  functions_answering(code, "MutexGuard").into_iter().map(|function| function.name).collect()
+  functions_answering(code, &["MutexGuard"]).into_iter().map(|function| function.name).collect()
 }
 
 /// The crate of the source at `path` (`crates/repository-model/src/facts.rs`: `crates/repository-model`)
