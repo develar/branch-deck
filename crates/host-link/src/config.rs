@@ -46,11 +46,17 @@ pub struct RepoConfig {
 
 impl RepoConfig {
   /// The first pattern of `heavy` that matches `command`, `None` when the run is not heavy. A pattern matches the words
-  /// of the command joined by one space, whole, after a leading `env` and the `NAME=value` words after it: `pnpm e2e*`
-  /// matches `env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts` and `pnpm e2e-up`, `pnpm test` only `pnpm test`
+  /// of the command joined by one space, whole, as `heavy_line` writes them: `pnpm e2e*` matches
+  /// `env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts`, `pnpm -C web e2e` and `pnpm e2e-up`, `pnpm test` only `pnpm test`,
+  /// `playwright test*` every run of `playwright test` (`npx playwright test x.spec.ts`, `pnpm exec playwright test`)
   pub fn heavy_entry(&self, command: &[String]) -> Option<&str> {
-    let line = heavy_line(command);
-    self.heavy.iter().flatten().find(|pattern| glob_matches(pattern, &line)).map(String::as_str)
+    let (line, written) = heavy_line(command);
+    self
+      .heavy
+      .iter()
+      .flatten()
+      .find(|pattern| glob_matches(pattern, &line) || glob_matches(pattern, &written))
+      .map(String::as_str)
   }
 
   /// Why a run of `command` is heavy by `heavy`, `None` when it is not: the first pattern that matches the command, or
@@ -81,9 +87,18 @@ impl RepoConfig {
   }
 }
 
-/// The words of `command` that `heavy` matches, joined by one space: without a leading `env` and the assignments after
-/// it
-fn heavy_line(command: &[String]) -> String {
+/// The options of pnpm that name a value in the next word (`-C web`), before its script
+const PNPM_VALUE_OPTIONS: [&str; 7] = ["-C", "--dir", "--filter", "-F", "--filter-prod", "--reporter", "--workspace-concurrency"];
+
+/// The programs and the words that run a package binary for the next word: `npx playwright`, `pnpm exec playwright`
+const RUNNERS: [&str; 6] = ["npx", "bunx", "yarn", "pnpm", "exec", "dlx"];
+
+/// The words of `command` that `heavy` matches, joined by one space, by what it runs rather than how it is written:
+/// without a leading `env` and the assignments after it; `pnpm` without its options before its script (`-C web`,
+/// `--dir=web`, `--filter app`, `-r`), so `pnpm -C web e2e` is `pnpm e2e`; and a run of `playwright test` by any runner
+/// (`npx`, `pnpm exec`, `pnpm`, a path of the binary) as `playwright test …`. Beside it the line as written, without
+/// the `env` and the assignments alone, so a pattern written with its runner (`pnpm exec playwright test*`) matches too
+fn heavy_line(command: &[String]) -> (String, String) {
   let mut words = command;
   if words.first().is_some_and(|word| word == "env") {
     words = &words[1..];
@@ -91,7 +106,34 @@ fn heavy_line(command: &[String]) -> String {
   while words.first().is_some_and(|word| is_assignment(word)) {
     words = &words[1..];
   }
-  words.join(" ")
+  let written = words.join(" ");
+  let mut line: Vec<&str> = Vec::with_capacity(words.len());
+  let mut rest = words.iter().map(String::as_str);
+  if let Some(program) = rest.next() {
+    line.push(program);
+    if program == "pnpm" {
+      // its options before its script, and before the script of its `run` or the binary of its `exec`
+      while let Some(word) = rest.next() {
+        if PNPM_VALUE_OPTIONS.contains(&word) {
+          rest.next();
+        } else if !word.starts_with('-') {
+          line.push(word);
+          if word != "run" && word != "exec" {
+            break;
+          }
+        }
+      }
+    }
+    line.extend(rest);
+  }
+  let playwright = line.iter().position(|word| word.rsplit('/').next() == Some("playwright"));
+  if let Some(at) = playwright
+    && line.get(at + 1) == Some(&"test")
+    && line[..at].iter().all(|word| RUNNERS.contains(word))
+  {
+    return (std::iter::once("playwright").chain(line[at + 1..].iter().copied()).collect::<Vec<_>>().join(" "), written);
+  }
+  (line.join(" "), written)
 }
 
 /// `NAME=value`, with a name of letters, digits and `_` that does not start with a digit

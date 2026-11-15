@@ -41,7 +41,9 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   builds the whole workspace and waits in the heavy queue. A step and the command run in the login environment of the user there, with 65536 open files and `nice` 10
   (`--nice <n>`).
 - **Heavy runs take turns**: a run that `heavy` of `[host]` names, or one with `--heavy`, waits until no other heavy
-  run of the Studio goes, whatever its repository, so two full suites never slow each other into timeouts. A shell
+  run of the Studio goes, whatever its repository, so two full suites never slow each other into timeouts. A pattern
+  matches what a command runs, not how it is written: `playwright test*` every run of it (`npx`, `pnpm exec`,
+  `pnpm playwright`, a path of the binary), `pnpm e2e*` also `pnpm -C web e2e`, `--dir`, `--filter`. A shell
   that wraps a command counts by what it runs: `zsh -c 'pnpm install; pnpm e2e > e2e.log 2>&1'`, `bash -lc`,
   `env FOO=1 zsh -c`, a shell in it, a substitution `"$(…)"`, and a script file of the shipped working tree
   (`zsh probe/run.sh`, `./probe/run.sh` whose first line names a shell, `. ./lib.sh`) are heavy when any command in them

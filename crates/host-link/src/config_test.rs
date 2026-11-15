@@ -118,19 +118,20 @@ fn the_known_keys_are_the_fields_of_serde_and_heavy_needs_its_feature() {
   assert_eq!(needs("[host]\noutputs = [\"out\"]\n"), Vec::<&str>::new());
 }
 
+/// The pattern of `heavy` of `patterns` that matches each line, its words split at the spaces
+fn entries_of(patterns: &[&str]) -> impl Fn(&str) -> Option<String> {
+  let config = RepoConfig {
+    heavy: Some(patterns.iter().map(|pattern| (*pattern).to_owned()).collect()),
+    ..RepoConfig::default()
+  };
+  move |line| config.heavy_entry(&line.split(' ').map(str::to_owned).collect::<Vec<_>>()).map(str::to_owned)
+}
+
 /// A pattern of `heavy` matches the words of the command joined by one space, whole, `*` any characters, after a
 /// leading `env` and its assignments; the first pattern that matches names the run
 #[test]
 fn a_heavy_pattern_matches_the_whole_command_line_after_env_and_its_assignments() {
-  let config = RepoConfig {
-    heavy: Some(
-      ["cargo nextest run*--workspace*", "pnpm e2e*", "pnpm test", "*bt.cmd --lane *", "pnpm *"]
-        .map(str::to_owned)
-        .to_vec(),
-    ),
-    ..RepoConfig::default()
-  };
-  let entry = |line: &str| config.heavy_entry(&line.split(' ').map(str::to_owned).collect::<Vec<_>>()).map(str::to_owned);
+  let entry = entries_of(&["cargo nextest run*--workspace*", "pnpm e2e*", "pnpm test", "*bt.cmd --lane *", "pnpm *"]);
   for (line, expected) in [
     ("cargo nextest run --workspace", Some("cargo nextest run*--workspace*")),
     ("cargo nextest run --no-fail-fast --workspace -R latest", Some("cargo nextest run*--workspace*")),
@@ -246,8 +247,11 @@ fn the_host_table_of_this_repository_parses() {
     "pnpm exec playwright test tests/e2e/branch-row.spec.ts",
     "npx playwright test tests/e2e/x.spec.ts",
     "pnpm playwright test -c playwright.webkit.config.ts",
+    "./node_modules/.bin/playwright test",
     "pnpm -C . e2e tests/e2e/x.spec.ts",
     "pnpm --dir . e2e",
+    "pnpm --dir=. run e2e:webkit",
+    "pnpm --filter branch-deck -r e2e",
     "env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts",
     "pnpm tauri build --bundles app",
     "pnpm run tauri build --bundles app",
@@ -262,6 +266,7 @@ fn the_host_table_of_this_repository_parses() {
     "pnpm tauri dev",
     "npx playwright install webkit",
     "pnpm -C . test:unit",
+    "pnpm --filter branch-deck lint:specs",
   ] {
     assert!(!heavy(line), "{line}");
   }
@@ -314,4 +319,38 @@ fn the_host_table_of_this_repository_parses() {
       assert_eq!(heavy(&line), expected, "{line}");
     }
   }
+}
+
+/// A pattern matches what a command runs, not how it is written: `pnpm` without its options before its script, the
+/// script of its `run`, the binary of its `exec`; and every run of `playwright test`, by `npx`, `pnpm exec`, `pnpm`, `yarn`
+/// or a path of the binary, as `playwright test …`; `playwright install` stays itself
+#[test]
+fn a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runner_of_playwright() {
+  let entry = entries_of(&["playwright test*", "pnpm e2e*", "pnpm run e2e*"]);
+  for (line, expected) in [
+    ("pnpm -C web e2e x.spec.ts", Some("pnpm e2e*")),
+    ("pnpm --dir web e2e", Some("pnpm e2e*")),
+    ("pnpm --dir=web e2e", Some("pnpm e2e*")),
+    ("pnpm --filter app -r e2e", Some("pnpm e2e*")),
+    ("pnpm -F app run --if-present e2e", Some("pnpm run e2e*")),
+    ("env CI=1 pnpm -C web e2e", Some("pnpm e2e*")),
+    ("npx playwright test x.spec.ts", Some("playwright test*")),
+    ("pnpm exec playwright test", Some("playwright test*")),
+    ("pnpm -C web exec playwright test", Some("playwright test*")),
+    ("pnpm playwright test --project=webkit", Some("playwright test*")),
+    ("yarn playwright test", Some("playwright test*")),
+    ("node_modules/.bin/playwright test", Some("playwright test*")),
+    ("playwright test", Some("playwright test*")),
+    ("npx playwright install webkit", None),
+    ("pnpm -C web test:unit", None),
+    ("node scripts/playwright test", None),
+    ("pnpm e2e-report playwright test", Some("pnpm e2e*")),
+  ] {
+    assert_eq!(entry(line), expected.map(str::to_owned), "{line}");
+  }
+  // a pattern written with its runner matches the line as written
+  assert_eq!(
+    entries_of(&["pnpm exec playwright test*"])("pnpm exec playwright test"),
+    Some("pnpm exec playwright test*".to_owned())
+  );
 }
