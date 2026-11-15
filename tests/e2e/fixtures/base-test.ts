@@ -145,10 +145,20 @@ const LOG_ERROR_MARK = "[e2e-log-error] "
  * requests it still had fail in WebKit, which is no error of the app (`NETWORK_FAILURE`); any other error of it counts
  */
 const LEAVING_LOG_ERROR_MARK = "[e2e-log-error-leaving] "
-/** What WebKit says of a request that failed as its page left, its whole message: no error of the app */
-const NETWORK_FAILURE = /(?:^|: )(?:TypeError: )?Load failed$|Fetch API cannot load \S+ due to access control checks\.?$/
+/** What WebKit says of a request that failed as its page left, its whole message (`toldText`): no error of the app */
+const NETWORK_FAILURE = /(?:^|: )(?:TypeError: )?Load failed$|Fetch API cannot load .+ due to access control checks\.?$/
 /** A failure of the network in the words of WebKit or Chromium, wherever in the message: what `networkDiagnostics` says */
 const ANY_NETWORK_FAILURE = /Load failed|due to access control checks|Failed to fetch|net::ERR_/
+
+/**
+ * An uncaught error of a page as the page told it: Playwright makes an error line of the console of WebKit an uncaught
+ * error split at its first colon, so the line WebKit writes of a request that failed, "Fetch API cannot load
+ * http://… due to access control checks.", is the name "Fetch API cannot load http" and the message "/localhost:…"; its
+ * stack begins with the whole line, and is empty without the frames of a script (a request of `page.evaluate`)
+ */
+function toldText(error: Error): string {
+  return error.stack?.split("\n", 1)[0] || (error.name === "" ? error.message : `${error.name}: ${error.message}`)
+}
 
 /** What the mock writes as the answer of a subscription of a session came, its first view (tests/e2e/setup/tauri-mocks.ts) */
 const SESSION_VIEW_MARK = "[e2e-session-view]"
@@ -248,7 +258,7 @@ function undeclaredErrors(
   const told = (text: string) => titles.some(title => text === title || text.startsWith(`${title} `)) || uncaught.some(error => text.includes(error.message))
   const lines = [
     ...logged,
-    ...uncaught.filter(error => !named(error)).map(error => `Uncaught: ${error.stack ?? error.message}`),
+    ...uncaught.filter(error => !named(error)).map(error => `Uncaught: ${error.stack || toldText(error)}`),
     ...consoleErrors.filter(text => !told(text)).map(text => `console.error: ${text}`),
   ]
   return [
@@ -357,12 +367,13 @@ export const test = base.extend({
       // a ResizeObserver loop is the page's to weigh (`src/lib/page-errors.ts`): one is a warning, harmless as its
       // notifications come in the next frame; a cycle is an error line, on which the test fails
       const loop = error.error().message.includes("ResizeObserver loop completed with undelivered notifications")
-      const leftBehind = from !== null && leavingPages.has(from) && NETWORK_FAILURE.test(error.error().message)
+      const told = toldText(error.error())
+      const leftBehind = from !== null && leavingPages.has(from) && NETWORK_FAILURE.test(told)
       if (!loop && !leftBehind) {
         uncaught.push(error.error())
-        countNetworkFailure(error.error().message, from)
+        countNetworkFailure(told, from)
       }
-      pageErrors.push(`Uncaught: ${error.error().stack ?? error.error().message}`)
+      pageErrors.push(`Uncaught: ${error.error().stack || told}`)
     })
 
     // Set debug flag if environment variable is set
