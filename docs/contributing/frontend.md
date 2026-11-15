@@ -189,7 +189,8 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   how long and without the backticks of the command line, which a screen reader reads aloud
   (`presentLockWaitAnnouncement`), so once per holder; the visible notice, whose time grows every second, is hidden from
   it. Stop Waiting takes the focus as the wait shows, where the press left it on the pressed button, in its
-  form, dialog or popover, or nowhere, and gives it back as the wait ends, else to the button that waited; the pressed
+  form, dialog or popover, or nowhere, and gives it back as the wait ends, else to the button that waited, before it
+  leaves the document (a layout effect: a popover closes on a focus that fell to the page); the pressed
   button stays focusable while it is busy (`focusableWhenDisabled`, `aria-busy`). `Button` dims a disabled button kept
   focusable (`focusableWhenDisabled`) unless it is busy, its spinner says that, so no caller dims by hand; and no control
   that is `aria-disabled="true"` takes a hover or a press, its own nor its caller's (the `hover` and `active` variants of

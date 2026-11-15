@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useLayoutEffect, useRef } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
@@ -96,7 +96,10 @@ function LockWaitStatus({ announcement }: { announcement: string | null }) {
  */
 function StopWaiting({ item }: { item: MenuItem }) {
   const ref = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
+  // a layout effect: its cleanup runs before the button leaves the document, so the focus goes from it to its target at
+  // once. A passive one ran after the button had gone and the focus had fallen to the page, which a popover takes for a
+  // focus that left it and closes (the squash of the fixups), under load before the focus came back
+  useLayoutEffect(() => {
     const button = ref.current
     if (button === null) {
       return
@@ -112,7 +115,8 @@ function StopWaiting({ item }: { item: MenuItem }) {
     const pressed = fromPressed ? from : (surface?.querySelector<HTMLElement>('button[aria-busy="true"]') ?? null)
     button.focus()
     return () => {
-      if (!isFocusLost()) {
+      // a focus the user moved elsewhere stays there
+      if (document.activeElement !== button) {
         return
       }
       for (const target of [from === surface ? null : from, pressed, surface]) {
@@ -126,8 +130,4 @@ function StopWaiting({ item }: { item: MenuItem }) {
     }
   }, [])
   return <MenuItemButton ref={ref} item={item} variant="outline" data-testid="stop-waiting" />
-}
-
-function isFocusLost(): boolean {
-  return document.activeElement === null || document.activeElement === document.body
 }

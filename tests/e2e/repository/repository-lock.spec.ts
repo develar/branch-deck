@@ -324,11 +324,32 @@ async function expectWaitBesideItsButton(page: Page, form: Locator, button: Loca
   // which stays focusable while busy, or from nowhere in WebKit, whose pointer focuses no button; back after the stop to
   // the button the press left busy, in both
   await expect(notice.getByRole("button", { name: "Stop Waiting" })).toBeFocused()
+  const leaves = await focusAsStopWaitingLeaves(page)
   await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
   await expect(page.getByText(canceled)).toBeVisible()
   expect(cancels).toHaveLength(1)
   await expect(button).toBeFocused()
   await expect(status).toBeEmpty()
+  // the focus went from Stop Waiting to the button at once, never through the page: a popover takes a focus on the page
+  // for one that left it and closes (the squash of the fixups under load, before a later return of the focus)
+  expect(await leaves()).toEqual(["kept"])
+}
+
+/**
+ * How the focus left Stop Waiting: "kept" where the control it went to got it while Stop Waiting was still in the
+ * document, so the focus never was on the page; "page" where it came only after Stop Waiting had gone
+ */
+async function focusAsStopWaitingLeaves(page: Page): Promise<() => Promise<string[]>> {
+  await page.evaluate(() => {
+    const record: string[] = []
+    ;(window as unknown as { focusAsStopWaitingLeaves: string[] }).focusAsStopWaitingLeaves = record
+    document.addEventListener("focusin", event => {
+      if (event.target instanceof Element && !event.target.matches('[data-testid="stop-waiting"]')) {
+        record.push(document.querySelector('[data-testid="stop-waiting"]') === null ? "page" : "kept")
+      }
+    })
+  })
+  return () => page.evaluate(() => (window as unknown as { focusAsStopWaitingLeaves: string[] }).focusAsStopWaitingLeaves)
 }
 
 test.describe("A wait for the lock beside the button that started it", () => {
