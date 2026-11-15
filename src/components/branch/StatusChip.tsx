@@ -120,14 +120,16 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
       },
       onPointerDown: () => {
         pressing.current = true
-        window.addEventListener(
-          "pointerup",
-          () => {
-            pressing.current = false
-            release()
-          },
-          { once: true },
-        )
+        // the press ends with the pointer up, or with its cancel (a drag of a text or a link of the card): a cancel
+        // left the card held where it stood, away from its chip
+        const ended = new AbortController()
+        const end = () => {
+          ended.abort()
+          pressing.current = false
+          release()
+        }
+        window.addEventListener("pointerup", end, { signal: ended.signal })
+        window.addEventListener("pointercancel", end, { signal: ended.signal })
       },
     },
     reset: () => {
