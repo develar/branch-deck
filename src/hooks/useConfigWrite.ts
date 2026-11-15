@@ -87,8 +87,9 @@ function unlinkPrimary(path: string, showWritten: (answer: RepositoryConfig) => 
 
 /**
  * The actions of the link of the repository at `path` to its primary, the one builder of every surface that offers them
- * (Settings → Landing of a companion): Unlink while the link is half or broken (`RepositoryConfig.primaryProblem`), none
- * otherwise; `run` runs the write, which `showWritten` gets the settings of
+ * (Settings → Landing of a companion): Unlink while the link is half or broken (`RepositoryConfig.primaryProblem`), and
+ * disabled with why while the primary lists it, which removes it there; none for a repository of no primary. `run` runs
+ * the write, which `showWritten` gets the settings of
  */
 export function primaryLinkItems(
   path: string,
@@ -96,14 +97,19 @@ export function primaryLinkItems(
   run: (write: () => Promise<boolean>) => void,
   showWritten: (answer: RepositoryConfig) => void,
 ): MenuItem[] {
-  if (config.primary === null || config.primaryProblem === null) {
+  if (config.primary === null) {
     return []
   }
+  const primary = repositoryName(config.primary)
   return [
     {
       id: "unlink-primary",
       label: "Unlink",
-      description: `Takes back this repository's side of the link: it names ${repositoryName(config.primary)} as its primary no more`,
+      disabled: config.primaryProblem === null,
+      description:
+        config.primaryProblem === null
+          ? `${primary} lists this repository as a companion: remove it there`
+          : `Takes back this repository's side of the link: it names ${primary} as its primary no more`,
       onSelect: () => run(() => unlinkPrimary(path, showWritten)),
     },
   ]

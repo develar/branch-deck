@@ -236,7 +236,7 @@ enum Command {
   /// The companion repositories of this one: a need names their branches as `<companion>:<branch>`
   ///
   /// `add <path>` and `remove <name>` write `branchdeck.companion.<name>.path` here and `branchdeck.primary` in the
-  /// companion, as Settings → Landing; `list` reads them
+  /// companion, as Settings → Landing; `unlink`, in a companion, takes back its side of a broken link; `list` reads them
   #[command(after_help = "Outputs and refusals: `brd companion --help`", after_long_help = COMPANION_HELP)]
   Companion(CompanionArgs),
   /// Remember the base and the tip a branch has now as reviewed (experimental), the start of its next review

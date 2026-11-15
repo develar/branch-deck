@@ -20,7 +20,7 @@
 //! that fails to read) is unknown, not absent: an add of its companion elsewhere is refused with how to unlink it, and
 //! the companion unlinks it on its side (`unlink_primary`, Unlink of its Settings, `brd companion unlink`).
 
-use crate::companions::same_path;
+use crate::companions::{directory_name, same_path};
 use crate::config_snapshot::ConfigSnapshot;
 use crate::repository_config::{PRIMARY_CONFIG_KEY, companion_problem, run_config_write};
 use anyhow::{Result, anyhow, bail};
@@ -127,10 +127,10 @@ pub fn write_companion_under(git: &GitCommandExecutor, repository_path: &str, na
     bail!("{problem}");
   }
   let Some(companion) = companion else {
-    bail!("{path} can not be read");
+    bail!("{path} cannot be read");
   };
   if same_path(Path::new(companion), Path::new(&primary)) {
-    bail!("{primary} can not be a companion of itself");
+    bail!("{primary} cannot be a companion of itself");
   }
   // one name, one companion: a name of another path is removed first, a companion listed under another name keeps it
   if let Some(listed) = own.companions().get(name)
@@ -153,7 +153,8 @@ pub fn write_companion_under(git: &GitCommandExecutor, repository_path: &str, na
       PrimarySays::Lists => bail!("{companion} is a companion of {other} already: a companion has one primary"),
       // an unmounted disk, a config that fails to read: the link there may stand, and a take-over would lose it
       PrimarySays::Unknown(why) => bail!(
-        "{companion} names {other} as its primary, which can not be read ({why}): remove it there once {other} can be read, or unlink it in the Settings of {companion} (brd companion unlink there)"
+        "{companion} names {other} as its primary, which cannot be read ({why}): remove it there once {other} can be read, or Unlink it in Settings → Landing of {} (`brd companion unlink` there)",
+        directory_name(companion)
       ),
       // a half link of a primary that does not list the companion: taken over
       PrimarySays::Unlisted => run_config_write(git, companion, "--local", PRIMARY_CONFIG_KEY, Some(&primary))?,

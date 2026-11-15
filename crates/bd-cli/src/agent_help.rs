@@ -710,24 +710,24 @@ branches as `<name>:<branch>`, and the start waits until that branch is in maste
 companion, both the main worktrees, as Settings → Landing does. In a companion, `<name>:<branch>` names the primary
 by the name of its directory and the other companions of the primary by their names. `brd companion remove <name>`
 takes it back, `brd companion list` prints them; `brd status --companions` adds the status of each (`companions`:
-`name`, `path`, its `status`, or the `error` why it can not be read). It prints `companions` (`name`, `path`, `problem` when it can not be
+`name`, `path`, its `status`, or the `error` why it cannot be read). It prints `companions` (`name`, `path`, `problem` when it cannot be
 read, `link_problem` when its link is half: it names another primary, or none), `primary` (of a companion),
-`primary_problem` (the primary is gone, can not be read, or does not list it) and `changed`. In a companion,
+`primary_problem` (the primary is gone, cannot be read, or does not list it) and `changed`. In a companion,
 `brd companion unlink` takes back its side of such a half link (its `branchdeck.primary`); refused while the primary
 lists it (`brd companion remove` there). A half link (a write cut short, a `git
 config` by hand) is repaired by the next write of the pair: `brd companion add` links both sides again (and takes over
-a companion whose primary does not list it; one whose primary is gone or can not be read, a disk not mounted now, is
-refused: unlink it in the companion first), `remove` unlists it here and unsets the companion's side only
+a companion whose primary does not list it; one whose primary is gone or cannot be read, a disk not mounted now, is
+refused: unlink it in the companion first, or wait for it to come back), `remove` unlists it here and unsets the companion's side only
 while it names this repository. Each write reads and writes both configs under the companion locks of both
 repositories (`branch-deck/companions.lock` of each git directory), so two writes of one repository from two
 processes run one after the other.
 How a branch of a companion stands is read of what the last sync of the companion left: run `brd sync` there once its
-branch landed. A companion that can not be read refuses the start of a branch that needs it (`companion_unreadable`
+branch landed. A companion that cannot be read refuses the start of a branch that needs it (`companion_unreadable`
 in `landing_needs`), and `brd status` still answers.
 Refusals, nothing written: `invalid_arguments` (exit 2): <path> is no directory or no git repository, the name is no
 name (letters, digits, -, _ and .), a companion has one primary, a companion has no companions, a repository is no
 companion of itself, a name of another companion here (remove it first), a companion listed here under another
-name, a companion whose primary can not be read, `remove` names no companion, or `unlink` in a repository that names
+name, a companion whose primary cannot be read, `remove` names no companion, or `unlink` in a repository that names
 no primary or whose primary lists it. `locked` (exit 3): another process held a companion lock past the wait (10 s);
 retry once it is done.
 ";

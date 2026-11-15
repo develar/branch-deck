@@ -123,11 +123,14 @@ pub fn half_link_problem(git: &GitCommandExecutor, primary: &str, companion: &st
 #[must_use]
 pub fn primary_link_problem(git: &GitCommandExecutor, companion: &str, primary: &str) -> Option<String> {
   let primary_path = Path::new(primary);
+  // a disk not mounted now gives the link back as it comes back: Unlink only leaves it
   if !primary_path.is_dir() {
-    return Some(format!("{primary} is gone"));
+    return Some(format!(
+      "{primary} cannot be read (gone): a disk not mounted now? Once it is back the link stands, Unlink is not needed"
+    ));
   }
   if !primary_path.join(".git").exists() {
-    return Some(format!("{primary} is no git repository"));
+    return Some(format!("{primary} cannot be read (no git repository)"));
   }
   let lists = ConfigSnapshot::read(git, primary)
     .ok()?

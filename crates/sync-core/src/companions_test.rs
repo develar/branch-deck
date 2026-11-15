@@ -153,7 +153,7 @@ fn a_companion_writes_both_sides_and_resolves_the_primary_and_its_siblings() {
   let refused = |repo: &TestRepo, name: &str, of: &TestRepo| write_companion(repo.git_executor(), path(repo), name, Some(path(of))).unwrap_err().to_string();
   assert!(refused(&other, "ci", &ci).contains("a companion has one primary"));
   assert!(refused(&ci, "other", &other).contains("only a primary has companions"));
-  assert!(refused(&app, "self", &app).contains("can not be a companion of itself"));
+  assert!(refused(&app, "self", &app).contains("cannot be a companion of itself"));
   assert!(refused(&app, "ci:config", &other).contains("is no name of a companion"));
   // one name, one companion
   assert!(refused(&app, "ci", &other).contains("remove it first"));

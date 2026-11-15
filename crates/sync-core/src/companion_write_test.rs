@@ -163,13 +163,22 @@ fn a_half_link_is_the_problem_of_the_side_that_has_it_and_the_next_write_repairs
   let gone = tempfile::tempdir().unwrap();
   let gone_path = gone.path().join("app").to_str().unwrap().to_owned();
   set(&ci, "branchdeck.primary", &gone_path);
-  assert_eq!(primary_problem(&ci), Some(format!("{gone_path} is gone")));
+  assert_eq!(
+    primary_problem(&ci),
+    Some(format!(
+      "{gone_path} cannot be read (gone): a disk not mounted now? Once it is back the link stands, Unlink is not needed"
+    ))
+  );
   let refused = write_companion(app.git_executor(), path(&app), "ci", Some(path(&ci))).unwrap_err().to_string();
   assert!(
-    refused.contains(&format!("names {gone_path} as its primary, which can not be read ({gone_path} is gone)")),
+    refused.contains(&format!("names {gone_path} as its primary, which cannot be read ({gone_path} is gone)")),
     "{refused}"
   );
-  assert!(refused.contains("unlink it in the Settings of"), "{refused}");
+  let ci_name = std::path::Path::new(&main(&ci)).file_name().unwrap().to_str().unwrap().to_owned();
+  assert!(
+    refused.ends_with(&format!("or Unlink it in Settings → Landing of {ci_name} (`brd companion unlink` there)")),
+    "{refused}"
+  );
   unlink_primary(ci.git_executor(), path(&ci)).unwrap();
   assert_eq!(snapshot(&ci).primary(), None);
   add_ci();
@@ -189,7 +198,7 @@ fn a_companion_of_a_primary_whose_config_fails_to_read_is_not_taken_over() {
   text.push_str("\n[broken\n");
   std::fs::write(&config, text).unwrap();
   let refused = write_companion(second.git_executor(), path(&second), "ci", Some(path(&ci))).unwrap_err().to_string();
-  assert!(refused.contains(&format!("names {first_main} as its primary, which can not be read")), "{refused}");
+  assert!(refused.contains(&format!("names {first_main} as its primary, which cannot be read")), "{refused}");
   assert!(refused.contains("brd companion unlink"), "{refused}");
   assert_eq!(snapshot(&ci).primary(), Some(first_main.as_str()), "not taken over");
   assert!(snapshot(&second).companions().is_empty());

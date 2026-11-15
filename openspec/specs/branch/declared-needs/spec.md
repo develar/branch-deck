@@ -801,7 +801,10 @@ companion are read all the same.
   `brd companion unlink` there
 - **THEN** its `branchdeck.primary` goes and it is a repository of no primary; refused while the primary lists it
   (remove it there) and in a repository that names none
+- **AND** while the primary lists it, Unlink is disabled with why ("app lists this repository as a companion: remove it
+  there"); a primary that is gone says it may come back, when the link stands again and Unlink is not needed
   [@test] crates/sync-core/src/companion_write_test.rs (`unlink_takes_back_the_side_of_a_half_link_on_the_companion_only`)
+  [@test] src/hooks/useConfigWrite.test.ts (`offers Unlink of a broken link, which unlinks the companion's side`, `keeps Unlink of a whole link disabled with why: the primary removes it`)
   [@test] tests/e2e/settings/companions-settings.spec.ts (`should show the problem of a primary that does not list this companion, and unlink it`)
 
 #### Scenario: A removal of a half link
@@ -1003,8 +1006,9 @@ branches a need names come with the sync.
   "No companion repositories. A need can name a branch of another repository once you add one here." (in the IDE, which
   offers no Add Companion…: "… once you add one in the Branch Deck app."); of a companion:
   "A companion of app: a need here names its branches as app:branch. Add companions there.", under it a broken link:
-  "/work/app does not list this repository as a companion: add it again there to link it", "/work/app is gone", and
-  Unlink
+  "/work/app does not list this repository as a companion: add it again there to link it", "/work/app cannot be read
+  (gone): a disk not mounted now? Once it is back the link stands, Unlink is not needed", and Unlink (disabled with "app
+  lists this repository as a companion: remove it there" while the link is whole)
 - `brd companion add ../ci-config`, `brd need deploy ci-config:prepare`, `brd status --companions`.
 - The menu of a row: "Add Need…" → the form "What lands before JIRA-456", chips of the other branches → Enter → toast
   "Declared that feature-auth lands before JIRA-456" · Undo, the row "Needs feature-auth"; "Remove Need: feature-auth"
