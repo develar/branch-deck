@@ -1,10 +1,10 @@
 // The time of the review window over large synthetic commits (docs/design/diff-view.md, "Performance Targets"): the
 // review root mounted, the first diff rows, the first screen highlighted, the long tasks of the main thread until it
 // is quiet, the DOM nodes and the heap, and the bytes of the worker messages, for an open and for the expansion of the
-// unchanged lines of a large file; then H, which shows the old lines of the notes in view and hides them again: the
-// press, the time until every note in view shows, the long tasks and the reads of the selection, each of which lays the
-// page out; then the frames of a scroll at 3 and at 20 viewports per second. Each commit in Inline, the default layout,
-// which the targets gate, and in Split, stored.
+// unchanged lines of a large file; then, in Inline only (the note of a quiet run opens nothing in Split), H, which shows
+// the old lines of the notes in view and hides them again: the press, the time until every note in view shows, the long
+// tasks and the reads of the selection, each of which lays the page out; then the frames of a scroll at 3 and at 20
+// viewports per second. Each commit in Inline, the default layout, which the targets gate, and in Split, stored.
 //
 //   pnpm perf:diff                      3 runs of each scenario, a table on stdout
 //   PERF_RUNS=5 pnpm perf:diff          more runs
