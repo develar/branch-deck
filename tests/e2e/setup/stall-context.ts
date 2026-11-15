@@ -32,6 +32,15 @@ export interface StallContext {
 const BESIDE_THE_MACHINE = 2
 
 /**
+ * The machine is the cause of a stall while which it swapped in this many pages a second: a swap that stalls a process
+ * for seconds pages in thousands, and a loaded Mac swaps nearly nothing otherwise. Measured on 2026-11-15, `vm_stat`
+ * every 5 s for 5 minutes: none on this Mac at a load of 6 to 14 nor on the Mac Studio at 26 to 165, and 22,080 pages
+ * on this Mac in 3 days since its boot (0.08 a second), while it decompressed 11 pages a second (median; 1,149 at most),
+ * so the decompressions are no sign of the machine on their own
+ */
+export const SWAP_INS_PER_SECOND = 50
+
+/**
  * The context of `stall` among `actions` (of every worker), the `samples` of the machine and the `health` of the pages of
  * its test; an action of another worker is slow from `slowMs`
  */
@@ -82,9 +91,12 @@ export function verdictOf(stall: TimedAction, context: Omit<StallContext, "verdi
   if (longest >= stall.ms / 2) {
     return `the page: a long task of ${seconds(longest)} stood in it`
   }
-  if (context.beside.length >= BESIDE_THE_MACHINE || (context.swapins ?? 0) > 0) {
-    const swap = (context.swapins ?? 0) > 0 ? `, the machine swapped in ${context.swapins} pages` : ""
-    return `the machine: ${context.beside.length} slow actions of other workers stood beside it${swap}`
+  const swapped = (context.swapins ?? 0) >= SWAP_INS_PER_SECOND * (stall.ms / 1000)
+  if (context.beside.length >= BESIDE_THE_MACHINE || swapped) {
+    const swap = swapped ? `, the machine swapped in ${context.swapins} pages` : ""
+    // a passing test asks its pages nothing, and WebKit tells no long task: nothing said the page was not stuck
+    const unasked = context.answered === null && context.longTasks.length === 0 ? " (the page was not asked)" : ""
+    return `the machine${unasked}: ${context.beside.length} slow actions of other workers stood beside it${swap}`
   }
   return "neither: no long task of its page and no stall of the machine beside it; an overlay over its target, or a page that did not take it"
 }

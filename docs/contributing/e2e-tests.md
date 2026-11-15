@@ -237,13 +237,17 @@ rules in one line each and links here.
         worker 3, 16:18:05–16:18:28, load 85–92, swap-ins +0, no long task of its pages, a page did not answer, beside it 3.9 s Click (worker 2)
   ```
   The page is a page that did not answer an evaluate within 2 s, or a long task of its own over half of the stall; the
-  machine is two or more actions of other workers 5× the median and slower in the same time, or a swap; neither is an
-  action that waited for something of its own (an overlay over its target, a page that did not take it). The pieces:
+  machine is two or more actions of other workers 5× the median and slower in the same time, or a swap of 50 pages a
+  second and more (`SWAP_INS_PER_SECOND`: on 2026-11-15 neither this Mac at a load of 6 to 14 nor the Mac Studio at 26 to
+  165 swapped in a page in 5 minutes, this Mac 0.08 a second over 3 days, so a loaded Mac's trickle is no swap that
+  stalls it); "the machine (the page was not asked)" when no answer and no long task of the page said otherwise (a
+  passing test asks nothing, WebKit tells no long task); neither is an action that waited for something of its own (an
+  overlay over its target, a page that did not take it). The pieces:
   the reporter samples the load and the free memory every second and the swap every fifth (`machine-sampler.ts`: no
   process but `vm_stat` on macOS, `/proc/vmstat` on Linux), the page fixture tells the long tasks of every page from
   500 ms as they end, in a line of the console, so a page keeps no buffer (`watchLongTasks` of
-  `tests/e2e/helpers/page-health.ts`), and asks the pages of a failed test whether they answer: 3 s before its timeout
-  while they are open, since Playwright closes the pages of a test that times out before its fixtures end, else at its
+  `tests/e2e/helpers/page-health.ts`), and asks the pages of a failed test whether they answer: 3 s before its timeout,
+  on the clock of the runner from the start of the page fixture, while they are open, since Playwright closes the pages of a test that times out before its fixtures end, else at its
   end; a passing test asks nothing. The pieces attach as `page health` and `timing.json` keeps them with the samples.
   A press into a page stuck in its key handler ends as the stall of quiet-changes did, "Test timeout … keyboard.press:
   Target page, context or browser has been closed". Kept by `stall-context.test.ts` (the verdicts, with `pnpm test:unit`)

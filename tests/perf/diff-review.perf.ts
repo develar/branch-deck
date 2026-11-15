@@ -333,6 +333,17 @@ async function toggleNotes(window: Page, expanded: "true" | "false"): Promise<Ph
     return inView()
   })
   expect(notes, "a note that opens in view, which H toggles").toBeGreaterThan(0)
+  // the notes in view stand the other way before the press, so the time is of H turning them
+  const before = await window.evaluate(() => {
+    const view = document.querySelector("[data-testid=diff-view]")!.getBoundingClientRect()
+    return [...document.querySelectorAll("[data-testid=diff-remark][aria-expanded]")]
+      .filter(note => {
+        const box = note.getBoundingClientRect()
+        return box.top >= view.top + 60 && box.bottom <= view.bottom
+      })
+      .map(note => note.getAttribute("aria-expanded"))
+  })
+  expect(before, "the notes in view before H").toEqual(before.map(() => (expanded === "true" ? "false" : "true")))
   const [started, startedAt] = await window.evaluate(() => {
     ;(window as unknown as { __perf: { selectionReads: number } }).__perf.selectionReads = 0
     return [performance.now(), Date.now()] as const

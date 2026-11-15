@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import { parseProcVmStat, parseVmStat, type MachineSample } from "./machine-sampler"
-import { describeStall, stallContext, type TimedAction } from "./stall-context"
+import { describeStall, stallContext, SWAP_INS_PER_SECOND, type TimedAction } from "./stall-context"
 
 const action = (worker: number, start: number, ms: number, name = "Click"): TimedAction => ({ test: `test of ${worker}`, action: name, ms, start, worker })
 const sample = (at: number, load: number, swapins?: number): MachineSample => ({ at, load, freeBytes: 0, swapins })
@@ -38,8 +38,30 @@ describe("stallContext", () => {
     const stall = action(3, 10_000, 6_400, 'Press "j"')
     const beside = [action(1, 11_000, 2_500), action(2, 12_000, 3_000), action(4, 9_000, 2_000)]
     const context = stallContext(stall, [stall, ...beside], [sample(10_000, 70, 10), sample(16_000, 85, 40)], 1_000, 1_000, { longTasks: [], answered: true })
-    expect(context.verdict).toBe("the machine: 3 slow actions of other workers stood beside it, the machine swapped in 30 pages")
+    // 30 pages in 6.4 s is the trickle of a loaded Mac, no swap that stalls it
+    expect(context.verdict).toBe("the machine: 3 slow actions of other workers stood beside it")
     expect(describeStall(stall, context, seconds)).not.toContain("did not answer")
+  })
+
+  it("calls a stall the machine by its swap from SWAP_INS_PER_SECOND pages a second of it, alone too, a trickle below it not", () => {
+    const stall = action(3, 10_000, 4_000)
+    const swapping = stallContext(stall, [stall], [sample(10_000, 20, 1_000), sample(14_000, 20, 1_000 + SWAP_INS_PER_SECOND * 4)], 1_000, 1_000, { longTasks: [], answered: true })
+    expect(swapping.verdict).toBe(`the machine: 0 slow actions of other workers stood beside it, the machine swapped in ${SWAP_INS_PER_SECOND * 4} pages`)
+    const trickle = stallContext(stall, [stall], [sample(10_000, 20, 1_000), sample(14_000, 20, 1_000 + SWAP_INS_PER_SECOND * 4 - 1)], 1_000, 1_000, {
+      longTasks: [],
+      answered: true,
+    })
+    expect(trickle.verdict).toMatch(/^neither: /)
+  })
+
+  it("says the page was not asked when it calls the machine without an answer of the page or a long task of it", () => {
+    // a passing test asks its pages nothing, and WebKit tells no long task
+    const stall = action(3, 10_000, 5_300, 'Press "Enter"')
+    const beside = [action(1, 11_000, 2_500), action(2, 12_000, 3_000)]
+    const unasked = stallContext(stall, [stall, ...beside], [], 1_000, 1_000, undefined)
+    expect(unasked.verdict).toBe("the machine (the page was not asked): 2 slow actions of other workers stood beside it")
+    const asked = stallContext(stall, [stall, ...beside], [], 1_000, 1_000, { longTasks: [], answered: true })
+    expect(asked.verdict).toBe("the machine: 2 slow actions of other workers stood beside it")
   })
 
   it("calls a stall over half of which a long task of its own pages stood the page, a shorter one or another time not", () => {

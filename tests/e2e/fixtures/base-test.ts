@@ -437,10 +437,9 @@ export const test = base.extend({
       const open = context.pages().filter(opened => !opened.isClosed())
       return open.length === 0 ? null : (await Promise.all(open.map(opened => pageAnswers(opened)))).every(Boolean)
     }
-    const fixtureStarted = Date.now()
     let asked = false
     const nearTimeout = setInterval(() => {
-      if (!asked && testInfo.timeout > 0 && Date.now() - fixtureStarted >= testInfo.timeout - PROBE_MS - NEAR_TIMEOUT_MS) {
+      if (!asked && testInfo.timeout > 0 && Date.now() - began >= testInfo.timeout - PROBE_MS - NEAR_TIMEOUT_MS) {
         asked = true
         void askPages().then(result => {
           answered = result
