@@ -174,9 +174,7 @@ async function pressSafePushInTheRobotCard(
   const repo = await setupStarts(page, withMissingApprovals(setupRepo), syncAndWaitForBranches, FAILED)
   const robot = chip(page, "ABC-123")
   await expect(robot).toHaveText("Needs review")
-  const card = await hoverStatusChip(page, robot, "patronus-popover")
-  // its open zooms it in: the boxes once it stands
-  await animationsEnded(card)
+  const card = await openRobotCard(page, robot)
   const button = card.getByTestId("safe-push-button")
   const chipBefore = await boxOf(robot)
   // the start in the backend: the merge profiles its check reads right before it asks for the repository lock
@@ -196,6 +194,17 @@ async function pressSafePushInTheRobotCard(
   return { repo, robot, card, held: await boxOf(card), pushes }
 }
 
+/**
+ * The robot card of `robot` opened by a hover, as it stands: its open zooms it in, and the details of the robot come a
+ * frame or more after it opened (here its problems, a row of 28 px above Safe Push, which it moves down by as much)
+ */
+async function openRobotCard(page: Page, robot: Locator): Promise<Locator> {
+  const card = await hoverStatusChip(page, robot, "patronus-popover")
+  await animationsEnded(card)
+  await expect(card.getByTestId("patronus-problems")).toBeVisible()
+  return card
+}
+
 /** The pointer leaves the card for its chip: the card stays open and stands where an open of it puts it */
 async function expectTheCardByItsChip(page: Page, robot: Locator, card: Locator, held: Box): Promise<void> {
   await expect.poll(async () => (await boxOf(card)).x).not.toBe(held.x)
@@ -203,9 +212,7 @@ async function expectTheCardByItsChip(page: Page, robot: Locator, card: Locator,
   const followed = await boxOf(card)
   await page.mouse.move(0, 0)
   await expectClosed(card)
-  const reopened = await hoverStatusChip(page, robot, "patronus-popover")
-  await animationsEnded(reopened)
-  expect(await boxOf(reopened)).toEqual(followed)
+  expect(await boxOf(await openRobotCard(page, robot))).toEqual(followed)
 }
 
 /**
@@ -472,9 +479,7 @@ test.describe("Patronus actions", () => {
       await page.mouse.up()
       await page.mouse.move(0, 0)
       await expectClosed(card)
-      const reopened = await hoverStatusChip(page, robot, "patronus-popover")
-      await animationsEnded(reopened)
-      expect((await boxOf(reopened)).x, "the card stands by the chip").not.toBe(held.x)
+      expect((await boxOf(await openRobotCard(page, robot))).x, "the card stands by the chip").not.toBe(held.x)
 
       // the pointer in the card again, the chip moves back as the wait for the lock ends (the push held at the remote)
       await text.hover()
