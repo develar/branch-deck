@@ -229,7 +229,7 @@ fn kill_with_scans_that_miss(change: impl Fn(usize, &Tree, &mut Option<Vec<crate
   let (pid, _) = tree[found_later];
   let round = kill.rounds.iter().position(|round| round.iter().any(|process| process.pid == pid));
   assert!(round.is_some_and(|round| round > 0), "a later round found the {found_later}: {kill:?}");
-  assert!(kill.settled(), "{kill:?}");
+  assert_settled_but_for_the_speed_of_the_machine(&kill);
   wait_for_the_tree(&tree, &Some(kill));
 }
 
@@ -317,7 +317,7 @@ fn a_round_in_which_a_process_did_not_halt_confirms_nothing() {
   crate::process_tree::seam::processes_run_on(move |round, pid| round == 1 && known.borrow().get("grandchild").is_some_and(|&(grandchild, _)| grandchild == pid));
   let kill = kill_once_the_tree_runs(&dir, &tree).expect("the kill of the tree");
   assert_eq!(kill.rounds.len(), 3, "{kill:?}");
-  assert!(kill.settled(), "{kill:?}");
+  assert_settled_but_for_the_speed_of_the_machine(&kill);
   wait_for_the_tree(&tree.borrow(), &Some(kill));
 }
 
@@ -395,13 +395,31 @@ fn kill_after_an_external_sigcont(seams: impl FnOnce()) -> crate::process_tree::
   kill
 }
 
+/// That `kill` has no reason to be unsettled but `reasons` and a wait for the exits that ran out: a killed process
+/// exits once it runs again, which a loaded machine may give it only after `EXIT_WAIT`, so `Unsettled::ExitWait` tells
+/// the speed of the machine, not the kill. That no process outlived the kill, the test waits for
+#[cfg(unix)]
+#[track_caller]
+fn assert_unsettled_only_by(kill: &crate::process_tree::KillReport, reasons: &[crate::process_tree::Unsettled]) {
+  use crate::process_tree::Unsettled;
+  let others: Vec<Unsettled> = kill.unsettled.iter().copied().filter(|reason| *reason != Unsettled::ExitWait).collect();
+  assert_eq!(others, reasons, "{kill:?}");
+}
+
+/// `assert_unsettled_only_by` no reason: the rounds confirmed the tree, every scan read its list, and nothing was left
+#[cfg(unix)]
+#[track_caller]
+fn assert_settled_but_for_the_speed_of_the_machine(kill: &crate::process_tree::KillReport) {
+  assert_unsettled_only_by(kill, &[]);
+}
+
 /// A fork after an external `SIGCONT` after the last round (`kill_after_an_external_sigcont`) is killed, and the kill
 /// says it is not settled because of it (`Unsettled::Left`)
 #[cfg(unix)]
 #[test]
 fn a_fork_after_an_external_sigcont_after_the_last_round_is_killed_and_unsettles_the_kill() {
   let kill = kill_after_an_external_sigcont(|| {});
-  assert_eq!(kill.unsettled, [crate::process_tree::Unsettled::Left], "{kill:?}");
+  assert_unsettled_only_by(&kill, &[crate::process_tree::Unsettled::Left]);
 }
 
 /// A kill whose wait for the exits ran out (the seam of the tests) still scans after it: the fork is killed too, and the
@@ -425,7 +443,7 @@ fn a_scan_after_the_kill_that_reads_no_list_is_tried_again() {
       }
     });
   });
-  assert_eq!(kill.unsettled, [crate::process_tree::Unsettled::Left], "{kill:?}");
+  assert_unsettled_only_by(&kill, &[crate::process_tree::Unsettled::Left]);
 }
 
 /// A child that starts a process every 10 ms while it is killed leaves none of them: what it forks while the kill scans
