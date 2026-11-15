@@ -1,5 +1,6 @@
 use crate::child_process::{
-  ChildPriority, ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child, run_child_lines, run_child_until_superseded, windowless_command_at,
+  ChildPriority, ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child, run_child_lines, run_child_until_superseded, windowless_command,
+  windowless_command_at,
 };
 #[cfg(unix)]
 use crate::process_scan::is_running;
@@ -23,7 +24,7 @@ fn writes_stdin_while_reading_stdout() {
   // more than a pipe buffer in both directions: writing all input before reading would deadlock
   let input = "0123456789abcdef\n".repeat(64 * 1024).into_bytes();
   let dir = tempfile::tempdir().unwrap();
-  let output = run_child(&mut Command::new(fake(&dir, "exec cat")), Some(input.clone()), TIMEOUT, &|| false).unwrap();
+  let output = run_child(&mut windowless_command(fake(&dir, "exec cat")), Some(input.clone()), TIMEOUT, &|| false).unwrap();
   assert!(output.status.success());
   assert_eq!(output.stdout, input);
 }
@@ -31,7 +32,7 @@ fn writes_stdin_while_reading_stdout() {
 #[test]
 fn reports_a_missing_binary() {
   let dir = tempfile::tempdir().unwrap();
-  let result = run_child(&mut Command::new(dir.path().join("missing")), None, TIMEOUT, &|| false);
+  let result = run_child(&mut windowless_command(dir.path().join("missing")), None, TIMEOUT, &|| false);
   assert!(matches!(result, Err(ChildProcessError::NotFound)), "{result:?}");
 }
 
@@ -42,7 +43,7 @@ const HANG: &str = "exec sleep 120";
 #[test]
 fn kills_the_child_after_the_timeout() {
   let dir = tempfile::tempdir().unwrap();
-  let mut hang = Command::new(fake(&dir, HANG));
+  let mut hang = windowless_command(fake(&dir, HANG));
   let started = Instant::now();
   let result = run_child(&mut hang, None, Duration::from_millis(300), &|| false);
   assert!(matches!(result, Err(ChildProcessError::TimedOut)), "{result:?}");
@@ -132,7 +133,7 @@ fn kill_once_the_tree_runs(dir: &tempfile::TempDir, tree: &std::cell::RefCell<Tr
     }
     tree.len() == TREE.len()
   };
-  let result = run_child_until_superseded(&mut Command::new(child), None, &known);
+  let result = run_child_until_superseded(&mut windowless_command(child), None, &known);
   assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
   last_kill()
 }
@@ -153,6 +154,51 @@ fn a_killed_child_leaves_no_process_it_started() {
   let tree = std::cell::RefCell::new(Tree::new());
   let kill = kill_once_the_tree_runs(&dir, &tree);
   wait_for_the_tree(&tree.into_inner(), &kill);
+}
+
+/// The start of a tree that goes on only once the whole tree of the child of `child_with_a_tree` in `dir` runs, as a
+/// loaded machine may let the child run before the step after its spawn
+fn wait_after_spawns_for_the_tree(dir: &tempfile::TempDir) {
+  let files: Vec<std::path::PathBuf> = TREE.iter().map(|name| dir.path().join(name)).collect();
+  crate::process_tree::seam::wait_after_spawns(move || {
+    while !files.iter().all(|file| std::fs::read_to_string(file).is_ok_and(|text| text.trim().parse::<u32>().is_ok())) {
+      std::thread::sleep(Duration::from_millis(5));
+    }
+  });
+}
+
+/// A process that the child starts at once, before the step after its spawn (`wait_after_spawns_for_the_tree`), ends
+/// with the kill: on Windows it is in the job the child was created in. No deadline but nextest's
+#[test]
+fn a_process_the_child_starts_at_once_ends_with_the_kill() {
+  let dir = tempfile::tempdir().unwrap();
+  wait_after_spawns_for_the_tree(&dir);
+  let tree = std::cell::RefCell::new(Tree::new());
+  let kill = kill_once_the_tree_runs(&dir, &tree);
+  wait_for_the_tree(&tree.into_inner(), &kill);
+}
+
+/// On Windows the child is created in its job (`PROC_THREAD_ATTRIBUTE_JOB_LIST`): each process of its tree, all of them
+/// started before the step after the spawn (`wait_after_spawns_for_the_tree`), is in the job; a job joined after the
+/// spawn would hold none of them
+#[cfg(windows)]
+#[test]
+fn a_process_the_child_starts_at_once_is_in_its_job() {
+  let dir = tempfile::tempdir().unwrap();
+  wait_after_spawns_for_the_tree(&dir);
+  let mut command = windowless_command(child_with_a_tree(&dir));
+  command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+  let (mut child, tree) = crate::process_tree::ProcessTree::start(&mut command).unwrap();
+  let held: Vec<(&str, bool)> = TREE
+    .iter()
+    .map(|name| {
+      let pid: u32 = std::fs::read_to_string(dir.path().join(name)).unwrap().trim().parse().unwrap();
+      (*name, tree.holds(pid))
+    })
+    .collect();
+  tree.kill(&mut child);
+  let _ = child.wait();
+  assert!(held.iter().all(|(_, held)| *held), "{held:?}");
 }
 
 /// The kill of the tree of `child_with_a_tree` whose scans list what `change` makes of their lists, by the round and the
@@ -282,7 +328,7 @@ fn a_killed_child_that_keeps_forking_leaves_no_process_it_started() {
 #[test]
 fn kills_the_child_when_superseded() {
   let dir = tempfile::tempdir().unwrap();
-  let mut hang = Command::new(fake(&dir, HANG));
+  let mut hang = windowless_command(fake(&dir, HANG));
   let started = Instant::now();
   // a newer request came before the child ended
   let result = run_child(&mut hang, None, TIMEOUT, &|| true);
@@ -294,11 +340,11 @@ fn kills_the_child_when_superseded() {
 fn the_failure_message_is_the_first_stderr_line_or_the_exit_code() {
   let dir = tempfile::tempdir().unwrap();
   let tool = fake_executable(dir.path(), "tool", "echo >&2\necho '  boom  ' >&2\necho second >&2\nexit 3");
-  let output = run_child(&mut Command::new(&tool), None, TIMEOUT, &|| false).unwrap();
+  let output = run_child(&mut windowless_command(&tool), None, TIMEOUT, &|| false).unwrap();
   assert_eq!(output.failure_message("tool"), "boom");
 
   let tool = fake_executable(dir.path(), "tool", "exit 3");
-  let output = run_child(&mut Command::new(&tool), None, TIMEOUT, &|| false).unwrap();
+  let output = run_child(&mut windowless_command(&tool), None, TIMEOUT, &|| false).unwrap();
   assert_eq!(output.failure_message("tool"), "tool exited with code 3");
 }
 

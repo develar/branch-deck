@@ -7,9 +7,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
-use sync_utils::child_process::{ChildOutput, ChildProcessError, find_tool, run_child, windowless_command};
+use sync_utils::child_process::{ChildOutput, ChildProcessError, WindowlessCommand, find_tool, run_child, windowless_command};
 use sync_utils::known_tools::CLAUDE;
 use sync_utils::list_cut;
 use tracing::{info, instrument, warn};
@@ -111,7 +110,7 @@ pub fn suggest_branch_names_with(
 /// CLAUDE.md), no saved session, no update check. `--bare` would be faster but reads no OAuth login and no
 /// `apiKeyHelper`; `--strict-mcp-config` makes Claude Code exit where a `managed-mcp.json` is installed. The temp dir
 /// keeps the settings and `.mcp.json` of a project out.
-pub(crate) fn claude_command(claude: &Path) -> Command {
+pub(crate) fn claude_command(claude: &Path) -> WindowlessCommand {
   let mut command = windowless_command(claude);
   command
     .args([

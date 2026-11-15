@@ -5,11 +5,11 @@ use anyhow::{Result, anyhow};
 use std::any::Any;
 use std::io::{Read, Write};
 use std::ops::ControlFlow;
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, ExitStatus, Stdio};
 use std::sync::mpsc::{RecvTimeoutError, SyncSender};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
-use sync_utils::child_process::windowless_command;
+use sync_utils::child_process::{WindowlessCommand, windowless_command};
 use sync_utils::process_tree::ProcessTree;
 use tracing::instrument;
 
@@ -194,7 +194,7 @@ impl GitCommandExecutor {
   /// ours. A spawned child inherits stdin by default, and on Windows git queries its stdin handle at startup
   /// (`winansi_init`), which waits while a read of the same pipe is pending in this process (`brd check` reads a plan
   /// from stdin), so every git started meanwhile would hang
-  fn command(&self, args: &[&str], repository_path: &str, env: &[(&str, &str)]) -> Result<Command> {
+  fn command(&self, args: &[&str], repository_path: &str, env: &[(&str, &str)]) -> Result<WindowlessCommand> {
     if repository_path.is_empty() {
       return Err(anyhow!("repository path cannot be blank"));
     }
@@ -415,14 +415,10 @@ impl<'a> GitCommand<'a> {
       command.stdin(Stdio::piped());
     }
     let started = Instant::now();
-    let mut child = command
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped())
-      .spawn()
-      .map_err(|e| anyhow!("Failed to spawn git command: {e}"))?;
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let (mut child, tree) = ProcessTree::start(&mut command).map_err(|e| anyhow!("Failed to spawn git command: {e}"))?;
     // the cost of the operation it runs for, if any (the journal of the operations of the remote)
     sync_utils::operation_tally::git_process(crate::process_stats::subcommand(self.args));
-    let tree = ProcessTree::of(&child);
     let stdin = if pipe_stdin {
       Some(child.stdin.take().ok_or_else(|| anyhow!("git stdin is not piped"))?)
     } else {

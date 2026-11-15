@@ -65,18 +65,61 @@ pub enum ChildPriority {
 #[cfg(unix)]
 const BACKGROUND_NICENESS: u8 = 19;
 
+/// A command of `windowless_command_at` with the creation flags it set on Windows (the console window, the priority
+/// class), which std tells no more: a start in a tree (`ProcessTree::start`) adds `CREATE_SUSPENDED` to exactly those.
+/// It is its `Command` otherwise (`Deref`); another `creation_flags` set there is lost to a start in a tree
+pub struct WindowlessCommand {
+  command: Command,
+  #[cfg(windows)]
+  flags: u32,
+}
+
+impl WindowlessCommand {
+  /// The creation flags `windowless_command_at` set
+  #[cfg(windows)]
+  pub const fn creation_flags(&self) -> u32 {
+    self.flags
+  }
+
+  /// The command, for an API that takes one by value
+  #[must_use]
+  pub fn into_command(self) -> Command {
+    self.command
+  }
+}
+
+impl std::ops::Deref for WindowlessCommand {
+  type Target = Command;
+
+  fn deref(&self) -> &Command {
+    &self.command
+  }
+}
+
+impl std::ops::DerefMut for WindowlessCommand {
+  fn deref_mut(&mut self) -> &mut Command {
+    &mut self.command
+  }
+}
+
+impl std::fmt::Debug for WindowlessCommand {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.command.fmt(f)
+  }
+}
+
 /// The command of `program`, which on Windows opens no console window: the one way a process that is not git starts
 /// (`console_window_scan_test.rs`; git starts in `GitCommandExecutor`, on this too). The release app is a GUI
 /// program without a console, so Windows gives every console program it starts (`gh`, `claude`, the `cmd` of a `.cmd`
 /// shim) a console of its own, which Windows Terminal shows as a window in front of the app for each process. A
 /// process with a console (`bd`, a debug build of the app) keeps sharing it with its children, so a Ctrl+C ends them too
-pub fn windowless_command(program: impl AsRef<OsStr>) -> Command {
+pub fn windowless_command(program: impl AsRef<OsStr>) -> WindowlessCommand {
   windowless_command_at(program, ChildPriority::Normal)
 }
 
 /// `windowless_command` whose child runs at `priority`. On Windows the priority class is a creation flag beside the one
 /// of the console window, which a second `creation_flags` would replace: both are set here at once
-pub fn windowless_command_at(program: impl AsRef<OsStr>, priority: ChildPriority) -> Command {
+pub fn windowless_command_at(program: impl AsRef<OsStr>, priority: ChildPriority) -> WindowlessCommand {
   let mut command = Command::new(program);
   #[cfg(windows)]
   {
@@ -92,12 +135,16 @@ pub fn windowless_command_at(program: impl AsRef<OsStr>, priority: ChildPriority
     if flags != 0 {
       std::os::windows::process::CommandExt::creation_flags(&mut command, flags);
     }
+    WindowlessCommand { command, flags }
   }
-  #[cfg(unix)]
-  if priority == ChildPriority::Background {
-    set_niceness(&mut command, BACKGROUND_NICENESS);
+  #[cfg(not(windows))]
+  {
+    #[cfg(unix)]
+    if priority == ChildPriority::Background {
+      set_niceness(&mut command, BACKGROUND_NICENESS);
+    }
+    WindowlessCommand { command }
   }
-  command
 }
 
 /// The niceness of this process, which a child it starts inherits. getpriority(2) of the calling process cannot fail, so
@@ -158,24 +205,23 @@ fn has_console() -> bool {
 /// Runs `command` with `stdin` (None = no input), reading stdout and stderr while it runs, so a full pipe never blocks the
 /// child. The child is killed after `timeout`, and within one poll interval after `is_superseded` turns true, with the
 /// processes it started (`process_tree`).
-pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duration, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
+pub fn run_child(command: &mut WindowlessCommand, stdin: Option<Vec<u8>>, timeout: Duration, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
   run_until(command, stdin, Some(Instant::now() + timeout), is_superseded)
 }
 
 /// `run_child` without a deadline: the child runs as long as it takes, and is killed only within one poll interval after
 /// `is_superseded` turns true. For a child whose time depends on the load of the machine, where a fixed bound would fail
 /// a slow answer the user still waits for, and the user can cancel
-pub fn run_child_until_superseded(command: &mut Command, stdin: Option<Vec<u8>>, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
+pub fn run_child_until_superseded(command: &mut WindowlessCommand, stdin: Option<Vec<u8>>, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
   run_until(command, stdin, None, is_superseded)
 }
 
-fn run_until(command: &mut Command, stdin: Option<Vec<u8>>, deadline: Option<Instant>, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
+fn run_until(command: &mut WindowlessCommand, stdin: Option<Vec<u8>>, deadline: Option<Instant>, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
   command
     .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
-  let mut child = start_child(command)?;
-  let tree = ProcessTree::of(&child);
+  let (mut child, tree) = ProcessTree::start(command).map_err(spawn_error)?;
   // a writer thread: a child that answers before it reads all of its input must not deadlock us
   if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
     std::thread::spawn(in_current_span(move || {
@@ -226,7 +272,7 @@ pub fn run_child_lines(command: &mut Command, timeout: Duration, on_line: &dyn F
   command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
   #[cfg(unix)]
   std::os::unix::process::CommandExt::process_group(command, 0);
-  let mut child = start_child(command)?;
+  let mut child = command.spawn().map_err(spawn_error)?;
   let (sender, lines) = std::sync::mpsc::channel::<Option<(bool, String)>>();
   read_lines(child.stdout.take(), true, sender.clone());
   read_lines(child.stderr.take(), false, sender);
@@ -335,14 +381,12 @@ fn signal_group(leader: libc::pid_t, signal: libc::c_int) {
   unsafe { libc::kill(-leader, signal) };
 }
 
-fn start_child(command: &mut Command) -> Result<std::process::Child, ChildProcessError> {
-  command.spawn().map_err(|e| {
-    if e.kind() == std::io::ErrorKind::NotFound {
-      ChildProcessError::NotFound
-    } else {
-      ChildProcessError::Spawn(e)
-    }
-  })
+fn spawn_error(e: std::io::Error) -> ChildProcessError {
+  if e.kind() == std::io::ErrorKind::NotFound {
+    ChildProcessError::NotFound
+  } else {
+    ChildProcessError::Spawn(e)
+  }
 }
 
 fn read_pipe(pipe: Option<impl Read + Send + 'static>) -> JoinHandle<Vec<u8>> {
@@ -426,14 +470,11 @@ pub fn login_shell_path() -> Option<OsString> {
   }
   let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into());
   // an rc file that waits for input or hangs must not block the caller (and every later lookup) for good
-  let output = run_child(
-    windowless_command(&shell).args(["-i", "-l", "-c", "printf '\\n%s' \"$PATH\""]),
-    None,
-    LOGIN_SHELL_TIMEOUT,
-    &|| false,
-  )
-  .inspect_err(|e| tracing::warn!(error = ?e, "can't run the login shell for PATH"))
-  .ok()?;
+  let mut command = windowless_command(&shell);
+  command.args(["-i", "-l", "-c", "printf '\\n%s' \"$PATH\""]);
+  let output = run_child(&mut command, None, LOGIN_SHELL_TIMEOUT, &|| false)
+    .inspect_err(|e| tracing::warn!(error = ?e, "can't run the login shell for PATH"))
+    .ok()?;
   // the rc files may print before it: PATH is the last line
   let stdout = String::from_utf8_lossy(&output.stdout);
   stdout.rsplit('\n').next().filter(|path| output.status.success() && !path.is_empty()).map(OsString::from)

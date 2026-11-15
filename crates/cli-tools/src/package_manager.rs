@@ -5,8 +5,7 @@
 use crate::environment::ToolEnvironment;
 use domain_types::cli_tools::{CliTool, PackageManager};
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use sync_utils::child_process::find_executable;
+use sync_utils::child_process::{WindowlessCommand, find_executable};
 use sync_utils::known_tools::{BREW, WINGET};
 
 /// The bucket of the CLIs for scoop (`jetbrains`)
@@ -101,7 +100,7 @@ pub const fn manager_name(manager: PackageManager) -> &'static str {
 
 /// The commands of an install (`upgrade` false) or an upgrade of `tool`, in order, without prompts: scoop adds the
 /// `jetbrains` bucket first, whose failure (it is there already) does not count
-pub fn manager_commands(environment: &ToolEnvironment, found: &FoundManager, tool: CliTool, upgrade: bool) -> Vec<(Command, bool)> {
+pub fn manager_commands(environment: &ToolEnvironment, found: &FoundManager, tool: CliTool, upgrade: bool) -> Vec<(WindowlessCommand, bool)> {
   let command = || environment.command(&found.binary);
   match found.manager {
     PackageManager::Homebrew => {

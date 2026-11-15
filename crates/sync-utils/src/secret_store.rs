@@ -125,7 +125,9 @@ impl Keychain {
   }
 
   fn run(&self, args: &[&str], stdin: Option<Vec<u8>>) -> Result<crate::child_process::ChildOutput, String> {
-    run_child(windowless_command(&self.security).args(args), stdin, SECURITY_TIMEOUT, &|| false).map_err(|e| format!("security: {e:?}"))
+    let mut command = windowless_command(&self.security);
+    command.args(args);
+    run_child(&mut command, stdin, SECURITY_TIMEOUT, &|| false).map_err(|e| format!("security: {e:?}"))
   }
 }
 

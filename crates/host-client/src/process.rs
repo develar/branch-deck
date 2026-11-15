@@ -1,7 +1,6 @@
 //! The seam of the local child processes of `setup`: ssh. The unit tests answer each call from a script, so they need
 //! no ssh and no network. Each call has a deadline, and Ctrl+C stops it (`sync_utils::child_process::run_child`)
 
-use std::process::Command;
 use std::time::Duration;
 use sync_utils::child_process::{ChildProcessError, run_child, windowless_command};
 
@@ -82,7 +81,7 @@ pub struct OsProcesses;
 
 impl Processes for OsProcesses {
   fn run(&self, call: &Call, stop: &dyn Fn() -> bool) -> Ran {
-    let mut command: Command = windowless_command(&call.program);
+    let mut command = windowless_command(&call.program);
     command.args(&call.args);
     let input = (!call.input.is_empty()).then(|| call.input.clone());
     match run_child(&mut command, input, call.deadline, stop) {

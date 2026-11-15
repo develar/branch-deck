@@ -445,7 +445,10 @@ cancel) makes the run poll and kill git, the error a `StoppedCommand`, and after
 awaited for 500 ms only, because a helper of git (ssh, a credential helper) may hold them open. A kill ends git and
 every process it started (`crates/sync-utils/src/process_tree.rs`, as `sync_utils::child_process::run_child` does for
 its child): an ssh of a remote that does not answer reads no end of its pipes and would run on after git. On Windows
-the kill ends the job object that git was put into when it started: `git` on `PATH` is mostly the launcher of Git for
+the kill ends the job object of git (`ProcessTree::start`: git is created suspended, with `CREATE_SUSPENDED` beside the
+creation flags its `windowless_command` set, which `WindowlessCommand` keeps since std tells none back, put into the
+job and only then resumed, so a process git starts at once is in the job too; a git that can't be put there is killed
+before it runs and the start fails with the error of Windows): `git` on `PATH` is mostly the launcher of Git for
 Windows (`Git\cmd\git.exe`), which starts the real git as its child, and a kill of the launcher alone would leave that
 git running with its ssh or helper, its lock files and our inherited pipe handles. The job allows no breakaway: the
 MSYS runtime of Git for Windows asks to break away from a job that allows it for every program it starts, so an ssh

@@ -628,7 +628,7 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
 fn shell(command: &str) -> std::process::Command {
   let mut shell = sync_utils::child_process::windowless_command("sh");
   shell.arg("-c").arg(command);
-  shell
+  shell.into_command()
 }
 
 /// `cmd /D /S /C "<command>"`, the command line passed as written: `Command::arg` quotes an argument for the MSVC
@@ -637,8 +637,8 @@ fn shell(command: &str) -> std::process::Command {
 #[cfg(windows)]
 fn shell(command: &str) -> std::process::Command {
   let mut shell = sync_utils::child_process::windowless_command("cmd");
-  std::os::windows::process::CommandExt::raw_arg(&mut shell, format!("/D /S /C \"{command}\""));
-  shell
+  std::os::windows::process::CommandExt::raw_arg(&mut *shell, format!("/D /S /C \"{command}\""));
+  shell.into_command()
 }
 
 /// The output of an inverted stack (`trial_check::inverted_stack`): short ids, the kinds of the fixes, and without one why

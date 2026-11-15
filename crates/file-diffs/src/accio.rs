@@ -44,10 +44,9 @@ use anyhow::{Context, Result, bail};
 use diff_marks::index::{Access, Columns, MovesAnswer, RenameAnswer, RenamePair, Resolved};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::SystemTime;
-use sync_utils::child_process::{ChildPriority, ChildProcessError, cached_login_shell_path, find_executable, run_child_until_superseded, windowless_command_at};
+use sync_utils::child_process::{ChildPriority, ChildProcessError, WindowlessCommand, cached_login_shell_path, find_executable, run_child_until_superseded, windowless_command_at};
 
 /// The declarations a lookup answers at most
 const LIMIT: &str = "20";
@@ -1068,7 +1067,7 @@ impl AccioSearch<'_> {
 
   /// The standard output of `command`, given `stdin`, run until it answers; `SearchCanceled` once the search is
   /// canceled, an error with what accio printed when it fails
-  fn run(&self, command: &mut Command, stdin: Option<Vec<u8>>) -> Result<Vec<u8>> {
+  fn run(&self, command: &mut WindowlessCommand, stdin: Option<Vec<u8>>) -> Result<Vec<u8>> {
     let output = run_child_until_superseded(command, stdin, self.canceled).map_err(|error| match error {
       ChildProcessError::Superseded => anyhow::Error::new(SearchCanceled),
       other => anyhow::anyhow!("{other:?}"),

@@ -4,8 +4,12 @@
 //!
 //! On Windows `git` on `PATH` is mostly the launcher of Git for Windows (`Git\cmd\git.exe`), which starts the real git
 //! (`mingw64\bin\git.exe`) as its child and waits for it, so a kill of the launcher alone (`TerminateProcess`) leaves even
-//! the real git. Every child goes into a job object of its own when it starts, and a kill ends the job: the child and
-//! every process it started. A child that exits by itself ends nothing: the job has no kill-on-close. The job allows no
+//! the real git. Every child is created suspended (`CREATE_SUSPENDED`, beside the flags its `windowless_command_at`
+//! set), put into a job object of its own and only then resumed, so a process it starts at once is in the job too, and
+//! a kill ends the job: the child and every process it started. A child that can't be put into its job is killed
+//! before it runs, and its start fails with the error of Windows: since Windows 8 a job nests in the job of this
+//! process (a CI runner's, a terminal's), so no case is known where a child can't have one. A child that exits by itself
+//! ends nothing: the job has no kill-on-close. The job allows no
 //! breakaway: the MSYS runtime of Git for Windows (its sh, its ssh) asks to break away from a job that allows it for
 //! every program it starts (`spawn.cc`, a workaround for the compatibility job of Windows 7), so an ssh command, a
 //! credential helper, alias or hook that git runs through its sh ended outside the job and outlived the kill. Git asks
@@ -42,6 +46,7 @@
 //! process, so a later scan finds them too, but it makes this process the parent of every orphan of its children, which
 //! it then has to reap; it is not used
 
+use crate::child_process::WindowlessCommand;
 use std::process::Child;
 
 /// The most scans of one round of a kill on Unix: each pass stops what it found, so only a process that forked between a
@@ -80,45 +85,59 @@ const EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 #[cfg(unix)]
 const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// The job of a started child (none where a job could not be made or joined: then a kill ends the child alone), or on
-/// Unix the child and its start
+/// The job of a started child, or on Unix the child and its start
 pub struct ProcessTree {
   #[cfg(windows)]
-  job: Option<std::os::windows::io::OwnedHandle>,
+  job: std::os::windows::io::OwnedHandle,
   #[cfg(unix)]
   root: Option<(u32, u64)>,
 }
 
 impl ProcessTree {
-  /// The tree of `child`, just spawned: every process it starts from now on is in it. The assignment follows the spawn
-  /// at once, far sooner than the launcher of Git for Windows starts its git
+  /// Starts `command` with its tree: on Windows the child is created suspended, put into a job of its own and resumed,
+  /// so every process it starts is in the job; a child that can't be put there is killed before it runs, and the start
+  /// fails with the error of Windows. An error is the one of the spawn, of the job or of the resume
   #[cfg(windows)]
-  pub fn of(child: &Child) -> Self {
-    Self { job: job::join(child) }
-  }
-
-  /// The tree of `child`, just spawned: the child and its start, under which a kill finds its processes
-  #[cfg(unix)]
-  pub fn of(child: &Child) -> Self {
-    let pid = child.id();
-    Self {
-      root: crate::process_scan::process_started(pid).map(|started| (pid, started)),
+  pub fn start(command: &mut WindowlessCommand) -> std::io::Result<(Child, Self)> {
+    let job = job::new()?;
+    let mut child = job::spawn_suspended(command)?;
+    if let Err(error) = job::assign(&job, &child).and_then(|()| job::resume(&child)) {
+      tracing::warn!(child = child.id(), %error, "a child could not be put into its job: it is killed before it runs");
+      let _ = child.kill();
+      let _ = child.wait();
+      return Err(error);
     }
+    seam::after_spawn();
+    Ok((child, Self { job }))
   }
 
-  /// The tree of `child`: elsewhere, `child` alone
+  /// Starts `command` with its tree: the child and its start, under which a kill finds its processes
+  #[cfg(unix)]
+  pub fn start(command: &mut WindowlessCommand) -> std::io::Result<(Child, Self)> {
+    let child = command.spawn()?;
+    seam::after_spawn();
+    let pid = child.id();
+    let root = crate::process_scan::process_started(pid).map(|started| (pid, started));
+    Ok((child, Self { root }))
+  }
+
+  /// Starts `command`: elsewhere a tree is the child alone
   #[cfg(not(any(unix, windows)))]
-  pub const fn of(_child: &Child) -> Self {
-    Self {}
+  pub fn start(command: &mut WindowlessCommand) -> std::io::Result<(Child, Self)> {
+    Ok((command.spawn()?, Self {}))
+  }
+
+  /// Whether the process `pid` is in the job of the tree, for a test of what the job holds
+  #[cfg(all(test, windows))]
+  pub(crate) fn holds(&self, pid: u32) -> bool {
+    job::holds(&self.job, pid)
   }
 
   /// Kills `child` and every process of its tree that still runs; the caller waits for `child`
   #[cfg_attr(not(any(unix, windows)), expect(clippy::unused_self, reason = "a tree holds a job on Windows and a root on Unix"))]
   pub fn kill(&self, child: &mut Child) {
     #[cfg(windows)]
-    if let Some(job) = &self.job
-      && job::terminate(job)
-    {
+    if job::terminate(&self.job) {
       return;
     }
     #[cfg(unix)]
@@ -281,28 +300,48 @@ fn stop_all(processes: &[(u32, u64)], deadline: std::time::Instant) -> Vec<(u32,
   not_halted
 }
 
-/// The seam of the tests: a scan that misses some processes or reads no list (a hook that only a test sets), and what
-/// the last kill of this thread did
-#[cfg(unix)]
+/// The seam of the tests: a wait after a spawn, a scan that misses some processes or reads no list (hooks that only a
+/// test sets), and what the last kill of this thread did
 pub(crate) mod seam {
+  #[cfg(unix)]
   use crate::process_scan::Descendant;
   use std::cell::RefCell;
 
+  type AfterSpawn = Box<dyn Fn()>;
+  #[cfg(unix)]
   type Scanned = Box<dyn FnMut(usize, &mut Option<Vec<Descendant>>)>;
 
   thread_local! {
+    static AFTER_SPAWN: RefCell<Option<AfterSpawn>> = const { RefCell::new(None) };
+    #[cfg(unix)]
     static SCANNED: RefCell<Option<Scanned>> = const { RefCell::new(None) };
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) static LAST_KILL: RefCell<Option<super::KillReport>> = const { RefCell::new(None) };
+  }
+
+  /// Every start of a tree on this thread runs `wait` after the spawn, before it goes on, as a loaded machine may take
+  /// its time there: the child runs meanwhile
+  #[cfg(test)]
+  pub(crate) fn wait_after_spawns(wait: impl Fn() + 'static) {
+    AFTER_SPAWN.with(|cell| *cell.borrow_mut() = Some(Box::new(wait)));
+  }
+
+  pub(super) fn after_spawn() {
+    AFTER_SPAWN.with(|cell| {
+      if let Some(wait) = cell.borrow().as_ref() {
+        wait();
+      }
+    });
   }
 
   /// Every pass of the kills of this thread hands `change` what its scan listed (`None`: no list), with its round, to
   /// leave some of it out or the list itself
-  #[cfg(test)]
+  #[cfg(all(test, unix))]
   pub(crate) fn change_scans(change: impl FnMut(usize, &mut Option<Vec<Descendant>>) + 'static) {
     SCANNED.with(|cell| *cell.borrow_mut() = Some(Box::new(change)));
   }
 
+  #[cfg(unix)]
   pub(super) fn scanned(round: usize, listed: &mut Option<Vec<Descendant>>) {
     SCANNED.with(|cell| {
       if let Some(change) = cell.borrow_mut().as_mut() {
@@ -312,7 +351,7 @@ pub(crate) mod seam {
   }
 
   /// What the last kill of this thread did
-  #[cfg(test)]
+  #[cfg(all(test, unix))]
   pub(crate) fn last_kill() -> Option<super::KillReport> {
     LAST_KILL.with(|cell| cell.borrow_mut().take())
   }
@@ -321,22 +360,67 @@ pub(crate) mod seam {
 #[cfg(windows)]
 #[expect(unsafe_code, reason = "Win32: the job object of a child and its processes")]
 mod job {
+  use crate::child_process::WindowlessCommand;
   use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+  use std::os::windows::process::{ChildExt, CommandExt};
   use std::process::Child;
   use windows_sys::Win32::System::JobObjects::{AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject};
+  use windows_sys::Win32::System::Threading::{CREATE_SUSPENDED, ResumeThread};
 
-  /// A new job with `child` in it, without limits: no breakaway, no kill-on-close
-  pub(super) fn join(child: &Child) -> Option<OwnedHandle> {
+  /// A new job without limits: no breakaway, no kill-on-close
+  pub(super) fn new() -> std::io::Result<OwnedHandle> {
     // SAFETY: no security attributes and no name; a non-null result is a handle that nothing else owns
     let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
     if job.is_null() {
-      return None;
+      return Err(std::io::Error::last_os_error());
     }
     // SAFETY: `job` is the open handle just created, owned from here on, and closed when the tree is dropped
-    let job = unsafe { OwnedHandle::from_raw_handle(job) };
+    Ok(unsafe { OwnedHandle::from_raw_handle(job) })
+  }
+
+  /// Spawns `command` suspended: the flags of its `windowless_command_at` and `CREATE_SUSPENDED`, which the command
+  /// then loses again, so another spawn of it runs at once
+  pub(super) fn spawn_suspended(command: &mut WindowlessCommand) -> std::io::Result<Child> {
+    let flags = command.creation_flags();
+    CommandExt::creation_flags(&mut **command, flags | CREATE_SUSPENDED);
+    let child = command.spawn();
+    CommandExt::creation_flags(&mut **command, flags);
+    child
+  }
+
+  /// Puts `child` into `job`
+  pub(super) fn assign(job: &OwnedHandle, child: &Child) -> std::io::Result<()> {
     // SAFETY: both handles are open: the job's, and the process handle that `child` holds until it is dropped
-    let joined = unsafe { AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) };
-    (joined != 0).then_some(job)
+    if unsafe { AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) } == 0 {
+      return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+  }
+
+  /// Lets the main thread of `child`, created suspended, run
+  pub(super) fn resume(child: &Child) -> std::io::Result<()> {
+    // SAFETY: the thread handle that `child` holds until it is dropped
+    if unsafe { ResumeThread(child.main_thread_handle().as_raw_handle()) } == u32::MAX {
+      return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+  }
+
+  /// Whether the process `pid` is in `job` (`IsProcessInJob`); false for a process gone
+  #[cfg(test)]
+  pub(super) fn holds(job: &OwnedHandle, pid: u32) -> bool {
+    use windows_sys::Win32::System::JobObjects::IsProcessInJob;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    // SAFETY: plain arguments; a non-null result is a handle that nothing else owns
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+      return false;
+    }
+    // SAFETY: the handle just opened, owned from here on and closed when dropped
+    let process = unsafe { OwnedHandle::from_raw_handle(process) };
+    let mut held = 0;
+    // SAFETY: both handles are open, and `held` is a local the call writes
+    unsafe { IsProcessInJob(process.as_raw_handle(), job.as_raw_handle(), &raw mut held) != 0 && held != 0 }
   }
 
   /// Ends every process of the job; false when Windows refused, and then the caller kills the child alone
