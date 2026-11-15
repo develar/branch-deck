@@ -104,6 +104,9 @@ export interface BranchReviewModel {
   readonly state: ReviewState
   /** The branches of the chain the last sync no longer built: they landed or were renamed */
   readonly gone: readonly string[]
+  /** The heads of the branches the review was last read again for (`JSON` of the tips of the session's table), as the
+   * window shows it (`data-read-tips`), so a test that counts the reads names what each read was for */
+  readonly readTips: string
   readonly filter: ReviewFilter
   readonly setFilter: (filter: ReviewFilter) => void
   readonly setRange: (range: SegmentRange) => void
@@ -347,6 +350,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     source,
     state,
     gone,
+    readTips,
     filter,
     setFilter,
     setRange: range => setView({ range, commitId: null, since: false }),

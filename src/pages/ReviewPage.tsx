@@ -391,6 +391,7 @@ function BranchReviewWindow({ data, back, onPlace, dialogOpen }: { data: ShownBr
     <WindowPage
       data-testid="review-window"
       data-view-version={viewVersion ?? undefined}
+      data-read-tips={model.readTips}
       body="fill"
       readyByContent
       title={

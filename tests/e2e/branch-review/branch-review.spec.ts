@@ -23,6 +23,63 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommandCalls, recordCommand, recordRewrites, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
+/** The heads a `get_review` answer gives, `name=head` of each part, for the record of what a window read */
+function answeredHeads(body: unknown): string {
+  const segments: string[] = []
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(walk)
+    } else if (value !== null && typeof value === "object") {
+      const { name, head } = value as { name?: unknown; head?: unknown }
+      if (typeof name === "string" && typeof head === "string") {
+        segments.push(`${name}=${head.slice(0, 8)}`)
+      } else {
+        Object.values(value).forEach(walk)
+      }
+    }
+  }
+  walk(body)
+  return segments.join(", ")
+}
+
+/**
+ * The record of the reads of the stack of the review window `window` (`get_review`): each with the heads the window
+ * decided to read it again for (`data-read-tips`, the tips of the table of its session), its version and the heads it
+ * showed then, each answer with the heads it gave, so a failure of a test that counts the reads names what each was for
+ */
+function recordReads(window: Page): { reads: () => number; record: () => string } {
+  const lines: string[] = []
+  const started = Date.now()
+  let reads = 0
+  const note = (line: string) => lines.push(`+${Date.now() - started} ms ${line}`)
+  const review = window.getByTestId("review-window")
+  window.on("request", request => {
+    if (request.url().endsWith("/invoke/get_review")) {
+      reads++
+      void Promise.all([
+        review.getAttribute("data-read-tips"),
+        review.getAttribute("data-view-version"),
+        window.getByTestId("branch-review-segment").evaluateAll(shown => shown.map(it => `${it.dataset.name}=${(it.dataset.head ?? "").slice(0, 8)}`).join(", ")),
+      ]).then(([tips, version, shown]) => note(`read ${reads} at view ${version} for tips ${tips}, the window showing ${shown}`))
+    }
+  })
+  window.on("response", response => {
+    if (response.url().endsWith("/invoke/get_review")) {
+      void response.json().then(body => note(`answer: ${answeredHeads(body)}`))
+    }
+  })
+  return { reads: () => reads, record: () => `the stack was read ${reads} times since the count began:\n${lines.join("\n")}` }
+}
+
+/** `wait`, whose failure says what the review window read and why (`recordReads`) */
+async function explainedByReads(wait: Promise<void>, record: () => string): Promise<void> {
+  try {
+    await wait
+  } catch (error) {
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${record()}`, { cause: error })
+  }
+}
+
 async function reviewedPaths(page: Page): Promise<string[]> {
   return page.getByTestId("review-file-header").evaluateAll(headers => headers.map(header => header.getAttribute("data-path")!))
 }
@@ -704,12 +761,8 @@ test.describe("Branch review window", () => {
     }
     const expectMainVersion = () => expect.poll(sameVersion, { message: "the review window holds the version of the main window" }).toBe(true)
     await expectMainVersion()
-    let reads = 0
-    window.on("request", request => {
-      if (request.url().endsWith("/invoke/get_review")) {
-        reads++
-      }
-    })
+    // each read from here on, with what it was for, in the message of a failure
+    const { reads, record } = recordReads(window)
 
     // a commit of login in a terminal, then Sync of the main window: its patches reach the window on its own channel
     await repo.commit("(login) Add the logout link", { "ui/logout.js": "export function logout() {}\n" }, 1704124800)
@@ -719,9 +772,9 @@ test.describe("Branch review window", () => {
     await expect(segments).toHaveText(["auth1", "login3"])
     await expect.poll(() => reviewedPaths(window)).toContain("ui/logout.js")
     await expect(segments.nth(1)).toHaveAttribute("aria-pressed", "true")
-    expect(reads).toBe(1)
+    expect(reads(), record()).toBe(1)
     const push = window.getByTestId("branch-review-actions").getByRole("button", { name: /^Push/ })
-    await expect(push).toBeEnabled()
+    await explainedByReads(expect(push).toBeEnabled(), record)
 
     // login renamed in the main window: the sync of the rename leaves it out of the session's table
     await openContextMenu(page, findBranchRow(page, "login"))
@@ -736,8 +789,8 @@ test.describe("Branch review window", () => {
     await expect(window.getByTestId("review-file-header").first()).toBeVisible()
     await expect(segments).toHaveText(["auth1", "login3"])
     // the push of login, which no longer is a branch, stays, disabled
-    await expect(push).toBeDisabled()
-    expect(reads).toBe(1)
+    await explainedByReads(expect(push).toBeDisabled(), record)
+    expect(reads(), record()).toBe(1)
   })
 
   test("should build the actions of the title bar of each part from the window's own session, and open the pull request itself", async ({

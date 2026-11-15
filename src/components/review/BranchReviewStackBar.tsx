@@ -98,6 +98,7 @@ export function BranchReviewStackBar({
               aria-pressed={selected}
               data-testid="branch-review-segment"
               data-name={segment.name}
+              data-head={segment.head}
               title={segment.name}
               className={cn(
                 "max-w-64",
