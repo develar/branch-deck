@@ -188,13 +188,14 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   frame, whichever comes first (its size a frame later, as the loop would give it). A deeper one stays, the update
   delivers it in that frame; one let go comes back at once when a report of shallower elements shows it deeper. A change
   after the update (a task, as React renders) lets nothing go: the next update delivers it in its own frame. The page is
-  watched only while those callbacks run.
+  watched only while those callbacks run. An element first observed in the update, no deeper than the report (a block a
+  flushSync mounted, observed by its ref; a table mounted again), is observed only as the delivery ends.
   The observers of the libraries go through the engine's own class with one step before their callback, which opens
   the delivery at the depth of their report as one of ours does (`watchTheLibraries`): the same class, prototype,
   methods and `instanceof`, the same entries in the same frame, none of their elements let go. An element let go so in
-  10 of 20 frames (`CYCLE_RELEASES`, `CYCLE_FRAMES`: every frame, every other), resized there by a change of its own
-  callback, is a cycle, logged as an error: frames, not time, so a window that renders slowly tells it too, and a drag
-  that resizes it between frames is none (a commit lets an element go once, however many of our observers observe it: a
+  10 of 20 frames (`CYCLE_RELEASES`, `CYCLE_FRAMES`: every frame, every other) after its report there, resized by a
+  change of its own callback, is a cycle, logged as an error: frames, not time, so a window that renders slowly tells it
+  too, and a drag that resizes it between frames is none, nor one let go before its report (a commit lets an element go once, however many of our observers observe it: a
   diff view has three). A cycle that resizes its element after the delivery (in a frame callback, a timer) is not
   caught: it resizes the element once a frame, as an animation, a transition, a drag or a live resize of the window do
   for as long as they last, and no size, frame or time tells it from them. The page logs a loop of a library's

@@ -85,6 +85,7 @@ import { hoverStatusChip } from "../e2e/helpers/review-status-helpers"
 import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
 import { runAndWaitForSync, syncBranches, waitForBranchesLoaded, waitForViewVersion } from "../e2e/helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../e2e/helpers/test-repository"
+import { expectClosed } from "../e2e/helpers/wait-helpers"
 
 const RUNS = Number(process.env.PERF_RUNS ?? 3)
 /** The branch rows of the template: 120 lone branches and three stacks of seven */
@@ -496,7 +497,7 @@ test.describe("Branch table performance", () => {
       await expect(page.getByRole("menu")).toBeVisible()
       const menu = await settledIpc(page)
       await page.keyboard.press("Escape")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
 
       await resetIpc(page)
       await hoverStatusChip(page, row.getByTestId("patronus-chip"), "patronus-popover")

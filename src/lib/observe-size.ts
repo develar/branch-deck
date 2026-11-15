@@ -9,18 +9,23 @@
  * - A change in the rendering update, in a callback of an observer (ours or a library's) or in the microtasks right after
  *   it, can resize any element: the layout is the page's (a block above a view that grows shrinks the view, a view hidden
  *   around a table empties its cells). On such a change every element of ours no deeper than the elements of the latest
- *   report leaves its observers at once (no observation of it is left to skip) and is observed anew as the delivery ends,
- *   at the next task or the next frame, whichever comes first: its size a frame later, as the loop would have it. A
- *   deeper element stays: the update delivers it at its depth, in the frame of its change; one let go comes back as soon
- *   as a report of shallower elements shows it deeper than they are. A change after the update (a task, as React renders)
- *   lets nothing go: the next update delivers it, in its own frame. The page is watched only while a callback runs.
+ *   report leaves its observers at once and is observed anew as the delivery ends, at the next task or the next frame,
+ *   whichever comes first: its size a frame later, as the loop would have it; one the change left at its size is reported
+ *   again at that size, which changes nothing. No layout is read to tell them apart, which would add one to each callback
+ *   that changes the page; the releases do not grow with the rows (on the 141 rows of `branch_table_large` a sync that
+ *   changes nothing lets nothing go, the menu of a row observes its one element). An element first observed then, no deeper,
+ *   is observed only as the delivery ends (a block mounted by a flushSync in a callback, a table mounted again). A deeper
+ *   element stays: the update delivers it at its depth, in the frame of its change; one let go comes back as soon as a
+ *   report of shallower elements shows it deeper than they are. A change after the update (a task, as React renders)
+ *   lets nothing go: the next update delivers it, in its own frame. The page is watched only while such a callback runs.
  * - The observers of the libraries (Base UI, the panels) report through the engine's `ResizeObserver` with one step
  *   before their callback (`watchTheLibraries`): their report opens the delivery at its depth as one of ours does, so a
  *   change of their callback that resizes an element of ours lets it go. Passive: theirs is the engine's class, prototype
  *   and methods, with the same entries in the same frame; no element of theirs is let go or observed anew.
- * - A cycle: an element let go in the delivery of `CYCLE_RELEASES` of `CYCLE_FRAMES` frames (every frame, every other),
- *   resized there by a change of its own callback, which no loop tells any more, is logged as an error. A drag that
- *   resizes it between frames is no cycle: its size in the delivery is the one it was reported with. A cycle that resizes
+ * - A cycle: an element let go in the delivery of `CYCLE_RELEASES` of `CYCLE_FRAMES` frames (every frame, every other)
+ *   after its report there, resized by a change of a callback of ours (measured on the frame that makes it), which no
+ *   loop tells any more, is logged as an error. A drag that resizes it between frames is no cycle: its size in the
+ *   delivery is the one it was reported with, and one let go before its report in the delivery does not count. A cycle that resizes
  *   its element after the delivery (in a frame callback, a timer) is no loop and is not told: it resizes the element once
  *   a frame, as an animation, a transition, a drag or a resize of the window does for as long as they last, and no size,
  *   frame or time tells it from them.
@@ -36,30 +41,39 @@ import { attributeLoopsWith, CYCLE_FRAMES, CYCLE_RELEASES } from "@/lib/resize-l
 /** The mark of an observer made here, which the test wrapper of the observers reads (tests/e2e/setup/resize-observers.ts) */
 export const SIZE_OBSERVER_MARK = Symbol.for("branch-deck.observeSize")
 
-/** Two sizes this close are the same: a layout unit is 1/64 px */
-const SAME_SIZE = 0.05
+/** Two sizes this close are the same: less than a layout unit (1/64 px), more than the rounding of a computed style */
+const SAME_SIZE = 0.01
 
-/** A border box as laid out, inline (the width of the page) and block */
-interface BorderBox {
+/** A box as laid out, inline (the width of the page) and block */
+interface Box {
   readonly inline: number
   readonly block: number
 }
 
-/** What an observer observes an element with, and the border box it reported it with since */
+/** The content box and the border box of an element, what an observation compares (`box`, the content box by default) */
+interface Boxes {
+  readonly content: Box
+  readonly border: Box
+}
+
+/** What an observer observes an element with, and the boxes it reported it with since */
 interface Observation {
   readonly options: ResizeObserverOptions | undefined
-  reported: BorderBox | null
+  reported: Boxes | null
 }
 
 /** An element let go in a delivery, until it ends */
 interface Release {
   readonly depth: number
-  /** The observers that let it go */
-  readonly by: ReadonlySet<SizeObserver>
+  /** The observers that let it go, or that observe it first once the delivery ends */
+  readonly by: Set<SizeObserver>
   /** The frame of the delivery */
   readonly frame: number
-  /** Let go by a change of the rendering update: a callback of ours ran, or the microtasks right after it */
-  readonly inDelivery: boolean
+  /**
+   * Let go after its report in this update by a change of a callback of ours, or of the microtasks right after it: it
+   * counts toward a cycle
+   */
+  readonly ofOurs: boolean
   /** Resized there since its report; measured only for the frame that would make a cycle */
   readonly resized: boolean
 }
@@ -72,7 +86,7 @@ const observing = new Map<Element, Set<SizeObserver>>()
  * The delivery: the depth of the shallowest element of the latest report, of ours or of a library, and the depth of each
  * observed element as it found it; null between deliveries
  */
-let delivery: { depth: number; readonly depths: Map<Element, number> } | null = null
+let delivery: { depth: number; readonly depths: Map<Element, number>; readonly reported: Set<Element> } | null = null
 /** A callback of an observer runs, or the microtasks right after it: a change now is one of the rendering update */
 let updating = false
 /** That callback is one of ours: a change of it counts toward a cycle */
@@ -107,32 +121,50 @@ function depthOf(node: Node): number {
   return depth
 }
 
-/** The border box of `element` as laid out now, which no transform changes; null without a box */
-function laidOut(element: Element): BorderBox | null {
+/** The boxes an entry reports; null where the engine gives no border box */
+function boxesOf(entry: ResizeObserverEntry): Boxes | null {
+  const border = entry.borderBoxSize?.[0]
+  if (border === undefined) {
+    return null
+  }
+  const content = entry.contentBoxSize?.[0]
+  return {
+    content: content === undefined ? { inline: entry.contentRect.width, block: entry.contentRect.height } : { inline: content.inlineSize, block: content.blockSize },
+    border: { inline: border.inlineSize, block: border.blockSize },
+  }
+}
+
+/** The boxes of `element` as laid out now, which no transform changes; null without a box */
+function laidOut(element: Element): Boxes | null {
   if (!element.isConnected || typeof getComputedStyle === "undefined") {
     return null
   }
   const style = getComputedStyle(element)
   if (style.display === "none") {
-    return { inline: 0, block: 0 }
+    return { content: { inline: 0, block: 0 }, border: { inline: 0, block: 0 } }
   }
   const width = Number.parseFloat(style.width)
   const height = Number.parseFloat(style.height)
   if (!Number.isFinite(width) || !Number.isFinite(height)) {
     return null
   }
-  if (style.boxSizing === "border-box") {
-    return { inline: width, block: height }
-  }
   const sum = (...values: string[]) => values.reduce((total, value) => total + (Number.parseFloat(value) || 0), 0)
-  return {
-    inline: width + sum(style.paddingLeft, style.paddingRight, style.borderLeftWidth, style.borderRightWidth),
-    block: height + sum(style.paddingTop, style.paddingBottom, style.borderTopWidth, style.borderBottomWidth),
+  const around = {
+    inline: sum(style.paddingLeft, style.paddingRight, style.borderLeftWidth, style.borderRightWidth),
+    block: sum(style.paddingTop, style.paddingBottom, style.borderTopWidth, style.borderBottomWidth),
   }
+  return style.boxSizing === "border-box"
+    ? { content: { inline: width - around.inline, block: height - around.block }, border: { inline: width, block: height } }
+    : { content: { inline: width, block: height }, border: { inline: width + around.inline, block: height + around.block } }
 }
 
-function sameSize(one: BorderBox, other: BorderBox): boolean {
+function sameBox(one: Box, other: Box): boolean {
   return Math.abs(one.inline - other.inline) <= SAME_SIZE && Math.abs(one.block - other.block) <= SAME_SIZE
+}
+
+/** Whether a box reported as `reported` is laid out as `now`, what the engine compares to tell an observation active */
+function sameBoxes(reported: Boxes, now: Boxes): boolean {
+  return sameBox(reported.content, now.content) && sameBox(reported.border, now.border)
 }
 
 /** An element in a log line: its test id, its slot, else its tag */
@@ -142,25 +174,26 @@ function nameOf(element: Element): string {
 
 /** A report of ours with `entries`: the delivery is open, at the depth of its shallowest element */
 function delivered(observer: SizeObserver, entries: readonly ResizeObserverEntry[]): void {
+  const open = openDelivery(entries)
   for (const entry of entries) {
-    const box = entry.borderBoxSize?.[0]
-    observer.reported(entry.target, box === undefined ? null : { inline: box.inlineSize, block: box.blockSize })
+    observer.reported(entry.target, boxesOf(entry))
+    open.reported.add(entry.target)
   }
-  openDelivery(entries)
 }
 
 /** A report of `entries`, of ours or of a library: the delivery is open at the depth of its shallowest element */
-function openDelivery(entries: readonly ResizeObserverEntry[]): void {
+function openDelivery(entries: readonly ResizeObserverEntry[]): NonNullable<typeof delivery> {
   let depth = Number.POSITIVE_INFINITY
   for (const entry of entries) {
     depth = Math.min(depth, depthOf(entry.target))
   }
   if (delivery === null) {
-    delivery = { depth, depths: new Map() }
+    delivery = { depth, depths: new Map(), reported: new Set() }
     endDeliveryLater()
   } else {
     delivery.depth = depth
   }
+  const open = delivery
   // the update takes in this iteration whatever is deeper than the elements it reports now: one let go deeper than
   // them is delivered at its depth, observed anew now
   for (const [element, release] of released) {
@@ -169,6 +202,7 @@ function openDelivery(entries: readonly ResizeObserverEntry[]): void {
       observeAgain(element, release)
     }
   }
+  return open
 }
 
 /** A callback of an observer begins, `own` one of ours: the page is watched for its changes until it and its microtasks end */
@@ -197,50 +231,67 @@ function afterCallback(): void {
   )
 }
 
+/** The depth of `element` in the delivery, found once in it */
+function depthIn(open: NonNullable<typeof delivery>, element: Element): number {
+  let depth = open.depths.get(element)
+  if (depth === undefined) {
+    depth = depthOf(element)
+    open.depths.set(element, depth)
+  }
+  return depth
+}
+
 /**
- * The page changed (`records`) in the rendering update: every observed element no deeper than the elements of the
- * latest report leaves its observers, as the change may have resized it
+ * The page changed (`records`, watched only while a callback of an observer runs): every observed element no deeper than
+ * the elements of the latest report leaves its observers, as the change may have resized it
  */
 function settle(records: readonly MutationRecord[]): void {
-  if (!updating || delivery === null || records.length === 0) {
+  const open = delivery
+  if (open === null || records.length === 0) {
     return
   }
-  const { depth, depths } = delivery
   for (const element of observing.keys()) {
-    if (released.has(element)) {
-      continue
-    }
-    let at = depths.get(element)
-    if (at === undefined) {
-      at = depthOf(element)
-      depths.set(element, at)
-    }
-    if (at <= depth) {
-      release(element, at)
+    const depth = depthIn(open, element)
+    if (!released.has(element) && depth <= open.depth) {
+      // after a report of it in this update, by a callback of ours: what a cycle is made of. One not reported in it yet
+      // may wait for its report in this iteration (resized before the update, a drag), let go all the same
+      release(element, depth, delivering && open.reported.has(element))
     }
   }
 }
 
 /** `element` leaves its observers until the delivery ends */
-function release(element: Element, depth: number): void {
+function release(element: Element, depth: number, ofOurs: boolean): void {
   const by = new Set<SizeObserver>()
   for (const observer of observing.get(element) ?? []) {
     if (observer.letGo(element)) {
       by.add(observer)
     }
   }
-  if (by.size === 0) {
-    return
+  if (by.size > 0) {
+    // the frame that makes a cycle is measured (a layout now): resized by a change of its own, not by a drag between frames
+    const resized = ofOurs && recentFrames(element, frame).length + 1 >= CYCLE_RELEASES && resizedSinceReport(element, by)
+    released.set(element, { depth, by, frame, ofOurs, resized })
   }
-  // the frame that makes a cycle is measured (a layout now): resized by a change of its own, not by a drag between frames
-  const resized = delivering && recentFrames(element, frame).length + 1 >= CYCLE_RELEASES && resizedSinceReport(element, by)
-  released.set(element, { depth, by, frame, inDelivery: delivering, resized })
 }
 
-/** Whether `element` is laid out at another size than one of `by` reported it with */
+/** Whether `element` is laid out other than one of `by` reported it */
 function resizedSinceReport(element: Element, by: ReadonlySet<SizeObserver>): boolean {
-  const box = laidOut(element)
-  return box !== null && [...by].some(observer => observer.wasReported(element, reported => !sameSize(reported, box)))
+  const now = laidOut(element)
+  return now !== null && [...by].some(observer => observer.differs(element, now))
+}
+
+/**
+ * `element`, observed first by `observer` in the rendering update no deeper than its report, is observed as the delivery
+ * ends: the update would skip its first observation (a block a flushSync in a callback mounted, with its ref)
+ */
+function deferObservation(element: Element, observer: SizeObserver, depth: number): void {
+  const release = released.get(element)
+  if (release === undefined) {
+    released.set(element, { depth, by: new Set([observer]), frame, ofOurs: false, resized: false })
+  } else {
+    release.by.add(observer)
+  }
 }
 
 /** The delivery ends at the next task or the next frame, whichever comes first */
@@ -261,7 +312,7 @@ function endDelivery(): void {
   ending = false
   delivery = null
   for (const [element, release] of released) {
-    if (release.inDelivery) {
+    if (release.ofOurs) {
       countCycle(element, release)
     }
     observeAgain(element, release)
@@ -281,8 +332,8 @@ function recentFrames(element: Element, now: number): number[] {
 }
 
 /**
- * `element` was let go in the delivery of `release.frame`: a cycle once so in `CYCLE_RELEASES` of the last `CYCLE_FRAMES`
- * frames, resized there by a change of its own; logged once while it goes on
+ * `element` was let go after its report in the delivery of `release.frame`: a cycle once so in `CYCLE_RELEASES` of the
+ * last `CYCLE_FRAMES` frames, resized there; logged once while it goes on
  */
 function countCycle(element: Element, release: Release): void {
   const logged = cycles.get(element)?.logged === true
@@ -416,7 +467,6 @@ export class SizeObserver {
     }
     this.observed.set(element, { options, reported: null })
     this.gone.delete(element)
-    this.resize.observe(element, options)
     observers.add(this)
     let by = observing.get(element)
     if (by === undefined) {
@@ -424,6 +474,17 @@ export class SizeObserver {
       observing.set(element, by)
     }
     by.add(this)
+    // in the rendering update, no deeper than its report: the update would skip this first observation
+    const open = delivery
+    if (updating && open !== null) {
+      const depth = depthIn(open, element)
+      if (depth <= open.depth) {
+        this.gone.add(element)
+        deferObservation(element, this, depth)
+        return
+      }
+    }
+    this.resize.observe(element, options)
   }
 
   unobserve(element: Element): void {
@@ -443,18 +504,18 @@ export class SizeObserver {
     observers.delete(this)
   }
 
-  /** Its report of `element` gave `box` */
-  reported(element: Element, box: BorderBox | null): void {
+  /** Its report of `element` gave `boxes` */
+  reported(element: Element, boxes: Boxes | null): void {
     const observation = this.observed.get(element)
     if (observation !== undefined) {
-      observation.reported = box
+      observation.reported = boxes
     }
   }
 
-  /** Whether it reported `element` since it observes it, with a box `test` holds for */
-  wasReported(element: Element, test: (reported: BorderBox) => boolean): boolean {
+  /** Whether `element` is laid out as `now`, other boxes than it reported, or a size never reported */
+  differs(element: Element, now: Boxes): boolean {
     const reported = this.observed.get(element)?.reported
-    return reported !== null && reported !== undefined && test(reported)
+    return reported === undefined ? false : reported === null ? now.border.inline > 0 || now.border.block > 0 : !sameBoxes(reported, now)
   }
 
   /** `element` leaves it until the delivery ends; false when it does not observe it, or let it go already */
@@ -479,13 +540,9 @@ export class SizeObserver {
 
   /** Its elements a loop left pending: resized since their report, or observed with a size and never reported */
   pending(): Element[] {
-    return [...this.observed].flatMap(([element, observation]) => {
-      const box = this.gone.has(element) ? null : laidOut(element)
-      if (box === null) {
-        return []
-      }
-      const reported = observation.reported
-      return (reported === null ? box.inline > 0 || box.block > 0 : !sameSize(box, reported)) ? [element] : []
+    return [...this.observed.keys()].filter(element => {
+      const now = this.gone.has(element) ? null : laidOut(element)
+      return now !== null && this.differs(element, now)
     })
   }
 
