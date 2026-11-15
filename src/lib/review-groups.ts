@@ -9,15 +9,19 @@ import type { BranchReviewGroup } from "@/types/sub-window"
  */
 
 /** The groups of the last code-owner check of a branch by name, at the head it was checked at */
-const lastReviewGroups = new Map<string, { head: string | undefined; groups: BranchReviewGroup[] }>()
+const lastReviewGroups = new Map<string, { head: string; groups: BranchReviewGroup[] }>()
 
 export function toReviewGroups(requirement: PatronusReviewRequirement): BranchReviewGroup[] {
   return requirement.groups.map(group => ({ name: group.name, paths: group.paths, branchWide: group.branchWide }))
 }
 
-/** Remembers what the code owners of the branch at this head review (the Safe Push popover checked it) */
-export function rememberReviewGroups(branchName: string, requirement: PatronusReviewRequirement): void {
-  lastReviewGroups.set(branchName, { head: getBranch(branchName)?.commits[0]?.hash, groups: toReviewGroups(requirement) })
+/**
+ * Remembers what the code owners of the branch review at `head`, the tip the check asked about: not the head the window
+ * holds when the answer comes, which is none yet when the first view of its session brings the answer, and the old one
+ * when a view brings a new head with its answer
+ */
+export function rememberReviewGroups(branchName: string, head: string, requirement: PatronusReviewRequirement): void {
+  lastReviewGroups.set(branchName, { head, groups: toReviewGroups(requirement) })
 }
 
 /** The groups of the last code-owner check of the branch at its head; none while none answered for it */

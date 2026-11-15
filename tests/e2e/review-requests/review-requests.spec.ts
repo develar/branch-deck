@@ -30,7 +30,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { expectClosed, openTooltip } from "../helpers/wait-helpers"
+import { expectClosed, holdCommandCalls, openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the requests review them as the branches of others
 const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
@@ -1430,15 +1430,17 @@ async function pressFileKey(window: Page, key: "j" | "k", position: string): Pro
   await expect(reviewPosition(window)).toHaveText(position)
 }
 
-/** The description of Approve, by its hover */
-async function approveDescription(window: Page, review: ReturnType<Page["getByTestId"]>): Promise<string> {
+/**
+ * Approve says `description` on its hover: the open tooltip follows what it counts for, which comes after what the
+ * window shows (the file on screen counts once the plan of the head is read, the groups once Patronus told them), so a
+ * read of it at once could be of the state before
+ */
+async function expectApproveDescription(window: Page, review: Locator, description: string): Promise<void> {
   await review.getByTestId("review-approve").hover()
   const tooltip = openTooltip(window)
-  await expect(tooltip).toBeVisible()
-  const text = (await tooltip.textContent()) ?? ""
+  await expect(tooltip).toHaveText(description)
   await window.mouse.move(0, 0)
   await expectClosed(tooltip)
-  return text
 }
 
 test.describe("Owner part and Approve", () => {
@@ -1454,12 +1456,12 @@ test.describe("Owner part and Approve", () => {
 
       // the chip filters the files to Design: the first visible file has already been opened
       await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 2 · Design")
-      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 2 files")
+      await expectApproveDescription(window, review, "Counts for Design · You opened 1 of its 2 files")
 
       // J moves through Design's filtered files; Approve counts what the window showed
       await pressFileKey(window, "j", "All Changes · File 2 / 2 · Design")
       await pressFileKey(window, "j", "All Changes · File 2 / 2 · Design")
-      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
+      await expectApproveDescription(window, review, "Counts for Design · You opened 2 of its 2 files")
       // All: no owner part
       await ownerChip(window, "All").click()
       await expect(reviewPosition(window)).toHaveText("All Changes · File 3 / 4")
@@ -1489,11 +1491,11 @@ test.describe("Owner part and Approve", () => {
       await expect(window.getByTestId("review-overview")).toBeVisible()
       // the overview at the top: no file is shown, none counts, though the tree keeps the first one for J
       await expect(reviewPosition(window)).toHaveText("All Changes · Overview")
-      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 0 of its 4 files")
+      await expectApproveDescription(window, review, "Counts for Design · You opened 0 of its 4 files")
       await window.locator("[aria-label='Changes of the commit']").focus()
       await window.keyboard.press("j")
       await expect(reviewPosition(window)).toHaveText(/^All Changes · (Step \d+ · )?File \d \/ 4/)
-      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 4 files")
+      await expectApproveDescription(window, review, "Counts for Design · You opened 1 of its 4 files")
     },
   )
 
@@ -1531,12 +1533,14 @@ test.describe("Owner part and Approve", () => {
     await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 2 · Design")
     await pressFileKey(window, "j", "All Changes · File 2 / 2 · Design")
     await pressFileKey(window, "j", "All Changes · File 2 / 2 · Design")
-    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
+    await expectApproveDescription(window, review, "Counts for Design · You opened 2 of its 2 files")
 
-    // a new head with a third file of Design: of what the window showed, only the file on screen counts for it
+    // a new head with a third file of Design: of what the window showed, only the file on screen counts for it, once the
+    // plan of the new head is read (held here)
     await repo.setReviewAnswers({
       answers: { "request:7": loginGroupsWithDesign(["ui/button.css", "ui/login.css", "ui/login.js"]), "request:8": loginGroupsWithDesign(["ui/login.css"], "bob") },
     })
+    const plan = await holdCommandCalls(window, "get_review_plan")
     await commitNewHead(page, repo, syncAndWaitForBranches)
     // the window fetches the new head and reads its groups, however long that takes
     await expect.poll(() => ownerChips(window), { timeout: 0 }).toEqual(["All5", "Design· You3", "Auth Team1", "Monorepo1", "UI Team1"])
@@ -1545,22 +1549,26 @@ test.describe("Owner part and Approve", () => {
     const tree = window.getByRole("tree", { name: "Changed files" })
     await expect(reviewPosition(window)).toHaveText("All Changes · File 3 / 3 · Design")
     await expect(tree.getByRole("treeitem", { name: "login.js" })).toHaveAttribute("aria-selected", "true")
-    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 3 files")
+    // the plan of the new head is still read, its overview may head the changes: the file on screen counts once it is
+    await expect.poll(() => plan.calls.length).toBe(1)
+    await expectApproveDescription(window, review, "Counts for Design · You opened 0 of its 3 files")
+    plan.release()
+    await expectApproveDescription(window, review, "Counts for Design · You opened 1 of its 3 files")
     await pressFileKey(window, "k", "All Changes · File 2 / 3 · Design")
     await expect(tree.getByRole("treeitem", { name: "login.css" })).toHaveAttribute("aria-selected", "true")
-    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 3 files")
+    await expectApproveDescription(window, review, "Counts for Design · You opened 2 of its 3 files")
 
     // #8: the user is in no group that still needs an approval
     await showOtherRequest(window, review, "ArrowDown", "Style the login form")
     // the groups of #8 came (Auth Team approved), in the order of the check: none is the user's
     await expect(ownerChip(window, "Auth Team")).toHaveAttribute("data-approved", "")
     await expect.poll(() => ownerChips(window)).toEqual(["All5", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
-    expect(await approveDescription(window, review)).toBe("Counts for no group that still needs an approval")
+    await expectApproveDescription(window, review, "Counts for no group that still needs an approval")
 
     // back to #7, whose head did not change: what the window showed of it still counts
     await showOtherRequest(window, review, "ArrowUp", "Add the login form")
     await expect(ownerChip(window, "Design")).toHaveAttribute("data-yours", "")
-    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 3 files")
+    await expectApproveDescription(window, review, "Counts for Design · You opened 2 of its 3 files")
   })
 
   test("should keep every file visible for a branch-wide group and count it in Approve", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -1574,7 +1582,7 @@ test.describe("Owner part and Approve", () => {
     await expect(diffHeader(window, "README.md")).toBeVisible()
     await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design")
     await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design")
-    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 4 files")
+    await expectApproveDescription(window, review, "Counts for Design · You opened 2 of its 4 files")
   })
 
   test("should say nothing of what Approve counts for while the GitHub sign-in names no login", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -1773,7 +1781,7 @@ test.describe("Review Stack", () => {
     await expect(review.getByTestId("review-description")).toContainText("The change of login.")
 
     // a layer into the branch of the one below: Patronus counts its approval once it goes into master
-    expect(await approveDescription(reviewPage, review)).toBe("Counts once it goes into master: Patronus counts the approvals of the pull request a Safe Push starts from")
+    await expectApproveDescription(reviewPage, review, "Counts once it goes into master: Patronus counts the approvals of the pull request a Safe Push starts from")
 
     // Approve: the layer shown, on its head
     await pressDecisionKey(reviewPage, review, "a")
@@ -1793,7 +1801,7 @@ test.describe("Review Stack", () => {
     await reviewPage.keyboard.press("ArrowUp")
     await expect(review.getByRole("heading", { name: "Add the auth module" })).toBeVisible()
     await expect(review.getByTestId("review-dialog-position")).toHaveText("1 of 3")
-    expect(await approveDescription(reviewPage, review)).toBe("Counts for the Safe Push of #301 alone, not of the layers above it")
+    await expectApproveDescription(reviewPage, review, "Counts for the Safe Push of #301 alone, not of the layers above it")
   })
 
   test("should approve every layer of a stack on the head it shows by its button, skipping a layer approved on it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

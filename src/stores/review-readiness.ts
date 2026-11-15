@@ -141,7 +141,8 @@ function inputKey(branch: ReviewReadinessBranch): string {
 /**
  * The readiness of the session's view of `repositoryPath`, by subject: all of it with a snapshot (`change` null), the
  * subjects a patch names otherwise; an entry the patch doesn't name keeps its object. A fresh answer with the groups of
- * Patronus gives them to a review window opened from the row (`rememberReviewGroups`)
+ * Patronus gives them to a review window opened from the row (`rememberReviewGroups`), at the tip it answers, before
+ * the store tells its subscribers: the actions of a review window read the groups when the store changes
  */
 export function applyReadinessFacts(repositoryPath: string, facts: FactsView, change: FactsChanges | null): void {
   const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
@@ -152,16 +153,16 @@ export function applyReadinessFacts(repositoryPath: string, facts: FactsView, ch
   }
   const changed = new Map(named.map(subject => [subject, entryOf(facts.readiness[subject])]))
   const gone = new Set([...(removed ?? []), ...[...changed].filter(([, entry]) => entry === undefined).map(([subject]) => subject)])
+  for (const [subject, entry] of changed) {
+    if (entry !== undefined && !entry.stale && entry.requirement !== null && entry.tip !== null) {
+      rememberReviewGroups(subject, entry.tip, entry.requirement)
+    }
+  }
   reviewReadinessStore.setState(state => {
     const kept = removed === null ? [] : Object.entries(state.repositories[key] ?? NO_ENTRIES).filter(([subject]) => !gone.has(subject) && !changed.has(subject))
     const answered = [...changed].flatMap(([subject, entry]) => (entry === undefined ? [] : [[subject, entry] as const]))
     return { repositories: { ...state.repositories, [key]: Object.fromEntries([...kept, ...answered]) } }
   })
-  for (const [subject, entry] of changed) {
-    if (entry !== undefined && !entry.stale && entry.requirement !== null) {
-      rememberReviewGroups(subject, entry.requirement)
-    }
-  }
 }
 
 /**

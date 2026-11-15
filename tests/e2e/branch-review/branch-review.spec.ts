@@ -440,20 +440,21 @@ test.describe("The scopes of the stack", () => {
 
 /**
  * stacked_ownership with the code-owner check of login answering `answer`, held: the review window of login open before
- * the check answers, its diffs shown
+ * the check answers, its diffs shown; `beforeLoad` routes the window's commands before it asks
  */
 async function openLoginBeforeTheCheck(
   page: Page,
   setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
   syncAndWaitForBranches: () => Promise<unknown>,
   answer: PatronusReviewRequirement,
+  beforeLoad?: (window: Page) => Promise<unknown>,
 ): Promise<{ repo: TestRepositoryBuilder; window: Page }> {
   const repo = await setupRepo("stacked_ownership", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
   await repo.setReviewAnswers({ answers: { login: answer } })
   await repo.holdRemoteAnswers({ hold: ["readiness"] })
   await syncAndWaitForBranches()
   await repo.arrival("readiness")
-  const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+  const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"), { beforeLoad })
   await expect(window.getByTestId("review-file-header").first()).toBeVisible()
   return { repo, window }
 }
@@ -470,6 +471,26 @@ test.describe("Branch review window", () => {
     await expect(group).toHaveText("IJPL Code Platform4")
     await group.hover()
     await expect(openTooltip(window, { name: "Needs approval for a Safe Push" })).toBeVisible()
+  })
+
+  test("should mark the groups of a code-owner check that answered before the session of the window told it the branches", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the subscription of the window held: it shows the diffs it reads before its session told it the branches
+    let view: Awaited<ReturnType<typeof holdCommandCalls>> | undefined
+    const { repo, window } = await openLoginBeforeTheCheck(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, async window => {
+      view = await holdCommandCalls(window, "subscribe_view")
+    })
+    await expect.poll(() => view?.calls.length).toBe(1)
+    // the check answers first: the steps of the main window stop waiting for it
+    const waiting = page.locator("[data-testid='next-step-slot'][data-waits-for='readiness']")
+    await expect(waiting).not.toHaveCount(0)
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    await expect(waiting).toHaveCount(0)
+
+    // the first view of the window's session brings the branches with the answer: the groups are of the tip it was
+    // checked at, which the window holds now
+    view?.release()
+    await expect(window.getByTestId("review-window")).toHaveAttribute("data-view-version", /./)
+    await expect(window.getByTestId("branch-review-owner").filter({ hasText: "IJPL Code Platform" })).toHaveText("IJPL Code Platform4")
   })
 
   test("should stay at the file on screen by its path when a sync moves the head while the chip of its group shows fewer files, until the check of the new head answers", async ({
