@@ -78,3 +78,6 @@
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":20,"method":"x-air-app/unsubscribe","params":{"instance":"main:1"}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":20,"result":{}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewClosed","params":{"instance":"main:1"}}}
+{"comment":"A tool that Branch Deck has not gets unknownTool, -32601 as the contract gives it, and runs nothing."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"nothing","arguments":{},"_meta":{"x-air-app":{"origin":"action","app":"branch-deck"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":21,"error":{"code":-32601,"message":"${any}","data":{"reason":"unknownTool"}}}}

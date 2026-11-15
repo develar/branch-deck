@@ -388,7 +388,7 @@ impl Server {
       }
       name => self
         .link
-        .fail(&id, INVALID_PARAMS, &format!("Branch Deck has no tool {}", name.unwrap_or_default()), "unknownTool"),
+        .fail(&id, METHOD_NOT_FOUND, &format!("Branch Deck has no tool {}", name.unwrap_or_default()), "unknownTool"),
     }
   }
 

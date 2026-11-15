@@ -8,8 +8,9 @@ use app_api::transport::EventSink;
 use app_settings::service::SettingsService;
 use domain_types::session::{RepositoryView, TableChanges, Version, ViewPatch};
 use pretty_assertions::assert_eq;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// A root is a `file://` URI: its path, decoded; a Windows root without the slash before its drive
 #[test]
@@ -17,6 +18,81 @@ fn the_path_of_a_root_is_its_file_uri_decoded() {
   assert_eq!(path_of_uri("file:///Users/me/my%20repo").as_deref(), Some("/Users/me/my repo"));
   assert_eq!(path_of_uri("file:///C:/work/repo").as_deref(), Some("C:/work/repo"));
   assert_eq!(path_of_uri("https://example.com"), None);
+}
+
+/// The code of each reason of x-air-app that the contract gives one (`ErrorObject` of `x-air-app.schema.json`, the copy
+/// of the contract): "-32601 unknownMethod and unknownTool, …"; the other codes "are those of JSON-RPC and of air-ide"
+fn codes_of_the_contract() -> Vec<(String, i64)> {
+  let schema: Value = serde_json::from_str(include_str!("../../../docs/design/ide-embedding/protocol/x-air-app.schema.json")).unwrap();
+  let description = schema["$defs"]["ErrorObject"]["description"].as_str().unwrap();
+  let listed = description.split_once(". ").unwrap().1.split(';').next().unwrap();
+  let mut codes = Vec::new();
+  let mut code = None;
+  for word in listed.split_whitespace().map(|word| word.trim_end_matches(',')) {
+    match word.parse::<i64>() {
+      Ok(number) => code = Some(number),
+      Err(_) if word == "and" => {}
+      Err(_) => codes.push((word.to_owned(), code.unwrap())),
+    }
+  }
+  codes
+}
+
+/// Every refusal of brd has the code the contract gives its reason: an unknown tool and an unknown method `-32601`, a
+/// call of an agent `-32009`; a reason the contract gives no code of its own has the code of JSON-RPC, as the corpus of
+/// the copy answers it (`unknownAction` and `badParams` `-32602`, `parse` `-32700`)
+#[tokio::test]
+async fn every_refusal_of_brd_has_the_code_the_contract_gives_its_reason() {
+  let app_data = tempfile::tempdir().unwrap();
+  let (to_brd, input) = tokio::io::duplex(1 << 16);
+  let (output, from_brd) = tokio::io::duplex(1 << 20);
+  let brd = tokio::spawn(crate::process::serve(input, output, Some(app_data.path().to_path_buf())));
+  let (mut to_brd, mut lines) = (to_brd, BufReader::new(from_brd).lines());
+  let click = json!({ "x-air-app": { "origin": "click", "instance": "main:1" } });
+  let refused = [
+    (
+      "unknownTool",
+      json!({ "method": "tools/call", "params": { "name": "nothing", "arguments": {}, "_meta": click } }),
+    ),
+    ("unknownMethod", json!({ "method": "x-air-app/nothing", "params": {} })),
+    (
+      "agentOrigin",
+      json!({ "method": "tools/call", "params": { "name": "bd_invoke", "arguments": { "command": "get_settings_changes", "args": { "since": 0 } }, "_meta": { "x-air-app": { "origin": "agent" } } } }),
+    ),
+    (
+      "unknownAction",
+      json!({ "method": "x-air-app/dispatchAction", "params": { "instance": "main:1", "action": { "type": "branch-deck/nothing" } } }),
+    ),
+    ("badParams", json!({ "method": "resources/read", "params": { "uri": "ui://branch-deck/nothing.js" } })),
+    ("badParams", json!({ "method": "x-air-app/subscribe", "params": { "instance": "main:1", "params": {} } })),
+  ];
+  let mut answered = Vec::new();
+  for (id, (reason, request)) in refused.iter().enumerate() {
+    let mut request = request.clone();
+    request["jsonrpc"] = json!("2.0");
+    request["id"] = json!(id);
+    to_brd.write_all(format!("{request}\n").as_bytes()).await.unwrap();
+    let answer: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    assert_eq!((&answer["id"], &answer["error"]["data"]["reason"]), (&json!(id), &json!(reason)), "{answer}");
+    answered.push(((*reason).to_owned(), answer["error"]["code"].as_i64().unwrap()));
+  }
+  to_brd.write_all(b"not JSON\n").await.unwrap();
+  let answer: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+  answered.push((answer["error"]["data"]["reason"].as_str().unwrap().to_owned(), answer["error"]["code"].as_i64().unwrap()));
+
+  let contract = codes_of_the_contract();
+  assert!(contract.contains(&("unknownTool".to_owned(), -32601)), "{contract:?}");
+  let json_rpc = [("unknownAction", -32602), ("badParams", -32602), ("parse", -32700)];
+  for (reason, code) in &answered {
+    let expected = contract
+      .iter()
+      .find(|(known, _)| known == reason)
+      .map(|(_, code)| *code)
+      .or_else(|| json_rpc.iter().find(|(known, _)| known == reason).map(|(_, code)| *code));
+    assert_eq!(expected, Some(*code), "the code of {reason}");
+  }
+  drop(to_brd);
+  assert_eq!(tokio::time::timeout(std::time::Duration::from_secs(30), brd).await.unwrap().unwrap(), 0);
 }
 
 /// The app file the installer writes (the example of the contract)
