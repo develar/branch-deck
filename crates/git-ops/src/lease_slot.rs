@@ -97,8 +97,14 @@ impl UntrackedFiles {
 /// status of the pool counts as a change, also where `info/exclude` lost the line that ignores it
 pub const NOTES_LINK: &str = "notes.local";
 
+/// Whether `path` of a `status` is the notes of a lease: the link, or the directory where the system makes no link, a
+/// file in it with `--untracked-files=all`
+fn is_notes(path: &str) -> bool {
+  path.strip_prefix(NOTES_LINK).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
 /// The paths of the local changes of `slot`: staged, unstaged and untracked files, not the ignored ones nor the notes
-/// of the lease (`NOTES_LINK`). One
+/// of the lease (`NOTES_LINK`, what is in it). One
 /// `status --porcelain=v1 -z` with the `untracked` mode of the repository; its own `core.fsmonitor` and
 /// `core.untrackedCache` apply. The one `status` that may write the index (`GIT_OPTIONAL_LOCKS=1`, against the
 /// executor's default): the refreshed stat data, the fsmonitor token and the untracked cache stay in the slot's index,
@@ -113,7 +119,7 @@ pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: Un
   Ok(
     status_entries(&output)
       .into_iter()
-      .filter(|(code, path)| !(code == b"??" && path.trim_end_matches('/') == NOTES_LINK))
+      .filter(|(code, path)| !(code == b"??" && is_notes(path)))
       .map(|(_, path)| path)
       .collect(),
   )

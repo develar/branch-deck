@@ -261,8 +261,8 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
     if let Some(error) = keep_error {
       warn!(pool = %machine_pool.git_common_dir.display(), error = %error, "the notes of the pool keep the default");
     }
-    let expired_notes = expire_notes(&pool.notes_root(), &held_leases(&pool), keep, crate::lease_notes::now_seconds(), !params.apply);
     let store = pool.read()?;
+    let expired_notes = expire_notes(&pool.notes_root(), &held_leases(&store), keep, crate::lease_notes::now_seconds(), !params.apply);
     let (present, free) = trim_order(&store.slots);
     let mut report = TrimmedPool {
       git_common_dir: display_path(&machine_pool.git_common_dir),

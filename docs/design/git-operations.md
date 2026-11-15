@@ -2451,16 +2451,22 @@ starts with an empty `notes.local` and the notes stay. Beside the state, not in 
 command knows the common dir, while the pool directory takes the config and the home, and a trim may delete every slot
 of a pool. No git runs for them. The link is kept out of git twice: the get adds `/notes.local` to `info/exclude` of the
 repository where that file lacks the line, so no `git add` takes it, and the status of a slot (`slot_changes`) never
-counts an untracked `notes.local`, so a return, a takeover and the dirty check of a get pass also where `info/exclude`
-lost the line. The return takes the notes out before it discards anything (`--confirm-preserved`), as its `clean -fd`
+counts an untracked `notes.local` nor a file in it (`status.showUntrackedFiles=all` names each file of a directory), so
+a return, a takeover and the dirty check of a get pass also where `info/exclude` lost the line. The return takes the notes out before it discards anything (`--confirm-preserved`), as its `clean -fd`
 would delete a directory of notes that nothing ignores, and a clone of a template slot leaves `notes.local` out. Where
 the system makes no link (Windows without the right to make one), `notes.local` is a directory of the worktree, whose
 entries the return moves into the directory of the lease; a `notes.local` that an earlier lease left in a slot (a
 return that could not move it, a brd before the notes) is moved by the next get into notes of its own
-(`left-<uuid>`, returned at once). The notes of a returned lease expire `branchdeck.leaseNotesKeep` after the return
-(`14d` by default, `0` for ever): `brd lease trim` (one `config` of each pool) and the keeper of a host delete them,
-never those of a lease the pool holds; `brd lease disk` counts them (`notes_bytes`), `brd lease status` names them for
-each lease.
+(`left-<uuid>`, returned at once; its record first, so the directory is never one without a record). The slot and the
+notes may be on two volumes (a `branchdeck.leasePool` on another disk, on Windows a repository on `D:` with its pool
+under `C:\Users`), which no rename crosses (`EXDEV`): each move goes through `fs_retry::move_path`, which copies there
+beside the target, renames the copy into place once whole and then removes the source, so a failed copy leaves the
+source whole and no half directory of notes. A get whose notes fail removes the link and the empty directory it made
+and goes on without notes. The notes of a returned lease expire `branchdeck.leaseNotesKeep` after the return (`14d` by
+default, `0` for ever): `brd lease trim` (one `config` of each pool) and the keeper of a host delete them, never those
+of a lease the pool holds, and none where the state of the pool can't be read, since it names the held leases; a
+directory without a record (a get that stopped before it wrote one) expires by its modification time. `brd lease disk`
+counts them (`notes_bytes`), `brd lease status` names them for each lease.
 
 **The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`, `domain_types::worktree_epoch::WorktreeEpoch`): the
 path stays too, and the app keeps what it records of a worktree by its path. The epoch is `Lease` with the id of the

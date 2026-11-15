@@ -40,8 +40,9 @@ per rule and links here.
   `remove_file`, `rename`), never `std::fs`: on Windows a git or a shell whose current directory is in the path, or a
   scanner with a file open, fails them at once (`fs_retry_scan_test.rs`). A walk that removes a tree removes each
   entry with `remove_entry` and the file type of its `symlink_metadata`: a junction or a directory symlink of Windows
-  goes as the link (`remove_dir`), which `remove_file` refuses with the "Access is denied" of a holder. A process that
-  works in a test's directory is `test_utils::git_in_directory::GitInDirectory`.
+  goes as the link (`remove_dir`), which `remove_file` refuses with the "Access is denied" of a holder. A move that may
+  cross two volumes (a slot of the pool and the state of its repository) is `move_path`, which copies where no rename
+  crosses them (`EXDEV`). A process that works in a test's directory is `test_utils::git_in_directory::GitInDirectory`.
 - **A process** starts through `sync_utils::child_process::windowless_command`, git through `GitCommandExecutor`,
   never `Command::new`: the release app on Windows is a GUI program, and every console program it started got a
   console window of its own, a Windows Terminal window in front of the app for each git (`console_window_scan_test.rs`).

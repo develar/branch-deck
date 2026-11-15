@@ -80,9 +80,13 @@ pub struct TrimmedPoolOutput {
 /// The notes of a returned lease that a trim deleted
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ExpiredNotesOutput {
+  /// The lease, or the name of a directory without a record (a get that stopped before it wrote one)
   pub lease_id: String,
-  pub holder: String,
-  /// Unix seconds of the return, or of the get of a lease that left the pool without one
+  /// Absent for a directory without a record
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub holder: Option<String>,
+  /// Unix seconds of the return, of the get of a lease that left the pool without one, or the modification time of a
+  /// directory without a record
   pub returned_at: u64,
   /// The bytes on disk of their directory
   pub bytes: u64,

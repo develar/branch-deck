@@ -249,7 +249,7 @@ fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) -> Turn {
           None => log(&format!(
             "deleted the notes of the lease {} of {} returned past their keep: {}",
             notes.lease_id,
-            notes.holder,
+            notes.holder.as_deref().unwrap_or("no record"),
             describe_size(notes.bytes)
           )),
           Some(error) => log(&format!("cannot delete the notes of the lease {}: {error}", notes.lease_id)),

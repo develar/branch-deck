@@ -83,7 +83,7 @@ pub fn lease_notes(context: &LeaseContext, args: &LeaseNotesArgs) -> Result<Leas
   let pool = Pool::new(Path::new(&git_common_dir));
   let root = pool.notes_root();
   let keep = lease_config(&context.git, &context.dirs.top_level).map_or(DEFAULT_NOTES_KEEP, |config| notes_keep(&config).0);
-  let held = held_leases(&pool);
+  let held = held_leases(&pool.read().map_err(lease_error)?);
   let own = if args.lease_id.is_none() && args.holder.is_none() {
     ready_slot_at(Path::new(&git_common_dir), &context.dirs.top_level)
       .map_err(lease_error)?

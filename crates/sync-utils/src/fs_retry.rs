@@ -10,13 +10,115 @@
 //! A walk that removes a tree removes each entry as itself (`remove_entry`): a junction or a directory symlink of
 //! Windows is no directory to go into and no file, and `DeleteFileW` refuses it with the "Access is denied" of a
 //! holder, which a removal would wait out in vain.
+//!
+//! No rename crosses two volumes (`EXDEV`; Windows: `ERROR_NOT_SAME_DEVICE`): a pool on another disk than its
+//! repository (`branchdeck.leasePool`), a repository on `D:` with its pool under `C:\Users`. `move_path` copies there,
+//! then removes the source (`move_across_volumes`).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::warn;
 
 /// `std::fs::rename`, tried again while a holder of `to` blocks it
 pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> std::io::Result<()> {
   let (from, to) = (from.as_ref(), to.as_ref());
   retry_while_shared(&[from, to], || std::fs::rename(from, to))
+}
+
+/// `rename` of a file, a link or a directory with what is in it, or where `from` and `to` are on two volumes, which no
+/// rename crosses, `move_across_volumes`
+pub fn move_path(from: impl AsRef<Path>, to: impl AsRef<Path>) -> std::io::Result<()> {
+  move_path_by(from.as_ref(), to.as_ref(), |from, to| rename(from, to))
+}
+
+/// `move_path` with `rename` as the rename, the seam of the tests: an error of two volumes moves across them
+pub(crate) fn move_path_by(from: &Path, to: &Path, rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>) -> std::io::Result<()> {
+  match rename(from, to) {
+    Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => move_across_volumes(from, to),
+    result => result,
+  }
+}
+
+/// The move of `from` (a file, a link, a directory with what is in it) to `to` on another volume, as a rename would:
+/// a copy beside `to`, renamed to `to` once whole, then the removal of `from`. A file keeps its content, permissions
+/// and modification time, a link its target (never followed); an entry without content (a socket, a FIFO) is not
+/// copied. A copy that fails is removed and `from` stays whole; a removal that fails leaves `to` whole and what it
+/// could not remove of `from`, with its error
+pub fn move_across_volumes(from: &Path, to: &Path) -> std::io::Result<()> {
+  let staged = staged_path(to)?;
+  if let Err(error) = copy_entry(from, &staged).and_then(|()| rename(&staged, to)) {
+    if let Err(cleanup) = remove_tree(&staged)
+      && cleanup.kind() != std::io::ErrorKind::NotFound
+    {
+      warn!(path = %staged.display(), error = %cleanup, "cannot remove a copy that failed");
+    }
+    return Err(error);
+  }
+  remove_tree(from)
+}
+
+/// A path beside `to` that no other move takes: `.<name>.moving-<pid>-<n>`
+fn staged_path(to: &Path) -> std::io::Result<PathBuf> {
+  static MOVES: AtomicU64 = AtomicU64::new(0);
+  let (Some(parent), Some(name)) = (to.parent(), to.file_name()) else {
+    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("no file name in {}", to.display())));
+  };
+  let n = MOVES.fetch_add(1, Ordering::Relaxed);
+  Ok(parent.join(format!(".{}.moving-{}-{n}", name.to_string_lossy(), std::process::id())))
+}
+
+/// Remove `path` as itself: a directory with what is in it, else the entry (`remove_entry`)
+fn remove_tree(path: &Path) -> std::io::Result<()> {
+  let metadata = path.symlink_metadata()?;
+  if metadata.is_dir() {
+    remove_dir_all(path)
+  } else {
+    remove_entry(path, &metadata.file_type())
+  }
+}
+
+/// Copy `from` to `to`, which does not exist: a directory with what is in it (its permissions set once it is filled), a
+/// file, a link
+#[expect(clippy::create_dir, reason = "the copy is new: a directory that is there already is an error, never one to merge into")]
+#[expect(clippy::filetype_is_file, reason = "only a regular file has content to copy; a read of a FIFO would wait for ever")]
+fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+  let metadata = from.symlink_metadata()?;
+  let file_type = metadata.file_type();
+  if file_type.is_symlink() {
+    copy_link(from, to, file_type)
+  } else if file_type.is_dir() {
+    std::fs::create_dir(to)?;
+    for entry in std::fs::read_dir(from)? {
+      let entry = entry?;
+      copy_entry(&entry.path(), &to.join(entry.file_name()))?;
+    }
+    std::fs::set_permissions(to, metadata.permissions())
+  } else if file_type.is_file() {
+    let mut source = std::fs::File::open(from)?;
+    let mut target = std::fs::File::create_new(to)?;
+    std::io::copy(&mut source, &mut target)?;
+    target.set_modified(metadata.modified()?)?;
+    drop(target);
+    std::fs::set_permissions(to, metadata.permissions())
+  } else {
+    Ok(())
+  }
+}
+
+#[cfg(unix)]
+fn copy_link(from: &Path, to: &Path, _file_type: std::fs::FileType) -> std::io::Result<()> {
+  std::os::unix::fs::symlink(std::fs::read_link(from)?, to)
+}
+
+/// A link of Windows to a directory (a directory symlink, a junction) as a directory symlink, else as a file symlink
+#[cfg(windows)]
+fn copy_link(from: &Path, to: &Path, file_type: std::fs::FileType) -> std::io::Result<()> {
+  let target = std::fs::read_link(from)?;
+  if std::os::windows::fs::FileTypeExt::is_symlink_dir(&file_type) {
+    std::os::windows::fs::symlink_dir(target, to)
+  } else {
+    std::os::windows::fs::symlink_file(target, to)
+  }
 }
 
 /// `std::fs::remove_dir_all`, tried again while a holder of a file in it, or a process whose current directory is in

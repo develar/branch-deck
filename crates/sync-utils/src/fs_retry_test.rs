@@ -1,4 +1,4 @@
-use crate::fs_retry::{remove_dir, remove_dir_all, remove_entry, remove_file, rename};
+use crate::fs_retry::{move_path_by, remove_dir, remove_dir_all, remove_entry, remove_file, rename};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use test_utils::git_in_directory::GitInDirectory;
@@ -159,4 +159,90 @@ fn remove_entry_removes_a_directory_link_as_the_link_and_keeps_its_target() {
 
   assert!(link.symlink_metadata().is_err(), "the link stays");
   assert_eq!(std::fs::read_to_string(target.join("output")).unwrap(), "output");
+}
+
+/// The rename of two volumes, which refuses every move (`EXDEV`)
+fn across_volumes(_from: &Path, _to: &Path) -> std::io::Result<()> {
+  Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices))
+}
+
+/// What is left beside `to` of a copy: the entries of its directory but `kept`
+fn staged_beside(parent: &Path, kept: &[&str]) -> Vec<String> {
+  std::fs::read_dir(parent)
+    .unwrap()
+    .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+    .filter(|name| !kept.contains(&name.as_str()))
+    .collect()
+}
+
+/// A FIFO at `path`, which a copy that read it would wait on for ever
+#[cfg(unix)]
+#[expect(unsafe_code, reason = "mkfifo(3), which std does not offer")]
+fn make_fifo(path: &Path) {
+  let path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+  // SAFETY: a NUL-terminated path of the test's own directory
+  assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0, "{}", std::io::Error::last_os_error());
+}
+
+/// Where no rename crosses the volumes, a move copies the tree beside the target, renames the copy into place and
+/// removes the source: the files keep their content, permissions and modification time, a link its target, and an
+/// entry without content (a FIFO) is left out instead of read
+#[test]
+fn a_move_across_two_volumes_copies_the_tree_and_removes_the_source() {
+  let dir = tempfile::tempdir().unwrap();
+  let (from, to) = (dir.path().join("notes.local"), dir.path().join("left"));
+  std::fs::create_dir_all(from.join("logs")).unwrap();
+  std::fs::write(from.join("logs/gate.log"), "green\n").unwrap();
+  std::fs::write(from.join("read-only.txt"), "kept\n").unwrap();
+  let modified = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+  std::fs::File::options()
+    .write(true)
+    .open(from.join("logs/gate.log"))
+    .unwrap()
+    .set_modified(modified)
+    .unwrap();
+  let mut read_only = std::fs::metadata(from.join("read-only.txt")).unwrap().permissions();
+  read_only.set_readonly(true);
+  std::fs::set_permissions(from.join("read-only.txt"), read_only).unwrap();
+  #[cfg(unix)]
+  {
+    std::os::unix::fs::symlink("logs/gate.log", from.join("last.log")).unwrap();
+    make_fifo(&from.join("pipe"));
+  }
+
+  move_path_by(&from, &to, across_volumes).unwrap();
+
+  assert!(from.symlink_metadata().is_err(), "the source is removed");
+  assert_eq!(std::fs::read_to_string(to.join("logs/gate.log")).unwrap(), "green\n");
+  assert_eq!(std::fs::metadata(to.join("logs/gate.log")).unwrap().modified().unwrap(), modified);
+  assert!(std::fs::metadata(to.join("read-only.txt")).unwrap().permissions().readonly());
+  #[cfg(unix)]
+  {
+    assert_eq!(std::fs::read_link(to.join("last.log")).unwrap(), Path::new("logs/gate.log"));
+    assert!(to.join("pipe").symlink_metadata().is_err(), "a FIFO has no content to copy");
+  }
+  assert_eq!(staged_beside(dir.path(), &["left"]), Vec::<String>::new(), "no copy is left beside the target");
+  let mut writable = std::fs::metadata(to.join("read-only.txt")).unwrap().permissions();
+  #[expect(clippy::permissions_set_readonly_false, reason = "the temporary directory of the test removes the file")]
+  writable.set_readonly(false);
+  std::fs::set_permissions(to.join("read-only.txt"), writable).unwrap();
+}
+
+/// A move across the volumes that cannot put the copy in place (the target is a directory with files) removes the copy
+/// and keeps the source and the target as they were
+#[test]
+fn a_move_across_two_volumes_that_fails_keeps_the_source_whole() {
+  let dir = tempfile::tempdir().unwrap();
+  let (from, to) = (dir.path().join("notes.local"), dir.path().join("taken"));
+  std::fs::create_dir_all(from.join("probe")).unwrap();
+  std::fs::write(from.join("probe/a.txt"), "a\n").unwrap();
+  std::fs::create_dir_all(&to).unwrap();
+  std::fs::write(to.join("other.txt"), "other\n").unwrap();
+
+  move_path_by(&from, &to, across_volumes).unwrap_err();
+
+  assert_eq!(std::fs::read_to_string(from.join("probe/a.txt")).unwrap(), "a\n");
+  assert_eq!(std::fs::read_to_string(to.join("other.txt")).unwrap(), "other\n");
+  assert!(to.join("probe").symlink_metadata().is_err(), "the target is as it was");
+  assert_eq!(staged_beside(dir.path(), &["notes.local", "taken"]), Vec::<String>::new(), "the copy is removed");
 }

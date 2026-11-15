@@ -66,7 +66,8 @@ Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<
   removes the link and keeps the notes, so the next holder of the slot starts with empty notes, and a reviewer or the
   lead finds them with `brd lease notes --lease-id <id>` or `--holder <name>` (`--list` lists the files); nothing
   needs copying to `/tmp`. The notes of a returned lease expire after `branchdeck.leaseNotesKeep` (14 days) through
-  `brd lease trim` and the keeper of a host.
+  `brd lease trim` and the keeper of a host. The notes may be on another volume than the slot (`branchdeck.leasePool`
+  on another disk): the moves copy there, so nothing changes for the agent.
 - **Release**: `brd lease return --workspace <path>` refuses local changes, a commit that no branch holds and that
   `master` lacks by content, or a process inside. `--confirm-preserved` discards the changes and commits it reports, so
   pass it only when they are preserved elsewhere. The branch survives; the next get moves the worktree.

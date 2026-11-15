@@ -144,6 +144,30 @@ fn the_notes_are_no_local_change_of_the_worktree() {
   assert_eq!(std::fs::read_to_string(notes_of(&got).join("probe.txt")).unwrap(), "probe\n");
 }
 
+/// Where `notes.local` is a directory (a system that makes no link) and `info/exclude` lost its line, a status with
+/// `status.showUntrackedFiles=all` names each file in it (`?? notes.local/probe.txt`): that is no local change either,
+/// and the return moves the files into the notes of the lease
+#[test_log::test]
+fn a_directory_of_notes_is_no_local_change_with_every_untracked_file_shown() {
+  let fixture = Fixture::new();
+  fixture.repo.set_config("status.showUntrackedFiles", "all").unwrap();
+  let got = fixture.get(&["--holder", "lane-1"]);
+  let slot = path_of(&got);
+  let notes_local = Path::new(&slot).join("notes.local");
+  // a directory link of Windows goes with remove_dir, a symlink elsewhere with remove_file
+  std::fs::remove_dir(&notes_local).or_else(|_| std::fs::remove_file(&notes_local)).unwrap();
+  std::fs::create_dir_all(notes_local.join("probe")).unwrap();
+  std::fs::write(notes_local.join("probe/probe.txt"), "probe\n").unwrap();
+  std::fs::write(fixture.repo.path().join(".git/info/exclude"), "").unwrap();
+  let untracked = bd_cli::fixture_test::git(&fixture.repo, &["-C", &slot, "status", "--porcelain", "--untracked-files=all"]);
+  assert!(untracked.contains("?? notes.local/probe/probe.txt"), "{untracked}");
+
+  let returned = fixture.give_back(&slot);
+  assert_eq!(returned["discarded"], Value::Null, "{returned}");
+  assert_eq!(std::fs::read_to_string(notes_of(&got).join("probe/probe.txt")).unwrap(), "probe\n");
+  assert!(notes_local.symlink_metadata().is_err(), "the return moves notes.local out of the worktree");
+}
+
 /// `brd lease disk` counts what the notes of the pool hold
 #[test_log::test]
 fn the_disk_report_counts_the_notes_of_the_pool() {

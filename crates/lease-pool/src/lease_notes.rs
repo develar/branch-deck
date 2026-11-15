@@ -14,12 +14,16 @@
 //! Where the system makes no link (Windows without the right to make one), `notes.local` is a directory of the worktree,
 //! whose entries the return moves into the directory of the lease. A `notes.local` that an earlier lease left in the
 //! slot (a return that could not move it, a brd before the notes) is moved into notes of its own by the next get
-//! (`left-<uuid>`), never shown to the next holder.
+//! (`left-<uuid>`), never shown to the next holder. The slot and the state of the pool may be on two volumes (a
+//! `branchdeck.leasePool` on another disk, on Windows a repository on `D:` with its pool under `C:\Users`), so each
+//! move copies where no rename crosses them (`fs_retry::move_path`).
 //!
 //! The notes of a returned lease expire `branchdeck.leaseNotesKeep` after its return (14 days by default, `0` keeps
-//! them): `brd lease trim` and the keeper of a host delete them, never those of a lease the pool holds.
+//! them): `brd lease trim` and the keeper of a host delete them, never those of a lease the pool holds, and nothing
+//! where the state of the pool can't be read. A directory without a record (a get that stopped before it wrote one)
+//! expires by its modification time.
 
-use crate::lease::{Lease, Pool, canonical_path};
+use crate::lease::{Lease, LeaseStore, Pool, canonical_path};
 use crate::lease_clean::parse_age;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{LeaseConfig, NOTES_LINK, lease_config};
@@ -83,7 +87,7 @@ pub fn notes_dir(root: &Path, lease_id: &str) -> PathBuf {
   root.join(lease_id)
 }
 
-fn record_path(root: &Path, lease_id: &str) -> PathBuf {
+pub(crate) fn record_path(root: &Path, lease_id: &str) -> PathBuf {
   root.join(format!("{lease_id}.json"))
 }
 
@@ -123,20 +127,30 @@ fn write_record(root: &Path, record: &NotesRecord) -> std::io::Result<()> {
 
 /// The notes of the get of `lease` in its slot `slot`: their directory and record in `root`, `notes.local` of the slot
 /// replaced by a link to the directory (by a directory where the system makes no link), and `/notes.local` in
-/// `info/exclude` of `git_common_dir`. What an earlier lease left at `notes.local` goes into notes of its own first
+/// `info/exclude` of `git_common_dir`. What an earlier lease left at `notes.local` goes into notes of its own first. Notes
+/// that fail leave none: the link or the empty directory made in the slot and the directory of the lease are removed,
+/// and the get goes on without notes
 pub(crate) fn open_notes(root: &Path, slot: &Path, git_common_dir: &Path, lease: &Lease) -> std::io::Result<LeaseNotes> {
   let dir = notes_dir(root, &lease.id);
-  std::fs::create_dir_all(&dir)?;
+  let link = slot.join(NOTES_LINK);
+  let opened = make_notes(root, slot, git_common_dir, lease, &dir, &link);
+  if opened.is_err() {
+    undo_notes(&dir, &link);
+  }
+  opened
+}
+
+fn make_notes(root: &Path, slot: &Path, git_common_dir: &Path, lease: &Lease, dir: &Path, link: &Path) -> std::io::Result<LeaseNotes> {
+  std::fs::create_dir_all(dir)?;
   if let Err(error) = exclude_notes(git_common_dir) {
     warn!(error = %error, "cannot add {EXCLUDE_LINE} to info/exclude of the repository");
   }
-  let link = slot.join(NOTES_LINK);
-  set_aside(root, slot, &link)?;
-  let linked = match make_link(&dir, &link) {
+  set_aside(root, slot, link)?;
+  let linked = match make_link(dir, link) {
     Ok(()) => true,
     Err(error) => {
       warn!(slot = %slot.display(), error = %error, "cannot link notes.local to the notes of the lease: a directory of the worktree, which the return moves");
-      std::fs::create_dir_all(&link)?;
+      std::fs::create_dir_all(link)?;
       false
     }
   };
@@ -150,7 +164,25 @@ pub(crate) fn open_notes(root: &Path, slot: &Path, git_common_dir: &Path, lease:
     linked,
   };
   write_record(root, &record)?;
-  Ok(LeaseNotes { dir, record })
+  Ok(LeaseNotes { dir: dir.to_path_buf(), record })
+}
+
+/// What a failed `make_notes` made: a link at `link` (never followed), an empty directory there, the directory `dir` if
+/// empty; a directory with files (what an earlier lease left that could not be set aside) stays
+fn undo_notes(dir: &Path, link: &Path) {
+  let undone = match link.symlink_metadata() {
+    Ok(metadata) if metadata.file_type().is_symlink() => fs_retry::remove_entry(link, &metadata.file_type()),
+    Ok(metadata) if metadata.is_dir() && std::fs::read_dir(link).is_ok_and(|mut entries| entries.next().is_none()) => fs_retry::remove_dir(link),
+    _ => Ok(()),
+  };
+  if let Err(error) = undone {
+    warn!(link = %link.display(), error = %error, "cannot remove notes.local of a get without notes");
+  }
+  if std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none())
+    && let Err(error) = fs_retry::remove_dir(dir)
+  {
+    warn!(dir = %dir.display(), error = %error, "cannot remove the notes of a get without notes");
+  }
 }
 
 /// At the return of `lease_id` from `slot`: `notes.local` of the slot removed (a link), or its entries moved into the
@@ -180,7 +212,8 @@ pub(crate) fn close_notes(root: &Path, slot: &Path, lease_id: &str) -> Option<Le
 }
 
 /// Move what is at `link` (a link of an earlier lease, a directory that a return could not move or a brd before the
-/// notes left) out of the slot: a link goes, anything else into notes of its own, `left-<uuid>`, returned now
+/// notes left) out of the slot: a link goes, anything else into notes of its own, `left-<uuid>`, returned now. The
+/// record comes first, so the directory is never one without a record, whose age is its old modification time
 fn set_aside(root: &Path, slot: &Path, link: &Path) -> std::io::Result<()> {
   let Ok(metadata) = link.symlink_metadata() else { return Ok(()) };
   if metadata.file_type().is_symlink() {
@@ -188,12 +221,11 @@ fn set_aside(root: &Path, slot: &Path, link: &Path) -> std::io::Result<()> {
   }
   let lease_id = format!("left-{}", uuid::Uuid::new_v4());
   let dir = notes_dir(root, &lease_id);
-  fs_retry::rename(link, &dir)?;
   let at = now_seconds();
   write_record(
     root,
     &NotesRecord {
-      lease_id,
+      lease_id: lease_id.clone(),
       holder: "an earlier lease of the slot".to_string(),
       slot: slot.to_string_lossy().into_owned(),
       branch: None,
@@ -201,17 +233,34 @@ fn set_aside(root: &Path, slot: &Path, link: &Path) -> std::io::Result<()> {
       returned_at: Some(at),
       linked: false,
     },
-  )
+  )?;
+  move_path(link, &dir).inspect_err(|_| {
+    // a move that failed after the copy landed (the removal of the source) keeps the copy and its record
+    if dir.symlink_metadata().is_err()
+      && let Err(error) = fs_retry::remove_file(record_path(root, &lease_id))
+    {
+      warn!(lease = %lease_id, error = %error, "cannot remove the record of notes that were not set aside");
+    }
+  })
 }
 
-/// Move each entry of `from` into `to`, a rename each (one volume: the slot and the state of the pool)
+/// Move each entry of `from` into `to` (`move_path`: the slot and the state of the pool may be on two volumes)
 fn move_entries(from: &Path, to: &Path) -> std::io::Result<()> {
   std::fs::create_dir_all(to)?;
   for entry in std::fs::read_dir(from)? {
     let entry = entry?;
-    fs_retry::rename(entry.path(), to.join(entry.file_name()))?;
+    move_path(&entry.path(), &to.join(entry.file_name()))?;
   }
   Ok(())
+}
+
+/// `fs_retry::move_path`; the seam of the tests moves as across two volumes
+fn move_path(from: &Path, to: &Path) -> std::io::Result<()> {
+  #[cfg(test)]
+  if seam::ACROSS_VOLUMES.get() {
+    return fs_retry::move_across_volumes(from, to);
+  }
+  fs_retry::move_path(from, to)
 }
 
 /// `link` to the directory `target`; the seam of the tests makes none, as a system without the right to does
@@ -245,8 +294,10 @@ fn exclude_notes(git_common_dir: &Path) -> std::io::Result<()> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpiredNotes {
   pub lease_id: String,
-  pub holder: String,
-  /// Unix seconds of the return, or of the get of a lease that left the pool without one
+  /// `None`: a directory without a record
+  pub holder: Option<String>,
+  /// Unix seconds of the return, of the get of a lease that left the pool without one, or the modification time of a
+  /// directory without a record
   pub returned_at: u64,
   /// The bytes on disk of its directory
   pub bytes: u64,
@@ -272,24 +323,22 @@ pub fn notes_keep(config: &LeaseConfig) -> (Duration, Option<String>) {
   }
 }
 
-/// The leases that `pool` holds now, by id, with the idle ones a get takes over: their notes never expire
-pub fn held_leases(pool: &Pool) -> HashSet<String> {
-  pool.read().map_or_else(
-    |_| HashSet::new(),
-    |store| {
-      store
-        .slots
-        .iter()
-        .filter_map(|slot| slot.lease.as_ref())
-        .flat_map(|lease| std::iter::once(lease.id.clone()).chain(lease.taking_over.as_ref().map(|old| old.id.clone())))
-        .collect()
-    },
-  )
+/// The leases of `store` (the state of a pool, read by the caller: no state, no expiry), by id, with the idle ones a get
+/// takes over: their notes never expire
+pub fn held_leases(store: &LeaseStore) -> HashSet<String> {
+  store
+    .slots
+    .iter()
+    .filter_map(|slot| slot.lease.as_ref())
+    .flat_map(|lease| std::iter::once(lease.id.clone()).chain(lease.taking_over.as_ref().map(|old| old.id.clone())))
+    .collect()
 }
 
-/// The notes of `root` that expired by `now` (`expires_at`), deleted unless `plan`: their directories and records
+/// The notes of `root` that expired by `now` (`expires_at`), deleted unless `plan`: their directories and records; then
+/// the directories without a record (a get that stopped before it wrote one, the copy of a move across volumes that
+/// stopped), `keep` after their modification time, never one named by `held` nor with `keep` 0
 pub fn expire_notes(root: &Path, held: &HashSet<String>, keep: Duration, now: u64, plan: bool) -> Vec<ExpiredNotes> {
-  all_notes(root)
+  let recorded = all_notes(root)
     .into_iter()
     .filter(|notes| expires_at(&notes.record, held, keep).is_some_and(|at| at <= now))
     .map(|notes| {
@@ -297,13 +346,48 @@ pub fn expire_notes(root: &Path, held: &HashSet<String>, keep: Duration, now: u6
       let error = (!plan).then(|| remove_notes(root, &notes)).and_then(Result::err).map(|error| error.to_string());
       ExpiredNotes {
         lease_id: notes.record.lease_id.clone(),
-        holder: notes.record.holder.clone(),
+        holder: Some(notes.record.holder.clone()),
         returned_at: notes.record.returned_at.unwrap_or(notes.record.leased_at),
         bytes,
         error,
       }
+    });
+  let unrecorded = unrecorded_dirs(root)
+    .into_iter()
+    .filter(|(name, _, modified_at)| !keep.is_zero() && !held.contains(name) && modified_at.saturating_add(keep.as_secs()) <= now)
+    .map(|(name, dir, modified_at)| {
+      let bytes = fs_walk::tree_size(&dir);
+      let error = (!plan).then(|| fs_retry::remove_dir_all(&dir)).and_then(Result::err).map(|error| error.to_string());
+      ExpiredNotes {
+        lease_id: name,
+        holder: None,
+        returned_at: modified_at,
+        bytes,
+        error,
+      }
+    });
+  let mut expired: Vec<ExpiredNotes> = recorded.collect();
+  expired.extend(unrecorded);
+  expired
+}
+
+/// The directories of `root` without a record (`<name>.json`): their names, paths and modification times, Unix seconds
+fn unrecorded_dirs(root: &Path) -> Vec<(String, PathBuf, u64)> {
+  let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
+  let mut dirs: Vec<(String, PathBuf, u64)> = entries
+    .flatten()
+    .filter_map(|entry| {
+      let metadata = entry.path().symlink_metadata().ok().filter(std::fs::Metadata::is_dir)?;
+      let name = entry.file_name().to_string_lossy().into_owned();
+      if record_path(root, &name).symlink_metadata().is_ok() {
+        return None;
+      }
+      let modified_at = metadata.modified().ok()?.duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
+      Some((name, entry.path(), modified_at))
     })
-    .collect()
+    .collect();
+  dirs.sort();
+  dirs
 }
 
 /// `expire_notes` of the pool of `git_common_dir` now, deleting: with its `branchdeck.leaseNotesKeep` (one `git config`)
@@ -318,7 +402,13 @@ pub fn expire_pool_notes(git_executor: &GitCommandExecutor, git_common_dir: &Pat
     keep
   });
   let pool = Pool::new(&git_common_dir);
-  expire_notes(&pool.notes_root(), &held_leases(&pool), keep, now_seconds(), false)
+  match pool.read() {
+    Ok(store) => expire_notes(&pool.notes_root(), &held_leases(&store), keep, now_seconds(), false),
+    Err(error) => {
+      warn!(pool = %git_common_dir.display(), error = %format!("{error:#}"), "the state of the pool can't be read: no notes expire");
+      Vec::new()
+    }
+  }
 }
 
 /// The directory of `notes`, then its record: a record without a directory is no note any more
@@ -370,11 +460,12 @@ pub fn note_files(dir: &Path) -> (Vec<NoteFile>, bool) {
   (files, more)
 }
 
-/// The seam of the tests: a system that makes no link
+/// The seams of the tests: a system that makes no link, a slot on another volume than the notes
 #[cfg(test)]
 pub(crate) mod seam {
   thread_local! {
     pub(crate) static NO_LINKS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    pub(crate) static ACROSS_VOLUMES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
   }
 }
 
