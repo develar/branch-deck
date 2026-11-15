@@ -2,7 +2,7 @@ use crate::registry::registry_test::{IdleHost, view_operations};
 use crate::registry::{Registry, RegistryFiles};
 use crate::registry_file::registry_file_test::{id, record, safe_push, session, sleeping_child};
 use crate::registry_file::{ProcessIdentity, ProcessRegistry};
-use crate::registry_watch::{Wake, Watches, touch_stamp, woken};
+use crate::registry_watch::{Wake, Watches, seam, touch_stamp, woken};
 use domain_types::error::HolderTool;
 use domain_types::fixtures::land_intent;
 use domain_types::operation::{Origin, RunningOperation};
@@ -406,4 +406,72 @@ async fn a_look_that_finds_the_repository_gone_closes_its_sessions_and_syncs_not
   let ended = tokio::time::timeout(DEADLINE, async { while patched.recv().await.is_some() {} }).await;
   ended.unwrap_or_else(|_elapsed| panic!("no look closed the session of the repository that went away within {DEADLINE:?}"));
   assert_eq!(wake.stamps(), 0, "no look asked a sync of the repository that went away");
+}
+
+/// The count of the finished looks of `wake` once it passed `taken`
+async fn looks_past(wake: &Wake, taken: u64) {
+  let waited = tokio::time::timeout(DEADLINE, async {
+    while wake.looks_taken() <= taken {
+      tokio::task::yield_now().await;
+    }
+  })
+  .await;
+  waited.unwrap_or_else(|_elapsed| panic!("no look finished within {DEADLINE:?}"));
+}
+
+/// One look asked of the watch of the session of `key`, and taken
+async fn look_once(registry: &Registry, key: &SessionKey, wake: &Wake) {
+  let taken = wake.looks_taken();
+  registry.look(key).await;
+  looks_past(wake, taken).await;
+}
+
+/// The git directory missing at one look and back at the next (an external disk, a network share away for a moment)
+/// keeps the sessions; missing at two looks in a row (the repository was deleted) closes them, and the window ends
+#[tokio::test(flavor = "multi_thread")]
+async fn the_sessions_close_once_the_repository_is_missing_at_two_looks_in_a_row_not_at_one() {
+  let directory = tempfile::tempdir().unwrap();
+  let (registry, key, mut patched) = watched(Arc::new(IdleHost::default()), directory.path(), GIVEN_EVENTS).await;
+  let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
+  // the first look of the subscription
+  looks_past(&wake, 0).await;
+
+  seam::script_stats(&[std::io::ErrorKind::NotFound]);
+  look_once(&registry, &key, &wake).await;
+  assert!(registry.sessions().is_open(&key), "missing at one look");
+  look_once(&registry, &key, &wake).await;
+  assert!(registry.sessions().is_open(&key), "back at the next");
+
+  seam::script_stats(&[std::io::ErrorKind::NotFound, std::io::ErrorKind::NotFound]);
+  look_once(&registry, &key, &wake).await;
+  assert!(registry.sessions().is_open(&key), "missing at one look of the two");
+  look_once(&registry, &key, &wake).await;
+  assert!(!registry.sessions().is_open(&key), "missing at two looks in a row");
+  let ended = tokio::time::timeout(DEADLINE, async { while patched.recv().await.is_some() {} }).await;
+  ended.unwrap_or_else(|_elapsed| panic!("the window of the closed session did not end within {DEADLINE:?}"));
+}
+
+/// Another error of the stat of the git directory (`EACCES`, `EIO` of a volume that is away) keeps the sessions at every
+/// look, which reads nothing then, and the next look that can tell reads the registry
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stat_error_other_than_not_found_keeps_the_sessions_and_the_next_look_asks_again() {
+  let directory = tempfile::tempdir().unwrap();
+  let file = ProcessRegistry::of(directory.path()).unflushed();
+  let (registry, key, mut patched) = watched(Arc::new(IdleHost::default()), directory.path(), GIVEN_EVENTS).await;
+  let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
+  looks_past(&wake, 0).await;
+
+  let child = bd_runs_auth(&file);
+  seam::script_stats(&[std::io::ErrorKind::PermissionDenied, std::io::ErrorKind::Other, std::io::ErrorKind::PermissionDenied]);
+  for _ in 0..3 {
+    look_once(&registry, &key, &wake).await;
+    assert!(registry.sessions().is_open(&key), "an error of the stat closes nothing");
+  }
+  assert_eq!(view_operations(registry.sessions(), &key).await, Vec::new(), "a look that can't tell reads nothing");
+  look_once(&registry, &key, &wake).await;
+  after_patches(&registry, &key, &mut patched, "the look after the errors read no registry", |operations| {
+    operations.len() == 1
+  })
+  .await;
+  end(child);
 }

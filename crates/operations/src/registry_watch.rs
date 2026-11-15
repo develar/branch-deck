@@ -56,6 +56,33 @@ const NAMES: [&str; 3] = [crate::registry_file::FILE, STAMP, crate::journal::FIL
 const STAMP_CHANGED: u64 = 0b01;
 const JOURNAL_CHANGED: u64 = 0b10;
 
+/// The looks in a row that must find the git directory of the repository missing before its sessions close: a volume
+/// that was away for a moment (an external disk, a network share) is missing at one look and back at the next, while a
+/// deleted repository is missing at both, within `RECHECK` (2 s) of each other
+const GONE_LOOKS: u32 = 2;
+
+/// What a look found of the git directory of the repository
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CommonDir {
+  There,
+  /// `NotFound`
+  Missing,
+  /// Another error of the stat (`EACCES`, `EIO` of a volume that is away): the sessions stay, the next look asks again
+  Unreadable(String),
+}
+
+/// What the stat of `common_dir` tells (`CommonDir`); a test scripts the error of a stat (`seam`)
+fn common_dir_state(common_dir: &Path) -> CommonDir {
+  let stat = std::fs::metadata(common_dir).map(drop);
+  #[cfg(test)]
+  let stat = seam::next_stat().map_or(stat, |kind| Err(std::io::Error::from(kind)));
+  match stat {
+    Ok(()) => CommonDir::There,
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => CommonDir::Missing,
+    Err(error) => CommonDir::Unreadable(error.to_string()),
+  }
+}
+
 /// Touches the stamp of the repository of `git_common_dir` (`$GIT_COMMON_DIR/branch-deck/stamp`): `bd` did a mutation,
 /// which the sessions of the app that watch the repository sync for. The file says when and which process; a failure is
 /// only logged, as the mutation is done
@@ -77,6 +104,8 @@ pub(crate) struct Wake {
   /// The looks that found the stamp changed and asked the syncs of the sessions, counted before the read of the
   /// registry of the same look: a test that saw the patch of that read sees the count of that look
   stamps: std::sync::atomic::AtomicU64,
+  /// The looks the task finished, whatever they found
+  looks: std::sync::atomic::AtomicU64,
 }
 
 impl Wake {
@@ -97,6 +126,12 @@ impl Wake {
   #[cfg(test)]
   pub(crate) fn stamps(&self) -> u64 {
     self.stamps.load(Ordering::SeqCst)
+  }
+
+  /// How many looks the task finished
+  #[cfg(test)]
+  pub(crate) fn looks_taken(&self) -> u64 {
+    self.looks.load(Ordering::SeqCst)
   }
 }
 
@@ -292,12 +327,15 @@ fn watched_paths(dir: &Path) -> Vec<PathBuf> {
 
 /// The task of the watch of `registry`: each look asked, and one every `recheck` without one, reads the registry, asks
 /// the syncs of a stamp and tells of the journal when their stat changed since the last look (`fingerprints`, the first
-/// taken before the watcher started). A look that finds the git directory of the repository gone closes the sessions
-/// that watch it instead (`Sessions::close_worktree`)
+/// taken before the watcher started). A look that finds the git directory of the repository missing at `GONE_LOOKS`
+/// looks in a row closes the sessions that watch it instead (`Sessions::close_worktree`); another error of its stat
+/// leaves them, told once
 async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watches, wake: Arc<Wake>, fingerprints: Fingerprints, recheck: Option<Duration>) {
   let dir = registry.dir().to_path_buf();
   // shared with the look of each round on the blocking pool, so a look that fails keeps the last one
   let fingerprints = Arc::new(Mutex::new(fingerprints));
+  // the looks in a row that found the git directory missing, and whether the last look could not tell (told once)
+  let (mut missing, mut unreadable) = (0, false);
   loop {
     let ticked = if let Some(every) = recheck {
       tokio::time::timeout(every, wake.notify.notified()).await.is_err()
@@ -313,24 +351,46 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
     let common_dir = dir.parent().map(Path::to_path_buf);
     let stamp = dir.join(STAMP);
     let looked = tokio::task::spawn_blocking(in_current_span(move || {
+      let state = common_dir.as_deref().map_or(CommonDir::There, common_dir_state);
+      if state != CommonDir::There {
+        // the files are not compared while the directory is away: they would be missing now and new when it is back
+        return (0, state);
+      }
       let mut changed = looking.lock().unwrap_or_else(PoisonError::into_inner).look();
       // a stamp that went away tells no mutation (`brd` never removes it): the deletion of the repository, which takes
       // its files before its git directory
       if changed & STAMP_CHANGED != 0 && !stamp.is_file() {
         changed &= !STAMP_CHANGED;
       }
-      let gone = common_dir.is_some_and(|common_dir| !common_dir.is_dir());
-      (changed, gone)
+      (changed, state)
     }))
     .await;
-    let (changed, gone) = looked.unwrap_or((0, false));
-    if gone {
-      // the repository went away (its git directory is gone): its sessions sync no more and close, their windows end
-      // as at the deletion of a test repository; a sync of it would run git in a directory that is gone
-      for key in watches.keys(&registry) {
-        sessions.close_worktree(&key.worktree);
+    let (changed, state) = looked.unwrap_or((0, CommonDir::There));
+    match state {
+      CommonDir::There => (missing, unreadable) = (0, false),
+      CommonDir::Missing => {
+        missing += 1;
+        unreadable = false;
+        if missing >= GONE_LOOKS {
+          // the repository went away (its git directory is missing at two looks in a row): its sessions sync no more
+          // and close, their windows end as at the deletion of a test repository; a sync of it would run git in a
+          // directory that is gone
+          for key in watches.keys(&registry) {
+            sessions.close_worktree(&key.worktree);
+          }
+        }
+        wake.looks.fetch_add(1, Ordering::SeqCst);
+        continue;
       }
-      continue;
+      CommonDir::Unreadable(error) => {
+        missing = 0;
+        if !unreadable {
+          warn!(registry = %dir.display(), %error, "the git directory of the repository can't be read: its sessions stay, the next look asks again");
+          unreadable = true;
+        }
+        wake.looks.fetch_add(1, Ordering::SeqCst);
+        continue;
+      }
     }
     if changed & STAMP_CHANGED != 0 {
       wake.stamps.fetch_add(1, Ordering::SeqCst);
@@ -343,6 +403,7 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
     if changed & JOURNAL_CHANGED != 0 {
       watches.journaled(&registry);
     }
+    wake.looks.fetch_add(1, Ordering::SeqCst);
   }
 }
 
@@ -370,6 +431,25 @@ async fn show(sessions: &Sessions, registry: &ProcessRegistry, watches: &Watches
 /// branches are the session's; another prefix names other branches
 fn of_prefix(records: &[Record], prefix: &str) -> Vec<RunningOperation> {
   records.iter().filter(|record| record.session.prefix == prefix).map(Record::running).collect()
+}
+
+/// The seam of the tests: the stats of the git directory a test scripts, one per look, before the real ones
+#[cfg(test)]
+pub(crate) mod seam {
+  use std::collections::VecDeque;
+  use std::io::ErrorKind;
+  use std::sync::{Mutex, PoisonError};
+
+  static STATS: Mutex<VecDeque<ErrorKind>> = Mutex::new(VecDeque::new());
+
+  /// The next looks find the git directory failing with `kinds`, one each, then as it is
+  pub(crate) fn script_stats(kinds: &[ErrorKind]) {
+    STATS.lock().unwrap_or_else(PoisonError::into_inner).extend(kinds);
+  }
+
+  pub(super) fn next_stat() -> Option<ErrorKind> {
+    STATS.lock().unwrap_or_else(PoisonError::into_inner).pop_front()
+  }
 }
 
 #[cfg(test)]

@@ -4441,8 +4441,10 @@ names of its files anywhere else):
   or a lost event woke the task, and a window under an overloaded fseventsd showed another process's operations and
   synced for a stamp only at a focus. A window of the session that gains the focus looks at once (`set_window_focus`:
   the registry, the stamp and the journal), as does each admission of the app, which wrote the file; a watch the system
-  refused leaves the looks. A look that finds the git directory of the repository gone (the repository was deleted)
-  closes the sessions that watch it (`Sessions::close_worktree`) instead of syncing, and a stamp that went away asks no
+  refused leaves the looks. When two looks in a row find the git directory of the repository missing (`NotFound`: the
+  repository was deleted, while an external disk or a share away for a moment is back at the next look), the watch
+  closes the sessions that watch it (`Sessions::close_worktree`) instead of syncing; another error of the stat
+  (`EACCES`, `EIO`) leaves them, told once, and the next look asks again; and a stamp that went away asks no
   sync (`brd` never removes it; a deletion takes the files before the directory): a sync would run git in a directory
   that is gone, and on macOS such a git scans the parent for its directory before it fails, seconds in a temporary
   directory of 100 000 entries. The first look is taken before the watcher starts: `FSEvents` registers a stream after

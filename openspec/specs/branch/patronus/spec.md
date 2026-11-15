@@ -5894,10 +5894,19 @@ nothing.
 
 #### Scenario: The repository went away
 - **GIVEN** a window shows the session of a repository, and the repository is deleted (its git directory goes)
-- **WHEN** the watch looks
+- **WHEN** the watch finds its git directory missing at two looks in a row
 - **THEN** the sessions of the repository close and the window's subscription ends, and no sync runs, for a stamp
   that went away with it either: a sync would run git in a directory that is gone
   [@test] crates/operations/src/registry_watch_test.rs (`a_look_that_finds_the_repository_gone_closes_its_sessions_and_syncs_nothing`)
+  [@test] crates/operations/src/registry_watch_test.rs (`the_sessions_close_once_the_repository_is_missing_at_two_looks_in_a_row_not_at_one`)
+
+#### Scenario: A volume away for a moment
+- **GIVEN** a window shows the session of a repository on an external disk or a network share
+- **WHEN** a look finds its git directory missing and the next finds it back, or a stat of it fails another way
+  (`EACCES`, `EIO`)
+- **THEN** the sessions stay, a failed stat is told once in the log, and the next look that can tell reads the registry
+  [@test] crates/operations/src/registry_watch_test.rs (`the_sessions_close_once_the_repository_is_missing_at_two_looks_in_a_row_not_at_one`)
+  [@test] crates/operations/src/registry_watch_test.rs (`a_stat_error_other_than_not_found_keeps_the_sessions_and_the_next_look_asks_again`)
 
 ### Requirement: Pushing into a branch whose Safe Push runs: Restart Safe Push is the one push into a held branch
 
