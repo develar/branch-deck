@@ -165,6 +165,63 @@ function nextTask(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 5))
 }
 
+/**
+ * The ends of the deliveries waiting: the messages the module posts for them, held while a test runs a task of the page
+ * before them (a timer due, a message of the backend), as the engine may run one first; null when each comes in the next
+ * task
+ */
+let heldEnds: (() => void)[] | null = null
+
+/** The channel the module ends a delivery with: its message comes in the next task, unless held (`holdTheEnds`) */
+class FakeMessageChannel {
+  readonly port1: { onmessage: (() => void) | null; close(): void } = { onmessage: null, close: () => {} }
+  readonly port2 = {
+    postMessage: () => {
+      const deliver = () => this.port1.onmessage?.()
+      if (heldEnds === null) {
+        setTimeout(deliver, 0)
+      } else {
+        heldEnds.push(deliver)
+      }
+    },
+  }
+}
+
+/** The deliveries end only at `end()`: a task of the page (`aTask`) runs before their end */
+function holdTheEnds(): { end(): void } {
+  heldEnds = []
+  return {
+    end: () => {
+      const ends = heldEnds ?? []
+      heldEnds = null
+      for (const deliver of ends) {
+        deliver()
+      }
+    },
+  }
+}
+
+/** A task of the page: after the rendering update and every microtask of its checkpoint */
+function aTask(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0))
+}
+
+/** `count` microtasks after now, as the awaits of an async function */
+async function hops(count: number): Promise<void> {
+  for (let hop = 0; hop < count; hop++) {
+    await Promise.resolve()
+  }
+}
+
+/** `then` runs `promises` promises after now, as the awaits of an async function before it */
+function promisesLater(promises: number, then: () => void): void {
+  let chain = Promise.resolve()
+  for (let count = 1; count < promises; count++) {
+    chain = chain.then(() => undefined)
+  }
+  void chain.then(then)
+}
+
 describe("observeSize", () => {
   let body: FakeNode
 
@@ -178,8 +235,10 @@ describe("observeSize", () => {
     vi.resetModules()
     FakeResizeObserver.all = []
     frameCallbacks = []
+    heldEnds = null
     sizes.clear()
     vi.stubGlobal("ResizeObserver", FakeResizeObserver)
+    vi.stubGlobal("MessageChannel", FakeMessageChannel)
     vi.stubGlobal("MutationObserver", FakeMutationObserver)
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frameCallbacks.push(callback))
     vi.stubGlobal("getComputedStyle", (target: object) => {
@@ -255,23 +314,67 @@ describe("observeSize", () => {
     expect(resizeObserver.observed.has(prologue.element)).toBe(true)
   })
 
-  it("lets an element go that a change three microtasks after the callback resizes, still in the update", async () => {
-    // floating-ui sets the place of a popup with a flushSync three promises after the callback of the observer of Base UI:
-    // however many microtasks after a callback are of the update the delivery is in
+  /**
+   * A view of ours in a row beside a sibling (a flex row: the sibling grows, the view shrinks), the sibling grown
+   * `promises` promises after the callback of an observer of a panel, ours or a library's, its report `inChainOf`
+   * microtasks after the report of another observer of ours (none when null); whether the view is observed after the
+   * update, the delivery not ended yet, and once it ends
+   */
+  const siblingGrownLater = async (promises: number, of: "ours" | "a library", inChainOf: number | null = null) => {
     const { observeSize } = await import("@/lib/observe-size")
-    const view = element(body, "view")
-    observeSize(() => {
-      void Promise.resolve()
-        .then(() => undefined)
-        .then(() => undefined)
-        .then(() => grow(view))
-    }).observe(view.element)
-    const resizeObserver = FakeResizeObserver.all[0]!
-    resizeObserver.report(view.element)
-    await microtasks()
-    expect(resizeObserver.observed.has(view.element)).toBe(false)
-    nextFrame()
-    expect(resizeObserver.observed.has(view.element)).toBe(true)
+    const row = node(body, "row")
+    const view = element(row, "view")
+    const sibling = element(row, "sibling", 0)
+    // a popup's, deeper than the view: the next iteration takes only what is deeper than the panel
+    const panel = element(node(node(body)), "panel")
+    observeSize(() => {}).observe(view.element)
+    const grown = () =>
+      promisesLater(promises, () => {
+        resize(sibling.element, 60, 20)
+        resize(view.element, 40, 20)
+        commit(sibling.text)
+      })
+    if (of === "ours") {
+      observeSize(grown).observe(panel.element)
+    } else {
+      new ResizeObserver(grown).observe(panel.element)
+    }
+    const [ours, ofPanel] = FakeResizeObserver.all
+    const delivery = holdTheEnds()
+    if (inChainOf !== null) {
+      const other = element(node(node(body)), "other")
+      observeSize(() => {}).observe(other.element)
+      FakeResizeObserver.all.at(-1)!.report(other.element)
+      await hops(inChainOf)
+    }
+    ofPanel!.report(panel.element)
+    await aTask()
+    const inTheUpdate = ours!.observed.has(view.element)
+    delivery.end()
+    return { inTheUpdate, atTheEnd: ours!.observed.has(view.element) }
+  }
+
+  it("lets the view go that a sibling grown three promises after the callback shrinks, though the change is not in it", async () => {
+    // a commit of React that waited some promises after the callback is still in the update the delivery is in, and the
+    // layout is the page's: the view, no deeper than the report, would be an observation the next iteration skips
+    expect(await siblingGrownLater(3, "ours")).toEqual({ inTheUpdate: false, atTheEnd: true })
+  })
+
+  it("lets the view go that a sibling grown a hundred and twenty promises after the callback of a library shrinks, as floating-ui places a popup", async () => {
+    // floating-ui places a popup with a flushSync after the awaits of its middleware, 42 to 87 microtasks after the
+    // callback of its observer in the E2E suites, more after a reset of flip
+    expect(await siblingGrownLater(120, "a library")).toEqual({ inTheUpdate: false, atTheEnd: true })
+  })
+
+  it("leaves the view observed that a sibling grown a thousand promises after the callback shrinks, past the chain of the callback", async () => {
+    // past the chain the page is no longer taken for the update of the callback: a change lets go only the elements it is in
+    expect(await siblingGrownLater(1000, "ours")).toEqual({ inTheUpdate: true, atTheEnd: true })
+  })
+
+  it("makes the chain as long again from a callback that begins in the chain of another", async () => {
+    // the engine runs a callback after the checkpoint of the one before: a test that reports in a chain still running
+    // keeps the chain of the latest callback whole, not ended by the chain of the one before
+    expect(await siblingGrownLater(120, "ours", 200)).toEqual({ inTheUpdate: false, atTheEnd: true })
   })
 
   it("lets every element of ours go that a change anywhere in the delivery can resize, and leaves one deeper than the report observed", async () => {
@@ -373,25 +476,32 @@ describe("observeSize", () => {
     expect(rows!.observed.has(row.element)).toBe(true)
   })
 
-  it("lets go after the microtasks of the callback only the elements a change is in, not every one of the depth", async () => {
-    // a render of React in a task after the update, before the delivery ends, mounts a row: the cells of the other rows
-    // keep their observations, so a sync of many rows lets go no cell of every row
+  it("lets go in a task before the delivery ends only the elements a change is in, and observes an element first observed there as it ends", async () => {
+    // a render of React in a task that comes before the end of the delivery (a message of the backend) grows a cell, and
+    // an effect observes a header in place: past the chain of the callback, so the cells of the other rows keep their
+    // observations, and a sync of many rows lets go no cell of every row
     const { observeSize } = await import("@/lib/observe-size")
     const table = element(body, "table")
     const cells = Array.from({ length: 3 }, (_, index) => element(table.element as unknown as FakeNode, `cell-${index}`))
+    const header = element(table.element as unknown as FakeNode, "header")
     const ofCells = observeSize(() => {})
     for (const cell of cells) {
       ofCells.observe(cell.element)
     }
     ofCells.observe(table.element)
     const resizeObserver = FakeResizeObserver.all[0]!
+    const delivery = holdTheEnds()
     resizeObserver.report(...cells.map(cell => cell.element))
-    await microtasks()
+    await aTask()
     grow(cells[0]!)
+    ofCells.observe(header.element)
     await microtasks()
     expect(cells.map(cell => resizeObserver.observed.has(cell.element))).toEqual([false, true, true])
     // the table, above the change
     expect(resizeObserver.observed.has(table.element)).toBe(false)
+    expect(resizeObserver.observed.has(header.element)).toBe(false)
+    delivery.end()
+    expect([...cells, table, header].filter(it => !resizeObserver.observed.has(it.element))).toEqual([])
   })
 
   /**
@@ -622,16 +732,18 @@ describe("observeSize", () => {
     // a drag of the divider resizes the view before each frame, and its callback renders its rows into it
     const view = element(body, "diff-view")
     observeSize(() => commit(view.text)).observe(view.element)
-    // a text that arrives in a task after each update resizes a block
-    const block = element(body, "block")
+    // a text that arrives in a task after each update resizes a block, deeper than the view
+    const block = element(node(body), "block")
     observeSize(() => {}).observe(block.element)
     const [ofView, ofBlock] = FakeResizeObserver.all
+    // each frame ends the delivery before the next task, as on a loaded machine: the text comes in a task before
+    holdTheEnds()
     for (let count = 0; count < 30; count++) {
       nextFrame()
       resize(view.element, 100 + count, 400)
       ofView!.report(view.element)
       ofBlock!.report(block.element)
-      await microtasks()
+      await aTask()
       resize(block.element, 100, 20 + count)
       commit(block.text)
       await microtasks()

@@ -406,16 +406,20 @@ test.describe("Review tour", () => {
     const files = await holdCommandCalls(window, "get_range_files")
     const diffs = await holdCommandCalls(window, "get_file_diffs")
     view.release()
-    await expect.poll(() => files.calls.length + diffs.calls.length).toBeGreaterThan(0)
+    // the window asks for both at once, as the switch to the new head shows
+    await expect.poll(() => files.calls.length > 0 && diffs.calls.length > 0).toBe(true)
     // the review as it was stays, busy, while the new head is read: the frame paints once, five commits
     const body = window.getByTestId("branch-review-body")
     const commits = window.getByRole("listbox", { name: "Commits" })
     await expect(body).toHaveAttribute("aria-busy", "true")
     await expect(code).toContainText("fun paint(): Int = 1")
     await expect(commits).toContainText("All Changes5 commits")
-    // its files and diffs read, its plan still waits for the tests of its steps: the review as it was still stays
+    // its files and diffs read, their answers in the window, its plan still waits for the tests of its steps: the review
+    // as it was still stays
+    const read = Promise.all([nextAnswer(window, "get_range_files", files.calls.length), nextAnswer(window, "get_file_diffs", diffs.calls.length)])
     files.release()
     diffs.release()
+    await read
     await expect(body).toHaveAttribute("aria-busy", "true")
     await expect(commits).toContainText("All Changes5 commits")
     // the plan whole: the new head shows in one change

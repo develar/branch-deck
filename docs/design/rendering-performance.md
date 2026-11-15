@@ -568,23 +568,28 @@ An E2E test pins these numbers.
 Every `ResizeObserver` of the page is made by `observeSize` (src/lib/observe-size.ts, the reasons in
 docs/contributing/frontend.md, "A flushSync in the delivery of a ResizeObserver"), which watches the page with one
 `MutationObserver` from a report of an observer to the end of its delivery, and observes the elements a change of it
-may have resized anew. What it costs on the 141 rows of `branch_table_large` (Chromium, three runs each, 2026-11-15; a
-probe of the calls, never committed):
+may have resized anew. The page observes 1004 elements once the first sync of the 141 rows of `branch_table_large`
+showed them, no popup open; the tooltip of the ⋯ of a row adds two of its own. What the mechanism costs there
+(Chromium, 2026-11-15, three runs each, eight of the last column; a probe of the calls of every observer of the page,
+never committed):
 
-| | Before a1937e6d | a1937e6d to 1d261595 | Now |
-|---|---|---|---|
-| Elements observed | 1008 | 1008 | 1008 |
-| `MutationObserver.observe` in the first sync | 2880 | 55–58 | 36–42 |
-| Records in the first sync | ~1360 | 15 | 83–215 |
-| `ResizeObserver.observe` / `unobserve` in the first sync | ~1200 / ~195 | 1165 / 163 | ~1200 / ~200 |
-| A sync that changes nothing, 60 idle frames | 0 / 0 | 0 / 0 | 0 / 0 |
-| The menu of a row | 1 observe | 1 observe | 1 observe |
+| | Before a1937e6d | a1937e6d to 1d261595 | 1d261595 to 939ed49e | Now |
+|---|---|---|---|---|
+| `MutationObserver.observe` in the first sync | 2880 | 55–58 | 36–42 | 33–55 |
+| Records in the first sync | ~1360 | 15 | 83–215 | 35–123 |
+| `ResizeObserver.observe` / `unobserve` in the first sync | ~1200 / ~195 | 1165 / 163 | ~1200 / ~200 | 1153–1218 / 165–216 |
+| A sync that changes nothing, 60 idle frames | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| The menu of a row | 1 observe | 1 observe | 1 observe | 1 observe |
 
 Before a1937e6d it watched the subtree of every observed element and the ancestors of each, always. Since, the page
-is watched only while a delivery is open. A change later in the delivery than the callback and its microtasks, a render
-of React in a task, lets go only the elements above it: when it let go every element of the depth, the first sync
-observed 2167 to 3169 times and let go 1165 to 2167, the cells of every row, once or twice. The main thread
-(`TaskDuration`) is the same within its noise (600 to 900 ms for the first sync under the load of the machines it ran on).
+is watched only while a delivery is open. A change in a callback or in the chain of microtasks after it can resize any
+element (`SPAN_MICROTASKS`: 256 microtasks, run in the checkpoint of the callback, before any task, a hop an await of
+some nanoseconds); a change past the chain, in a task (a render of React) or in the microtasks of the update later
+still, lets go only the elements it is in: when it let go every element of the depth, the first sync observed 2167 to
+3169 times and let go 1165 to 2167, the cells of every row, once or twice. The chain of 256 changed none of the counts
+beyond the noise of the runs: the same probe on 939ed49e, whose chain was two microtasks, gave 1165–1186 / 167–184
+observes and unobserves, 31–32 `MutationObserver.observe` and 52–61 records. The main thread (`TaskDuration`) is the same within its noise (600 to
+900 ms for the first sync under the load of the machines it ran on).
 
 ### Loading
 

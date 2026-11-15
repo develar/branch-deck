@@ -39,6 +39,64 @@ function expectNoLoopOfTheApp(loops: readonly { app: string[]; library: string[]
   expect(loops.flatMap(loop => loop.app)).toEqual([])
 }
 
+/**
+ * A sibling of the room of the repository path (a flex row) grown `promises` promises after the callback of a library's
+ * observer of an element at the depth of the room: the room shrinks, and the app makes no loop
+ */
+async function expectSiblingGrownWithoutLoop(page: Page, setupRepo: (template: string) => Promise<unknown>, promises: number): Promise<void> {
+  const loops = recordLoops(page)
+  await setupRepo("issue_links")
+  await expect(page.getByTestId("repository-path")).toBeVisible()
+  const { before, after } = await page.evaluate(async promises => {
+    const room = document.querySelector("[data-testid=repository-path]")!.parentElement!
+    const row = room.parentElement!
+    row.style.display = "flex"
+    const sibling = document.createElement("span")
+    sibling.style.flex = "none"
+    sibling.style.whiteSpace = "pre"
+    row.insertBefore(sibling, room.nextSibling)
+    const depth = (node: Node) => {
+      let count = 0
+      for (let current = node.parentNode; current !== null; current = current.parentNode) {
+        count++
+      }
+      return count
+    }
+    // the element the library observes, at the depth of the room
+    let observed: HTMLElement = document.body
+    while (depth(observed) < depth(room)) {
+      const block = document.createElement("div")
+      observed.append(block)
+      observed = block
+    }
+    observed.style.cssText = "width: 10px; height: 10px; position: fixed; left: 0; top: 0"
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
+    await frame()
+    await frame()
+    const before = room.getBoundingClientRect().width
+    await new Promise<void>(resolve => {
+      const library = new ResizeObserver(() => {
+        library.disconnect()
+        let chain = Promise.resolve()
+        for (let count = 1; count < promises; count++) {
+          chain = chain.then(() => undefined)
+        }
+        void chain.then(() => {
+          sibling.textContent = "x".repeat(40)
+        })
+        // a loop is told at the end of the update: two frames after it the page has logged it
+        void frame()
+          .then(frame)
+          .then(() => resolve())
+      })
+      library.observe(observed)
+    })
+    return { before, after: room.getBoundingClientRect().width }
+  }, promises)
+  expect(after).toBeLessThan(before)
+  expectNoLoopOfTheApp(loops)
+}
+
 test.describe("ResizeObserver loops", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(resizeObservers, { attribute: true })
@@ -113,6 +171,24 @@ test.describe("ResizeObserver loops", () => {
       await expectClosed(page.getByRole("menu"))
     }
     expectNoLoopOfTheApp(loops)
+  })
+
+  // a change promises after the callback of a library's observer is still in the update of its delivery: floating-ui places
+  // a popup so, 42 to 87 microtasks after the callback of its observer. A sibling grown then shrinks the room of the
+  // repository path (an element of the app, its observer's report long gone), no deeper than the report, though the
+  // change is not in it: an observation the next iteration would skip unless the room left its observer
+  test("should make no loop of the app as a sibling grown 3 promises after the callback of a library shrinks the room of the repository path @webkit", async ({
+    page,
+    setupRepo,
+  }) => {
+    await expectSiblingGrownWithoutLoop(page, setupRepo, 3)
+  })
+
+  test("should make no loop of the app as a sibling grown 120 promises after the callback of a library shrinks the room of the repository path @webkit", async ({
+    page,
+    setupRepo,
+  }) => {
+    await expectSiblingGrownWithoutLoop(page, setupRepo, 120)
   })
 
   // the patch of @base-ui/react (patches/@base-ui__react@1.9.0.patch): Toast.Content sets the height of its toast in the

@@ -7,15 +7,16 @@
  * or above is one it skips, a ResizeObserver loop.
  *
  * - The page is watched from a report of an observer (ours or a library's) to the end of its delivery, the next task or
- *   the next frame, whichever comes first. A change in a callback or in the microtasks right after it can resize any
- *   element: the layout is the page's (a block above a view that grows shrinks the view, a view hidden around a table
- *   empties its cells), so every element of ours no deeper than the elements of the latest report leaves its observers
- *   at once and is observed anew as the delivery ends: its size a frame later, as the loop would have it; one the change
- *   left at its size is reported again at that size, which changes nothing (no layout is read to tell them apart, which
- *   would add one to each callback that changes the page). A change later in the delivery lets go the elements it is in:
- *   one of the update however many promises after a callback (floating-ui's flushSync after the observer of Base UI), or
- *   a render of React in a task before the delivery ends, whose new rows let go only the elements above them, never the
- *   cells of every row (docs/design/rendering-performance.md, "The observers of sizes"). An element first observed in
+ *   the next frame, whichever comes first. A change in a callback or in the chain of microtasks after it can resize any
+ *   element: the layout is the page's (a block above a view that grows shrinks the view, a sibling that grows shrinks it
+ *   in a flex row, a view hidden around a table empties its cells), so every element of ours no deeper than the elements
+ *   of the latest report leaves its observers at once and is observed anew as the delivery ends: its size a frame later,
+ *   as the loop would have it; one the change left at its size is reported again at that size, which changes nothing (no
+ *   layout is read to tell them apart, which would add one to each callback that changes the page). The chain
+ *   (`SPAN_MICROTASKS`) holds the flushSync with which floating-ui places a popup, some tens of microtasks after the
+ *   callback of its observer. A change past the chain, in a task (a render of React) or in a microtask of the update
+ *   later still, lets go the elements it is in: its new rows let go only the elements above them, never the cells of
+ *   every row (docs/design/rendering-performance.md, "The observers of sizes"). An element first observed in
  *   the delivery, no deeper, is observed only as it ends (a block a flushSync in a callback mounted, observed by its ref;
  *   a table mounted again; an element in place an effect observes). A deeper element stays: the update delivers it at
  *   its depth, in the frame of its change; one let go comes back as soon as a report of shallower elements shows it
@@ -65,7 +66,7 @@ interface Release {
   /** The frame of the delivery */
   readonly frame: number
   /**
-   * Let go after its report in this update by a change of a callback of ours, or of the microtasks right after it: it
+   * Let go after its report in this update by a change of a callback of ours, or of the chain of microtasks after it: it
    * counts toward a cycle
    */
   readonly ofOurs: boolean
@@ -82,7 +83,7 @@ const observing = new Map<Element, Set<SizeObserver>>()
  * observed element as it found it; null between deliveries
  */
 let delivery: { depth: number; readonly depths: Map<Element, number>; readonly reported: Set<Element> } | null = null
-/** A callback of an observer runs, or the microtasks right after it: a change now can resize any element */
+/** A callback of an observer runs, or the chain of microtasks after it (`SPAN_MICROTASKS`): a change now can resize any element */
 let spanning = false
 /** That callback is one of ours: a change of it counts toward a cycle */
 let delivering = false
@@ -173,8 +174,7 @@ function openDelivery(entries: readonly ResizeObserverEntry[]): NonNullable<type
 
 /**
  * A callback of an observer begins, `own` one of ours: the page is watched for its changes until the delivery ends, as
- * however many microtasks after the callback are of the update (a flushSync of floating-ui three promises after the
- * callback of Base UI)
+ * the chain of microtasks after the callback is of the update, and a change past it may be
  */
 function beforeCallback(own: boolean): void {
   spanning = true
@@ -185,16 +185,45 @@ function beforeCallback(own: boolean): void {
   }
 }
 
-/** The changes of a callback, then those of the microtasks it left (a commit of React that waited), count for its owner */
+/**
+ * How many microtasks after a callback a change still resizes any element. The chain runs in the checkpoint of the
+ * callback, before any task, so no render of React in a task falls in it, however long it is; a hop is an await, some
+ * nanoseconds (a `queueMicrotask` costs Chromium ten times more: 256 hops 4.6 µs, 61 µs with it). Floating-ui places a popup with a flushSync after the
+ * awaits of `computePosition`: each middleware with its reads of the overflow, all of them again after a reset of
+ * `flip`. The E2E suites of both engines saw the change of such a chain at most 87 microtasks after the callback of its
+ * observer (most at 42, 43 and 61; one of ours at 1), so 256 holds a reset of `flip` some times over
+ */
+const SPAN_MICROTASKS = 256
+
+/** The microtasks of the chain after the latest callback still to run, 0 when none runs */
+let spanLeft = 0
+
+/**
+ * The changes of a callback, then those of the chain of microtasks it left (a commit of React that waited, a flushSync
+ * promises later), can resize any element; they count for its owner. Those of the callback are settled at once, those of
+ * the chain by the callback of the observer of the changes, a microtask after each, still in the chain
+ */
 function afterCallback(): void {
   settle(mutations?.takeRecords() ?? [])
-  queueMicrotask(() =>
-    queueMicrotask(() => {
-      settle(mutations?.takeRecords() ?? [])
-      spanning = false
-      delivering = false
-    }),
-  )
+  // one chain at a time, as long again from each callback: the engine runs a callback after the checkpoint of the one
+  // before, a test may not
+  const running = spanLeft > 0
+  spanLeft = SPAN_MICROTASKS
+  if (!running) {
+    void span()
+  }
+}
+
+/** A promise resolved already: an await of it is one microtask, a hop of the chain */
+const HOP = Promise.resolve()
+
+async function span(): Promise<void> {
+  while (spanLeft > 0) {
+    spanLeft--
+    await HOP
+  }
+  spanning = false
+  delivering = false
 }
 
 /** The depth of `element` in the delivery, found once in it */
@@ -210,9 +239,9 @@ function depthIn(open: NonNullable<typeof delivery>, element: Element): number {
 /**
  * The page changed (`records`, watched from a report to the end of its delivery), every observed element no deeper than
  * the elements of the latest report that the change may have resized leaves its observers: in a callback of an observer
- * or the microtasks right after it, any (the layout is the page's); later, the elements the change is in (a change of the
- * update three promises after a callback; a render of React in a task after the update, whose new rows let go only the
- * elements above them, never the cells of every row)
+ * or the chain of microtasks it left (`SPAN_MICROTASKS`), any (the layout is the page's: a sibling that grows shrinks the
+ * view); later, in a task before the delivery ends (a render of React), the elements the change is in, so its new rows
+ * let go only the elements above them, never the cells of every row
  */
 function settle(records: readonly MutationRecord[]): void {
   const open = delivery

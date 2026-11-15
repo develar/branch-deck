@@ -182,13 +182,14 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   same patch sets it in the next frame (an issue for upstream is drafted). Every observer of ours is made by
   `observeSize` (src/lib/observe-size.ts, `pnpm lint:arch` `resize-observer`). The update delivers by depth: after a
   report only what is deeper than the elements it reported. The page is watched from a report of an observer (ours or a
-  library's) to the end of its delivery, the next task or the next frame. A change in a callback or in the microtasks
-  right after it can resize any element, as the layout is the page's (a block above a view that grows shrinks the view,
-  a view hidden around a table empties its cells), so every element of ours no deeper than the elements of the latest
-  report leaves its observers and is observed anew as the delivery ends (its size a frame later, as the loop would give
-  it); a change later in the delivery (a flushSync of floating-ui three promises after the callback of Base UI, a
-  render of React in a task) lets go the elements it is in, so the new rows of a sync let go none of the cells of the
-  others. A deeper one stays, the update delivers it in that frame; one let go comes back at once when a report of
+  library's) to the end of its delivery, the next task or the next frame. A change in a callback or in the chain of
+  microtasks after it (`SPAN_MICROTASKS`, 256: the flushSync that places a popup of floating-ui comes 42 to 87
+  microtasks after the callback of its observer) can resize any element, as the layout is the page's (a block above a
+  view that grows shrinks the view, a sibling that grows shrinks it in a flex row, a view hidden around a table empties
+  its cells), so every element of ours no deeper than the elements of the latest report leaves its observers and is
+  observed anew as the delivery ends (its size a frame later, as the loop would give it); a change past the chain (a
+  render of React in a task, a microtask of the update later still) lets go the elements it is in, so the new rows of a
+  sync let go none of the cells of the others. A deeper one stays, the update delivers it in that frame; one let go comes back at once when a report of
   shallower elements shows it deeper. An element first observed in the delivery, no deeper than the report (a block a
   flushSync mounted, observed by its ref; a table mounted again), is observed only as it ends. A change after the
   delivery lets nothing go.
