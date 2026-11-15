@@ -108,6 +108,23 @@ async function setUpHeldTests(setupRepo: (template: string) => Promise<TestRepos
 }
 
 /**
+ * The review window of `layout`, its review read and shown (every file with its diff) while the view of its session,
+ * which tells it the review plan and the heads of the last sync, is held (`view` releases it)
+ */
+async function openShownWithoutItsView(page: Page): Promise<{ window: Page; view: Awaited<ReturnType<typeof holdCommandCalls>>; code: Locator }> {
+  let view!: Awaited<ReturnType<typeof holdCommandCalls>>
+  const window = await openLinkedSubWindow(page, await openReviewWindow(page, "layout"), {
+    beforeLoad: async window => {
+      view = await holdCommandCalls(window, "subscribe_view")
+    },
+  })
+  const code = window.getByTestId("diff-view")
+  await expect(code).toContainText("The window keeps its stored layout across a restart")
+  await expect(code).toContainText("restart-keeps-layout")
+  return { window, view, code }
+}
+
+/**
  * The index of the repository, as accio answers `tests --at … --tests <file>…` the code of the steps of `layout` at its
  * tip with the test files of the branch given, and with `references` the usages of the places they name
  */
@@ -357,16 +374,7 @@ test.describe("Review tour", () => {
     syncAndWaitForBranches,
   }) => {
     const repo = await setUpHeldTests(setupRepo, syncAndWaitForBranches)
-    let view!: Awaited<ReturnType<typeof holdCommandCalls>>
-    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "layout"), {
-      beforeLoad: async window => {
-        view = await holdCommandCalls(window, "subscribe_view")
-      },
-    })
-    // the review read and shown, every file with its diff, while the view of the session is held: no plan, no Mark Reviewed
-    const code = window.getByTestId("diff-view")
-    await expect(code).toContainText("The window keeps its stored layout across a restart")
-    await expect(code).toContainText("restart-keeps-layout")
+    const { window, view } = await openShownWithoutItsView(page)
     await expect(window.getByRole("button", { name: "Mark Reviewed" })).toHaveCount(0)
     view.release()
     await repo.arrival("stepTests")
@@ -377,6 +385,43 @@ test.describe("Review tour", () => {
     await repo.holdRemoteAnswers({ release: ["stepTests"] })
     await expect(overview.getByTestId("review-contents-step").nth(1).getByTestId("review-contents-step-facts")).toHaveText("Tested by ManagerTest.kt · New API: allowed")
     await expect(overview.getByTestId("review-overview-reading")).toHaveCount(0)
+  })
+
+  // the late view of the session can bring a head a sync moved as well: a next review, for which the window keeps the
+  // one on screen until its files, its diffs and its plan are read (with the switch alone it showed the unread head)
+  test("should keep the review on screen while the head the late view of its session moved is read, the review plan switched on with it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setUpHeldTests(setupRepo, syncAndWaitForBranches)
+    const { window, view, code } = await openShownWithoutItsView(page)
+    // a commit on top of layout, synced by the main window while the view of the window is held
+    await repo.commit(
+      "(layout) the frame paints twice\n\nThe frame paints a second time.",
+      { "src/a/Frame.kt": "package a\n\nclass Frame(val manager: Manager) {\n  fun show(): Int = 0\n\n  fun paint(): Int = 3\n}\n" },
+      1704121200,
+    )
+    await syncAndWaitForBranches()
+    const files = await holdCommandCalls(window, "get_range_files")
+    const diffs = await holdCommandCalls(window, "get_file_diffs")
+    view.release()
+    await expect.poll(() => files.calls.length + diffs.calls.length).toBeGreaterThan(0)
+    // the review as it was stays, busy, while the new head is read: the frame paints once, five commits
+    const body = window.getByTestId("branch-review-body")
+    const commits = window.getByRole("listbox", { name: "Commits" })
+    await expect(body).toHaveAttribute("aria-busy", "true")
+    await expect(code).toContainText("fun paint(): Int = 1")
+    await expect(commits).toContainText("All Changes5 commits")
+    // its files and diffs read, its plan still waits for the tests of its steps: the review as it was still stays
+    files.release()
+    diffs.release()
+    await expect(body).toHaveAttribute("aria-busy", "true")
+    await expect(commits).toContainText("All Changes5 commits")
+    // the plan whole: the new head shows in one change
+    await repo.holdRemoteAnswers({ release: ["stepTests"] })
+    await expect(commits).toContainText("All Changes6 commits")
+    await expect(body).not.toHaveAttribute("aria-busy", "true")
   })
 
   // the ways through the steps apart from what the overview and the openings show: one test of both took 30 s under load

@@ -272,8 +272,8 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   }
   // a switch of the review plan is no next review: the plan of the review on screen shows as it is read, the uses left
   // outside while the tests are asked. The session of a window tells it with its view, which can come after the window
-  // read and showed the review without it
-  const holding = !ready && view !== null && lastReady !== null && lastReady.choice === choice && lastReady.experimental === experimental
+  // read and showed the review without it, and with a head a sync moved meanwhile: that is a next review all the same
+  const holding = !ready && view !== null && lastReady !== null && lastReady.choice === choice && (lastReady.experimental === experimental || lastReady.view !== view)
   const shownView = holding ? lastReady.view : view
   const shownPlan = holding ? lastReady.plan : plan
   const shownCommitPlan = holding ? lastReady.commitPlan : commitPlan
