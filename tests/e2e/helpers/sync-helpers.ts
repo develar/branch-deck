@@ -289,6 +289,15 @@ async function focusWindowAnswer(page: Page): Promise<unknown> {
 }
 
 /** Waits until the page holds the view of its session at `version` or past it (`data-view-version` of Sync) */
+/**
+ * The first view of the session of the page's repository (`data-view-version` of Sync), however long the open of the
+ * session takes: the first wave of a loaded run (14 cold workers, a load of 60 to 100) got it 5 to 15 s after its
+ * subscription, past the 5 s of a look at what it shows (the base-test diagnostics time it)
+ */
+export async function waitForSessionView(page: Page): Promise<void> {
+  await expect(page.getByTestId("sync-button")).toHaveAttribute("data-view-version", /\d+:\d+/, { timeout: 0 })
+}
+
 export async function waitForViewVersion(page: Page, version: { epoch: number; seq: number }): Promise<void> {
   const syncButton = page.locator('[data-testid="sync-button"]')
   await expect

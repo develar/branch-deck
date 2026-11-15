@@ -135,7 +135,12 @@ rules in one line each and links here.
   a loop that left an element of an observer of ours pending, and a cycle of ours are error lines
   (docs/contributing/frontend.md, "A flushSync in the delivery of a ResizeObserver"). The page a
   test moves to another window's page (`openSubWindowPage`) tells it leaves, and only a request of it that fails then
-  (WebKit's "Load failed" and "Fetch API cannot load … due to access control checks") counts no error.
+  (WebKit's "Load failed" and "Fetch API cannot load … due to access control checks") counts no error. A network
+  failure that counts fails the test with the network of its pages (`networkDiagnostics` of base-test, also attached
+  as "network failures"): each failure and each failed request with its method and URL, when in the test, its page,
+  whether that page was closed and had left then, when each page closed, and how long the first view of each session
+  took from its subscription; a WebKit "access control checks" of a page that did not leave came once in a loaded run
+  (quiet-changes.spec.ts, 2026-11-15), and these lines say whose request it is the next time.
   A ResizeObserver loop is found by `E2E_RO_TRACE=1` (`tests/e2e/setup/resize-observers.ts`: the deliveries, the end of
   each callback, the texts that changed in observed elements, what was left pending; an element our observers let go
   shows there too, unobserved), under load with `E2E_CPU_THROTTLE=6` (Chromium; alone it runs the page's own weighing

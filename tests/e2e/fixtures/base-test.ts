@@ -1,4 +1,4 @@
-import type { BrowserContext, Locator, Page } from "@playwright/test"
+import type { BrowserContext, Locator, Page, Request } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
 import { resizeObservers } from "../setup/resize-observers"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
@@ -147,6 +147,47 @@ const LOG_ERROR_MARK = "[e2e-log-error] "
 const LEAVING_LOG_ERROR_MARK = "[e2e-log-error-leaving] "
 /** What WebKit says of a request that failed as its page left, its whole message: no error of the app */
 const NETWORK_FAILURE = /(?:^|: )(?:TypeError: )?Load failed$|Fetch API cannot load \S+ due to access control checks\.?$/
+/** A failure of the network in the words of WebKit or Chromium, wherever in the message: what `networkDiagnostics` says */
+const ANY_NETWORK_FAILURE = /Load failed|due to access control checks|Failed to fetch|net::ERR_/
+
+/** What the mock writes as the answer of a subscription of a session came, its first view (tests/e2e/setup/tauri-mocks.ts) */
+const SESSION_VIEW_MARK = "[e2e-session-view]"
+
+/** A failure of the network a page had: a request that failed, or an error of it that base-test counts */
+interface NetworkFailure {
+  /** `request`: a request that failed; `counted`: an uncaught error or a `console.error` of a network failure that counts */
+  readonly kind: "request" | "counted"
+  readonly what: string
+  /** The URL of its page then; none for a request of no page (a service worker, a frame that is gone) */
+  readonly page: string | null
+  /** Whether its page was closed then, and had left for the page of another window (`openSubWindowPage`) */
+  readonly closed: boolean
+  readonly leaving: boolean
+  /** When, in ms since the page fixture began */
+  readonly at: number
+}
+
+/**
+ * The lines that say what a test needs of the network failures it counted (WebKit's "Load failed" and "… due to access
+ * control checks", Chromium's "Failed to fetch", of a page that did not leave): of each, when in the test, its page (or
+ * none), whether that page was closed and had left then, and every request that failed with its method and URL; then
+ * when each page closed (the teardown closes them before the repository goes, the end of the body of the test) and how
+ * long the first view of each session took from its subscription. Empty without such a failure
+ */
+function networkDiagnostics(failures: readonly NetworkFailure[], closed: readonly string[], views: readonly string[]): string[] {
+  if (!failures.some(failure => failure.kind === "counted")) {
+    return []
+  }
+  return [
+    "the network failures of its pages, in ms since the test began:",
+    ...failures.map(
+      failure =>
+        `  ${failure.at} ms: ${failure.kind === "request" ? "failed request" : "counted"} ${failure.what.split("\n", 1)[0]} of ${failure.page ?? "no page"}, closed ${failure.closed}, leaving ${failure.leaving}`,
+    ),
+    ...closed.map(line => `  ${line}`),
+    ...views.map(view => `  ${view}`),
+  ]
+}
 
 /** An error a test declares (`expectErrorLog`), and whether it must come (`allowErrorLog`: it may) */
 interface DeclaredError {
@@ -218,6 +259,15 @@ function undeclaredErrors(
   ]
 }
 
+/** The page a request is of; none for a request of a service worker, or of a frame that is gone */
+function pageOfRequest(request: Request): Page | null {
+  try {
+    return request.frame().page()
+  } catch {
+    return null
+  }
+}
+
 /**
  * Custom test fixture that automatically sets up Tauri mocks
  */
@@ -236,8 +286,51 @@ export const test = base.extend({
     // as it left is no error of the app, whenever WebKit tells it (it told some after the next document loaded); only
     // its two messages of a network failure, nothing else of the page
     const leavingPages = new Set<Page>()
+    // the network failures of the pages and when each subscription of a session asked and got its first view, said
+    // with a test that fails on a network failure (`networkDiagnostics`)
+    const networkFailures: NetworkFailure[] = []
+    const subscribed = new Map<Page, number>()
+    const sessionViews: string[] = []
+    const pagesClosed: string[] = []
+    const began = Date.now()
+    const failureOf = (kind: NetworkFailure["kind"], what: string, from: Page | null): NetworkFailure => ({
+      kind,
+      what,
+      page: from?.url() ?? null,
+      closed: from?.isClosed() ?? false,
+      leaving: from !== null && leavingPages.has(from),
+      at: Date.now() - began,
+    })
+    const countNetworkFailure = (what: string, from: Page | null) => {
+      if (ANY_NETWORK_FAILURE.test(what)) {
+        networkFailures.push(failureOf("counted", what, from))
+      }
+    }
+    const watchClose = (opened: Page) => opened.on("close", () => pagesClosed.push(`${opened.url()} closed at ${Date.now() - began} ms`))
+    watchClose(page)
+    context.on("page", watchClose)
+    context.on("request", request => {
+      if (request.url().endsWith("/invoke/subscribe_view")) {
+        const from = pageOfRequest(request)
+        if (from !== null) {
+          subscribed.set(from, Date.now())
+        }
+      }
+    })
+    context.on("requestfailed", request => {
+      networkFailures.push(failureOf("request", `${request.method()} ${request.url()}: ${request.failure()?.errorText ?? "failed"}`, pageOfRequest(request)))
+    })
     context.on("console", message => {
-      if (message.type() === "info" && message.text() === "[e2e-leaving]") {
+      if (message.type() === "info" && message.text() === SESSION_VIEW_MARK) {
+        const from = message.page()
+        const asked = from === null ? undefined : subscribed.get(from)
+        sessionViews.push(
+          `the first view of a session of ${from?.url() ?? "no page"} at ${Date.now() - began} ms: ${asked === undefined ? "unknown" : `${Date.now() - asked} ms`} after its subscription`,
+        )
+        if (process.env.DEBUG_E2E) {
+          console.log("[Browser]", sessionViews.at(-1))
+        }
+      } else if (message.type() === "info" && message.text() === "[e2e-leaving]") {
         const from = message.page()
         if (from !== null) {
           leavingPages.add(from)
@@ -256,6 +349,7 @@ export const test = base.extend({
       const from = message.page()
       if (message.type() === "error" && !(from !== null && leavingPages.has(from) && NETWORK_FAILURE.test(message.text()))) {
         consoleErrors.push(message.text())
+        countNetworkFailure(message.text(), from)
       }
     })
     context.on("weberror", error => {
@@ -266,6 +360,7 @@ export const test = base.extend({
       const leftBehind = from !== null && leavingPages.has(from) && NETWORK_FAILURE.test(error.error().message)
       if (!loop && !leftBehind) {
         uncaught.push(error.error())
+        countNetworkFailure(error.error().message, from)
       }
       pageErrors.push(`Uncaught: ${error.error().stack ?? error.error().message}`)
     })
@@ -323,8 +418,12 @@ export const test = base.extend({
     }
     // a failed test fails on its own error; its log is attached above
     const undeclared = undeclaredErrors(logged, leaving, uncaught, consoleErrors, declaredErrors.get(context) ?? [])
+    const diagnostics = networkDiagnostics(networkFailures, pagesClosed, sessionViews)
+    if (diagnostics.length > 0) {
+      await testInfo.attach("network failures", { body: diagnostics.join("\n"), contentType: "text/plain" })
+    }
     if (testInfo.status === testInfo.expectedStatus && undeclared.length > 0) {
-      throw new Error(`The pages of the test logged otherwise than it declares (expectErrorLog):\n${undeclared.join("\n")}`)
+      throw new Error(`The pages of the test logged otherwise than it declares (expectErrorLog):\n${[...undeclared, ...diagnostics].join("\n")}`)
     }
   },
 })

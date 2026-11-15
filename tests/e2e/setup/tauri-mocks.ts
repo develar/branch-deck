@@ -236,6 +236,10 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
       return { contentType: response.headers.get("content-type"), body: await readAnswer(response) }
     })
 
+    // the first view of a session is the answer of its subscription: base-test times it from the request
+    if (cmd === "subscribe_view") {
+      console.info("[e2e-session-view]")
+    }
     // raw bytes, as the app answers `get_blob_syntax` (`tauri::ipc::Response`): an ArrayBuffer
     if (contentType?.includes("application/octet-stream")) {
       return body

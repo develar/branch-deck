@@ -5,6 +5,7 @@ import type { Page } from "@playwright/test"
  */
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { waitForSessionView } from "../helpers/sync-helpers"
 
 /**
  * Helper function to test browse repository functionality
@@ -40,6 +41,8 @@ async function testBrowseRepository(
   if (expectedValid) {
     // For valid repository, wait for sync button to be enabled
     await expect(page.locator('[data-testid="sync-button"]')).toBeEnabled()
+    // the card and its line about coding agents come with the first view of the session of the repository
+    await waitForSessionView(page)
 
     // The template configures a branch prefix: once it is loaded, the welcome card is gone
     await expect(page.getByTestId("welcome-card")).toHaveCount(0)
