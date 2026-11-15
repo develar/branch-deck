@@ -131,7 +131,9 @@ impl WatchedDir {
 }
 
 /// The non-recursive watch of `dir` (made when missing), which gives each event to `handler`; an error when the system
-/// refused one, which the looks of the waiter every `RECHECK` stand in for
+/// refused one, which the looks of the waiter every `RECHECK` stand in for. For a waiter that reads what it watches at
+/// each look (`TableWake` reads its table): one that compares the stat of files has its `Fingerprints` only from
+/// `watch_from`, which takes them before it starts the watcher
 ///
 /// # Errors
 /// The directory cannot be made, or the system refused the watch
@@ -212,9 +214,10 @@ pub struct Fingerprints {
 }
 
 impl Fingerprints {
-  /// The first look at `paths` (at most `MAX_FILES`)
+  /// The first look at `paths` (at most `MAX_FILES`). Not public: a waiter has its first look from `watch_from`, before
+  /// its watcher, so none takes one after it and takes a change the stream dropped as where it starts
   #[must_use]
-  pub fn new(paths: Vec<PathBuf>) -> Self {
+  pub(crate) fn new(paths: Vec<PathBuf>) -> Self {
     debug_assert!(paths.len() <= MAX_FILES, "{} paths", paths.len());
     let last = paths.iter().map(|path| fingerprint(path)).collect();
     Self { paths, last }

@@ -222,7 +222,8 @@ watches):
    event, an event of any name of the directory the waiter does not know, and an error of the watcher wake for every
    file the waiter looks at (`WatchedDir::wake_of`, `Wake::Any`); an event below the directory wakes none.
 2. **Every wait on a watch has a bounded look of its own.** The waiter takes its first look before the watcher starts
-   (`dir_watch::watch_from`, whose test holds the order):
+   (`dir_watch::watch_from`, whose test holds the order, and the only source of `Fingerprints`, so no waiter can take a
+   first look after its watcher):
    `FSEvents` registers a stream after `FSEventStreamStart` returned and from "now", so it drops a change of the first
    moments without telling it (a write 25 ms after the start, 3 of 40 rounds on notify 8.2.1), which the next look then
    finds. It looks again at least every `dir_watch::RECHECK` (2 s) without an event, and at once at a focus of a
