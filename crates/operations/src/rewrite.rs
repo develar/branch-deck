@@ -44,6 +44,7 @@ use domain_types::branch_names::{BranchKind, qualified_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationResult, OperationStep, Outcome, Plan, Resource};
+use domain_types::reason::Reason;
 use domain_types::review_request::FetchReviewHeadParams;
 use domain_types::rewrite::{AppliedConflictFix, MoveCommitsResult, NeedResult, RewriteIntent, RewriteResult, TableWitness, UndoKind, UndoToken};
 use domain_types::session::{StoreTips, SyncReason, SyncState, SyncStep, Version};
@@ -63,6 +64,8 @@ use history_rewrite::reword::{RewordRequest, reword_request_core};
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use object_cache::cache::ObjectCache;
+use repository_model::derive::park_held;
+use repository_model::facts::FactStore;
 use repository_model::session::{SessionKey, Sessions, SyncTicket};
 use repository_model::table::{RewriteLink, TableState};
 use std::collections::{BTreeSet, HashMap};
@@ -73,6 +76,7 @@ use sync_core::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitt
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core, delete_unapplied_branch_core};
 use sync_core::lease_state::LeaseGuard;
 use sync_core::parked::park_result;
+use sync_core::patronus_start::push_mode_name;
 use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use sync_core::unapply_branch::{UnapplyBranchParams, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
 use sync_utils::span::in_current_span;
@@ -116,8 +120,43 @@ struct RewritePlan {
 
 /// The plan of `rewrite` over the table of the session of `key` (`engine::prepare`): its core rewrites what it names,
 /// then the sync shows it (none after a delete, which leaves the table at once); `None` for a session that is not open
-pub async fn prepare_rewrite(sessions: &Sessions, key: &SessionKey, rewrite: RewriteIntent) -> Option<Plan> {
-  sessions.read(key, move |state, _| rewrite_plan(state, &rewrite).plan).await
+///
+/// # Errors
+/// The refusal of a park of a branch a robot holds (`park_refusal`)
+pub async fn prepare_rewrite(sessions: &Sessions, key: &SessionKey, rewrite: RewriteIntent) -> Result<Option<Plan>, ApiError> {
+  let read = sessions
+    .read(key, move |state, facts| {
+      park_refusal(state, facts, &rewrite).map_or_else(|| Ok(rewrite_plan(state, &rewrite).plan), Err)
+    })
+    .await;
+  read.transpose()
+}
+
+/// What refuses a park of `rewrite` as the menus refuse it (`ActionBlocker::ParkHeld`): a branch it parks that a robot
+/// holds now (`repository_model::derive::park_held`), which lands it whatever a park says; nothing was written then
+#[must_use]
+pub fn park_refusal(state: &TableState, facts: &FactStore, rewrite: &RewriteIntent) -> Option<ApiError> {
+  let RewriteIntent::Park { branches, .. } = rewrite else {
+    return None;
+  };
+  branches.iter().find_map(|line| {
+    let Reason::Held { hold, mode, .. } = park_held(state, facts, &line.branch_name)? else {
+      return None;
+    };
+    let url = facts
+      .robots
+      .view()
+      .robots
+      .get(&hold.by.robot_id)
+      .map_or_else(String::new, |robot| format!(" ({})", robot.url));
+    let words = format!(
+      "A {} of {} is running{url}: it lands {} whatever a park says",
+      push_mode_name(mode),
+      hold.by.subject().words(),
+      line.branch_name
+    );
+    Some(ApiError::new(ErrorCode::RobotRunning, format!("Nothing was parked: {words}")))
+  })
 }
 
 /// `prepare_rewrite` on the table state `state`
@@ -243,6 +282,11 @@ pub async fn execute_rewrite(registry: &Registry, key: &SessionKey, rewrite: Rew
   let planned = sessions.read(key, move |state, _| rewrite_plan(state, &intent)).await;
   let asked = Mutex::new(None);
   let mut answer = run(registry, key, request, events, async |guard| {
+    // a park of a branch a robot holds, as the session has it once admitted: nothing parked
+    let check = rewrite.clone();
+    if let Some(refusal) = sessions.read(key, move |state, facts| park_refusal(state, facts, &check)).await.flatten() {
+      return Err(refusal);
+    }
     // no session was open: what the intent itself names
     let planned = planned.unwrap_or_else(|| rewrite_plan(&TableState::new(), &rewrite));
     let (resolved, expect_head, ran) = resolve_and_run(sessions, key, hosts, guard, &rewrite, &planned).await?;

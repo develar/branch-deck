@@ -102,7 +102,8 @@ fn words(value: &impl serde::Serialize) -> String {
 ///
 /// # Errors
 /// `invalid_arguments` for an invalid review; the refusal of the Safe Push of a review the session offers not
-/// (`review::safe_push_refusal`), of a restart it offers not (`robot::restart_refusal_of`)
+/// (`review::safe_push_refusal`), of a restart it offers not (`robot::restart_refusal_of`), of a park of a branch a robot
+/// holds (`rewrite::park_refusal`)
 pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> Result<Option<Plan>, ApiError> {
   match intent {
     Intent::Land(start) => Ok(land::prepare(sessions, key, start).await),
@@ -119,7 +120,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::SetIssueState { .. } => issue::issue_plan(&intent).map(Some),
     Intent::Push(push) => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),
     Intent::ForgetStart { .. } => forget::forget_plan(&intent).map(Some),
-    Intent::Rewrite(rewrite) => Ok(prepare_rewrite(sessions, key, *rewrite).await),
+    Intent::Rewrite(rewrite) => prepare_rewrite(sessions, key, *rewrite).await,
     intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded { .. }) => Ok(update::prepare_update(sessions, key, intent).await),
     intent @ (Intent::FetchReview { .. } | Intent::FetchReviewStack { .. }) => Ok(review_fetch::prepare_review_fetch(sessions, key, intent).await),
     // only `bd` runs it: no plan the app could run

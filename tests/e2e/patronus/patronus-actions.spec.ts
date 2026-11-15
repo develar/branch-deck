@@ -674,6 +674,41 @@ test.describe("Patronus actions", () => {
     await expectClosed(page.getByRole("menu"))
   })
 
+  test("should refuse in the backend a park of a branch a running Safe Push holds, which lands it whatever a park says", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupStarts(page, setupRepo, syncAndWaitForBranches, RUNNING)
+    // the menu says why: the robot lands the branch whatever a park says
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    const park = page.getByRole("menuitem", { name: "Park Branch…" })
+    await expect(park).toHaveAttribute("aria-disabled", "true")
+    await park.hover()
+    await expect(openTooltip(page).filter({ hasText: "park" })).toHaveText(
+      "A Safe Push of JIRA-456 is running: wait until it merges, or restart it on the current branch: it lands whatever a park says",
+    )
+    await page.keyboard.press("Escape")
+    await expectClosed(page.getByRole("menu"))
+
+    // a window of a state before, or another client, parks it anyway: the backend refuses it as the menu does
+    const view = (await repo.sessionView())!
+    const intent = {
+      kind: "rewrite",
+      rewrite: "park",
+      branches: [{ branchName: "JIRA-456", note: "" }],
+      witness: { head: view.header.head, storeTips: view.header.storeTips, epoch: view.version.epoch },
+    }
+    const refused = {
+      status: "error",
+      error: expect.objectContaining({
+        code: "robot_running",
+        message: expect.stringMatching(/^Nothing was parked: A Safe Push of JIRA-456 is running \(\S+\/running-robot\): it lands JIRA-456 whatever a park says$/),
+      }),
+    }
+    expect(await repo.invoke("prepare", { repositoryPath: repo.path, intent })).toEqual(refused)
+    expect(await repo.invoke("execute", { repositoryPath: repo.path, intent, fingerprint: "" })).toEqual(refused)
+    // nothing was parked: the row stays in the table
+    await expect(findBranchRow(page, "JIRA-456")).toBeVisible()
+    expect((await repo.sessionView())!.header.storeTips.parked).toBe(view.header.storeTips.parked)
+  })
+
   // app bug: `requestSafePush` reveals the row (`requestReveal`), and the reveal expands it
   test("should start a Safe Push from the row button without toggling the row", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupStarts(page, setupRepo, syncAndWaitForBranches)
