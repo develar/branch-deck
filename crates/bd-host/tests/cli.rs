@@ -6,6 +6,7 @@
 #![expect(clippy::tests_outside_test_module, reason = "a Cargo integration test has no #[cfg(test)] module")]
 
 use host_agent::serve::{PROCESS_TEST_ENV, spawn_on_loopback};
+use host_agent::teardown::settle_runs;
 use host_link::allow::AllowList;
 use host_link::identity::Identity;
 use pretty_assertions::assert_eq;
@@ -27,6 +28,14 @@ const ALIAS: &str = "local";
 struct World {
   home: tempfile::TempDir,
   repo: TestRepo,
+}
+
+impl Drop for World {
+  /// Before the home and the repository go: the supervisor of a run gives its slot back after `exit.json`, in a session
+  /// of its own that the kill of `serve` does not end
+  fn drop(&mut self) {
+    settle_runs(self.home.path(), &[self.repo.path()]);
+  }
 }
 
 impl World {

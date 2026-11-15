@@ -115,6 +115,14 @@ machine.
   work (a sync of the app, its git) while the repository is there. A git whose directory goes away under it scans the
   parent for it on macOS before it fails, 7 to 22 s in a temporary directory of 122 000 entries: the teardown of
   `cross_process_test` took 25 to 66 s where it takes 1.
+- **A detached process goes before the directories it works in**: the supervisor of a run of the host agent runs in a
+  session of its own and gives the slot back after `exit.json`, so neither the end of a follow nor the kill of `serve`
+  ends it. In a run at load 30–45, 26 of the 50 tests with a `World` in `crates/host-agent/tests/serve.rs` and
+  `crates/bd-host/tests/cli.rs` ended while a supervisor still gave back, and a run left going looped on in the slot of
+  the removed home for its 60 s. Their `World` drops through `host_agent::teardown::settle_runs`: a cancel to each run
+  that goes on, then a wait until no process outside the test's session names the home in an argument or works in the
+  home or the repository; at 1 min it kills what is left and fails the test
+  (`the_end_of_a_test_leaves_no_process_of_its_runs`).
 - **Commit times are the fixture's**: commits that must fall into different seconds, or a rewrite that must have a
   later committer time, get their dates (`create_commit_with_timestamp`, `GIT_COMMITTER_DATE` of the rewrite's git)
   instead of a wait for the clock. Two commits of one author with one subject share a `CommitKey` only within one

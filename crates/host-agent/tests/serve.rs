@@ -31,6 +31,7 @@ mod follow;
 mod heavy;
 
 use host_agent::serve::spawn_on_loopback;
+use host_agent::teardown::settle_runs;
 use host_link::allow::AllowList;
 use host_link::channel::{Channel, ClientTls};
 use host_link::identity::{Fingerprint, Identity};
@@ -44,6 +45,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
+use sync_utils::process_scan::{self, process_started};
 use test_utils::git_test_utils::{TestRepo, append_config, git_command};
 
 /// The agent binary of the process tests
@@ -139,6 +141,14 @@ impl World {
   /// The stderr of each `serve` of this world
   fn serve_log(&self) -> String {
     fs::read_to_string(self.home.path().join("serve.log")).unwrap_or_default()
+  }
+}
+
+impl Drop for World {
+  /// Before the home and the repository go: the supervisor of a run gives its slot back after `exit.json`, in a session
+  /// of its own that the kill of `serve` does not end
+  fn drop(&mut self) {
+    settle_runs(self.home.path(), &[self.repo.path()]);
   }
 }
 
@@ -576,4 +586,37 @@ fn a_cancel_in_the_queue_of_the_host_slots_ends_the_run_before_its_command() {
   // the give-back of the cancelled run takes its ticket out of the queue after its `exit.json`, in its supervisor, so
   // the end of the follow does not wait for it
   eventually("the cancel left the queue", || agent.slots()["queue"].as_array().map(Vec::len) == Some(0));
+}
+
+/// The end of a test waits for the supervisor of each run: one that ended still gives its slot back after `exit.json`,
+/// and one that goes on gets a cancel. Without the wait the command of the second run looped on for its 60 s in the
+/// slot of a removed home
+#[test]
+fn the_end_of_a_test_leaves_no_process_of_its_runs() {
+  let world = World::new(2, &[]);
+  let agent = world.serve();
+  // the pid and the start of a process; no start once it has exited
+  let start_of = |pid: &str| -> (u32, Option<u64>) {
+    let pid: u32 = pid.parse().expect("a pid");
+    (pid, process_started(pid))
+  };
+  agent.start(world.spec("6-1", "echo ended"));
+  let ended = start_of(&agent.supervisor_pid("6-1"));
+  assert_eq!(agent.follow("6-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("6-1"));
+  // the gate never opens: only the cancel of the end of the test stops the command before its 60 s
+  let gate = world.home.path().join("gate");
+  let command_pid = world.home.path().join("command.pid");
+  agent.start(world.spec("6-2", &format!("echo $$ > '{}'; echo ready; {}", command_pid.display(), wait_for(&gate))));
+  agent.follow_until("6-2", "ready");
+  let going = start_of(&agent.supervisor_pid("6-2"));
+  let command = start_of(fs::read_to_string(&command_pid).expect("the pid of the command").trim());
+  assert!(going.1.is_some() && command.1.is_some(), "the second run goes on: {going:?}, {command:?}");
+  drop(agent);
+  drop(world);
+  for (pid, started) in [ended, going, command] {
+    assert!(
+      started.is_none_or(|started| process_scan::exited(pid, started)),
+      "the process {pid} outlived the end of the test"
+    );
+  }
 }

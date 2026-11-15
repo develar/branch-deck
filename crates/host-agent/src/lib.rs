@@ -19,6 +19,7 @@
 //! - `awake`, `watch`, `tally`, `cleanup`, `tuning`: the power assertions, the watch of a follow, the log of a flood, the
 //!   hourly cleanup, and the durations that a test shortens
 //! - `sys`: the only unsafe calls of the system
+//! - `teardown`: the end of a process test of the agent and of brd-host, which waits for the supervisors of its runs
 
 #![cfg(unix)]
 
@@ -48,6 +49,7 @@ pub mod supervise;
 mod sys;
 pub mod table;
 mod tally;
+pub mod teardown;
 mod tuning;
 pub mod turn;
 pub mod upgrade;
