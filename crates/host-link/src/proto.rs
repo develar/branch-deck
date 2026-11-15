@@ -194,7 +194,8 @@ pub struct RunSpec {
   /// Directories relative to the slot root, such as `out/bt-runs`. Each entry that the command adds to one goes to the
   /// stage of the run, for `Request::Fetch`
   pub fetch: Vec<String>,
-  /// The niceness of the prepare steps and the command, 0 to 19. `None` keeps the niceness of the agent
+  /// The niceness of the prepare steps and the command, 0 to 19; one below the niceness of the agent keeps the agent's.
+  /// `None` keeps the niceness of the agent
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub nice: Option<u8>,
   /// Stage the outputs that `[host]` of the commit names, for `Request::Fetch`. The agent removes each output before the

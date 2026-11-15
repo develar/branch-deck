@@ -56,7 +56,8 @@ pub enum ChildPriority {
   Normal,
   /// Below the app: work done ahead of a need (the plans of the reviews after a rewrite), which yields the processors
   /// to everything else. Nice 19 on Unix, the below-normal priority class on Windows; either is inherited by the
-  /// processes the child starts
+  /// processes the child starts. An app below that already keeps its own priority for the child: a higher niceness, the
+  /// idle class
   Background,
 }
 
@@ -81,7 +82,12 @@ pub fn windowless_command_at(program: impl AsRef<OsStr>, priority: ChildPriority
   {
     use windows_sys::Win32::System::Threading::{BELOW_NORMAL_PRIORITY_CLASS, CREATE_NO_WINDOW};
     let window = if has_console() { 0 } else { CREATE_NO_WINDOW };
-    let class = if priority == ChildPriority::Background { BELOW_NORMAL_PRIORITY_CLASS } else { 0 };
+    // a child without a class of its own takes the idle class of an idle parent, which is below the below-normal one
+    let class = if priority == ChildPriority::Background && !runs_idle() {
+      BELOW_NORMAL_PRIORITY_CLASS
+    } else {
+      0
+    };
     let flags = window | class;
     if flags != 0 {
       std::os::windows::process::CommandExt::creation_flags(&mut command, flags);
@@ -94,23 +100,50 @@ pub fn windowless_command_at(program: impl AsRef<OsStr>, priority: ChildPriority
   command
 }
 
-/// Gives the child of `command` the niceness `nice` (setpriority(2) between fork and exec): a process may raise its own
-/// niceness, never lower it
+/// The niceness of this process, which a child it starts inherits. getpriority(2) of the calling process cannot fail, so
+/// its -1 is a niceness, not an error
+#[cfg(unix)]
+#[expect(unsafe_code, reason = "getpriority(2), which std does not offer")]
+pub fn own_niceness() -> libc::c_int {
+  // SAFETY: getpriority takes plain integers and is async-signal-safe.
+  unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) }
+}
+
+/// The niceness that a child of this process gets for `nice` (`set_niceness`): `nice`, or the niceness of this process
+/// when that is higher
+#[cfg(unix)]
+pub fn child_niceness(nice: u8) -> libc::c_int {
+  own_niceness().max(libc::c_int::from(nice))
+}
+
+/// Gives the child of `command` the niceness `nice` (setpriority(2) between fork and exec), or keeps the higher one it
+/// inherits: a process without privilege may not lower its niceness, and a child is never more urgent than its parent,
+/// so a niceness never fails the start of a child (`child_niceness` names the one it gets)
 #[cfg(unix)]
 #[expect(unsafe_code, reason = "pre_exec runs a closure in the child between fork and exec, which std cannot check")]
 pub fn set_niceness(command: &mut Command, nice: u8) {
   let nice = libc::c_int::from(nice);
-  let lower = move || {
-    // SAFETY: setpriority takes plain integers and is async-signal-safe.
-    if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) } == -1 {
-      return Err(std::io::Error::last_os_error());
+  let raise = move || {
+    if own_niceness() < nice {
+      // SAFETY: setpriority takes plain integers and is async-signal-safe. A process may always raise its own
+      // niceness; a refusal would keep the one it inherited, never fail the start
+      let _ = unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) };
     }
     Ok(())
   };
-  // SAFETY: the closure runs in the child between fork and exec, and calls only setpriority.
+  // SAFETY: the closure runs in the child between fork and exec, and calls only getpriority and setpriority.
   unsafe {
-    std::os::unix::process::CommandExt::pre_exec(command, lower);
+    std::os::unix::process::CommandExt::pre_exec(command, raise);
   }
+}
+
+/// Whether this process runs in the idle priority class, below the below-normal one
+#[cfg(windows)]
+#[expect(unsafe_code, reason = "Win32: the priority class of this process")]
+fn runs_idle() -> bool {
+  use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetPriorityClass, IDLE_PRIORITY_CLASS};
+  // SAFETY: the pseudo handle of this process needs no closing and is valid for the call
+  unsafe { GetPriorityClass(GetCurrentProcess()) == IDLE_PRIORITY_CLASS }
 }
 
 /// Whether this process has a console, asked once: a console program has one from its start, a GUI program never gets one

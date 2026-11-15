@@ -96,7 +96,7 @@ pub struct RunOptions {
   /// Run the working tree: HEAD plus the tracked and untracked changes that git does not ignore, as one commit.
   /// Without it, a checkout with local changes is refused
   pub working_tree: bool,
-  /// The niceness of the prepare steps and the command on the host, 0 to 19
+  /// The niceness of the prepare steps and the command on the host, 0 to 19, or the agent's when that is higher
   pub nice: Option<u8>,
   /// Bring back the outputs that `[host]` of the commit names
   pub outputs: bool,

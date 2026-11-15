@@ -25,9 +25,9 @@
 //!    inputs changed since its last success in this slot (`prepare`). For a client that asks for them, remove the
 //!    outputs of the config, and take the tree of the slot before the command (`repo::Repository::snapshot`).
 //! 5. Run the command in the slot root, in its own process group, with stdin `/dev/null`, the environment of step 4 and
-//!    the niceness of the spec. The bytes of its stdout and its stderr go to `events.log` as they are, in pieces of
-//!    at most a line (`read_pieces`). When the command exits, the other processes of its group get SIGTERM, and
-//!    SIGKILL 5 s later.
+//!    the niceness of the spec, or the agent's own when that is higher: a process may not lower its niceness. The
+//!    bytes of its stdout and its stderr go to `events.log` as they are, in pieces of at most a line (`read_pieces`).
+//!    When the command exits, the other processes of its group get SIGTERM, and SIGKILL 5 s later.
 //! 6. Stage: the patch of the changes of the command, the outputs, and the new entries of each `fetch` directory, into
 //!    the run directory: nothing reads the slot after the run.
 //!
@@ -73,7 +73,7 @@ use std::process::{Child, ExitStatus, Stdio};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
-use sync_utils::child_process::{set_niceness, windowless_command};
+use sync_utils::child_process::{child_niceness, own_niceness, set_niceness, windowless_command};
 use sync_utils::fs_retry;
 use sync_utils::span::in_current_span;
 
@@ -265,6 +265,7 @@ impl Context<'_> {
 /// How the command of a run starts, from the prepare step
 struct Launch {
   env: BTreeMap<OsString, OsString>,
+  /// The niceness of the spec; the commands get the agent's own when that is higher (`child_niceness`)
   nice: Option<u8>,
   /// The outputs of `[host]`, when the client asked for them
   outputs: Vec<String>,
@@ -527,7 +528,7 @@ fn prepare_slot(context: &Context<'_>, slot: &Path, stop: &dyn Fn() -> bool, hel
   Ok(Some(Launch { before, ..launch }))
 }
 
-/// The first line of the command: where and how it runs, and the load of the host
+/// The first line of the command: where and how it runs, with the niceness it gets, and the load of the host
 fn start_line(slot: &Path, launch: &Launch) -> String {
   let load = run_env::load().map_or_else(|| "?".to_owned(), |load| format!("{load:.1}"));
   let cores = thread::available_parallelism().map_or(0, std::num::NonZero::get);
@@ -540,7 +541,7 @@ fn start_line(slot: &Path, launch: &Launch) -> String {
     "running in {} (slot {}): load {load} on {cores} cores, nice {}, {files} open files, {}, {login}",
     slot.display(),
     run_env::slot_number(slot),
-    launch.nice.unwrap_or(0),
+    launch.nice.map_or_else(own_niceness, child_niceness),
     launch.git
   )
 }

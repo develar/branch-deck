@@ -169,7 +169,7 @@ struct RunArgs {
   /// A heavy run, whatever `heavy` of `[host]` says: it waits until no other heavy run of the host goes
   #[arg(long)]
   heavy: bool,
-  /// The niceness of the prepare steps and the command on the host, 0 to 19
+  /// The niceness of the prepare steps and the command on the host, 0 to 19, or the agent's when that is higher
   #[arg(long, default_value_t = DEFAULT_NICE, value_parser = clap::value_parser!(u8).range(0..=19))]
   nice: u8,
   /// The main repository on the host (default: the one of the same name as this one beside the repository of the

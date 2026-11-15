@@ -243,12 +243,19 @@ type Priority = libc::c_int;
 #[cfg(windows)]
 type Priority = u32;
 
-/// The priority of a background child: nice 19
+/// The priority of a background child of a parent at `parent`: nice 19, or the parent's when that is higher
 #[cfg(unix)]
-const BACKGROUND: Priority = 19;
-/// The priority of a background child: the below-normal class
+fn background_under(parent: Priority) -> Priority {
+  parent.max(19)
+}
+
+/// The priority of a background child of a parent of the class `parent`: the below-normal class, or the idle class of
+/// an idle parent
 #[cfg(windows)]
-const BACKGROUND: Priority = windows_sys::Win32::System::Threading::BELOW_NORMAL_PRIORITY_CLASS;
+fn background_under(parent: Priority) -> Priority {
+  use windows_sys::Win32::System::Threading::{BELOW_NORMAL_PRIORITY_CLASS, IDLE_PRIORITY_CLASS};
+  if parent == IDLE_PRIORITY_CLASS { parent } else { BELOW_NORMAL_PRIORITY_CLASS }
+}
 
 /// The niceness of `child`, alive
 #[cfg(unix)]
@@ -268,21 +275,72 @@ fn priority_of(child: &Child) -> Priority {
 }
 
 /// A child of work done ahead of a need runs below the app (nice 19, the below-normal class on Windows); a child the
-/// user waits for keeps the priority a child of the app gets by default, whatever the priority the tests run at
+/// user waits for keeps the priority a child of the app gets by default, whatever the priority the tests run at (a test
+/// at nice 20, the top on macOS, keeps its background child there)
 #[test]
 fn a_background_child_runs_below_the_app() {
   let dir = tempfile::tempdir().unwrap();
-  // it waits for its stdin, alive while its priority is read
   let waiting = fake(&dir, "read line");
-  let priority = |command: &mut Command| {
-    let mut child = command.stdin(Stdio::piped()).spawn().unwrap();
-    let priority = priority_of(&child);
-    drop(child.stdin.take());
-    child.wait().unwrap();
-    priority
-  };
-  let default = priority(&mut Command::new(&waiting));
-  let normal = priority(&mut windowless_command_at(&waiting, ChildPriority::Normal));
-  let background = priority(&mut windowless_command_at(&waiting, ChildPriority::Background));
-  assert_eq!((normal, background), (default, BACKGROUND));
+  let default = priority_of_started(&mut Command::new(&waiting));
+  let normal = priority_of_started(&mut windowless_command_at(&waiting, ChildPriority::Normal));
+  let background = priority_of_started(&mut windowless_command_at(&waiting, ChildPriority::Background));
+  assert_eq!((normal, background), (default, background_under(default)));
+}
+
+/// The priority of the child of `command`, whose program waits for its stdin (`fake(dir, "read line")`): alive while
+/// its priority is read
+fn priority_of_started(command: &mut Command) -> Priority {
+  let mut child = command.stdin(Stdio::piped()).spawn().unwrap();
+  let priority = priority_of(&child);
+  drop(child.stdin.take());
+  child.wait().unwrap();
+  priority
+}
+
+/// Lowers the priority of this test process below the one a child asks for: nice 15 at least on Unix, the idle class
+/// on Windows. A process never takes its priority back, so only a test that runs in a process of its own calls it, as
+/// nextest runs each test
+#[cfg(unix)]
+#[expect(unsafe_code, reason = "setpriority(2) of this process, which std does not offer")]
+fn lower_own_priority() -> Priority {
+  let nice = crate::child_process::own_niceness().max(15);
+  // SAFETY: setpriority takes plain integers; a process may raise its own niceness
+  let set = unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) };
+  assert_eq!(set, 0, "nice {nice}: {}", std::io::Error::last_os_error());
+  nice
+}
+
+/// Lowers the priority of this test process below the one a child asks for: nice 15 at least on Unix, the idle class
+/// on Windows. A process never takes its priority back, so only a test that runs in a process of its own calls it, as
+/// nextest runs each test
+#[cfg(windows)]
+#[expect(unsafe_code, reason = "SetPriorityClass of this process, which std does not offer")]
+fn lower_own_priority() -> Priority {
+  use windows_sys::Win32::System::Threading::{GetCurrentProcess, IDLE_PRIORITY_CLASS, SetPriorityClass};
+  // SAFETY: the pseudo handle of this process needs no closing and is valid for the call
+  let set = unsafe { SetPriorityClass(GetCurrentProcess(), IDLE_PRIORITY_CLASS) };
+  assert_ne!(set, 0, "the idle class: {}", std::io::Error::last_os_error());
+  IDLE_PRIORITY_CLASS
+}
+
+/// A child never runs above its parent, and no priority it asks for fails its start: under a parent at nice 15 a child
+/// asked for nice 10 starts at 15, the niceness `child_niceness` names, and a background child at 19; under a parent of
+/// the idle class on Windows a background child is idle too
+#[test]
+fn a_child_never_runs_above_its_parent_and_starts_whatever_priority_it_asks_for() {
+  let dir = tempfile::tempdir().unwrap();
+  let waiting = fake(&dir, "read line");
+  let parent = lower_own_priority();
+  let normal = priority_of_started(&mut windowless_command_at(&waiting, ChildPriority::Normal));
+  let background = priority_of_started(&mut windowless_command_at(&waiting, ChildPriority::Background));
+  #[cfg(unix)]
+  {
+    let mut asked = windowless_command_at(&waiting, ChildPriority::Normal);
+    crate::child_process::set_niceness(&mut asked, 10);
+    let asked = priority_of_started(&mut asked);
+    let named = crate::child_process::child_niceness(10);
+    assert_eq!((normal, background, asked, named), (parent, background_under(parent), parent, parent));
+  }
+  #[cfg(windows)]
+  assert_eq!((normal, background), (parent, background_under(parent)));
 }

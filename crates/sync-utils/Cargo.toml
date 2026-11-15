@@ -18,13 +18,14 @@ serde_json.workspace = true
 tracing.workspace = true
 
 # the process scan of the lease pool (`process_scan`): the working directories and the argv through libproc and
-# sysctl on macOS, the SIGTERM of a Bazel server of a slot
+# sysctl on macOS, the SIGTERM of a Bazel server of a slot; the niceness of a child (`child_process::set_niceness`)
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
 # the start time of a process (`process_scan`: `OpenProcess`, `GetProcessTimes`), the ancestors of this process (the
 # snapshot of the process list, `CreateToolhelp32Snapshot`) and the sharing errors that a rename or a removal waits out
-# (`fs_retry`), the console of the process, without which a child gets no window (`child_process::windowless_command`)
+# (`fs_retry`), the console of the process, without which a child gets no window, and its priority class, which a
+# background child keeps when it is idle (`child_process::windowless_command_at`)
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",

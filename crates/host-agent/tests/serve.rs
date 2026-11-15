@@ -113,12 +113,16 @@ impl World {
   /// environment. The stderr of each `serve` of this world goes to one log. `serve` prints its line before it hashes
   /// its binary and accepts, so this answers after one reply, and the deadline of a test starts after it
   fn serve_program(&self, program: &Path, port: u16, args: &[&str], env: &[(&str, &str)]) -> Agent<'_> {
+    self.serve_command(Command::new(program), port, args, env)
+  }
+
+  /// `serve_program` of a command made beforehand, such as one at a niceness of its own
+  fn serve_command(&self, mut command: Command, port: u16, args: &[&str], env: &[(&str, &str)]) -> Agent<'_> {
     let log = fs::OpenOptions::new()
       .create(true)
       .append(true)
       .open(self.home.path().join("serve.log"))
       .expect("the serve log");
-    let mut command = Command::new(program);
     command.env("HOME", self.home.path());
     command.envs(env.iter().copied());
     let (child, listening) = spawn_on_loopback(command, port, args, log).unwrap_or_else(|error| panic!("serve listens: {error}; {}", self.serve_log()));

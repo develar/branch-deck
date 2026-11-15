@@ -1,7 +1,7 @@
 //! What a run gets from the system of the host: the power assertions of `serve` and of the supervisor, the login
 //! environment, the open-files limit, the niceness, and the private modes of the files of the agent
 
-use super::{START_LINE, World, eventually, process_alive, wait_for, write_script};
+use super::{AGENT_BINARY, START_LINE, World, eventually, process_alive, wait_for, write_script};
 use host_link::proto::{Reply, Request, RunSpec, Stream};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeSet;
@@ -88,9 +88,10 @@ fn a_run_gets_the_login_environment_a_raised_open_files_limit_and_its_niceness()
   let shell = world.home.path().join("login-shell");
   write_script(&shell, LOGIN_SHELL);
   let agent = world.serve_with(&[("BD_HOST_TEST_SHELL", shell.to_str().expect("a text path")), ("FROM_PROFILE", "agent")]);
-  // a process cannot lower its own niceness, and a test can start niced, such as under a build server at nice 10, or
-  // below 0, as a CI runner can start it
+  // a test can start niced, such as under a build server at nice 10, or below 0, as a CI runner can start it; a test at
+  // 20, the top on macOS, keeps its run there (a run never runs above its agent)
   let nice = u8::try_from(own_niceness().clamp(0, 16) + 3).expect("3 to 19");
+  let expected = own_niceness().max(i8::try_from(nice).expect("at most 19")).to_string();
   let script = r#"echo "$FROM_PROFILE $FROM_CONFIG $BD_HOST_RUN"; echo "$PATH" | cut -d: -f1-2; ulimit -n; ps -o nice= -p $$; git --version"#;
   agent.start(RunSpec {
     nice: Some(nice),
@@ -107,8 +108,8 @@ fn a_run_gets_the_login_environment_a_raised_open_files_limit_and_its_niceness()
   let limit: u64 = stdout[2].trim().parse().expect("a limit");
   assert!(limit >= 4096, "{limit}");
   assert!(start.contains(&format!(", {limit} open files, ")), "the command has the limit of the agent: {start}");
-  assert_eq!(stdout[3].trim(), nice.to_string());
-  assert!(start.contains(&format!(", nice {nice}, ")), "{start}");
+  assert_eq!(stdout[3].trim(), expected);
+  assert!(start.contains(&format!(", nice {expected}, ")), "{start}");
   // the command finds the git of the host that the start line names
   let version = start.split(", ").find_map(|part| part.strip_prefix("git ")).unwrap_or_else(|| panic!("no git: {start}"));
   assert!(stdout[4].starts_with(&format!("git version {version}")), "{} is not git {version}", stdout[4]);
@@ -116,6 +117,38 @@ fn a_run_gets_the_login_environment_a_raised_open_files_limit_and_its_niceness()
   let kept = fs::read_to_string(world.home.path().join(".cache/brd-host/login-env.json")).expect("the capture");
   assert!(kept.contains("FROM_PROFILE") && !kept.contains("\"PWD\""), "{kept}");
   assert!(START_LINE.starts_with("brd-host: ") && start.starts_with(START_LINE));
+}
+
+/// A run never makes its commands more urgent than the agent, and never fails for it: under an agent at a niceness above
+/// the one of the spec, the prepare steps and the command start at the agent's niceness, and the line before the command
+/// names it, as it does for a run that names none. A process cannot lower its own niceness: the start failed with
+/// `spawn_failed` (EACCES), and the line named the niceness of the spec, or 0 without one
+#[test]
+fn a_run_asked_below_the_niceness_of_the_agent_runs_at_the_agents_and_says_so() {
+  // the step makes no `never`, so it runs before each command
+  let config = "[[host.prepare]]\nname = \"niceness\"\nrun = [\"/bin/sh\", \"-c\", \"ps -o nice= -p $$ >&2\"]\ncreates = [\"never\"]\n";
+  let world = World::new(1, &[(".branchdeck.toml", config)]);
+  // the agent at 5 above this test, whatever niceness the test starts at, as a run under a niced build server does; a
+  // test at 20 (the top on macOS) keeps its agent there
+  let agent_nice = u8::try_from(own_niceness().clamp(0, 14) + 5).expect("5 to 19");
+  let expected = own_niceness().max(i8::try_from(agent_nice).expect("at most 19")).to_string();
+  let mut command = Command::new(AGENT_BINARY);
+  sync_utils::child_process::set_niceness(&mut command, agent_nice);
+  let agent = world.serve_command(command, 0, &[], &[]);
+  for (run, nice) in [("3-1", Some(agent_nice - 5)), ("3-2", None)] {
+    agent.start(RunSpec {
+      nice,
+      ..world.spec(run, "ps -o nice= -p $$")
+    });
+    let followed = agent.follow(run);
+    assert_eq!(followed.end, Reply::Exit { code: 0 }, "{run}: {}", agent.dump(run));
+    let stdout = followed.of(Stream::Stdout);
+    assert_eq!(stdout.iter().map(|line| line.trim()).collect::<Vec<_>>(), [expected.as_str()], "{run}: {followed:?}");
+    let prepare = followed.of(Stream::Stderr).into_iter().filter(|line| line.trim().parse::<u8>().is_ok()).collect::<Vec<_>>();
+    assert_eq!(prepare.iter().map(|line| line.trim()).collect::<Vec<_>>(), [expected.as_str()], "{run}: {followed:?}");
+    let start = followed.start_line();
+    assert!(start.contains(&format!(", nice {expected}, ")), "{run}: {start}");
+  }
 }
 
 fn mode(path: &Path) -> u32 {

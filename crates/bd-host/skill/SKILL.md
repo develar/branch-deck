@@ -40,7 +40,8 @@ brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--heav
 - `--apply` brings back the changes that the command made to tracked files, such as `cargo fmt` or new snapshots, and
   applies them to the working tree, not to the index. A patch that does not apply refuses with `apply_failed` and keeps
   the patch in `<git dir>/branch-deck/host/runs/<run>.patch`.
-- `--nice` is 10 by default, so the runs of `bt --host` go first. bt passes `--nice 0 --no-outputs`.
+- `--nice` is 10 by default, so the runs of `bt --host` go first. bt passes `--nice 0 --no-outputs`. A niceness below
+  the one of the agent runs at the agent's, and the `running in` line names the niceness that the command got.
 - `--heavy` makes a heavy run of a command that `heavy` of `[host]` does not name (see "Heavy runs").
 - The run goes to the repository of the same name as this one on the host, beside the main repository of the host
   file. `--repo` names another one.
