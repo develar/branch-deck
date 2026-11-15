@@ -83,16 +83,20 @@ export function ConfigurationHeader() {
                 {hasSelectedProject && <ActivityButton />}
               </div>
             )}
-            {pathValidation.valid && lastSyncTime && (
+            {pathValidation.valid && hasSelectedProject && (
               // stays as it is while a sync runs, so nothing moves: the spinner of Sync next to it says the sync. In the
               // room of its widest text, its digits of one width, so its aging moves nothing either: the repository
               // selector, which gives way on a narrow window, keeps its width from "just now" to "59 minutes ago".
               // The widest text is a pseudo-element under the shown one, so it is no text of the page; `formatRelativeTime`
-              // says at most two digits of minutes. Each is one run of text, as one rounds to 1/64 px apart from two
+              // says at most two digits of minutes. Each is one run of text, as one rounds to 1/64 px apart from two.
+              // The room is there before the first sync, empty: the header stands at its end, so the time that came with
+              // it moved Activity and the landing indicator from under a still pointer
               <span className="hidden text-xs whitespace-nowrap text-muted-foreground tabular-nums after:invisible after:col-start-1 after:row-start-1 after:content-['Last_synced_00_minutes_ago'] @3xl:grid">
-                <span className="col-start-1 row-start-1 justify-self-end" data-testid="last-sync-time">
-                  <LastSyncTime lastSyncTime={lastSyncTime} />
-                </span>
+                {lastSyncTime && (
+                  <span className="col-start-1 row-start-1 justify-self-end" data-testid="last-sync-time">
+                    <LastSyncTime lastSyncTime={lastSyncTime} />
+                  </span>
+                )}
               </span>
             )}
             {/* a failed sync shows as the red Sync with the error in its tooltip, next to the page alert */}

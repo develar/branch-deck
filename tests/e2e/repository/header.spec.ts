@@ -12,7 +12,7 @@ import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_H
 import { availableRobots } from "../helpers/patronus-helpers"
 import { expectPushedToast } from "../helpers/push-helpers"
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
-import { emitTauriEvent, finishedSyncCount, focusWindow, nextAnswer, runAndWaitForAnswer, runAndWaitForUpdate, waitForSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, focusWindow, nextAnswer, runAndWaitForAnswer, runAndWaitForUpdate, syncFromMenu, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { holdCommand, holdIntent, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -231,6 +231,38 @@ test.describe("Header before the answers", () => {
     await expect(header(page).getByTestId("landing-moves")).toHaveText("1")
     expect(await headerBoxes(page, HEADER_CONTROLS)).toEqual(before)
   })
+})
+
+test.describe("Header as the first sync comes", () => {
+  // the header stands at its end: Update comes on the left of what it would move, and the time of the last sync keeps
+  // its room from before the first sync, so neither moves Activity or the landing indicator from under a still pointer
+  test(
+    "should keep Activity under the pointer, its tooltip open, as the first sync brings Update and the time of the last sync",
+    { tag: "@webkit" },
+    async ({ page, setupRepo }) => {
+      // wide enough for the time of the last sync, which a narrow header hides
+      await page.setViewportSize({ width: 1280, height: 800 })
+      await setupRepo("behind_upstream")
+      await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+      const activity = activityButton(page)
+      await activity.hover()
+      await expect(openTooltip(page)).toHaveText("Activity")
+      const before = await boxOf(activity)
+      // empty, loading or with work: the one button of the landing indicator
+      const landing = header(page).getByTestId(/^landing-indicator(-empty|-loading)?$/)
+      const indicator = await boxOf(landing)
+      await expect(header(page).getByTestId("update-project-button")).toHaveCount(0)
+      await expect(header(page).getByTestId("last-sync-time")).toHaveCount(0)
+
+      // the first sync, from the menu: the pointer stays where it is
+      await syncFromMenu(page)
+      await expect(header(page).getByTestId("update-project-button")).toBeVisible()
+      await expect(header(page).getByTestId("last-sync-time")).toBeVisible()
+      expect(await boxOf(activity)).toEqual(before)
+      expect(await boxOf(landing)).toEqual(indicator)
+      await expect(openTooltip(page)).toHaveText("Activity")
+    },
+  )
 })
 
 test.describe("Header as work comes on its way", () => {

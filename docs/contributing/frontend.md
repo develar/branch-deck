@@ -175,7 +175,8 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   right in the robot card, whose line starts at its left; a popover over a moving anchor holds still while the pointer
   is in it (the details of a chip of Status, `useHeldAnchor` of `StatusChip`: their chip moves as the Actions of its row
   widen), and stands by the anchor again once the pointer left; a control with nothing to show keeps its place (the
-  landing indicator, empty and disabled while nothing is on the way); the items of Status and Actions stand at the end
+  landing indicator, empty and disabled while nothing is on the way; the time of the last sync, empty before the first
+  sync); the items of Status and Actions stand at the end
   of their group, also where the head of the column is wider than they are; a lock wait of a form or a popover
   (`LockWaitNotice`) comes on the line of its buttons before them, or below them, never on a line of its own above them,
   and in a dialog over the lines of its footer, which keep their room (`LinesUnderLockWait`), its spinner in the place
