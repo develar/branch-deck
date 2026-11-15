@@ -96,4 +96,6 @@ How agents commit to this repository; "Git Operations" below is about the git th
   `rr-cache` directory exists, and agents had filled it with 132 resolutions by 2026-10-29. So the clone sets
   `rerere.enabled false` ([Commits and History](#commits-and-history)), which no directory overrides; a conflict of
   `brd lease pick` opens its resolve session, which rerere never touched. Never `git stash` in a lease: keep work in
-  progress as a WIP commit of the lease or a patch file in `notes.local/`.
+  progress as a WIP commit of the lease or a patch file in `notes.local/`. The return deletes `notes.local/` by a clean
+  rule of `.branchdeck.toml`, so the next holder of the slot never reads another agent's logs as its own: copy a probe
+  or a log a reviewer or another agent still needs out of the lease (`/tmp/<agent>/`) before the return.
