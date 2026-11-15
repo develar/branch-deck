@@ -1,6 +1,7 @@
 //! The git config an operation reads, with one `git config` process: the `branchdeck.*` settings of
-//! `repository_config`, `commit.gpgsign` and the branch descriptions of `brd describe`. An operation reads it once and
-//! passes it on, instead of one process per key (docs/design/git-operations.md, "Repository settings").
+//! `repository_config`, `commit.gpgsign`, `core.attributesFile` and the branch descriptions of `brd describe`. An
+//! operation reads it once and passes it on, instead of one process per key (docs/design/git-operations.md,
+//! "Repository settings").
 
 use crate::github_repository::GitHubRepository;
 use crate::push_size::{DEFAULT_PUSH_SIZE_LIMIT, PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
@@ -15,6 +16,7 @@ use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::commit_signing::Signing;
+use git_ops::update_branch::AttributesFileSetting;
 use git_ops::word_resolve::ResolveMode;
 use std::collections::{BTreeMap, HashMap};
 use sync_utils::git_bool::parse_git_bool;
@@ -22,9 +24,10 @@ use tracing::{instrument, warn};
 
 /// The `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `brd workspace` and
 /// Settings read), the companion repositories (`branchdeck.companion.<name>.path`, `branchdeck.primary`),
-/// `commit.gpgsign`, and every `branch.<name>.description`, as `--get-regexp` matches them: the section and the key
-/// lowercase, the branch name and the name of a companion as they are
-const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental|primary|companion\..+\.path)|commit\.gpgsign|branch\..+\.description)$";
+/// `commit.gpgsign`, `core.attributesFile` (the global file of attributes the preview of an update watches) and every
+/// `branch.<name>.description`, as `--get-regexp` matches them: the section and the key lowercase, the branch name and
+/// the name of a companion as they are
+const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental|primary|companion\..+\.path)|commit\.gpgsign|core\.attributesfile|branch\..+\.description)$";
 
 /// The git config key of the symbol mode (`off`, `report`, `on`)
 pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
@@ -63,6 +66,8 @@ pub struct ConfigSnapshot {
   descriptions: HashMap<String, Description>,
   /// The last effective `commit.gpgsign` value; a key without a value is `true`
   signing: Option<String>,
+  /// The last effective `core.attributesFile`
+  attributes_file: Option<ConfigEntry>,
   /// Name -> path of each companion repository (`branchdeck.companion.<name>.path`), the name as it is written
   companions: BTreeMap<String, String>,
 }
@@ -97,12 +102,14 @@ impl ConfigSnapshot {
       .iter()
       .rfind(|entry| entry.key == "commit.gpgsign")
       .map(|entry| entry.value.clone().unwrap_or_else(|| "true".to_string()));
+    let attributes_file = all_entries.iter().rfind(|entry| entry.key == "core.attributesfile").cloned();
     let entries: Vec<ConfigEntry> = all_entries.into_iter().filter(|entry| entry.key.starts_with("branchdeck.")).collect();
     let companions = companion_paths(&entries);
     Self {
       entries,
       descriptions,
       signing,
+      attributes_file,
       companions,
     }
   }
@@ -110,6 +117,15 @@ impl ConfigSnapshot {
   /// The settings as Settings → Repository resolves them, without the detected GitHub repository
   pub fn settings(&self) -> RepositoryConfig {
     repository_config_from_entries(&self.entries, OriginFacts::default())
+  }
+
+  /// `core.attributesFile`, for the preview of an update to place (`git_ops::update_branch::with_attribute_files`)
+  pub fn attributes_file(&self) -> AttributesFileSetting<'_> {
+    match &self.attributes_file {
+      None => AttributesFileSetting::Unset,
+      Some(ConfigEntry { value: None, .. }) => AttributesFileSetting::NoValue,
+      Some(ConfigEntry { value: Some(value), .. }) => AttributesFileSetting::Value(value),
+    }
   }
 
   /// `branchdeck.resolveByWords`, a git boolean, on when unset; an error for a value git would refuse

@@ -42,6 +42,7 @@ use git_ops::notes::write_commit_notes_with;
 use git_ops::revs::{current_branch, with_dirs_of};
 use git_ops::rewrite_guard::find_operation_in_progress;
 use git_ops::tree_id_cache::TreeIdCache;
+use git_ops::update_branch::with_attribute_files;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
 use history_rewrite::needs::{companion_targets, local_targets, needs_drop};
@@ -489,7 +490,8 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   };
   // on the blocking pool of the runtime this phase runs on
   let update_check = tokio::runtime::Handle::current().spawn_blocking(in_current_span({
-    let git_executor = git_executor.clone();
+    // with the files of attributes outside the worktree, under which the probe of the check answers in the next sync
+    let git_executor = with_attribute_files(git_executor, repository_path, config.attributes_file());
     let repository_path = repository_path.to_string();
     let baseline_branch = baseline_branch.clone();
     let known = facts.known_baseline();

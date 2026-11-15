@@ -144,12 +144,18 @@ const LF_EDIT: &str = "one\ntwo\nthree\n";
 /// A repository whose `files` were committed with CRLF, then `attributes`, then each of `edited` written as
 /// `CRLF_EDIT`: the commit of its worktree, which must be what `add --all` stages, and its processes
 fn crlf_snapshot(files: &[&str], attributes: &str, edited: &[&str]) -> (TestRepo, WorktreeCommit, GitCommandExecutor) {
+  let edits: Vec<(&str, &str)> = edited.iter().map(|file| (*file, CRLF_EDIT)).collect();
+  crlf_snapshot_with(files, attributes, &edits)
+}
+
+/// `crlf_snapshot` with each file of `edits` written as its content
+fn crlf_snapshot_with(files: &[&str], attributes: &str, edits: &[(&str, &str)]) -> (TestRepo, WorktreeCommit, GitCommandExecutor) {
   let repo = TestRepo::new();
   let committed: Vec<(&str, &str)> = files.iter().map(|file| (*file, CRLF)).collect();
   repo.create_commit_with_files("Add files", &committed);
   repo.create_commit("Set the line ends", ".gitattributes", attributes);
-  for file in edited {
-    std::fs::write(repo.path().join(file), CRLF_EDIT).unwrap();
+  for (file, content) in edits {
+    std::fs::write(repo.path().join(file), content).unwrap();
   }
   let expected = added_tree(&repo);
   let git = counting();
@@ -185,6 +191,15 @@ fn a_crlf_blob_edited_under_text_auto_keeps_its_crlf_as_add_does() {
     &git,
     &[("cat-file", 1), ("check-attr", 1), ("fast-import", 1), ("hash-object", 2), ("status", 1), ("update-ref", 1)],
   );
+}
+
+/// A CRLF that the chunks of the read split, a file of 64 KiB - 1 bytes and then `\r\n`, is a CRLF: the edit of a CRLF
+/// blob under `text=auto` keeps it, as `add` does
+#[test]
+fn a_crlf_split_by_the_chunks_of_the_read_is_kept_as_add_keeps_it() {
+  let edit = format!("{}\r\n", "a".repeat((64 << 10) - 1));
+  let (repo, written, _git) = crlf_snapshot_with(&["win.txt"], "*.txt text=auto eol=lf\n", &[("win.txt", &edit)]);
+  assert_eq!(blob_of(&repo, &written.commit, "win.txt"), edit.as_bytes());
 }
 
 /// The old `crlf` converts as `text` does and `-text` keeps the bytes: the filters of `hash-object` give what `add`

@@ -1,8 +1,12 @@
 use crate::paths::changed_paths;
 use crate::revs::ref_exists;
-use crate::update_branch::{CheckPurpose, LandedLookup, PENDING_UPDATE_PREFIX, UpstreamRef, check_update, finish_pending_update, index_left_behind, previous_upstream_tips};
+use crate::update_branch::{
+  AttributesFileSetting, CheckPurpose, GlobalAttributes, LandedLookup, PENDING_UPDATE_PREFIX, UpstreamRef, attribute_files, check_update, finish_pending_update, global_attributes,
+  index_left_behind, previous_upstream_tips,
+};
 use crate::word_resolve::ResolveMode;
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::path::{Path, PathBuf};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -172,4 +176,33 @@ fn a_path_that_is_not_utf8_names_its_index_entry() {
     .bytes()
     .unwrap();
   assert!(index_left_behind(repo.git_executor(), repo.path_str(), &changed).unwrap());
+}
+
+/// `core.attributesFile` as git places it: a relative path from the root of the worktree, `~/` from the home, none for
+/// an empty value; a value the preview can't place (`~user/`, `%(prefix)/`, a key without a value), for which its probe
+/// answers for no file in a later check
+#[test]
+fn the_global_attributes_file_is_where_git_reads_it() {
+  let root = Path::new("/work/repo");
+  let placed = |value| global_attributes(root, AttributesFileSetting::Value(value));
+  assert_eq!(placed(".git/attributes"), GlobalAttributes::File(root.join(".git/attributes")));
+  assert_eq!(placed("/etc/attrs"), GlobalAttributes::File(PathBuf::from("/etc/attrs")));
+  assert_eq!(placed(""), GlobalAttributes::NoFile);
+  let home = std::env::var_os("HOME").map(PathBuf::from).filter(|home| !home.as_os_str().is_empty());
+  for (value, rest) in [("~/attrs", "attrs"), ("~", "")] {
+    let expected = home.as_ref().map_or(GlobalAttributes::Unplaced, |home| GlobalAttributes::File(home.join(rest)));
+    assert_eq!(placed(value), expected, "{value}");
+  }
+  for value in ["~other/attrs", "%(prefix)/etc/attrs"] {
+    assert_eq!(placed(value), GlobalAttributes::Unplaced, "{value}");
+  }
+  assert_eq!(global_attributes(root, AttributesFileSetting::NoValue), GlobalAttributes::Unplaced);
+}
+
+/// The `.gitattributes` of each directory of a path, from the root, as the index names them
+#[test]
+fn the_attribute_files_of_a_path_are_those_of_its_directories() {
+  let names = |path: &[u8]| attribute_files(path).map(|name| String::from_utf8(name).unwrap()).collect::<Vec<_>>();
+  assert_eq!(names(b"a.txt"), [".gitattributes"]);
+  assert_eq!(names(b"a/b/c.txt"), [".gitattributes", "a/.gitattributes", "a/b/.gitattributes"]);
 }

@@ -6,6 +6,7 @@ use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
 use git_ops::commit_signing::Signing;
+use git_ops::update_branch::AttributesFileSetting;
 use git_ops::word_resolve::ResolveMode;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
@@ -25,6 +26,21 @@ fn signing_is_read_from_the_effective_git_boolean() {
   }
   repo.set_config("commit.gpgsign", "invalid").unwrap();
   assert_eq!(signing().unwrap_err().to_string(), "commit.gpgsign is not a boolean: invalid");
+}
+
+/// `core.attributesFile` as it is written, the last one effective: unset, a value, a key without a value
+#[test]
+fn the_attributes_file_is_the_last_core_attributes_file() {
+  let repo = TestRepo::new();
+  assert_eq!(snapshot(&repo).attributes_file(), AttributesFileSetting::Unset);
+  repo.set_config("core.attributesFile", "~/attributes").unwrap();
+  assert_eq!(snapshot(&repo).attributes_file(), AttributesFileSetting::Value("~/attributes"));
+  repo.git(&["config", "--add", "core.attributesFile", ".git/attributes"]);
+  assert_eq!(snapshot(&repo).attributes_file(), AttributesFileSetting::Value(".git/attributes"));
+  let config = repo.path().join(".git/config");
+  let text = std::fs::read_to_string(&config).unwrap();
+  std::fs::write(&config, format!("{text}[core]\n\tattributesFile\n")).unwrap();
+  assert_eq!(snapshot(&repo).attributes_file(), AttributesFileSetting::NoValue);
 }
 
 /// `branchdeck.resolveByWords` as `git config --type=bool` reads it: `Some` of its answer, `None` when git refuses the value

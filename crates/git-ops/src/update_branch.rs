@@ -963,7 +963,7 @@ struct LocalProbe {
   index_path: Option<String>,
   /// The index file `index_ids` were read from: git writes a new file (a new inode) on every change
   index_stamp: Option<FileStamp>,
-  /// Per changed path: the blob of its index entry, `None` without one
+  /// Per changed path and per `.gitattributes` of its directories: the blob of its index entry, `None` without one
   index_ids: HashMap<Vec<u8>, Option<IndexBlob>>,
   /// Per hashed file: its stamp, when it was hashed and its blob ids
   files: HashMap<Vec<u8>, HashedFile>,
@@ -971,73 +971,192 @@ struct LocalProbe {
   info_attributes: Option<PathBuf>,
 }
 
-/// The files of attributes that decide how git converts a file of the working tree, as a key of what the probe read
-/// under them: the `.gitattributes` of each directory of its path, `info/attributes` of the shared git directory and the
-/// global file at its default place (`$XDG_CONFIG_HOME/git/attributes`, `~/.config/git/attributes`; another
-/// `core.attributesFile` is not watched). Each stamped once per preview
-struct AttributeSources {
-  root: PathBuf,
-  fixed: Vec<PathBuf>,
-  stamps: HashMap<PathBuf, Option<FileStamp>>,
+/// The global file of attributes of the preview of `path`, `None` for none, as its operation placed it
+/// (`with_attribute_files`)
+struct AttributeFiles {
+  path: String,
+  global: Option<PathBuf>,
 }
 
-/// The key of the attribute sources of a path: a hash of their stamps, and when the newest of them changed
+/// `core.attributesFile` as the config an operation read has it (`with_attribute_files`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttributesFileSetting<'a> {
+  Unset,
+  /// A key without a value, which git refuses
+  NoValue,
+  /// The value as it is written
+  Value(&'a str),
+}
+
+/// Where git reads the global file of attributes
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GlobalAttributes {
+  File(PathBuf),
+  /// An empty value, or no home for the default place
+  NoFile,
+  /// A value the preview can't place: `~user/`, `%(prefix)/`, a key without a value
+  Unplaced,
+}
+
+/// `git_executor` for the previews of `repo_path` whose probe outlives the check (the check inside a sync, the preview
+/// of `brd update`), with the global file of attributes (`global_attributes` of `setting`), which the probe watches
+/// beside those of the repository and the system file of the git binary (`GitCommandExecutor::system_attributes`, asked
+/// once a preview has a tracked file to check). Without it (another caller, a global file the preview can't place) the
+/// probe answers for no file in a later check
+#[must_use]
+pub fn with_attribute_files(git_executor: &GitCommandExecutor, repo_path: &str, setting: AttributesFileSetting<'_>) -> GitCommandExecutor {
+  let global = match global_attributes(Path::new(repo_path), setting) {
+    GlobalAttributes::File(file) => Some(file),
+    GlobalAttributes::NoFile => None,
+    GlobalAttributes::Unplaced => return git_executor.clone(),
+  };
+  git_executor.with_fact(AttributeFiles {
+    path: repo_path.to_string(),
+    global,
+  })
+}
+
+/// The global file of attributes git reads in the worktree `root`: the file `core.attributesFile` names (`setting`), a
+/// relative path from the root, `~/` from the home, none for an empty value; unset, `$XDG_CONFIG_HOME/git/attributes`
+/// or `~/.config/git/attributes`
+pub(crate) fn global_attributes(root: &Path, setting: AttributesFileSetting<'_>) -> GlobalAttributes {
+  let home = || std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from);
+  let value = match setting {
+    AttributesFileSetting::Unset => {
+      let config = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| home().map(|home| home.join(".config")));
+      return config.map_or(GlobalAttributes::NoFile, |config| GlobalAttributes::File(config.join("git/attributes")));
+    }
+    AttributesFileSetting::NoValue => return GlobalAttributes::Unplaced,
+    AttributesFileSetting::Value("") => return GlobalAttributes::NoFile,
+    AttributesFileSetting::Value(value) => value,
+  };
+  if let Some(rest) = value.strip_prefix('~') {
+    let rest = match rest.strip_prefix('/') {
+      Some(rest) => rest,
+      None if rest.is_empty() => rest,
+      // `~user/`
+      None => return GlobalAttributes::Unplaced,
+    };
+    // git refuses `~/` without a home
+    return home().map_or(GlobalAttributes::Unplaced, |home| GlobalAttributes::File(home.join(rest)));
+  }
+  if value.starts_with("%(") {
+    return GlobalAttributes::Unplaced;
+  }
+  GlobalAttributes::File(root.join(value))
+}
+
+/// The files of attributes that decide how git converts a file of the working tree, as a key of what the probe read
+/// under them: the `.gitattributes` of each directory of its path, `info/attributes` of the shared git directory, the
+/// global and the system file (`with_attribute_files`). Each stamped once per preview; a `.gitattributes` of the working
+/// tree only as a regular file, as git reads it (it follows no link there)
+struct AttributeSources {
+  root: PathBuf,
+  /// `info/attributes`, the global and the system file with their stamps; `None` when the probe can't watch them
+  fixed: Option<Vec<(PathBuf, Option<FileStamp>)>>,
+  /// Per `.gitattributes` of the working tree, by its path from the root
+  tree: HashMap<Vec<u8>, Option<FileStamp>>,
+}
+
+/// The key of the attribute sources of a path: a hash of their stamps, and when the newest of them changed; `watched`
+/// false for sources the probe can't watch, so it answers for no file
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AttributesKey {
   hash: u64,
   modified: Option<SystemTime>,
+  watched: bool,
 }
 
 impl AttributesKey {
   /// Whether no source changed within the racy margin of `read_at`: as a file, one rewritten in place within the
   /// granularity of its time keeps its stamp
   fn is_trusted(&self, read_at: SystemTime) -> bool {
-    self.modified.is_none_or(|modified| modified + RACY_MARGIN <= read_at)
+    self.watched && self.modified.is_none_or(|modified| modified + RACY_MARGIN <= read_at)
   }
 }
 
 impl AttributeSources {
-  fn new(root: &Path, info_attributes: Option<&Path>) -> Self {
-    let global = std::env::var_os("XDG_CONFIG_HOME")
-      .filter(|dir| !dir.is_empty())
-      .map(PathBuf::from)
-      .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-      .map(|config| config.join("git/attributes"));
+  /// The sources of the preview of `repo_path`: `info_attributes`, the global file of `with_attribute_files` and the
+  /// system file of the git binary; none of them when its operation placed no global file
+  fn new(git_executor: &GitCommandExecutor, repo_path: &str, info_attributes: Option<&Path>) -> Self {
+    let stamp = |file: PathBuf| {
+      let stamp = std::fs::metadata(&file).ok().map(|metadata| FileStamp::of(&metadata));
+      (file, stamp)
+    };
+    let fixed = git_executor.fact::<AttributeFiles>().filter(|files| files.path == repo_path).map(|files| {
+      let system = git_executor.system_attributes(repo_path);
+      info_attributes
+        .map(Path::to_path_buf)
+        .into_iter()
+        .chain(files.global.clone())
+        .chain(system)
+        .map(stamp)
+        .collect()
+    });
     Self {
-      root: root.to_path_buf(),
-      fixed: info_attributes.map(Path::to_path_buf).into_iter().chain(global).collect(),
-      stamps: HashMap::new(),
+      root: PathBuf::from(repo_path),
+      fixed,
+      tree: HashMap::new(),
     }
   }
 
-  /// The key of `path` (relative to the root), from the stamps of its sources
-  fn key(&mut self, path: &Path) -> AttributesKey {
-    let mut sources = self.fixed.clone();
-    let mut dir = self.root.clone();
-    sources.push(dir.join(".gitattributes"));
-    if let Some(parent) = path.parent() {
-      for component in parent.components() {
-        dir.push(component);
-        sources.push(dir.join(".gitattributes"));
-      }
-    }
+  /// The stamp of the `.gitattributes` at `name` (from the root), `None` without a regular file there
+  fn tree_stamp(&mut self, name: &[u8]) -> Option<FileStamp> {
+    let root = &self.root;
+    self
+      .tree
+      .entry(name.to_vec())
+      .or_insert_with(|| {
+        let file = root.join(name.to_path().ok()?);
+        std::fs::symlink_metadata(file)
+          .ok()
+          .filter(std::fs::Metadata::is_file)
+          .map(|metadata| FileStamp::of(&metadata))
+      })
+      .clone()
+  }
+
+  /// The key of `path` (from the root), from the stamps of its sources
+  fn key(&mut self, path: &[u8]) -> AttributesKey {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     let mut modified = None;
-    for source in sources {
-      let stamp = self
-        .stamps
-        .entry(source.clone())
-        .or_insert_with(|| std::fs::metadata(&source).ok().map(|metadata| FileStamp::of(&metadata)));
-      std::hash::Hash::hash(&(&source, &*stamp), &mut hasher);
-      if let Some(time) = stamp.as_ref().and_then(|stamp| stamp.modified) {
-        modified = modified.max(Some(time));
-      }
+    let Some(fixed) = &self.fixed else {
+      return AttributesKey {
+        hash: 0,
+        modified,
+        watched: false,
+      };
+    };
+    for (file, stamp) in fixed {
+      std::hash::Hash::hash(&(file, stamp), &mut hasher);
+      modified = modified.max(stamp.as_ref().and_then(|stamp| stamp.modified));
+    }
+    for name in attribute_files(path) {
+      let stamp = self.tree_stamp(&name);
+      std::hash::Hash::hash(&(&name, &stamp), &mut hasher);
+      modified = modified.max(stamp.and_then(|stamp| stamp.modified));
     }
     AttributesKey {
       hash: std::hash::Hasher::finish(&hasher),
       modified,
+      watched: true,
     }
   }
+
+  /// Whether a `.gitattributes` of the directories of `path` is in the index (`index_ids`) but no regular file of the
+  /// working tree: git then reads its index blob, `hash-object`, which reads no index, nothing
+  fn lacks_a_tracked_file(&mut self, path: &[u8], index_ids: &HashMap<Vec<u8>, Option<IndexBlob>>) -> bool {
+    attribute_files(path).any(|name| index_ids.get(&name).is_some_and(Option::is_some) && self.tree_stamp(&name).is_none())
+  }
+}
+
+/// The `.gitattributes` of each directory of `path`, from the root, as the index names them
+pub(crate) fn attribute_files(path: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
+  let dirs = path.iter().enumerate().filter(|(_, byte)| **byte == b'/').map(|(i, _)| &path[..=i]);
+  std::iter::once(&path[..0]).chain(dirs).map(|dir| [dir, b".gitattributes"].concat())
 }
 
 /// The blob of an index entry
@@ -1097,10 +1216,12 @@ impl HashedFile {
 }
 
 impl LocalProbe {
-  /// Forget the paths the update no longer changes, so the probe stays as large as the update
+  /// Forget the paths the update no longer changes, and the `.gitattributes` of no directory of theirs, so the probe
+  /// stays as large as the update
   fn retain(&mut self, changed: &[ChangedPath]) {
     let paths: HashSet<&[u8]> = changed.iter().map(|c| c.path.as_slice()).collect();
-    self.index_ids.retain(|path, _| paths.contains(path.as_slice()));
+    let sources: HashSet<Vec<u8>> = changed.iter().flat_map(|c| attribute_files(&c.path)).collect();
+    self.index_ids.retain(|path, _| paths.contains(path.as_slice()) || sources.contains(path));
     self.files.retain(|path, _| paths.contains(path.as_slice()));
   }
 }
@@ -2168,8 +2289,11 @@ const SYMLINK_MODE: &str = "120000";
 ///   it does not block where git keeps them (`crlf::conversions`, one `check-attr` of such files: a blob committed with
 ///   CRLF under `text=auto`, which `hash-object` normalizes but git does not), and blocks where git converts them
 ///   (`text`, the old `crlf`, an `eol` without `text=auto`).
-/// - `probe` answers for a file while its stamp and the stamps of its attribute sources (`AttributeSources`) stay, and
-///   none of them changed within the racy margin of its hash: its ids and whether git keeps it as it is.
+/// - a file under a `.gitattributes` that the index has and the working tree lacks blocks: git reads the index blob of
+///   such a file, `hash-object` none (the same `cat-file` of `:<dir>/.gitattributes`).
+/// - `probe` answers for a file while its stamp and the stamps of its attribute sources (`AttributeSources`: of the
+///   repository, and the global and system files of `with_attribute_files`) stay, and none of them changed within the
+///   racy margin of its hash: its ids and whether git keeps it as it is.
 ///
 /// The update itself runs the exact dry run again. Where the two differ (a sparse checkout, an executable bit with
 /// `core.fileMode=false`, a path with a newline, a file kept as it is under `ident`, a `filter` or a
@@ -2191,7 +2315,7 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
   }
 
   read_index_ids(git_executor, repo_path, changed, &tracked, probe)?;
-  let mut sources = AttributeSources::new(root, probe.info_attributes.as_deref());
+  let mut sources = AttributeSources::new(git_executor, repo_path, probe.info_attributes.as_deref());
   let mut sparse_checkout: Option<bool> = None;
   let mut to_hash = Vec::new();
   // the files whose filtered id is not the old blob, with their length: the id of their bytes as they are tells
@@ -2222,12 +2346,13 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
         }
       }
       Ok(metadata) if metadata.is_file() && c.old_mode != SYMLINK_MODE && !c.path.contains(&b'\n') => {
-        if is_executable(&metadata) != (c.old_mode == "100755") {
+        // git reads a tracked `.gitattributes` that the working tree lacks from the index, `hash-object` reads none
+        if is_executable(&metadata) != (c.old_mode == "100755") || sources.lacks_a_tracked_file(&c.path, &probe.index_ids) {
           blocked[i] = true;
           continue;
         }
         let stamp = FileStamp::of(&metadata);
-        let attributes = sources.key(file);
+        let attributes = sources.key(&c.path);
         match probe.files.get(&c.path) {
           Some(file) if file.answers(&stamp, attributes) => match (file.compare(&c.old_id), file.kept) {
             (Sameness::Filtered, _) => {}
@@ -2326,8 +2451,8 @@ fn collect_blocked(changed: &[ChangedPath], blocked: &[bool]) -> Vec<String> {
   changed.iter().zip(blocked).filter(|(_, blocked)| **blocked).map(|(c, _)| display_path(&c.path)).collect()
 }
 
-/// Read the index entries of the `tracked` changed paths that `probe` doesn't know for the current index file; all of
-/// them once the index file changed
+/// Read the index entries of the `tracked` changed paths and of the `.gitattributes` of their directories that `probe`
+/// doesn't know for the current index file; all of them once the index file changed
 fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath], tracked: &[usize], probe: &mut LocalProbe) -> Result<()> {
   let index_path = if let Some(path) = &probe.index_path {
     path.clone()
@@ -2346,17 +2471,19 @@ fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &
     probe.index_ids.clear();
     probe.index_stamp = index_stamp;
   }
-  let unknown: Vec<&[u8]> = tracked
+  // the paths and the `.gitattributes` of their directories, each once
+  let mut seen = HashSet::new();
+  let unknown: Vec<Vec<u8>> = tracked
     .iter()
-    .map(|&i| changed[i].path.as_slice())
-    .filter(|path| !probe.index_ids.contains_key(*path))
+    .flat_map(|&i| std::iter::once(changed[i].path.clone()).chain(attribute_files(&changed[i].path)))
+    .filter(|name| !probe.index_ids.contains_key(name) && seen.insert(name.clone()))
     .collect();
   if unknown.is_empty() {
     return Ok(());
   }
 
   // `<id> <size>\0` per entry, `<input> missing\0` for a path not in the index
-  let input = index_names(unknown.iter().copied());
+  let input = index_names(unknown.iter().map(Vec::as_slice));
   let output = git_executor
     .cmd(&["cat-file", "--batch-check=%(objectname) %(objectsize)", "-Z"], repo_path)
     .stdin(&input)
@@ -2370,7 +2497,7 @@ fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &
         size: size.parse().ok()?,
       })
     });
-    probe.index_ids.insert(path.to_vec(), blob);
+    probe.index_ids.insert(path, blob);
   }
   Ok(())
 }

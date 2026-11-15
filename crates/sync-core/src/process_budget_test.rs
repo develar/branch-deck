@@ -37,7 +37,9 @@ use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
-use test_utils::process_budget::{FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, repo_on_origin, with_added_processes};
+use test_utils::process_budget::{
+  FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, processes, repo_on_origin, with_added_processes,
+};
 use test_utils::sync_fixtures::{TestReporter, repo_with_a_word_conflict, with_resolve_version};
 
 const PREFIX: &str = "test";
@@ -986,6 +988,24 @@ fn an_update_check() {
       ("symbolic-ref", 2),
     ],
   );
+}
+
+/// The update check inside a sync keeps its probe for the next sync, under the files of attributes the sync read
+/// (`git_ops::update_branch::with_attribute_files`): the file the update changes, older than the racy margin, is hashed
+/// by the first sync and by no later one
+#[tokio::test]
+async fn the_update_check_of_an_unchanged_sync_hashes_no_file_again() {
+  let (_upstream, clone) = fetched_update();
+  clone.git(&["fetch", "-q", "origin"]);
+  let shared = std::fs::File::options().write(true).open(clone.path().join("shared.txt")).unwrap();
+  shared.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(5)).unwrap();
+  let hashes = |git: &GitCommandExecutor| processes(git).into_iter().find(|(command, _)| command == "hash-object").map_or(0, |(_, count)| count);
+  let first = counting();
+  sync(&first, &clone).await;
+  assert_eq!(hashes(&first), 1);
+  let second = counting();
+  sync(&second, &clone).await;
+  assert_eq!(hashes(&second), 0, "{:?}", processes(&second));
 }
 
 /// The push of `alpha` and `beta` built on it, of `repo`

@@ -701,12 +701,17 @@ fn preview_compares_a_symlink_by_its_target() {
 /// A clone that holds `win.txt` as it was committed, with CRLF, and `lf.txt` with LF, the `attributes` that came after
 /// them (none for an empty line), and the fetched upstream commit that changes both
 fn crlf_clone(attributes: &str) -> Setup {
-  let (upstream, clone) = TestRepo::upstream_and_clone(&[("win.txt", "one\r\ntwo\r\n"), ("lf.txt", "one\ntwo\n")]);
+  crlf_clone_at("win.txt", attributes)
+}
+
+/// `crlf_clone` with the CRLF file at `win`
+fn crlf_clone_at(win: &str, attributes: &str) -> Setup {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[(win, "one\r\ntwo\r\n"), ("lf.txt", "one\ntwo\n")]);
   if !attributes.is_empty() {
     upstream.create_commit("Set the line ends of the texts", ".gitattributes", &format!("{attributes}\n"));
     git(&clone, &["pull", "-q", "--ff-only"]);
   }
-  upstream.create_commit_with_files("Change the texts upstream", &[("win.txt", "one\r\ntwo\r\nthree\r\n"), ("lf.txt", "one\ntwo\nthree\n")]);
+  upstream.create_commit_with_files("Change the texts upstream", &[(win, "one\r\ntwo\r\nthree\r\n"), ("lf.txt", "one\ntwo\nthree\n")]);
   git(&clone, &["fetch", "-q", "origin"]);
   Setup { upstream, clone }
 }
@@ -715,7 +720,12 @@ fn crlf_clone(attributes: &str) -> Setup {
 /// preview answers for it
 fn write_trusted(clone: &TestRepo, file: &str, content: &str) {
   write(clone, file, content);
-  let opened = fs::File::options().write(true).open(clone.path().join(file)).unwrap();
+  age(&clone.path().join(file));
+}
+
+/// The modification time of `file` older than the racy margin
+fn age(file: &std::path::Path) {
+  let opened = fs::File::options().write(true).open(file).unwrap();
   opened.set_modified(std::time::SystemTime::now() - Duration::from_secs(5)).unwrap();
 }
 
@@ -830,6 +840,92 @@ fn a_change_of_the_attributes_is_seen_without_a_touch_of_the_file() {
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
   write_trusted(&clone, ".git/info/attributes", "*.txt text eol=lf\n");
   assert_eq!(preview(&clone), blocked(&["win.txt"]), "info/attributes outranks .gitattributes");
+}
+
+/// The `.gitattributes` of the directory of a file is a source of its probe: `text eol=lf` there makes the file a change
+/// git sees, in both trusted previews; once deleted, the file is no change again
+#[test]
+fn the_attributes_of_the_directory_of_a_file_are_a_source_of_its_probe() {
+  let Setup { upstream: _upstream, clone } = crlf_clone_at("sub/win.txt", "");
+  write_trusted(&clone, "sub/.gitattributes", "*.txt text eol=lf\n");
+  assert_eq!(trusted_previews_of(&clone, "sub/win.txt", "one\r\ntwo\r\n"), blocked(&["sub/win.txt"]));
+  fs::remove_file(clone.path().join("sub/.gitattributes")).unwrap();
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
+}
+
+/// Like git's racy check, attributes rewritten within the racy margin of the hash keep their stamp (the same length,
+/// inode and time): the probe does not answer for the file under them, and the next preview sees `text` as git does
+#[test]
+fn attributes_changed_within_the_racy_margin_of_the_hash_are_read_again() {
+  let Setup { upstream: _upstream, clone } = crlf_clone("");
+  write_trusted(&clone, "win.txt", "one\r\ntwo\r\n");
+  write(&clone, ".gitattributes", "*.txt -text\n");
+  let attributes = clone.path().join(".gitattributes");
+  let written = fs::metadata(&attributes).unwrap().modified().unwrap();
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
+  write(&clone, ".gitattributes", "*.txt  text\n");
+  fs::File::options().write(true).open(&attributes).unwrap().set_modified(written).unwrap();
+  assert_eq!(preview(&clone), blocked(&["win.txt"]));
+}
+
+/// The global file of attributes, `core.attributesFile` of the config the preview read (here a path from the root of the
+/// worktree), is a source of its probe: `text eol=lf` written there, the file untouched, is the change git sees
+#[test]
+fn a_change_of_the_global_attributes_file_is_seen_without_a_touch_of_the_file() {
+  let Setup { upstream: _upstream, clone } = crlf_clone("");
+  git(&clone, &["config", "core.attributesFile", ".git/global-attributes"]);
+  write_trusted(&clone, ".git/global-attributes", "*.txt -text\n");
+  assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), UpdateState::Clean { kind: UpdateKind::FastForward });
+  write_trusted(&clone, ".git/global-attributes", "*.txt text eol=lf\n");
+  assert_eq!(preview(&clone), blocked(&["win.txt"]));
+}
+
+/// The system file of attributes of the git binary (`git var GIT_ATTR_SYSTEM`, here a file of the wrapper, which the
+/// real git does not read) is a source of the probe too: the preview under the same sources hashes nothing, and after a
+/// change of that file it hashes the file again
+#[test]
+fn a_change_of_the_system_attributes_file_hashes_the_file_again() {
+  let Setup { upstream: _upstream, clone } = crlf_clone("");
+  let wrapped = test_utils::wrapped_git::WrappedGit::new("*\" var GIT_ATTR_SYSTEM \"*) echo '{dir}/gitattributes'; exit 0;;");
+  let system = wrapped.directory().join("gitattributes");
+  fs::write(&system, "# none\n").unwrap();
+  age(&system);
+  write_trusted(&clone, "win.txt", "one\r\ntwo\r\n");
+  write_trusted(&clone, "lf.txt", "one\ntwo\n");
+  let hashes = || {
+    let git = wrapped.executor().with_process_stats("test");
+    let state = check_baseline_update(&git, path(&clone), "origin/master").unwrap().unwrap().check.state;
+    let hashes = test_utils::process_budget::processes(&git).into_iter().find(|(command, _)| command == "hash-object");
+    (state, hashes.map_or(0, |(_, count)| count))
+  };
+  let clean = UpdateState::Clean { kind: UpdateKind::FastForward };
+  assert_eq!(hashes(), (clean.clone(), 1));
+  assert_eq!(hashes(), (clean.clone(), 0), "the probe answers under the same sources");
+  fs::write(&system, "# none, changed\n").unwrap();
+  age(&system);
+  assert_eq!(hashes(), (clean, 1), "a change of the system file");
+}
+
+/// A tracked `.gitattributes` deleted only in the working tree: git reads its index blob (`text eol=lf`) and shows the
+/// rewritten CRLF file as a change, `hash-object`, which reads no index, none. The preview blocks every file under it,
+/// leaning to blocked for `lf.txt`, which git keeps, where the exact check blocks `win.txt`; with the file back, only
+/// what git sees
+#[test]
+fn a_tracked_gitattributes_the_worktree_lacks_blocks_the_files_under_it() {
+  let Setup { upstream: _upstream, clone } = crlf_clone("*.txt text eol=lf");
+  fs::remove_file(clone.path().join(".gitattributes")).unwrap();
+  write_trusted(&clone, "win.txt", "one\r\ntwo\r\n");
+  assert_eq!(status(&clone), " D .gitattributes\n M win.txt");
+  assert_eq!(
+    git(&clone, &["hash-object", "win.txt"]),
+    git(&clone, &["rev-parse", "HEAD:win.txt"]),
+    "hash-object reads no attributes"
+  );
+  assert_eq!(preview(&clone), blocked(&["lf.txt", "win.txt"]));
+  assert_eq!(update(&clone).unwrap().check.state, blocked(&["win.txt"]));
+
+  git(&clone, &["checkout", "--", ".gitattributes"]);
+  assert_eq!(preview(&clone), blocked(&["win.txt"]));
 }
 
 #[test]

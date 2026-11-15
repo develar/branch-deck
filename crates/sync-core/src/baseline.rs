@@ -15,7 +15,7 @@ use domain_types::landed::LandedBranch;
 use domain_types::update_project::UpdateCheck;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{current_branch, known_dirs};
-use git_ops::update_branch::{CheckPurpose, CheckedHead, LandedLookup, UpdatePlan, UpstreamRef, check_update, check_update_of};
+use git_ops::update_branch::{CheckPurpose, CheckedHead, LandedLookup, UpdatePlan, UpstreamRef, check_update, check_update_of, with_attribute_files};
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_grouper::GroupingInputs;
@@ -187,8 +187,10 @@ pub struct BaselineCheck {
 /// Check the checked out branch against the last fetched state of its baseline, without the network.
 /// `None` for a local baseline: there is nothing to update from.
 pub fn check_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Option<BaselineCheck>> {
-  let (grouping, resolve) = read_check_inputs(git_executor, repo_path)?;
-  check_baseline_update_with(git_executor, repo_path, baseline_branch, &grouping, resolve)
+  let config = ConfigSnapshot::read(git_executor, repo_path)?;
+  let grouping = read_grouping_inputs(git_executor, repo_path)?;
+  let git_executor = with_attribute_files(git_executor, repo_path, config.attributes_file());
+  check_baseline_update_with(&git_executor, repo_path, baseline_branch, &grouping, config.resolve_mode()?)
 }
 
 /// The inputs of an update check from one read of the config: the issue groups, and the resolve by words (`branchdeck.resolveByWords`)
@@ -197,7 +199,8 @@ pub fn read_check_inputs(git_executor: &GitCommandExecutor, repo_path: &str) -> 
   Ok((read_grouping_inputs(git_executor, repo_path)?, config.resolve_mode()?))
 }
 
-/// `check_baseline_update` with the issue groups and the resolve mode already read
+/// `check_baseline_update` with the issue groups and the resolve mode already read, and the files of attributes on
+/// `git_executor` (`with_attribute_files`) for its probe to answer in the next check
 #[instrument(skip(git_executor, grouping))]
 pub fn check_baseline_update_with(
   git_executor: &GitCommandExecutor,

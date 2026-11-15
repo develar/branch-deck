@@ -1503,18 +1503,27 @@ Details:
     (`-text`, `-crlf`), though `hash-object`, which reads no index, normalizes it. So a blob committed with CRLF under
     `text=auto eol=lf` is no local change, and `brd update` asks the user nothing about it. Under `text`, `text=input`,
     the old `crlf` or `crlf=input` (which git reads where `text` is unspecified), or an `eol` without `text=auto`, git
-    converts the bytes and shows the same file as ` M` at once; the preview blocks it, as the exact check does. Comparing content, a file that was only touched does not block, and
-    the index is never written.
+    converts the bytes and shows the same file as ` M` at once; the preview blocks it, as the exact check does. The
+    same `cat-file` reads `:<dir>/.gitattributes` of each directory of a changed path: a file under one that the index
+    has and the working tree lacks (deleted, or a link, which git does not follow there) blocks, as git reads the
+    attributes of its index blob and `hash-object` none. Comparing content, a file that was only touched does not
+    block, and the index is never written.
     `status`, `diff-files` and `diff-index` take no `--pathspec-from-file`, and as arguments thousands of pathspecs
     are matched against every index entry: `status` with 2,105 pathspecs took 5–12 s on a 50k-file index.
   - **Cache.** Per repository, in memory: the replay outcome (conflict, or the new tip and the changed paths) keyed by
     H, U and the excluded previous tips, and a probe of the local state. The probe keeps the index blobs for one
     index file (git writes a new file, a new inode, on every change) and, per hashed file, its stat data, when it was
-    hashed, under which attribute sources (the `.gitattributes` of each directory of its path, `info/attributes` of the
-    shared git directory, the global file at its default place; another `core.attributesFile` is not watched), its
-    blobs (with the filters, and as it is once read) and whether git keeps it as it is; it answers only while the
-    stamps of the file and of those sources stay, and like git's racy check only when neither changed in the 2 s before
-    the hash: a change of the attributes, the file untouched, is seen as git sees it. An unchanged state therefore costs no replay, no `cat-file` and no `hash-object`, only an `lstat` per
+    hashed, under which attribute sources (the `.gitattributes` of each directory of its path as a regular file,
+    `info/attributes` of the shared git directory, the global file and the system file of the git binary), its blobs
+    (with the filters, and as it is once read) and whether git keeps it as it is; it answers only while the stamps of
+    the file and of those sources stay, and like git's racy check only when neither changed in the 2 s before the hash:
+    a change of the attributes, the file untouched, is seen as git sees it. The global file is `core.attributesFile` of
+    the `ConfigSnapshot` the sync (or `brd update`) read, placed as git places it (a relative path from the root of the
+    worktree, `~/` from the home), else `$XDG_CONFIG_HOME/git/attributes` or `~/.config/git/attributes`
+    (`update_branch::with_attribute_files`, a fact of the executor); the system file is `git var GIT_ATTR_SYSTEM`,
+    asked once per process and git outside the count, as `git version` is (`GitCommandExecutor::system_attributes`).
+    A caller without them, or a value the preview can't place (`~user/`, `%(prefix)/`, a key without a value), keeps
+    no answer of the probe for a later check. An unchanged state therefore costs no replay, no `cat-file` and no `hash-object`, only an `lstat` per
     changed path; after a fetch only the newly changed paths are read.
   - Its replay sets `GIT_COMMITTER_DATE=@0 +0000`, so a replay after a cache miss writes the same objects again; such
     a plan can't be applied.
@@ -4851,9 +4860,11 @@ no operation.
   unset (`fallback_value`, `fallback_scope`: the last system or global entry, else the default), for "Use Default" or
   "Use Global".
 - **One read per operation** (`ConfigSnapshot`, `crates/sync-core/src/config_snapshot.rs`): one
-  `git config -z --show-scope --get-regexp` of the seven keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
-  keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `symbol_mode`,
-  `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing`, `review_experimental` and `descriptions`. A sync reads it once for the
+  `git config -z --show-scope --get-regexp` of the seven keys an operation reads (not the agent keys), `commit.gpgsign`,
+  `core.attributesFile` (the global file of attributes the update check watches) and every `branch.<name>.description`
+  (the branch name keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `symbol_mode`,
+  `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing`, `review_experimental`, `signing`,
+  `attributes_file` and `descriptions`. A sync reads it once for the
   route into master (sent in `BranchesGrouped` with the push URLs of its listing, `RepoFacts::landing_remote`; `brd status`
   takes the same of the listing of its grouping, `BranchGrouping::landing`) and for the GitHub repository of the
   branches the menu offers its merge and its pull requests by from the first view (`LandingRemote::github`: the
@@ -5928,7 +5939,8 @@ pnpm perf:monorepo compare <work>/before <work>/after
   the processes are the "git processes" line of `brd -v`, the count of the executor by subcommand, and the wall time is
   noisy on a loaded machine (`load.txt` keeps the load of each step).
 - `--count` runs each step once with `BD_GIT` set to `scripts/perf/git-count.sh`, which records every git process `brd`
-  starts: it finds the `git version` of the discovery outside the executor's count, and nothing else.
+  starts: it finds the `git version` of the discovery and the `git var GIT_ATTR_SYSTEM` of the first update check that
+  checks a tracked file outside the executor's count, and nothing else.
 - `compare` checks that the first run of each step printed the same in two measurements, the path of the binary in the
   push hints aside: a change of the git layer must not change what `brd` says.
 - Use a release build (`cargo build --release -p bd-cli --bin bd`); build the base commit's `brd` in another checkout

@@ -154,6 +154,42 @@ impl GitCommandExecutor {
     Ok(self.info.get_or_init(|| info))
   }
 
+  /// The system file of attributes of this executor's git (`git var GIT_ATTR_SYSTEM`), `None` without one
+  /// (`GIT_ATTR_NOSYSTEM`) or when git can't tell. A fact of the git binary, asked once per process for each git and
+  /// value of `GIT_ATTR_NOSYSTEM`, and not counted in `with_process_stats`, as its `git version` is not
+  pub fn system_attributes(&self, repository_path: &str) -> Option<std::path::PathBuf> {
+    /// (git path, `GIT_ATTR_NOSYSTEM`) -> the file
+    type Known = Vec<((String, Option<String>), Option<std::path::PathBuf>)>;
+    static KNOWN: std::sync::Mutex<Known> = std::sync::Mutex::new(Vec::new());
+
+    let git_path = self.get_info().ok()?.path.clone();
+    let no_system = self
+      .env
+      .iter()
+      .rfind(|(name, _)| name == "GIT_ATTR_NOSYSTEM")
+      .map(|(_, value)| value.clone())
+      .or_else(|| std::env::var("GIT_ATTR_NOSYSTEM").ok());
+    let key = (git_path, no_system);
+    let known = KNOWN
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .iter()
+      .find(|(known, _)| *known == key)
+      .map(|(_, file)| file.clone());
+    if let Some(file) = known {
+      return file;
+    }
+    let output = self.command(&["var", "GIT_ATTR_SYSTEM"], repository_path, &[]).ok()?.output().ok()?;
+    let file = output
+      .status
+      .success()
+      .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+      .filter(|file| !file.is_empty())
+      .map(std::path::PathBuf::from);
+    KNOWN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((key, file.clone()));
+    file
+  }
+
   /// The git command with the base config and environment. stdin is null unless a caller pipes it: git never inherits
   /// ours. A spawned child inherits stdin by default, and on Windows git queries its stdin handle at startup
   /// (`winansi_init`), which waits while a read of the same pipe is pending in this process (`brd check` reads a plan
