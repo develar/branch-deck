@@ -6,7 +6,7 @@ use crate::pull_request_facts::PullRequestWrite;
 use crate::readiness_facts::ReadinessAnswer;
 use crate::runtime::{FRAME_INTERVAL, GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
 use crate::session::SyncTicket;
-use crate::session::{IDLE_LIMIT, OneClock, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
+use crate::session::{IDLE_LIMIT, OneClock, Ran, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
 use crate::state::{Joined, View};
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, run_sync, synced, unapplied};
 use crate::table::{RemoteSubject, TableState};
@@ -226,7 +226,7 @@ impl SessionHost for ScriptedHost {
         gate.notified().await;
       }
       let table = script.table;
-      script.result.map(|report| SyncedTable { report, table })
+      script.result.map(|report| Ran::Synced(Box::new(SyncedTable { report, table })))
     })
   }
 
@@ -641,6 +641,8 @@ struct TestEnvironment {
 /// returns the slot and leases it again while the run runs)
 #[derive(Default)]
 struct TestLeases {
+  /// How often a session opened, its frame read as it opens (`SessionEnvironment::frame`)
+  opens: std::sync::atomic::AtomicU32,
   epoch: Mutex<WorktreeEpoch>,
   leased_again_in_run: Mutex<Option<WorktreeEpoch>>,
   /// The lease and the count of branches each record of a sync named (`SessionEnvironment::record_synced`), in order
@@ -677,6 +679,11 @@ impl SessionEnvironment for TestEnvironment {
 
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     self.syncs_on_focus
+  }
+
+  fn frame(&self, _key: &SessionKey) -> Option<CachedSession> {
+    self.leases.opens.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    None
   }
 
   fn record_synced(&self, _key: &SessionKey, epoch: &WorktreeEpoch, branch_count: usize) {
@@ -847,6 +854,79 @@ async fn a_run_records_the_time_of_its_sync_under_the_lease_its_session_opened_u
   );
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Skipped));
   assert_eq!(leases.recorded.lock().unwrap().len(), 2, "the run of a slot under another lease synced nothing");
+}
+
+/// A run refused for another lease and a stamp that finds that lease at the same time (the probe of the review): the
+/// session opens anew once, each request is answered with nothing failed, and the session of the new lease syncs. The
+/// stamp that came first keeps its waiter for the reopen; a refusal that took its place lost it, and its request failed
+/// as the session closed before its sync ended
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_refused_run_and_a_stamp_at_once_open_the_session_anew_once() {
+  for round in 0..20 {
+    let (_repo, key, leases, sessions) = opened_under_lease_a().await;
+    *leases.epoch.lock().unwrap() = lease("lease-b");
+    let (manual, stamp) = tokio::join!(outcome(sessions.sync(&key, SyncReason::Manual)), outcome(sessions.sync(&key, SyncReason::Stamp)));
+    let after = sessions.view_version(&key).await.unwrap().epoch;
+    for _ in 0..3 {
+      assert_eq!(
+        outcome(sessions.sync(&key, SyncReason::Manual)).await,
+        Ok(SyncOutcome::Synced),
+        "round {round}: a session of lease-b syncs"
+      );
+    }
+    assert!(manual.is_ok() && stamp.is_ok(), "round {round}: no failure: {manual:?} {stamp:?}");
+    assert_eq!(leases.opens.load(std::sync::atomic::Ordering::SeqCst), 2, "round {round}: the open and one reopen");
+    assert_eq!(sessions.view_version(&key).await.unwrap().epoch, after, "round {round}: no further reopen");
+  }
+}
+
+/// A session opened while the epoch of its slot could not be told acts under no lease it knows: once the slot reads
+/// lease-b its runs sync, write no file of the lease and record nothing the writer takes (the lease of the record is
+/// unknown), as the slot may hold another lease than the one it opened under
+#[tokio::test]
+async fn a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease() {
+  let repo = ahead_of_origin(&["(auth) Add auth"]);
+  let key = SessionKey {
+    worktree: repo.path_str().to_string(),
+    prefix: "test".to_string(),
+  };
+  let leases = Arc::new(TestLeases::default());
+  *leases.epoch.lock().unwrap() = WorktreeEpoch::Unknown;
+  let environment = TestEnvironment {
+    leases: Arc::clone(&leases),
+    ..TestEnvironment::default()
+  };
+  let (sessions, _clock) = with_environment(GitCommandExecutor::new(), environment);
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  let landed_state = sync_core::lease_state::LeasePaths::of_worktree(repo.path()).unwrap().landed();
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "no mark while the epoch is unknown");
+  *leases.epoch.lock().unwrap() = lease("lease-b");
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "no mark of lease-b");
+  assert!(!landed_state.exists(), "no landed state of lease-b");
+  assert_eq!(
+    *leases.recorded.lock().unwrap(),
+    [(WorktreeEpoch::Unknown, 1), (WorktreeEpoch::Unknown, 1)],
+    "records of no lease the writer takes"
+  );
+}
+
+/// A session opened under lease-a whose slot then reads no epoch (the state of the pool cannot be read) syncs and
+/// writes no file of the lease, opens nothing anew, and marks again once the epoch reads lease-a (the probe of the review)
+#[tokio::test]
+async fn an_epoch_that_cannot_be_read_writes_nothing_and_opens_nothing_anew() {
+  let (_repo, key, leases, sessions) = opened_under_lease_a().await;
+  let epoch = sessions.view_version(&key).await.unwrap().epoch;
+  *leases.epoch.lock().unwrap() = WorktreeEpoch::Unknown;
+  for _ in 0..3 {
+    assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  }
+  assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix));
+  assert_eq!(sessions.view_version(&key).await.unwrap().epoch, epoch, "no reopen while the epoch is unknown");
+  *leases.epoch.lock().unwrap() = lease("lease-a");
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  assert!(sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "lease-a again: marked");
 }
 
 /// The guard an operation of a session writes the files of the lease under (an intent of a window: Update Project, its

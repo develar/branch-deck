@@ -150,7 +150,17 @@ pub trait Subscriber: Send + 'static {
 }
 
 /// A sync of a session in flight
-pub type SyncRun = Pin<Box<dyn Future<Output = Result<SyncedTable, ApiError>> + Send>>;
+pub type SyncRun = Pin<Box<dyn Future<Output = Result<Ran, ApiError>> + Send>>;
+
+/// How a run of a session ended that is no failure
+#[derive(Debug)]
+pub enum Ran {
+  /// The sync ran: its report and the table it built
+  Synced(Box<SyncedTable>),
+  /// The worktree holds another lease than the session opened under (`lease_began`): nothing synced, and the session
+  /// opens anew for that lease
+  AnotherLease,
+}
 
 /// What a successful sync of a session left: its report and the table it built, with the remote statuses its events
 /// carried, which the session keeps as the table of its last sync (`Sessions::table`)
@@ -170,7 +180,7 @@ pub trait SessionHost: Send + Sync + 'static {
   /// One sync of the session that opened under the lease `opened` (`SessionLife::opened_epoch`); its events go to
   /// `reporter`, the session's mailbox. A deferred sync (a rebase in progress, a detached HEAD, a branch under the
   /// prefix) answers its `ApiError` code (`operation_in_progress`, `detached_head`, `managed_branch`); a run of a
-  /// worktree that holds another lease than `opened` syncs nothing and answers `plan_changed` (`lease_began`), and the
+  /// worktree that holds another lease than `opened` syncs nothing and answers `Ran::AnotherLease` (`lease_began`), and the
   /// session opens anew for that lease
   fn run(&self, key: &SessionKey, opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun;
 
@@ -350,19 +360,26 @@ impl SessionLife {
 pub struct AnotherLease;
 
 /// The lease an operation of a session that opened under `opened` acts under, the worktree holding `now`: the one the
-/// session opened under, when it knew one, the lease of its view; else the lease now. `AnotherLease` when the worktree
-/// holds another known lease than the session opened under (`Sessions::lease_guard`, `SessionHost::run`)
+/// session opened under, the lease of its view. A session that opened while the epoch could not be told
+/// (`WorktreeEpoch::Unknown`) acts under none it knows: its operations write nothing of a lease (`lease_writes`), as the
+/// slot may hold another lease by now. `AnotherLease` when the worktree holds another known lease than the session
+/// opened under (`Sessions::lease_guard`, `SessionHost::run`)
 ///
 /// # Errors
 /// `AnotherLease`, as above
-pub fn lease_began(opened: WorktreeEpoch, now: WorktreeEpoch) -> Result<WorktreeEpoch, AnotherLease> {
-  if opened.recorded().is_none() {
-    return Ok(now);
-  }
-  if now.recorded().is_some() && now != opened {
+pub fn lease_began(opened: WorktreeEpoch, now: &WorktreeEpoch) -> Result<WorktreeEpoch, AnotherLease> {
+  if opened.recorded().is_some() && now.recorded().is_some() && *now != opened {
     return Err(AnotherLease);
   }
   Ok(opened)
+}
+
+/// Whether the files of the lease are written while the worktree holds `now`, the operation acting under `began`
+/// (`lease_began`): only under the lease it began under, a known one; never under one the files could not tell, on
+/// either side
+#[must_use]
+pub fn lease_writes(began: &WorktreeEpoch, now: &WorktreeEpoch) -> bool {
+  began.recorded().is_some() && now == began
 }
 
 /// An operation of a session in flight (a request that waits, a run, a check): the session stays while one lives
@@ -624,7 +641,7 @@ impl Sessions {
       return Ok(LeaseGuard::any());
     }
     let (host, of) = (Arc::clone(&self.host), key.clone());
-    Ok(LeaseGuard::while_held(move || host.epoch(&of) == began))
+    Ok(LeaseGuard::while_held(move || lease_writes(&began, &host.epoch(&of))))
   }
   /// The lease a write of the session of `key` asked on its view of the epoch `asked` is of (a hide of the Landed
   /// island, `app_settings::projects::hide_landed`): the lease the session opened under (`lease_began`). `AnotherLease`
@@ -641,12 +658,13 @@ impl Sessions {
   /// The lease the operations of the session of `key` act under (`lease_began`): the one it opened under, the worktree
   /// holding the lease the host reads now
   async fn lease_now(&self, key: &SessionKey) -> Result<WorktreeEpoch, AnotherLease> {
-    let opened = self.lock().get(key).and_then(|entry| entry.life.epoch()).unwrap_or(WorktreeEpoch::Unknown);
+    let opened = self.lock().get(key).and_then(|entry| entry.life.epoch());
     let (host, of) = (Arc::clone(&self.host), key.clone());
     let now = tokio::task::spawn_blocking(in_current_span(move || host.epoch(&of)))
       .await
       .unwrap_or(WorktreeEpoch::Unknown);
-    lease_began(opened, now)
+    // a session that is not open: the lease now
+    lease_began(opened.unwrap_or_else(|| now.clone()), &now)
   }
 
   /// The group `message` would put its commit into (`history_rewrite::commit_grouper::group_of` of its subject as git

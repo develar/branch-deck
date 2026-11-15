@@ -471,16 +471,18 @@ impl SettingsService {
 
   /// Sets `fields` of the entry of `repositoryState` of the worktree at `path`, as a change of `origin`, in the entry
   /// of the epoch `epoch` of that worktree (the lease a session opened under, the lease of a view), its other fields kept
-  /// and an entry of another epoch replaced, the entry naming `epoch`. `None` when the worktree holds another known epoch
-  /// now, which writes nothing: what an earlier lease records never becomes the next lease's (`LEASE_FIELDS`, which only
-  /// this writes)
+  /// and an entry of another epoch replaced, the entry naming `epoch`. `None` when the worktree holds another epoch now,
+  /// and when `epoch` or the epoch now could not be told, which writes nothing: what an earlier lease records never
+  /// becomes the next lease's (`LEASE_FIELDS`, which only this writes)
   ///
   /// # Errors
   /// As `set`
   pub fn set_repository_fields(&self, path: &str, fields: Map<String, Value>, epoch: &WorktreeEpoch, origin: &str) -> Result<Option<SettingsChange>, SettingsError> {
     let now = self.epochs_now(vec![path.to_owned()]);
     let held = now.as_ref().and_then(|now| now.get(path)).map(|now| &now.epoch);
-    if held.is_some_and(|held| held.recorded().is_some() && epoch.recorded().is_some() && held != epoch) {
+    // only of a lease the files tell, and only while the worktree holds it as far as they tell: an epoch they could not
+    // tell, of the record or of the worktree now, writes nothing, as the slot may hold another lease by now
+    if epoch.recorded().is_none() || held.is_some_and(|held| held.recorded().is_none() || held != epoch) {
       return Ok(None);
     }
     let state = self.shared.lock();

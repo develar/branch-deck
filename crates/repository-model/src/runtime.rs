@@ -51,7 +51,7 @@ use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead
 use crate::readiness_facts::ReadinessDigest;
 use crate::review_readings::ReadAheadAnswer;
 use crate::session::{
-  AnotherLease, Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter, lease_began,
+  Busy, EventSink, Ran, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter, lease_began, lease_writes,
 };
 use crate::state::{Joined, View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
@@ -256,7 +256,7 @@ pub(crate) enum Message {
   RunFinished {
     run: RunId,
     inputs: Option<SyncInputs>,
-    result: Box<Result<SyncedTable, ApiError>>,
+    result: Box<Result<Ran, ApiError>>,
   },
 }
 
@@ -1134,20 +1134,22 @@ impl Actor {
     }
   }
 
-  fn finish_run(&mut self, run: RunId, inputs: Option<SyncInputs>, result: Result<SyncedTable, ApiError>) {
+  fn finish_run(&mut self, run: RunId, inputs: Option<SyncInputs>, result: Result<Ran, ApiError>) {
     if self.scheduler.running() != Some(run) {
       return;
     }
     let end = match &result {
-      Ok(synced) => RunEnd::Succeeded { retry: synced.report.retry },
+      Ok(Ran::Synced(synced)) => RunEnd::Succeeded { retry: synced.report.retry },
+      Ok(Ran::AnotherLease) => RunEnd::Succeeded { retry: false },
       Err(error) => RunEnd::Failed(error.clone()),
     };
     let decision = self.scheduler.run_finished(run, inputs, end, self.is_watched());
     self.in_flight = None;
-    // a run of a worktree that holds another lease than the session opened under synced nothing (`leased_anew`): the
-    // session opens anew for that lease, as for a stamp that found it (`reopen_for_lease`), and the requests it served
-    // were skipped, as for a stamp that came while the session waited for its run
-    let refused_for_lease = matches!(&result, Err(error) if error.code == ErrorCode::PlanChanged);
+    // a run of a worktree that holds another lease than the session opened under synced nothing (`Ran::AnotherLease`):
+    // the session opens anew for that lease, as for a stamp that found it (`reopen_for_lease`), and the requests it
+    // served were skipped, as for a stamp that came while the session waited for its run; a stamp that found it first
+    // has its waiter there already, which the reopen answers
+    let refused_for_lease = matches!(result, Ok(Ran::AnotherLease));
     if refused_for_lease && self.reopen_after_run.is_none() {
       tracing::info!(worktree = %self.key.worktree, "The slot of the worktree holds another lease: the session opens anew for it");
       self.events.emit(&self.key, SessionEventKind::Closed);
@@ -1166,6 +1168,12 @@ impl Actor {
       self.reopen_now = Some((waiter, true));
       return;
     }
+    let result = match result {
+      Ok(Ran::Synced(synced)) => Ok(*synced),
+      // a refusal opened the session anew just above
+      Ok(Ran::AnotherLease) => return,
+      Err(error) => Err(error),
+    };
     let mut derives = false;
     let observation = Observation {
       seq: self.run_seq,
@@ -1439,15 +1447,6 @@ const fn is_deferred(error: &ApiError) -> bool {
   )
 }
 
-/// The refusal of a run of a session whose worktree holds another lease than the session opened under: nothing synced,
-/// and the session opens anew for that lease (`finish_run`)
-fn leased_anew(key: &SessionKey) -> ApiError {
-  ApiError::new(
-    ErrorCode::PlanChanged,
-    format!("{} holds another lease than its session opened under: the session opens anew for it", key.worktree),
-  )
-}
-
 /// The refusal of a run of the session under `session_prefix` whose git config names the branches by `config_prefix`
 fn prefix_changed(session_prefix: &str, config_prefix: &str) -> ApiError {
   ApiError::new(
@@ -1623,7 +1622,9 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
         tokio::task::spawn_blocking(in_current_span(move || (environment.epoch(&key), environment.run_setup(&key)))).await
       };
       let (now, setup) = setup.map_err(|error| ApiError::internal(format!("The sync preparation task failed: {error}")))?;
-      let began_under = lease_began(opened, now).map_err(|AnotherLease| leased_anew(&key))?;
+      let Ok(began_under) = lease_began(opened, &now) else {
+        return Ok(Ran::AnotherLease);
+      };
       let RunSetup { mut options, prefix } = setup.map_err(|error| environment.api_error(error))?;
       if prefix != key.prefix {
         return Err(prefix_changed(&key.prefix, &prefix));
@@ -1631,7 +1632,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       options.lease = {
         let (environment, key) = (Arc::clone(&environment), key.clone());
         let began_under = began_under.clone();
-        LeaseGuard::while_held(move || environment.epoch(&key) == began_under)
+        LeaseGuard::while_held(move || lease_writes(&began_under, &environment.epoch(&key)))
       };
       // the remote statuses and the landing report among the events are kept for the table
       let collector = RemoteStatusCollector::new(reporter);
@@ -1649,7 +1650,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       if let Err(error) = recorded {
         warn!(worktree = %key.worktree, "The record of the sync failed: {error}");
       }
-      Ok(SyncedTable { report, table })
+      Ok(Ran::Synced(Box::new(SyncedTable { report, table })))
     })
   }
 

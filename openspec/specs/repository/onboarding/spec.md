@@ -1519,7 +1519,15 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
 - **WHEN** a sync of the session begins, asked by the user or by a rewrite
 - **THEN** it syncs nothing and writes no file of the lease: the request is answered with nothing done, and the session
   opens anew for the new lease, whose sync marks it
-  [@test] crates/repository-model/src/session_test.rs (`a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the_session_opens_anew`)
+  [@test] crates/repository-model/src/session_test.rs (`a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the_session_opens_anew`, `a_refused_run_and_a_stamp_at_once_open_the_session_anew_once`)
+
+#### Scenario: A session of a lease the files could not tell
+- **GIVEN** a session opened while the epoch of its slot could not be told, or a session whose slot reads no epoch now
+- **WHEN** its runs sync
+- **THEN** they write no file of a lease and no field of one, as the slot may hold another lease by then; a session of a
+  known lease writes again once its slot reads that lease, and opens nothing anew meanwhile
+  [@test] crates/repository-model/src/session_test.rs (`a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease`, `an_epoch_that_cannot_be_read_writes_nothing_and_opens_nothing_anew`)
+  [@test] crates/app-settings/src/projects_test.rs (`a_record_of_a_sync_is_of_the_lease_its_session_opened_under`)
 
 #### Scenario: A late record of a sync of the lease before
 - **GIVEN** a window synced a slot under one lease, and the slot is returned and leased again

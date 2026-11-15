@@ -2342,9 +2342,17 @@ before each write and holds only under the lease the session opened under, the l
 of `GitSessionHost::run`, `session::lease_began` as for `Sessions::lease_guard`;
 `a_run_writes_the_files_of_the_lease_only_under_the_lease_it_began_under`,
 `a_sync_whose_lease_no_longer_holds_writes_no_file_of_the_lease`); a run that begins while the slot holds another
-known lease syncs nothing (`plan_changed`), its requests are skipped and the session opens anew for that lease
-(`a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the_session_opens_anew`), as the return took the files of the lease before
-and this run synced no worktree of the new one. So do the intents of a window and `brd`: Update Project, the undo of a
+known lease syncs nothing (`Ran::AnotherLease`, an outcome of its own, never an error of a code another refusal may
+share), its requests are skipped and the session opens anew for that lease once, also when a stamp that found the lease
+came first
+(`a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the_session_opens_anew`,
+`a_refused_run_and_a_stamp_at_once_open_the_session_anew_once`), as the return took the files of the lease before
+and this run synced no worktree of the new one. A session that opened while the epoch of its slot could not be told acts
+under no lease it knows, and its runs and operations write no file of a lease, nor a field of one in the settings
+(`session::lease_writes`, `SettingsService::set_repository_fields`): the slot may hold another lease by then
+(`a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease`); a session of a known lease whose slot reads no
+epoch for a while writes nothing meanwhile and opens nothing anew
+(`an_epoch_that_cannot_be_read_writes_nothing_and_opens_nothing_anew`). So do the intents of a window and `brd`: Update Project, the undo of a
 rewrite and a dismiss name the epoch of the view they were asked on, are refused (`plan_changed`) on another epoch or
 on a slot that holds another lease than their session opened under, and write under the lease of that view
 (`under_its_lease`, `Sessions::lease_guard`;

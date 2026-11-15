@@ -277,6 +277,13 @@ fn a_record_of_a_sync_is_of_the_lease_its_session_opened_under() {
   assert_eq!(change.origin, "session");
   assert_eq!(hide_landed(&service, slot, &lease_b, 600).unwrap().unwrap().origin, "landed");
 
+  // an epoch the files could not tell, of the record or of the worktree now, writes nothing
+  assert_eq!(record_of_session(&service, slot, &WorktreeEpoch::Unknown, 2_500, 4).unwrap(), None);
+  *epochs.lock().unwrap() = json!({ checkout: null });
+  assert_eq!(record_of_session(&service, slot, &lease_b, 2_500, 4).unwrap(), None);
+  *epochs.lock().unwrap() = json!({ slot: "lease-b", checkout: null });
+  assert_eq!(service.value("repositoryState")[slot]["lastSyncTime"], 2_000);
+
   let outside = record_of_session(&service, checkout, &WorktreeEpoch::NotASlot, 3_000, 1).unwrap().unwrap();
   assert_eq!(outside.value[checkout], json!({ "lastSyncTime": 3_000, "lastBranchCount": 1 }));
 }
