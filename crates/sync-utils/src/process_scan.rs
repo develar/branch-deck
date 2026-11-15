@@ -377,10 +377,12 @@ pub struct Descendant {
 /// as a child only when it started after its parent, so a pid that the system gave again to an older process ends no
 /// chain. Not found: a process whose parent exited before the scan (the system gave it to launchd or init, or it
 /// daemonized so), and a process forked after the scan (`process_tree` stops what it found and scans again until a pass
-/// finds nothing new). Empty where the system tells no process list (Windows: a job holds the processes of a child
-/// there, `process_tree`)
-pub fn descendants(pid: u32, started: u64) -> Vec<Descendant> {
-  let Some(processes) = platform::processes() else { return Vec::new() };
+/// finds nothing new). The list without working directories and arguments (`process_tree` of the platform); `None`
+/// when the system tells none or it could not be read (a churn of processes that no read kept up with), which a kill
+/// takes for no scan, never for an empty tree
+#[cfg(unix)]
+pub fn descendants(pid: u32, started: u64) -> Option<Vec<Descendant>> {
+  let processes = platform::process_tree()?;
   let mut found: Vec<Descendant> = Vec::new();
   let mut parents = vec![(pid, started)];
   while let Some((parent, parent_started)) = parents.pop() {
@@ -396,7 +398,7 @@ pub fn descendants(pid: u32, started: u64) -> Vec<Descendant> {
       }
     }
   }
-  found
+  Some(found)
 }
 
 /// Ask the process `pid` to exit with SIGTERM; false when the signal could not be sent (gone, another user's, no
@@ -553,6 +555,21 @@ mod platform {
 
   pub(super) fn processes() -> Option<Vec<ProcessInfo>> {
     Some(
+      process_tree()?
+        .into_iter()
+        .map(|process| ProcessInfo {
+          cwd: cwd(process.pid),
+          argv: argv(process.pid),
+          ..process
+        })
+        .collect(),
+    )
+  }
+
+  /// Every process with its parent, group, name and start, one `proc_pidinfo` each, without the working directories and
+  /// the arguments of `processes`, which take most of its time: the list of a kill (`descendants`) and of the ancestors
+  pub(super) fn process_tree() -> Option<Vec<ProcessInfo>> {
+    Some(
       pids()?
         .into_iter()
         .filter_map(|pid| {
@@ -562,18 +579,13 @@ mod platform {
             parent: info.pbi_ppid,
             group: info.pbi_pgid,
             name: name(&info),
-            cwd: cwd(pid),
-            argv: argv(pid),
+            cwd: None,
+            argv: Vec::new(),
             started: Some(start_time(&info)),
           })
         })
         .collect(),
     )
-  }
-
-  /// The list the ancestors are read from: the scan itself
-  pub(super) fn process_tree() -> Option<Vec<ProcessInfo>> {
-    processes()
   }
 
   pub(super) fn started(pid: u32) -> Option<u64> {
@@ -841,15 +853,11 @@ mod platform {
 
   pub(super) fn processes() -> Option<Vec<ProcessInfo>> {
     Some(
-      pids()?
-        .filter_map(|pid| {
-          let stat = Stat::read(pid)?;
-          let dir = Path::new("/proc").join(pid.to_string());
-          Some(ProcessInfo {
-            pid,
-            parent: stat.parent,
-            group: stat.group,
-            name: stat.name,
+      process_tree()?
+        .into_iter()
+        .map(|process| {
+          let dir = Path::new("/proc").join(process.pid.to_string());
+          ProcessInfo {
             cwd: std::fs::read_link(dir.join("cwd")).ok(),
             argv: std::fs::read(dir.join("cmdline")).map_or_else(
               |_| Vec::new(),
@@ -861,16 +869,32 @@ mod platform {
                   .collect()
               },
             ),
-            started: Some(stat.started),
-          })
+            ..process
+          }
         })
         .collect(),
     )
   }
 
-  /// The list the ancestors are read from: the scan itself
+  /// Every process with its parent, group, name and start, from its `stat`, without the working directories and the
+  /// arguments of `processes`: the list of a kill (`descendants`) and of the ancestors
   pub(super) fn process_tree() -> Option<Vec<ProcessInfo>> {
-    processes()
+    Some(
+      pids()?
+        .filter_map(|pid| {
+          let stat = Stat::read(pid)?;
+          Some(ProcessInfo {
+            pid,
+            parent: stat.parent,
+            group: stat.group,
+            name: stat.name,
+            cwd: None,
+            argv: Vec::new(),
+            started: Some(stat.started),
+          })
+        })
+        .collect(),
+    )
   }
 
   /// A zombie has exited: it waits only for its parent to reap it

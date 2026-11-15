@@ -53,12 +53,16 @@ fn kills_the_child_after_the_timeout() {
 /// on Unix, nothing on Windows, whose job takes every process at once
 #[cfg(unix)]
 type KillTrace = Option<crate::process_tree::KillReport>;
+/// Nothing, as a value of its own: a `()` is passed by value and bound by no `let` (clippy)
 #[cfg(not(unix))]
-type KillTrace = ();
+#[derive(Debug)]
+struct KillTrace;
 
 fn last_kill() -> KillTrace {
   #[cfg(unix)]
   return crate::process_tree::seam::last_kill();
+  #[cfg(not(unix))]
+  KillTrace
 }
 
 /// Waits until each of `processes` has exited, as long as it takes: the slow timeout of nextest ends the test of one that
@@ -89,67 +93,156 @@ fn wait_for_the_exits(processes: &[(u32, Option<u64>)], what: &str, kill: &KillT
   }
 }
 
-/// The child of `fake` that starts a grandchild in the background (`(sleep 120; :) &`, which forks a sleep of its own)
-/// and writes its pid, as the system names it, into `pid_file`, then sleeps itself
-fn child_with_a_grandchild(dir: &tempfile::TempDir, pid_file: &std::path::Path) -> std::path::PathBuf {
+/// The processes of the tree of `child_with_a_tree`, each a file of its directory that names it
+const TREE: [&str; 3] = ["grandchild", "great-grandchild", "sleep"];
+
+/// The processes of `TREE` that are known, with their starts
+type Tree = std::collections::BTreeMap<&'static str, (u32, Option<u64>)>;
+
+/// The child of `fake` with a tree below it: a subshell in the background (the grandchild) that starts a `sleep` of its
+/// own (the great-grandchild) and waits for it, and a `sleep` of the child in the background; each writes its pid, as
+/// the system names it, into its file of `TREE`, and the child waits
+fn child_with_a_tree(dir: &tempfile::TempDir) -> std::path::PathBuf {
   // on Windows the sh of Git keeps a pid of its own
   let pid_of_last = if cfg!(windows) { "cat /proc/$!/winpid" } else { "echo $!" };
-  fake(dir, &format!("(sleep 120; :) &\n{pid_of_last} > '{}'\nsleep 120", shell_path(pid_file)))
+  let file = |name: &str| shell_path(&dir.path().join(name));
+  fake(
+    dir,
+    &format!(
+      "(sleep 120 &\n{pid_of_last} > '{}'\nwait) &\n{pid_of_last} > '{}'\nsleep 120 &\n{pid_of_last} > '{}'\nwait",
+      file("great-grandchild"),
+      file("grandchild"),
+      file("sleep")
+    ),
+  )
 }
 
-/// The pid in `pid_file` and its start, once the file names a process
-fn grandchild_of(pid_file: &std::path::Path) -> Option<(u32, Option<u64>)> {
-  let pid = std::fs::read_to_string(pid_file).ok()?.trim().parse::<u32>().ok()?;
-  Some((pid, process_started(pid)))
-}
-
-/// Runs the child of `child_with_a_grandchild` until its grandchild is known (into `grandchild`, with its start), then
+/// Runs the child of `child_with_a_tree` until each process of its tree is known (into `tree`, with its start), then
 /// kills it: what the kill found
-fn kill_once_the_grandchild_runs(dir: &tempfile::TempDir, grandchild: &std::cell::Cell<Option<(u32, Option<u64>)>>) -> KillTrace {
-  let pid_file = dir.path().join("grandchild-pid");
-  let child = child_with_a_grandchild(dir, &pid_file);
+fn kill_once_the_tree_runs(dir: &tempfile::TempDir, tree: &std::cell::RefCell<Tree>) -> KillTrace {
+  let child = child_with_a_tree(dir);
   let known = || {
-    if grandchild.get().is_none() {
-      grandchild.set(grandchild_of(&pid_file));
+    let mut tree = tree.borrow_mut();
+    for name in TREE {
+      if let (false, Ok(text)) = (tree.contains_key(name), std::fs::read_to_string(dir.path().join(name)))
+        && let Ok(pid) = text.trim().parse::<u32>()
+      {
+        tree.insert(name, (pid, process_started(pid)));
+      }
     }
-    grandchild.get().is_some()
+    tree.len() == TREE.len()
   };
   let result = run_child_until_superseded(&mut Command::new(child), None, &known);
   assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
   last_kill()
 }
 
-/// A kill ends the processes the child started too: its grandchild, which would sleep two minutes, exits. The child is
-/// killed once its grandchild is known, with its start; no deadline but nextest's
+/// Waits for the exit of every process of `tree`, each started when it was known
+fn wait_for_the_tree(tree: &Tree, kill: &KillTrace) {
+  for (name, &(pid, started)) in tree {
+    assert!(started.is_some(), "the {name} runs when it is known");
+    wait_for_the_exits(&[(pid, started)], name, kill);
+  }
+}
+
+/// A kill ends the processes the child started too: each process of its tree, which would sleep two minutes, exits.
+/// The child is killed once its tree is known, with the starts; no deadline but nextest's
 #[test]
 fn a_killed_child_leaves_no_process_it_started() {
   let dir = tempfile::tempdir().unwrap();
-  let grandchild = std::cell::Cell::new(None);
-  let kill = kill_once_the_grandchild_runs(&dir, &grandchild);
-  let (pid, started) = grandchild.get().expect("the grandchild");
-  assert!(started.is_some(), "the grandchild runs when it is known");
-  wait_for_the_exits(&[(pid, started)], "the grandchild", &kill);
+  let tree = std::cell::RefCell::new(Tree::new());
+  let kill = kill_once_the_tree_runs(&dir, &tree);
+  wait_for_the_tree(&tree.into_inner(), &kill);
+}
+
+/// The kill of the tree of `child_with_a_tree` whose scans list what `change` makes of their lists, by the round and the
+/// tree known so far: each process exits, the kill settles, and a round after the first found `found_later`
+#[cfg(unix)]
+fn kill_with_scans_that_miss(change: impl Fn(usize, &Tree, &mut Option<Vec<crate::process_scan::Descendant>>) + 'static, found_later: &str) {
+  let dir = tempfile::tempdir().unwrap();
+  let tree = std::rc::Rc::new(std::cell::RefCell::new(Tree::new()));
+  let known = std::rc::Rc::clone(&tree);
+  crate::process_tree::seam::change_scans(move |round, listed| change(round, &known.borrow(), listed));
+  let kill = kill_once_the_tree_runs(&dir, &tree).expect("the kill of the tree");
+  let tree = tree.borrow().clone();
+  let (pid, _) = tree[found_later];
+  let round = kill.rounds.iter().position(|round| round.iter().any(|process| process.pid == pid));
+  assert!(round.is_some_and(|round| round > 0), "a later round found the {found_later}: {kill:?}");
+  assert!(kill.settled, "{kill:?}");
+  wait_for_the_tree(&tree, &Some(kill));
+}
+
+/// The scans of `round` 0 without `name` of `tree` (with its children too when `below`)
+#[cfg(unix)]
+fn without_in_round_0(round: usize, tree: &Tree, listed: &mut Option<Vec<crate::process_scan::Descendant>>, name: &str, below: bool) {
+  if let (0, Some(&(pid, _)), Some(listed)) = (round, tree.get(name), listed.as_mut()) {
+    listed.retain(|process| process.pid != pid && !(below && process.parent == pid));
+  }
 }
 
 /// A process that the scans of the first round miss (the seam of the tests hides the grandchild and its sleep) is
-/// killed in a later round: the child stays stopped until a round finds nothing below it, and the grandchild is below it
-/// still. Without the rounds the grandchild would outlive the kill, never stopped
+/// found by a later round: no process is killed before a round finds nothing new, and the grandchild is below the
+/// stopped child still. Without the rounds the grandchild would outlive the kill, never stopped
 #[cfg(unix)]
 #[test]
-fn a_process_the_first_round_misses_is_killed_in_a_later_round() {
-  let dir = tempfile::tempdir().unwrap();
-  let grandchild = std::rc::Rc::new(std::cell::Cell::new(None::<(u32, Option<u64>)>));
-  let hidden = std::rc::Rc::clone(&grandchild);
-  crate::process_tree::seam::hide_from_scans(move |round, found| {
-    if let (0, Some((pid, _))) = (round, hidden.get()) {
-      found.retain(|process| process.pid != pid && process.parent != pid);
-    }
-  });
-  let kill = kill_once_the_grandchild_runs(&dir, &grandchild).expect("the kill of the tree");
-  let (pid, started) = grandchild.get().expect("the grandchild");
-  let found = kill.rounds.iter().position(|round| round.iter().any(|process| process.pid == pid));
-  assert!(found.is_some_and(|round| round > 0), "a later round kills the grandchild: {kill:?}");
-  wait_for_the_exits(&[(pid, started)], "the grandchild", &Some(kill));
+fn a_process_the_first_round_misses_is_killed_after_a_later_round_finds_it() {
+  kill_with_scans_that_miss(|round, tree, listed| without_in_round_0(round, tree, listed, "grandchild", true), "grandchild");
+}
+
+/// The miss of the first round at a depth of two (the great-grandchild alone hidden: a hook's sh and its node, a
+/// fetch's `git-remote-https`): its parent, the grandchild, was found, and is killed only after a later round found the
+/// great-grandchild below it, so neither goes to launchd alive
+#[cfg(unix)]
+#[test]
+fn a_great_grandchild_the_first_round_misses_outlives_none_of_its_parents() {
+  kill_with_scans_that_miss(|round, tree, listed| without_in_round_0(round, tree, listed, "great-grandchild", false), "great-grandchild");
+}
+
+/// A first round whose scans find nothing at all confirms nothing: the kill goes on until a later round finds the tree,
+/// and one after it nothing new
+#[cfg(unix)]
+#[test]
+fn a_first_round_that_finds_nothing_confirms_nothing() {
+  kill_with_scans_that_miss(
+    |round, _, listed| {
+      if round == 0 {
+        *listed = Some(Vec::new());
+      }
+    },
+    "grandchild",
+  );
+}
+
+/// A round that finds something new confirms nothing either: the first round misses the grandchild and its sleep, the
+/// second finds the grandchild and misses its sleep, and only a third finds it, below the grandchild still stopped
+#[cfg(unix)]
+#[test]
+fn a_round_that_finds_something_new_confirms_nothing() {
+  kill_with_scans_that_miss(
+    |round, tree, listed| {
+      without_in_round_0(round, tree, listed, "grandchild", true);
+      if let (1, Some(&(pid, _)), Some(listed)) = (round, tree.get("great-grandchild"), listed.as_mut()) {
+        listed.retain(|process| process.pid != pid);
+      }
+    },
+    "great-grandchild",
+  );
+}
+
+/// A scan that reads no list (a churn of processes no read kept up with) is no empty scan: after a first round that
+/// missed the great-grandchild, a second one that reads no list confirms nothing, and a third finds it
+#[cfg(unix)]
+#[test]
+fn a_scan_that_reads_no_list_confirms_nothing() {
+  kill_with_scans_that_miss(
+    |round, tree, listed| {
+      without_in_round_0(round, tree, listed, "great-grandchild", false);
+      if round == 1 {
+        *listed = None;
+      }
+    },
+    "great-grandchild",
+  );
 }
 
 /// A child that starts a process every 10 ms while it is killed leaves none of them: what it forks while the kill scans

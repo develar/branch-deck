@@ -1,5 +1,5 @@
 use crate::process_scan::Descendant;
-use crate::process_tree::{kill_bottom_up, with_ancestors};
+use crate::process_tree::kill_bottom_up;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -62,14 +62,4 @@ fn a_process_that_does_not_exit_holds_the_kill_only_until_the_wait_gives_up() {
   let pids: Vec<u32> = order.iter().map(|(pid, _)| *pid).collect();
   assert_eq!(pids, [4, 5, 3, 2]);
   assert_eq!(waits, 11, "{order:?}");
-}
-
-/// A process that did not halt may still finish a fork: it and its ancestors stay for the next round, its children and
-/// the other branches are killed now
-#[test]
-fn a_process_that_did_not_halt_keeps_itself_and_its_ancestors_for_the_next_round() {
-  let mut kept: Vec<u32> = with_ancestors(&below(), &[(3, 0)]).into_iter().map(|(pid, _)| pid).collect();
-  kept.sort_unstable();
-  assert_eq!(kept, [2, 3]);
-  assert!(with_ancestors(&below(), &[(1, 0)]).is_empty(), "the root is no process below itself");
 }

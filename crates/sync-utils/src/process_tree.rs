@@ -11,27 +11,31 @@
 //! credential helper, alias or hook that git runs through its sh ended outside the job and outlived the kill. Git asks
 //! for no breakaway itself (`compat/mingw.c`); a program that does fails to start in the job.
 //!
-//! On Unix a kill takes the processes below the child by their parent pids (`process_scan::descendants`) in passes: it
-//! stops the child and each process a pass found (`SIGSTOP`: a stopped process forks no more), waits until each of
-//! their threads has stopped (`process_scan::halted`, up to `STOP_WAIT` in all: a thread in the middle of a fork
-//! finishes it first, and a load can delay that past the next scan), and scans again, until a pass finds nothing new (at
-//! most `MAX_PASSES`), then `SIGKILL`s them from the bottom up: a process only once each of its children has exited (a
-//! zombie, which its stopped parent keeps, or gone). The child is killed only once a round of such passes finds nothing
-//! below it, never the first round (at most `MAX_ROUNDS` rounds): the child stays stopped meanwhile, so whatever an
-//! earlier round missed (a
-//! process the scan did not list, the late child of one that did not halt within the wait) is still below it, a child
-//! of a process still there, and the next round finds it. A process that did not halt is not killed in its round, nor
-//! are its ancestors, so a fork it finishes later lands below a living parent; a kill whose rounds or waits ran out
-//! kills what is left without waiting and says so (`KillReport::settled`). So no stopped process outlives its parent: one
-//! that did would go to launchd or init alive, and on macOS the kernel then sent SIGHUP, as to an orphaned process
+//! On Unix a kill takes the processes below the child by their parent pids (`process_scan::descendants`, a list of
+//! the pids, parents and starts without the working directories and arguments of a full scan) in rounds, and kills
+//! nothing before two rounds in a row found the same processes, every one halted. A round stops the child and what the
+//! rounds before found again (`SIGSTOP`: a stopped process forks no more; another process may have continued one), then
+//! scans in passes: each pass stops what it found new and waits until each of its threads has stopped
+//! (`process_scan::halted`, up to `STOP_WAIT` in all: a thread in the middle of a fork finishes it first, and a load can
+//! delay that past the next scan), until a pass finds nothing new (at most `MAX_PASSES`). The first round never
+//! settles: the kill goes on until a later round finds nothing new, no process failed to halt (the child among them)
+//! and every scan read the list (at most `MAX_ROUNDS` rounds); then it `SIGKILL`s them all from the bottom up: a process
+//! only once each of its children has exited (a zombie, which its stopped parent keeps, or gone), and the children of
+//! the child before the caller kills the child. Until then every process found stays stopped and alive, so whatever a
+//! round missed, at any depth (a process the scan did not list, the late child of one that did not halt within the
+//! wait), is still below a process that is there, and the next round finds it; a kill whose rounds or waits ran out
+//! kills what it found without waiting and says so (`KillReport::settled`). So no stopped process outlives its parent:
+//! one that did would go to launchd or init alive, and on macOS the kernel then sent SIGHUP, as to an orphaned process
 //! group with a stopped member, to the whole process group that the child shares with this process, this process too
 //! (the kill of a child with 20 stopped children, on every run of the macOS runners of CI and in most runs of a launchd
-//! job here, never under a terminal). A process forked
-//! before its parent stopped is a child of a process still there, so the next pass finds it; the usual tree takes two
-//! scans of the process list, about 20 ms each. Each signal goes only to a process that still has the start time the
-//! scan read (`process_scan::stop`, `process_scan::kill`), so a pid that the system gave again in the meantime gets none.
-//! Not found, and left running: a process whose parent exited before the kill, which the system gave to launchd or init
-//! (a daemon that detached, the child of a helper that ended), and one that another user's process started.
+//! job here, never under a terminal). A process forked before its parent stopped is a child of a process still there,
+//! so the next pass finds it. The usual tree takes three scans of the process list (a child without children two),
+//! about 4 ms each at 650 processes (the full scan, with the working directories and arguments, 17 ms), and the waits
+//! for the exits. Each signal goes only to a
+//! process that still has the start time the scan read (`process_scan::stop`, `process_scan::kill`), so a pid that the
+//! system gave again in the meantime gets none. Not found, and left running: a process whose parent exited before the
+//! kill, which the system gave to launchd or init (a daemon that detached, the child of a helper that ended), one that
+//! another user's process started, and one the scans of two rounds in a row missed.
 //!
 //! No process group: a child stays in the foreground group of a terminal, so a login shell (`-i`) or the passphrase
 //! prompt of an ssh still reads it. On Linux `PR_SET_CHILD_SUBREAPER` would keep the orphans of a tree below this
@@ -45,8 +49,8 @@ use std::process::Child;
 #[cfg(unix)]
 const MAX_PASSES: usize = 8;
 
-/// The most rounds of one kill on Unix: a round kills what its passes found and halted, and the child is killed after a
-/// round that found nothing below it, never the first: a tree takes two rounds, a child without children two scans
+/// The most rounds of one kill on Unix: the kill goes on until a round after the first finds nothing new, every process
+/// halted; a tree takes two rounds
 #[cfg(unix)]
 const MAX_ROUNDS: usize = 8;
 
@@ -54,12 +58,12 @@ const MAX_ROUNDS: usize = 8;
 #[cfg(unix)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KillReport {
-  /// The processes below the child that each round killed, each after its parent, round by round: the last one is
-  /// empty for a settled kill
+  /// The processes below the child that each round found and no round before it, each after its parent, round by round:
+  /// the last one is empty for a settled kill. The kill takes them all at its end
   pub rounds: Vec<Vec<crate::process_scan::Descendant>>,
-  /// The kill made sure of the tree: its last round found nothing below the child, which had halted, and each process
-  /// halted before its kill and exited before its parent's. False when the rounds or the waits ran out: a process may
-  /// then outlive the kill
+  /// The kill made sure of the tree: a round after the first found nothing new, every scan read the list, every process
+  /// (the child too) halted, and each exited before its parent's kill. False when the rounds or the waits ran out: a
+  /// process may then outlive the kill
   pub settled: bool,
 }
 
@@ -132,35 +136,28 @@ impl ProcessTree {
   }
 }
 
-/// Kills the processes below `root` round by round (the module header), `root` stopped all along; the caller kills
-/// `root` itself
+/// Kills the processes below `root` once two rounds in a row found the same ones (the module header), `root` stopped all
+/// along; the caller kills `root` itself
 #[cfg(unix)]
 fn kill_tree(root: (u32, u64)) -> KillReport {
   let now = std::time::Instant::now();
   let (stop_deadline, exit_deadline) = (now + STOP_WAIT, now + EXIT_WAIT);
   let mut report = KillReport::default();
-  let mut waited = true;
+  let mut tree = Vec::new();
   for round in 0..MAX_ROUNDS {
-    let (below, not_halted) = stopped_tree(root, round, stop_deadline);
-    if below.is_empty() {
-      report.rounds.push(Vec::new());
-      // the first round's scans may have missed what is there: an empty round settles only after another one
-      if round > 0 {
-        report.settled = waited && not_halted.is_empty();
-        return report;
-      }
-      continue;
+    let found = stopped_round(root, round, &mut tree, stop_deadline);
+    // the first round's scans may have missed what is there: only a later one confirms what the rounds found
+    let confirms = round > 0 && found.confirms();
+    report.rounds.push(found.new);
+    if confirms {
+      report.settled = kill_bottom_up(root.0, &tree, crate::process_scan::exited, kill, || wait_until(exit_deadline));
+      return report;
     }
-    // a process that did not halt may still finish a fork: it and its ancestors stay for the next round
-    let kept = with_ancestors(&below, &not_halted);
-    let now_killed: Vec<crate::process_scan::Descendant> = below.into_iter().filter(|process| !kept.contains(&(process.pid, process.started))).collect();
-    waited &= kill_bottom_up(root.0, &now_killed, crate::process_scan::exited, kill, || wait_until(exit_deadline));
-    report.rounds.push(now_killed);
   }
-  // out of rounds: what is left is killed without waiting
-  let (left, _) = stopped_tree(root, MAX_ROUNDS, std::time::Instant::now());
-  kill_bottom_up(root.0, &left, crate::process_scan::exited, kill, || false);
-  report.rounds.push(left);
+  // out of rounds: what is there is killed without waiting
+  let last = stopped_round(root, MAX_ROUNDS, &mut tree, std::time::Instant::now());
+  report.rounds.push(last.new);
+  kill_bottom_up(root.0, &tree, crate::process_scan::exited, kill, || false);
   report
 }
 
@@ -177,22 +174,6 @@ fn wait_until(deadline: std::time::Instant) -> bool {
     std::thread::sleep(std::time::Duration::from_millis(1));
   }
   waits
-}
-
-/// The processes of `not_halted` that are in `below`, and their ancestors in it, by pid and start
-#[cfg(unix)]
-pub(crate) fn with_ancestors(below: &[crate::process_scan::Descendant], not_halted: &[(u32, u64)]) -> std::collections::HashSet<(u32, u64)> {
-  let mut kept = std::collections::HashSet::new();
-  for &(pid, started) in not_halted {
-    let mut current = below.iter().find(|process| process.pid == pid && process.started == started);
-    while let Some(process) = current {
-      if !kept.insert((process.pid, process.started)) {
-        break;
-      }
-      current = below.iter().find(|parent| parent.pid == process.parent);
-    }
-  }
-  kept
 }
 
 /// Kills each of `below` (each after its parent, as `process_scan::descendants` lists them) from the bottom up: a process
@@ -224,29 +205,60 @@ fn kill_bottom_up(
   waiting
 }
 
-/// The processes below `root` that have not exited, stopped, each after its parent: the root, then each pass of
-/// `process_scan::descendants` stops what it found, until a pass finds nothing new. A later pass finds only processes
-/// below those of the earlier ones, so the order holds across passes too. With them the processes, the root among them,
-/// that did not halt by `deadline`
+/// What one round of a kill found
 #[cfg(unix)]
-fn stopped_tree((pid, started): (u32, u64), round: usize, deadline: std::time::Instant) -> (Vec<crate::process_scan::Descendant>, Vec<(u32, u64)>) {
-  let mut not_halted = stop_all(&[(pid, started)], deadline);
-  let mut tree: Vec<crate::process_scan::Descendant> = Vec::new();
+struct Round {
+  /// The processes below the root that no round before found, stopped, each after its parent
+  new: Vec<crate::process_scan::Descendant>,
+  /// The processes, the root and those of the rounds before among them, that did not halt by the deadline
+  not_halted: Vec<(u32, u64)>,
+  /// A scan of the round could not read the list
+  unread: bool,
+}
+
+#[cfg(unix)]
+impl Round {
+  /// Whether the round confirms the tree the rounds before found: nothing new, every process halted, every scan read
+  const fn confirms(&self) -> bool {
+    self.new.is_empty() && self.not_halted.is_empty() && !self.unread
+  }
+}
+
+/// One round of a kill: the root and the processes of `tree` (what the rounds before found) stopped again, then each pass
+/// of `process_scan::descendants` stops what it found that has not exited and is not in `tree` yet, and adds it there,
+/// until a pass finds nothing new. A later pass finds only processes below those of the earlier ones, so `tree` keeps
+/// each process after its parent across passes and rounds
+#[cfg(unix)]
+fn stopped_round(root: (u32, u64), round: usize, tree: &mut Vec<crate::process_scan::Descendant>, deadline: std::time::Instant) -> Round {
+  let known: Vec<(u32, u64)> = std::iter::once(root).chain(tree.iter().map(|process| (process.pid, process.started))).collect();
+  let mut found_round = Round {
+    new: Vec::new(),
+    not_halted: stop_all(&known, deadline),
+    unread: false,
+  };
   for _ in 0..MAX_PASSES {
+    let mut listed = crate::process_scan::descendants(root.0, root.1);
+    seam::scanned(round, &mut listed);
+    let Some(listed) = listed else {
+      found_round.unread = true;
+      break;
+    };
     // a zombie, which a stopped parent keeps, is no process to kill: on Linux the scan lists it
-    let mut found: Vec<crate::process_scan::Descendant> = crate::process_scan::descendants(pid, started)
+    let found: Vec<crate::process_scan::Descendant> = listed
       .into_iter()
       .filter(|found| !tree.iter().any(|known| known.pid == found.pid && known.started == found.started))
       .filter(|found| !crate::process_scan::exited(found.pid, found.started))
       .collect();
-    seam::hide(round, &mut found);
     if found.is_empty() {
       break;
     }
-    not_halted.extend(stop_all(&found.iter().map(|process| (process.pid, process.started)).collect::<Vec<_>>(), deadline));
-    tree.extend(found);
+    found_round
+      .not_halted
+      .extend(stop_all(&found.iter().map(|process| (process.pid, process.started)).collect::<Vec<_>>(), deadline));
+    tree.extend(found.iter().copied());
+    found_round.new.extend(found);
   }
-  (tree, not_halted)
+  found_round
 }
 
 /// Stops each of `processes` and waits until each has halted or gone, or `deadline` passed; the ones that did not halt
@@ -259,7 +271,7 @@ fn stop_all(processes: &[(u32, u64)], deadline: std::time::Instant) -> Vec<(u32,
   for &(pid, started) in processes {
     while crate::process_scan::is_running(pid, Some(started)) && crate::process_scan::halted(pid) == Some(false) {
       if std::time::Instant::now() >= deadline {
-        tracing::warn!(pid, "a process of a killed tree did not stop in time: it stays for the next round of the kill");
+        tracing::warn!(pid, "a process of a killed tree did not stop in time: the kill goes on with another round");
         not_halted.push((pid, started));
         break;
       }
@@ -269,31 +281,32 @@ fn stop_all(processes: &[(u32, u64)], deadline: std::time::Instant) -> Vec<(u32,
   not_halted
 }
 
-/// The seam of the tests: a scan that misses some processes (a hook that only a test sets), and what the last kill of
-/// this thread did
+/// The seam of the tests: a scan that misses some processes or reads no list (a hook that only a test sets), and what
+/// the last kill of this thread did
 #[cfg(unix)]
 pub(crate) mod seam {
   use crate::process_scan::Descendant;
   use std::cell::RefCell;
 
-  type Hide = Box<dyn FnMut(usize, &mut Vec<Descendant>)>;
+  type Scanned = Box<dyn FnMut(usize, &mut Option<Vec<Descendant>>)>;
 
   thread_local! {
-    static HIDE: RefCell<Option<Hide>> = const { RefCell::new(None) };
+    static SCANNED: RefCell<Option<Scanned>> = const { RefCell::new(None) };
     #[cfg(test)]
     pub(crate) static LAST_KILL: RefCell<Option<super::KillReport>> = const { RefCell::new(None) };
   }
 
-  /// Every pass of the kills of this thread hands `hide` what it found, with its round, to leave some of it out
+  /// Every pass of the kills of this thread hands `change` what its scan listed (`None`: no list), with its round, to
+  /// leave some of it out or the list itself
   #[cfg(test)]
-  pub(crate) fn hide_from_scans(hide: impl FnMut(usize, &mut Vec<Descendant>) + 'static) {
-    HIDE.with(|cell| *cell.borrow_mut() = Some(Box::new(hide)));
+  pub(crate) fn change_scans(change: impl FnMut(usize, &mut Option<Vec<Descendant>>) + 'static) {
+    SCANNED.with(|cell| *cell.borrow_mut() = Some(Box::new(change)));
   }
 
-  pub(super) fn hide(round: usize, found: &mut Vec<Descendant>) {
-    HIDE.with(|cell| {
-      if let Some(hide) = cell.borrow_mut().as_mut() {
-        hide(round, found);
+  pub(super) fn scanned(round: usize, listed: &mut Option<Vec<Descendant>>) {
+    SCANNED.with(|cell| {
+      if let Some(change) = cell.borrow_mut().as_mut() {
+        change(round, listed);
       }
     });
   }

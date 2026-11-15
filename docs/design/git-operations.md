@@ -451,15 +451,19 @@ git running with its ssh or helper, its lock files and our inherited pipe handle
 MSYS runtime of Git for Windows asks to break away from a job that allows it for every program it starts, so an ssh
 command with an option, a credential helper or hook that git runs through its sh would end outside the job and outlive
 the kill. On Unix the kill takes the processes
-below git by their parent pids in passes: it stops git and what each pass found (`SIGSTOP`, so nothing forks more),
-waits until each of their threads has stopped (a thread in the middle of a fork finishes it first, while macOS calls the
-process stopped as the signal comes; at most 10 s in all) and scans again until a pass finds nothing new, then kills
-them from the bottom up, each process once its children have exited (zombies of their stopped parent). git is killed
-only after a round of such passes finds nothing below it, never the first round (at most 8 rounds; a git without
-children costs two scans): git stays stopped meanwhile, so what an earlier round missed is still below it and the next
-round finds it, and a process that did not halt within the wait is
-killed only in a later round, its ancestors with it, so a fork it finishes lands below a living parent. A kill whose
-rounds or waits ran out kills what is left without waiting and logs that a process may outlive it. So git dies last: a
+below git by their parent pids (a list of the pids, parents and starts, without the working directories and arguments
+of a full scan: about 4 ms at 650 processes, where the full scan takes 17 ms) in rounds, and kills nothing before two
+rounds in a row found the same processes, every one halted. A round stops git and what the rounds before found
+(`SIGSTOP`, so nothing forks more; again each round, as another process may have continued one), then scans in passes:
+each stops what it found new and waits until each of its threads has stopped (a thread in the middle of a fork
+finishes it first, while macOS calls the process stopped as the signal comes; at most 10 s in all), until a pass finds
+nothing new. The first round never settles; a later one that finds nothing new, in which every process halted (git
+too) and every scan read the list (a list no read kept up with is no empty scan), confirms the tree (at most 8 rounds),
+and then the kill takes it from the bottom up, each process once its children have exited (zombies of their stopped
+parent), git's children before the caller kills git. Until then every process found stays stopped and alive, so what a
+round missed, at any depth (a hook's sh and its node, a fetch's `git-remote-https`), is still below a process that is
+there, and the next round finds it. The usual tree takes three scans, a git without children two. A kill whose rounds
+or waits ran out kills what it found without waiting and logs that a process may outlive it. So git dies last: a
 stopped process that outlived its parent would go to launchd or init alive, and on macOS the exits of such processes
 made the kernel send SIGHUP to the process group that git shares with the caller, the caller too. The list of the
 processes is read whole: on macOS one that fills its buffer (a churn of processes between the count and the list) is
