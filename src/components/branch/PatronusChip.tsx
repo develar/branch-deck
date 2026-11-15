@@ -181,14 +181,6 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
         <dd className="break-words" data-testid="patronus-target">
           {robot.targetBranch}
         </dd>
-        {profileName !== null && (
-          <>
-            <dt className="text-muted-foreground">Profile</dt>
-            <dd className="break-words" data-testid="patronus-profile-name">
-              {profileName}
-            </dd>
-          </>
-        )}
         {robot.sourceRevision !== null && (
           <>
             <dt className="text-muted-foreground">Commit</dt>
@@ -212,23 +204,6 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
             <dd className="text-muted-foreground">{formatTimestamp(robot.finishTime)}</dd>
           </>
         )}
-        {/* the CI may tell nothing of it yet: no empty row */}
-        {progress !== null && (
-          <>
-            <dt className="text-muted-foreground">Progress</dt>
-            <dd className="break-words tabular-nums" data-testid="patronus-progress">
-              {progress}
-            </dd>
-          </>
-        )}
-        {details?.checks != null && (
-          <>
-            <dt className="text-muted-foreground">Checks</dt>
-            <dd className={cn("break-words", details.checks.failed > 0 && "text-destructive")} data-testid="patronus-checks">
-              {formatCheckCounts(details.checks)}
-            </dd>
-          </>
-        )}
         {robot.cancellationReason !== null && (
           <>
             <dt className="text-muted-foreground">Reason</dt>
@@ -240,24 +215,6 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
       </dl>
 
       <ReviewCommitNotice text={notice} outdated={chip.outdated} testId="patronus" />
-
-      {details !== null && details.problems.length > 0 && (
-        <ul className="flex flex-col gap-1 text-xs text-destructive" data-testid="patronus-problems">
-          {details.problems.map(problem => (
-            <li key={problem.title} className="flex items-start gap-1.5">
-              <CircleXIcon className="mt-px size-3.5 shrink-0" />
-              {problem.title}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* why it failed is still to come or Patronus didn't give it: the restart and the prompts wait, and say why here */}
-      {problemsUnknown !== null && (
-        <p className={cn("text-xs", problemsUnknown === formatPendingFact("robotProblems") ? "text-muted-foreground" : "text-warning")} data-testid="patronus-problems-unknown">
-          {problemsUnknown}
-        </p>
-      )}
 
       {needsReview && (
         <p className="text-xs text-warning" data-testid="patronus-needs-review">
@@ -273,15 +230,75 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
         </p>
       )}
 
-      <RobotActionRows
-        actions={actions}
-        // the form is below the row: an open branch preview closes first (`SafePushButton`)
-        leading={
-          needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && stackRoot === undefined ? (
-            <SafePushButton branch={branch} variant="outline" fixedEdge="start" />
-          ) : null
-        }
-      />
+      {/*
+        what the details of the robot tell comes a frame or more after the card opened, when the session read them: on
+        the side of the actions away from the edge the card hangs by, below them in a card under its chip, above them in
+        one over it (`data-side` of the popup), so their coming moves no action under the pointer (Safe Push moved 28 px)
+      */}
+      <div className="flex flex-col gap-3 in-data-[side=top]:flex-col-reverse">
+        <RobotActionRows
+          actions={actions}
+          // the form is below the row: an open branch preview closes first (`SafePushButton`)
+          leading={
+            needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && stackRoot === undefined ? (
+              <SafePushButton branch={branch} variant="outline" fixedEdge="start" />
+            ) : null
+          }
+        />
+        {(profileName !== null || progress !== null || details?.checks != null || (details !== null && details.problems.length > 0) || problemsUnknown !== null) && (
+          <div className="flex flex-col gap-3" data-testid="patronus-late-details">
+            {(profileName !== null || progress !== null || details?.checks != null) && (
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+                {profileName !== null && (
+                  <>
+                    <dt className="text-muted-foreground">Profile</dt>
+                    <dd className="break-words" data-testid="patronus-profile-name">
+                      {profileName}
+                    </dd>
+                  </>
+                )}
+                {/* the CI may tell nothing of it yet: no empty row */}
+                {progress !== null && (
+                  <>
+                    <dt className="text-muted-foreground">Progress</dt>
+                    <dd className="break-words tabular-nums" data-testid="patronus-progress">
+                      {progress}
+                    </dd>
+                  </>
+                )}
+                {details?.checks != null && (
+                  <>
+                    <dt className="text-muted-foreground">Checks</dt>
+                    <dd className={cn("break-words", details.checks.failed > 0 && "text-destructive")} data-testid="patronus-checks">
+                      {formatCheckCounts(details.checks)}
+                    </dd>
+                  </>
+                )}
+              </dl>
+            )}
+            {details !== null && details.problems.length > 0 && (
+              <ul className="flex flex-col gap-1 text-xs text-destructive" data-testid="patronus-problems">
+                {details.problems.map(problem => (
+                  <li key={problem.title} className="flex items-start gap-1.5">
+                    <CircleXIcon className="mt-px size-3.5 shrink-0" />
+                    {problem.title}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* why it failed is still to come or Patronus didn't give it: the restart and the prompts wait, and say why here */}
+            {problemsUnknown !== null && (
+              <p
+                className={cn("text-xs", problemsUnknown === formatPendingFact("robotProblems") ? "text-muted-foreground" : "text-warning")}
+                data-testid="patronus-problems-unknown"
+              >
+                {problemsUnknown}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
