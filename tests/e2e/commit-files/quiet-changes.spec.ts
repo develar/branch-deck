@@ -572,8 +572,13 @@ test.describe("The marks of a diff in the review window", () => {
       const diffs = code.locator("[aria-label='Changes of the commit']")
       const wrap = window.getByRole("treeitem", { name: "Wrap.kt" })
 
-      // no note in view, Alpha.kt at the top: the key opens nothing, as the notes say once Wrap.kt is shown
+      // no note in view, Alpha.kt at the top: the key opens nothing, as the notes say once Wrap.kt is shown. The diffs of a
+      // file come one by one: until those of Alpha.kt came, Wrap.kt stood right below its header, its notes in view, and
+      // H opened them. So H waits until the rows of Alpha.kt took Wrap.kt below the view
       await expect(code.getByTestId("review-file-header").filter({ hasText: "Alpha.kt" })).toBeInViewport()
+      const wrapHeader = code.getByTestId("review-file-header").filter({ hasText: "Wrap.kt" })
+      await expect(wrapHeader).toBeAttached()
+      await expect(wrapHeader).not.toBeInViewport()
       await diffs.focus()
       await page.keyboard.press("h")
       await wrap.click()
