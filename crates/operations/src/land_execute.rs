@@ -726,6 +726,8 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     }
     Reason::TargetConflict { .. } => ErrorCode::TargetConflict,
     Reason::Draft { .. } | Reason::Unprotected { .. } | Reason::ProfileOnComment { .. } => ErrorCode::PatronusRefused,
+    // the view a creation was asked on was older than the listing that has it: read again, Open Pull Request shows it
+    Reason::PullRequestOpen { .. } => ErrorCode::PlanChanged,
     Reason::NeedsPush { .. } => ErrorCode::NeedsPush,
     Reason::NoReviewer { .. } => ErrorCode::NoReviewer,
     Reason::OtherBase { .. } => ErrorCode::PullRequestOtherBase,

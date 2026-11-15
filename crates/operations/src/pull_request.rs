@@ -412,7 +412,19 @@ fn planned(intent: Intent, subject: &Subject, first: PushStep<'_>, mut effects: 
 #[must_use]
 pub fn create_planned(facts: &PullRequestFacts<'_, '_>, create: &CreatePullRequest) -> Option<Planned> {
   let first = push_step(facts, &create.subject)?;
-  let blockers: Vec<Reason> = first.blocker.iter().cloned().collect();
+  let mut blockers: Vec<Reason> = first.blocker.iter().cloned().collect();
+  // never a second pull request of a branch that has one, as the menus offer Open Pull Request in its place: GitHub
+  // would refuse it (422) after the push. One merged into the target landed it; one merged into a parent's branch lets
+  // a new one repeat it
+  if let Subject::Branch { name } = &create.subject
+    && let Some(listed) = facts.sources.pull_requests.pull_requests.get(name)
+  {
+    match listed.state {
+      PullRequestState::Open => blockers.insert(0, Reason::PullRequestOpen { number: listed.number }),
+      PullRequestState::Merged if listed.base_ref_name == facts.sources.target => blockers.insert(0, Reason::PullRequestMerged { number: listed.number }),
+      PullRequestState::Merged | PullRequestState::Closed => {}
+    }
+  }
   let pushes = !first.pushes.is_empty();
   let sources = facts.sources;
   let layer = match &create.subject {

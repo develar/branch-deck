@@ -1679,6 +1679,7 @@ impl Told<'_> {
       // routes into master, never of a Safe Push
       Reason::Draft { .. }
       | Reason::ProfileOnComment { .. }
+      | Reason::PullRequestOpen { .. }
       | Reason::Unprotected { .. }
       | Reason::NeedsPush { .. }
       | Reason::NoReviewer { .. }

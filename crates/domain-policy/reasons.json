@@ -202,6 +202,10 @@
     "number": 7
   },
   {
+    "code": "pullRequestOpen",
+    "number": 7
+  },
+  {
     "code": "otherBase",
     "number": 7,
     "base": "release/253",

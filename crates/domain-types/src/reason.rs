@@ -174,6 +174,9 @@ pub enum Reason {
   /// The user chose a merge profile for a Safe Push that the open pull request `number` starts by its `/patronus`
   /// comment, which takes no profile and runs the default checks: the profile would be dropped without a word
   ProfileOnComment { number: u32 },
+  /// The subject has the open pull request `number` already: a creation of another one fails on GitHub (422), Open Pull
+  /// Request shows it
+  PullRequestOpen { number: u32 },
 }
 
 impl Reason {
@@ -234,7 +237,8 @@ impl Reason {
       | Self::MergedIntoBranch { .. }
       | Self::KeptLandsNothing { .. }
       | Self::KeptCheckedOut { .. }
-      | Self::ProfileOnComment { .. } => None,
+      | Self::ProfileOnComment { .. }
+      | Self::PullRequestOpen { .. } => None,
     }
   }
 }

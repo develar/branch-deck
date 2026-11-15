@@ -10,7 +10,7 @@ use domain_types::fixtures::{grouped_branch, missing_approvals, pull_request, st
 use domain_types::landing::{PlannedEffect, Subject};
 use domain_types::operation::{Admission, CreatePullRequest, EffectStatus, Fingerprint, Intent, OperationId, OperationResult, Plan, PullRequestField, Resource, RunningMove};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch};
-use domain_types::pull_request::PullRequest;
+use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{PatronusView, RestartAction};
 use domain_types::session::{Fact, FactState, GitHubLayer, SubjectReadiness};
@@ -98,7 +98,7 @@ fn the_creation_of_a_layer_opens_the_layers_below_it_its_own_into_its_parent_and
 /// A creation of a branch its remote lags pushes it first, on the tips it was planned on, then opens the pull request;
 /// with "Continue on GitHub" it waits for GitHub to have the branch instead, and without a push it has nothing to wait
 /// for. A push that can't be made for the user refuses it; a pull request of what it pushes into a virtual branch goes
-/// into the target first (D3a)
+/// into the target first (D3a); a branch that has an open or a merged pull request is refused a second one
 #[test]
 fn a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request() {
   let lagging = sources(false);
@@ -153,6 +153,24 @@ fn a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request() {
     })
   );
   assert!(retargeted.witness.pull_requests.contains_key(&7), "the pull request it retargets is of its witness");
+  // never a second pull request of a branch that has one, as the menus offer Open Pull Request in its place: an open one
+  // refuses it before the push, one merged into the target too; one merged into a parent's branch, and a closed one,
+  // leave the way to a new one
+  assert_eq!(retargeted.plan.blockers, [Reason::PullRequestOpen { number: 7 }]);
+  for (state, base, blockers) in [
+    (PullRequestState::Merged, "master", vec![Reason::PullRequestMerged { number: 7 }]),
+    (PullRequestState::Merged, "user/virtual/base", Vec::new()),
+    (PullRequestState::Closed, "master", Vec::new()),
+  ] {
+    let mut listed = sources(false);
+    let pull_request = PullRequest {
+      state,
+      base_ref_name: base.to_owned(),
+      ..pull_request("auth", 7)
+    };
+    listed.pull_requests.pull_requests.insert("auth".to_owned(), pull_request);
+    assert_eq!(created(&listed, pushes(&["auth"], None), &create(false)).plan.blockers, blockers, "{state:?} into {base}");
+  }
 }
 
 /// The sources of the whole stack of auth (side on it): its stack branch built, on the remote behind its build; side has

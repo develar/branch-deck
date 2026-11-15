@@ -7085,7 +7085,12 @@ export type Reason =
  *  The user chose a merge profile for a Safe Push that the open pull request `number` starts by its `/patronus`
  *  comment, which takes no profile and runs the default checks: the profile would be dropped without a word
  */
-{ code: "profileOnComment"; number: number };
+{ code: "profileOnComment"; number: number } | 
+/**
+ *  The subject has the open pull request `number` already: a creation of another one fails on GitHub (422), Open Pull
+ *  Request shows it
+ */
+{ code: "pullRequestOpen"; number: number };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";

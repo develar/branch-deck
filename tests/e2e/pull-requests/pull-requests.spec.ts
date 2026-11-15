@@ -431,6 +431,27 @@ test.describe("Pull request chip", () => {
     expect(await getOpenedUrls(page)).toEqual([pullRequest("feature-auth", 905).url])
   })
 
+  test("should refuse in the backend a second pull request of a branch that has an open one, before any push", async ({ page, repo }) => {
+    // the menu offers Open Pull Request #760 in the place of Create Pull Request…
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Open Pull Request #760" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expectClosed(page.getByRole("menu"))
+
+    // a window of a state before, or another client, creates one anyway: the backend refuses it as the menu does, before
+    // a push and before GitHub would refuse it (422)
+    const intent = { kind: "createPullRequest", subject: { kind: "branch", name: "JIRA-456" }, title: "Again", body: "", assignSelf: false, reviewers: [], onGitHub: false }
+    const plan = (await repo.invoke("prepare", { repositoryPath: repo.path, intent })) as { fingerprint: string; blockers: unknown[] }
+    expect(plan.blockers).toEqual([{ code: "pullRequestOpen", number: 760 }])
+    expect(await repo.invoke("execute", { repositoryPath: repo.path, intent, fingerprint: plan.fingerprint, accepted: [] })).toEqual({
+      status: "error",
+      error: expect.objectContaining({ code: "plan_changed", message: "Nothing was pushed or created: JIRA-456 has the open pull request #760: Open Pull Request shows it" }),
+    })
+    expect(await gitHubRequests(repo, "POST", "pulls")).toEqual([])
+    expect(await remotePushes(repo)).toEqual([])
+  })
+
   test("should open the pull request of a pushed branch from the push toast", async ({ page }) => {
     await getPushButton(findBranchRow(page, "JIRA-456")).click()
     const toast = pushedToast(page, "JIRA-456")

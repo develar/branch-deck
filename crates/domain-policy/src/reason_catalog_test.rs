@@ -69,10 +69,11 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::KeptCheckedOut { .. } => 52,
     Reason::MergedIntoBranch { .. } => 53,
     Reason::ProfileOnComment { .. } => 54,
+    Reason::PullRequestOpen { .. } => 55,
   }
 }
 
-const CODES: usize = 55;
+const CODES: usize = 56;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -200,6 +201,7 @@ fn examples() -> Vec<Reason> {
     },
     Reason::Draft { number: 7 },
     Reason::ProfileOnComment { number: 7 },
+    Reason::PullRequestOpen { number: 7 },
     Reason::OtherBase {
       number: 7,
       base: s("release/253"),

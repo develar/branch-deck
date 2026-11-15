@@ -139,6 +139,7 @@ const words = {
   parked: ({ with: parent, note }) => formatParkedBlocker({ with: parent, note }),
   landedIn: ({ upstream }) => `Landed in ${upstream}`,
   pullRequestMerged: ({ number }) => `Pull request #${number} is merged`,
+  pullRequestOpen: ({ number }) => `Pull request #${number} is open: Open Pull Request shows it`,
   needsPush: ({ branch }) => `${branch} has commits the remote lacks: the review request pushes them first`,
   noReviewer: ({ groups }) => `Patronus names no code owner with a GitHub login of ${joinNames(groups)}: choose the reviewers`,
   unprotected: ({ target }) => `Patronus does not push into ${target}`,
