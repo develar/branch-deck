@@ -341,6 +341,39 @@ pub(crate) fn own_processes(processes: &[ProcessInfo], pid: u32) -> HashSet<u32>
   own
 }
 
+/// A moment in the unit of `process_started` (`now`), with the units in one second (`per_second`): a start compared
+/// with it carries no rounding of a conversion to the wall clock, where `started_at` of Linux adds the clock ticks to
+/// `btime`, the boot in whole seconds, and so tells every start of a boot early by the fraction of its second
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartClock {
+  pub now: u64,
+  pub per_second: u64,
+}
+
+/// Now in the unit of `process_started`: the microseconds since the epoch on macOS, the clock ticks since the boot of
+/// `/proc/uptime` on Linux; `None` elsewhere, and where the system won't tell it
+pub fn start_clock() -> Option<StartClock> {
+  scan::start_clock()
+}
+
+/// The clock ticks since the boot of the text of `/proc/uptime`, whose first field is the seconds since the boot with
+/// their decimals; `ticks` is the clock ticks in a second
+#[cfg_attr(
+  not(any(target_os = "linux", test)),
+  expect(dead_code, reason = "only Linux reads /proc/uptime; the tests read the text everywhere")
+)]
+fn uptime_ticks(uptime: &str, ticks: u64) -> Option<u64> {
+  let seconds = uptime.split_whitespace().next()?;
+  let (whole, fraction) = seconds.split_once('.').unwrap_or((seconds, ""));
+  let mut from_fraction = 0;
+  let mut scale = 1;
+  for digit in fraction.chars().take(9) {
+    from_fraction = from_fraction * 10 + u64::from(digit.to_digit(10)?);
+    scale *= 10;
+  }
+  whole.parse::<u64>().ok()?.checked_mul(ticks)?.checked_add(from_fraction * ticks / scale)
+}
+
 /// When the process `pid` started, in a unit of the platform (microseconds on macOS, clock ticks since boot on Linux,
 /// 100 ns since 1601 on Windows), so a pid that the system gave to another process since tells apart; `None` when
 /// unknown (a gone process, one that exited, one the system won't describe to this process)
@@ -509,6 +542,11 @@ mod unscanned {
   pub(super) fn processes_with_open_file(_path: &std::path::Path) -> Option<Vec<u32>> {
     None
   }
+
+  /// No signals here, so no moment to compare a start with
+  pub(super) const fn start_clock() -> Option<super::StartClock> {
+    None
+  }
 }
 
 /// Whether the system tells this process not even its own start: a sandbox denies the process info
@@ -646,6 +684,15 @@ mod platform {
   /// `started` is microseconds since the epoch (`start_time`)
   pub(super) fn started_at(started: u64) -> Option<std::time::SystemTime> {
     std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_micros(started))
+  }
+
+  /// Now in microseconds since the epoch, the unit of `start_time`
+  pub(super) fn start_clock() -> Option<super::StartClock> {
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(super::StartClock {
+      now: u64::try_from(since.as_micros()).ok()?,
+      per_second: 1_000_000,
+    })
   }
 
   /// `struct proc_fileinfo` of `sys/proc_info.h`, which libc lacks
@@ -925,6 +972,17 @@ mod platform {
     let ticks = clock_ticks()?;
     let since_boot = std::time::Duration::from_secs(started / ticks) + std::time::Duration::from_nanos((started % ticks) * 1_000_000_000 / ticks);
     std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_secs(boot))?.checked_add(since_boot)
+  }
+
+  /// Now in clock ticks since the boot, the unit of `starttime` of `/proc/<pid>/stat`: the first field of `/proc/uptime`,
+  /// both on the clock of the boot with the time of a suspend, and neither rounded to the second of `btime`
+  pub(super) fn start_clock() -> Option<super::StartClock> {
+    let ticks = clock_ticks()?;
+    let uptime = std::fs::read_to_string("/proc/uptime").ok()?;
+    Some(super::StartClock {
+      now: super::uptime_ticks(&uptime, ticks)?,
+      per_second: ticks,
+    })
   }
 
   /// `sysconf(_SC_CLK_TCK)`: the clock ticks per second of `/proc/<pid>/stat`

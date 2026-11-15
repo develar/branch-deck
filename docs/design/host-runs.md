@@ -229,8 +229,10 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
    itself, or at the SIGKILL of 120 s: 9 of 300 runs of the cancel test took 62 s under load, the `sleep 60` that the
    shell started as the cancel came. A second SIGINT to the whole group would force a tool that cleans up on the first
    one (Playwright stops at once on a second), and SIGTERM ends a shell before its trap; only a process that started as
-   the SIGINT came can have missed it. A process that a trap started in that second and that
-   still runs gets the SIGINT too.
+   the SIGINT came can have missed it. A process that a trap started in that second and that still runs gets the
+   SIGINT too. The starts compare in the unit of the platform (`process_scan::start_clock`: clock ticks since the boot
+   on Linux), not on the wall clock, where Linux adds the ticks to `btime`, the boot in whole seconds, and would tell a
+   process forked just before the SIGINT up to a second early.
 
 ## Alternatives Considered
 

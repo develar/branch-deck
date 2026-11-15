@@ -76,7 +76,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use sync_utils::child_process::{child_niceness, own_niceness, set_niceness, windowless_command};
 use sync_utils::fs_retry;
-use sync_utils::process_scan::{ProcessInfo, ProcessScan, interrupt};
+use sync_utils::process_scan::{ProcessInfo, ProcessScan, StartClock, interrupt, start_clock};
 use sync_utils::span::in_current_span;
 
 /// How long a run waits for a host slot
@@ -739,7 +739,7 @@ fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>,
       sys::signal_group(group, libc::SIGINT);
       interrupted = Some(Interrupted {
         at: Instant::now(),
-        wall: SystemTime::now(),
+        clock: start_clock(),
         repeated: false,
       });
     }
@@ -748,7 +748,9 @@ fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>,
       && interrupt.at.elapsed() >= repeat
     {
       interrupt.repeated = true;
-      interrupt_newcomers(group, interrupt.wall, log);
+      if let Some(clock) = interrupt.clock {
+        interrupt_newcomers(group, clock, log);
+      }
     }
     if interrupted.as_ref().is_some_and(|interrupt| interrupt.at.elapsed() >= grace) {
       log.line(Stream::Stderr, &format!("{SAY}the command did not end {} ms after SIGINT; SIGKILL", grace.as_millis()));
@@ -781,20 +783,16 @@ fn wait_up_to(child: &mut Child, deadline: Duration) -> Option<ExitStatus> {
   None
 }
 
-/// Ends the processes that the command left in its group: SIGTERM, then SIGKILL after [`tuning::group_term_wait`]. A
-/// group that empties within [`tuning::group_settle`] counts as empty: the system can need a moment to remove an ended process
 /// The SIGINT of a cancel to the command group
 struct Interrupted {
   at: Instant,
-  /// When it was sent, to compare with the start of a process
-  wall: SystemTime,
+  /// When it was sent, in the unit of the start of a process (`StartClock`), so the start of a process compares with it
+  /// without the rounding of the wall clock of a start on Linux; `None` where the system won't tell it: then no process
+  /// gets the SIGINT again
+  clock: Option<StartClock>,
   /// The processes that started as it came got it again (`interrupt_newcomers`)
   repeated: bool,
 }
-
-/// How long before the SIGINT of a cancel a process of the group counts as one that started as it came: a shell forks
-/// its next command after a fork that it began before the signal, and its start is told to the second on Linux
-const NEWCOMER_SLACK: Duration = Duration::from_secs(1);
 
 /// Sends SIGINT again to each process of the command group `group` that started as or after the SIGINT of a cancel at
 /// `since`, but the command itself. A shell (`sh -c 'trap … INT; a; b'`) that gets the SIGINT between two commands
@@ -803,7 +801,7 @@ const NEWCOMER_SLACK: Duration = Duration::from_secs(1);
 /// at the SIGKILL of the grace time. Each such process gets one SIGINT, so it ends, and the shell runs its trap; a
 /// process that started a second or more before the SIGINT got it, and gets none again. A process that a trap started
 /// in the second after the SIGINT and that still runs gets one too. The line of the log names each
-fn interrupt_newcomers(group: u32, since: SystemTime, log: &EventLog) {
+fn interrupt_newcomers(group: u32, since: StartClock, log: &EventLog) {
   let ProcessScan::Done { processes, .. } = ProcessScan::scan() else {
     return;
   };
@@ -820,22 +818,25 @@ fn interrupt_newcomers(group: u32, since: SystemTime, log: &EventLog) {
   }
 }
 
-/// The processes of the command group `group` that started `NEWCOMER_SLACK` before `since` or later, but its leader,
-/// the command itself
-fn newcomers(processes: &[ProcessInfo], group: u32, since: SystemTime) -> Vec<&ProcessInfo> {
+/// The processes of the command group `group` that started a second before `since` or later, but its leader, the
+/// command itself
+fn newcomers(processes: &[ProcessInfo], group: u32, since: StartClock) -> Vec<&ProcessInfo> {
   processes
     .iter()
-    .filter(|process| is_newcomer(process.pid, process.group, process.started_at(), group, since))
+    .filter(|process| is_newcomer(process.pid, process.group, process.started, group, since))
     .collect()
 }
 
-/// Whether the process `pid` of the group `of_group`, started at `started`, is a process of the command group `group`
-/// that started `NEWCOMER_SLACK` before `since` or later, and not its leader
-fn is_newcomer(pid: u32, of_group: u32, started: Option<SystemTime>, group: u32, since: SystemTime) -> bool {
-  let from = since.checked_sub(NEWCOMER_SLACK).unwrap_or(since);
+/// Whether the process `pid` of the group `of_group`, started at `started` (the unit of `since`), is a process of the
+/// command group `group` that started a second before `since` or later, and not its leader. A second: a shell forks its
+/// next command after a fork that it began before the signal
+fn is_newcomer(pid: u32, of_group: u32, started: Option<u64>, group: u32, since: StartClock) -> bool {
+  let from = since.now.saturating_sub(since.per_second);
   of_group == group && pid != group && started.is_some_and(|started| started >= from)
 }
 
+/// Ends the processes that the command left in its group: SIGTERM, then SIGKILL after [`tuning::group_term_wait`]. A
+/// group that empties within [`tuning::group_settle`] counts as empty: the system can need a moment to remove an ended process
 fn end_group(group: u32, log: &EventLog) {
   if settle(group) {
     return;

@@ -1,4 +1,4 @@
-use crate::process_scan::{ProcessScan, host_name, is_running, process_started};
+use crate::process_scan::{ProcessScan, host_name, is_running, process_started, start_clock, uptime_ticks};
 
 /// A child that sleeps in a directory in a process group of its own is inside it; this process, the parent of the
 /// child, never is, and neither is a child in its group (the other commands of a pipeline that runs `bd`)
@@ -340,4 +340,33 @@ fn a_process_is_halted_once_it_stopped_and_never_while_it_runs() {
 fn the_host_of_this_process_has_a_name() {
   assert_ne!(host_name(), "");
   assert_eq!(host_name(), host_name());
+}
+
+/// The first field of `/proc/uptime` in clock ticks, whatever its decimals
+#[test]
+fn the_uptime_reads_in_clock_ticks() {
+  assert_eq!(uptime_ticks("50.05 1234.56\n", 100), Some(5005));
+  assert_eq!(uptime_ticks("12345.6 1.0", 100), Some(1_234_560));
+  assert_eq!(uptime_ticks("7 0", 250), Some(1750));
+  assert_eq!(uptime_ticks("0.999 0", 1000), Some(999));
+  assert_eq!(uptime_ticks("x 0", 100), None);
+  assert_eq!(uptime_ticks("", 100), None);
+}
+
+/// A process that starts after a reading of the start clock has a start of that reading or later, in the unit of
+/// `process_started`: the clock carries no rounding of the boot to its second, which `started_at` of Linux has. No
+/// clock where the system tells no start to compare
+#[test]
+fn a_process_started_after_a_reading_of_the_start_clock_starts_at_it_or_later() {
+  if cfg!(any(target_os = "macos", target_os = "linux")) {
+    let clock = start_clock().expect("the start clock");
+    let mut child = crate::child_process::windowless_command("true").spawn().expect("a child");
+    let started = process_started(child.id());
+    child.wait().expect("the child ended");
+    let started = started.expect("the start of the child");
+    assert!(started >= clock.now, "{started} < {clock:?}");
+    assert!(clock.per_second > 0, "{clock:?}");
+  } else {
+    assert_eq!(start_clock(), None);
+  }
 }
