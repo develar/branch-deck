@@ -228,6 +228,10 @@ pub enum ProcessScan {
 }
 
 impl ProcessScan {
+  /// Whether the system of this build lists the processes and their working directories (`scan` gives `Done`): what an
+  /// answer tells when it needed no scan
+  pub const SUPPORTED: bool = cfg!(any(target_os = "macos", target_os = "linux"));
+
   /// Read every process now
   pub fn scan() -> Self {
     match platform::processes() {

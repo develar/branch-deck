@@ -18,8 +18,8 @@ use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParam
 use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
 use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleCheck, IdleLease, IdleSkip, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseGot, LeaseHome, LeaseReclaimParams,
-  LeaseRefusal, LeaseReturnParams, Pool, Reclaimed, SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_reclaim_core,
-  lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
+  LeaseRefusal, LeaseReturnParams, Pool, Reclaimed, ReclaimedLease, SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core,
+  lease_reclaim_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age};
 use lease_pool::lease_notes::read_notes;
@@ -295,6 +295,10 @@ pub struct LeaseGetOutput {
   /// none
   #[serde(skip_serializing_if = "Option::is_none")]
   pub waited_for_clone_ms: Option<u64>,
+  /// The free space was below the minimum: the idle leases of the pools of this machine whose work landed, which the
+  /// get returned before the trim, as `brd lease reclaim --idle` prints them; their slots are free
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub reclaimed: Vec<ReclaimedLeaseOutput>,
   /// The free space was below the minimum: the free slots past `branchdeck.leaseMaxSlots` of every pool of this machine
   /// and the Bazel output bases that the get deleted first (`brd lease trim`)
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -775,6 +779,7 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
     idle_leases: idle_output(&got.idle),
     processes_checked: got.process_scan,
     waited_for_clone_ms: got.waited_for_clone.map(|waited| u64::try_from(waited.as_millis()).unwrap_or(u64::MAX)),
+    reclaimed: reclaimed_output(&got.reclaimed),
     trimmed: got.trimmed.as_ref().map(crate::trim_command::TrimmedOutput::of),
     shrunk: got.shrunk.as_ref().map(crate::trim_command::ShrunkOutput::of),
     evicted: got.evicted.as_ref().map(crate::trim_command::TrimmedOutput::of),
@@ -1306,12 +1311,32 @@ pub enum SkippedIdleReason {
   Failed,
 }
 
+/// The idle leases a reclaim returned, as `brd lease reclaim` and a get below the minimum free space print them
+fn reclaimed_output(reclaimed: &[ReclaimedLease]) -> Vec<ReclaimedLeaseOutput> {
+  reclaimed
+    .iter()
+    .map(|reclaimed| ReclaimedLeaseOutput {
+      path: reclaimed.path.clone(),
+      holder: reclaimed.lease.holder.clone(),
+      lease_id: reclaimed.lease.id.clone(),
+      branch: reclaimed.lease.branch.clone(),
+      landed: landed_output(&reclaimed.landed),
+      stopped_servers: stopped_output(&reclaimed.stopped_servers),
+      cleaned: cleaned_output(&reclaimed.cleaned),
+      trash_left: reclaimed.trash_left.clone(),
+    })
+    .collect()
+}
+
 /// `context` is of a checkout of the repository: its config and its clean rules
 pub fn lease_reclaim(context: &LeaseContext, args: &LeaseReclaimArgs) -> Result<LeaseReclaimOutput, CliError> {
   let params = LeaseReclaimParams {
-    repository: &context.dirs,
+    git_common_dir: Path::new(&context.dirs.git_common_dir),
     apply: !args.dry_run,
     clean: args.overrides.overrides()?,
+    reuse_checks: false,
+    volume: None,
+    full_checks: None,
     server_timeout: context.server_stop_timeout,
     bazel: None,
     lock_timeout: context.lock_timeout,
@@ -1321,20 +1346,7 @@ pub fn lease_reclaim(context: &LeaseContext, args: &LeaseReclaimArgs) -> Result<
     schema: SchemaVersion,
     repository: context.dirs.top_level.clone(),
     dry_run: args.dry_run,
-    reclaimed: reclaimed
-      .reclaimed
-      .iter()
-      .map(|reclaimed| ReclaimedLeaseOutput {
-        path: reclaimed.path.clone(),
-        holder: reclaimed.lease.holder.clone(),
-        lease_id: reclaimed.lease.id.clone(),
-        branch: reclaimed.lease.branch.clone(),
-        landed: landed_output(&reclaimed.landed),
-        stopped_servers: stopped_output(&reclaimed.stopped_servers),
-        cleaned: cleaned_output(&reclaimed.cleaned),
-        trash_left: reclaimed.trash_left.clone(),
-      })
-      .collect(),
+    reclaimed: reclaimed_output(&reclaimed.reclaimed),
     kept: reclaimed
       .kept
       .iter()

@@ -1594,9 +1594,10 @@ pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, pro
 }
 
 /// The minimum free space of the volume of the pool, kept by the keeper of the host slots: below
-/// `branchdeck.leaseMinFree` it takes the steps a get takes there (`lease::relieve_core`: the trash, the trim of every
-/// pool of the machine, the shrink, the eviction), so a host that only runs keeps its minimum without a get and without
-/// `brd`; those steps take free slots only, and a host slot is a lease. Below it still, the idle host slots of this
+/// `branchdeck.leaseMinFree` it takes the steps a get takes there (`lease::relieve_core`: the trash, the reclaim of the
+/// idle leases whose work landed, the trim of every pool of the machine, the shrink, the eviction), so a host that only
+/// runs keeps its minimum without a get and without `brd`; a host slot is no idle lease, and the other steps take free
+/// slots only. Below it still, the idle host slots of this
 /// repository go next (`relieve_host_slots`). `None` when the volume has it, and when `round` took its volume already
 /// and no host slot of this repository was relieved: the repositories of a host share one volume, and one relief of the
 /// pools serves them all, while each repository relieves its own host slots. Below it after every step,
@@ -1741,6 +1742,7 @@ pub fn relieve_host_slots(
     before: before.unwrap_or_default(),
     after: None,
     swept: false,
+    reclaimed: Vec::new(),
     trimmed: None,
     shrunk: None,
     evicted: None,

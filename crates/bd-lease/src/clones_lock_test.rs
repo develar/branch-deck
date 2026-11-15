@@ -54,6 +54,7 @@ pub(crate) fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::WaitForClone(_) => "wait",
       GetStep::WaitForSlot { .. } => "wait for slot",
       GetStep::DeleteTrash => "delete trash",
+      GetStep::Reclaim => "reclaim",
       GetStep::Trim => "trim",
       GetStep::Shrink => "shrink",
       GetStep::Evict => "evict",

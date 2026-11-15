@@ -8,8 +8,9 @@
 use crate::lease_command::LeaseContext;
 #[cfg(unix)]
 use crate::lease_test::busy_in;
-use crate::lease_test::{Fixture, assert_trash_deleted_once_free, path_of, slot_git, states};
-use bd_cli::fixture_test::{assert_error, canonical, git, gone_process};
+use crate::lease_test::{Fixture, assert_trash_deleted_once_free, path_of, slot_git, slot_path, states};
+use crate::takeover_test::landed_lease;
+use bd_cli::fixture_test::{assert_error, canonical, git, gone_process, make_lease_idle};
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
   Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout,
@@ -653,6 +654,37 @@ fn the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get() {
   assert_eq!(host_slots(&again), [1], "{again:?}");
   assert!(!slots.contains(&lanes[0]), "the free slot returned longest ago goes: {slots:?}");
   assert!(slots.contains(&lanes[1]) && slots.contains(&host.filled[0].path), "{slots:?}");
+}
+
+/// Below `branchdeck.leaseMinFree` the keeper returns the idle leases whose work landed without a get (`keep_free`),
+/// before the trim: the slot is free with the record of its lease, and the relief names it. The host slot is no idle
+/// lease and stays. A second call of the round on the same volume takes no step of the pools again
+#[test]
+fn the_keeper_reclaims_the_idle_leases_whose_work_landed_without_a_get() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  let (landed, _) = landed_lease(fixture, "gone-agent");
+  let landed = path_of(&landed);
+  make_lease_idle(&fixture.state_file(), &slot_path(&landed));
+  git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]);
+  let mut round = ReliefRound::default();
+  let relieved = keep_free(&context.git, &params, &mut round).unwrap();
+  let again = keep_free(&context.git, &params, &mut round).unwrap();
+  let state = |path: &str| states(&fixture.status()).into_iter().find(|(slot, _)| slot == path).map(|(_, state)| state);
+  if lease_pool::free_space::volume_space(Path::new(&landed)).is_none() {
+    assert!(relieved.is_none(), "no free space told, no minimum to fall under");
+    assert_eq!(state(&landed).as_deref(), Some("ready"));
+    return;
+  }
+  let relieved = relieved.expect("a relief below the minimum");
+  assert_eq!(
+    relieved.reclaimed.iter().map(|reclaimed| reclaimed.path.clone()).collect::<Vec<_>>(),
+    [slot_path(&landed)],
+    "{relieved:?}"
+  );
+  assert_eq!(state(&landed).as_deref(), Some("free"));
+  assert_eq!(state(&host.filled[0].path).as_deref(), Some("ready"), "the host slot stays");
+  assert!(again.is_none_or(|again| again.reclaimed.is_empty() && again.trimmed.is_none()), "once per volume and round");
 }
 
 /// Below the minimum free space after the steps of the pools, which take free slots only, the keeper relieves the idle

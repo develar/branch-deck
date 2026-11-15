@@ -263,7 +263,8 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    `operation`; tell the user, never give it up with `brd lease return --confirm-preserved` on your own. `brd lease reclaim --idle`
    returns every idle lease whose work landed (`reclaimed`) and names the rest (`kept`; `skipped` with its `reason`,
    `holder_unknown` when no holder process was recorded: tell the user, never return it on your own); --dry-run only
-   reports, --keep and --age as for the return.
+   reports, --keep and --age as for the return. Below the minimum free space the get returns the idle leases of the
+   machine whose work landed itself (`reclaimed`); the ones with work stay the user's to decide.
    `lease_reclaimed` (exit 4): your lease was taken over while your session was gone, as its work had landed; that
    worktree is another session's now (its branch stays): stop working there and get a lease of your own (`next`).
    `notes.local` of the worktree links to `notes`, a directory of the lease outside the worktree that git ignores:
@@ -400,7 +401,7 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    `brd lease return --no-clean` applies none, and `brd lease return --keep <n> --age <duration>` changes every cargo
    rule for this call. `brd lease clean` applies the rules now (--free: the free slots; --host: the idle host slots; --dry-run only reports;
    --keep, --age as for the return). `brd lease trim` deletes the free slots past `branchdeck.leaseMaxSlots` (10; --max <n> for this call) of every pool of the
-   machine with their Bazel output bases (--plan only reports); a get below `branchdeck.leaseMinFree` does it itself (`trimmed`), then deletes the build output of the free slots by their clean rules with keep 0, the ones returned longest ago first (`shrunk`), then free slots below the limit (`evicted`); `brd lease disk` says what each slot holds, `--fresh` measures it again, `--cached` reads saved sizes without a walk. The rules are the user's choice: pass `brd lease return --no-clean` only when
+   machine with their Bazel output bases (--plan only reports); a get below `branchdeck.leaseMinFree` returns the idle leases whose work landed first (`reclaimed`), does it itself (`trimmed`), then deletes the build output of the free slots by their clean rules with keep 0, the ones returned longest ago first (`shrunk`), then free slots below the limit (`evicted`); `brd lease disk` says what each slot holds, `--fresh` measures it again, `--cached` reads saved sizes without a walk. The rules are the user's choice: pass `brd lease return --no-clean` only when
    the user asks. `brd lease adopt <dir>...` adds clean linked worktrees of the repository as
    free slots, where they are, or with --move in the pool directory (`moved_from`; the same volume only,
    `other_volume`).

@@ -1369,9 +1369,7 @@ fn a_lease_get_that_takes_over_an_idle_lease() {
 fn a_lease_get_that_passes_over_an_idle_lease_it_checked() {
   let repo = repo_with_branches();
   let (_home, environment) = lease_environment(&repo);
-  let slot = leased_slot(&environment);
-  std::fs::write(slot.join("left.txt"), "left\n").unwrap();
-  make_lease_idle(&repo.path().join(".git/branch-deck/leases.json"), &canonical_path(&slot));
+  idle_lease_with_a_change(&repo, &environment);
   let context = LeaseContext::resolve(&environment, None).unwrap();
   lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
 
@@ -1382,6 +1380,89 @@ fn a_lease_get_that_passes_over_an_idle_lease_it_checked() {
     &context.git,
     &[("checkout", 1), ("config", 1), ("rev-parse", 3), ("status", 2), ("update-index", 1), ("worktree", 2)],
   );
+}
+
+/// The slot of a lease of the pool of `environment` with an untracked file, its holder gone
+fn idle_lease_with_a_change(repo: &TestRepo, environment: &bd_core::context::Environment) -> String {
+  let slot = leased_slot(environment);
+  std::fs::write(slot.join("left.txt"), "left\n").unwrap();
+  let slot = canonical_path(&slot);
+  make_lease_idle(&repo.path().join(".git/branch-deck/leases.json"), &slot);
+  slot
+}
+
+/// One GiB, the unit of the volumes of the gets below the minimum free space
+const GIB: u64 = 1 << 30;
+
+/// A get of `context` below the minimum free space of 100 GiB on a volume of `total` GiB that has 50 GiB free while
+/// `slot` holds a lease and the minimum once it is free
+fn get_below_the_minimum(context: &LeaseContext, environment: &bd_core::context::Environment, slot: &str, total: u64) -> anyhow::Result<lease_pool::lease::LeaseGot> {
+  let pool = Pool::new(std::path::Path::new(&context.dirs.git_common_dir));
+  let space = |_: &std::path::Path| {
+    let held = pool.read().unwrap().slots.iter().any(|entry| entry.path == slot && entry.lease.is_some());
+    Some(lease_pool::free_space::VolumeSpace {
+      available: if held { 50 * GIB } else { 100 * GIB },
+      total: total * GIB,
+    })
+  };
+  get_on(context, environment, &space)
+}
+
+/// A get of `context` against the minimum free space of 100 GiB on the volume that `space` tells
+fn get_on(context: &LeaseContext, environment: &bd_core::context::Environment, space: &lease_pool::free_space::SpaceOf<'_>) -> anyhow::Result<lease_pool::lease::LeaseGot> {
+  lease_pool::lease::lease_get_core(
+    &context.git,
+    &lease_pool::lease::LeaseGetParams {
+      source: &context.dirs,
+      home: environment.home.as_deref(),
+      holder: None,
+      branch: None,
+      min_free: Some(100 * GIB),
+      server_timeout: context.server_stop_timeout,
+      bazel: None,
+      lock_timeout: context.lock_timeout,
+      progress: None,
+      space: Some(space),
+    },
+  )
+}
+
+/// A get below the minimum free space that reclaims an idle lease whose commit landed by a pick, which lifts the volume
+/// to the minimum: the get of a free slot, the check and the return of the idle lease as `brd lease reclaim` runs them,
+/// one `config` of the pool more for the check, and the move of the slot it freed by the diff; no trim
+#[test]
+fn a_lease_get_below_the_minimum_that_reclaims_an_idle_lease() {
+  let (_repo, _home, environment, context) = idle_landed_lease();
+  let slot = Pool::new(std::path::Path::new(&context.dirs.git_common_dir)).read().unwrap().slots[0].path.clone();
+  let got = get_below_the_minimum(&context, &environment, &slot, 1024).unwrap();
+  assert_eq!((got.reclaimed.len(), got.slot.path.as_str()), (1, slot.as_str()), "{got:?}");
+  // the takeover of the same lease (`a_lease_get_that_takes_over_an_idle_lease`), with the `config` of the pool that
+  // the reclaim reads and the `status` of the get, which reserves the slot as a free one
+  assert_git_processes(&context.git, &idle_lease_processes(&[("config", 2), ("reset", 1), ("rev-parse", 7), ("status", 2)]));
+}
+
+/// A get below the minimum free space that passes over an idle lease with a local change whose check a get before
+/// recorded: one `rev-parse` of the home tip for it, no `status`, no `config` of the check; the minimum is past the
+/// volume, so only the trim runs after it, and the get refuses
+#[test]
+fn a_lease_get_below_the_minimum_passes_over_an_idle_lease_it_checked() {
+  let repo = repo_with_branches();
+  let (_home, environment) = lease_environment(&repo);
+  let slot = idle_lease_with_a_change(&repo, &environment);
+  free_slots(&environment, 1);
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let refused = get_below_the_minimum(&context, &environment, &slot, 64).unwrap_err();
+  assert!(refused.to_string().contains("less than the"), "{refused:#}");
+  let checked = Pool::new(repo.path().join(".git").as_path()).read().unwrap();
+  assert!(
+    checked.slots.iter().any(|entry| entry.lease.as_ref().is_some_and(|lease| lease.idle_check.is_some())),
+    "{checked:?}"
+  );
+
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  get_below_the_minimum(&context, &environment, &slot, 64).unwrap_err();
+  // the context, the source HEAD and the home tip of the kept lease; the `config` of the get and of the trim
+  assert_git_processes(&context.git, &[("config", 2), ("rev-parse", 3)]);
 }
 
 /// `brd lease reclaim --idle` of one idle lease whose commit landed: the config, the check of `check_idle`, the return
@@ -1430,7 +1511,6 @@ fn a_lease_trim() {
 /// and one `worktree remove` of the one slot it deletes, as the volume has the minimum after it; nothing per kept slot
 #[test]
 fn a_lease_get_that_shrinks_and_evicts() {
-  const GIB: u64 = 1 << 30;
   let repo = repo_with_branches();
   repo.create_commit_with_files(
     "Add the clean rules",
@@ -1447,22 +1527,7 @@ fn a_lease_get_that_shrinks_and_evicts() {
       total: 1024 * GIB,
     })
   };
-  let got = lease_pool::lease::lease_get_core(
-    &context.git,
-    &lease_pool::lease::LeaseGetParams {
-      source: &context.dirs,
-      home: environment.home.as_deref(),
-      holder: None,
-      branch: None,
-      min_free: Some(100 * GIB),
-      server_timeout: context.server_stop_timeout,
-      bazel: None,
-      lock_timeout: context.lock_timeout,
-      progress: None,
-      space: Some(&space),
-    },
-  )
-  .unwrap();
+  let got = get_on(&context, &environment, &space).unwrap();
   assert_eq!(got.shrunk.as_ref().map(|shrunk| shrunk.slots.len()), Some(3), "{got:?}");
   assert_eq!(got.evicted.as_ref().map(lease_pool::trim::Trimmed::removed_slots), Some(1), "{got:?}");
   assert_git_processes(&context.git, &[("config", 3), ("ls-files", 3), ("rev-parse", 3), ("status", 1), ("worktree", 1)]);

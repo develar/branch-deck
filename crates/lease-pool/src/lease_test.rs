@@ -1,6 +1,6 @@
 #[cfg(unix)]
 use crate::lease::stop_servers;
-use crate::lease::{DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
+use crate::lease::{DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, reclaim_stamp, repository_name, seed_candidates};
 use std::path::Path;
 use std::time::Duration;
 #[cfg(unix)]
@@ -209,4 +209,34 @@ fn the_wait_for_the_shrink_of_another_names_the_holder_its_time_and_the_free_spa
     words.ends_with("the volume at 195.0 GiB of the 200.0 GiB this get needs: the free space is measured again after it, or once it has the minimum"),
     "{words}"
   );
+}
+
+/// A reclaimed slot is returned as of when its lease went quiet (`reclaim_stamp`): it takes the number of the first
+/// free slot returned after that time, and each free slot from that number on moves up by one, so the slot returned
+/// last stays the next slot of the pool. The free slots returned before, one of a brd that recorded no time, and a
+/// leased slot keep their numbers; without a free slot returned after it, the slot gets one past the last return
+#[test]
+fn a_reclaimed_slot_comes_before_the_free_slots_returned_after_its_lease_went_quiet() {
+  let slot = |returned: u64, returned_at: Option<u64>, leased: bool| Slot {
+    name: String::new(),
+    path: format!("/pool/{returned}/repo"),
+    dirty: false,
+    dirty_check: None,
+    returned: Some(returned),
+    returned_at,
+    lease: leased.then(|| Lease::marker("lease", "agent", LeaseState::Ready)),
+    reclaimed: None,
+  };
+  let quiet_at = 1_000;
+  let slots = [
+    slot(1, Some(500), false),
+    slot(2, None, false),
+    slot(3, Some(900), false),
+    slot(9, Some(800), true),
+    slot(4, Some(1_100), false),
+    slot(5, Some(1_200), false),
+  ];
+  assert_eq!(reclaim_stamp(&slots, quiet_at), (4, vec![4, 5]));
+  assert_eq!(reclaim_stamp(&slots[..4], quiet_at), (10, Vec::new()), "no free slot returned after it");
+  assert_eq!(reclaim_stamp(&slots, 1_150), (5, vec![5]));
 }

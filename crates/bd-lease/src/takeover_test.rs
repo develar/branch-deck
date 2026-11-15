@@ -53,7 +53,7 @@ fn slot_status(fixture: &Fixture, path: &str) -> Value {
 
 /// A lease of `holder` on the branch `lane` whose commit landed on master by a pick without a follow, onto a commit of
 /// a peer: the slot's HEAD is the commit itself, master has its copy. Returns the get and the commit
-fn landed_lease(fixture: &Fixture, holder: &str) -> (Value, String) {
+pub(crate) fn landed_lease(fixture: &Fixture, holder: &str) -> (Value, String) {
   landed_lease_on(fixture, holder, "lane")
 }
 
@@ -462,4 +462,69 @@ fn a_takeover_that_fails_leaves_no_mark_of_a_sync_in_the_slot() {
   assert_ne!(exit_code, 0, "{failed}");
   assert_eq!(slot_status(&fixture, &path)["state"], json!("free"), "the get gave the slot back, free");
   assert!(!sync_core::synced_mark::synced_before(&path, PREFIX));
+}
+
+/// Below the minimum free space after the trash a get returns the idle leases of the pools of the machine whose work
+/// landed, though the pool has a free slot, which keeps the takeover from running: the slot of the landed lease is free
+/// with its record, the lease with a commit that master lacks stays with its check, and the refusal names what the get
+/// returned. Windows does not tell the free space: the get leases the free slot there, and both idle leases stay
+#[test_log::test]
+fn a_get_below_the_minimum_free_space_reclaims_the_idle_leases_whose_work_landed() {
+  let fixture = Fixture::new();
+  let (landed, _) = landed_lease(&fixture, "landed-agent");
+  let landed = path_of(&landed);
+  let with_work = path_of(&fixture.get(&["--holder", "work-agent"]));
+  commit_in(&with_work, "(work) Add w", "work-w.txt");
+  let free = path_of(&fixture.get(&["--holder", "done-agent"]));
+  fixture.give_back(&free);
+  make_idle(&fixture, &landed);
+  make_idle(&fixture, &with_work);
+
+  let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1P"]);
+  let state = |path: &str| slot_status(&fixture, path)["state"].clone();
+  if cfg!(unix) {
+    assert_error(&output, exit_code, (4, "low_disk_space"));
+    let message = output["error"]["message"].as_str().unwrap();
+    assert!(message.contains("the get returned 1 idle lease(s) whose work landed"), "{output}");
+    assert_eq!(state(&landed), json!("free"));
+    assert_eq!(slot_status(&fixture, &landed)["reclaimed"]["holder"], json!("landed-agent"));
+    assert_eq!(state(&with_work), json!("ready"));
+    assert_eq!(slot_status(&fixture, &with_work)["lease"]["idle"]["state"], json!("idle_with_work"));
+    assert_eq!(state(&free), json!("free"));
+  } else {
+    assert_eq!((exit_code, path_of(&output)), (0, free), "{output}");
+    assert_eq!((state(&landed), state(&with_work)), (json!("ready"), json!("ready")));
+  }
+}
+
+/// A get below the minimum free space checks at most two idle leases in full, the ones checked longest ago first: of
+/// three idle leases with a commit that master lacks, the first get checks two, and the next get checks the third, as
+/// the verdicts of the two still hold
+#[cfg(unix)]
+#[test_log::test]
+fn a_get_below_the_minimum_checks_two_idle_leases_in_full_and_the_next_get_the_rest() {
+  let fixture = Fixture::new();
+  let slots: Vec<String> = (1..=3)
+    .map(|n| {
+      let path = path_of(&fixture.get(&["--holder", &format!("work-{n}")]));
+      commit_in(&path, &format!("(work) Add w{n}"), &format!("work-{n}.txt"));
+      path
+    })
+    .collect();
+  for path in &slots {
+    make_idle(&fixture, path);
+  }
+  let checked = || {
+    slots
+      .iter()
+      .filter(|path| slot_status(&fixture, path)["lease"]["idle"]["state"] == json!("idle_with_work"))
+      .count()
+  };
+
+  let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1P"]);
+  assert_error(&output, exit_code, (4, "low_disk_space"));
+  assert_eq!(checked(), 2, "two full checks per get");
+  let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1P"]);
+  assert_error(&output, exit_code, (4, "low_disk_space"));
+  assert_eq!(checked(), 3, "the next get checks the third");
 }

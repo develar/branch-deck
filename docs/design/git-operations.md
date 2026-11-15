@@ -2162,7 +2162,7 @@ one order, `clones.lock`, `leases.lock`, `worktrees.lock`: a get takes the other
 time, and nothing is taken under the pool lock or under `worktrees.lock` (the move of an adopt holds only the
 latter); a return and a clean take only the pool lock, so neither waits for a clone. The shrink and the eviction of a
 get take `~/.branch-deck/pressure.lock`, one for the machine (`shrink::lock_pressure`), never under the clones lock,
-and the pool locks of the slots they mark under it.
+and the pool locks of the slots they mark under it; the reclaim of the idle leases of a get takes it too.
 
 No lock of the pool is held across the network. The checkout of a new slot is the one git under the clones lock that
 could reach it: in a repository of Git LFS it runs the smudge filter, which downloads every object the store lacks, and
@@ -2190,8 +2190,23 @@ nothing but LFS puts the content back after a checkout of the blobs.
    write tens of gigabytes: in idea-1 a Bazel output base of 13 to 46 GB per slot (two with `community/`), next to
    `out/`. The minimum is the machine's, so it is git config (the global one on the user's Mac: `200G`), not
    `.branchdeck.toml`, which every developer of the repository shares; without it nothing is checked. Below it the
-   get first deletes the trash of gone runs, then trims the pools of the machine once (`lease_pool::trim`, `brd lease
-   trim`), and measures again. A pool only grows, and a free slot keeps its build outputs, `target/` inside it and its
+   get first deletes the trash of gone runs, then returns the idle leases of the machine whose work landed, then trims
+   the pools of the machine once (`lease_pool::trim`, `brd lease trim`), and measures again. The reclaim
+   (`reclaim_for_get`) is the rule of `brd lease reclaim --idle` (the takeover below) for every pool of the machine,
+   only for the slots on the device of the pool directory of the get. It runs once per get, under
+   `~/.branch-deck/pressure.lock`, and only while a state holds an idle lease there, so a get without one tells no step
+   and runs no git for it. Without it a pool got a slot of a dead holder back only when a get found no free slot: on
+   2026-11-14 nine leases of dead holders waited in the pools of idea-1 and accio, each pool with free slots, the
+   volume below its minimum. A recorded check that holds is kept for one `rev-parse` of the home tip; a get
+   checks at most two idle leases in full, the pools whose idle lease was checked longest ago first, as the master of
+   idea-1 moves many times an hour and each move makes a check of the commits stale. The keeper of `brd-host` checks
+   every one. The reclaimed slot is returned as of when its lease went quiet (the later of its get and the last change
+   of its reflog): it takes the `returned` of the first free slot returned after that time, and each free slot from
+   that number on moves up by one (`reclaim_stamp`). So the trim, the shrink and the eviction take it before the free
+   slots returned since, and the next get takes the free slot returned last, which is warm; with the time of the
+   reclaim it would be the next slot of its pool, leased with stale output, and the shrink would clean a warm slot
+   instead. A leased slot keeps its number.
+   A pool only grows, and a free slot keeps its build outputs, `target/` inside it and its
    Bazel output bases outside it (`<output_user_root>/<md5 of the workspace>`, one per workspace, which no clean rule
    reaches): on 2026-11-02 they held 380 GB for 12 slots of idea-1. The trim keeps `branchdeck.leaseMaxSlots` (10)
    slots of each pool and deletes the free ones past it, the ones a get would take last first, each under the

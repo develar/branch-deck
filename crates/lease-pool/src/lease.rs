@@ -21,7 +21,7 @@ use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_
 use crate::lease_notes::{LeaseNotes, close_notes, notes_root, open_notes};
 use crate::shrink::{ShrinkParams, Shrunk, lock_pressure, shrink_core};
 use crate::state_file::StateFile;
-use crate::trim::{EvictParams, TrimParams, Trimmed, evict_core, trim_core};
+use crate::trim::{EvictParams, TrimParams, Trimmed, evict_core, machine_pools, trim_core};
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
@@ -545,9 +545,10 @@ pub enum LeaseRefusal {
   #[error("Bazel servers of {path} did not exit on {SERVER_STOP}: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
   ServersRunning { path: String, processes: Vec<BusyProcess> },
   #[error(
-    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}{}{}{}{}. Tell the user (`brd lease clean --free`, `brd lease reclaim --idle`, a lower `branchdeck.leaseMaxSlots` and `brd lease trim` free space); never pass `--min-free 0` on your own",
+    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}{}{}{}{}{}. Tell the user (`brd lease clean --free`, `brd lease reclaim --idle`, a lower `branchdeck.leaseMaxSlots` and `brd lease trim` free space); never pass `--min-free 0` on your own",
     describe_size(*.available),
     describe_size(*.required),
+    describe_reclaimed_idle(.freed.reclaim),
     describe_trimmed(.freed.trim),
     describe_past_the_volume(*.total, *.required),
     describe_shrunk(.freed.shrink),
@@ -565,7 +566,7 @@ pub enum LeaseRefusal {
     idle: Vec<IdleLease>,
     /// The trash a process still running keeps
     trash: u64,
-    /// What the trim, the shrink and the eviction of the get freed first
+    /// What the reclaim, the trim, the shrink and the eviction of the get freed first
     freed: Box<FreedBy>,
   },
   #[error("{key} {value:?}: {reason}")]
@@ -680,6 +681,8 @@ fn describe_idle(idle: &[IdleLease]) -> String {
 /// What a get below the minimum free space freed before it refused (`LowDiskSpace`), in every pool of the machine
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FreedBy {
+  /// The idle leases whose work landed that it returned first, and what their clean rules freed (`reclaim_for_get`)
+  pub reclaim: Freed,
   /// The free slots past `branchdeck.leaseMaxSlots` and the output bases of gone workspaces it deleted first (`trim`)
   pub trim: Freed,
   /// The free slots whose build output it deleted after the trim (`shrink`)
@@ -693,6 +696,17 @@ pub struct FreedBy {
 pub struct Freed {
   pub slots: usize,
   pub bytes: u64,
+}
+
+fn describe_reclaimed_idle(Freed { slots, bytes }: Freed) -> String {
+  if slots == 0 {
+    String::new()
+  } else {
+    format!(
+      "; the get returned {slots} idle lease(s) whose work landed, of the pools of this machine, and their clean rules freed {}",
+      describe_size(bytes)
+    )
+  }
 }
 
 fn describe_trimmed(Freed { slots, bytes }: Freed) -> String {
@@ -920,8 +934,11 @@ pub enum GetStep {
   WaitForSlot { slot: String, pid: u32, clean: bool },
   /// Below the minimum free space: the trash of the runs that are gone is deleted, without the clones lock
   DeleteTrash,
-  /// Below the minimum free space, after the trash: the free slots past `branchdeck.leaseMaxSlots` of every pool of the
-  /// machine are deleted with their Bazel output bases (`trim`), without the clones lock
+  /// Below the minimum free space, after the trash, while a pool of the machine holds an idle lease on the volume of
+  /// the get: the idle leases whose work landed are returned (`lease_reclaim_core`), without the clones lock
+  Reclaim,
+  /// Below the minimum free space, after the reclaim: the free slots past `branchdeck.leaseMaxSlots` of every pool of
+  /// the machine are deleted with their Bazel output bases (`trim`), without the clones lock
   Trim,
   /// Below the minimum free space, after the trim: the build output of the free slots of every pool of the machine is
   /// deleted by their clean rules with keep 0, the ones returned longest ago first (`shrink`), without the clones lock
@@ -978,6 +995,7 @@ impl fmt::Display for GetStep {
         if *clean { "clean" } else { "return" }
       ),
       Self::DeleteTrash => f.write_str("deleting the trash of runs that are gone: the free space is below the minimum"),
+      Self::Reclaim => f.write_str("returning the idle leases whose work landed, in every pool of this machine: the free space is below the minimum"),
       Self::Trim => {
         f.write_str("deleting the free slots past `branchdeck.leaseMaxSlots` of the pools of this machine with their Bazel output bases: the free space is below the minimum")
       }
@@ -1082,6 +1100,9 @@ pub struct LeaseGot {
   /// How long the get waited for the clones lock, which other gets held while they added slots; `None` when it waited
   /// for none
   pub waited_for_clone: Option<Duration>,
+  /// Below the minimum free space: the idle leases of the pools of the machine whose work landed, which the get
+  /// returned before the trim (`reclaim_for_get`)
+  pub reclaimed: Vec<ReclaimedLease>,
   /// Below the minimum free space: the free slots and the output bases that the trim of the pools of the machine deleted
   pub trimmed: Option<Trimmed>,
   /// Below the minimum free space after the trim: the free slots of the pools of the machine whose build output the
@@ -1461,6 +1482,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       took_over,
       process_scan: scan.is_available(),
       waited_for_clone,
+      reclaimed: relief.reclaimed.unwrap_or_default(),
       trimmed: relief.trimmed,
       shrunk: relief.shrunk,
       evicted: relief.evicted,
@@ -1539,9 +1561,13 @@ enum FreeSpace {
   /// there, which only a later return or clean deletes): the get deletes it (`delete_trash`), never under the clones
   /// lock, and measures again
   Trash,
-  /// Below the minimum after the trash, and the get trimmed no pool yet: the free slots past `branchdeck.leaseMaxSlots`
-  /// of every pool of the machine go with their output bases (`trim_for_get`), never under the clones lock, and the get
-  /// measures again
+  /// Below the minimum after the trash, and the get reclaimed no idle lease yet: the idle leases of every pool of the
+  /// machine whose work landed are returned (`reclaim_for_get`), never under the clones lock, and the get measures
+  /// again. A reclaim deletes no slot, so it runs for a minimum past the size of the volume too
+  Reclaim,
+  /// Below the minimum after the reclaim, and the get trimmed no pool yet: the free slots past
+  /// `branchdeck.leaseMaxSlots` of every pool of the machine go with their output bases (`trim_for_get`), never under
+  /// the clones lock, and the get measures again
   Trim,
   /// Below the minimum after the trim, and the get shrank no pool yet: the build output of the free slots of every pool
   /// of the machine goes, the ones returned longest ago first, until the volume has the minimum and its margin
@@ -1553,12 +1579,17 @@ enum FreeSpace {
   Evict,
 }
 
-/// What a get below the minimum free space did to raise it: the trash once per wait for the clones lock, the trim, the
-/// shrink and the eviction once per get
+/// What a get below the minimum free space did to raise it: the trash once per wait for the clones lock, the reclaim,
+/// the trim, the shrink and the eviction once per get
 #[derive(Default)]
 struct Relief {
+  /// The relief of the keeper (`relieve_core`), which checks every idle lease in full: a get checks at most
+  /// `IDLE_CHECKS_PER_GET` (`reclaim_for_get`)
+  keeper: bool,
   /// The get deleted the trash since its last wait for the clones lock
   swept: bool,
+  /// The idle leases it returned; `Some` once the reclaim ran
+  reclaimed: Option<Vec<ReclaimedLease>>,
   trimmed: Option<Trimmed>,
   shrunk: Option<Shrunk>,
   evicted: Option<Trimmed>,
@@ -1600,6 +1631,16 @@ impl Relief {
         delete_trash(pool, report);
         self.swept = true;
       }
+      FreeSpace::Reclaim => {
+        let full_checks = (!self.keeper).then_some(IDLE_CHECKS_PER_GET);
+        if let Some(reclaimed) = reclaim_for_get(git_executor, params, pool, (pool_dir, min_free), full_checks, report) {
+          self.reclaimed = Some(reclaimed);
+        } else {
+          // no idle lease on the volume: nothing moved, and the trim, the next step, runs in the same turn
+          self.reclaimed = Some(Vec::new());
+          self.relieve(git_executor, params, pool, (pool_dir, min_free), &FreeSpace::Trim, report);
+        }
+      }
       FreeSpace::Trim => self.trimmed = Some(trim_for_get(git_executor, params, report)),
       FreeSpace::Shrink => {
         report(GetStep::Shrink);
@@ -1630,6 +1671,8 @@ pub struct Relieved {
   pub after: Option<u64>,
   /// The trash of gone runs was deleted
   pub swept: bool,
+  /// The idle leases of the pools of the machine whose work landed, returned before the trim (`reclaim_for_get`)
+  pub reclaimed: Vec<ReclaimedLease>,
   pub trimmed: Option<Trimmed>,
   pub shrunk: Option<Shrunk>,
   pub evicted: Option<Trimmed>,
@@ -1655,11 +1698,11 @@ impl ReliefRound {
 }
 
 /// The free space of the volume of the pool of `params.source` raised to its minimum without a get, by the steps a get
-/// takes below it (the trash, the trim, the shrink, the eviction; `Relieved::after`). `None` without a minimum, where
-/// the system tells no free space, and on a volume that has it: then it measures only. Below it after all, it answers
-/// what it did, not the `LowDiskSpace` of a get, whose advice is for an agent that asked for a slot. The keeper of the
-/// host slots calls it (`host_slots::keep_free`), so a host that only runs keeps its minimum. A volume that `round`
-/// took already is `None` too: once per volume and round
+/// takes below it (the trash, the reclaim, the trim, the shrink, the eviction; `Relieved::after`). `None` without a
+/// minimum, where the system tells no free space, and on a volume that has it: then it measures only. Below it after
+/// all, it answers what it did, not the `LowDiskSpace` of a get, whose advice is for an agent that asked for a slot.
+/// The keeper of the host slots calls it (`host_slots::keep_free`), so a host that only runs keeps its minimum. A
+/// volume that `round` took already is `None` too: once per volume and round
 pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, round: &mut ReliefRound) -> Result<Option<Relieved>> {
   let source = &params.source.top_level;
   let config = lease_config(git_executor, source)?;
@@ -1677,7 +1720,10 @@ pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetP
     return Ok(None);
   };
   let pool = Pool::new(&git_common_dir);
-  let mut relief = Relief::default();
+  let mut relief = Relief {
+    keeper: true,
+    ..Relief::default()
+  };
   let after = match relief.raise(git_executor, params, &pool, (&pool_dir, min_free), &|_| {}) {
     Ok(after) => after,
     Err(error) if matches!(error.downcast_ref::<LeaseRefusal>(), Some(LeaseRefusal::LowDiskSpace { .. })) => params.available(&pool_dir),
@@ -1688,6 +1734,7 @@ pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetP
     before,
     after,
     swept: relief.swept,
+    reclaimed: relief.reclaimed.unwrap_or_default(),
     trimmed: relief.trimmed,
     shrunk: relief.shrunk,
     evicted: relief.evicted,
@@ -1735,12 +1782,13 @@ fn pressure_turn(params: &LeaseGetParams<'_>, pool: &Pool, (pool_dir, min_free):
   }
 }
 
-/// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs` (`LeaseGetParams::space`),
-/// and below the minimum the names in the trash. Below it with no trash of a gone run, or one the get deleted since its
-/// last wait (`swept`), the trim of the pools, their shrink, then the eviction of their free slots, each once; the
-/// shrink and the eviction only for a minimum the volume can hold (`VolumeSpace::total`): past it every free slot of
-/// the volume would go and the get refuse anyway. Below it after all: `LowDiskSpace`, naming what the trim and the
-/// eviction deleted, what the shrink freed and what the trash keeps
+/// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs`
+/// (`LeaseGetParams::space`), and below the minimum the names in the trash. Below it with no trash of a gone run, or
+/// one the get deleted since its last wait (`swept`), the reclaim of the idle leases, the trim of the pools, their
+/// shrink, then the eviction of their free slots, each once; the shrink and the eviction only for a minimum the volume
+/// can hold (`VolumeSpace::total`): past it every free slot of the volume would go and the get refuse anyway. Below it
+/// after all: `LowDiskSpace`, naming what the trim and the eviction deleted, what the shrink freed and what the trash
+/// keeps
 fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_free: u64, relief: &Relief) -> Result<FreeSpace> {
   let space = params.space(pool_dir);
   let Some(VolumeSpace { available, total }) = space.filter(|space| space.available < min_free) else {
@@ -1749,6 +1797,9 @@ fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_fre
   if !relief.swept && holds_gone_runs(&pool.trash_dir()) {
     return Ok(FreeSpace::Trash);
   }
+  let Some(reclaimed) = &relief.reclaimed else {
+    return Ok(FreeSpace::Reclaim);
+  };
   let Some(trimmed) = &relief.trimmed else {
     return Ok(FreeSpace::Trim);
   };
@@ -1777,6 +1828,10 @@ fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_fre
     idle: idle_leases(&store),
     trash: pool.trash_bytes(),
     freed: Box::new(FreedBy {
+      reclaim: Freed {
+        slots: reclaimed.len(),
+        bytes: reclaimed.iter().map(ReclaimedLease::freed_bytes).sum(),
+      },
       trim: Freed {
         slots: trimmed.removed_slots(),
         bytes: trimmed.freed_bytes(),
@@ -1804,6 +1859,66 @@ fn trim_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, 
     warn!(error = %format!("{error:#}"), "cannot trim the pools of the machine");
     Trimmed::default()
   })
+}
+
+/// The reclaim of the idle leases of the pools of the machine below the minimum free space (`lease_reclaim_core`, the
+/// rule of `brd lease reclaim --idle`), only of the slots on the volume of `pool_dir`: an idle lease of another volume
+/// frees nothing on it. Told as a step and run only while a pool holds an idle lease there (one read of each state, no
+/// git), under the turn of the shrink of the machine (`pressure_turn`): two gets do not check the same slots at once,
+/// and a get whose volume got its minimum meanwhile reclaims nothing. A recorded check that holds is kept for one
+/// `rev-parse`; with `full_checks` at most that many leases are checked in full, the pools whose idle lease was checked
+/// longest ago first, so later gets check the rest. A pool whose reclaim fails is passed over. `None` when no pool
+/// holds such a lease
+fn reclaim_for_get(
+  git_executor: &GitCommandExecutor,
+  params: &LeaseGetParams<'_>,
+  pool: &Pool,
+  (pool_dir, min_free): (&Path, u64),
+  full_checks: Option<usize>,
+  report: &dyn Fn(GetStep),
+) -> Option<Vec<ReclaimedLease>> {
+  let volume = Volume::of(pool_dir);
+  let mut pools: Vec<(u64, PathBuf)> = machine_pools(params.source, params.home)
+    .into_iter()
+    .filter_map(|machine| {
+      let store = Pool::new(&machine.git_common_dir).read().ok()?;
+      let checked_longest_ago = store
+        .slots
+        .iter()
+        .filter(|slot| slot.lease.as_ref().is_some_and(Lease::is_idle) && volume.holds(Path::new(&slot.path)))
+        .map(|slot| slot.lease.as_ref().and_then(|lease| lease.idle_check.as_ref()).map_or(0, |check| check.at))
+        .min()?;
+      Some((checked_longest_ago, machine.git_common_dir))
+    })
+    .collect();
+  if pools.is_empty() {
+    return None;
+  }
+  pools.sort_by_key(|(checked, _)| *checked);
+  report(GetStep::Reclaim);
+  let PressureTurn::Taken(_pressure) = pressure_turn(params, pool, (pool_dir, min_free), report) else {
+    return Some(Vec::new());
+  };
+  let full_checks = full_checks.map(Cell::new);
+  let mut reclaimed = Vec::new();
+  for (_, git_common_dir) in pools {
+    let reclaim = LeaseReclaimParams {
+      git_common_dir: &git_common_dir,
+      apply: true,
+      clean: CleanOverrides::default(),
+      reuse_checks: true,
+      volume: Some(&volume),
+      full_checks: full_checks.as_ref(),
+      server_timeout: params.server_timeout,
+      bazel: params.bazel,
+      lock_timeout: params.lock_timeout,
+    };
+    match lease_reclaim_core(git_executor, &reclaim) {
+      Ok(answer) => reclaimed.extend(answer.reclaimed),
+      Err(error) => warn!(pool = %git_common_dir.display(), error = %format!("{error:#}"), "cannot reclaim the idle leases of a pool"),
+    }
+  }
+  Some(reclaimed)
 }
 
 /// How far above the minimum free space a shrink goes once the volume is below it: a tenth of the minimum (20 GiB of
@@ -2111,21 +2226,53 @@ enum IdleVerdict {
 }
 
 /// Whether the work of the idle lease `old` of the slot at `path` (the worktree `name`) landed, cheap checks first:
-/// the verdict of the check before while it holds (`IdleCheck::holds`, one `rev-parse` of the home tip), the commits on
-/// git objects only (`landed_work`), a git operation or a resolve session in progress (no git but one `show-ref`), the
-/// local changes (one `status`)
+/// the verdict of the check before while it holds (`IdleCheck::holds`, one `rev-parse` of the home tip), then the check
+/// in full (`check_idle_work`)
 fn check_idle(git_executor: &GitCommandExecutor, path: &str, name: &str, old: &Lease, untracked: UntrackedFiles) -> Result<IdleVerdict> {
-  let mark = SlotMark::of(Path::new(path));
-  let home_tip = match &old.source_branch {
-    Some(branch) => resolve_commit(git_executor, path, &format!("refs/heads/{branch}"))?,
-    None => None,
-  };
-  if let Some(check) = old.idle_check.as_ref().filter(|check| check.holds(&mark, home_tip.as_deref())) {
-    return Ok(IdleVerdict::Work {
-      check: check.clone(),
-      fresh: false,
-    });
+  let state = IdleState::of(git_executor, path, old)?;
+  match state.held(old) {
+    Some(verdict) => Ok(verdict),
+    None => check_idle_work(git_executor, (path, name), old, untracked, state),
   }
+}
+
+/// The slot of an idle lease and the tip of its home branch, as a check reads them first
+struct IdleState {
+  mark: SlotMark,
+  home_tip: Option<String>,
+}
+
+impl IdleState {
+  /// The slot at `path` (no git) and the home tip of the idle lease `old` (one `rev-parse`)
+  fn of(git_executor: &GitCommandExecutor, path: &str, old: &Lease) -> Result<Self> {
+    let home_tip = match &old.source_branch {
+      Some(branch) => resolve_commit(git_executor, path, &format!("refs/heads/{branch}"))?,
+      None => None,
+    };
+    Ok(Self {
+      mark: SlotMark::of(Path::new(path)),
+      home_tip,
+    })
+  }
+
+  /// The verdict of the check of `old` before, while it holds (`IdleCheck::holds`)
+  fn held(&self, old: &Lease) -> Option<IdleVerdict> {
+    old
+      .idle_check
+      .as_ref()
+      .filter(|check| check.holds(&self.mark, self.home_tip.as_deref()))
+      .map(|check| IdleVerdict::Work {
+        check: check.clone(),
+        fresh: false,
+      })
+  }
+}
+
+/// The check in full of the idle lease `old` of the slot `(path, name)` as `state` found it: the commits on git objects
+/// only (`landed_work`), a git operation or a resolve session in progress (no git but one `show-ref`), the local
+/// changes (one `status`)
+fn check_idle_work(git_executor: &GitCommandExecutor, (path, name): (&str, &str), old: &Lease, untracked: UntrackedFiles, state: IdleState) -> Result<IdleVerdict> {
+  let IdleState { mark, home_tip } = state;
   let work = |commits: Vec<WorkCommit>, paths: Vec<String>, operation: Option<String>| IdleVerdict::Work {
     check: IdleCheck {
       at: now(),
@@ -3532,14 +3679,24 @@ fn mark_for_clean(pool: &Pool, timeout: Duration, path: &str, marker: &Lease) ->
   })
 }
 
-/// What `brd lease reclaim --idle` reclaims
+/// What `brd lease reclaim --idle` reclaims, and the reclaim of a get below the minimum free space (`reclaim_for_get`)
 pub struct LeaseReclaimParams<'a> {
-  /// A checkout of the repository: its config and its clean rules
-  pub repository: &'a RepositoryDirs,
+  /// The common dir of the repository of the pool: its config (`lease_config`, read in it as `trim::max_slots` does, so
+  /// a pool of another repository needs no checkout of it)
+  pub git_common_dir: &'a Path,
   /// Reclaim, the default; false (`--dry-run`) only checks and writes nothing
   pub apply: bool,
   /// The parameters of the call that change the clean rules of the file
   pub clean: CleanOverrides,
+  /// Keep the verdict of a recorded check while it holds (`IdleCheck::holds`, one `rev-parse`): the reclaim of a get
+  /// and of the keeper. False: each lease is checked anew (`brd lease reclaim`)
+  pub reuse_checks: bool,
+  /// Only the slots on this volume, told before any git: an idle lease of another volume frees nothing on the one a get
+  /// measures. `None`: every slot
+  pub volume: Option<&'a Volume>,
+  /// How many more leases may be checked in full, shared by the pools of one get (`IDLE_CHECKS_PER_GET`): a lease past
+  /// it whose recorded check does not hold is left to a later get. `None`: no bound
+  pub full_checks: Option<&'a Cell<usize>>,
   /// How long the reclaim waits for the Bazel servers it asked to exit
   pub server_timeout: Duration,
   /// The program of `bazel shutdown`, which stops the servers on Windows; `None`: `bazel` of the `PATH`
@@ -3569,6 +3726,13 @@ pub struct ReclaimedLease {
   pub cleaned: Vec<Cleaned>,
   /// What the trash kept: a path that could not be deleted once the slot was free
   pub trash_left: Vec<String>,
+}
+
+impl ReclaimedLease {
+  /// The bytes its clean rules freed
+  pub fn freed_bytes(&self) -> u64 {
+    self.cleaned.iter().map(|rule| rule.freed_bytes).sum()
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -3604,26 +3768,32 @@ pub enum IdleSkip {
 /// Return every idle lease of the pool whose work landed (`check_idle`: the commits in its home branch, a clean tree,
 /// no operation in progress), each under its own CAS on its lease, its holder gone and its slot unchanged, as a return
 /// does: its Bazel servers stopped, its seeded paths removed, its branch detached, the clean rules applied into the
-/// trash, the slot free with the record of its lease (`Slot::reclaimed`). The trash is deleted once, after the last
-/// slot, so no slot waits for the delete of another's build output. One with work is kept, its check recorded for the
-/// gets; with `apply` false nothing is written
+/// trash, the slot free with the record of its lease (`Slot::reclaimed`), returned as of when its lease went quiet
+/// (`reclaim_stamp`). The trash is deleted once, after the last slot, so no slot waits for the delete of another's
+/// build output. One with work is kept, its check recorded for the gets; with `apply` false nothing is written. The
+/// config and the process scan are read at the first lease that needs them, so a pool with no idle lease runs no git,
+/// and one whose kept leases hold their verdict (`reuse_checks`) runs one `rev-parse` each. With `full_checks` the
+/// leases checked longest ago come first
 pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseReclaimParams<'_>) -> Result<LeaseReclaim> {
-  let git_common_dir = PathBuf::from(canonical_path(Path::new(&params.repository.git_common_dir)));
+  let git_common_dir = PathBuf::from(canonical_path(params.git_common_dir));
   let pool = Pool::new(&git_common_dir);
-  let store = pool.read()?;
-  let scan = ProcessScan::scan();
-  let untracked = lease_config(git_executor, &params.repository.top_level)?.untracked;
+  let mut store = pool.read()?;
+  if params.full_checks.is_some() {
+    // stable: the leases never checked first, in the order of the state
+    store
+      .slots
+      .sort_by_key(|slot| slot.lease.as_ref().and_then(|lease| lease.idle_check.as_ref()).map_or(0, |check| check.at));
+  }
+  let mut scan: Option<ProcessScan> = None;
+  let mut untracked: Option<UntrackedFiles> = None;
   let trash = Trash::new(&pool.trash_dir());
   let now = now();
-  let mut answer = LeaseReclaim {
-    process_scan: scan.is_available(),
-    ..LeaseReclaim::default()
-  };
+  let mut answer = LeaseReclaim::default();
   for slot in store.slots {
     let Some(lease) = slot
       .lease
       .clone()
-      .filter(|lease| lease.is_agent_ready() && is_worktree_of(Path::new(&slot.path), &git_common_dir))
+      .filter(|lease| lease.is_agent_ready() && params.volume.is_none_or(|volume| volume.holds(Path::new(&slot.path))) && is_worktree_of(Path::new(&slot.path), &git_common_dir))
     else {
       continue;
     };
@@ -3645,22 +3815,41 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       answer.skipped.push(skip(IdleSkip::NotQuiet));
       continue;
     }
-    let (servers, others) = slot_servers(&scan, Path::new(&path));
+    let scan = scan.get_or_insert_with(ProcessScan::scan);
+    let (servers, others) = slot_servers(scan, Path::new(&path));
     if !others.is_empty() {
       answer.skipped.push(skip(IdleSkip::Busy {
         processes: busy_processes(&others),
       }));
       continue;
     }
-    // a check of its own, whatever a get found before
-    let unchecked = Lease {
-      idle_check: None,
-      ..lease.clone()
+    // without `reuse_checks` a check of its own, whatever a get found before
+    let checked = if params.reuse_checks {
+      lease.clone()
+    } else {
+      Lease {
+        idle_check: None,
+        ..lease.clone()
+      }
     };
-    let (landed, mark) = match check_idle(git_executor, &path, &slot.name, &unchecked, untracked) {
+    let verdict = match IdleState::of(git_executor, &path, &checked) {
+      Ok(state) => match state.held(&checked) {
+        Some(verdict) => Ok(verdict),
+        // past the bound of the get: a later get checks it, the ones checked longest ago first
+        None if params.full_checks.is_some_and(|left| left.get() == 0) => continue,
+        None => {
+          if let Some(left) = params.full_checks {
+            left.set(left.get() - 1);
+          }
+          pool_untracked(git_executor, &git_common_dir, &mut untracked).and_then(|untracked| check_idle_work(git_executor, (&path, &slot.name), &checked, untracked, state))
+        }
+      },
+      Err(error) => Err(error),
+    };
+    let (landed, mark) = match verdict {
       Ok(IdleVerdict::Landed { landed, mark }) => (landed, mark),
-      Ok(IdleVerdict::Work { check, .. }) => {
-        if params.apply {
+      Ok(IdleVerdict::Work { check, fresh }) => {
+        if params.apply && fresh {
           record_idle_check(&pool, params.lock_timeout, &path, &lease.id, &check);
         }
         answer.kept.push(KeptLease { path, lease, check });
@@ -3703,14 +3892,24 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
         continue;
       }
     }
+    // the time its lease went quiet, the two times `is_quiet` reads, never past now
+    let quiet_at = lease.leased_at.max(mark.log_modified).min(now);
     pool.update(params.lock_timeout, |store| {
-      let last_return = store.slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
+      if leased_slot(store, &path, &lease.id).is_none() {
+        return Ok(());
+      }
+      let (returned, shifted) = reclaim_stamp(&store.slots, quiet_at);
+      for index in shifted {
+        if let Some(number) = store.slots[index].returned.as_mut() {
+          *number += 1;
+        }
+      }
       if let Some(slot) = leased_slot(store, &path, &lease.id) {
         slot.lease = None;
         slot.dirty = false;
         slot.dirty_check = None;
-        slot.returned = Some(last_return + 1);
-        slot.returned_at = Some(unix_seconds(SystemTime::now()));
+        slot.returned = Some(returned);
+        slot.returned_at = Some(quiet_at);
         slot.reclaimed = Some(Reclaimed::of(&lease, None));
       }
       Ok(())
@@ -3718,12 +3917,49 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
     debug!(slot = %path, "an idle lease is reclaimed: its slot is free");
     answer.reclaimed.push(reclaimed);
   }
+  answer.process_scan = scan.as_ref().map_or(ProcessScan::SUPPORTED, ProcessScan::is_available);
   // every reclaimed slot is free: the delete of what the rules moved into the trash keeps no slot waiting
   debug!(slots = answer.reclaimed.len(), "deleting the trash of the reclaimed slots");
   for reclaimed in &mut answer.reclaimed {
     reclaimed.trash_left = trash.empty(&mut reclaimed.cleaned);
   }
   Ok(answer)
+}
+
+/// `status.showUntrackedFiles` of the pool of `git_common_dir` (`lease_config`), read once into `read`
+fn pool_untracked(git_executor: &GitCommandExecutor, git_common_dir: &Path, read: &mut Option<UntrackedFiles>) -> Result<UntrackedFiles> {
+  if let Some(untracked) = read {
+    return Ok(*untracked);
+  }
+  let untracked = lease_config(git_executor, &display_path(git_common_dir))?.untracked;
+  *read = Some(untracked);
+  Ok(untracked)
+}
+
+/// The return number of a slot whose idle lease went quiet at `quiet_at` (Unix seconds) and that a reclaim returns now,
+/// among `slots`, and the free slots whose number goes one up for it. It takes the number of the first free slot
+/// returned after `quiet_at`, so it comes before each of them for the reserve, the trim and the shrink alike, and the
+/// slot returned last stays the next slot of the pool; without such a slot it is one past the last return. Only free
+/// slots move: a leased slot keeps its number, and the measure of `pool-disk` stays valid for it
+pub(crate) fn reclaim_stamp(slots: &[Slot], quiet_at: u64) -> (u64, Vec<usize>) {
+  let free = |slot: &Slot| slot.lease.is_none();
+  let first_after = slots
+    .iter()
+    .filter(|slot| free(slot) && slot.returned_at.is_some_and(|at| at > quiet_at))
+    .filter_map(|slot| slot.returned)
+    .min();
+  match first_after {
+    None => (slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0) + 1, Vec::new()),
+    Some(first) => (
+      first,
+      slots
+        .iter()
+        .enumerate()
+        .filter(|(_, slot)| free(slot) && slot.returned.is_some_and(|returned| returned >= first))
+        .map(|(index, _)| index)
+        .collect(),
+    ),
+  }
 }
 
 /// Under the pool lock, with CAS on the idle lease `lease_id` of `path`: still idle and its slot as the check found it

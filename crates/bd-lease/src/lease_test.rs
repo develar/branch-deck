@@ -1633,6 +1633,42 @@ struct ShrinkFixture {
 
 impl ShrinkFixture {
   fn new() -> Self {
+    let fixture = Self::with_rules();
+    let slots: Vec<String> = (1..=3).map(|n| path_of(&fixture.get(&["--holder", &format!("lane-{n}")]))).collect();
+    for slot in &slots {
+      fixture.give_back(slot);
+      Self::build(slot);
+    }
+    Self {
+      fixture,
+      slots: slots.try_into().unwrap(),
+    }
+  }
+
+  /// Two free slots, returned in order, and a third with an idle lease whose commit landed on master by a pick, quiet
+  /// since before the two were returned, each with its unit
+  fn with_idle() -> Self {
+    let fixture = Self::with_rules();
+    let idle = path_of(&fixture.get(&["--holder", "gone-agent"]));
+    let free: Vec<String> = (1..=2).map(|n| path_of(&fixture.get(&["--holder", &format!("lane-{n}")]))).collect();
+    commit_in(&idle, "(lane) Add c", "lane-c.txt");
+    fixture.repo.create_commit("(peer) Add p", "p.txt", "p\n");
+    let (exit_code, picked) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", "--from", &idle]);
+    assert_eq!(exit_code, 0, "{picked}");
+    for slot in &free {
+      fixture.give_back(slot);
+      Self::build(slot);
+    }
+    Self::build(&idle);
+    bd_cli::fixture_test::make_lease_idle(&fixture.state_file(), &slot_path(&idle));
+    Self {
+      fixture,
+      slots: [free[0].clone(), free[1].clone(), idle],
+    }
+  }
+
+  /// A pool whose source commits the rule `cargo target`, which keeps the 8 newest units younger than an hour
+  fn with_rules() -> Fixture {
     let fixture = Fixture::new();
     fixture.repo.create_commit_with_files(
       "Add the clean rules",
@@ -1641,18 +1677,15 @@ impl ShrinkFixture {
         (".branchdeck.toml", "[lease]\nclean = [{ cargo = \"target\", keep = 8, age = \"1h\" }]\n"),
       ],
     );
-    let slots: Vec<String> = (1..=3).map(|n| path_of(&fixture.get(&["--holder", &format!("lane-{n}")]))).collect();
-    for slot in &slots {
-      fixture.give_back(slot);
-      let unit = Self::unit(slot);
-      std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
-      std::fs::write(Path::new(slot).join("target/debug/.cargo-lock"), "").unwrap();
-      std::fs::write(unit, vec![b'x'; UNIT_BYTES]).unwrap();
-    }
-    Self {
-      fixture,
-      slots: slots.try_into().unwrap(),
-    }
+    fixture
+  }
+
+  /// The cargo unit of a build in `slot`
+  fn build(slot: &str) {
+    let unit = Self::unit(slot);
+    std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    std::fs::write(Path::new(slot).join("target/debug/.cargo-lock"), "").unwrap();
+    std::fs::write(unit, vec![b'x'; UNIT_BYTES]).unwrap();
   }
 
   /// The file of the cargo unit of `slot`
@@ -1888,6 +1921,34 @@ fn a_shrink_stops_inside_the_delete_of_a_slot_once_the_volume_has_the_target() {
   let kept = files_below(&trash);
   assert!((output - 512..=output - 330).contains(&kept), "{kept} of {output}");
   assert!(ShrinkFixture::unit(second).exists());
+}
+
+/// Below the minimum a get returns an idle lease whose work landed before the trim, as of when it went quiet: its slot
+/// comes before the free slots returned after that time, so the shrink cleans it first, and the get leases the free
+/// slot returned last, warm. Without that time the reclaimed slot would be the next slot of the pool: the shrink would
+/// clean a free slot, and the get would lease the stale one
+#[test_log::test]
+fn a_get_below_the_minimum_reclaims_an_idle_lease_and_shrinks_its_slot_before_the_hot_one() {
+  let shrink = ShrinkFixture::with_idle();
+  let [_, last, idle] = &shrink.slots;
+  let state = || -> Value { serde_json::from_slice(&std::fs::read(shrink.fixture.state_file()).unwrap()).unwrap() };
+  let entry = |state: &Value| state["slots"].as_array().unwrap().iter().find(|slot| slot["path"] == json!(idle)).cloned().unwrap();
+  let quiet_at = entry(&state())["lease"]["leased_at"].clone();
+  let steps = std::sync::Mutex::new(Vec::new());
+  let got = shrink.get(ONE_SLOT_LIFTS, &steps).unwrap();
+  assert_eq!(kinds(&steps)[..4], ["reclaim", "trim", "shrink", "reserve"]);
+  assert_eq!(got.reclaimed.iter().map(|reclaimed| reclaimed.path.clone()).collect::<Vec<_>>(), std::slice::from_ref(idle));
+  assert_eq!(shrunk_paths(&got), std::slice::from_ref(idle));
+  assert_eq!(shrink.units(), [true, true, false]);
+  assert_eq!(got.slot.path, *last);
+  let reclaimed = entry(&state());
+  assert_eq!(
+    (&reclaimed["lease"], &reclaimed["reclaimed"]["holder"]),
+    (&Value::Null, &json!("gone-agent")),
+    "{reclaimed}"
+  );
+  assert_eq!(reclaimed["returned_at"], quiet_at, "{reclaimed}");
+  assert_eq!(shrink.printed(&got)["reclaimed"][0]["holder"], json!("gone-agent"));
 }
 
 /// A shrink stops at the first slot past the minimum and its margin: the others keep their build output

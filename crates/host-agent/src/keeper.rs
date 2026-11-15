@@ -23,7 +23,7 @@ use crate::run::Runs;
 use crate::{cleanup, run_git, tuning};
 use lease_pool::host_runs::reclaim_all;
 use lease_pool::host_slots::{clean_idle_slots, fill, keep_free};
-use lease_pool::lease::{ReliefRound, Relieved};
+use lease_pool::lease::{ReclaimedLease, ReliefRound, Relieved};
 use lease_pool::lease_clean::describe_size;
 use lease_pool::lease_notes::expire_pool_notes;
 use std::collections::{BTreeSet, HashMap};
@@ -285,6 +285,13 @@ fn relieved_line(repo: &Path, relieved: &Relieved, still_low: bool) -> String {
   let mut steps = Vec::new();
   if relieved.swept {
     steps.push("deleted the trash of gone runs".to_string());
+  }
+  if !relieved.reclaimed.is_empty() {
+    steps.push(format!(
+      "reclaimed {} idle lease(s) whose work landed, their clean rules freed {}",
+      relieved.reclaimed.len(),
+      describe_size(relieved.reclaimed.iter().map(ReclaimedLease::freed_bytes).sum())
+    ));
   }
   if let Some(trimmed) = relieved.trimmed.as_ref().filter(|trimmed| trimmed.removed_slots() > 0 || trimmed.freed_bytes() > 0) {
     steps.push(format!(
