@@ -89,10 +89,17 @@ pub const LANDED_HIDDEN_FIELD: &str = "landedHiddenUntil";
 /// a session under the lease it opened under, a hide of the Landed island under the lease of the view it was asked on),
 /// and refuses a write of a lease the worktree holds no more; a write of a window keeps the writer's values for the epoch
 /// the entry is stamped with, whatever it carries (`keep_rust_fields`): the whole entry a window writes carries what its
-/// page read, of an earlier lease too. So a new lease starts without them. The other fields stay the windows': the
-/// settled layout (cosmetic, of the view), the durations of the steps of an update and of a sync, and the time of the last
-/// fetch (of the repository and of the machine, the same under any lease)
+/// page read, of an earlier lease too. So a new lease starts without them. The other fields stay the windows'
+/// (`WINDOW_FIELDS`)
 pub const LEASE_FIELDS: [&str; 3] = [SYNC_TIME_FIELD, BRANCH_COUNT_FIELD, LANDED_HIDDEN_FIELD];
+
+/// The fields of an entry of `repositoryState` that stay the windows', whatever lease the worktree holds: the settled
+/// layout (cosmetic, of the view), the durations of the steps of an update and of a sync, and the time of the last fetch
+/// (of the repository and of the machine, the same under any lease). Each field of the entry the page reads
+/// (`RepositoryStateEntrySchema`, src/stores/settings/repositoryState.ts) is in this list or in `LEASE_FIELDS`, so a new
+/// field is classed as it comes and never becomes a field of the windows unseen
+/// (`every_field_of_the_state_of_a_repository_is_of_its_lease_or_of_its_windows`)
+pub const WINDOW_FIELDS: [&str; 3] = ["settledLayout", "updateTimings", "lastFetchTime"];
 
 /// The field of a recent project that the epoch of its worktree bounds: the stack roots collapsed in its table, roots
 /// of the lease they were collapsed under, which would collapse stacks of the same names of the next lease

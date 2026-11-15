@@ -546,3 +546,34 @@ fn the_moved_values_of_a_settings_file_of_before_are_saved_without_a_change() {
   drop(SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::ZERO).unwrap());
   assert_eq!(read(&repository_state_path(&directory)), json!({ "repositoryState": { "/a": { "lastSyncTime": 10 } } }));
 }
+
+/// The fields of the entry of `repositoryState` the page reads (`RepositoryStateEntrySchema` of
+/// src/stores/settings/repositoryState.ts), each a top-level key of its `z.object`
+fn fields_of_the_page_entry() -> Vec<String> {
+  let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/stores/settings/repositoryState.ts");
+  let source = std::fs::read_to_string(&path).unwrap();
+  let start = source.find("const RepositoryStateEntrySchema = z.object({").expect("the schema of an entry");
+  let body = &source[start..];
+  let body = &body[..body.find("\n})").expect("the end of the schema")];
+  body
+    .lines()
+    .skip(1)
+    .filter_map(|line| line.strip_prefix("  "))
+    .filter(|line| line.starts_with(|first: char| first.is_ascii_alphabetic()))
+    .map(|line| line[..line.find(':').expect("a key of the schema")].to_owned())
+    .collect()
+}
+
+/// Each field of the state of a repository is of its lease (`LEASE_FIELDS`, which only Rust writes, each under its
+/// lease) or of its windows (`WINDOW_FIELDS`), and no field is of both: a field the page adds to its entry fails here
+/// until it is classed, so it never becomes a field a window writes for every lease unseen
+#[test]
+fn every_field_of_the_state_of_a_repository_is_of_its_lease_or_of_its_windows() {
+  use crate::service::{LEASE_FIELDS, WINDOW_FIELDS};
+  let mut page = fields_of_the_page_entry();
+  page.sort_unstable();
+  let mut classed: Vec<String> = LEASE_FIELDS.iter().chain(&WINDOW_FIELDS).map(|field| (*field).to_owned()).collect();
+  classed.sort_unstable();
+  assert!(classed.windows(2).all(|pair| pair[0] != pair[1]), "a field of the lease and of the windows: {classed:?}");
+  assert_eq!(page, classed);
+}

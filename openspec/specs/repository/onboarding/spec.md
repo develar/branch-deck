@@ -1538,6 +1538,7 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
   whatever a window writes and refuses under another lease; so its session waits for the user's first sync, shows the
   Ready to Sync card and no room for rows of a sync it never had, and its Landed island hides nothing of its own report
   [@test] crates/app-settings/src/projects_test.rs (`a_write_of_a_window_keeps_the_fields_of_the_lease_as_rust_recorded_them`, `a_record_of_a_sync_is_of_the_lease_its_session_opened_under`)
+  [@test] crates/app-settings/src/service_test.rs (`every_field_of_the_state_of_a_repository_is_of_its_lease_or_of_its_windows`)
   [@test] crates/repository-model/src/session_test.rs (`a_run_records_the_time_of_its_sync_under_the_lease_its_session_opened_under`)
   [@test] tests/e2e/onboarding/onboarding.spec.ts (`shows the Ready to Sync card in the window of a slot once an agent leased the slot again, without the rows and Last synced of the lease before`)
 

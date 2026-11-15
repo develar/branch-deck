@@ -812,6 +812,7 @@ lease pool, written by Rust under the lease of the view it was asked on (`hide_l
 - **WHEN** the island of a view of the lease before of a slot hides what it showed, the slot leased again
 - **THEN** nothing is hidden of the report of the new lease
   [@test] crates/app-settings/src/projects_test.rs (`a_record_of_a_sync_is_of_the_lease_its_session_opened_under`, `a_write_of_a_window_keeps_the_fields_of_the_lease_as_rust_recorded_them`)
+  [@test] crates/repository-model/src/session_test.rs (`a_hide_asked_on_the_view_before_a_reopen_is_of_no_lease`)
 
 #### Scenario: More lands later
 - **WHEN** something lands after the hidden report

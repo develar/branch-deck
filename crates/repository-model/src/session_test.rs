@@ -989,6 +989,31 @@ async fn an_epoch_that_cannot_be_read_writes_nothing_and_opens_nothing_anew() {
   assert!(sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "lease-a again: marked");
 }
 
+/// A hide of the Landed island asked on a view of the session before it opened anew for another lease of its slot (the
+/// island of the view of lease-a hides what it showed once the slot was leased again) is of no lease the session acts
+/// under: `lease_of_view` refuses it, so `hide_landed` writes nothing into the report of the new lease, while the same
+/// hide asked on the view of the new lease is of that lease
+#[tokio::test]
+async fn a_hide_asked_on_the_view_before_a_reopen_is_of_no_lease() {
+  let (_repo, key, leases, sessions) = opened_under_lease_a().await;
+  let before = sessions.view_version(&key).await.unwrap().epoch;
+  assert_eq!(sessions.lease_of_view(&key, Some(before)).await, Ok(lease("lease-a")));
+  *leases.epoch.lock().unwrap() = lease("lease-b");
+  assert_eq!(
+    outcome(sessions.sync(&key, SyncReason::Manual)).await,
+    Ok(SyncOutcome::Skipped),
+    "the run of the session of lease-a opens it anew"
+  );
+  let after = sessions.view_version(&key).await.unwrap().epoch;
+  assert_ne!(after, before, "the view of lease-b");
+  assert_eq!(
+    sessions.lease_of_view(&key, Some(before)).await,
+    Err(crate::session::AnotherLease),
+    "the view of lease-a hides nothing of lease-b"
+  );
+  assert_eq!(sessions.lease_of_view(&key, Some(after)).await, Ok(lease("lease-b")));
+}
+
 /// The guard an operation of a session writes the files of the lease under (an intent of a window: Update Project, its
 /// undo, a dismiss) holds while the slot holds the lease the session opened under, the lease of its view, and stops
 /// holding once the slot holds another; asked while the slot holds another lease than the session opened under, there is

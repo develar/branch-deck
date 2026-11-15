@@ -182,8 +182,12 @@ sequenceDiagram
     the lease it opened under, `hide_landed` under the lease of the view it was asked on; refused while the worktree
     holds another lease); a write of a window keeps what the writer has for the epoch the entry is stamped with, whatever
     the entry carries (`set_of_window`), so a window of an earlier lease that writes after the slot was leased again
-    gives the new lease none of them. The settled layout (cosmetic), the durations of the steps and the time of the last
-    fetch (of the repository and of the machine) stay the windows'.
+    gives the new lease none of them. An entry that a build before the epochs wrote names none: on a path that is a slot
+    now, the first write of a window there keeps none of the three for the epoch it stamps, so that slot looks never
+    synced once (Ready to Sync), rare and the safe side. The settled layout (cosmetic), the durations of the steps and
+    the time of the last fetch (of the repository and of the machine) stay the windows' (`WINDOW_FIELDS`); each field of
+    the entry of the page is in one of the two lists
+    (`every_field_of_the_state_of_a_repository_is_of_its_lease_or_of_its_windows`), so a new one is classed as it comes.
     **Rationale**: A sync runs on every focus that changed what it reads, and every Update Project learns its step
     times: in `settings.json` each would rewrite the file `brd` reads beside it, and the user's settings would follow the
     churn of the syncs. A fetch (every Update Project) and a sync that hides the Landed island are as routine. The

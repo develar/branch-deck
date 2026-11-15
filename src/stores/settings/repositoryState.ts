@@ -21,7 +21,10 @@ const UpdateTimingsSchema = z
   .optional()
   .catch(undefined) satisfies z.ZodType<UpdateTimings | undefined>
 
-/** A malformed field is dropped, never the repository */
+/**
+ * A malformed field is dropped, never the repository. Each field is of the lease of the worktree, which only Rust writes,
+ * or of the windows: `LEASE_FIELDS` or `WINDOW_FIELDS` of `app_settings::service`, which a test holds to this list
+ */
 const RepositoryStateEntrySchema = z.object({
   /** When the last sync of the repository ended (ms) */
   lastSyncTime: z.number().optional().catch(undefined),
