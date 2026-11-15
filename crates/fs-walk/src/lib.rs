@@ -181,6 +181,8 @@ fn walk(walks: &[Walk], tree_depth: Option<usize>, include_directory_bytes: bool
   std::thread::scope(|scope| {
     for _ in 0..WALK_WORKERS {
       scope.spawn(in_current_span(|| {
+        // made with the first directory the thread takes: a walk of a file or of one directory makes at most one
+        let mut reader = None;
         loop {
           let dir = {
             let mut queue = queue.lock().unwrap_or_else(PoisonError::into_inner);
@@ -198,9 +200,9 @@ fn walk(walks: &[Walk], tree_depth: Option<usize>, include_directory_bytes: bool
           let mut found = Vec::new();
           let mut bytes = 0;
           let mut has_linked = false;
-          for entry in platform::read_entries(&dir.path).unwrap_or_default() {
-            let path = dir.path.join(&entry.name);
+          for entry in platform::read(reader.get_or_insert_with(platform::reader), &dir.path).unwrap_or_default() {
             if entry.dir {
+              let path = dir.path.join(&entry.name);
               if !skips[dir.index].contains(path.as_path()) {
                 if include_directory_bytes {
                   bytes += directory_bytes(&path);
@@ -335,6 +337,16 @@ mod platform {
   /// `FSOPT_ATTR_CMN_EXTENDED`: `forkattr` asks the extended common attributes (`ATTR_CMNEXT_*`)
   const ATTR_CMN_EXTENDED: u64 = libc::FSOPT_ATTR_CMN_EXTENDED as u64;
 
+  /// The buffer that `getattrlistbulk` reads the entries of a directory into: one per thread of a walk, so a walk of
+  /// many directories allocates it once per thread, not once per directory
+  pub(super) struct Reader {
+    buffer: Vec<u8>,
+  }
+
+  pub(super) fn reader() -> Reader {
+    Reader { buffer: vec![0u8; BUFFER] }
+  }
+
   /// A file named as a root: its private size, as `getattrlist` tells it, else its blocks
   pub(super) fn file_bytes(path: &Path, metadata: &std::fs::Metadata) -> u64 {
     use std::os::unix::fs::MetadataExt;
@@ -351,19 +363,24 @@ mod platform {
   /// (the name as a reference, the type, the file id), the file attributes (the link count), the extended common ones
   /// (the private size), each on a 4-byte boundary
   pub(super) fn read_entries(dir: &Path) -> std::io::Result<Vec<Entry>> {
+    read(&mut reader(), dir)
+  }
+
+  /// The entries of `dir` (`read_entries`), read into the buffer of `reader`
+  pub(super) fn read(reader: &mut Reader, dir: &Path) -> std::io::Result<Vec<Entry>> {
     let path = CString::new(dir.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
     // SAFETY: a NUL-terminated path; the descriptor is closed below on every path
     let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW) };
     if fd < 0 {
       return Err(std::io::Error::last_os_error());
     }
-    let read = read_fd(fd);
+    let read = read_fd(fd, &mut reader.buffer);
     // SAFETY: the descriptor that `open` gave
     unsafe { libc::close(fd) };
     read
   }
 
-  fn read_fd(fd: libc::c_int) -> std::io::Result<Vec<Entry>> {
+  fn read_fd(fd: libc::c_int, buffer: &mut [u8]) -> std::io::Result<Vec<Entry>> {
     let mut list = libc::attrlist {
       bitmapcount: libc::ATTR_BIT_MAP_COUNT,
       reserved: 0,
@@ -373,7 +390,6 @@ mod platform {
       fileattr: libc::ATTR_FILE_LINKCOUNT,
       forkattr: libc::ATTR_CMNEXT_PRIVATESIZE,
     };
-    let mut buffer = vec![0u8; BUFFER];
     let mut entries = Vec::new();
     loop {
       // SAFETY: the attribute list and a buffer of its length, both alive across the call
@@ -449,8 +465,15 @@ mod platform {
     size(metadata)
   }
 
+  /// Nothing to keep between the reads of a thread: `read_dir` has a buffer of its own
+  pub(super) struct Reader;
+
+  pub(super) const fn reader() -> Reader {
+    Reader
+  }
+
   /// The entries of `dir` by `read_dir` and an `lstat` each, a file with its `size` and its `linked` id
-  pub(super) fn read_entries(dir: &Path) -> std::io::Result<Vec<Entry>> {
+  pub(super) fn read(_reader: &mut Reader, dir: &Path) -> std::io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(dir)? {
       let entry = entry?;

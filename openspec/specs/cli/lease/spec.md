@@ -2358,6 +2358,17 @@ walks of the call run side by side (`fs_walk::walk_bytes`, 8 threads over one qu
 - **THEN** each root is counted side by side, what counts apart is skipped, and a hard-linked file counts once
   [@test] crates/fs-walk/src/walk_test.rs (`a_walk_counts_each_root_side_by_side_skips_what_counts_apart_and_a_hard_linked_file_once`, `walk_tree_nodes_and_root_remainder_add_up_to_the_walk`)
 
+### Requirement: Disk: Each thread of a walk reads every directory into one buffer of its own
+
+On macOS each thread of a walk MUST read every directory into one buffer of its own for `getattrlistbulk` (128 KiB).
+The thread MUST make this buffer when it takes its first directory, not once per directory.
+
+#### Scenario: A walk of many directories
+- **WHEN** a walk reads 201 directories
+- **THEN** it allocates at most one read buffer for each of its 8 threads
+- **AND** a walk of one directory allocates at most one read buffer
+  [@test] crates/fs-walk/tests/walk_buffer.rs (`a_walk_allocates_one_read_buffer_per_thread_not_per_directory`)
+
 ### Requirement: Disk: The bytes of a slot are kept and refreshed by what changed
 
 The bytes of a slot MUST be kept in `$GIT_COMMON_DIR/branch-deck/disk.json` with its `returned`, whether it was leased,
