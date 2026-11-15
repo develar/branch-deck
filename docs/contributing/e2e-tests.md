@@ -185,6 +185,11 @@ rules in one line each and links here.
   (`branch-row-layout.spec.ts`, the right-click within the exit of a "⋯" menu), never only for the popup's visibility.
   A step that must land within an exit holds it: a style that lengthens the exit, then `finish()` of the popup's
   `getAnimations()` once the step is done; never an assertion that a quick step happened to land in it.
+- **A frame of `requestAnimationFrame` is a timer of the test clock**, which `context.clock.install` fakes: it comes every
+  16 ms of the clock, not with a rendering update, and a loaded WebKit rendered no update in eight of them
+  (`resize-loops.spec.ts`, 4 of 72 runs under `E2E_RO_TRACE`). A test waits for a rendering update by the first report
+  of a `ResizeObserver` made for it, and makes its next change in the task after it: a change or a new observation in
+  the delivery of its observer, no deeper than its report, is a loop of the test's own.
 - **A command the page answers from a cache is asked once**: the texts of the blobs (`get_blob_texts`) are kept by
   blob id (`src/stores/blob-texts.ts`), and a read-ahead asks for them before the file is shown, so a hold installed
   after the window opened may never see the call a test waits for (1 run in 12 of `review-plan.spec.ts`). Hold it on

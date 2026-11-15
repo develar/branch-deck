@@ -199,11 +199,16 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   10 of 20 frames (`CYCLE_RELEASES`, `CYCLE_FRAMES`: every frame, every other) after its report there, resized by a
   change of a callback of ours (its own observer's or another's), is a cycle, logged as an error: frames, not time, so a window that renders slowly tells it
   too, and a drag that resizes it between frames is none, nor one let go before its report (a commit lets an element go once, however many of our observers observe it: a
-  diff view has three). A cycle that resizes its element after the delivery (in a frame callback, a timer) is not
+  diff view has three); its release is measured against its layout as reported, one arithmetic for both
+  (`sameBoxOf` of `src/lib/laid-out.ts`), as the computed style lays it out otherwise than the engine at a zoom of the
+  app other than 100% or a fractional scale of WebKit. A cycle that resizes its element after the delivery (in a frame callback, a timer) is not
   caught: it resizes the element once a frame, as an animation, a transition, a drag or a live resize of the window do
   for as long as they last, and no size, frame or time tells it from them. The page logs a loop of a library's
   observers as a warning (one may come under load) and 3 within 5 s as an error (`LOOP_REPEATS`, `LOOP_REPEAT_MS`); a
-  loop that left an element of ours pending is an error at once, so every E2E test fails on one; the page cancels the
+  loop that left an element of ours pending is an error at once, so every E2E test fails on one. Its elements are told
+  by the engine's own boxes: the computed style proposes the candidates, laid out otherwise than reported (exact at a
+  zoom of 100%, up to 1.5 px off at another in WebKit), and an observer made first of all observes them at the loop,
+  its report in the next update the verdict, by which the page weighs the loop at its own time. The page cancels the
   engine's event of a loop, so no console reports it as uncaught; each kind of line
   comes once in 10 s at most, with the count it left out (`LOOP_LOG_MS`; `src/lib/page-errors.ts`, the thresholds of
   `src/lib/resize-loops.ts`). The WebKit check `tests/e2e/resize-loops/` names the elements of a library's loop in its

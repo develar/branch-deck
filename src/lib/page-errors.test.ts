@@ -62,9 +62,27 @@ describe("the errors of the page", () => {
     ])
   })
 
+  it("weighs a loop by the time it came, however late the observers of the page tell its elements", async () => {
+    // the observers of the page tell a loop by the engine's boxes of the next update: three loops 3 s apart, told
+    // together at 7 s, are no three within five seconds
+    const { attributeLoopsWith } = await import("@/lib/resize-loops")
+    const verdicts: ((pending: readonly string[]) => void)[] = []
+    attributeLoopsWith(verdict => verdicts.push(verdict))
+    for (const at of [0, 3000, 6000]) {
+      loopAt(at)
+    }
+    expect(log.warn).not.toHaveBeenCalled()
+    now = 7000
+    for (const verdict of verdicts) {
+      verdict([])
+    }
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
   it("logs a loop that left an element of the observers of the page pending as an error at once, then once in ten seconds with the count", async () => {
     const { attributeLoopsWith } = await import("@/lib/resize-loops")
-    attributeLoopsWith(() => ["diff-view-prologue"])
+    attributeLoopsWith(verdict => verdict(["diff-view-prologue"]))
     // a loop in every frame of a second
     for (let frame = 0; frame < 60; frame++) {
       loopAt(frame * 16)

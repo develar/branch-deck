@@ -26,31 +26,32 @@
  *   change of their callback that resizes an element of ours lets it go. Passive: theirs is the engine's class, prototype
  *   and methods, with the same entries in the same frame; no element of theirs is let go or observed anew.
  * - A cycle: an element let go in the delivery of `CYCLE_RELEASES` of `CYCLE_FRAMES` frames (every frame, every other)
- *   after its report there, resized by a change of a callback of ours (measured on the frame that makes it), which no
+ *   after its report there, resized by a change of a callback of ours (measured on the frame that makes it, against its
+ *   layout as reported: `sameBoxOf` of src/lib/laid-out.ts, exact at any zoom and scale), which no
  *   loop tells any more, is logged as an error. A drag that resizes it between frames is no cycle: its size in the
  *   delivery is the one it was reported with, and one let go before its report in the delivery does not count. A cycle that resizes
  *   its element after the delivery (in a frame callback, a timer) is no loop and is not told: it resizes the element once
  *   a frame, as an animation, a transition, a drag or a resize of the window does for as long as they last, and no size,
  *   frame or time tells it from them.
- * - A loop the engine reports anyway: the elements of ours left resized since their report (`pendingOfOurs`), which
+ * - A loop the engine reports anyway: the elements of ours left resized since their report (`attributeLoop`), which
  *   src/lib/page-errors.ts logs as an error (src/lib/resize-loops.ts). Resized as the engine tells it: the box each
- *   observation observes, the content box unless the border box, as laid out (src/lib/laid-out.ts: a scroll bar that
- *   takes room is in the border box, not in the content box). An element observed again in a delivery leaves the engine
- *   as its new observation waits, so a change does not leave its old observation to skip.
+ *   observation observes, the content box unless the border box, by the engine's own boxes from the report of an
+ *   observer made as this module loads, before the others (`probe`), in the next update; the computed style proposes
+ *   them (src/lib/laid-out.ts: a scroll bar that takes room is in the border box, not in the content box), exact only at
+ *   a zoom of 100%, and in WebKit at a whole scale. An element
+ *   observed again in a delivery leaves the engine as its new observation waits, so a change does not leave its old
+ *   observation to skip.
  *
  * A loop of the observers of a library is theirs, timed as the specification says: a warning of the page, repeated an
  * error
  */
 import { logError } from "@/lib/errors"
-import type { Box, Boxes } from "@/lib/laid-out"
-import { laidOutBoxes } from "@/lib/laid-out"
+import type { Boxes, Layout } from "@/lib/laid-out"
+import { laidOutBoxes, layoutOf, sameBox, sameBoxOf } from "@/lib/laid-out"
 import { attributeLoopsWith, CYCLE_FRAMES, CYCLE_RELEASES } from "@/lib/resize-loops"
 
 /** The mark of an observer made here, which the test wrapper of the observers reads (tests/e2e/setup/resize-observers.ts) */
 export const SIZE_OBSERVER_MARK = Symbol.for("branch-deck.observeSize")
-
-/** Two sizes this close are the same: less than a layout unit (1/64 px), more than the rounding of a computed style */
-const SAME_SIZE = 0.01
 
 /** What an observer observes an element with, and the boxes it reported it with since */
 interface Observation {
@@ -91,6 +92,11 @@ let delivering = false
 let ending = false
 /** The elements let go in the delivery, observed anew as it ends */
 const released = new Map<Element, Release>()
+/**
+ * The layouts of the elements whose release in the delivery of their report would make a cycle, as reported: each
+ * reported again in every delivery that measures it
+ */
+const reportedLayouts = new WeakMap<Element, Layout>()
 /** The frames of the page, counted by `requestAnimationFrame` while a delivery or a cycle is open */
 let frame = 0
 let frameRequested = false
@@ -118,7 +124,7 @@ function depthOf(node: Node): number {
 }
 
 /** The boxes an entry reports; null where the engine gives no border box */
-function boxesOf(entry: ResizeObserverEntry): Boxes | null {
+function boxesOfEntry(entry: ResizeObserverEntry): Boxes | null {
   const border = entry.borderBoxSize?.[0]
   if (border === undefined) {
     return null
@@ -130,21 +136,26 @@ function boxesOf(entry: ResizeObserverEntry): Boxes | null {
   }
 }
 
-function sameBox(one: Box, other: Box): boolean {
-  return Math.abs(one.inline - other.inline) <= SAME_SIZE && Math.abs(one.block - other.block) <= SAME_SIZE
-}
-
 /** An element in a log line: its test id, its slot, else its tag */
 function nameOf(element: Element): string {
   return element.getAttribute("data-testid") ?? element.getAttribute("data-slot") ?? element.tagName.toLowerCase()
 }
 
-/** A report of ours with `entries`: the delivery is open, at the depth of its shallowest element */
+/**
+ * A report of ours with `entries`: the delivery is open, at the depth of its shallowest element. An element whose release
+ * in this frame would make a cycle keeps its layout as reported, which its release is measured against
+ */
 function delivered(observer: SizeObserver, entries: readonly ResizeObserverEntry[]): void {
   const open = openDelivery(entries)
   for (const entry of entries) {
-    observer.reported(entry.target, boxesOf(entry))
+    observer.reported(entry.target, boxesOfEntry(entry))
     open.reported.add(entry.target)
+    if (recentFrames(entry.target, frame).length + 1 >= CYCLE_RELEASES) {
+      const layout = layoutOf(entry.target)
+      if (layout !== null) {
+        reportedLayouts.set(entry.target, layout)
+      }
+    }
   }
 }
 
@@ -289,10 +300,15 @@ function release(element: Element, depth: number, ofOurs: boolean): void {
   }
 }
 
-/** Whether `element` is laid out other than one of `by` reported it */
+/**
+ * Whether `element` is laid out other than as reported in the delivery, in the box one of `by` observes: its layout now
+ * against its layout then, one arithmetic for both, so a zoom or a scale that the arithmetic does not lay out as the
+ * engine does reads no change of its own (`sameBoxOf`)
+ */
 function resizedSinceReport(element: Element, by: ReadonlySet<SizeObserver>): boolean {
-  const now = laidOutBoxes(element)
-  return now !== null && [...by].some(observer => observer.differs(element, now))
+  const then = reportedLayouts.get(element)
+  const now = layoutOf(element)
+  return then !== undefined && now !== null && [...by].some(observer => !sameBoxOf(then, now, observer.observedBox(element)))
 }
 
 /**
@@ -402,18 +418,68 @@ function nextTask(run: () => void): void {
   channel.port2.postMessage(null)
 }
 
-/** At a loop the engine reports: the elements of ours it left resized since their report, or observed and never reported */
-function pendingOfOurs(): string[] {
-  const names = new Set<string>()
-  for (const observer of observers) {
-    for (const element of observer.pending()) {
-      names.add(nameOf(element))
-    }
-  }
-  return [...names]
+/** An element of ours a loop may have left pending, and the boxes each of its observations was reported with at the loop */
+interface Candidate {
+  readonly element: Element
+  readonly observations: readonly { readonly box: keyof Boxes; readonly reported: Boxes | null }[]
 }
 
-attributeLoopsWith(pendingOfOurs)
+/** The loops that wait for the report of the probe, each with its candidates, in the order the engine reported them */
+const probing: { readonly candidates: readonly Candidate[]; readonly verdict: (pending: readonly string[]) => void }[] = []
+
+/**
+ * At a loop the engine reports: the elements of ours it left pending, resized since their report or observed with a size
+ * and never reported. Their candidates are those the arithmetic lays out otherwise than reported (`laidOutBoxes`), exact
+ * at a zoom of 100%; the engine's own boxes decide, from the report of the probe in the next update. A candidate that a
+ * task resized between the loop and that update counts as pending, which at a zoom of 100% only one that was pending can
+ */
+function attributeLoop(verdict: (pending: readonly string[]) => void): void {
+  const candidates: Candidate[] = []
+  const seen = new Set<Element>()
+  for (const observer of observers) {
+    for (const element of observer.pending()) {
+      if (!seen.has(element)) {
+        seen.add(element)
+        candidates.push({ element, observations: [...(observing.get(element) ?? [])].map(of => of.observationOf(element)) })
+      }
+    }
+  }
+  if (probe === null || (candidates.length === 0 && probing.length === 0)) {
+    verdict([])
+    return
+  }
+  // a loop after one that waits waits as well, so the page weighs the loops in their order
+  probing.push({ candidates, verdict })
+  // the root, reported in every update: the probe reports even when every candidate has no box
+  probe.observe(document.documentElement)
+  for (const { element } of candidates) {
+    // both boxes come in every entry; the border box observed is reported first unless the element has none
+    probe.observe(element, { box: "border-box" })
+  }
+}
+
+/** The report of the probe in the update after a loop: each candidate pending as the engine lays it out; one it does not report has no box */
+function probed(entries: readonly ResizeObserverEntry[]): void {
+  const boxes = new Map(entries.map(entry => [entry.target, boxesOfEntry(entry)]))
+  probe?.disconnect()
+  const none = { content: { inline: 0, block: 0 }, border: { inline: 0, block: 0 } }
+  for (const { candidates, verdict } of probing.splice(0)) {
+    const pending = candidates.filter(({ element, observations }) => {
+      const now = boxes.get(element) ?? none
+      return observations.some(({ box, reported }) => (reported === null ? now[box].inline > 0 || now[box].block > 0 : !sameBox(reported[box], now[box])))
+    })
+    verdict(pending.map(({ element }) => nameOf(element)))
+  }
+}
+
+/**
+ * The observer of the engine that tells the boxes of the candidates of a loop (`attributeLoop`), made as this module
+ * loads, before the observers of the page and of its libraries, so its report comes first in the update after the loop,
+ * before a callback changes them
+ */
+const probe = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(entries => probed(entries))
+
+attributeLoopsWith(attributeLoop)
 
 /**
  * The global `ResizeObserver`, as the libraries make theirs, is the engine's with one step before each callback: a report
@@ -542,11 +608,18 @@ export class SizeObserver {
     if (reported === undefined) {
       return false
     }
-    if (reported === null) {
-      return now.border.inline > 0 || now.border.block > 0
-    }
-    // the box the observation compares, as the engine does: the content box unless it observes the border box
-    return this.observed.get(element)?.options?.box === "border-box" ? !sameBox(reported.border, now.border) : !sameBox(reported.content, now.content)
+    const box = this.observedBox(element)
+    return reported === null ? now[box].inline > 0 || now[box].block > 0 : !sameBox(reported[box], now[box])
+  }
+
+  /** The box its observation of `element` compares, as the engine does: the content box unless it observes the border box */
+  observedBox(element: Element): keyof Boxes {
+    return this.observed.get(element)?.options?.box === "border-box" ? "border" : "content"
+  }
+
+  /** The box it observes `element` by, and the boxes it reported it with */
+  observationOf(element: Element): { box: keyof Boxes; reported: Boxes | null } {
+    return { box: this.observedBox(element), reported: this.observed.get(element)?.reported ?? null }
   }
 
   /** `element` leaves it until the delivery ends; false when it does not observe it, or let it go already */

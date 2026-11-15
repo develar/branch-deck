@@ -1,7 +1,7 @@
 // @spec openspec/specs/repository/title-bar/spec.md
 import type { Page } from "@playwright/test"
-import { laidOutBoxes } from "../../../src/lib/laid-out"
-import { test, expect } from "../fixtures/test-fixtures"
+import { boxesOf, laidOutBoxes, layoutOf } from "../../../src/lib/laid-out"
+import { allowErrorLog, test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { expectOverviewLaidOut } from "../helpers/diff-helpers"
 import { MARKS_SUBJECT, openMarksReview } from "../helpers/marks-helpers"
@@ -318,7 +318,9 @@ test.describe("The frames of a review as it opens", () => {
 
 test.describe("The observers of the libraries", () => {
   // the page watches the observers a library makes only for the depth of their reports (src/lib/observe-size.ts): the
-  // engine's class, prototype and methods, the same entries in the same frames as an observer made of the engine's own
+  // engine's class, prototype and methods, the same entries in the same rendering updates as an observer made of the
+  // engine's own. Each resize waits for its report: the frames of `requestAnimationFrame` are the test clock's timers,
+  // not rendering updates, and a loaded WebKit rendered no update in eight of them
   test("should give the observer of a library the engine's class and the same entries in the same frames @webkit", async ({ page, setupRepo }) => {
     await page.addInitScript(() => {
       ;(window as unknown as { engineResizeObserver: typeof ResizeObserver }).engineResizeObserver = ResizeObserver
@@ -326,28 +328,52 @@ test.describe("The observers of the libraries", () => {
     await setupRepo("behind_upstream")
     const seen = await page.evaluate(async () => {
       const Engine = (window as unknown as { engineResizeObserver: typeof ResizeObserver }).engineResizeObserver
-      const frame = () => new Promise<number>(resolve => requestAnimationFrame(resolve))
-      let frames = 0
-      const record = (into: string[]) => (entries: ResizeObserverEntry[]) => {
-        into.push(`frame ${frames}: ${entries.map(entry => `${entry.contentRect.width}x${entry.contentRect.height}, border ${entry.borderBoxSize[0]?.inlineSize}`).join("; ")}`)
-      }
+      const describe = (entries: ResizeObserverEntry[]) =>
+        entries.map(entry => `${entry.contentRect.width}x${entry.contentRect.height}, border ${entry.borderBoxSize[0]?.inlineSize}`).join("; ")
       const box = document.createElement("div")
       box.style.cssText = "position:absolute;left:0;top:0;width:10px;height:10px;padding:1px"
       document.body.append(box)
+      // the updates the engine's observer reported in, which reports first, as made first: a task between its report and
+      // the library's says the library reported in another update
+      let updates = 0
+      let inUpdate = false
+      const tasks = new MessageChannel()
+      tasks.port1.onmessage = () => {
+        inUpdate = false
+      }
+      let reported: (() => void) | null = null
       const ofEngine: string[] = []
       const ofLibrary: string[] = []
-      const engine = new Engine(record(ofEngine))
-      const library = new ResizeObserver(record(ofLibrary))
-      engine.observe(box)
-      library.observe(box)
-      for (const width of [20, 30, 40, 50, 60]) {
-        await frame()
-        frames++
-        box.style.width = `${width}px`
+      const engine = new Engine(entries => {
+        updates++
+        inUpdate = true
+        tasks.port2.postMessage(null)
+        ofEngine.push(`update ${updates}: ${describe(entries)}`)
+      })
+      const library = new ResizeObserver(entries => {
+        ofLibrary.push(`update ${updates}${inUpdate ? "" : " (another)"}: ${describe(entries)}`)
+        reported?.()
+      })
+      // a change, then its report by both and the task after the update: a change in its delivery would be a loop
+      const report = async (change: () => void) => {
+        await new Promise<void>(resolve => {
+          reported = resolve
+          change()
+        })
+        await new Promise<void>(resolve => {
+          const channel = new MessageChannel()
+          channel.port1.onmessage = () => resolve()
+          channel.port2.postMessage(null)
+        })
       }
-      for (let count = 0; count < 3; count++) {
-        await frame()
-        frames++
+      await report(() => {
+        engine.observe(box)
+        library.observe(box)
+      })
+      for (const width of [20, 30, 40, 50, 60]) {
+        await report(() => {
+          box.style.width = `${width}px`
+        })
       }
       engine.disconnect()
       library.disconnect()
@@ -363,8 +389,8 @@ test.describe("The observers of the libraries", () => {
     })
     expect(seen).toMatchObject({ global: true, prototype: true, instance: true, methods: true })
     expect(seen.ofLibrary).toEqual(seen.ofEngine)
-    // the first report and at least one of a resize (a loaded machine renders two resizes in one frame)
-    expect(seen.ofEngine.length).toBeGreaterThan(1)
+    // the first report and one of each resize
+    expect(seen.ofEngine).toHaveLength(6)
   })
 })
 
@@ -381,7 +407,7 @@ test.describe("The boxes of the observed elements", () => {
     <div class="scroller" id="border" style="box-sizing: border-box"><div style="height: 400px; width: 600px">x</div></div>
     <div class="scroller" id="content" style="box-sizing: content-box"><div style="height: 400px">x</div></div>
     <div class="scroller" id="none" style="overflow: hidden"><div>x</div></div>`)
-    await page.addScriptTag({ content: `window.laidOutBoxes = ${laidOutBoxes.toString()}` })
+    await page.addScriptTag({ content: `${layoutOf.toString()}\n${boxesOf.toString()}\nwindow.laidOutBoxes = ${laidOutBoxes.toString()}` })
     const boxes = await page.evaluate(
       () =>
         new Promise<Record<string, unknown>>(resolve => {
@@ -415,5 +441,100 @@ test.describe("The boxes of the observed elements", () => {
     // (Chromium headless draws overlay bars, which take none)
     const contentOfBorderBox = (boxes.border as { reported: { content: { inline: number } } }).reported.content.inline
     expect(contentOfBorderBox).toBe(browserName === "webkit" ? 278 : 290)
+  })
+})
+
+/**
+ * What the page weighs a loop the engine reports as, at the device scale and the zoom of the test: the event of a loop
+ * told to the page (WebKit reports no loop of a constructed page), the elements of its observers laid out by the engine.
+ * The room of the repository path, which an observer of the app observes, is a scroller whose bar takes room and whose
+ * sizes are fractions of a pixel, which the arithmetic of the computed style lays out otherwise than the engine does
+ * (src/lib/laid-out.ts): unchanged, it leaves a loop the library's; resized before its report, the page's
+ */
+async function weighLoopsOfTheRoom(page: Page, setupRepo: (template: string) => Promise<unknown>, zoom: string | null): Promise<void> {
+  allowErrorLog(page, /^The trace of a ResizeObserver loop/, "the trace of the observers (E2E_RO_TRACE) logs each loop this test tells the page of")
+  const lines: string[] = []
+  page.on("console", message => {
+    // the warning and the error lines of the page, not the marks of the log of the app
+    if (message.type() !== "info" && message.text().includes("ResizeObserver loop")) {
+      lines.push(`${message.type()}: ${message.text()}`)
+    }
+  })
+  await setupRepo("issue_links")
+  await expect(page.getByTestId("repository-path")).toBeVisible()
+  const loop = (resize: boolean) =>
+    page.evaluate(
+      async ({ zoom, resize }) => {
+        const room = document.querySelector<HTMLElement>("[data-testid=repository-path]")!.parentElement!
+        if (!room.hasAttribute("data-loop-room")) {
+          // the next rendering update, by the first report of an observer made for it, and the task after it: an
+          // observation made in the update, no deeper than its report, would be one the update skips
+          const block = document.createElement("div")
+          block.style.cssText = "position: fixed; left: 0; top: 0; width: 1px; height: 1px"
+          document.body.append(block)
+          const nextUpdate = () =>
+            new Promise<void>(resolve => {
+              const observer = new ResizeObserver(() => {
+                observer.disconnect()
+                const channel = new MessageChannel()
+                channel.port1.onmessage = () => resolve()
+                channel.port2.postMessage(null)
+              })
+              observer.observe(block)
+            })
+          const sheet = new CSSStyleSheet()
+          sheet.replaceSync(
+            `${zoom === null ? "" : `html { zoom: ${zoom}; }`}
+            [data-loop-room] { overflow-y: scroll; flex: 0 0 300.5px; padding: 0.3px; border: 1px solid; box-sizing: border-box; }
+            [data-loop-room]::-webkit-scrollbar { width: 12px; }
+            [data-loop-room]::-webkit-scrollbar-thumb { background: gray; }`,
+          )
+          document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
+          room.setAttribute("data-loop-room", "")
+          // the observers of the app report the room and what the zoom resized at their new sizes
+          for (let update = 0; update < 3; update++) {
+            await nextUpdate()
+          }
+        }
+        if (resize) {
+          room.style.flexBasis = "280.5px"
+        }
+        window.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop completed with undelivered notifications.", error: null }))
+      },
+      { zoom, resize },
+    )
+  // unchanged: a loop of a library alone, a warning of the page
+  await loop(false)
+  await expect.poll(() => lines).toEqual(["warning: ResizeObserver loop completed with undelivered notifications."])
+  // resized after its report: a loop that left it pending, an error of the page
+  expectErrorLog(page, /^A ResizeObserver loop of an observer of the page: left span pending$/)
+  await loop(true)
+  await expect
+    .poll(() => lines)
+    .toEqual(["warning: ResizeObserver loop completed with undelivered notifications.", "error: A ResizeObserver loop of an observer of the page left span pending"])
+}
+
+test.describe("A loop at a device scale of 125%", () => {
+  test.use({ deviceScaleFactor: 1.25 })
+
+  test("should take a loop for a library's when the engine lays an element of the app out as reported, at a device scale of 125% @webkit", async ({ page, setupRepo }) => {
+    await weighLoopsOfTheRoom(page, setupRepo, null)
+  })
+})
+
+test.describe("A loop at a device scale of 150%", () => {
+  test.use({ deviceScaleFactor: 1.5 })
+
+  test("should take a loop for a library's when the engine lays an element of the app out as reported, at a device scale of 150% @webkit", async ({ page, setupRepo }) => {
+    await weighLoopsOfTheRoom(page, setupRepo, null)
+  })
+})
+
+test.describe("A loop at a zoom of 110%", () => {
+  test.use({ deviceScaleFactor: 2 })
+
+  // the zoom of the app is the page zoom of the webview, which WebKit lays out as a zoom of the root
+  test("should take a loop for a library's when the engine lays an element of the app out as reported, at a zoom of 110% @webkit", async ({ page, setupRepo }) => {
+    await weighLoopsOfTheRoom(page, setupRepo, "1.1")
   })
 })

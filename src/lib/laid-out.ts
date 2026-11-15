@@ -11,19 +11,37 @@ export interface Boxes {
 }
 
 /**
- * The boxes of `element` as laid out now, as a `ResizeObserver` reports them (src/lib/observe-size.ts), which no transform
- * changes; null without a box. A scroll bar that takes room (WebKit on macOS with a mouse, "Always show scroll bars")
- * lies between the padding and the border: the content box goes without it, the border box with it. Its size is the
- * rounded border box less the rounded client box and the borders, 0 for an overlay bar or none. Self-contained: an E2E
- * test runs its source in a page (tests/e2e/resize-loops/resize-loops.spec.ts)
+ * What the boxes of an element are made of as laid out: its computed width and height (its border box in a border box
+ * sizing, else its content box, without its scroll bars), its padding, its borders and the room its scroll bars take
  */
-export function laidOutBoxes(element: Element): Boxes | null {
+export interface Layout {
+  readonly borderBox: boolean
+  readonly size: Box
+  readonly padding: Box
+  readonly borders: Box
+  /**
+   * The room of the scroll bars, the rounded border box less the rounded client box and the borders: 0 under 2 px, an
+   * overlay bar or none, whose rounding leaves a pixel at most
+   */
+  readonly bars: Box
+}
+
+/** Two sizes this close are the same: less than a layout unit (1/64 px), more than the rounding of a computed style */
+const SAME_SIZE = 0.01
+
+export function sameBox(one: Box, other: Box): boolean {
+  return Math.abs(one.inline - other.inline) <= SAME_SIZE && Math.abs(one.block - other.block) <= SAME_SIZE
+}
+
+/** The layout of `element` now, which no transform changes; null without a box */
+export function layoutOf(element: Element): Layout | null {
   if (!element.isConnected || typeof getComputedStyle === "undefined") {
     return null
   }
   const style = getComputedStyle(element)
+  const none = { inline: 0, block: 0 }
   if (style.display === "none") {
-    return { content: { inline: 0, block: 0 }, border: { inline: 0, block: 0 } }
+    return { borderBox: true, size: none, padding: none, borders: none, bars: none }
   }
   const width = Number.parseFloat(style.width)
   const height = Number.parseFloat(style.height)
@@ -31,7 +49,6 @@ export function laidOutBoxes(element: Element): Boxes | null {
     return null
   }
   const px = (value: string | undefined) => Number.parseFloat(value ?? "") || 0
-  const padding = { inline: px(style.paddingLeft) + px(style.paddingRight), block: px(style.paddingTop) + px(style.paddingBottom) }
   const borders = { inline: px(style.borderLeftWidth) + px(style.borderRightWidth), block: px(style.borderTopWidth) + px(style.borderBottomWidth) }
   const bar = (offset: unknown, client: unknown, border: number) => {
     if (typeof offset !== "number" || typeof client !== "number") {
@@ -41,14 +58,50 @@ export function laidOutBoxes(element: Element): Boxes | null {
     return size >= 2 ? size : 0
   }
   const box = element as HTMLElement
-  const scrollBar = { inline: bar(box.offsetWidth, box.clientWidth, borders.inline), block: bar(box.offsetHeight, box.clientHeight, borders.block) }
-  return style.boxSizing === "border-box"
+  return {
+    borderBox: style.boxSizing === "border-box",
+    size: { inline: width, block: height },
+    padding: { inline: px(style.paddingLeft) + px(style.paddingRight), block: px(style.paddingTop) + px(style.paddingBottom) },
+    borders,
+    bars: { inline: bar(box.offsetWidth, box.clientWidth, borders.inline), block: bar(box.offsetHeight, box.clientHeight, borders.block) },
+  }
+}
+
+/**
+ * The boxes of `layout` as a `ResizeObserver` reports them: a scroll bar that takes room (WebKit on macOS with a mouse,
+ * "Always show scroll bars") lies between the padding and the border, so the content box goes without it and the border
+ * box with it. Exact at a zoom of 100% (in Chromium at any device scale, in WebKit at a whole one), an estimate
+ * otherwise: WebKit at another zoom (the zoom of the app) or a fractional scale lays out the borders, the padding and the
+ * bars on a grid of its own, which neither the computed style nor the whole pixels of the client box say, and the
+ * estimate misses by up to 1.5 px (tests/e2e/resize-loops/resize-loops.spec.ts). So no verdict rests on it alone: a loop
+ * is told by the engine's own boxes (src/lib/observe-size.ts), a cycle by two layouts of the element (`sameBoxOf`)
+ */
+export function boxesOf(layout: Layout): Boxes {
+  const { size, padding, borders, bars } = layout
+  return layout.borderBox
     ? {
-        content: { inline: width - padding.inline - borders.inline - scrollBar.inline, block: height - padding.block - borders.block - scrollBar.block },
-        border: { inline: width, block: height },
+        content: { inline: size.inline - padding.inline - borders.inline - bars.inline, block: size.block - padding.block - borders.block - bars.block },
+        border: size,
       }
     : {
-        content: { inline: width, block: height },
-        border: { inline: width + padding.inline + borders.inline + scrollBar.inline, block: height + padding.block + borders.block + scrollBar.block },
+        content: size,
+        border: { inline: size.inline + padding.inline + borders.inline + bars.inline, block: size.block + padding.block + borders.block + bars.block },
       }
+}
+
+/** The boxes of `element` as laid out now (`boxesOf`); null without a box */
+export function laidOutBoxes(element: Element): Boxes | null {
+  const layout = layoutOf(element)
+  return layout === null ? null : boxesOf(layout)
+}
+
+/**
+ * Whether two layouts of one element have the same `box`: exact at any zoom and scale, as one arithmetic rounds both
+ * alike. A bar that takes room in both counts by the size of the first for both: the size of a bar is a constant of the
+ * theme, and its estimate of whole pixels can round anew when the element moves by a fraction of a pixel
+ */
+export function sameBoxOf(one: Layout, other: Layout, box: keyof Boxes): boolean {
+  const bar = (first: number, second: number) => (first > 0 === second > 0 ? first : second)
+  const bars = { inline: bar(one.bars.inline, other.bars.inline), block: bar(one.bars.block, other.bars.block) }
+  return sameBox(boxesOf(one)[box], boxesOf({ ...other, bars })[box])
 }

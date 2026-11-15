@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
-import { laidOutBoxes } from "@/lib/laid-out"
+import type { Layout } from "@/lib/laid-out"
+import { laidOutBoxes, sameBoxOf } from "@/lib/laid-out"
 
 /** A scroller of 300 px, padding 4 and border 1 on each side, with a scroll bar `bar` px wide, in a box sizing */
 function scroller(boxSizing: "border-box" | "content-box", bar: number): Element {
@@ -37,5 +38,35 @@ describe("the boxes of an element as laid out", () => {
 
   it("reads no scroll bar of an overlay bar or of none", () => {
     expect(laidOutBoxes(scroller("border-box", 0))).toEqual({ content: { inline: 290, block: 90 }, border: { inline: 300, block: 100 } })
+  })
+
+  it("reads no scroll bar of the pixel the rounding of the client box leaves", () => {
+    // a border box of 300.5 px rounds to 301, its client box of 298.5 to 299: a pixel, no bar
+    expect(laidOutBoxes(scroller("border-box", 1))).toEqual({ content: { inline: 290, block: 90 }, border: { inline: 300, block: 100 } })
+  })
+})
+
+describe("two layouts of an element against each other", () => {
+  /** A scroller of 300 px, padding 8 and borders 2 in all, its bar `bar` px wide */
+  const layout = (width: number, bar: number): Layout => ({
+    borderBox: true,
+    size: { inline: width, block: 100 },
+    padding: { inline: 8, block: 8 },
+    borders: { inline: 1.8181, block: 1.8181 },
+    bars: { inline: bar, block: 0 },
+  })
+
+  it("takes a bar the rounding of whole pixels estimates a pixel apart for the same bar", () => {
+    // a move of the scroller by a fraction of a pixel rounds its border box and its client box anew
+    expect(sameBoxOf(layout(300, 12), layout(300, 13), "content")).toBe(true)
+    expect(sameBoxOf(layout(300, 12), layout(300, 13), "border")).toBe(true)
+  })
+
+  it("tells a bar that came or went, and a box of another size, in the box observed", () => {
+    expect(sameBoxOf(layout(300, 12), layout(300, 0), "content")).toBe(false)
+    // in a border box sizing a bar takes its room from the content box: the border box stays
+    expect(sameBoxOf(layout(300, 0), layout(300, 12), "border")).toBe(true)
+    expect(sameBoxOf(layout(300, 12), layout(300.5, 12), "content")).toBe(false)
+    expect(sameBoxOf(layout(300, 12), layout(300.005, 12), "border")).toBe(true)
   })
 })

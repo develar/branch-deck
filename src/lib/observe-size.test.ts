@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
-/** The size each fake element is laid out at now, its border box, and its padding on each side */
-const sizes = new Map<object, { width: number; height: number; padding?: number }>()
+/**
+ * The size each fake element is laid out at now, its border box, its padding on each side, and how far the computed
+ * style misses the engine's layout of its width (`missedBy`, as WebKit at a zoom of the app other than 100%)
+ */
+const sizes = new Map<object, { width: number; height: number; padding?: number; missedBy?: number }>()
 
 /** A node of a fake document: its parent, its test id */
 interface FakeNode {
@@ -40,20 +43,31 @@ function element(parent: FakeNode, testId: string, width = 100, height = 20): { 
 }
 
 function resize(target: Element, width: number, height: number, padding = 0): void {
-  sizes.set(target, { width, height, padding })
+  sizes.set(target, { ...sizes.get(target), width, height, padding })
 }
 
-/** The one `ResizeObserver` of an observer: what it observes, and its callback to report by hand */
+/**
+ * The one `ResizeObserver` of an observer: what it observes, and its callback to report by hand. The first one a module
+ * makes is its probe of the loops, made before every other, kept apart from `all`
+ */
 class FakeResizeObserver {
   static all: FakeResizeObserver[] = []
+  static probe: FakeResizeObserver | null = null
   readonly observed = new Set<Element>()
+  /** The box each target is observed by */
+  readonly boxes = new Map<Element, ResizeObserverBoxOptions | undefined>()
 
   constructor(readonly callback: ResizeObserverCallback) {
-    FakeResizeObserver.all.push(this)
+    if (FakeResizeObserver.probe === null) {
+      FakeResizeObserver.probe = this
+    } else {
+      FakeResizeObserver.all.push(this)
+    }
   }
 
-  observe(target: Element): void {
+  observe(target: Element, options?: ResizeObserverOptions): void {
     this.observed.add(target)
+    this.boxes.set(target, options?.box)
   }
 
   unobserve(target: Element): void {
@@ -64,8 +78,21 @@ class FakeResizeObserver {
     this.observed.clear()
   }
 
-  /** A report of `targets` at the sizes they are laid out at, as a rendering update gives it */
+  /** The first report of what it observes, as the next rendering update gives it: the targets the box observed of is not empty */
+  reportObserved(): void {
+    this.report(
+      ...[...this.observed].filter(target => {
+        const { width = 0, padding = 0 } = sizes.get(target) ?? {}
+        return (this.boxes.get(target) === "border-box" ? width : width - 2 * padding) > 0
+      }),
+    )
+  }
+
+  /** A report of `targets` at the sizes they are laid out at, as a rendering update gives it: none of no target */
   report(...targets: Element[]): void {
+    if (targets.length === 0) {
+      return
+    }
     this.callback(
       targets.map(target => {
         const { width, height, padding = 0 } = sizes.get(target)!
@@ -225,6 +252,29 @@ function promisesLater(promises: number, then: () => void): void {
 describe("observeSize", () => {
   let body: FakeNode
 
+  /** The elements of ours a loop the engine reports now left pending, as the probe tells them from the next update */
+  const loopNow = async (): Promise<readonly string[]> => {
+    const { loopOfOurs } = await import("@/lib/resize-loops")
+    let told: readonly string[] | null = null
+    loopOfOurs(pending => {
+      told = pending
+    })
+    if (told === null) {
+      FakeResizeObserver.probe!.reportObserved()
+    }
+    return told!
+  }
+
+  /** A panel of the body, observed by an observer of ours, which reported it: `missedBy` is how far the arithmetic misses its width */
+  const reportedPanel = async (missedBy = 0) => {
+    const { observeSize } = await import("@/lib/observe-size")
+    const panel = element(body, "panel")
+    sizes.set(panel.element, { width: 100, height: 20, missedBy })
+    observeSize(() => {}).observe(panel.element)
+    FakeResizeObserver.all[0]!.report(panel.element)
+    return panel
+  }
+
   /** A scroller of the body, and a block deeper inside it */
   const scrollerWithBlock = () => {
     const scroller = element(body, "scroller")
@@ -234,6 +284,7 @@ describe("observeSize", () => {
   beforeEach(() => {
     vi.resetModules()
     FakeResizeObserver.all = []
+    FakeResizeObserver.probe = null
     frameCallbacks = []
     heldEnds = null
     sizes.clear()
@@ -242,12 +293,22 @@ describe("observeSize", () => {
     vi.stubGlobal("MutationObserver", FakeMutationObserver)
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frameCallbacks.push(callback))
     vi.stubGlobal("getComputedStyle", (target: object) => {
-      const { width, height, padding = 0 } = sizes.get(target) ?? { width: 0, height: 0 }
+      const { width, height, padding = 0, missedBy = 0 } = sizes.get(target) ?? { width: 0, height: 0 }
       const side = `${padding}px`
-      return { display: "block", boxSizing: "border-box", width: `${width}px`, height: `${height}px`, paddingLeft: side, paddingRight: side, paddingTop: side, paddingBottom: side }
+      return {
+        display: "block",
+        boxSizing: "border-box",
+        width: `${width + missedBy}px`,
+        height: `${height}px`,
+        paddingLeft: side,
+        paddingRight: side,
+        paddingTop: side,
+        paddingBottom: side,
+      }
     })
     // the page the changes are watched in: its root element, the body inside it
     const html = node(node(null, null, 9))
+    sizes.set(html, { width: 1000, height: 800 })
     vi.stubGlobal("document", { documentElement: html })
     body = node(html)
   })
@@ -366,9 +427,14 @@ describe("observeSize", () => {
     expect(await siblingGrownLater(120, "a library")).toEqual({ inTheUpdate: false, atTheEnd: true })
   })
 
-  it("leaves the view observed that a sibling grown a thousand promises after the callback shrinks, past the chain of the callback", async () => {
+  it("lets the view go that a sibling grown 255 promises after the callback shrinks, in the last microtask of the chain", async () => {
+    // the boundary of the chain (`SPAN_MICROTASKS`): 256 microtasks, the last of them the one after the 255th promise
+    expect(await siblingGrownLater(255, "ours")).toEqual({ inTheUpdate: false, atTheEnd: true })
+  })
+
+  it("leaves the view observed that a sibling grown 256 promises after the callback shrinks, the first past the chain", async () => {
     // past the chain the page is no longer taken for the update of the callback: a change lets go only the elements it is in
-    expect(await siblingGrownLater(1000, "ours")).toEqual({ inTheUpdate: true, atTheEnd: true })
+    expect(await siblingGrownLater(256, "ours")).toEqual({ inTheUpdate: true, atTheEnd: true })
   })
 
   it("makes the chain as long again from a callback that begins in the chain of another", async () => {
@@ -752,22 +818,37 @@ describe("observeSize", () => {
     expect(logError).not.toHaveBeenCalled()
   })
 
+  it("logs no cycle of an element a drag resizes between frames where the arithmetic lays it out otherwise than the engine", async () => {
+    // at a zoom of the app other than 100% the computed style misses the box the engine reports: the release is measured
+    // against the layout of the element as reported, one arithmetic for both, so the drag's size reads as no change
+    const logError = vi.fn()
+    vi.doMock("@/lib/errors", () => ({ logError }))
+    const { observeSize } = await import("@/lib/observe-size")
+    const view = element(body, "diff-view")
+    sizes.set(view.element, { width: 100, height: 400, missedBy: 0.4 })
+    observeSize(() => commit(view.text)).observe(view.element)
+    const [ofView] = FakeResizeObserver.all
+    for (let count = 0; count < 30; count++) {
+      nextFrame()
+      resize(view.element, 100 + count, 400)
+      ofView!.report(view.element)
+      await microtasks()
+    }
+    nextFrame()
+    expect(logError).not.toHaveBeenCalled()
+  })
+
   it("names at a loop an element whose content box changed inside the same border box, as the engine compares it", async () => {
     // an observation compares the content box by default: a padding given to a box of a fixed size resizes its content
-    const { observeSize } = await import("@/lib/observe-size")
-    const { loopOfOurs } = await import("@/lib/resize-loops")
-    const panel = element(body, "panel")
-    observeSize(() => {}).observe(panel.element)
-    FakeResizeObserver.all[0]!.report(panel.element)
-    expect(loopOfOurs()).toEqual([])
+    const panel = await reportedPanel()
+    expect(await loopNow()).toEqual([])
     resize(panel.element, 100, 20, 4)
-    expect(loopOfOurs()).toEqual(["panel"])
+    expect(await loopNow()).toEqual(["panel"])
   })
 
   it("compares the box an observation observes alone, as the engine does", async () => {
     // the columns observe the border box of their items: a padding that resizes the content alone is no change of theirs
     const { observeSize } = await import("@/lib/observe-size")
-    const { loopOfOurs } = await import("@/lib/resize-loops")
     const item = element(body, "item")
     const panel = element(body, "panel")
     const ofItems = observeSize(() => {})
@@ -777,7 +858,7 @@ describe("observeSize", () => {
     FakeResizeObserver.all[1]!.report(panel.element)
     resize(item.element, 100, 20, 4)
     resize(panel.element, 100, 20, 4)
-    expect(loopOfOurs()).toEqual(["panel"])
+    expect(await loopNow()).toEqual(["panel"])
   })
 
   it("logs no cycle of an element another callback lets go before its own report in every frame, as a drag resized it", async () => {
@@ -802,7 +883,6 @@ describe("observeSize", () => {
 
   it("names at a loop the elements of ours resized since their report, or observed with a size and never reported", async () => {
     const { observeSize } = await import("@/lib/observe-size")
-    const { loopOfOurs } = await import("@/lib/resize-loops")
     const resized = element(body, "resized")
     const same = element(body, "same")
     const fresh = element(body, "fresh")
@@ -813,7 +893,58 @@ describe("observeSize", () => {
     }
     FakeResizeObserver.all[0]!.report(resized.element, same.element)
     resize(resized.element, 120, 20)
-    expect(loopOfOurs()).toEqual(["resized", "fresh"])
+    expect(await loopNow()).toEqual(["resized", "fresh"])
+  })
+
+  it("names no element at a loop that the engine lays out as reported, where the arithmetic lays it out otherwise, as at a zoom of the app", async () => {
+    // WebKit at a zoom other than 100% lays out borders and paddings on a grid of its own: the computed style misses the
+    // box it reports by a fraction of a pixel, so the engine's own boxes decide, from the probe's report in the next update
+    const panel = await reportedPanel(0.4)
+    expect(await loopNow()).toEqual([])
+    expect(FakeResizeObserver.probe!.observed.size).toBe(0)
+    resize(panel.element, 101, 20)
+    expect(await loopNow()).toEqual(["panel"])
+  })
+
+  it("names no element at a loop whose content box is empty, its border box laid out by the engine as reported", async () => {
+    // the probe observes the border box, which an element of a padding alone has: it reports what a content box would not
+    const { observeSize } = await import("@/lib/observe-size")
+    const spacer = element(body, "spacer")
+    sizes.set(spacer.element, { width: 8, height: 8, padding: 4, missedBy: 0.4 })
+    observeSize(() => {}).observe(spacer.element, { box: "border-box" })
+    FakeResizeObserver.all[0]!.report(spacer.element)
+    expect(await loopNow()).toEqual([])
+  })
+
+  it("names no element at a loop whose border box, which its observation observes, the engine lays out as reported", async () => {
+    // the columns observe the border box of their items: a padding that resizes the content alone is no change of theirs
+    const { observeSize } = await import("@/lib/observe-size")
+    const item = element(body, "item")
+    sizes.set(item.element, { width: 100, height: 20, missedBy: 0.4 })
+    observeSize(() => {}).observe(item.element, { box: "border-box" })
+    FakeResizeObserver.all[0]!.report(item.element)
+    resize(item.element, 100, 20, 4)
+    expect(await loopNow()).toEqual([])
+  })
+
+  it("names an element of ours at a loop that has no box any more, which the probe does not report", async () => {
+    const panel = await reportedPanel()
+    resize(panel.element, 0, 0)
+    expect(await loopNow()).toEqual(["panel"])
+  })
+
+  it("tells the loops in their order: a loop of a library alone after one that waits for the probe waits as well", async () => {
+    const { loopOfOurs } = await import("@/lib/resize-loops")
+    const panel = await reportedPanel()
+    resize(panel.element, 120, 20)
+    const told: string[] = []
+    loopOfOurs(pending => told.push(`first: ${pending.join(", ")}`))
+    // the panel reported again: a loop of a library alone now, its verdict after the first, which keeps the boxes of its loop
+    FakeResizeObserver.all[0]!.report(panel.element)
+    loopOfOurs(pending => told.push(`second: ${pending.join(", ")}`))
+    expect(told).toEqual([])
+    FakeResizeObserver.probe!.reportObserved()
+    expect(told).toEqual(["first: panel", "second: "])
   })
 
   it("lets an element of ours go that the callback of a library resizes in its delivery, in a frame without a report of ours", async () => {

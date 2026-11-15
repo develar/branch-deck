@@ -24,15 +24,18 @@ export const CYCLE_FRAMES = 20
 /** An error of the loops is logged once in this many ms at most, with the count of those since: a loop in every frame is no 60 lines a second */
 export const LOOP_LOG_MS = 10_000
 
-/** The elements of the observers of the page left resized since their report, at a loop the engine reports */
-let pendingOfOurs: () => readonly string[] = () => []
+/**
+ * The elements of the observers of the page a loop the engine reports left pending, resized since their report: told
+ * to `verdict` once the engine laid them out again (src/lib/observe-size.ts), at once when the loop is a library's alone
+ */
+let attribute: (verdict: (pending: readonly string[]) => void) => void = verdict => verdict([])
 
 /** The observers of the page say which of their elements a loop left pending (src/lib/observe-size.ts) */
-export function attributeLoopsWith(pending: () => readonly string[]): void {
-  pendingOfOurs = pending
+export function attributeLoopsWith(pending: (verdict: (pending: readonly string[]) => void) => void): void {
+  attribute = pending
 }
 
-/** At a loop the engine reports: the elements of ours it left pending, none when it is a library's alone */
-export function loopOfOurs(): readonly string[] {
-  return pendingOfOurs()
+/** At a loop the engine reports: tells `verdict` the elements of ours it left pending, none when it is a library's alone */
+export function loopOfOurs(verdict: (pending: readonly string[]) => void): void {
+  attribute(verdict)
 }

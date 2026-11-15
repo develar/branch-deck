@@ -53,7 +53,12 @@ function logLoopLine(kind: string, now: number, log: (more: string) => void): vo
  */
 function logResizeLoop(): void {
   const now = performance.now()
-  const ours = loopOfOurs()
+  // weighed as the observers of the page tell its elements, by the engine's boxes in the next update
+  loopOfOurs(ours => weighResizeLoop(now, ours))
+}
+
+/** A loop of `now`, which left `ours` of the observers of the page pending */
+function weighResizeLoop(now: number, ours: readonly string[]): void {
   if (ours.length > 0) {
     logLoopLine("ours", now, more => logUncaughtError("A ResizeObserver loop of an observer of the page", `left ${ours.join(", ")} pending${more}`))
     return
