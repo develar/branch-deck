@@ -845,3 +845,52 @@ fn a_held_unit_and_a_held_entry_stay_whole_and_the_next_clean_takes_them() {
 fn the_rules_of_this_repository_parse() {
   assert_eq!(parse_clean_rules(include_str!("../../../.branchdeck.toml")).unwrap().len(), 3);
 }
+
+/// An APFS clone shares its blocks with its template: the delete of the clone frees near nothing, and the delete of the
+/// template after it frees every block, which is what the two deletes free on the volume
+#[cfg(target_os = "macos")]
+#[test]
+fn a_clone_frees_only_the_blocks_it_shares_with_no_other_file() {
+  use std::io::Write;
+  const SIZE: u64 = 4 * 1024 * 1024;
+  let dir = tempfile::tempdir().unwrap();
+  let template = dir.path().join("template");
+  std::fs::create_dir_all(template.join("0")).unwrap();
+  // on APFS the blocks of a file are its own only once it is on disk
+  let mut file = std::fs::File::create(template.join("0/0.bin")).unwrap();
+  file.write_all(&vec![1u8; usize::try_from(SIZE).unwrap()]).unwrap();
+  file.sync_all().unwrap();
+  drop(file);
+  let clone = dir.path().join("clone");
+  crate::clone_dir::clone_directory(&template, &clone, &crate::clone_dir::CloneSkips::default()).unwrap();
+
+  let clone_freed = crate::lease_clean::remove_measured(&clone).unwrap();
+  let template_freed = crate::lease_clean::remove_measured(&template).unwrap();
+
+  assert!(clone_freed < SIZE / 4, "the clone shares its blocks: {clone_freed}");
+  assert!((SIZE..2 * SIZE).contains(&template_freed), "the template holds them alone at its delete: {template_freed}");
+}
+
+/// A file with two hard links frees its blocks with its last link only: the delete of a tree that holds one of them
+/// frees nothing of it, and the delete of the other frees all
+#[cfg(unix)]
+#[test]
+fn a_hard_link_frees_nothing_while_another_link_keeps_the_file() {
+  use std::io::Write;
+  const SIZE: u64 = 1024 * 1024;
+  let dir = tempfile::tempdir().unwrap();
+  let (deps, profile) = (dir.path().join("deps"), dir.path().join("profile"));
+  std::fs::create_dir_all(&deps).unwrap();
+  std::fs::create_dir_all(&profile).unwrap();
+  let mut file = std::fs::File::create(deps.join("lib.rlib")).unwrap();
+  file.write_all(&vec![1u8; usize::try_from(SIZE).unwrap()]).unwrap();
+  file.sync_all().unwrap();
+  drop(file);
+  std::fs::hard_link(deps.join("lib.rlib"), profile.join("lib.rlib")).unwrap();
+
+  let profile_freed = crate::lease_clean::remove_measured(&profile).unwrap();
+  let deps_freed = crate::lease_clean::remove_measured(&deps).unwrap();
+
+  assert!(profile_freed < SIZE / 4, "the link in deps keeps the file: {profile_freed}");
+  assert!((SIZE..2 * SIZE).contains(&deps_freed), "the last link frees the file: {deps_freed}");
+}

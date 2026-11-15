@@ -125,6 +125,20 @@ pub fn tree_size(path: &Path) -> u64 {
   walk(&[Walk::of(path)], None, true, None).into_iter().next().map_or(0, |tree| tree.bytes)
 }
 
+/// The private size of each file right in `dir`, by its name: the blocks it shares with no APFS clone, which a delete of
+/// its last link frees (`ATTR_CMNEXT_PRIVATESIZE`, one `getattrlistbulk` a batch of entries). A directory is not among
+/// them
+#[cfg(target_os = "macos")]
+pub fn private_sizes(dir: &Path) -> std::io::Result<std::collections::HashMap<std::ffi::OsString, u64>> {
+  Ok(
+    platform::read_entries(dir)?
+      .into_iter()
+      .filter(|entry| !entry.dir)
+      .map(|entry| (entry.name, entry.bytes))
+      .collect(),
+  )
+}
+
 fn walk(walks: &[Walk], tree_depth: Option<usize>, include_directory_bytes: bool, callback: Option<&WalkCallback<'_>>) -> Vec<TreeBytes> {
   if walks.is_empty() {
     return Vec::new();

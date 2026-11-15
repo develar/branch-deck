@@ -650,7 +650,8 @@ fn trash_left_path(path: &Path, error: &std::io::Error) -> String {
   }
 }
 
-/// Delete `path` and everything below it in one walk that counts the bytes on disk it freed. A link, a junction or a
+/// Delete `path` and everything below it in one walk that counts the bytes on disk it freed (`unlink_frees`: a hard
+/// link that another link outlives frees nothing, an APFS clone its private size only). A link, a junction or a
 /// directory symlink of Windows too, is removed as the link (`fs_retry::remove_entry`): never followed, never gone into.
 /// A directory the owner may not read, write and search, as Bazel leaves every directory of an output it wrote,
 /// refuses the walk of it and the removal of what is in it: it is widened before the walk goes into it (`widen_dir`),
@@ -681,6 +682,11 @@ pub fn remove_measured_until(path: &Path, stop: &dyn Fn() -> bool) -> std::io::R
 }
 
 fn remove_counted(path: &Path, stop: &dyn Fn() -> bool, seen: &mut u32) -> std::io::Result<Removed> {
+  remove_counted_told(path, None, stop, seen)
+}
+
+/// `remove_counted` of `path`, whose private size the read of its directory told (`private_sizes`), else `None`
+fn remove_counted_told(path: &Path, private: Option<u64>, stop: &dyn Fn() -> bool, seen: &mut u32) -> std::io::Result<Removed> {
   if seen.is_multiple_of(STOP_EVERY) && stop() {
     return Ok(Removed { freed: 0, complete: false });
   }
@@ -690,16 +696,18 @@ fn remove_counted(path: &Path, stop: &dyn Fn() -> bool, seen: &mut u32) -> std::
     Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Removed { freed: 0, complete: true }),
     Err(error) => return Err(removal_error(path, error)),
   };
-  let own = allocated(&metadata);
   if !metadata.is_dir() {
+    let own = unlink_frees(&metadata, private);
     fs_retry::remove_entry(path, &metadata.file_type()).map_err(|error| removal_error(path, error))?;
     return Ok(Removed { freed: own, complete: true });
   }
   widen_dir(path, &metadata);
-  let mut freed = own;
+  let mut freed = allocated(&metadata);
+  let private_sizes = private_sizes(path);
   for entry in std::fs::read_dir(path).map_err(|error| removal_error(path, error))? {
     let entry = entry.map_err(|error| removal_error(path, error))?;
-    let removed = remove_counted(&entry.path(), stop, seen)?;
+    let private = private_sizes.get(&entry.file_name()).copied();
+    let removed = remove_counted_told(&entry.path(), private, stop, seen)?;
     freed += removed.freed;
     if !removed.complete {
       return Ok(Removed { freed, complete: false });
@@ -707,6 +715,34 @@ fn remove_counted(path: &Path, stop: &dyn Fn() -> bool, seen: &mut u32) -> std::
   }
   fs_retry::remove_dir(path).map_err(|error| removal_error(path, error))?;
   Ok(Removed { freed, complete: true })
+}
+
+/// The bytes the unlink of the file of `metadata` frees: nothing while another hard link keeps its blocks (cargo links
+/// `deps/` into the profile dir), else its private size as the read of its directory told it (an APFS clone frees only
+/// the blocks it shares with no other file), else its blocks. The private size is read before the deletes of the
+/// directory, so a clone that a later delete leaves alone counts less than it frees, never more
+fn unlink_frees(metadata: &std::fs::Metadata, private: Option<u64>) -> u64 {
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::MetadataExt;
+    if metadata.nlink() > 1 {
+      return 0;
+    }
+  }
+  private.unwrap_or_else(|| allocated(metadata))
+}
+
+/// The private size of each file right in the directory `path` (`fs_walk::private_sizes`); none where it can't be read,
+/// and the delete counts the blocks of each file instead
+#[cfg(target_os = "macos")]
+fn private_sizes(path: &Path) -> HashMap<std::ffi::OsString, u64> {
+  fs_walk::private_sizes(path).unwrap_or_default()
+}
+
+/// Nothing shares the blocks of a file off macOS: the delete counts its blocks
+#[cfg(not(target_os = "macos"))]
+fn private_sizes(_path: &Path) -> HashMap<std::ffi::OsString, u64> {
+  HashMap::new()
 }
 
 /// Give the owner of the directory `path`, which is to be deleted, the rights to read, write and search it, the ones a
