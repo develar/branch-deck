@@ -388,3 +388,22 @@ async fn a_change_between_the_start_of_the_watcher_and_the_first_look_is_seen() 
   let wake = watches.wake_of(&registry).expect("the watch of the registry");
   assert_eq!(wake.stamps(), 1, "the look that told the journal asked the syncs of the stamp");
 }
+
+/// A repository that goes away while a window watches it (its git directory is deleted, as a test deletes its
+/// repository): the next look closes its sessions, so the window's subscription ends, and asks no sync, though the stamp
+/// is gone too; a sync of it would run git in a directory that is gone (on macOS a git whose directory went away under it
+/// scans the parent for it: 7 s in a temporary directory of 122 000 entries, 18 s under load)
+#[tokio::test(flavor = "multi_thread")]
+async fn a_look_that_finds_the_repository_gone_closes_its_sessions_and_syncs_nothing() {
+  let directory = tempfile::tempdir().unwrap();
+  let common_dir = directory.path().join("repo/.git");
+  std::fs::create_dir_all(&common_dir).unwrap();
+  touch_stamp(&common_dir);
+  let (registry, key, mut patched) = watched(Arc::new(IdleHost::default()), &common_dir, LOOKS_ONLY).await;
+  let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
+
+  std::fs::remove_dir_all(directory.path().join("repo")).unwrap();
+  let ended = tokio::time::timeout(DEADLINE, async { while patched.recv().await.is_some() {} }).await;
+  ended.unwrap_or_else(|_elapsed| panic!("no look closed the session of the repository that went away within {DEADLINE:?}"));
+  assert_eq!(wake.stamps(), 0, "no look asked a sync of the repository that went away");
+}

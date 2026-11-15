@@ -24,13 +24,16 @@ const SPACE_URL: &str = "ssh://git@git.jetbrains.team/ij/ultimate.git";
 /// A repository whose `origin` is on Space (`ssh://git@git.jetbrains.team/ij/ultimate.git`), served by a local bare
 /// repository through a fake `ssh`, and a Patronus that answers for it
 pub struct Space {
+  /// Serves the fake Patronus (and a fake GitHub) while the test runs. Dropped first (fields drop in their order): its
+  /// drop waits for its blocking work, a sync of the app that runs git in the repository, while the repository is still
+  /// there. A git whose directory went away under it scans the parent for it on macOS, 7 to 22 s in a temporary directory
+  /// of 122 000 entries
+  pub runtime: Runtime,
   pub repo: TestRepo,
   pub remote: TempDir,
   pub home: TempDir,
   pub fake: Arc<FakePatronus>,
   pub patronus_url: String,
-  /// Serves the fake Patronus (and a fake GitHub) while the test runs
-  pub runtime: Runtime,
 }
 
 impl Space {

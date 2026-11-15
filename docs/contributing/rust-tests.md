@@ -103,12 +103,18 @@ machine.
   the replay of a history that `changed_since` waits 0.5 s for answered `All` every time). A wait for either hung
   until nextest killed the test at 300 s. A test gives the history instead of asking it (`disk_usage_core_with_changes`
   of `crates/pool-disk`: the history since a measurement names nothing, then the changed file), and a wait for what
-  another process wrote into a watched file reads it again as a focus of the window does (`Registry::reread`, every
-  50 ms in `operations_once` of `crates/bd-cli/src/cross_process_test.rs`). A test of a watch names the path it tests
+  another process wrote into a watched file ends at a look of the watch, which a harness takes at the pace of the test
+  (`Registry::watched_as` with a look every 50 ms: the app of `crates/bd-cli/src/cross_process_test.rs`). A test of a
+  watch names the path it tests
   ([A watch is a hint](../design/async-patterns.md#a-watch-is-a-hint)): the guarantee with a watch that tells nothing
   (`WatchConfig { events: false }`, a look every 50 ms), the reaction to an event with the events it gives (`woken`,
   `TableWake::of_events`), and one test of the events of the system per watch, whose wait ends at a deadline with "no
   watch event" (`the_watch_of_the_system_tells_that_a_record_left_the_registry_with_no_look`).
+- **A runtime goes before the directories its work runs in**: a fixture drops its tokio runtime before its temporary
+  repository (`Space` of `crates/bd-cli/src/remote_fixture_test.rs` declares it first), so the drop waits for the blocking
+  work (a sync of the app, its git) while the repository is there. A git whose directory goes away under it scans the
+  parent for it on macOS before it fails, 7 to 22 s in a temporary directory of 122 000 entries: the teardown of
+  `cross_process_test` took 25 to 66 s where it takes 1.
 - **Commit times are the fixture's**: commits that must fall into different seconds, or a rewrite that must have a
   later committer time, get their dates (`create_commit_with_timestamp`, `GIT_COMMITTER_DATE` of the rewrite's git)
   instead of a wait for the clock. Two commits of one author with one subject share a `CommitKey` only within one

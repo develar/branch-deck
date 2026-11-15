@@ -292,7 +292,8 @@ fn watched_paths(dir: &Path) -> Vec<PathBuf> {
 
 /// The task of the watch of `registry`: each look asked, and one every `recheck` without one, reads the registry, asks
 /// the syncs of a stamp and tells of the journal when their stat changed since the last look (`fingerprints`, the first
-/// taken before the watcher started)
+/// taken before the watcher started). A look that finds the git directory of the repository gone closes the sessions
+/// that watch it instead (`Sessions::close_worktree`)
 async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watches, wake: Arc<Wake>, mut fingerprints: Fingerprints, recheck: Option<Duration>) {
   let dir = registry.dir().to_path_buf();
   loop {
@@ -307,14 +308,30 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
     }
     // a stat each, off the workers of the runtime: the drive may be slow under load
     let taken = std::mem::replace(&mut fingerprints, Fingerprints::new(Vec::new()));
+    let common_dir = dir.parent().map(Path::to_path_buf);
+    let stamp = dir.join(STAMP);
     let looked = tokio::task::spawn_blocking(in_current_span(move || {
       let mut taken = taken;
-      let changed = taken.look();
-      (taken, changed)
+      let mut changed = taken.look();
+      // a stamp that went away tells no mutation (`brd` never removes it): the deletion of the repository, which takes
+      // its files before its git directory
+      if changed & STAMP_CHANGED != 0 && !stamp.is_file() {
+        changed &= !STAMP_CHANGED;
+      }
+      let gone = common_dir.is_some_and(|common_dir| !common_dir.is_dir());
+      (taken, changed, gone)
     }))
     .await;
-    let changed;
-    (fingerprints, changed) = looked.unwrap_or_else(|_| (Fingerprints::new(watched_paths(&dir)), 0));
+    let (changed, gone);
+    (fingerprints, changed, gone) = looked.unwrap_or_else(|_| (Fingerprints::new(watched_paths(&dir)), 0, false));
+    if gone {
+      // the repository went away (its git directory is gone): its sessions sync no more and close, their windows end
+      // as at the deletion of a test repository; a sync of it would run git in a directory that is gone
+      for key in watches.keys(&registry) {
+        sessions.close_worktree(&key.worktree);
+      }
+      continue;
+    }
     if changed & STAMP_CHANGED != 0 {
       wake.stamps.fetch_add(1, Ordering::SeqCst);
       for key in watches.keys(&registry) {

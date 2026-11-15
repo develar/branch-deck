@@ -221,7 +221,13 @@ impl App {
       .unflushed()
       .settled_with(Arc::new(services(space, &context)))
       .at(|_key| unix_now() + SETTLED_AFTER);
-    let registry = Registry::new(Arc::clone(&sessions), files);
+    // the looks of the watch at the pace of the test, as the app looks every 2 s: what the other process wrote (its
+    // record, its stamp) is read while the test runs, not by a sync that starts as the test deletes its repository
+    let looks = sync_utils::dir_watch::WatchConfig {
+      recheck: Some(std::time::Duration::from_millis(50)),
+      events: true,
+    };
+    let registry = Registry::watched_as(Arc::clone(&sessions), files, looks);
     let scheduler = Scheduler {
       port: Arc::new(registry.clone()) as Arc<dyn FactsPort>,
       sources: Arc::new(ServiceFactSources::new(services(space, &context))),
@@ -251,9 +257,9 @@ impl App {
   }
 
   /// The operations of the view once `done` holds of them, read again after each patch: what the other process wrote
-  /// into the registry comes by the event of the watch or by its look every `dir_watch::RECHECK` (2 s), which the app
-  /// takes when the watch tells nothing (`registry_watch`; the wait hung for the event alone under an overloaded
-  /// fseventsd)
+  /// into the registry comes by the event of the watch or by its look, every 50 ms here and every `dir_watch::RECHECK`
+  /// (2 s) in the app, which takes it when the watch tells nothing (`registry_watch`; the wait hung for the event alone
+  /// under an overloaded fseventsd)
   async fn operations_once(&mut self, done: impl Fn(&[RunningOperation]) -> bool) -> Vec<RunningOperation> {
     loop {
       let view = self.registry.sessions().get_snapshot(&self.key).await.unwrap();

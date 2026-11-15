@@ -9,7 +9,7 @@
 use crate::file::{REPOSITORY_STATE_FILE_NAME, SETTINGS_FILE_NAME};
 use notify::{Event, RecommendedWatcher};
 use std::path::Path;
-use sync_utils::dir_watch::{self, Wake, WatchedDir};
+use sync_utils::dir_watch::{self, Fingerprints, Wake, WatchedDir};
 use tracing::{debug, warn};
 
 /// The settings files of the directory, in the order of the bits of a `Wake` and of a look
@@ -50,19 +50,22 @@ impl Changed {
   }
 }
 
-/// The watcher of `directory` (created when missing), which calls `wake` with the settings files each event may have
-/// changed; `None` when the system refused it. Without `events` (a test of the looks alone) its events reach nothing
-pub fn watch(directory: &Path, events: bool, wake: impl Fn(Changed) + Send + 'static) -> Option<RecommendedWatcher> {
+/// The first look at the settings files of `directory`, then its watcher (`dir_watch::watch_from`; the directory is
+/// created when missing), which calls `wake` with the settings files each event may have changed; no watcher when the
+/// system refused it. Without `events` (a test of the looks alone) its events reach nothing
+pub fn watch(directory: &Path, events: bool, wake: impl Fn(Changed) + Send + 'static) -> (Fingerprints, Option<RecommendedWatcher>) {
   let dir = WatchedDir::new(directory);
-  let watched = dir_watch::watch(directory, move |event: notify::Result<Event>| {
+  let paths = NAMES.iter().map(|name| directory.join(name)).collect();
+  let (fingerprints, watched) = dir_watch::watch_from(directory, paths, move |event: notify::Result<Event>| {
     let changed = if events { Changed::of(&dir, &event) } else { Changed::default() };
     if changed != Changed::default() {
       wake(changed);
     }
   });
-  watched
+  let watcher = watched
     .inspect_err(|error| warn!("cannot watch {}: {error}; the files are looked at every {:?}", directory.display(), dir_watch::RECHECK))
-    .ok()
+    .ok();
+  (fingerprints, watcher)
 }
 
 #[cfg(test)]

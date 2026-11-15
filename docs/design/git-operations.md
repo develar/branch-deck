@@ -4437,7 +4437,11 @@ names of its files anywhere else):
   or a lost event woke the task, and a window under an overloaded fseventsd showed another process's operations and
   synced for a stamp only at a focus. A window of the session that gains the focus looks at once (`set_window_focus`:
   the registry, the stamp and the journal), as does each admission of the app, which wrote the file; a watch the system
-  refused leaves the looks. The first look is taken before the watcher starts: `FSEvents` registers a stream after
+  refused leaves the looks. A look that finds the git directory of the repository gone (the repository was deleted)
+  closes the sessions that watch it (`Sessions::close_worktree`) instead of syncing, and a stamp that went away asks no
+  sync (`brd` never removes it; a deletion takes the files before the directory): a sync would run git in a directory
+  that is gone, and on macOS such a git scans the parent for its directory before it fails, seconds in a temporary
+  directory of 100 000 entries. The first look is taken before the watcher starts: `FSEvents` registers a stream after
   `FSEventStreamStart` returned and from "now", so it drops a change of its first moments without telling it, which
   the first look of the task then finds (`a_change_between_the_start_of_the_watcher_and_the_first_look_is_seen`).
 - **The stamp**: `brd` touches `$GIT_COMMON_DIR/branch-deck/stamp` (its Unix time and pid, written by a rename) after

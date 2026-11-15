@@ -283,8 +283,9 @@ impl Registry {
     Self::watched_as(sessions, files, sync_utils::dir_watch::WatchConfig::default())
   }
 
-  /// `new`, whose watches learn of a change as `config` says: a test of the events alone or of the looks alone
-  pub(crate) fn watched_as(sessions: Arc<Sessions>, files: RegistryFiles, config: sync_utils::dir_watch::WatchConfig) -> Self {
+  /// `new`, whose watches learn of a change as `config` says: a test of the events alone, of the looks alone, or with
+  /// looks at the pace of the test (the app of `cross_process_test` of bd-cli)
+  pub fn watched_as(sessions: Arc<Sessions>, files: RegistryFiles, config: sync_utils::dir_watch::WatchConfig) -> Self {
     Self {
       sessions,
       watches: Watches::new(files.journaled.clone(), config),

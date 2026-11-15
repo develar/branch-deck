@@ -42,7 +42,7 @@
 
 use crate::file::{RECENT_PROJECTS_KEY, REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile, lock_directory};
 use crate::merge::{Unsaved, changed_keys};
-use crate::watch::{Changed, NAMES, watch};
+use crate::watch::{Changed, watch};
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsChange, SettingsPatch};
 use domain_types::worktree_epoch::WorktreeEpoch;
 use notify::RecommendedWatcher;
@@ -415,14 +415,10 @@ impl SettingsService {
       on_external_change: Mutex::new(None),
       epochs: Mutex::new(None),
     });
-    let writer_shared = Arc::clone(&shared);
-    let writer = std::thread::Builder::new()
-      .name("settings-writer".to_owned())
-      .spawn(in_current_span(move || write_loop(&writer_shared)))?;
-    // values the load moved wait for the debounce, as a change does
-    shared.wake.notify_one();
     let woken = Arc::downgrade(&shared);
-    let watcher = watch(&shared.directory, config.events, move |changed| {
+    // the first look of the writer, then the watcher: a save of another process after the look is told by an event or
+    // found by the next look
+    let (fingerprints, watcher) = watch(&shared.directory, config.events, move |changed| {
       let Some(shared) = woken.upgrade() else {
         return;
       };
@@ -432,6 +428,12 @@ impl SettingsService {
       drop(state);
       shared.wake.notify_one();
     });
+    let writer_shared = Arc::clone(&shared);
+    let writer = std::thread::Builder::new()
+      .name("settings-writer".to_owned())
+      .spawn(in_current_span(move || write_loop(&writer_shared, fingerprints)))?;
+    // values the load moved wait for the debounce, as a change does
+    shared.wake.notify_one();
     if watcher.is_some() || config.recheck.is_some() {
       // what another process saved between the load and the start of the watch and of the looks
       shared.lock().reread = Changed::BOTH;
@@ -784,12 +786,10 @@ struct SaveOutcome {
 /// save each changed file (its copy taken under the lock, merged into the file under the lock of the directory, outside
 /// the lock of the memory) and read each file the watch named; take what another process changed into memory, record
 /// the outcome, tell the changes of the other process and wake the flushes
-fn write_loop(shared: &Shared) {
-  // the look of its own every `recheck`: the watch is a hint, which may tell nothing for long under load
-  let mut looks = shared.recheck.map(|every| {
-    let fingerprints = Fingerprints::new(NAMES.iter().map(|name| shared.directory.join(name)).collect());
-    (fingerprints, every, Instant::now() + every)
-  });
+fn write_loop(shared: &Shared, fingerprints: Fingerprints) {
+  // the look of its own every `recheck`, from the first look taken before the watcher started: the watch is a hint,
+  // which may tell nothing for long under load
+  let mut looks = shared.recheck.map(|every| (fingerprints, every, Instant::now() + every));
   let mut state = shared.lock();
   loop {
     let due = match (state.dirty_since.map(|since| since + shared.debounce), state.retry_at) {
