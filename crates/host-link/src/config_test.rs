@@ -244,6 +244,10 @@ fn the_host_table_of_this_repository_parses() {
     "cargo nextest run -R latest",
     "cargo clippy --workspace --all-targets --features branch-deck/auto-update -- -D warnings",
     "pnpm exec playwright test tests/e2e/branch-row.spec.ts",
+    "npx playwright test tests/e2e/x.spec.ts",
+    "pnpm playwright test -c playwright.webkit.config.ts",
+    "pnpm -C . e2e tests/e2e/x.spec.ts",
+    "pnpm --dir . e2e",
     "env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts",
     "pnpm tauri build --bundles app",
     "pnpm run tauri build --bundles app",
@@ -256,6 +260,8 @@ fn the_host_table_of_this_repository_parses() {
     "cargo nextest run -p host-link -E test(/heavy/)",
     "cargo clippy -p host-link",
     "pnpm tauri dev",
+    "npx playwright install webkit",
+    "pnpm -C . test:unit",
   ] {
     assert!(!heavy(line), "{line}");
   }

@@ -20,8 +20,10 @@ outputs = ["tests/results", "playwright-report", "target/nextest/ci/junit.xml"]
 # The heavy runs, which the host runs one at a time, whatever their repository (`*` matches any characters): the whole
 # Rust suite (the workspace is a virtual manifest without default members, so a run without `-p` builds all of it, with
 # a filter `-E` or a rerun `-R` too), clippy of the workspace, every E2E and Playwright run (a single spec too, as the
-# load of a neighbour fails its timeouts), the measurements, the release build, and each script of package.json that
-# runs one of them, also as `pnpm run` (`the_host_table_of_this_repository_parses` names every script heavy or light).
+# load of a neighbour fails its timeouts; by `pnpm exec`, `npx` or `pnpm playwright`, and `pnpm -C <dir> e2e`), the
+# measurements, the release build, and each script of package.json that runs one of them, also as `pnpm run`
+# (`the_host_table_of_this_repository_parses` names every script heavy or light). A shell that runs one of them in its
+# script or a script file of the tree is heavy too (`host_link::heavy`).
 # A brd-host built before Branch Deck knew `heavy` (39f21bb44) refuses every run of a commit with it: this Mac and the
 # host both run a later one
 heavy = [
@@ -33,8 +35,12 @@ heavy = [
   "cargo nextest run -R *",
   "cargo clippy*--workspace*",
   "pnpm exec playwright test*",
+  "npx playwright test*",
+  "pnpm playwright test*",
   "pnpm e2e*",
   "pnpm run e2e*",
+  "pnpm -C * e2e*",
+  "pnpm --dir * e2e*",
   "pnpm test",
   "pnpm run test",
   "pnpm test:backend*",
