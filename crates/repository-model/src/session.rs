@@ -688,8 +688,9 @@ impl Sessions {
     if began == Err(AnotherLease::ReadAgain)
       && let Some(entry) = self.lock().get(key)
     {
-      // the session knew no lease of its slot, which reads one now: it opens anew under it at once, not at the next run
-      // or stamp, which a worktree never synced runs only once the user syncs; another known lease waits for its stamp
+      // the session knew no lease of its slot, which reads one now: it opens anew under it at once, or once the run in
+      // flight ended (`Actor::reopen_for_lease`), not at the next run or stamp, which a worktree never synced runs only
+      // once the user syncs; another known lease waits for its stamp
       let _ = entry.mailbox.send(Message::LeaseRead { epoch: now });
     }
     began

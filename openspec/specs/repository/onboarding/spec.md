@@ -1602,11 +1602,13 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
 - **GIVEN** the session of the window opened while the lease of its slot could not be told, and the slot reads one now
 - **WHEN** the window asks Update Project, an undo or a dismiss on its view
 - **THEN** it is refused before anything is done with a code of its own (`lease_read_again`, exit 3, retried after a
-  new read), as the lease may be the same, and the session opens anew under the lease read at once, without a sync, so
-  the same ask runs on the view the window gets
+  new read), as the lease may be the same, and the session opens anew under the lease read, without a sync: at once, or,
+  while a run is in flight, once that run ended, so the same ask runs on the view the window gets then
+- **AND** its words say to ask it again, never to sync first, also of a rewrite, whose plan that changed says to sync
 - **AND** a session of another known lease is refused with `plan_changed` and opens anew at the stamp of that lease
   [@test] crates/operations/src/update_test.rs (`an_update_of_a_session_that_knew_no_lease_is_asked_again_on_the_view_of_the_lease_read`)
-  [@test] crates/repository-model/src/session_test.rs (`an_intent_of_a_session_that_knew_no_lease_opens_it_anew_under_the_lease_read`)
+  [@test] crates/repository-model/src/session_test.rs (`an_intent_of_a_session_that_knew_no_lease_opens_it_anew_under_the_lease_read`, `an_intent_of_a_session_that_knew_no_lease_opens_it_anew_once_the_run_in_flight_ended`)
+  [@test] crates/operations/src/witness_test.rs (`a_rewrite_is_synced_before_it_is_asked_again_only_when_its_plan_changed`)
 
 #### Scenario: An intent whose slot is leased again while it runs
 - **GIVEN** Update Project, an undo or a dismiss began under the lease of the view it was asked on

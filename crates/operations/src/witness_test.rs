@@ -1,7 +1,9 @@
-use crate::witness::{Witness, check, read_refs};
+use crate::witness::{Witness, check, lease_read_again, plan_changed, read_refs};
 use domain_types::error::ErrorCode;
 use domain_types::fixtures::{pull_request, push_intent as push, robot};
+use domain_types::operation::Intent;
 use domain_types::patronus::PatronusRobotStatus;
+use domain_types::rewrite::{RewriteIntent, TableWitness};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -54,4 +56,30 @@ fn a_fingerprint_changes_with_any_fact_the_plan_read_and_the_check_refuses_it() 
   }
   // another intent on the same facts is another plan
   assert_ne!(witness.fingerprint(&push("login")), planned);
+}
+
+/// A rewrite whose plan changed is synced before it is asked again, as it is planned on the table of the last sync; one
+/// refused because its session reads the lease of its slot again is only asked again, as the session opens anew under
+/// that lease by itself and the window gets its view
+#[test]
+fn a_rewrite_is_synced_before_it_is_asked_again_only_when_its_plan_changed() {
+  let unstack = Intent::Rewrite(Box::new(RewriteIntent::Unstack {
+    branch_name: "auth".to_string(),
+    witness: TableWitness::default(),
+  }));
+  let changed = plan_changed(&unstack, None);
+  assert_eq!(changed.code, ErrorCode::PlanChanged);
+  assert_eq!(
+    changed.message,
+    "What the rewrite of auth was decided on changed before it began; nothing was done: sync, then ask it again"
+  );
+  let read_again = lease_read_again(&unstack);
+  assert_eq!(read_again.code, ErrorCode::LeaseReadAgain);
+  assert_eq!(
+    read_again.message,
+    "Branch Deck could not tell the lease of this worktree as it opened it and reads it again now: nothing of the rewrite of auth was done; ask it again"
+  );
+  // another intent says the same of both
+  assert!(plan_changed(&push("auth"), None).message.ends_with(": push again"));
+  assert!(lease_read_again(&push("auth")).message.ends_with("; push again"));
 }

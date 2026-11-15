@@ -82,7 +82,10 @@ export function markLandedSeen(repositoryPath: string, landedAt: number): void {
  * After a successful sync of the repository: the island hides what the user saw, if they saw it at least
  * `ISLAND_MIN_SEEN_MS` ago and the window has focus. Remembered for the repository (`hide_landed`, under the lease of the
  * view of the epoch `viewEpoch`, as each lease has its own report), so it stays hidden after a restart; what lands later
- * shows again. The report, the chips and the "New" marks stay until Dismiss.
+ * shows again. The report, the chips and the "New" marks stay until Dismiss. A session that knew no lease of its slot,
+ * which reads one now, hides nothing and opens anew under that lease (`lease_read_again`): the island stays seen as it
+ * was, so the next sync asks again on the view of that lease, unless the island of that view shows something else
+ * (`markLandedSeen` as it mounts anew)
  */
 export function hideAfterSync(repositoryPath: string, viewEpoch: number | null): void {
   const { repositoryPath: own, seenAt } = landedStore.getState()
@@ -90,8 +93,15 @@ export function hideAfterSync(repositoryPath: string, viewEpoch: number | null):
     return
   }
   landedStore.setState({ seenAt: null })
-  // a failure leaves the island as it is: the next sync hides it again
-  void commands.hideLanded({ repositoryPath, landedAt: seenAt.landedAt, epoch: viewEpoch }).catch(() => {})
+  // another failure leaves the island as it is: the next sync hides it once the island is seen again
+  void commands.hideLanded({ repositoryPath, landedAt: seenAt.landedAt, epoch: viewEpoch }).then(
+    result => {
+      if (result.status === "error" && result.error.code === "lease_read_again") {
+        landedStore.setState(state => (state.repositoryPath === repositoryPath && state.seenAt === null ? { seenAt } : state))
+      }
+    },
+    () => {},
+  )
 }
 
 function useOwnState<T>(select: (state: LandedState) => T, fallback: T): T {

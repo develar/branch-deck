@@ -8,7 +8,8 @@ use crate::operation::run_blocking;
 use crate::transport::Call;
 use app_settings::projects::hide_landed as hide_landed_in;
 use domain_types::error::ApiError;
-use repository_model::session::SessionKey;
+use operations::witness::lease_read_again_of;
+use repository_model::session::{AnotherLease, SessionKey};
 use serde::Deserialize;
 use std::sync::Arc;
 use tracing::debug;
@@ -28,10 +29,23 @@ pub struct HideLandedParams {
 /// Records that the Landed island of the session of `key` hides what landed up to `landed_at`, under the lease of the
 /// view it was asked on (`Sessions::lease_of_view`, `app_settings::projects::hide_landed`): nothing for a view of
 /// another lease, as the report of the next lease is its own; the windows hear the change
+///
+/// # Errors
+/// `lease_read_again` when the session knew no lease of its slot, which reads one now: nothing is hidden, the session
+/// opens anew under that lease, and the island asks again on its view (`hideAfterSync` of `src/stores/landed.ts`)
 pub async fn hide_landed(ctx: &AppContext, _call: &Call, key: SessionKey, params: HideLandedParams) -> Result<(), ApiError> {
-  let Ok(lease) = ctx.sessions.lease_of_view(&key, params.epoch).await else {
-    debug!("the view of the hide is of another lease: nothing hidden");
-    return Ok(());
+  let lease = match ctx.sessions.lease_of_view(&key, params.epoch).await {
+    Ok(lease) => lease,
+    Err(AnotherLease::Held) => {
+      debug!("the view of the hide is of another lease: nothing hidden");
+      return Ok(());
+    }
+    Err(AnotherLease::ReadAgain) => {
+      return Err(lease_read_again_of(
+        "the hide of the landed branches",
+        "the island hides them again on the view of that lease",
+      ));
+    }
   };
   let (settings, path) = (Arc::clone(&ctx.settings), key.worktree);
   let change = run_blocking(move || {

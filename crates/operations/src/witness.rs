@@ -124,6 +124,8 @@ pub fn check(planned: &Fingerprint, now: &Fingerprint, intent: &Intent) -> Resul
 #[must_use]
 pub fn plan_changed(intent: &Intent, why: Option<&str>) -> ApiError {
   let (asked, again) = asked(intent);
+  // a rewrite is planned on the table of the last sync: the table that changed is synced before it is asked again
+  let again = if matches!(intent, Intent::Rewrite(_)) { "sync, then ask it again" } else { again };
   let why = why.map_or_else(String::new, |why| format!(" ({why})"));
   ApiError::new(
     ErrorCode::PlanChanged,
@@ -152,18 +154,26 @@ pub async fn under_its_lease(sessions: &Sessions, key: &SessionKey, intent: &Int
 }
 
 /// `lease_read_again` of `intent`: its session opened while the lease of its worktree could not be told and reads it
-/// again now (`AnotherLease::ReadAgain`), so nothing was done; the window shows the view of that lease at once, on which
-/// the same ask runs
+/// again now (`AnotherLease::ReadAgain`), so nothing was done. The session opens anew under that lease by itself, at
+/// once or, while a run is in flight, once that run ended (`Actor::reopen_for_lease`), and the same ask runs on the view
+/// the window gets then: no sync before it, a rewrite's neither
 #[must_use]
 pub fn lease_read_again(intent: &Intent) -> ApiError {
   let (asked, again) = asked(intent);
+  lease_read_again_of(&asked, again)
+}
+
+/// `lease_read_again` of what the window asked (`asked`) and how to ask it again (`again`), also of an ask that is no
+/// intent of the engine (the hide of the Landed island, `app_api::session::landed::hide_landed`)
+#[must_use]
+pub fn lease_read_again_of(asked: &str, again: &str) -> ApiError {
   ApiError::new(
     ErrorCode::LeaseReadAgain,
     format!("Branch Deck could not tell the lease of this worktree as it opened it and reads it again now: nothing of {asked} was done; {again}"),
   )
 }
 
-/// What the user asked of `intent`, and how to ask it again
+/// What the user asked of `intent`, and how to ask it again on the view the window shows
 fn asked(intent: &Intent) -> (String, &'static str) {
   match intent {
     Intent::Land(land) => (format!("the {} of {}", push_mode_name(land.mode), land.subject.words()), "start it again"),
@@ -183,7 +193,7 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     Intent::ForgetStart { op } => (format!("the forget of start {op}"), "forget it again"),
     Intent::Rewrite(rewrite) => (
       rewrite.subject().map_or_else(|| "the rewrite".to_string(), |subject| format!("the rewrite of {subject}")),
-      "sync, then ask it again",
+      "ask it again",
     ),
     Intent::FetchBaseline => ("the fetch of the baseline".to_string(), "fetch again"),
     Intent::UpdateProject { .. } => ("the update of the project".to_string(), "update again"),
