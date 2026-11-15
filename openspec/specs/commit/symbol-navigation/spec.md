@@ -265,7 +265,9 @@ Where the pointer is on no name its items MUST be disabled, with the reason, als
 
 The name under the pointer MUST be a name whose text the pointer is on. Beside the text of a line (its number, the
 space before its first character, the blank end of its row) the pointer is on no name, though the nearest text is
-one: the modifier MUST underline nothing there, and the menu of the code MUST have no name.
+one: the modifier MUST underline nothing there, and the menu of the code MUST have no name. A caret the engine gives
+for the point outside its text (WebKit's `caretRangeFromPoint` past the end of a text, over code drawn anew) MUST be
+no name, never an error of the page.
 
 #### Scenario: The pointer between the number of a line and its first word
 - **GIVEN** a line that starts with a word, and the modifier held with the pointer on a name, which is underlined
@@ -277,6 +279,12 @@ one: the modifier MUST underline nothing there, and the menu of the code MUST ha
 - **WHEN** the user opens the menu of the code on the number of a line that starts with a word
 - **THEN** its items are disabled: the word is not under the pointer
   [@test] tests/e2e/commit-files/symbol-navigation.spec.ts (`should open the menu of the code by the context menu key and Shift+F10 on the name at the selection, under that name, and by the pointer on no name selected elsewhere`)
+
+#### Scenario: A caret past the end of its text
+- **GIVEN** the modifier held with the pointer on a name, which is underlined
+- **WHEN** the engine gives the caret of the point past the end of its text
+- **THEN** nothing is underlined, the pointer is no hand, and the page logs no error
+  [@test] tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline no name where the engine gives the caret of the point past the end of its text, as WebKit did over code drawn anew`)
 
 ### Requirement: The context menu key and Shift+F10 open the menu of the code on the name at the selection
 

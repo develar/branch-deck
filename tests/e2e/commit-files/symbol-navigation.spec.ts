@@ -157,6 +157,38 @@ test.describe("Go to Declaration", () => {
     await expectHelperShownAndBack(code)
   })
 
+  test(
+    "should underline no name where the engine gives the caret of the point past the end of its text, as WebKit did over code drawn anew",
+    { tag: "@webkit" },
+    async ({ page }) => {
+      const code = await openNavigationReview(page)
+      const scroller = code.getByTestId("diff-view")
+      const at = await pointOf(code, "src/Uses.kt", "helper")
+      await page.keyboard.down(MODIFIER)
+      await page.mouse.move(at.x, at.y)
+      await expect(scroller).toHaveCSS("cursor", "pointer")
+      // from now on the engine gives the caret of a point in a text past the end of that text (WebKit's
+      // `caretRangeFromPoint` once did, under a pointer that moved as the review drew its code anew)
+      await page.evaluate(() => {
+        const real = document.caretRangeFromPoint.bind(document)
+        Object.defineProperty(document, "caretPositionFromPoint", { configurable: true, value: undefined })
+        Object.defineProperty(document, "caretRangeFromPoint", {
+          configurable: true,
+          value: (x: number, y: number) => {
+            const range = real(x, y)
+            return range?.startContainer instanceof CharacterData
+              ? ({ startContainer: range.startContainer, startOffset: range.startContainer.length + 3 } as unknown as Range)
+              : range
+          },
+        })
+      })
+      // no name, no error of the page: the link goes
+      await page.mouse.move(at.x + 1, at.y)
+      await expect(scroller).not.toHaveCSS("cursor", "pointer")
+      await page.keyboard.up(MODIFIER)
+    },
+  )
+
   test("should offer the declarations of an ambiguous name and show the one chosen, from ⌘B and from the menu of the code", async ({ page }) => {
     const code = await openNavigationReview(page)
     const at = await pointOf(code, "src/Uses.kt", "add")

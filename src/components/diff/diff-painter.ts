@@ -2126,8 +2126,18 @@ export function wordBounds(content: string, column: number): [number, number] {
   return start < end && /\p{N}/u.test(content[start]!) ? [start, start] : [start, end]
 }
 
-/** The caret at a point: `caretPositionFromPoint` where the engine has it, else WebKit's `caretRangeFromPoint` */
+/**
+ * The caret at a point: `caretPositionFromPoint` where the engine has it, else WebKit's `caretRangeFromPoint`. A caret
+ * out of its node is none: WebKit gave one past the end of its text under a pointer that moved over code drawn anew,
+ * and a boundary there throws ("The index is not in the allowed range"); the next move asks again
+ */
 function caretAt(clientX: number, clientY: number): { node: Node; offset: number } | null {
+  const caret = engineCaretAt(clientX, clientY)
+  const length = caret === null ? 0 : caret.node instanceof CharacterData ? caret.node.length : caret.node.childNodes.length
+  return caret !== null && caret.offset <= length ? caret : null
+}
+
+function engineCaretAt(clientX: number, clientY: number): { node: Node; offset: number } | null {
   const position = document.caretPositionFromPoint?.(clientX, clientY)
   if (position != null) {
     return { node: position.offsetNode, offset: position.offset }
