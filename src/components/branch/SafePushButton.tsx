@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react"
+import { useId, useLayoutEffect, useRef } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { CircleHelpIcon, ShieldCheckIcon } from "lucide-react"
@@ -165,31 +165,12 @@ export function SafePushButton({
       {blocker === null && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
     </TooltipContent>
   )
-  // a start whose answer was lost is a status of the slot, no action: its actions stand beside it (Open in Patronus,
-  // Forget This Start), and a dimmed button read as one that is off. As high and as wide as the button, its reason on
-  // the hover and on the focus of the keyboard
-  const status = lost !== null && (
-    <Tooltip lazy>
-      <TooltipTrigger
-        render={
-          <span
-            tabIndex={0}
-            className={cn(
-              "inline-flex h-6 shrink-0 items-center gap-1 rounded-2xl px-2.5 text-xs whitespace-nowrap tabular-nums outline-none select-none focus-visible:bd-focus has-data-[icon=inline-start]:pl-2 [&_svg]:pointer-events-none [&_svg]:size-3 [&_svg]:shrink-0",
-              compact && "min-w-26 justify-start",
-              className,
-            )}
-            data-testid="safe-push-button"
-            data-status="unknown"
-          />
-        }
-      >
-        <CircleHelpIcon data-icon="inline-start" />
-        {label}
-      </TooltipTrigger>
-      {tooltip}
-    </Tooltip>
-  )
+  // a start whose answer was lost is a status of the slot, not an action that is off: its actions stand beside it (Open
+  // in Patronus, Forget This Start), so the button is not dimmed (a class of the chain of `Button`, which `cn` merges with
+  // its dimming). It stays the one element of the slot, which keeps its focus and the keys of the row as a start that ran
+  // turns lost; its reason, which the tooltip says, is its description for a screen reader too
+  const lostReasonId = useId()
+  const lostReason = lost === null ? null : (elsewhere?.description ?? null)
   const button = (
     <Tooltip lazy>
       <TooltipTrigger
@@ -200,10 +181,12 @@ export function SafePushButton({
             disabled={disabled}
             // the hover says why: Base UI keeps the button focusable, dimmed by `Button` unless a start runs (`aria-busy`)
             focusableWhenDisabled
-            aria-busy={starting !== null || undefined}
+            aria-busy={(starting !== null && lost === null) || undefined}
+            aria-describedby={lostReason === null ? undefined : lostReasonId}
+            data-status={lost === null ? undefined : "unknown"}
             // the push a compact label says by its percent only, the wait by whom it is for
             aria-label={waiting ?? (compact && pushing !== null && elsewhere === null ? pushing : undefined)}
-            className={cn("tabular-nums", compact && "min-w-26 justify-start", className)}
+            className={cn("tabular-nums", compact && "min-w-26 justify-start", lost !== null && "aria-disabled:not-aria-busy:opacity-100", className)}
             data-testid="safe-push-button"
             ref={element => {
               buttonRef.current = element
@@ -223,7 +206,9 @@ export function SafePushButton({
           />
         }
       >
-        {starting !== null ? (
+        {lost !== null ? (
+          <CircleHelpIcon data-icon="inline-start" />
+        ) : starting !== null ? (
           <Spinner data-icon="inline-start" />
         ) : (
           (hint ?? (icon && (item?.icon === undefined ? <ShieldCheckIcon data-icon="inline-start" /> : <item.icon data-icon="inline-start" />)))
@@ -249,7 +234,12 @@ export function SafePushButton({
   return (
     <span className="inline-flex max-w-full min-w-0 items-center gap-1" data-beside-slot={beside ? "" : undefined}>
       {fixedEdge === "end" && besideItems}
-      {status || button}
+      {button}
+      {lostReason !== null && (
+        <span id={lostReasonId} className="sr-only">
+          {lostReason}
+        </span>
+      )}
       {fixedEdge === "start" && besideItems}
     </span>
   )

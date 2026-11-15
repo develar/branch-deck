@@ -18,6 +18,19 @@ function safePushOf(branch: string): Intent {
 /** The tips of the stores of Branch Deck of a repository that has none */
 const NO_STORE_TIPS = { issueGroups: null, stackParents: null, parked: null } as const
 
+/** The robots of `setupRobots`, `brd` running the Safe Push of JIRA-456: the repository and the slot of its row, which says so */
+async function bdRunsSafePushOfJira(
+  page: Page,
+  setupRepo: Parameters<typeof setupRobots>[1],
+  syncAndWaitForBranches: Parameters<typeof setupRobots>[2],
+): Promise<{ repo: Awaited<ReturnType<typeof setupRobots>>; slot: Locator }> {
+  const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+  await repo.setForeignOperation(safePushOf("JIRA-456"))
+  const slot = slotSafePush(page, "JIRA-456")
+  await expect(slot).toHaveText("bd: Safe Push of JIRA-456…")
+  return { repo, slot }
+}
+
 function toastWith(page: Page, text: string): Locator {
   return page.locator("[data-slot=toast]", { hasText: text })
 }
@@ -76,10 +89,7 @@ test.describe("Operations of another process of the repository", () => {
   })
 
   test("should start the Safe Push of a branch once the operation of bd that held it ended", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
-    await repo.setForeignOperation(safePushOf("JIRA-456"))
-    const slot = slotSafePush(page, "JIRA-456")
-    await expect(slot).toHaveText("bd: Safe Push of JIRA-456…")
+    const { repo, slot } = await bdRunsSafePushOfJira(page, setupRepo, syncAndWaitForBranches)
 
     // its record left the registry: the row offers the start again, which pushes and starts once
     await repo.setForeignOperation(null)
@@ -98,17 +108,21 @@ test.describe("Operations of another process of the repository", () => {
     const slot = slotSafePush(page, "JIRA-456")
     // no process runs it any more, and Patronus can't tell yet whether its robot started: it holds the branch
     await expect(slot).toHaveText("Start Unknown")
-    // a status of the slot, not an action: no button, not dimmed, its actions beside it
-    await expect(row.getByRole("button", { name: /Start Unknown/ })).toHaveCount(0)
-    await expect(row.getByTestId("open-unknown-start")).toBeVisible()
+    const why =
+      "Cannot tell whether the Safe Push of JIRA-456 started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start; Patronus may still run it"
+    // a status of the slot, not an action that is off: the button of the slot, disabled and not dimmed, its reason its
+    // description for a screen reader, its actions beside it
+    await expect(slot).toHaveRole("button")
+    await expect(slot).toHaveAccessibleName("Start Unknown")
+    await expect(slot).toHaveAccessibleDescription(why)
+    await expect(slot).toHaveAttribute("aria-disabled", "true")
     expect(await slot.evaluate(status => getComputedStyle(status).opacity)).toBe("1")
+    await expect(row.getByTestId("open-unknown-start")).toBeVisible()
     // Open in Patronus opens where its robot would be
     expect(await getOpenedUrls(page)).toEqual([])
     await row.getByTestId("open-unknown-start").click()
     await expect.poll(() => getOpenedUrls(page)).toEqual(["https://patronus.test/"])
     await slot.hover()
-    const why =
-      "Cannot tell whether the Safe Push of JIRA-456 started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start; Patronus may still run it"
     await expect(openTooltip(page)).toHaveText(why)
     // and on the focus of the keyboard: a focus after a key is one a tooltip opens on (`:focus-visible`)
     await page.mouse.move(0, 0)
@@ -133,6 +147,22 @@ test.describe("Operations of another process of the repository", () => {
     await expect(row.getByTestId("patronus-chip")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
   })
+
+  // the slot keeps its element as the start bd runs turns into one whose answer was lost: the focus stays on it, and the
+  // keys of the row with it
+  test(
+    "should keep the focus on the slot as the Safe Push bd runs turns into a start whose answer was lost",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const { repo, slot } = await bdRunsSafePushOfJira(page, setupRepo, syncAndWaitForBranches)
+      await slot.focus()
+      await expect(slot).toBeFocused()
+      await repo.setForeignOperation(safePushOf("JIRA-456"), undefined, true)
+      await expect(slot).toHaveText("Start Unknown")
+      await expect(slot).toBeFocused()
+      await expect(slot).toHaveAccessibleDescription(/^Cannot tell whether the Safe Push of JIRA-456 started/)
+    },
+  )
 
   test("should open the pull request of a comment start whose answer was lost", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)

@@ -30,6 +30,7 @@ export default defineConfig({
     "repository/repository-lock.spec.ts",
     "amend-changes/amend-changes.spec.ts",
     "repository/header.spec.ts",
+    "operations/foreign-operation.spec.ts",
     "repository/companion-links.spec.ts",
     "branch-review/review-plan.spec.ts",
     "branch-review/branch-review.spec.ts",
