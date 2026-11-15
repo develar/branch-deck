@@ -221,7 +221,8 @@ undo) and hold it only for the witness of HEAD and of the mark of an interrupted
 
 A drop and its undo whose files follow MUST fetch the objects of Git LFS of the files the move changes and the store
 lacks before the repository lock, so the smudge filter under the lock reads the store only; a repository without the
-store of LFS MUST pay no process for it, and a fetch that fails MUST fail the drop before the lock, nothing written.
+store of LFS MUST pay no process for it, and a fetch that fails MUST fail the drop before the lock, nothing written, but
+where the repository skips download errors (`lfs.skipdownloaderrors`); the fetch MUST end at a deadline (30 min).
 
 #### Scenario: A drop and its undo in a repository of Git LFS
 - **GIVEN** the drop brings back a file of Git LFS whose object the store lacks
@@ -240,6 +241,12 @@ store of LFS MUST pay no process for it, and a fetch that fails MUST fail the dr
 - **THEN** a repository without the store adds no process; with the object stored the drop adds one `diff-tree`, one
   `check-attr` and one `cat-file`; without it also one `config` and one `git lfs fetch`
   [@test] crates/sync-core/src/process_budget_test.rs (`a_drop_of_a_file_of_git_lfs_fetches_what_the_store_lacks_before_the_lock`)
+
+#### Scenario: A repository that skips download errors
+- **GIVEN** `lfs.skipdownloaderrors` is true
+- **WHEN** the fetch before the lock fails
+- **THEN** the drop goes on, and its smudge writes the pointer as the repository asks
+  [@test] crates/bd-update/src/lfs_prefetch_test.rs (`a_repository_that_skips_download_errors_moves_when_the_fetch_failed`)
 
 ### Requirement: Lock and engine: The drop and its undo are rewrites of the engine
 

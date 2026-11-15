@@ -7,13 +7,14 @@ use crate::attributes::read_attributes;
 use crate::lease_slot::linked_worktree;
 use crate::object_texts::read_blob_bytes;
 use crate::paths::changed_path_names;
-use crate::remote_command::execute_remote_command;
+use crate::remote_command::{LFS_DEADLINE, execute_remote_command_within};
 use crate::revs::{git_common_dir, known_dirs};
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use sync_utils::git_bool::parse_git_bool;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 
 /// The largest pointer file of Git LFS (its specification): a larger blob is content
 const POINTER_MAX_BYTES: usize = 1024;
@@ -78,9 +79,8 @@ impl LfsKeys {
   pub(crate) fn finish(self) -> LfsConfig {
     // a `process`, even an empty one, is what git runs instead of the command of each file (`apply_filter` of convert.c)
     let command = self.process.unwrap_or(self.smudge);
-    let skipped = std::env::var("GIT_LFS_SKIP_SMUDGE").is_ok_and(|value| parse_git_bool(Some(&value)) == Some(true));
     LfsConfig {
-      smudge: !command.is_empty() && !command.split_whitespace().any(|word| word == "--skip") && !skipped,
+      smudge: !command.is_empty() && !command.split_whitespace().any(|word| word == "--skip") && !true_in_environment("GIT_LFS_SKIP_SMUDGE"),
       storage: self.storage,
     }
   }
@@ -141,8 +141,41 @@ fn prefetch_move(git_executor: &GitCommandExecutor, worktree_move: &WorktreeMove
   }
   args.extend([config.remote.as_str(), to.as_str()]);
   debug!(objects = missing.len(), remote = %config.remote, "fetching the objects of Git LFS of the move before the lock");
-  execute_remote_command(git_executor, &args, worktree).with_context(|| format!("Cannot fetch the files of Git LFS of {to} before the move"))?;
-  Ok(())
+  match execute_remote_command_within(git_executor, &args, worktree, deadline()) {
+    Ok(_) => Ok(()),
+    // the smudge writes the pointers of what it can not download, as the repository asks
+    Err(error) if skips_download_errors(git_executor, worktree) => {
+      warn!(error = %format!("{error:#}"), "cannot fetch the files of Git LFS before the move; lfs.skipdownloaderrors: the move goes on");
+      Ok(())
+    }
+    Err(error) => Err(error.context(format!("Cannot fetch the files of Git LFS of {to} before the move"))),
+  }
+}
+
+/// Whether `name` is set in the environment to a value git reads as true
+fn true_in_environment(name: &str) -> bool {
+  std::env::var(name).is_ok_and(|value| parse_git_bool(Some(&value)) == Some(true))
+}
+
+/// Whether the repository lives on the pointers of the objects Git LFS can not download: `lfs.skipdownloaderrors`, or
+/// `GIT_LFS_SKIP_DOWNLOAD_ERRORS` true, so its smudge writes a pointer rather than fail. Read only after a fetch or a pull
+/// failed, then the operation goes on without the object: one `config --type=bool`, which reads a key without a value
+/// as true
+pub fn skips_download_errors(git_executor: &GitCommandExecutor, worktree: &str) -> bool {
+  true_in_environment("GIT_LFS_SKIP_DOWNLOAD_ERRORS")
+    || git_executor
+      .cmd(&["config", "--type=bool", "--get", "lfs.skipdownloaderrors"], worktree)
+      .accept(&[1])
+      .text()
+      .is_ok_and(|value| value == "true")
+}
+
+/// `LFS_DEADLINE`, or the milliseconds of `BD_TEST_LFS_DEADLINE_MS`, which a test of the deadline sets
+fn deadline() -> Duration {
+  std::env::var("BD_TEST_LFS_DEADLINE_MS")
+    .ok()
+    .and_then(|millis| millis.parse().ok())
+    .map_or(LFS_DEADLINE, Duration::from_millis)
 }
 
 /// `$GIT_COMMON_DIR` of `worktree` without a process when the executor knows it (`with_dirs_of`) or the files tell it:
@@ -232,7 +265,7 @@ pub(crate) fn include_of(missing: &[&ChangedPointer]) -> Option<String> {
 /// # Errors
 /// The pull
 pub fn pull_lfs_files(git_executor: &GitCommandExecutor, worktree: &str) -> Result<()> {
-  execute_remote_command(git_executor, &["lfs", "pull"], worktree).with_context(|| format!("Cannot pull the files of Git LFS into {worktree}"))?;
+  execute_remote_command_within(git_executor, &["lfs", "pull"], worktree, deadline()).with_context(|| format!("Cannot pull the files of Git LFS into {worktree}"))?;
   Ok(())
 }
 

@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use git_executor::git_command_executor::{GitCommandExecutor, GitOutput};
+use std::time::Duration;
 
 /// Config for every git command that talks to a remote (push, fetch).
 /// The user's credential helpers stay in effect (osxkeychain, Git Credential Manager, `gh auth git-credential`):
@@ -42,6 +43,16 @@ pub fn execute_remote_command(git_executor: &GitCommandExecutor, args: &[&str], 
 /// with rejected refs, whose stdout still reports every ref
 pub fn execute_remote_command_accepting(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, ok_exit_codes: &[i32]) -> Result<String> {
   git_executor.cmd(&remote_args(&[], args), repository_path).env(&REMOTE_ENV).accept(ok_exit_codes).text()
+}
+
+/// The longest a git of the remote may run that does its HTTP outside git (`git lfs pull`, `git lfs fetch`): git-lfs has
+/// its own client, which `http.lowSpeedLimit` does not reach, so a transfer that trickles or a helper that never answers
+/// would hold it without end. Past it git is killed with every process it started (`StoppedCommand::TimedOut`)
+pub const LFS_DEADLINE: Duration = Duration::from_mins(30);
+
+/// `execute_remote_command` killed after `deadline` (`LFS_DEADLINE`)
+pub fn execute_remote_command_within(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, deadline: Duration) -> Result<String> {
+  git_executor.cmd(&remote_args(&[], args), repository_path).env(&REMOTE_ENV).timeout(deadline).text()
 }
 
 /// `execute_remote_command_accepting` that keeps git's stderr and exit code too: an accepted failure (a `push` whose

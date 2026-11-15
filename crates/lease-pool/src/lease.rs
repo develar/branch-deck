@@ -29,7 +29,7 @@ use git_ops::lease_slot::{
   detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name, lease_config, linked_worktree, move_clean_slot, move_slot, refresh_cloned_index, register_slot,
   slot_changes, start_deferred_maintenance, unlock_slot,
 };
-use git_ops::lfs::pull_lfs_files;
+use git_ops::lfs::{pull_lfs_files, skips_download_errors};
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, resolve_commit, short_id};
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::{LockHolder, LockWaitCanceled, RepositoryLock, lock_file_while_held};
@@ -1436,10 +1436,17 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
     drop(clones_lock.take());
     if !reused && config.lfs.smudge && config.lfs.objects(&git_common_dir).is_dir() {
       report(GetStep::LfsPull { slot: path.clone() });
-      pull_lfs_files(git_executor, &path).map_err(|error| {
-        forget_slot_index(&path);
-        give_back(&pool, params.lock_timeout, &path, &lease.id, false, error)
-      })?;
+      match pull_lfs_files(git_executor, &path) {
+        Ok(()) => {}
+        // the repository lives on pointers of what it can not download, as its smudge writes them
+        Err(error) if skips_download_errors(git_executor, &path) => {
+          warn!(slot = %path, error = %format!("{error:#}"), "cannot pull the files of Git LFS; lfs.skipdownloaderrors: the slot keeps their pointers");
+        }
+        Err(error) => {
+          forget_slot_index(&path);
+          return Err(give_back(&pool, params.lock_timeout, &path, &lease.id, false, error));
+        }
+      }
     }
     if !seeds.is_empty() {
       report(GetStep::Seed {

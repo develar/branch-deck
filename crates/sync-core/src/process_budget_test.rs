@@ -24,7 +24,6 @@ use domain_types::rewrite::{AmendCommandResult, AutosquashScope, CommitReword, R
 use domain_types::robot_landing::RobotLandingRequest;
 use domain_types::{BranchError, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_executor::git_info::GitInfo;
 use git_ops::commit_signing::SigningFailed;
 use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::drop_commits::{DropCommitsParams, drop_commits_core};
@@ -38,7 +37,7 @@ use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::env_vars::EnvVars;
-use test_utils::fake_executable::fake_executable;
+use test_utils::fake_executable::{executor_of_fake_git, fake_executable};
 use test_utils::git_test_utils::{TestRepo, append_config, stack_ahead_of_bare_origin};
 use test_utils::process_budget::{
   FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, processes, repo_on_origin, with_added_processes,
@@ -755,12 +754,7 @@ fn processes_of_a_drop_of_a_file_of_git_lfs(store: Option<&[u8]>) -> Vec<(String
   }
   let fake = tempfile::tempdir().unwrap();
   let fake_git = fake_executable(fake.path(), "git", "case \" $* \" in *\" lfs fetch \"*) exit 0;; esac\nexec git \"$@\"");
-  let version = GitCommandExecutor::new().get_info().unwrap().version.clone();
-  let git = GitCommandExecutor::with_info(GitInfo {
-    version,
-    path: fake_git.to_str().unwrap().to_owned(),
-  })
-  .with_process_stats("test");
+  let git = executor_of_fake_git(&fake_git).with_process_stats("test");
   let params = DropCommitsParams {
     repository_path: path(&repo),
     commit_ids: vec![beta],

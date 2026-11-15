@@ -1,8 +1,9 @@
 use crate::lease_slot::lease_config;
-use crate::lfs::{ChangedPointer, fetch_config, include_of, pointer_oid};
+use crate::lfs::{ChangedPointer, fetch_config, include_of, pointer_oid, pull_lfs_files, skips_download_errors};
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
 use test_utils::env_vars::EnvVars;
+use test_utils::fake_executable::{executor_of_fake_git, fake_executable};
 use test_utils::git_test_utils::TestRepo;
 
 /// A repository whose local config a test writes, with no system config and an empty global one: the filter of a
@@ -104,6 +105,27 @@ fn the_fetch_takes_the_remote_git_lfs_takes_by_default() {
   assert_eq!((read.lfs.smudge, read.lfs.storage.as_deref()), (true, Some("store")));
 }
 
+/// A repository lives on the pointers of what Git LFS can not download when `lfs.skipdownloaderrors` is true, a key
+/// without a value too, or `GIT_LFS_SKIP_DOWNLOAD_ERRORS` is
+#[test]
+fn a_repository_skips_download_errors_by_its_config_or_the_environment() {
+  let isolated = IsolatedConfig::new();
+  let skips = |text: &str| {
+    isolated.write(text);
+    skips_download_errors(isolated.repo.git_executor(), isolated.repo.path_str())
+  };
+  assert!(!skips(""));
+  for (text, expected) in [
+    ("[lfs]\n\tskipdownloaderrors = true\n", true),
+    ("[lfs]\n\tskipdownloaderrors\n", true),
+    ("[lfs]\n\tskipdownloaderrors = false\n", false),
+  ] {
+    assert_eq!(skips(text), expected, "{text}");
+  }
+  let _skip = EnvVars::set(&[("GIT_LFS_SKIP_DOWNLOAD_ERRORS", "1")]);
+  assert!(skips(""));
+}
+
 /// The smudge filter of Git LFS downloads when `filter.lfs.process`, else `filter.lfs.smudge`, names a command without
 /// `--skip` and `GIT_LFS_SKIP_SMUDGE` is not true: a new slot is then checked out with the pointers and pulled after the
 /// clones lock (`LfsConfig::smudge`). A `process` that is set, empty too, hides the `smudge`, as in git
@@ -143,4 +165,20 @@ fn the_objects_of_git_lfs_are_where_lfs_storage_puts_them() {
   assert_eq!(objects(), common.join("lfs").join("objects"));
   isolated.write("[lfs]\n\tstorage = store\n");
   assert_eq!(objects(), common.join("store").join("objects"));
+}
+
+/// A `git lfs pull` that hangs is killed at the deadline of the LFS commands (`LFS_DEADLINE`, a test's
+/// `BD_TEST_LFS_DEADLINE_MS`), with the processes it started: git-lfs does its own HTTP, which `http.lowSpeedLimit` does
+/// not reach
+#[test]
+fn a_hung_lfs_pull_is_killed_at_its_deadline() {
+  let fake = tempfile::tempdir().unwrap();
+  let fake_git = fake_executable(fake.path(), "git", "case \" $* \" in *\" lfs pull \"*) sleep 60; exit 0;; esac\nexec git \"$@\"");
+  let git = executor_of_fake_git(&fake_git);
+  let repo = TestRepo::new();
+  let _deadline = EnvVars::set(&[("BD_TEST_LFS_DEADLINE_MS", "300")]);
+  let started = std::time::Instant::now();
+  let error = pull_lfs_files(&git, repo.path_str()).unwrap_err();
+  assert!(format!("{error:#}").contains("did not finish within"), "{error:#}");
+  assert!(started.elapsed() < std::time::Duration::from_secs(30), "{:?}", started.elapsed());
 }

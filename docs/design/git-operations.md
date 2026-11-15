@@ -378,7 +378,11 @@ reads them as they change. So the objects come first: before each lock, the core
   `git lfs fetch --include=<the paths> <remote> <target>` under the policy of a remote command
   (`git_ops::remote_command`). A path with a comma or a character of a pattern, or a list past 8 KiB, fetches every
   object of the target the store lacks instead.
-- **A failed fetch** is the error of the operation, before its lock, nothing written: the computation is discarded.
+- **A failed fetch** is the error of the operation, before its lock, nothing written: the computation is discarded;
+  unless the repository lives on the pointers of what it can not download (`lfs.skipdownloaderrors`,
+  `GIT_LFS_SKIP_DOWNLOAD_ERRORS`, read only then), where the move goes on and its smudge writes them, after one more try
+  under the lock. The fetch ends at `LFS_DEADLINE` (30 min), killed with the processes it started, as the pull of a new
+  lease slot.
 - **Not covered**: a computation under the lock (a witness that missed past `CHECKS_WITHOUT_THE_LOCK`, a rewrite
   under a lock its caller holds, the files of an interrupted move that follow under the lock, the round and the finish
   of `brd update --continue` and the start of a resolve session that its words finish), whose target is known only
@@ -2177,9 +2181,15 @@ the get runs `git lfs pull` in the slot after the release, before the seed (`git
 policy of a remote command; `GetStep::LfsPull`): it downloads what the store lacks and replaces the pointers, the index
 refreshed. Only where the repository keeps objects of LFS (`lfs/objects` of the common directory, or of `lfs.storage`,
 no process): Git for Windows configures the filter in its system config for every repository, and a pull in a
-repository without files of LFS would scan its tree for nothing. A pull that fails fails the get, and the slot goes back
-without its index: its files of LFS are pointers still, which the next move by the diff would keep as their content, so
-the next get finds it dirty, as after a checkout that failed, and adds another. A reused slot moves without a lock of
+repository without files of LFS would scan its tree for nothing. The pull ends at `LFS_DEADLINE` (30 min,
+`git_ops::remote_command`), killed with the processes it started: git-lfs does its own HTTP, which `http.lowSpeedLimit`
+of the policy does not reach, and after the lock it holds only its own get, but a trickle or a helper that never
+answers would hold that one without end. A pull that fails fails the get, and the slot goes back without its index: its
+files of LFS are pointers still, which the next move by the diff would keep as their content, so the next get finds it
+dirty, as after a checkout that failed, and adds another; unless the repository lives on the pointers of what it can not
+download (`lfs.skipdownloaderrors`, `GIT_LFS_SKIP_DOWNLOAD_ERRORS`, read only then:
+`git_ops::lfs::skips_download_errors`), whose smudge writes them in every checkout: the get logs the failure and goes on
+with them. A reused slot moves without a lock of
 the pool (`reset --merge`, or the full checkout), so its smudge filter downloads as git runs it there, and no pull
 follows. Another smudge filter that reaches the network still runs under the clones lock: git has no switch for it, and
 nothing but LFS puts the content back after a checkout of the blobs.

@@ -235,3 +235,15 @@ fn a_move_whose_objects_are_stored_fetches_nothing_and_a_failed_fetch_moves_noth
   assert_eq!(lfs.wrapped.locked_runs("lfs"), Vec::<bool>::new(), "{:#?}", lfs.wrapped.commands());
   assert_eq!(model(&repo), pointer(1));
 }
+
+/// A repository that lives on the pointers of what Git LFS can not download (`lfs.skipdownloaderrors`) moves when the
+/// fetch before the lock failed: its smudge writes the pointers as the repository asks, and tries the object once more
+/// under the lock
+#[test_log::test]
+fn a_repository_that_skips_download_errors_moves_when_the_fetch_failed() {
+  let (repo, lfs, commit) = feature_changes_the_model();
+  append_config(repo.path(), &[("lfs.skipdownloaderrors", "true")]);
+  lfs.run(&["drop", &commit]);
+  assert_eq!(lfs.wrapped.locked_runs("lfs"), [false], "{:#?}", lfs.wrapped.commands());
+  assert_eq!(model(&repo), pointer(1));
+}

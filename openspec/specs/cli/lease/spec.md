@@ -962,8 +962,8 @@ that the lock does not guard. A get that reuses a slot MUST never take the lock.
 
 Where the smudge filter of Git LFS downloads, the checkout of a new slot under the clones lock MUST write the pointers
 of the files of LFS, so that no filter of LFS runs under a lock of the pool, and the get MUST pull their content
-(`git lfs pull`) after it released the clones lock, where the repository keeps objects of LFS (`lfs/objects` of
-`$GIT_COMMON_DIR`, or of `lfs.storage`). A pull that fails MUST fail the get and leave the slot dirty.
+(`git lfs pull`, ended at a deadline) after it released the clones lock, where the repository keeps objects of LFS. A
+pull that fails MUST fail the get and leave the slot dirty, unless the repository skips download errors.
 
 #### Scenario: A new slot in a repository of Git LFS
 - **GIVEN** a repository whose smudge filter of LFS downloads and that keeps objects of LFS
@@ -993,6 +993,18 @@ of the files of LFS, so that no filter of LFS runs under a lock of the pool, and
 - **THEN** the smudge of LFS does not download, and the checkout of a new slot runs the filter as git does
   [@test] crates/git-ops/src/lfs_test.rs (`the_smudge_of_git_lfs_downloads_unless_it_skips`)
   [@test] crates/git-ops/src/lfs_test.rs (`the_objects_of_git_lfs_are_where_lfs_storage_puts_them`)
+
+#### Scenario: A repository that skips download errors
+- **GIVEN** `lfs.skipdownloaderrors` is true, so the smudge writes the pointer of an object it can not download
+- **WHEN** the `git lfs pull` of a new slot fails
+- **THEN** the get logs the failure and goes on with the pointers, and the slot is reused, not dirty
+  [@test] crates/bd-lease/src/lfs_test.rs (`a_repository_that_skips_download_errors_keeps_the_pointers_of_a_failed_pull`)
+  [@test] crates/git-ops/src/lfs_test.rs (`a_repository_skips_download_errors_by_its_config_or_the_environment`)
+
+#### Scenario: A pull that hangs
+- **WHEN** a `git lfs pull` runs past its deadline
+- **THEN** it is killed with the processes it started, and the get fails as for a pull that failed
+  [@test] crates/git-ops/src/lfs_test.rs (`a_hung_lfs_pull_is_killed_at_its_deadline`)
 
 ### Requirement: Get: A slot freed while a get waits for the clones lock ends the wait
 

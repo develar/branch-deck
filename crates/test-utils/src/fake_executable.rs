@@ -4,6 +4,8 @@
 //! `<name>` on `PATH` (`<name>.exe` on Windows) finds it.
 
 use crate::git_test_utils::git_command;
+use git_executor::git_command_executor::GitCommandExecutor;
+use git_executor::git_info::GitInfo;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -82,5 +84,19 @@ fn git_sh() -> &'static Path {
     let sh = root.join("usr").join("bin").join("sh.exe");
     assert!(sh.is_file(), "no sh of Git for Windows at {}, three levels above git's exec path {exec_path}", sh.display());
     sh
+  })
+}
+
+/// An executor whose git is `git`, a fake of `fake_executable` that runs the real git for what it does not answer: the
+/// version of the real one, so the fake is not asked for it
+///
+/// # Panics
+/// When the real git cannot be found or `git` is not UTF-8
+#[must_use]
+pub fn executor_of_fake_git(git: &Path) -> GitCommandExecutor {
+  let version = GitCommandExecutor::new().get_info().expect("a git for the tests").version.clone();
+  GitCommandExecutor::with_info(GitInfo {
+    version,
+    path: git.to_str().expect("a test path is UTF-8").to_owned(),
   })
 }
