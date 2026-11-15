@@ -196,8 +196,8 @@ and without `verify.regenerate`, `verify` MUST be absent.
 
 An update that applies (at once or at the finish of a session) MUST list in `verify.regenerate`, with `generated_by`,
 each generated file that the baseline changed since the merge base and that the update changed again (the local
-commits as they replayed, or a round that kept its commit and took `onto`), and that the new HEAD keeps: also without
-a conflict, since a generated file can be stale without one.
+commits as they replayed, or a round that took `onto`, unless it dropped its commit as landed), and that the new HEAD
+keeps: also without a conflict, since a generated file can be stale without one.
 
 #### Scenario: A round of a generated file taken from `onto`
 - **WHEN** a session finishes after a round of a generated file took `onto`
@@ -208,6 +208,12 @@ a conflict, since a generated file can be stale without one.
 - **WHEN** an update applies without a conflict, and both sides changed a generated file
 - **THEN** `verify.regenerate` names it
   [@test] crates/bd-update/src/resolve_test.rs (`an_update_without_a_conflict_names_the_generated_files_both_sides_changed`)
+
+#### Scenario: A round the user dropped as empty
+- **WHEN** a round takes `onto` for a generated file, which leaves its commit empty, and the user drops it
+  (`--drop-empty`), while another commit changed the input of the generator
+- **THEN** `verify.regenerate` names the file
+  [@test] crates/bd-update/src/resolve_test.rs (`a_table_taken_from_onto_in_a_round_the_user_dropped_is_named_to_regenerate`)
 
 #### Scenario: A generated file the baseline deleted
 - **WHEN** the baseline deleted a generated file that the commit changes, and its round takes the commit's file

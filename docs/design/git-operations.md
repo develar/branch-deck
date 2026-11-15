@@ -1744,8 +1744,9 @@ the largest share.
   the update changed again, and that the new HEAD keeps, with `generated_by`
   (`git_ops::generated::merged_generated_files`). The update's side is what the local commits change as they replayed
   (`upstream..new head`), so a commit dropped because the upstream proves it has it changes nothing there, and the
-  agent is never told to fix up a commit that is gone; a file a round took from `onto`, in a round that kept its
-  commit, is the upstream's in the new HEAD, but the commit changed it, so it is in it too. Whatever wrote such a file
+  agent is never told to fix up a commit that is gone; a file a round took from `onto` is the upstream's in the new
+  HEAD, but the commit changed it, so it is in it too: of a round that kept its commit and of one that the user dropped
+  as empty, not of one that dropped its commit as landed, whose change the upstream has. Whatever wrote such a file
   in the new HEAD (git's clean merge, the words, a side taken, an edit, also a file one side deleted), no run of its
   generator did, so it can be stale without a conflict. It runs after the move and the release of the lock, for every
   update of `brd update` that applies, at once or at the finish: two `diff-tree` (none for a fast-forward), and with

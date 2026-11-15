@@ -777,11 +777,12 @@ fn outcome(
         record_landed_update(git_executor, repo_path, &report, grouping)
       };
       let replayed = count(git_executor, repo_path, &new_head, &state.upstream_head)?;
-      // a round that kept its commit and took `onto` for a file left out the commit's change of it
+      // a round that took `onto` for a file left out the commit's change of it: one that kept its commit, and one that the
+      // user dropped as empty; not one dropped as landed, whose change the baseline has
       let taken_onto: Vec<String> = state
         .resolutions
         .iter()
-        .filter(|resolution| !resolution.dropped())
+        .filter(|resolution| !resolution.dropped() || (resolution.landed.is_none() && state.candidate_of(&resolution.commit).is_none()))
         .flat_map(|resolution| &resolution.paths)
         .filter(|path| path.outcome == Outcome::Onto)
         .map(|path| path.renamed_to.clone().unwrap_or_else(|| path.path.clone()))
