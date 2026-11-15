@@ -483,14 +483,6 @@ test.describe("Main menu", () => {
     await expect.poll(async () => Number(await sync.getAttribute("data-sync-count"))).toBeGreaterThan(count)
     await pressAndExpectSettingsOpened(page, () => page.keyboard.press("Control+Comma"), {})
   })
-
-  test("should offer the system title bar in Settings → Appearance, applied after a restart", async ({ page }) => {
-    const settings = await openSettingsWindow(page, { page: "appearance" }, { beforeLoad: window => useTitleBar(window, TITLE_BARS.gnome) })
-    const row = settings.getByTestId("setting-systemTitleBar")
-    await expect(row.getByRole("switch")).not.toBeChecked()
-    await row.getByRole("switch").click()
-    await expect(settings.getByTestId("setting-systemTitleBar-restart")).toContainText("Applies after a restart")
-  })
 })
 
 test.describe("Check for Updates", () => {
@@ -571,8 +563,25 @@ test.describe("Keys of the native menu", () => {
     await page.keyboard.press("Control+Comma")
     await expect.poll(async () => (await getEmittedEvents(page, "open_settings")).length).toBe(1)
   })
+})
 
-  test("should show a fixed system title bar in the settings with its reason", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+test.describe("Title bar on Linux", () => {
+  test.use({ userAgent: "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/605.1.15 (KHTML, like Gecko)" })
+
+  // the switch is of Linux and Windows (none on macOS, `isMac`); on Linux the app runs in WebKitGTK
+  test("should offer the system title bar in Settings → Appearance, applied after a restart", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await page.setViewportSize(MIN_WINDOW)
+    await useTitleBar(page, TITLE_BARS.gnome)
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    const settings = await openSettingsWindow(page, { page: "appearance" }, { beforeLoad: window => useTitleBar(window, TITLE_BARS.gnome) })
+    const row = settings.getByTestId("setting-systemTitleBar")
+    await expect(row.getByRole("switch")).not.toBeChecked()
+    await row.getByRole("switch").click()
+    await expect(settings.getByTestId("setting-systemTitleBar-restart")).toContainText("Applies after a restart")
+  })
+
+  test("should show a fixed system title bar in the settings with its reason", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await useTitleBar(page, { kind: "native", reason: "tiling-wm", checkForUpdates: false })
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
@@ -586,10 +595,6 @@ test.describe("Keys of the native menu", () => {
     await expect(row.getByRole("switch")).toBeDisabled()
     await expect(row).toContainText("A tiling window manager draws the titles")
   })
-})
-
-test.describe("Title bar on Linux", () => {
-  test.use({ userAgent: "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/605.1.15 (KHTML, like Gecko)" })
 
   test("should drag only once the mouse moved, so a double click reaches the page and maximizes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await page.setViewportSize(MIN_WINDOW)

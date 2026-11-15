@@ -337,7 +337,7 @@ test.describe("Settings window", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
   })
 
-  test("should set every diff from Diffs, the Whitespace menu naming its choice", async ({ page, testStore }) => {
+  test("should set every diff from Diffs, the Whitespace menu naming its choice", { tag: "@webkit" }, async ({ page, testStore }) => {
     const window = await openSettingsWindow(page, { page: "diffs" })
     // the layouts from the most compact one, Inline, the default, pressed
     const layouts = window.getByTestId("setting-diffViewMode").getByRole("button")
@@ -347,7 +347,8 @@ test.describe("Settings window", () => {
     await layouts.filter({ hasText: "Unified" }).click()
     await expect.poll(() => testStore.get("diffView")).toEqual({ mode: "unified" })
 
-    const whitespace = window.getByTestId("setting-whitespacePolicy").getByRole("button")
+    // the button of the menu by its text: in WebKit the open menu's focus guards beside it are buttons too, without one
+    const whitespace = window.getByTestId("setting-whitespacePolicy").getByRole("button").filter({ hasText: /\S/ })
     await expect(whitespace).toHaveText("Do Not Ignore")
     await whitespace.click()
     await window.getByRole("menuitemradio", { name: "Trim Whitespace" }).click()

@@ -3,7 +3,9 @@ import base from "./playwright.config"
 
 // The drag and drop tests in WebKit, the engine of the app on macOS (WKWebView), beside Chromium of `pnpm e2e`, and the
 // tests tagged `@webkit` for focus, popups, the item under a resting pointer (a card over a moving anchor too),
-// branch-column widths, review navigation and a path cut from its start (`StartTruncatedText`), where WebKit differs.
+// branch-column widths, review navigation and a path cut from its start (`StartTruncatedText`), where WebKit differs;
+// the title bar and Settings too, as on Linux (WebKitGTK) where a test claims it. A test of Windows alone (the Alt tap of
+// the main menu) runs only in Chromium, which is the webview of Windows (WebView2).
 // It drops focus of a hidden element only at a later layout and times `ResizeObserver` reports its own way.
 // Run `pnpm e2e:webkit` by hand after changes to a drag, focus, popup, column or review navigation. Snapshots are
 // Chromium's, so none is compared here. What only WKWebView does (the drag image, the autoscroll, the outline of a row)
@@ -44,6 +46,8 @@ export default defineConfig({
     "commit-files/symbol-navigation.spec.ts",
     "commit-message/commit-message.spec.ts",
     "resize-loops/resize-loops.spec.ts",
+    "repository/title-bar.spec.ts",
+    "settings/settings.spec.ts",
   ],
   grep: [/drag|dropped|new branch zone/i, /@webkit/],
   ignoreSnapshots: true,
