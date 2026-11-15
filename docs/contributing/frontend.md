@@ -171,14 +171,15 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   trigger from under the pointer there; an item that takes the place of another shares its `slot`.
 - **What comes late beside a hovered control goes where it moves nothing**: the header and the Actions of a row stand
   at their end, so a control that comes in them goes on the left of the controls it would move (Stop Waiting of Update,
-  Stop Waiting and the actions of a lost start of Safe Push: `fixedEdge`), and the items of Status and Actions stand at
-  the end of their group, also where the head of the column is wider than they are; a lock wait of a form or a
+  Stop Waiting and the actions of a lost start of Safe Push: `fixedEdge`), or keeps its place while it has nothing to
+  show (the landing indicator, empty and disabled while nothing is on the way), and the items of Status and Actions
+  stand at the end of their group, also where the head of the column is wider than they are; a lock wait of a form or a
   popover (`LockWaitNotice`) comes on the line of its buttons before them, or below them, never on a line of its own
   above them, and in a dialog over the lines of its footer, which keep their room (`LinesUnderLockWait`), its spinner in
   the place of the icon of the button; the first push of a repository on no service comes with its row, its facts
   answered from git. Each case
   has an E2E test: the pressed control keeps its place, its popup open (`repository-lock.spec.ts`,
-  `update-project.spec.ts`, `late-facts.spec.ts`, `patronus-actions.spec.ts`, `column-widths.spec.ts`)
+  `update-project.spec.ts`, `header.spec.ts`, `late-facts.spec.ts`, `patronus-actions.spec.ts`, `column-widths.spec.ts`)
 - **A popup that goes took the hover of its trigger** (Base UI 1.9): each popup part shares the timers of its trigger's
   hover (`useHoverInteractionSharedState`) and cleared them as it unmounted at the end of its exit. The pointer back over
   the trigger of a popup closed otherwise than by its hover (its view hid, a press of an item) started a delay that the

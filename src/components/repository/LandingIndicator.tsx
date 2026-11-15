@@ -24,9 +24,11 @@ export interface LandingIndicatorProps {
 /**
  * The header button of the work on its way into master ([Landing Overview](../../../openspec/specs/repository/landing-overview/spec.md)):
  * the node of the most urgent move (in the ring of a running Safe Push), the moves that are the user's, a bar of the
- * work by where it is on its way. Hover or click opens the overview; hidden while nothing is on the way and nothing ran
- * in the last day. As wide whatever the answers say: the place of the count stays at 0 and the bar shows one kind too,
- * so an answer of Patronus or GitHub moves no control of the header.
+ * work by where it is on its way. Hover or click opens the overview; empty and disabled while nothing is on the way
+ * and nothing ran in the last day. As wide whatever the answers say: the place of the count stays at 0 and the bar
+ * shows one kind too, so an answer of Patronus or GitHub moves no control of the header. It keeps its place while it
+ * has nothing to open: the header stands at its end, so the first item that came (a robot or a pull request from
+ * another window or from brd) moved Update and its Stop Waiting from under a still pointer
  */
 export function LandingIndicator({ renderPullRequest, footer }: LandingIndicatorProps) {
   const overview = useLandingOverview()
@@ -38,8 +40,8 @@ export function LandingIndicator({ renderPullRequest, footer }: LandingIndicator
     setOpen(false)
   }
   if (empty) {
-    // the rows of a repository synced before are still to come: the button holds its place meanwhile
-    return loadingRows ? <LandingIndicatorLoading /> : null
+    // the rows of a repository synced before are still to come, or nothing is on the way: the button holds its place
+    return <LandingIndicatorPlace busy={loadingRows} label={loadingRows ? "On the way to master: checking…" : formatLandingTitle(overview)} />
   }
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -103,10 +105,10 @@ function useIsLoadingRows(): boolean {
   return useBranchSync(state => state.branchOrder.length === 0 && state.syncedRepositoryPath !== selected) && lastBranchCount > 0
 }
 
-/** The button while the rows load: as wide as it will be, nothing to open yet */
-function LandingIndicatorLoading() {
+/** The button with nothing to open, while the rows load (`busy`) or nothing is on the way: as wide as it will be */
+function LandingIndicatorPlace({ busy, label }: { busy: boolean; label: string }) {
   return (
-    <Button variant="ghost" size="sm" disabled aria-busy="true" aria-label="On the way to master: checking…" data-testid="landing-indicator-loading">
+    <Button variant="ghost" size="sm" disabled aria-busy={busy || undefined} aria-label={label} data-testid={busy ? "landing-indicator-loading" : "landing-indicator-empty"}>
       <span aria-hidden className="relative flex size-4 items-center justify-center">
         <LaneNodeDot kind="waiting" />
       </span>

@@ -6,7 +6,7 @@ import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { activityButton, activityEntry, openActivityWindow } from "../helpers/activity-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { pushFromRowMenu } from "../helpers/branch-helpers"
+import { findBranchRow, pushFromRowMenu } from "../helpers/branch-helpers"
 import type { Box } from "../helpers/header-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, headerBoxes, MIN_WINDOW } from "../helpers/header-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
@@ -232,5 +232,41 @@ test.describe("Header before the answers", () => {
     await repo.holdRemoteAnswers({ release: ["robots"] })
     await expect(header(page).getByTestId("landing-moves")).toHaveText("1")
     expect(await headerBoxes(page, HEADER_CONTROLS)).toEqual(before)
+  })
+})
+
+test.describe("Header as work comes on its way", () => {
+  // the header stands at its end: the landing indicator keeps its place while nothing is on the way, so the first work
+  // that comes (a robot or a pull request from another window, a branch of brd) moves Update from under no pointer
+  test("should keep Update under the pointer, its tooltip open, as the first work on the way comes and fills the place of the landing indicator", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await page.setViewportSize(MIN_WINDOW)
+    const repo = await setupRepo("simple")
+    await syncAndWaitForBranches()
+    // test-branch parked: nothing on the way, the indicator empty in its place
+    await findBranchRow(page, "test-branch").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Park Branch…" }).click()
+    await expect(page.getByTestId("inline-park-input").getByRole("textbox")).toBeFocused()
+    await page.keyboard.press("Enter")
+    const empty = header(page).getByTestId("landing-indicator-empty")
+    await expect(empty).toHaveAccessibleName("Nothing on the way to master")
+    await expect(empty).toBeDisabled()
+
+    const update = header(page).getByTestId("update-project-button")
+    await update.hover()
+    const tooltip = page.getByTestId("update-project-tooltip").and(page.locator("[data-open]"))
+    await expect(tooltip).toBeVisible()
+    const before = await boxOf(update)
+
+    // a branch brd made behind the app's back: its sync brings the work on its way
+    await repo.commit("(fresh) Add the fresh file", { "fresh.txt": "fresh\n" }, 1704110400)
+    expect(await repo.touchStampAndAnswer()).toBe("synced")
+    await expect(header(page).getByTestId("landing-indicator")).toHaveAccessibleName("On the way to master: 1 move is yours")
+    await expect(empty).toHaveCount(0)
+    expect(await boxOf(update)).toEqual(before)
+    await expect(tooltip).toBeVisible()
   })
 })

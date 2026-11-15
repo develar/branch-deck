@@ -244,7 +244,7 @@ test.describe("Landing overview", () => {
     await expect(step).toHaveAttribute("aria-disabled", "true")
   })
 
-  test("should be hidden while nothing is on the way to master and nothing ran in the last day", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should keep the button while a pushed branch waits for its pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("simple")
     await syncAndWaitForBranches()
     const indicator = page.getByTestId("landing-indicator")

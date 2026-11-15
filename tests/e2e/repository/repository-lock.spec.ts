@@ -235,19 +235,27 @@ test.describe("Rewrites while another process holds the repository lock", () => 
 /**
  * `button` of `form` pressed with the pointer while another process holds the repository lock: whom the rewrite waits
  * for comes in `form` where it moves the button from under the pointer by nothing (`LockWaitNotice`, on the line of the
- * buttons before them, or below them; a line of its own above them moved them), and its Stop Waiting stops the rewrite
+ * buttons before them, or below them; a line of its own above them moved them), and its Stop Waiting stops the rewrite.
+ * The button keeps its box, or with `grows` (a spinner that came where it had no icon) at least the point the pointer
+ * pressed, its middle: which way it grows depends on the room of the line (a narrow window, an input not at its widest)
  */
-async function expectWaitBesideItsButton(page: Page, form: Locator, button: Locator, canceled: string): Promise<void> {
+async function expectWaitBesideItsButton(page: Page, form: Locator, button: Locator, canceled: string, { grows = false }: { grows?: boolean } = {}): Promise<void> {
   await animationsEnded(form)
   const before = await boxOf(button)
   const cancels = await recordCommand(page, "cancel_operation")
   await button.click()
   const notice = form.getByTestId("lock-wait-notice")
   await expect(notice).toContainText(WAITING)
-  // where it stood: a spinner that came in place of no icon widens it to its end, the pressed point still on it
   const after = await boxOf(button)
-  expect({ x: after.x, y: after.y, height: after.height }).toEqual({ x: before.x, y: before.y, height: before.height })
-  expect(after.width).toBeGreaterThanOrEqual(before.width)
+  if (grows) {
+    const pressed = { x: before.x + before.width / 2, y: before.y + before.height / 2 }
+    expect(
+      pressed.x >= after.x && pressed.x <= after.x + after.width && pressed.y >= after.y && pressed.y <= after.y + after.height,
+      `${JSON.stringify(pressed)} in ${JSON.stringify(after)}`,
+    ).toBe(true)
+  } else {
+    expect(after).toEqual(before)
+  }
   await runAndWaitForAnswer(page, "execute", () => notice.getByRole("button", { name: "Stop Waiting" }).click())
   await expect(page.getByText(canceled)).toBeVisible()
   expect(cancels).toHaveLength(1)
@@ -274,7 +282,9 @@ test.describe("A wait for the lock beside the button that started it", () => {
     await expect(input).toBeFocused()
     await page.keyboard.type("docs")
     const form = inlineBranchCreator.getPortal(page)
-    await expectWaitBesideItsButton(page, form, form.getByRole("button", { name: /^(Loading )?Move$/ }), "Canceled moving 1 commit to docs before it started")
+    await expectWaitBesideItsButton(page, form, form.getByRole("button", { name: /^(Loading )?Move$/ }), "Canceled moving 1 commit to docs before it started", {
+      grows: true,
+    })
     await verifyCommitCount(findBranchRow(page, "docs"), 1)
     await repo.holdRepositoryLock(false)
   })
