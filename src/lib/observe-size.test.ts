@@ -17,13 +17,13 @@ interface FakeNode {
   contains(other: FakeNode): boolean
 }
 
-function node(parent: FakeNode | null, testId: string | null = null, nodeType = 1): FakeNode {
+function node(parent: FakeNode | null, testId: string | null = null, nodeType = 1, attributes: Readonly<Record<string, string>> = {}): FakeNode {
   const it: FakeNode = {
     parentNode: parent,
     nodeType,
     isConnected: true,
     tagName: "DIV",
-    getAttribute: name => (name === "data-testid" ? testId : null),
+    getAttribute: name => (name === "data-testid" ? testId : (attributes[name] ?? null)),
     contains: other => {
       for (let current: FakeNode | null = other; current !== null; current = current.parentNode) {
         if (current === it) {
@@ -287,6 +287,10 @@ describe("observeSize", () => {
 
   beforeEach(() => {
     vi.resetModules()
+    // the log of the errors without the toasts and the bindings it imports: their first import took 2 s, past the
+    // timeout of the first test on a loaded machine, whose import then ran on into the next tests; a test of a cycle
+    // mocks it with its own spy
+    vi.doMock("@/lib/errors", () => ({ logError: vi.fn() }))
     FakeResizeObserver.all = []
     FakeResizeObserver.probe = null
     frameCallbacks = []
@@ -898,6 +902,19 @@ describe("observeSize", () => {
     FakeResizeObserver.all[0]!.report(resized.element, same.element)
     resize(resized.element, 120, 20)
     expect(await loopNow()).toEqual(["resized", "fresh"])
+  })
+
+  it("names at a loop an element with no test id or slot by its tag and role in the nearest ancestor that has one", async () => {
+    // the row of a step of the review, observed for the height of its title, has no test id of its own (#234)
+    const { observeSize } = await import("@/lib/observe-size")
+    const row = node(node(node(body, "review-sidebar")), null, 1, { role: "treeitem" })
+    const nameless = node(body)
+    const observer = observeSize(() => {})
+    for (const it of [row, nameless]) {
+      sizes.set(it, { width: 100, height: 20 })
+      observer.observe(it as unknown as Element)
+    }
+    expect(await loopNow()).toEqual(["div[treeitem] in review-sidebar", "div"])
   })
 
   it("names no element at a loop that the engine lays out as reported, where the arithmetic lays it out otherwise, as at a zoom of the app", async () => {

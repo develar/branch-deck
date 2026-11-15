@@ -534,9 +534,10 @@ async function weighLoopsOfTheRoom(page: Page, setupRepo: (template: string) => 
   const { lines, loop } = await roomForLoops(page, setupRepo, zoom)
   await loop("none")
   await expect.poll(() => lines).toEqual([LIBRARY_LOOP])
-  expectErrorLog(page, /^A ResizeObserver loop of an observer of the page: left span pending$/)
+  // the room of the path of the repository, a span with no test id, named in the select it is in
+  expectErrorLog(page, /^A ResizeObserver loop of an observer of the page: left span in select-value pending$/)
   await loop("resized before")
-  await expect.poll(() => lines).toEqual([LIBRARY_LOOP, "error: A ResizeObserver loop of an observer of the page left span pending"])
+  await expect.poll(() => lines).toEqual([LIBRARY_LOOP, "error: A ResizeObserver loop of an observer of the page left span in select-value pending"])
 }
 
 test.describe("A loop at a device scale of 125%", () => {

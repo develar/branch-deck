@@ -205,7 +205,9 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   caught: it resizes the element once a frame, as an animation, a transition, a drag or a live resize of the window do
   for as long as they last, and no size, frame or time tells it from them. The page logs a loop of a library's
   observers as a warning (one may come under load) and 3 within 5 s as an error (`LOOP_REPEATS`, `LOOP_REPEAT_MS`); a
-  loop that left an element of ours pending is an error at once, so every E2E test fails on one. Its elements are told
+  loop that left an element of ours pending is an error at once, so every E2E test fails on one, its line naming each
+  element by its test id or slot, else by its tag and role in the nearest ancestor with one (`div[treeitem] in
+  review-sidebar`). Its elements are told
   by the engine's own boxes: the computed style proposes the candidates, laid out otherwise than reported (exact at a
   zoom of 100%, up to 1.5 px off at another in WebKit), and an observer made first of all observes them at the loop,
   its report in the next update the verdict, by which the page weighs the loop at its own time. A candidate that

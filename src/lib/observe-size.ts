@@ -43,7 +43,8 @@
  *   update takes its next iteration from to the root's, so a loop of a library in every frame is one in every other while
  *   candidates wait, and this module lets go more than that update skips, at the cost of a report. An element
  *   observed again in a delivery leaves the engine as its new observation waits, so a change does not leave its old
- *   observation to skip.
+ *   observation to skip. Each is named by its test id, else by its tag and role in the nearest ancestor with one
+ *   (`nameOf`).
  *
  * A loop of the observers of a library is theirs, timed as the specification says: a warning of the page, repeated an
  * error
@@ -139,9 +140,29 @@ function boxesOfEntry(entry: ResizeObserverEntry): Boxes | null {
   }
 }
 
-/** An element in a log line: its test id, its slot, else its tag */
+/** The name an element gives itself in a log line: its test id, else its slot */
+function ownNameOf(node: Node): string | null {
+  return node.nodeType === 1 ? ((node as Element).getAttribute("data-testid") ?? (node as Element).getAttribute("data-slot")) : null
+}
+
+/**
+ * An element in a log line: its test id or its slot; else its tag and its role, in the nearest ancestor with a test id
+ * or a slot (`div[treeitem] in review-sidebar`), so a line of an element with no name of its own still says whose it is
+ */
 function nameOf(element: Element): string {
-  return element.getAttribute("data-testid") ?? element.getAttribute("data-slot") ?? element.tagName.toLowerCase()
+  const own = ownNameOf(element)
+  if (own !== null) {
+    return own
+  }
+  const role = element.getAttribute("role")
+  const tag = `${element.tagName.toLowerCase()}${role === null ? "" : `[${role}]`}`
+  for (let ancestor = parentOf(element); ancestor !== null; ancestor = parentOf(ancestor)) {
+    const name = ownNameOf(ancestor)
+    if (name !== null) {
+      return `${tag} in ${name}`
+    }
+  }
+  return tag
 }
 
 /**
