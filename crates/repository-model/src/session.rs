@@ -619,17 +619,34 @@ impl Sessions {
   /// holds another known lease now than the session opened under: the operation would act on a worktree of another lease
   /// before the session opens anew for it
   pub async fn lease_guard(&self, key: &SessionKey) -> Result<LeaseGuard, AnotherLease> {
-    let opened = self.lock().get(key).and_then(|entry| entry.life.epoch()).unwrap_or(WorktreeEpoch::Unknown);
-    let (host, of) = (Arc::clone(&self.host), key.clone());
-    let now = tokio::task::spawn_blocking(in_current_span(move || host.epoch(&of)))
-      .await
-      .unwrap_or(WorktreeEpoch::Unknown);
-    let began = lease_began(opened, now)?;
+    let began = self.lease_now(key).await?;
     if began == WorktreeEpoch::NotASlot {
       return Ok(LeaseGuard::any());
     }
     let (host, of) = (Arc::clone(&self.host), key.clone());
     Ok(LeaseGuard::while_held(move || host.epoch(&of) == began))
+  }
+  /// The lease a write of the session of `key` asked on its view of the epoch `asked` is of (a hide of the Landed
+  /// island, `app_settings::projects::hide_landed`): the lease the session opened under (`lease_began`). `AnotherLease`
+  /// for a view of another epoch (the session opened anew since) and for a worktree that holds another known lease now
+  pub async fn lease_of_view(&self, key: &SessionKey, asked: Option<u32>) -> Result<WorktreeEpoch, AnotherLease> {
+    if let Some(asked) = asked
+      && self.view_version(key).await.is_some_and(|now| now.epoch != asked)
+    {
+      return Err(AnotherLease);
+    }
+    self.lease_now(key).await
+  }
+
+  /// The lease the operations of the session of `key` act under (`lease_began`): the one it opened under, the worktree
+  /// holding the lease the host reads now
+  async fn lease_now(&self, key: &SessionKey) -> Result<WorktreeEpoch, AnotherLease> {
+    let opened = self.lock().get(key).and_then(|entry| entry.life.epoch()).unwrap_or(WorktreeEpoch::Unknown);
+    let (host, of) = (Arc::clone(&self.host), key.clone());
+    let now = tokio::task::spawn_blocking(in_current_span(move || host.epoch(&of)))
+      .await
+      .unwrap_or(WorktreeEpoch::Unknown);
+    lease_began(opened, now)
   }
 
   /// The group `message` would put its commit into (`history_rewrite::commit_grouper::group_of` of its subject as git

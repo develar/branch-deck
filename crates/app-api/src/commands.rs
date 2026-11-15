@@ -217,6 +217,10 @@ macro_rules! for_each_command {
       /// Removes a pull request the user added by its link from Reviews, and the session reads Reviews again
       app(SettingsWriter) session(number = params.number) unlink_pull_request(params: domain_types::review_request::UnlinkPullRequestParams) -> () = $crate::session::reviews::unlink_pull_request;
 
+      /// The Landed island hides what landed up to a time, which the user saw before a sync: kept for the repository under
+      /// the lease of the view it was asked on (`landedHiddenUntil`, a field of the lease the windows never write)
+      app(SettingsWriter) session hide_landed(params: $crate::session::landed::HideLandedParams) -> () = $crate::session::landed::hide_landed;
+
       /// The text a new pull request of a virtual branch starts with (`brd describe`, else the commits it will show, with the
       /// summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
       read session(head = %params.head, base = %params.base, stack_ancestors = params.stack_ancestors.len()) get_new_pull_request(params: remote_facts::pull_request_create::GetNewPullRequestParams) -> domain_types::pull_request::NewPullRequest = $crate::remote::pull_requests::get_new_pull_request;

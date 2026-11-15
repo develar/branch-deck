@@ -643,8 +643,8 @@ struct TestEnvironment {
 struct TestLeases {
   epoch: Mutex<WorktreeEpoch>,
   leased_again_in_run: Mutex<Option<WorktreeEpoch>>,
-  /// The lease each record of a sync named (`SessionEnvironment::record_synced`), in order
-  recorded: Mutex<Vec<WorktreeEpoch>>,
+  /// The lease and the count of branches each record of a sync named (`SessionEnvironment::record_synced`), in order
+  recorded: Mutex<Vec<(WorktreeEpoch, usize)>>,
 }
 
 /// What the landing needs answer (nothing, by default) with the landed commits of each computation, and whether the view
@@ -679,8 +679,8 @@ impl SessionEnvironment for TestEnvironment {
     self.syncs_on_focus
   }
 
-  fn record_synced(&self, _key: &SessionKey, epoch: &WorktreeEpoch) {
-    self.leases.recorded.lock().unwrap_or_else(PoisonError::into_inner).push(epoch.clone());
+  fn record_synced(&self, _key: &SessionKey, epoch: &WorktreeEpoch, branch_count: usize) {
+    self.leases.recorded.lock().unwrap_or_else(PoisonError::into_inner).push((epoch.clone(), branch_count));
   }
 
   fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
@@ -830,8 +830,9 @@ async fn a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the
   }
 }
 
-/// A run records the time of its sync (`lastSyncTime`, which its sessions sync of themselves by) under the lease its
-/// session opened under, also when the slot was leased again while it ran (the writer of the settings then records
+/// A run records the time of its sync (`lastSyncTime`, which its sessions sync of themselves by) and the count of the
+/// branches of its table (`lastBranchCount`, the room of the loading table of the next start) under the lease its session
+/// opened under, also when the slot was leased again while it ran (the writer of the settings then records
 /// nothing: `a_record_of_a_sync_is_of_the_lease_its_session_opened_under`); a run that syncs nothing records nothing
 #[tokio::test]
 async fn a_run_records_the_time_of_its_sync_under_the_lease_its_session_opened_under() {
@@ -839,7 +840,11 @@ async fn a_run_records_the_time_of_its_sync_under_the_lease_its_session_opened_u
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
   *leases.leased_again_in_run.lock().unwrap() = Some(lease("lease-b"));
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
-  assert_eq!(*leases.recorded.lock().unwrap(), [lease("lease-a"), lease("lease-a")]);
+  assert_eq!(
+    *leases.recorded.lock().unwrap(),
+    [(lease("lease-a"), 1), (lease("lease-a"), 1)],
+    "the lease and the one branch of the table"
+  );
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Skipped));
   assert_eq!(leases.recorded.lock().unwrap().len(), 2, "the run of a slot under another lease synced nothing");
 }

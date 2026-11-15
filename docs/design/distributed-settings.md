@@ -175,12 +175,15 @@ sequenceDiagram
     of the epoch of its worktree ([Git Operations](git-operations.md), "The epoch of a worktree"): the writer names it in
     each entry it writes (`epoch`, never the page's) and forgets an entry of another known epoch, one of an earlier
     lease of a slot of a lease pool, before the key leaves it; an epoch the files could not tell forgets nothing and
-    keeps the epoch the entry names. The epochs are read before the mutex of the writer is taken. The time of a sync
-    (`lastSyncTime`, which a session syncs of itself by) only the sessions write, each under the lease it opened under
-    (`set_repository_field`, `app_settings::projects::record_sync`: refused while the worktree holds another lease); a
-    write of a window keeps what the writer has for the epoch the entry is stamped with, whatever the entry carries
-    (`set_of_window`), so a window of an earlier lease that writes after the slot was leased again never makes the new
-    lease synced.
+    keeps the epoch the entry names. The epochs are read before the mutex of the writer is taken. The fields of an entry
+    that belong to a lease (`LEASE_FIELDS`: the time of a sync, which a session syncs of itself by, the count of its
+    branches, the room of the loading table, and the hide of the Landed island, as each lease has its own report) only
+    Rust writes, each under its lease (`set_repository_fields`: `app_settings::projects::record_sync` of the session under
+    the lease it opened under, `hide_landed` under the lease of the view it was asked on; refused while the worktree
+    holds another lease); a write of a window keeps what the writer has for the epoch the entry is stamped with, whatever
+    the entry carries (`set_of_window`), so a window of an earlier lease that writes after the slot was leased again
+    gives the new lease none of them. The settled layout (cosmetic), the durations of the steps and the time of the last
+    fetch (of the repository and of the machine) stay the windows'.
     **Rationale**: A sync runs on every focus that changed what it reads, and every Update Project learns its step
     times: in `settings.json` each would rewrite the file `brd` reads beside it, and the user's settings would follow the
     churn of the syncs. A fetch (every Update Project) and a sync that hides the Landed island are as routine. The

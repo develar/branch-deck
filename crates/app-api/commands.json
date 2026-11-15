@@ -239,6 +239,11 @@
     "transport": "json"
   },
   {
+    "name": "hide_landed",
+    "class": "app",
+    "transport": "json"
+  },
+  {
     "name": "get_new_pull_request",
     "class": "read",
     "transport": "json"

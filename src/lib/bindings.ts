@@ -228,6 +228,11 @@ export const commands = {
 	/**  Removes a pull request the user added by its link from Reviews, and the session reads Reviews again */
 	unlinkPullRequest: (params: UnlinkPullRequestParams) => typedError<null, ApiError>(__TAURI_INVOKE("unlink_pull_request", { params })),
 	/**
+	 *  The Landed island hides what landed up to a time, which the user saw before a sync: kept for the repository under
+	 *  the lease of the view it was asked on (`landedHiddenUntil`, a field of the lease the windows never write)
+	 */
+	hideLanded: (params: HideLandedParams) => typedError<null, ApiError>(__TAURI_INVOKE("hide_landed", { params })),
+	/**
 	 *  The text a new pull request of a virtual branch starts with (`brd describe`, else the commits it will show, with the
 	 *  summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 	 */
@@ -3982,6 +3987,14 @@ export type GroupOrigin =
 "issueGroup" | 
 /**  The issue key of the subject */
 "issue";
+
+export type HideLandedParams = {
+	repositoryPath: string,
+	/**  The island hides what landed up to here (`landedAt`, Unix seconds) */
+	landedAt: number,
+	/**  The epoch of the view the island showed (`Version.epoch`): a view of another lease hides nothing */
+	epoch?: number | null,
+};
 
 /**  Why a push of a branch won't land */
 export type HoldKind = 

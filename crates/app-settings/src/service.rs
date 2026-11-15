@@ -35,9 +35,10 @@
 //! the writer forgets it before the key leaves it (`snapshot`, `changes_since`, `value`, the change of a `set`) and
 //! tells the windows (`on_external_change`), so neither Rust nor a window reads it. An epoch the files could not tell (`WorktreeEpoch::Unknown`)
 //! forgets nothing and stamps nothing anew: the entry keeps the epoch it names. The epochs are read before the mutex of
-//! the writer is taken, never under it. The time of a sync of an entry (`SYNC_TIME_FIELD`) only Rust writes, for the
-//! lease it names (`set_repository_field`: a session, under the lease it opened under); a write of a window
-//! (`set_of_window`) keeps it as the writer has it for the epoch the entry is stamped with.
+//! the writer is taken, never under it. The fields of an entry that belong to its lease (`LEASE_FIELDS`) only Rust
+//! writes, for the lease it names (`set_repository_fields`: a session under the lease it opened under, a hide under the
+//! lease of its view); a write of a window (`set_of_window`) keeps them as the writer has them for the epoch the entry is
+//! stamped with.
 
 use crate::file::{RECENT_PROJECTS_KEY, REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile, lock_directory};
 use crate::merge::{Unsaved, changed_keys};
@@ -71,11 +72,27 @@ pub const EPOCH_ORIGIN: &str = "epoch";
 /// outside a lease pool
 pub const EPOCH_FIELD: &str = "epoch";
 
-/// The field of an entry of `repositoryState` that only Rust writes (`set_repository_field`), the time a sync of the
-/// session of the worktree ended: a session syncs of itself by it (`projects::synced_before`), so it is of the lease the
-/// session opened under. A write of a window keeps the stored value of the epoch it is stamped with, whatever it holds
-/// (`keep_rust_fields`): the whole entry a window writes carries what its page read, of an earlier lease too
+/// The time a sync of the session of the worktree ended: a session syncs of itself by it (`projects::synced_before`) and
+/// the windows show it ("Last synced"); a field of the lease (`LEASE_FIELDS`)
 pub const SYNC_TIME_FIELD: &str = "lastSyncTime";
+
+/// How many branches the table of that sync had, the room of the loading table of the next start (`useIsLoadingRows` of
+/// the page); a field of the lease (`LEASE_FIELDS`)
+pub const BRANCH_COUNT_FIELD: &str = "lastBranchCount";
+
+/// The time up to which the Landed island hides the branches that landed (`landedAt`, Unix seconds), which a sync hid
+/// after the user saw them; a field of the lease (`LEASE_FIELDS`): each lease has its own report of what landed
+pub const LANDED_HIDDEN_FIELD: &str = "landedHiddenUntil";
+
+/// The fields of an entry of `repositoryState` that belong to a lease of its worktree or to the sync of its session, the
+/// one list of them, as `LeasePaths::all` lists the files of a lease. Only Rust writes them (`set_repository_fields`:
+/// a session under the lease it opened under, a hide of the Landed island under the lease of the view it was asked on),
+/// and refuses a write of a lease the worktree holds no more; a write of a window keeps the writer's values for the epoch
+/// the entry is stamped with, whatever it carries (`keep_rust_fields`): the whole entry a window writes carries what its
+/// page read, of an earlier lease too. So a new lease starts without them. The other fields stay the windows': the
+/// settled layout (cosmetic, of the view), the durations of the steps of an update and of a sync, and the time of the last
+/// fetch (of the repository and of the machine, the same under any lease)
+pub const LEASE_FIELDS: [&str; 3] = [SYNC_TIME_FIELD, BRANCH_COUNT_FIELD, LANDED_HIDDEN_FIELD];
 
 /// The field of a recent project that the epoch of its worktree bounds: the stack roots collapsed in its table, roots
 /// of the lease they were collapsed under, which would collapse stacks of the same names of the next lease
@@ -426,8 +443,8 @@ impl SettingsService {
   }
 
   /// The change of a window, `origin` its label (`app_api::app::settings::set_setting`), in the order of its page when it
-  /// names one (`set_in_order`). The field of an entry of `repositoryState` only Rust writes (`SYNC_TIME_FIELD`) stays as
-  /// the writer keeps it for the epoch the entry is stamped with (`keep_rust_fields`): the whole entry a window writes
+  /// names one (`set_in_order`). The fields of an entry of `repositoryState` only Rust writes (`LEASE_FIELDS`) stay as
+  /// the writer keeps them for the epoch the entry is stamped with (`keep_rust_fields`): the whole entry a window writes
   /// carries what its page read, of an earlier lease too
   ///
   /// # Errors
@@ -452,15 +469,15 @@ impl SettingsService {
     bounded.then(|| self.epochs_now(written_paths(patch))).flatten()
   }
 
-  /// Sets `field` of the entry of `repositoryState` of the worktree at `path` to `value`, as a change of `origin`, in
-  /// the entry of the epoch `epoch` of that worktree (the lease a session opened under), its other fields kept and an
-  /// entry of another epoch replaced, the entry naming `epoch`. `None` when the worktree holds another known epoch now,
-  /// which writes nothing: what a session of an earlier lease records never becomes the next lease's
-  /// (`SYNC_TIME_FIELD`, which only this writes)
+  /// Sets `fields` of the entry of `repositoryState` of the worktree at `path`, as a change of `origin`, in the entry
+  /// of the epoch `epoch` of that worktree (the lease a session opened under, the lease of a view), its other fields kept
+  /// and an entry of another epoch replaced, the entry naming `epoch`. `None` when the worktree holds another known epoch
+  /// now, which writes nothing: what an earlier lease records never becomes the next lease's (`LEASE_FIELDS`, which only
+  /// this writes)
   ///
   /// # Errors
   /// As `set`
-  pub fn set_repository_field(&self, path: &str, field: &str, value: Value, epoch: &WorktreeEpoch, origin: &str) -> Result<Option<SettingsChange>, SettingsError> {
+  pub fn set_repository_fields(&self, path: &str, fields: Map<String, Value>, epoch: &WorktreeEpoch, origin: &str) -> Result<Option<SettingsChange>, SettingsError> {
     let now = self.epochs_now(vec![path.to_owned()]);
     let held = now.as_ref().and_then(|now| now.get(path)).map(|now| &now.epoch);
     if held.is_some_and(|held| held.recorded().is_some() && epoch.recorded().is_some() && held != epoch) {
@@ -473,7 +490,7 @@ impl SettingsService {
       .and_then(Value::as_object)
       .cloned()
       .unwrap_or_default();
-    entry.insert(field.to_owned(), value);
+    entry.extend(fields);
     match epoch.recorded() {
       Some(Some(named)) => {
         entry.insert(EPOCH_FIELD.to_owned(), Value::String(named.to_owned()));
@@ -500,7 +517,7 @@ impl SettingsService {
 
   /// `apply_locked`, the entries of `repositoryState` of `patch` stamped with the epoch of their worktree now, of a
   /// window with the fields only Rust writes kept (`Write::Window`), or naming the epoch they carry
-  /// (`set_repository_field`)
+  /// (`set_repository_fields`)
   fn apply_stamped(&self, mut state: MutexGuard<'_, State>, mut patch: SettingsPatch, origin: &str, now: Option<&EpochsNow>, how: Write) -> Result<SettingsChange, SettingsError> {
     let key = patch.key().to_owned();
     // the change carries the whole key: without what an earlier lease left in it, forgotten first
@@ -943,24 +960,24 @@ enum Write {
   /// A window (`set_of_window`): each entry stamped with the epoch now, the fields only Rust writes kept
   /// (`keep_rust_fields`)
   Window,
-  /// Rust for a lease it names (`set_repository_field`): each entry with the epoch it carries
+  /// Rust for a lease it names (`set_repository_fields`): each entry with the epoch it carries
   Named,
 }
 
-/// Each entry of `repositoryState` that `patch` writes gets the field Rust owns (`SYNC_TIME_FIELD`) as the writer keeps
-/// it for the epoch the entry names, whatever the entry holds: absent when the stored entry is of another epoch or has
-/// none, so a write of a window after the slot was leased again, carrying the time of a sync of the lease before, never
-/// makes the new lease synced (onboarding.spec.ts, "Ready to Sync after a re-lease")
+/// Each entry of `repositoryState` that `patch` writes gets the fields of the lease (`LEASE_FIELDS`) as the writer keeps
+/// them for the epoch the entry names, whatever the entry holds: absent when the stored entry is of another epoch or has
+/// none, so a write of a window after the slot was leased again, carrying what its page read of the lease before (the
+/// time of a sync, the count of its branches, the hide of its Landed island), gives the new lease none of it
+/// (onboarding.spec.ts, "Ready to Sync after a re-lease")
 fn keep_rust_fields(patch: &mut SettingsPatch, state: &State) {
   for_each_written_entry(patch, state, |_, entry, stored| {
-    let kept = stored
-      .filter(|stored| epoch_of(stored) == entry.get(EPOCH_FIELD).and_then(Value::as_str))
-      .and_then(|stored| stored.get(SYNC_TIME_FIELD))
-      .cloned();
-    match kept {
-      Some(kept) => entry.insert(SYNC_TIME_FIELD.to_owned(), kept),
-      None => entry.remove(SYNC_TIME_FIELD),
-    };
+    let kept = stored.filter(|stored| epoch_of(stored) == entry.get(EPOCH_FIELD).and_then(Value::as_str));
+    for field in LEASE_FIELDS {
+      match kept.and_then(|stored| stored.get(field)) {
+        Some(value) => entry.insert(field.to_owned(), value.clone()),
+        None => entry.remove(field),
+      };
+    }
   });
 }
 

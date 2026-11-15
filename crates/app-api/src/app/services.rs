@@ -216,20 +216,21 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
     synced_before(&self.source.context().settings, &key.worktree) || sync_core::synced_mark::synced_before(&key.worktree, &key.prefix)
   }
 
-  /// The time of the sync, now, as the session's own record (`record_synced`)
-  fn record_synced(&self, key: &SessionKey, epoch: &WorktreeEpoch) {
+  /// The time of the sync, now, and the count of its branches, as the session's own record (`record_synced`)
+  fn record_synced(&self, key: &SessionKey, epoch: &WorktreeEpoch, branch_count: usize) {
     let at_ms = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH)
       .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
-    record_synced(self.source.context(), key, epoch, at_ms);
+    record_synced(self.source.context(), key, epoch, at_ms, branch_count);
   }
 }
 
-/// Records that a sync of the session of `key` ended at `at_ms` (the `lastSyncTime` of its worktree in the settings, which
-/// only the sessions write: `app_settings::projects::record_sync`), the session opened under `epoch`: nothing while the
-/// worktree holds another lease; the windows hear the change. A failure is only logged: the next sync records again
-pub fn record_synced(ctx: &AppContext, key: &SessionKey, epoch: &WorktreeEpoch, at_ms: u64) {
-  match record_sync(&ctx.settings, &key.worktree, epoch, at_ms) {
+/// Records that a sync of the session of `key` ended at `at_ms` with `branch_count` branches (the `lastSyncTime` and the
+/// `lastBranchCount` of its worktree in the settings, which only the sessions write: `app_settings::projects::record_sync`),
+/// the session opened under `epoch`: nothing while the worktree holds another lease; the windows hear the change. A
+/// failure is only logged: the next sync records again
+pub fn record_synced(ctx: &AppContext, key: &SessionKey, epoch: &WorktreeEpoch, at_ms: u64, branch_count: usize) {
+  match record_sync(&ctx.settings, &key.worktree, epoch, at_ms, branch_count) {
     Ok(Some(change)) => settings_changed(&*ctx.events, &change),
     Ok(None) => debug!(worktree = %key.worktree, "the worktree holds another lease than the session: its sync is not recorded"),
     Err(error) => warn!(worktree = %key.worktree, %error, "cannot record the sync"),

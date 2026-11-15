@@ -2,10 +2,11 @@ import { useMemo } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { LandedBranch, LandedCommit } from "@/lib/bindings"
+import { commands } from "@/lib/bindings"
 import { mergeLandedReport } from "@/lib/landed"
 import { recordLanded } from "@/stores/activity"
 import { useSelectedProjectPath } from "@/stores/repository"
-import { updateRepositoryState, useRepositoryStateField } from "@/stores/settings/repositoryState"
+import { useRepositoryStateField } from "@/stores/settings/repositoryState"
 
 /** The island stays at least this long after the user saw it: the sync that follows an update keeps it */
 export const ISLAND_MIN_SEEN_MS = 10_000
@@ -79,16 +80,18 @@ export function markLandedSeen(repositoryPath: string, landedAt: number): void {
 
 /**
  * After a successful sync of the repository: the island hides what the user saw, if they saw it at least
- * `ISLAND_MIN_SEEN_MS` ago and the window has focus. Remembered for the repository, so it stays hidden after a restart;
- * what lands later shows again. The report, the chips and the "New" marks stay until Dismiss.
+ * `ISLAND_MIN_SEEN_MS` ago and the window has focus. Remembered for the repository (`hide_landed`, under the lease of the
+ * view of the epoch `viewEpoch`, as each lease has its own report), so it stays hidden after a restart; what lands later
+ * shows again. The report, the chips and the "New" marks stay until Dismiss.
  */
-export function hideAfterSync(repositoryPath: string): void {
+export function hideAfterSync(repositoryPath: string, viewEpoch: number | null): void {
   const { repositoryPath: own, seenAt } = landedStore.getState()
   if (own !== repositoryPath || seenAt === null || Date.now() - seenAt.time < ISLAND_MIN_SEEN_MS || !isWindowFocused()) {
     return
   }
   landedStore.setState({ seenAt: null })
-  updateRepositoryState(repositoryPath, state => ({ ...state, landedHiddenUntil: seenAt.landedAt }))
+  // a failure leaves the island as it is: the next sync hides it again
+  void commands.hideLanded({ repositoryPath, landedAt: seenAt.landedAt, epoch: viewEpoch }).catch(() => {})
 }
 
 function useOwnState<T>(select: (state: LandedState) => T, fallback: T): T {

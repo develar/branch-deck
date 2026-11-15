@@ -1567,11 +1567,12 @@ pub trait SessionEnvironment: Send + Sync + 'static {
     false
   }
 
-  /// A sync of `key` ended, a run of the session that opened under `epoch` (`lease_began`): the app records its time in
-  /// its settings (`app_settings::projects::record_sync`, the `lastSyncTime` its sessions sync of themselves by and its
-  /// windows show), only while the worktree holds `epoch`, so a run of an earlier lease never makes the next lease
-  /// synced; nothing by default. Blocking
-  fn record_synced(&self, _key: &SessionKey, _epoch: &WorktreeEpoch) {}
+  /// A sync of `key` ended with `branch_count` branches in its table, a run of the session that opened under `epoch`
+  /// (`lease_began`): the app records its time and the count in its settings (`app_settings::projects::record_sync`: the
+  /// `lastSyncTime` its sessions sync of themselves by and its windows show, the room of the loading table of the next
+  /// start), only while the worktree holds `epoch`, so a run of an earlier lease never makes the next lease synced;
+  /// nothing by default. Blocking
+  fn record_synced(&self, _key: &SessionKey, _epoch: &WorktreeEpoch, _branch_count: usize) {}
 
   /// The git the session of `key` runs its syncs, its inputs and its Patronus view with: the host's `git` in the app;
   /// the E2E server's carries the global config of the test repository (`GIT_CONFIG_GLOBAL`), as its commands do
@@ -1638,15 +1639,16 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       let report = sync_branches(&git, &key.worktree, &key.prefix, reporter, options)
         .await
         .map_err(|error| environment.api_error(error))?;
-      // the time of the sync, of the lease the session opened under, as the mark of `sync_branches`
+      let table = BranchTable::from_report(&key.prefix, &report, &collector.take_statuses(), &collector.take_landing());
+      // the time of the sync and the count of its branches, of the lease the session opened under, as the mark of
+      // `sync_branches`
       let recorded = {
-        let (environment, key) = (Arc::clone(&environment), key.clone());
-        tokio::task::spawn_blocking(in_current_span(move || environment.record_synced(&key, &began_under))).await
+        let (environment, key, count) = (Arc::clone(&environment), key.clone(), table.branches.len());
+        tokio::task::spawn_blocking(in_current_span(move || environment.record_synced(&key, &began_under, count))).await
       };
       if let Err(error) = recorded {
         warn!(worktree = %key.worktree, "The record of the sync failed: {error}");
       }
-      let table = BranchTable::from_report(&key.prefix, &report, &collector.take_statuses(), &collector.take_landing());
       Ok(SyncedTable { report, table })
     })
   }

@@ -308,6 +308,11 @@ test.describe("Onboarding", () => {
     await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
     await expect(findBranchRow(page, "test-branch")).toHaveCount(0)
     await expect(page.getByTestId("last-sync-time")).toHaveCount(0)
+    // nor room for the rows of the lease before (the loading placeholders of the table and of the landing indicator, by
+    // the count of the branches of its sync), whatever the window of the lease before wrote of it late: the fields of a
+    // lease are Rust's (`LEASE_FIELDS`)
+    await expect(page.getByTestId("landing-indicator-loading")).toHaveCount(0)
+    await expect(page.getByTestId("branch-table-loading")).toHaveCount(0)
   })
 
   test("shows the rows of the new lease of a slot an agent leased again under the window, none of them selected, expanded or focused as the row of the same name of the lease before was", async ({

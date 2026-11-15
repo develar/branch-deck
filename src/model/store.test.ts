@@ -23,14 +23,16 @@ import { branchSyncStore, getBranch, getStackBranch, whenSynced } from "@/stores
 import { getSelectedBranches, selectBranches } from "@/stores/commit-move"
 import { emptyView, fakeCommit, fakeHead, fakeRemoteStatus, fakeSessions, grouping, OCTOCAT_AUTH } from "@/test-support/fake-sessions"
 
-const { toasts, archived, syncRecords, answers } = vi.hoisted(() => ({
+const { toasts, archived, syncRecords, runEnds, answers } = vi.hoisted(() => ({
   toasts: [] as { type?: string; title: string; description?: string }[],
   /** What the store told the repository store of each subscription (`setSessionAnswer`): its prefix, or its failure */
   answers: [] as { prefix: string | null; failure: { code: string } | null }[],
   /** Each `updateFromArchivedNames` of the archived branches: the names, and the ones marked new */
   archived: { names: [] as [readonly string[], readonly string[]][], settled: 0 },
-  /** What each sync that ended recorded of its repository (`repositoryState`) */
+  /** What each sync that ended recorded of its repository (`repositoryState`): the durations of a sync the window asked */
   syncRecords: [] as { path: string; record: unknown }[],
+  /** The repository of each run whose end the window recorded (`hideAfterSync` of its end) */
+  runEnds: [] as string[],
 }))
 
 vi.mock("@tauri-apps/api/core", () => import("@/test-support/channel-mock"))
@@ -52,7 +54,7 @@ vi.mock("@/stores/settings/repositoryState", () => ({
   // the repository state is what the syncs of the test recorded
   getRepositoryState: (path: string) => syncRecords.findLast(it => it.path === path)?.record,
 }))
-vi.mock("@/stores/landed", () => ({ hideAfterSync: () => {}, setLandedStatus: () => {} }))
+vi.mock("@/stores/landed", () => ({ hideAfterSync: (path: string) => runEnds.push(path), setLandedStatus: () => {} }))
 vi.mock("@/stores/unapplied-branches", () => ({ setUnappliedBranches: () => {}, resetUnappliedBranches: () => {} }))
 vi.mock("@/stores/archived-branches", () => ({
   updateFromArchivedNames: (names: readonly string[], marked: readonly string[]) => archived.names.push([names, marked]),
@@ -92,6 +94,7 @@ beforeEach(() => {
   archived.names.length = 0
   archived.settled = 0
   syncRecords.length = 0
+  runEnds.length = 0
   answers.length = 0
   // what the page of a window keeps over a reload (the end of a run of its seed)
   sessionStorage.clear()
@@ -350,9 +353,10 @@ describe("the warm start", () => {
     expect(fakeSessions.snapshotCalls).toEqual([])
     // the window never saw the run, idle on both sides of the catch-up: it ended all the same, and the window handles its end
     expect(branchSyncStore.getState().syncCount).toBe(1)
-    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 2 }) }])
-    // the time of the sync is the session's own record, of the lease it opened under (`record_synced` of Rust)
-    expect(syncRecords[0]?.record).not.toHaveProperty("lastSyncTime")
+    expect(runEnds).toEqual(["/repo"])
+    // the time of the sync and the count of its branches are the session's own record, of the lease it opened under
+    // (`record_synced` of Rust): the window writes nothing of a run it did not ask
+    expect(syncRecords).toEqual([])
     expect(archived.settled).toBe(1)
     expect(plans).toHaveBeenCalledWith({ repositoryPath: "/repo" })
   })
@@ -365,8 +369,8 @@ describe("the warm start", () => {
     // the first sync commits while the window holds the frame: its patch ends the run in the window
     await send({ ...grouping("a", "b"), cached: false })
     expect(branchSyncStore.getState().syncCount).toBe(1)
-    expect(syncRecords).toHaveLength(1)
-    syncRecords.length = 0
+    expect(runEnds).toHaveLength(1)
+    runEnds.length = 0
 
     // the window reloads: its page loads the modules afresh, and the init script hands it the same seed
     closeSession()
@@ -378,7 +382,7 @@ describe("the warm start", () => {
     await reloaded.whenSessionReady()
     // the catch-up from the seed to the table of this run, whose end the page before the reload saw: none ends here
     expect(table.getState()).toMatchObject({ branchOrder: ["a", "b"], cached: false, syncedRepositoryPath: "/repo", syncCount: 0 })
-    expect(syncRecords).toEqual([])
+    expect(runEnds).toEqual([])
     expect(fakeSessions.snapshotCalls).toEqual([])
     reloaded.closeSession()
   })
@@ -394,7 +398,7 @@ describe("the warm start", () => {
     gone.channel.onmessage = () => {}
     fakeSessions.send("/repo", { ...grouping("a", "b"), cached: false })
     await fakeSessions.commands.unsubscribeView({ id: gone.id })
-    expect([branchSyncStore.getState().syncCount, syncRecords]).toEqual([0, []])
+    expect([branchSyncStore.getState().syncCount, runEnds]).toEqual([0, []])
 
     vi.resetModules()
     const reloaded = await import("@/model/store")
@@ -403,7 +407,7 @@ describe("the warm start", () => {
     await reloaded.whenSessionReady()
     // the catch-up from the seed brings the end of that run, which no page of the window saw: it ends here, once
     expect(table.getState()).toMatchObject({ branchOrder: ["a", "b"], cached: false, syncCount: 1 })
-    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 2 }) }])
+    expect(runEnds).toEqual(["/repo"])
     reloaded.closeSession()
   })
 
@@ -499,7 +503,8 @@ describe("a sync of the session", () => {
     expect(await synced).toEqual({ outcome: "synced", version: { epoch: 1, seq: 2 } })
     expect(branchSyncStore.getState()).toMatchObject({ isSyncing: false, syncCount: 1, syncedRepositoryPath: "/repo" })
     // every sync teaches the usual time of a sync, with the branch count
-    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 1, updateTimings: { sync: [expect.any(Number)] } }) }])
+    expect(runEnds).toEqual(["/repo"])
+    expect(syncRecords).toEqual([{ path: "/repo", record: { updateTimings: { sync: [expect.any(Number)] } } }])
     // once, after the run: a placeholder still waiting got no result
     expect(archived.settled).toBe(1)
   })
@@ -517,7 +522,7 @@ describe("a sync of the session", () => {
     check.answer("unchanged")
     expect(await checked).toEqual({ outcome: "unchanged", version: { epoch: 1, seq: 0 } })
     expect(branchSyncStore.getState().inputsCheckedAt).not.toBeNull()
-    expect(syncRecords).toEqual([])
+    expect(runEnds).toEqual([])
     // a lost focus, and a gained one while the backend's Auto-sync on Focus is off: told, nothing to wait for
     expect(await setSessionWindowFocus(false)).toBeNull()
     fakeSessions.syncsOnFocus = false
@@ -562,7 +567,7 @@ describe("a sync of the session", () => {
     await send(idle)
     expect(await focused).toEqual({ outcome: "synced", version: { epoch: 1, seq: 2 } })
     expect(branchSyncStore.getState()).toMatchObject({ isSyncing: false, syncCount: 1, syncedRepositoryPath: "/repo", inputsCheckedAt: null })
-    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 1 }) }])
+    expect(runEnds).toEqual(["/repo"])
   })
 
   it("is no failure when deferred: no error, the table as it was, an info toast only for a sync the user asked for", async () => {
@@ -641,7 +646,7 @@ describe("a sync of the session", () => {
     expect(fakeSessions.syncs).toHaveLength(2)
     expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false })
     expect(toasts).toEqual([])
-    expect(syncRecords).toHaveLength(1)
+    expect(runEnds).toHaveLength(1)
   })
 
   it("asks the user's own sync of a repository never synced again once the window holds the session of the new prefix, Sync busy throughout", async () => {
@@ -661,10 +666,10 @@ describe("a sync of the session", () => {
     again.answer()
     expect(await manual).toEqual({ outcome: "synced", version: { epoch: 2, seq: 1 } })
     expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false, syncedRepositoryPath: "/repo" })
-    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 1 }) }])
+    expect(runEnds).toEqual(["/repo"])
 
     // a sync nobody asked of the window, and a repository left without a prefix, ask nothing again
-    syncRecords.length = 0
+    runEnds.length = 0
     const quiet = requestSessionSync("afterRewrite")
     ;(await nextSync(3)).fail(changed)
     expect(await quiet).toBeNull()
@@ -693,7 +698,7 @@ describe("a sync of the session", () => {
     expect(fakeSessions.snapshotCalls).toEqual(["/repo"])
     expect(fakeSessions.subscribeCalls).toHaveLength(2)
     expect(branchSyncStore.getState()).toMatchObject({ viewVersion: { epoch: 2, seq: 1 }, branchOrder: ["c"], isSyncing: false, syncedRepositoryPath: "/repo" })
-    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 1 }) }])
+    expect(runEnds).toEqual(["/repo"])
     // the next run's patches reach the window on its new subscription
     await send({ ...running, ...grouping("c", "d") })
     expect(branchSyncStore.getState().branchOrder).toEqual(["c", "d"])
@@ -736,13 +741,13 @@ describe("a sync of the session", () => {
     expect(fakeSessions.subscribeCalls).toHaveLength(2)
     expect(fakeSessions.subscriptions).toHaveLength(1)
     expect(branchSyncStore.getState()).toMatchObject({ viewVersion: { epoch: 2, seq: 0 }, isSyncing: true, syncedRepositoryPath: null })
-    expect(syncRecords).toEqual([])
+    expect(runEnds).toEqual([])
     // the run of the new session ends: its answer is recorded, its patches reach the window on the subscription kept
     await send(grouping("c", "d"))
     openSync.answer()
     expect(await opened).toEqual({ outcome: "synced", version: { epoch: 2, seq: 1 } })
     expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["c", "d"], isSyncing: false, syncedRepositoryPath: "/repo" })
-    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastBranchCount: 2 }) }])
+    expect(runEnds).toEqual(["/repo"])
   })
 
   it("names the failure of a refused request, and of a run the failed state of the view", async () => {
@@ -795,7 +800,7 @@ describe("a sync of the session", () => {
     sync.answer()
     await old
     expect(branchSyncStore.getState()).toMatchObject({ isSyncing: false, branchOrder: [], syncedRepositoryPath: null })
-    expect(syncRecords).toEqual([])
+    expect(runEnds).toEqual([])
   })
 })
 

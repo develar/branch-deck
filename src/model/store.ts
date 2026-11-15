@@ -614,7 +614,7 @@ function projectView(
     // a run no request of this window waits for (the session's own on open, the follow-up of a rewrite, `bd`, another
     // window): the repository is synced now; a request records its own run with its time (`recordSync`)
     if (next.sync.kind === "idle" && isMainWindow && (session?.pending.count ?? 0) === 0) {
-      recordSynced(repositoryPath, next.order.length)
+      recordSynced(repositoryPath)
     }
   }
   update.isSyncing = running || (session?.pending.count ?? 0) > 0
@@ -1317,24 +1317,23 @@ function recordSync(repositoryPath: string, answer: SyncAnswer, reason: SyncReas
     return
   }
   // the usual time of a sync is the share of the sync of an update (`update-progress.ts`): every sync teaches it
-  recordSynced(repositoryPath, branchSyncStore.getState().branchOrder.length, Date.now() - startedAt)
+  recordSynced(repositoryPath, Date.now() - startedAt)
   branchSyncStore.setState({ inputsCheckedAt: null })
 }
 
 /**
- * The repository is synced now, with `branchCount` branches (the room of the loading table at the next start), and
- * the sync took `took` ms when the window knows when it was asked; the Landed island hides what the user saw
- * (`hideAfterSync`). In `repositoryState`, a file of its own, so a sync never rewrites the user's settings. The time of
- * the sync (`lastSyncTime`) is the session's own record, of the lease it opened under (`record_synced` of Rust): the
- * writer keeps it whatever this write carries, so a window of the lease before never makes a slot leased again synced
+ * The repository is synced now; the sync took `took` ms when the window knows when it was asked (the durations of the
+ * steps, `updateTimings`), and the Landed island hides what the user saw (`hideAfterSync`, under the lease of the view).
+ * In `repositoryState`, a file of its own, so a sync never rewrites the user's settings. The time of the sync and the
+ * count of its branches (`lastSyncTime`, `lastBranchCount`) are the session's own record, of the lease it opened under
+ * (`record_synced` of Rust): the writer keeps them whatever this write carries, so a window of the lease before never
+ * makes a slot leased again synced, nor gives it the room of rows it never had
  */
-function recordSynced(repositoryPath: string, branchCount: number, took?: number): void {
-  updateRepositoryState(repositoryPath, state => ({
-    ...state,
-    lastBranchCount: branchCount,
-    ...(took !== undefined && { updateTimings: addTiming(state.updateTimings, "sync", took) }),
-  }))
-  hideAfterSync(repositoryPath)
+function recordSynced(repositoryPath: string, took?: number): void {
+  if (took !== undefined) {
+    updateRepositoryState(repositoryPath, state => ({ ...state, updateTimings: addTiming(state.updateTimings, "sync", took) }))
+  }
+  hideAfterSync(repositoryPath, getViewEpoch(repositoryPath))
 }
 
 /** The run a request made now is served by: the next one to start (a run in flight serves it with its follow-up) */

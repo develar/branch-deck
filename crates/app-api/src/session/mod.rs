@@ -13,8 +13,10 @@
 //!   its facts asked again, the group a typed message puts a commit into.
 //! - `operations`: the operations of the remote, as the page asks them: their plans, their runs, their cancel.
 //! - `reviews`: the pull requests the user adds to Reviews by their links.
+//! - `landed`: the hide of the Landed island, under the lease of the view it was asked on.
 //! - `windows`: what each window holds open in the sessions.
 
+pub mod landed;
 pub mod operations;
 pub mod reviews;
 pub mod view;
