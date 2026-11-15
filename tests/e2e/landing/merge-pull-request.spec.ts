@@ -10,8 +10,9 @@ import { virtualBranch } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { emitTauriEvent, nextAnswer, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { landPastTheTimeOfAToast } from "../helpers/toast-helpers"
 import { expectClosed, routeAnswerAfter, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches off Space, none pushed; JIRA-456 has 3 commits. The repository lands by a merge
@@ -157,21 +158,8 @@ test.describe("Merge #7", () => {
   }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     await expect(mergeStep(page)).toHaveText("Merge #7")
-    // the sync of the update after the merge waits
-    await repo.holdRemoteAnswers({ hold: ["sync"] })
-    const answered = nextAnswer(page, "execute")
-    await mergeStep(page).click()
-    const title = `Merged #7 of ${BRANCH} into master · 3 commits`
-    const toasts = page.locator("[data-slot=toast]", { hasText: title })
-    await expect(toasts).toContainText("Rebuilding on the new master…")
-    await repo.arrival("sync")
-    // the 5 s of a toast without an action (`TOAST_TIMEOUT_MS`) run out while the update runs: the toast stays
-    await page.clock.fastForward(6000)
-    await expect(toasts).toHaveCount(1)
-    await expect(toasts).not.toHaveAttribute("data-ending-style")
-    // the update ends: its end in the same toast, never a second one beside it
-    await repo.holdRemoteAnswers({ release: ["sync"] })
-    await answered
+    // the sync of the update after the merge waits past the time of a toast: the toast stays, then the update ends in it
+    const toasts = await landPastTheTimeOfAToast(page, repo, () => mergeStep(page).click(), `Merged #7 of ${BRANCH} into master · 3 commits`, "Rebuilding on the new master…")
     await expect(toasts).toContainText(`${BRANCH} landed in origin/master · Updated master`)
     await expect(toasts).toHaveCount(1)
   })

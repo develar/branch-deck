@@ -1,4 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
+import { nextAnswer } from "./sync-helpers"
+import type { TestRepositoryBuilder } from "./test-repository"
 import { expectClosed } from "./wait-helpers"
 
 /**
@@ -33,4 +36,25 @@ export async function holdToast(toast: Locator): Promise<Locator> {
  */
 export function openToast(page: Page, title: string | RegExp): Locator {
   return page.locator("[data-slot=toast]:not([data-ending-style])").filter({ has: page.locator("[data-slot=toast-title]", { hasText: title }) })
+}
+
+/**
+ * Starts a landing into the target by `start` (a push or a merge, answered by `execute`) while the sync of the update
+ * after it waits: the toasts of `title` say `running` and stay past the 5 s of a toast without an action
+ * (`TOAST_TIMEOUT_MS`), one toast; then the update runs to its end and `execute` answers. Every toast of the title, a
+ * closing one too, so that an end of the update in a second toast counts
+ */
+export async function landPastTheTimeOfAToast(page: Page, repo: TestRepositoryBuilder, start: () => Promise<unknown>, title: string, running: string): Promise<Locator> {
+  await repo.holdRemoteAnswers({ hold: ["sync"] })
+  const answered = nextAnswer(page, "execute")
+  await start()
+  const toasts = page.locator("[data-slot=toast]", { hasText: title })
+  await expect(toasts).toContainText(running)
+  await repo.arrival("sync")
+  await page.clock.fastForward(6000)
+  await expect(toasts).toHaveCount(1)
+  await expect(toasts).not.toHaveAttribute("data-ending-style")
+  await repo.holdRemoteAnswers({ release: ["sync"] })
+  await answered
+  return toasts
 }

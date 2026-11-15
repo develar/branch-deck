@@ -11,7 +11,7 @@ import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { emitTauriEvent, nextAnswer, runAndWaitForAnswer, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { closeToast } from "../helpers/toast-helpers"
+import { closeToast, landPastTheTimeOfAToast } from "../helpers/toast-helpers"
 import { waitForStepFacts, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches off Space, none pushed; JIRA-456 has 3 commits. The repository lands by a push
@@ -76,6 +76,25 @@ async function confirmAndExpectLanded(page: Page, repo: TestRepositoryBuilder, p
   await expect(findBranchRow(page, BRANCH)).toHaveCount(0)
 }
 
+/**
+ * Push to master from the slot of the row while the sync of the update after it waits past the time of a toast
+ * (`landPastTheTimeOfAToast`): the toasts of `title`, which said `running` meanwhile
+ */
+async function pushPastTheTimeOfAToast(page: Page, repo: TestRepositoryBuilder, title: string, running: string): Promise<Locator> {
+  await expect(pushStep(page, BRANCH)).toHaveText("Push to master")
+  return landPastTheTimeOfAToast(
+    page,
+    repo,
+    async () => {
+      await pushStep(page, BRANCH).click()
+      await expect(popoverStart(page)).toBeFocused()
+      await page.keyboard.press("Enter")
+    },
+    title,
+    running,
+  )
+}
+
 test.describe("Push to master", () => {
   test("should push the copy into master from the slot of the row, the popover asking what CI did not pass, and update after it", async ({
     page,
@@ -91,6 +110,17 @@ test.describe("Push to master", () => {
     const copy = await repo.revision(virtualBranch(BRANCH))
     await step.click()
     await confirmAndExpectLanded(page, repo, safePushPopover(page), copy)
+  })
+
+  test("should keep the toast of the push while the update after it waits, past the time of a toast, and tell the update's end in it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    const toasts = await pushPastTheTimeOfAToast(page, repo, `Pushed ${BRANCH} into master · 3 commits`, "Rebuilding on the new master…")
+    await expect(toasts).toContainText(`${BRANCH} landed in origin/master · Updated master`)
+    await expect(toasts).toHaveCount(1)
   })
 
   test("should queue a second push to master until the first landing's update and sync finish", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -265,6 +295,19 @@ test.describe("Push to master", () => {
     await expect(pushStep(page, BRANCH)).toBeEnabled()
     await expect(pushStep(page, BRANCH)).toHaveText("Push to master")
     await expect(findBranchRow(page, BRANCH)).toBeVisible()
+  })
+
+  test("should keep the notice that master moved while the update after it waits, past the time of a toast, and offer the push again in it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    await repo.commitOnRemote("master", { subject: "Fix the build", author: "Ann <ann@example.com>", timestamp: 1704200000, files: { "build.txt": "fixed\n" } })
+    const notices = await pushPastTheTimeOfAToast(page, repo, `master moved: ${BRANCH} is rebuilt on the new commits`, "Nothing was pushed · Rebuilding on the new master…")
+    await expect(notices).toContainText("Updated master")
+    await expect(notices).toContainText("Push to master again")
+    await expect(notices).toHaveCount(1)
   })
 
   test("should offer Update Project while the fetched master has commits the branch is not built on, and push after it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
