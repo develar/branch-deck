@@ -464,6 +464,15 @@ fn a_takeover_that_fails_leaves_no_mark_of_a_sync_in_the_slot() {
   assert!(!sync_core::synced_mark::synced_before(&path, PREFIX));
 }
 
+/// A lease with a commit that master lacks and a free slot, which keeps the takeover of a get from running: their paths
+fn work_beside_a_free_slot(fixture: &Fixture) -> (String, String) {
+  let with_work = path_of(&fixture.get(&["--holder", "work-agent"]));
+  commit_in(&with_work, "(work) Add w", "work-w.txt");
+  let free = path_of(&fixture.get(&["--holder", "done-agent"]));
+  fixture.give_back(&free);
+  (with_work, free)
+}
+
 /// Below the minimum free space after the trash a get returns the idle leases of the pools of the machine whose work
 /// landed, though the pool has a free slot, which keeps the takeover from running: the slot of the landed lease is free
 /// with its record, the lease with a commit that master lacks stays with its check, and the refusal names what the get
@@ -473,10 +482,7 @@ fn a_get_below_the_minimum_free_space_reclaims_the_idle_leases_whose_work_landed
   let fixture = Fixture::new();
   let (landed, _) = landed_lease(&fixture, "landed-agent");
   let landed = path_of(&landed);
-  let with_work = path_of(&fixture.get(&["--holder", "work-agent"]));
-  commit_in(&with_work, "(work) Add w", "work-w.txt");
-  let free = path_of(&fixture.get(&["--holder", "done-agent"]));
-  fixture.give_back(&free);
+  let (with_work, free) = work_beside_a_free_slot(&fixture);
   make_idle(&fixture, &landed);
   make_idle(&fixture, &with_work);
 
@@ -527,4 +533,61 @@ fn a_get_below_the_minimum_checks_two_idle_leases_in_full_and_the_next_get_the_r
   let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1P"]);
   assert_error(&output, exit_code, (4, "low_disk_space"));
   assert_eq!(checked(), 3, "the next get checks the third");
+}
+
+/// A reclaim below the minimum whose return fails after the check in full records the failure
+/// (`Lease::reclaim_failed_at`): the next get passes over those leases and checks the next idle lease with its two full
+/// checks. Once `RECLAIM_RETRY` passed, a get tries such a lease again first
+#[cfg(unix)]
+#[test_log::test]
+fn a_get_below_the_minimum_passes_over_an_idle_lease_whose_reclaim_failed_and_checks_the_next() {
+  use std::os::unix::fs::PermissionsExt;
+  let fixture = Fixture::new();
+  std::fs::create_dir_all(fixture.repo.path().join(".git/info")).unwrap();
+  std::fs::write(fixture.repo.path().join(".git/info/exclude"), "blocked/\n").unwrap();
+  // two leases whose work landed, each with a seeded path the return cannot move out
+  let failing: Vec<String> = ["lane-a", "lane-b"]
+    .into_iter()
+    .map(|branch| {
+      let path = path_of(&landed_lease_on(&fixture, &format!("{branch}-agent"), branch).0);
+      let blocked = Path::new(&path).join("blocked");
+      std::fs::create_dir_all(&blocked).unwrap();
+      std::fs::write(blocked.join("inner"), "seeded\n").unwrap();
+      std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o555)).unwrap();
+      update_lease(&fixture, &path, |lease| lease["seeded"] = json!(["blocked/inner"]));
+      path
+    })
+    .collect();
+  let (with_work, _) = work_beside_a_free_slot(&fixture);
+  for path in failing.iter().chain([&with_work]) {
+    make_idle(&fixture, path);
+  }
+  let failed_at = |path: &str| {
+    let state: Value = serde_json::from_slice(&std::fs::read(fixture.state_file()).unwrap()).unwrap();
+    let path = slot_path(path);
+    let slot = state["slots"].as_array().unwrap().iter().find(|slot| slot["path"] == json!(path)).unwrap().clone();
+    slot["lease"]["reclaim_failed_at"].as_u64()
+  };
+  let checked = || slot_status(&fixture, &with_work)["lease"]["idle"]["state"] == json!("idle_with_work");
+  let get_below_the_minimum = || {
+    let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1P"]);
+    assert_error(&output, exit_code, (4, "low_disk_space"));
+  };
+
+  get_below_the_minimum();
+  assert!(failing.iter().all(|path| failed_at(path).is_some()), "both failed reclaims are recorded");
+  assert!(failing.iter().all(|path| slot_status(&fixture, path)["state"] == json!("ready")), "the failed leases stay");
+  assert!(!checked(), "the two full checks went to the failing leases");
+  get_below_the_minimum();
+  assert!(checked(), "the next get checks the next idle lease");
+
+  let long_ago = failed_at(&failing[0]).unwrap() - 7_200;
+  update_lease(&fixture, &failing[0], |lease| lease["reclaim_failed_at"] = json!(long_ago));
+  let waiting = failed_at(&failing[1]);
+  get_below_the_minimum();
+  assert!(failed_at(&failing[0]).unwrap() > long_ago, "past the retry time a get tries the lease again");
+  assert_eq!(failed_at(&failing[1]), waiting, "within it the get passes over the lease");
+  for path in &failing {
+    std::fs::set_permissions(Path::new(path).join("blocked"), std::fs::Permissions::from_mode(0o755)).unwrap();
+  }
 }

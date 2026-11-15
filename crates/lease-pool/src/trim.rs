@@ -590,7 +590,7 @@ pub fn trim_order(slots: &[Slot]) -> (Vec<&Slot>, Vec<&Slot>) {
   let present: Vec<&Slot> = slots.iter().filter(|slot| slot.lease.is_some() || Path::new(&slot.path).is_dir()).collect();
   let mut free: Vec<&Slot> = present.iter().copied().filter(|slot| slot.lease.is_none() && Path::new(&slot.path).is_dir()).collect();
   free.reverse();
-  free.sort_by_key(|slot| slot.returned);
+  free.sort_by_key(|slot| slot.return_order());
   (present, free)
 }
 

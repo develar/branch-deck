@@ -376,8 +376,8 @@ pub fn shrink_order<'a>(pools: &[&'a [Slot]], usable: impl Fn(&Slot) -> bool) ->
     }
   }
   // stable: the slots of the same time in the order of their pools and of the state
-  first.sort_by_key(|(_, slot)| (slot.returned_at, slot.returned));
-  last.sort_by_key(|(_, slot)| (slot.returned_at, slot.returned));
+  first.sort_by_key(|(_, slot)| slot.return_order());
+  last.sort_by_key(|(_, slot)| slot.return_order());
   first.extend(last);
   first
 }
@@ -385,7 +385,7 @@ pub fn shrink_order<'a>(pools: &[&'a [Slot]], usable: impl Fn(&Slot) -> bool) ->
 /// Of the free slots `free`, the one a get takes first, as `lease::reserve` orders them: clean before dirty, returned
 /// last first, then the first never returned (the first of the minimum, as the stable sort of `reserve` takes it)
 pub fn next_free<'a>(free: impl Iterator<Item = &'a Slot>) -> Option<&'a Slot> {
-  free.min_by_key(|slot| (slot.dirty, Reverse(slot.returned)))
+  free.min_by_key(|slot| (slot.dirty, Reverse(slot.return_order())))
 }
 
 #[cfg(test)]

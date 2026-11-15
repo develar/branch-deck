@@ -112,6 +112,16 @@ pub struct Slot {
   pub reclaimed: Option<Reclaimed>,
 }
 
+impl Slot {
+  /// The order of its last return among the free slots of every pool, the one returned last highest: its time
+  /// (`returned_at`), then its number (`returned`) within the same second. A reclaim returns a slot as of when its
+  /// lease went quiet, with the next number, so no other free slot changes its number, its epoch or the measure of
+  /// `pool-disk`. A slot never returned comes first of all, then one returned before `returned_at` existed
+  pub const fn return_order(&self) -> (Option<u64>, Option<u64>) {
+    (self.returned_at, self.returned)
+  }
+}
+
 /// A lease that was taken from its dead holder because its work had landed
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reclaimed {
@@ -376,6 +386,11 @@ pub struct Lease {
   /// The last check of the idle lease that found work
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub idle_check: Option<IdleCheck>,
+  /// When a reclaim last failed after its check in full (unix seconds): the check failed, the lease changed, a Bazel
+  /// server did not exit, or the return failed. The gets pass over the lease for `RECLAIM_RETRY` and then check it after
+  /// the idle leases checked before that time (`Lease::idle_checked_at`)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reclaim_failed_at: Option<u64>,
   /// When a clean last pruned the stale build output of the slot by the cargo rules of the lease (`prune_leased_slot`),
   /// unix seconds: the shrink passes over the slot within the smallest `age` of those rules
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -419,6 +434,7 @@ impl Lease {
       holder_started: None,
       taking_over: None,
       idle_check: None,
+      reclaim_failed_at: None,
       pruned_at: None,
     }
   }
@@ -447,7 +463,24 @@ impl Lease {
   pub(crate) fn is_agent_ready(&self) -> bool {
     self.state == LeaseState::Ready && !self.holder.starts_with(HOST_HOLDER_PREFIX)
   }
+
+  /// When a reclaim last looked at the idle lease in full (unix seconds, 0 for never): its last check that found work or
+  /// its last failed reclaim. The reclaim of a get checks the idle leases looked at longest ago first
+  pub(crate) fn idle_checked_at(&self) -> u64 {
+    self.idle_check.as_ref().map_or(0, |check| check.at).max(self.reclaim_failed_at.unwrap_or(0))
+  }
+
+  /// Whether the reclaim of a get passes over the idle lease at `now`: a reclaim of it failed less than `RECLAIM_RETRY`
+  /// ago
+  pub(crate) fn reclaim_waits(&self, now: u64) -> bool {
+    self.reclaim_failed_at.is_some_and(|at| now.saturating_sub(at) < RECLAIM_RETRY.as_secs())
+  }
 }
+
+/// How long the reclaim of a get passes over an idle lease whose reclaim failed after its check in full. Each try costs
+/// a `status` (2 to 40 s in a slot of idea-1) and the wait for its Bazel servers, and the next get would try it again
+/// first
+pub const RECLAIM_RETRY: Duration = Duration::from_hours(1);
 
 /// How long an idle lease must have been quiet before a get takes it over: its get and the last move of its HEAD. A
 /// holder recorded as a wrapper that exits at once (`cargo run`, `pnpm`) must not lose the lease its agent just began
@@ -1246,6 +1279,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
     holder_started: holder.as_ref().and_then(|process| process.started),
     taking_over: None,
     idle_check: None,
+    reclaim_failed_at: None,
     pruned_at: None,
   };
 
@@ -1902,8 +1936,8 @@ fn trim_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, 
 /// git), under the turn of the shrink of the machine (`pressure_turn`): two gets do not check the same slots at once,
 /// and a get whose volume got its minimum meanwhile reclaims nothing. A recorded check that holds is kept for one
 /// `rev-parse`; with `full_checks` at most that many leases are checked in full, the pools whose idle lease was checked
-/// longest ago first, so later gets check the rest. A pool whose reclaim fails is passed over. `None` when no pool
-/// holds such a lease
+/// longest ago first, so later gets check the rest, and a lease whose reclaim failed within `RECLAIM_RETRY` counts as
+/// none. A pool whose reclaim fails is passed over. `None` when no pool holds such a lease
 fn reclaim_for_get(
   git_executor: &GitCommandExecutor,
   params: &LeaseGetParams<'_>,
@@ -1913,6 +1947,7 @@ fn reclaim_for_get(
   report: &dyn Fn(GetStep),
 ) -> Option<Vec<ReclaimedLease>> {
   let volume = Volume::of(pool_dir);
+  let now = now();
   let mut pools: Vec<(u64, PathBuf)> = machine_pools(params.source, params.home)
     .into_iter()
     .filter_map(|machine| {
@@ -1920,8 +1955,13 @@ fn reclaim_for_get(
       let checked_longest_ago = store
         .slots
         .iter()
-        .filter(|slot| slot.lease.as_ref().is_some_and(Lease::is_idle) && volume.holds(Path::new(&slot.path)))
-        .map(|slot| slot.lease.as_ref().and_then(|lease| lease.idle_check.as_ref()).map_or(0, |check| check.at))
+        .filter_map(|slot| {
+          slot
+            .lease
+            .as_ref()
+            .filter(|lease| lease.is_idle() && !(full_checks.is_some() && lease.reclaim_waits(now)) && volume.holds(Path::new(&slot.path)))
+        })
+        .map(Lease::idle_checked_at)
         .min()?;
       Some((checked_longest_ago, machine.git_common_dir))
     })
@@ -2119,7 +2159,7 @@ fn reserve(
       .filter(|&index| reservable(&store.slots[index], tried) && store.slots[index].dirty == dirty)
       .collect();
     // stable: the slots never returned come last, in the order they joined
-    order.sort_by_key(|&index| std::cmp::Reverse(store.slots[index].returned));
+    order.sort_by_key(|&index| std::cmp::Reverse(store.slots[index].return_order()));
     for index in order {
       let slot = &mut store.slots[index];
       // tried before any check: the wait for the clones lock ends only for a slot this get has not looked at
@@ -3916,7 +3956,7 @@ pub enum IdleSkip {
 /// no operation in progress), each under its own CAS on its lease, its holder gone and its slot unchanged, as a return
 /// does: its Bazel servers stopped, its seeded paths removed, its branch detached, the clean rules applied into the
 /// trash, the slot free with the record of its lease (`Slot::reclaimed`), returned as of when its lease went quiet
-/// (`reclaim_stamp`). The trash is deleted once, after the last slot, so no slot waits for the delete of another's
+/// (`Slot::return_order`). The trash is deleted once, after the last slot, so no slot waits for the delete of another's
 /// build output. One with work is kept, its check recorded for the gets; with `apply` false nothing is written. The
 /// config and the process scan are read at the first lease that needs them, so a pool with no idle lease runs no git,
 /// and one whose kept leases hold their verdict (`reuse_checks`) runs one `rev-parse` each. With `full_checks` the
@@ -3927,9 +3967,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
   let mut store = pool.read()?;
   if params.full_checks.is_some() {
     // stable: the leases never checked first, in the order of the state
-    store
-      .slots
-      .sort_by_key(|slot| slot.lease.as_ref().and_then(|lease| lease.idle_check.as_ref()).map_or(0, |check| check.at));
+    store.slots.sort_by_key(|slot| slot.lease.as_ref().map_or(0, Lease::idle_checked_at));
   }
   let mut scan: Option<ProcessScan> = None;
   let mut untracked: Option<UntrackedFiles> = None;
@@ -3962,6 +4000,10 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       answer.skipped.push(skip(IdleSkip::NotQuiet));
       continue;
     }
+    // a get tries a failed reclaim again only after `RECLAIM_RETRY`, as past its bound
+    if params.full_checks.is_some() && lease.reclaim_waits(now) {
+      continue;
+    }
     let scan = scan.get_or_insert_with(ProcessScan::scan);
     let (servers, others) = slot_servers(scan, Path::new(&path));
     if !others.is_empty() {
@@ -3979,6 +4021,14 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
         ..lease.clone()
       }
     };
+    // a failure after the check in full is recorded (`Lease::reclaim_failed_at`): else the lease stays the one checked
+    // longest ago, and each get spends its full checks on it before any other
+    let failed = |restore: bool| {
+      if params.apply {
+        record_failed_reclaim(&pool, params.lock_timeout, &path, &lease.id, restore);
+      }
+    };
+    let mut full_check = false;
     let verdict = match IdleState::of(git_executor, &path, &checked) {
       Ok(state) => match state.held(&checked) {
         Some(verdict) => Ok(verdict),
@@ -3988,6 +4038,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
           if let Some(left) = params.full_checks {
             left.set(left.get() - 1);
           }
+          full_check = true;
           pool_untracked(git_executor, &git_common_dir, &mut untracked).and_then(|untracked| check_idle_work(git_executor, (&path, &slot.name), &checked, untracked, state))
         }
       },
@@ -4003,6 +4054,9 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
         continue;
       }
       Err(error) => {
+        if full_check {
+          failed(false);
+        }
         answer.skipped.push(skip(IdleSkip::Failed { error: format!("{error:#}") }));
         continue;
       }
@@ -4020,6 +4074,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       continue;
     }
     if !reserve_reclaim(&pool, params.lock_timeout, &path, &lease.id, &mark)? {
+      failed(false);
       answer.skipped.push(skip(IdleSkip::Changed));
       continue;
     }
@@ -4027,7 +4082,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
     let ServerStop { stopped, running } = stop_servers(&servers, params.bazel, params.server_timeout);
     reclaimed.stopped_servers = stopped;
     if !running.is_empty() {
-      restore_ready(&pool, params.lock_timeout, &path, &lease.id);
+      failed(true);
       answer.skipped.push(skip(IdleSkip::Busy { processes: running }));
       continue;
     }
@@ -4035,7 +4090,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
     match finish_return(git_executor, &path, &lease, None, (Some(params.clean), Duration::ZERO), (&trash, &pool.notes_root())) {
       Ok(finished) => reclaimed.cleaned = finished.cleaned,
       Err(error) => {
-        restore_ready(&pool, params.lock_timeout, &path, &lease.id);
+        failed(true);
         answer.skipped.push(skip(IdleSkip::Failed { error: format!("{error:#}") }));
         continue;
       }
@@ -4043,20 +4098,14 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
     // the time its lease went quiet, the two times `is_quiet` reads, never past now
     let quiet_at = lease.leased_at.max(mark.log_modified).min(now);
     pool.update(params.lock_timeout, |store| {
-      if leased_slot(store, &path, &lease.id).is_none() {
-        return Ok(());
-      }
-      let (returned, shifted) = reclaim_stamp(&store.slots, quiet_at);
-      for index in shifted {
-        if let Some(number) = store.slots[index].returned.as_mut() {
-          *number += 1;
-        }
-      }
+      let last_return = store.slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
       if let Some(slot) = leased_slot(store, &path, &lease.id) {
         slot.lease = None;
         slot.dirty = false;
         slot.dirty_check = None;
-        slot.returned = Some(returned);
+        // a number of its own, the time its lease went quiet: the order of the free slots (`Slot::return_order`) puts it
+        // before those returned since, and none of them moves
+        slot.returned = Some(last_return + 1);
         slot.returned_at = Some(quiet_at);
         slot.reclaimed = Some(Reclaimed::of(&lease, None));
       }
@@ -4084,32 +4133,6 @@ fn pool_untracked(git_executor: &GitCommandExecutor, git_common_dir: &Path, read
   Ok(untracked)
 }
 
-/// The return number of a slot whose idle lease went quiet at `quiet_at` (Unix seconds) and that a reclaim returns now,
-/// among `slots`, and the free slots whose number goes one up for it. It takes the number of the first free slot
-/// returned after `quiet_at`, so it comes before each of them for the reserve, the trim and the shrink alike, and the
-/// slot returned last stays the next slot of the pool; without such a slot it is one past the last return. Only free
-/// slots move: a leased slot keeps its number, and the measure of `pool-disk` stays valid for it
-pub(crate) fn reclaim_stamp(slots: &[Slot], quiet_at: u64) -> (u64, Vec<usize>) {
-  let free = |slot: &Slot| slot.lease.is_none();
-  let first_after = slots
-    .iter()
-    .filter(|slot| free(slot) && slot.returned_at.is_some_and(|at| at > quiet_at))
-    .filter_map(|slot| slot.returned)
-    .min();
-  match first_after {
-    None => (slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0) + 1, Vec::new()),
-    Some(first) => (
-      first,
-      slots
-        .iter()
-        .enumerate()
-        .filter(|(_, slot)| free(slot) && slot.returned.is_some_and(|returned| returned >= first))
-        .map(|(index, _)| index)
-        .collect(),
-    ),
-  }
-}
-
 /// Under the pool lock, with CAS on the idle lease `lease_id` of `path`: still idle and its slot as the check found it
 /// (`mark`), the lease becomes `returning`, of this process, so no get takes it over meanwhile
 fn reserve_reclaim(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, mark: &SlotMark) -> Result<bool> {
@@ -4128,16 +4151,20 @@ fn reserve_reclaim(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, m
   })
 }
 
-/// The lease `lease_id` of `path` `ready` again, after a reclaim that could not finish; best effort
-fn restore_ready(pool: &Pool, timeout: Duration, path: &str, lease_id: &str) {
-  let restored = pool.update(timeout, |store| {
+/// Record a failed reclaim of the lease `lease_id` of `path` (`Lease::reclaim_failed_at`); with `restore` the lease is
+/// `ready` again, after a reclaim that reserved it. Best effort
+fn record_failed_reclaim(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, restore: bool) {
+  let recorded = pool.update(timeout, |store| {
     if let Some(lease) = leased_slot(store, path, lease_id).and_then(|slot| slot.lease.as_mut()) {
-      lease.state = LeaseState::Ready;
+      if restore {
+        lease.state = LeaseState::Ready;
+      }
+      lease.reclaim_failed_at = Some(now());
     }
     Ok(())
   });
-  if let Err(error) = restored {
-    warn!(slot = %path, error = %format!("{error:#}"), "cannot give the lease back after a failed reclaim");
+  if let Err(error) = recorded {
+    warn!(slot = %path, error = %format!("{error:#}"), "cannot record a failed reclaim of an idle lease");
   }
 }
 

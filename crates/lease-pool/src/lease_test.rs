@@ -1,6 +1,7 @@
 #[cfg(unix)]
 use crate::lease::stop_servers;
-use crate::lease::{DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, reclaim_stamp, repository_name, seed_candidates};
+use crate::lease::{DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
+use crate::shrink::{next_free, shrink_order};
 use std::path::Path;
 use std::time::Duration;
 #[cfg(unix)]
@@ -143,6 +144,7 @@ fn a_commit_during_the_check_stops_the_takeover() {
     holder_started: None,
     taking_over: None,
     idle_check: None,
+    reclaim_failed_at: None,
     pruned_at: None,
   };
   let get = Lease {
@@ -212,34 +214,39 @@ fn the_wait_for_the_shrink_of_another_names_the_holder_its_time_and_the_free_spa
   );
 }
 
-/// A reclaimed slot is returned as of when its lease went quiet (`reclaim_stamp`): it takes the number of the first
-/// free slot returned after that time, and each free slot from that number on moves up by one, so the slot returned
-/// last stays the next slot of the pool. The free slots returned before, one of a brd that recorded no time, and a
-/// leased slot keep their numbers; without a free slot returned after it, the slot gets one past the last return
+/// A reclaimed slot is returned as of when its lease went quiet, with the next number of the pool
+/// (`Slot::return_order`): the free slots are ordered by the time of their return, so the reclaimed slot comes before
+/// the ones returned after that time for the reserve and the shrink, and the slot returned last stays the next slot of
+/// the pool. One of a brd that recorded no time comes before every slot with a time. No other slot changes its number
 #[test]
 fn a_reclaimed_slot_comes_before_the_free_slots_returned_after_its_lease_went_quiet() {
-  let slot = |returned: u64, returned_at: Option<u64>, leased: bool| Slot {
+  let slot = |returned: u64, returned_at: Option<u64>| Slot {
     name: String::new(),
     path: format!("/pool/{returned}/repo"),
     dirty: false,
     dirty_check: None,
     returned: Some(returned),
     returned_at,
-    lease: leased.then(|| Lease::marker("lease", "agent", LeaseState::Ready)),
+    lease: None,
     reclaimed: None,
   };
-  let quiet_at = 1_000;
+  // the reclaimed slot is 6: one past the last return, as of the time its lease went quiet
   let slots = [
-    slot(1, Some(500), false),
-    slot(2, None, false),
-    slot(3, Some(900), false),
-    slot(9, Some(800), true),
-    slot(4, Some(1_100), false),
-    slot(5, Some(1_200), false),
+    slot(1, Some(500)),
+    slot(2, None),
+    slot(3, Some(900)),
+    slot(4, Some(1_100)),
+    slot(5, Some(1_200)),
+    slot(6, Some(1_000)),
   ];
-  assert_eq!(reclaim_stamp(&slots, quiet_at), (4, vec![4, 5]));
-  assert_eq!(reclaim_stamp(&slots[..4], quiet_at), (10, Vec::new()), "no free slot returned after it");
-  assert_eq!(reclaim_stamp(&slots, 1_150), (5, vec![5]));
+  let numbers = |order: Vec<&Slot>| order.into_iter().filter_map(|slot| slot.returned).collect::<Vec<_>>();
+  assert_eq!(next_free(slots.iter()).and_then(|slot| slot.returned), Some(5), "the slot returned last is the next one");
+  assert_eq!(
+    numbers(shrink_order(&[&slots], |_| true).into_iter().map(|(_, slot)| slot).collect()),
+    vec![2, 1, 3, 6, 4, 5]
+  );
+  // two returns in one second: the number orders them
+  assert!(slot(8, Some(1_200)).return_order() > slot(5, Some(1_200)).return_order());
 }
 
 /// A prune of a leased slot whose lease changed after the shrink read it (a return and a new get came between) prunes

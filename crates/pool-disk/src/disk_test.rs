@@ -375,3 +375,102 @@ fn a_slot_event_counts_the_slots_that_the_fsevents_check_left() {
     assert!(matches!(&events[..], [DiskUsageProgress::Cached { measuring: 0, .. }]), "{events:?}");
   }
 }
+
+/// A reclaim leaves the measures of the other free slots valid: it returns the slot of the idle lease as of when the
+/// lease went quiet with a number of its own, so a free slot returned after that time keeps its `returned` and its
+/// measure in `disk.json`, and the next report walks only the reclaimed slot. The test gives the history of the file
+/// system (no change) instead of asking `FSEvents`
+#[test]
+fn a_reclaim_leaves_the_measures_of_the_other_free_slots_valid() {
+  let (repo, git, dirs) = repository();
+  repo.create_commit("ignore the output", ".gitignore", "target/\n");
+  repo.create_commit("clean rules", ".branchdeck.toml", "[lease]\nclean = [{ delete = \"target\" }]\n");
+  let branch = repo.git(&["symbolic-ref", "--short", "HEAD"]).trim().to_owned();
+  let slot_root = tempfile::tempdir().unwrap();
+  let slot_root = std::fs::canonicalize(slot_root.path()).unwrap();
+  let idle = slot_root.join("1/repo");
+  repo.git(&["worktree", "add", "--detach", idle.to_str().unwrap(), "HEAD"]);
+  let free: Vec<std::path::PathBuf> = (2..=3).map(|n| slot_root.join(format!("{n}/repo"))).collect();
+  for slot in &free {
+    std::fs::create_dir_all(slot).unwrap();
+    std::fs::write(slot.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
+  }
+  for slot in free.iter().chain([&idle]) {
+    std::fs::create_dir_all(slot.join("target")).unwrap();
+    std::fs::write(slot.join("target/output"), vec![2u8; 8192]).unwrap();
+  }
+  let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+  let quiet = std::time::SystemTime::now() - Duration::from_hours(2);
+  let reflog = git_ops::lease_slot::linked_worktree(&idle).unwrap().git_dir.join("logs/HEAD");
+  std::fs::File::options().write(true).open(&reflog).unwrap().set_modified(quiet).unwrap();
+  // the holder and the get are gone, the get two hours ago, at the commit of the source, so its work landed
+  let lease: Lease = serde_json::from_value(serde_json::json!({
+    "id": "idle",
+    "holder": "gone-agent",
+    "leased_at": now - 7_200,
+    "state": "ready",
+    "pid": u32::MAX,
+    "process_started": 1,
+    "source_head": repo.head(),
+    "source": repo.path_str(),
+    "source_branch": branch,
+    "holder_pid": u32::MAX,
+    "holder_started": 1
+  }))
+  .unwrap();
+  let slot = |path: &Path, returned: u64, returned_at: u64, lease: Option<Lease>| Slot {
+    name: if lease.is_some() { "repo".to_owned() } else { format!("repo{returned}") },
+    path: path.to_string_lossy().into_owned(),
+    dirty: false,
+    dirty_check: None,
+    returned: Some(returned),
+    returned_at: Some(returned_at),
+    lease,
+    reclaimed: None,
+  };
+  Pool::new(Path::new(&dirs.git_common_dir))
+    .update(Duration::from_secs(1), |store| {
+      // both free slots were returned after the lease went quiet
+      store.slots = vec![
+        slot(&idle, 1, now - 9_000, Some(lease)),
+        slot(&free[0], 2, now - 600, None),
+        slot(&free[1], 3, now - 60, None),
+      ];
+      Ok(())
+    })
+    .unwrap();
+  let params = DiskParams {
+    repository: &dirs,
+    home: None,
+    scope: DiskScope::Repository,
+    fresh: false,
+    cached: false,
+    lock_timeout: Duration::from_secs(1),
+  };
+  let no_change = |_: &[&Path]| Changes::Paths(Vec::new());
+  disk_usage_core_with_changes(&git, &params, |_| {}, no_change).unwrap();
+
+  let reclaim = lease_pool::lease::LeaseReclaimParams {
+    git_common_dir: Path::new(&dirs.git_common_dir),
+    apply: true,
+    clean: lease_pool::lease_clean::CleanOverrides::default(),
+    reuse_checks: false,
+    volume: None,
+    full_checks: None,
+    server_timeout: Duration::from_secs(1),
+    bazel: None,
+    lock_timeout: Duration::from_secs(1),
+  };
+  let answer = lease_pool::lease::lease_reclaim_core(&git, &reclaim).unwrap();
+  assert_eq!(answer.reclaimed.len(), 1, "skipped: {:?}, kept: {:?}", answer.skipped, answer.kept.len());
+
+  let usage = disk_usage_core_with_changes(&git, &params, |_| {}, no_change).unwrap();
+  let report = |path: &Path| {
+    let path = path.to_string_lossy();
+    let slot = usage.pools[0].slots.iter().find(|slot| slot.path == path).unwrap();
+    (slot.returned, slot.cached)
+  };
+  assert_eq!(report(&free[0]), (Some(2), true), "a free slot keeps its number and its measure");
+  assert_eq!(report(&free[1]), (Some(3), true), "a free slot keeps its number and its measure");
+  assert_eq!(report(&idle), (Some(4), false), "the reclaimed slot is measured again");
+}
