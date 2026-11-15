@@ -56,6 +56,7 @@ import type { FileRows, FoldKey, FoldRow, NoteRow, SectionUnits } from "@/lib/di
 import { blobText, fileNotice, isEmptyNotice, languageOf, mergeNotice, startsCollapsed } from "@/lib/diff/view-files"
 import { visualLineCount } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
+import { laidOutBoxes } from "@/lib/laid-out"
 import type { MenuItem } from "@/lib/menu"
 import { isMenuKey, openMenuByKey } from "@/lib/menu-key"
 import { observeSize } from "@/lib/observe-size"
@@ -1512,6 +1513,14 @@ export function DiffView({
       setViewHeight(entry?.contentRect.height ?? 0)
     })
     resize.observe(element)
+    // the size now, the content box its observer reports: its first report can come a frame later, or after the first
+    // key, and a view laid out without its height has no space past its end, so N, P, J or K scrolled only as far as
+    // the end of the rows and the stop stayed where that left it
+    const boxes = laidOutBoxes(element)
+    if (boxes !== null) {
+      setWidth(boxes.content.inline)
+      setViewHeight(boxes.content.block)
+    }
     return () => {
       resolution.removeEventListener("change", measure)
       resize.disconnect()

@@ -24,6 +24,7 @@ import { openReviewWindow } from "../helpers/review-window-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { holdSizeReports, resizeReportsDelivered } from "../helpers/wait-helpers"
 
 // the `commit_marks` template (`MARKS_SUBJECT`): in src/Ledger.kt (11 blocks) the call of `Entry` is wrapped over
 // three lines (a quiet run of formatting), the comment of `largest` is worded again (a run of comments, a label), a
@@ -481,17 +482,23 @@ test.describe("The marks of a diff in the review window", () => {
     await expect(note).not.toHaveAttribute("aria-expanded")
   })
 
-  test("N stops at the first line a block deletes before a comment worded again, never at the comment below them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("simple")
-    // one block: six calls deleted, then the comment of the call after them worded again, a label. Rust starts the
-    // reading at the first new line, the comment; the view shows the deleted lines first, in a part before the note
+  /**
+   * The branch `sweep`: one block of src/Sweep.kt deletes six calls, then words the comment of the call after them again,
+   * a label. Rust starts the reading at the first new line, the comment; the view shows the deleted lines first, in a
+   * part before the note. A file after it, src/Zeta.kt: the diffs do not end at its card, so its stop goes four rows
+   * below its header
+   */
+  async function commitSweep(repo: TestRepositoryBuilder): Promise<void> {
     const body = (calls: string, comment: string) =>
       `class Sweep {\n${Array.from({ length: 12 }, (_, index) => `  val kept${index} = ${index}\n`).join("")}\n  fun sweep() {\n${calls}    keep(1) // ${comment}\n  }\n}\n`
     const gone = Array.from({ length: 6 }, (_, index) => `    gone${index + 1}()\n`).join("")
-    // a file after it: the diffs do not end at its card, so its stop goes four rows below its header
     await repo.commit("Add the sweep", { "src/Sweep.kt": body(gone, "the one kept"), "src/Zeta.kt": "fun zeta() = 1\n" }, 1704120600)
     await repo.pushInTerminal("master")
     await repo.commit("(sweep) sweep the calls", { "src/Sweep.kt": body("", "the only one left"), "src/Zeta.kt": "fun zeta() = 2\n" }, 1704121200)
+  }
+
+  test("N stops at the first line a block deletes before a comment worded again, never at the comment below them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await commitSweep(await setupRepo("simple"))
     await syncAndWaitForBranches()
     const { window, code, position } = await openReview(page, "sweep", "sweep the calls")
     // one change, to read: no count beside the lines of the file
@@ -510,6 +517,31 @@ test.describe("The marks of a diff in the review window", () => {
       .toEqual(["    gone1()", "    gone2()", "    gone3()", "    gone4()", "    gone5()", "    gone6()", "    keep(1) // the one kept"])
     await expect.poll(() => codeOf(diffRows(code, "added"))).toEqual(["    keep(1) // the only one left"])
   })
+
+  // the reports of the engines come at their own times: WebKit too
+  test(
+    "N pressed before the diffs reported their height stops where it stops after, the space past their end there from the start",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // the reports of the size of the diffs wait: the view has only the height it read as it mounted, which sizes the
+      // space past its end; without it the first stop scrolled only as far as the end of the cards, nowhere
+      const sizes = await holdSizeReports(page, "diff-view")
+      await commitSweep(await setupRepo("simple"))
+      await syncAndWaitForBranches()
+      const { code, position } = await openReview(page, "sweep", "sweep the calls")
+      await expect(remarks(code, "comments")).toHaveText("Comments only · 1 line")
+
+      await code.locator("[aria-label='Changes of the commit']").focus()
+      const stop = await pressToStop(page, code, "n", null)
+      expect(stop).toMatchObject({ path: "src/Sweep.kt", kind: "deleted", text: "    gone1()", above: "context", end: false })
+      // the reports were held, not missing, and they come now: the height they say is the one the view had, nothing moves
+      await expect.poll(sizes.held).toBeGreaterThan(0)
+      await sizes.release()
+      await resizeReportsDelivered(page)
+      expect(await shownStop(code)).toEqual(stop)
+      await expect(position).toHaveText("File 1 / 2")
+    },
+  )
 
   test("N and P pass a file whose every change is a quiet run, which says that nothing of it is to read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await commitWrappedCalls(await setupRepo("simple"))

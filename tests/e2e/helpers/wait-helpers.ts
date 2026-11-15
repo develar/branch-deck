@@ -77,6 +77,48 @@ export async function resizeReportsDelivered(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
 
+/** The reports `holdSizeReports` holds: how many wait, and their delivery */
+export interface HeldSizeReports {
+  held: () => Promise<number>
+  release: () => Promise<void>
+}
+
+/**
+ * Holds the reports of every `ResizeObserver` of the page on the elements of the test id `testId` until `release`, as a
+ * page under load gets the first report of a size after a key: what the page does before it. Call it before the page
+ * loads (an init script)
+ */
+export async function holdSizeReports(page: Page, testId: string): Promise<HeldSizeReports> {
+  await page.addInitScript(id => {
+    const held: (() => void)[] = []
+    Object.assign(window, { __heldSizeReports: held })
+    const Engine = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class extends Engine {
+      constructor(callback: ResizeObserverCallback) {
+        super((entries, observer) => {
+          const kept = entries.filter(entry => entry.target.getAttribute("data-testid") === id)
+          const rest = entries.filter(entry => !kept.includes(entry))
+          if (rest.length > 0) {
+            callback(rest, observer)
+          }
+          if (kept.length > 0) {
+            held.push(() => callback(kept, observer))
+          }
+        })
+      }
+    }
+  }, testId)
+  return {
+    held: () => page.evaluate(() => (window as unknown as { __heldSizeReports: unknown[] }).__heldSizeReports.length),
+    release: () =>
+      page.evaluate(() => {
+        for (const deliver of (window as unknown as { __heldSizeReports: (() => void)[] }).__heldSizeReports.splice(0)) {
+          deliver()
+        }
+      }),
+  }
+}
+
 /**
  * The facts a step waits for (`StepFact` of Rust, `PendingFact` of `src/presenters/next-step.ts`), in the order the step
  * waits for them: the keys of a record of every fact, so a new one joins the wait

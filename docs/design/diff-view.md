@@ -1299,8 +1299,10 @@ and the opening of each step (below). Each item but those has a known height:
   last opening is at most), none where the last card is as high as the view. So J, K, N, P, a row and a place of the
   map bring their section to the top, and the section at the top is the one the bar, the footer, the tree and the map
   name: the rule that kept the section the view showed last while it was on screen holds only for a view that ends at
-  its end. The space is sized from the height of the view (a `ResizeObserver` on the scroller): a resize lays the
-  document out again, a scroll never. A diff that is a block of another scroller (the preview of a commit, the
+  its end. The space is sized from the height of the view: the content box of the scroller as the view mounts, then
+  each report of a `ResizeObserver` on it (a resize lays the document out again, a scroll never). The first report
+  comes in a rendering update, a frame or two after the mount, and a key in between found no space past the end: the
+  first N scrolled only as far as the end of the cards. A diff that is a block of another scroller (the preview of a commit, the
   conflict viewer: `scroll: "parent"`) and the view of a file outside the review end at their end: their scroller
   holds other content, and a file shown at a declaration needs no stop past its end.
 
