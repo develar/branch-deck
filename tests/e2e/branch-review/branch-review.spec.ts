@@ -47,7 +47,7 @@ function answeredHeads(body: unknown): string {
  * decided to read it again for (`data-read-tips`, the tips of the table of its session), its version and the heads it
  * showed then, each answer with the heads it gave, so a failure of a test that counts the reads names what each was for
  */
-function recordReads(window: Page): { reads: () => number; record: () => string } {
+function recordReads(window: Page): { reads: () => number; record: () => string; explained: (wait: Promise<void>) => Promise<void> } {
   const lines: string[] = []
   const started = Date.now()
   let reads = 0
@@ -68,16 +68,20 @@ function recordReads(window: Page): { reads: () => number; record: () => string 
       void response.json().then(body => note(`answer: ${answeredHeads(body)}`))
     }
   })
-  return { reads: () => reads, record: () => `the stack was read ${reads} times since the count began:\n${lines.join("\n")}` }
-}
-
-/** `wait`, whose failure says what the review window read and why (`recordReads`) */
-async function explainedByReads(wait: Promise<void>, record: () => string): Promise<void> {
-  try {
-    await wait
-  } catch (error) {
-    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${record()}`, { cause: error })
+  const record = () => `the stack was read ${reads} times since the count began:\n${lines.join("\n")}`
+  // `wait`, whose failure says what the window read and why, and what it shows then: the review it read last is on
+  // screen only once its files and diffs are read, and until then the window keeps the one before (`aria-busy`)
+  const explained = async (wait: Promise<void>) => {
+    try {
+      await wait
+    } catch (error) {
+      const busy = await window.getByTestId("branch-review-body").getAttribute("aria-busy")
+      const shown = await window.getByTestId("branch-review-segment").evaluateAll(parts => parts.map(it => `${it.dataset.name}=${(it.dataset.head ?? "").slice(0, 8)}`).join(", "))
+      const now = `then the window showed ${shown}, ${busy === "true" ? "reading the review it read last (aria-busy)" : "reading nothing"}`
+      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${record()}\n${now}`, { cause: error })
+    }
   }
+  return { reads: () => reads, record, explained }
 }
 
 async function reviewedPaths(page: Page): Promise<string[]> {
@@ -762,19 +766,21 @@ test.describe("Branch review window", () => {
     const expectMainVersion = () => expect.poll(sameVersion, { message: "the review window holds the version of the main window" }).toBe(true)
     await expectMainVersion()
     // each read from here on, with what it was for, in the message of a failure
-    const { reads, record } = recordReads(window)
+    const { reads, record, explained } = recordReads(window)
 
     // a commit of login in a terminal, then Sync of the main window: its patches reach the window on its own channel
     await repo.commit("(login) Add the logout link", { "ui/logout.js": "export function logout() {}\n" }, 1704124800)
     await syncAndWaitForBranches()
     await expectMainVersion()
-    // the stack read again once, at the new head of login; the part stays: the reviewed branch on its parent
-    await expect(segments).toHaveText(["auth1", "login3"])
+    // the stack read again once, at the new head of login; the part stays: the reviewed branch on its parent (a failure
+    // here, at the head before, said nothing of the read: now it says whether the read came and the window still read
+    // the files and diffs of the new review)
+    await explained(expect(segments).toHaveText(["auth1", "login3"]))
     await expect.poll(() => reviewedPaths(window)).toContain("ui/logout.js")
     await expect(segments.nth(1)).toHaveAttribute("aria-pressed", "true")
     expect(reads(), record()).toBe(1)
     const push = window.getByTestId("branch-review-actions").getByRole("button", { name: /^Push/ })
-    await explainedByReads(expect(push).toBeEnabled(), record)
+    await explained(expect(push).toBeEnabled())
 
     // login renamed in the main window: the sync of the rename leaves it out of the session's table
     await openContextMenu(page, findBranchRow(page, "login"))
@@ -789,7 +795,7 @@ test.describe("Branch review window", () => {
     await expect(window.getByTestId("review-file-header").first()).toBeVisible()
     await expect(segments).toHaveText(["auth1", "login3"])
     // the push of login, which no longer is a branch, stays, disabled
-    await explainedByReads(expect(push).toBeDisabled(), record)
+    await explained(expect(push).toBeDisabled())
     expect(reads(), record()).toBe(1)
   })
 
