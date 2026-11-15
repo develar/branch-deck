@@ -189,7 +189,8 @@ describe("inlineOffset", () => {
     expect(row.slice(inlineOffset(pair, 0, 4), inlineOffset(pair, 0, 12, true))).toBe("foo(barbaz)")
   })
 
-  // a fixed seed: the same pairs in every run
+  // a fixed seed: the same pairs in every run. Each line is checked whole against the row, as one comparison: an
+  // `expect` per character was 80% of the time of the test (100k of them, each with the pair in its message)
   it("places every character of both lines of random pairs, and marks every hit of the old line as its text", () => {
     let seed = 0x7e57d1ff
     const random = (limit: number) => {
@@ -200,6 +201,7 @@ describe("inlineOffset", () => {
     // the shared text of the new line: the old one with other whitespace, as under Ignore Whitespace
     const respaced = (text: string) => text.replace(/ +/g, spaces => (random(3) === 0 ? " ".repeat(1 + random(3)) : spaces))
     const withoutSpaces = (text: string) => text.replaceAll(" ", "")
+    const misplaced: string[] = []
     for (let round = 0; round < 3000; round++) {
       const ignored = round % 2 === 1
       let oldText = word("ab ", 5)
@@ -220,11 +222,11 @@ describe("inlineOffset", () => {
       const pair = inlinePair(oldText, newText, oldRanges, newRanges)
       const row = rowText(pair)
       const tag = JSON.stringify({ oldText, newText, oldRanges, newRanges, row })
+      // each character that is no whitespace stands in the row where `inlineOffset` says
       for (const [side, text] of [oldText, newText].entries()) {
-        for (let offset = 0; offset < text.length; offset++) {
-          if (text[offset] !== " ") {
-            expect(row[inlineOffset(pair, side, offset)], `side ${side} offset ${offset} of ${tag}`).toBe(text[offset])
-          }
+        const placed = Array.from(text, (char, offset) => (char === " " ? char : row[inlineOffset(pair, side, offset)])).join("")
+        if (placed !== text) {
+          misplaced.push(`side ${side} reads ${JSON.stringify(placed)} of ${tag}`)
         }
       }
       // a hit of the old line that holds a deleted part: the row marks its text, but for the whitespace of the new line
@@ -237,6 +239,7 @@ describe("inlineOffset", () => {
         expect([selected[0], selected.at(-1)], `selection ${start}..${end} of ${tag}`).toEqual([oldText[start], oldText[end - 1]])
       }
     }
+    expect(misplaced.slice(0, 5)).toEqual([])
   })
 })
 
