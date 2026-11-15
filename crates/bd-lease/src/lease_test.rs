@@ -2140,6 +2140,33 @@ fn a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_n
   assert_eq!(states(&shrink.fixture.status()), [(shrink.slots[2].clone(), "free".to_string())]);
 }
 
+/// A leased slot with no stale unit is pruned and frees nothing: the refusal counts only the two free slots whose build
+/// output went
+#[test_log::test]
+fn the_refusal_counts_only_the_shrunk_slots_that_freed_bytes() {
+  let shrink = ShrinkFixture::new();
+  let leased = path_of(&shrink.fixture.get(&["--holder", "quiet-agent"]));
+  let steps = std::sync::Mutex::new(Vec::new());
+  let error = shrink
+    .get(
+      Volume {
+        base: 50,
+        per_unit: 1,
+        per_slot: 0,
+      },
+      &steps,
+    )
+    .unwrap_err();
+  let refusal = error.downcast_ref::<lease_pool::lease::LeaseRefusal>().unwrap_or_else(|| panic!("{error:#}"));
+  let lease_pool::lease::LeaseRefusal::LowDiskSpace { freed, .. } = refusal else {
+    panic!("{refusal}");
+  };
+  let message = refusal.to_string();
+  assert_eq!(freed.shrink.slots, 2, "{message}");
+  assert!(message.contains("the get cleaned the build output of 2 slot(s) of the pools of this machine"), "{message}");
+  assert!(ShrinkFixture::unit(&leased).exists(), "the unit of the lease stays");
+}
+
 /// The eviction keeps a free slot marked dirty, whose changes made without a lease may be their only copy, and one
 /// never returned, such as a worktree `brd lease adopt` kept where it was: with the get's next slot kept too, it deletes
 /// nothing here, and the get refuses

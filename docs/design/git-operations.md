@@ -2728,8 +2728,8 @@ free slots of Branch Deck held 679 GB of stale units, which a prune script nobod
 its slot by the `[lease] clean` rules of the committed `.branchdeck.toml`, read once from the source the lease
 recorded (the slot's own when the source is gone), after every check passed and before the slot is freed. A rule is
 `cargo` (the stale units of the profile dirs of a target dir: the build-dir layout of Branch Deck, `build/<pkg>/<hash>`,
-and the classic one of idea-1, a unit `<name>-<16 hex>` across `deps/`, `.fingerprint/` and `build/`, whose files go
-together; a dry run on the idea-1 checkout found 27.9 of the 33 GB of `community/tools/vm/target` stale) or
+and the classic one of idea-1, a unit the hash of `<name>-<16 hex>` across `deps/`, `.fingerprint/` and `build/`, whose
+files go together; a dry run on the idea-1 checkout found 27.9 of the 33 GB of `community/tools/vm/target` stale) or
 `delete` (a path, a link as the link, or with `except` the entries of a directory but the named ones); no command, as a
 return must not run arbitrary code. A path is normalized and relative, stays in the slot, names no `.git`, crosses no
 symlink on its way, and git tracks nothing under it (one `ls-files -z` of all paths): a rule that breaks one is
@@ -2779,7 +2779,12 @@ takes no lock. When the trash of the run is on another volume, the stale units g
 dir, so no delete runs under the locks; that dir goes after the release, and the rule deletes the dirs of gone runs
 there. The `keep` newest units count per package and target, as the fingerprint of a unit names its target
 (`lib-bd_cli`, `test-bin-brd`): one package builds more current targets than 8, and a unit that a build reads but does
-not rebuild keeps its old mtime.
+not rebuild keeps its old mtime. In the classic layout of stable cargo, `deps/` names a unit by the crate of its target
+and `.fingerprint/` by its package (`deps/brd-<hash>` beside `.fingerprint/bd-cli-<hash>/`), so a unit is its hash
+and its group is the package and the target of its fingerprint dir. A key by name and hash made a bin or a library
+named apart from its package two units: on a probe of cargo 1.99.1 with 8 commands, a prune with `keep` 8 and age 0
+moved the files of 8 current units in `deps/` while all 30 fingerprint dirs stayed, and the 8 commands then compiled
+the package 4 times.
 
 On macOS the dev default `split-debuginfo=unpacked` keeps the objects of rustc (`*.rcgu.o`) in `out/` of a unit, one
 set per invocation. rustc deletes the old incremental sessions, but not their objects: on 2026-11-15 a manual pass
@@ -2789,10 +2794,14 @@ object of an incremental compile only when no session holds its inode (`stale_ob
 executable names the members of each rlib, not their objects in `out/`, so a unit that links only an rlib loses every
 other old object. Another unit (an executable, a test harness, a build script) keeps the objects of each invocation
 that names an inode of its newest mtime. An object of a compile without incremental (`<crate>.<hex>-cgu.<n>`) stays,
-as its name tells no invocation. The objects are read after the release when `age` is at least 10 minutes: a build
-writes each object as a new file, which a session holds once rustc ends the compile of its crate. They are deleted in
-place once the slot is free (`Cleaned::deferred`), one count of entries for all, never renamed into the trash: a rename
-cost 2.0 ms against 0.87 ms for an unlink. A dry run counts an inode once, when every link of it is a stale object.
+as its name tells no invocation. The objects are read after the release of the locks, whatever the `age`: an object
+that a running rustc writes is newer than every current output of its unit, since rustc writes the rmeta before its
+objects and the rlib or the executable after the objects it reads. So an object goes only when it is older than the
+newest rlib, rmeta or executable of its unit, and a unit with none of them keeps every object. No assumption on the
+compile time is left, and the locks are held only for the moves of the stale units. The objects are deleted in place
+when the caller empties its trash (`Cleaned::deferred`): a return once the slot is free, the prune of a leased slot
+while the lease holds. One count of entries serves all, and none is renamed into the trash: a rename cost 2.0 ms
+against 0.87 ms for an unlink. A dry run counts an inode once, when every link of it is a stale object.
 
 Status reads the state file only: one `rev-parse` and one `config` (`branchdeck.leasePool`), no git in any slot.
 Adopt registers existing linked worktrees (old Treehouse slots) where they are, after one `status` of each. With

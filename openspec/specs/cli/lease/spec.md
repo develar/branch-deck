@@ -651,12 +651,18 @@ repository takes minutes to delete, the volume past the target needing none of i
 ### Requirement: Get: The answer names the slots the shrink cleaned
 
 The answer of a get that shrank MUST name each slot it cleaned with what its rules freed (`shrunk`), and a
-`low_disk_space` after it MUST name how many slots it cleaned and the bytes they freed.
+`low_disk_space` after it MUST name how many of these slots freed bytes and the bytes they freed.
 
 #### Scenario: Still below the minimum after the shrink and the eviction
 - **WHEN** a get is still below the minimum after the shrink and the eviction
 - **THEN** its `low_disk_space` names how many slots it cleaned and the bytes they freed
   [@test] crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`)
+
+#### Scenario: A leased slot that freed nothing
+- **GIVEN** a leased slot with no stale unit and two free slots with their build output
+- **WHEN** a get is still below the minimum after the shrink, which pruned all three
+- **THEN** its `low_disk_space` counts the two free slots only
+  [@test] crates/bd-lease/src/lease_test.rs (`the_refusal_counts_only_the_shrunk_slots_that_freed_bytes`)
 
 ### Requirement: Get: A get still below the minimum after the shrink evicts free slots
 
@@ -1908,12 +1914,19 @@ when it is among the `keep` newest of its group (its package and the target its 
 
 #### Scenario: The classic layout
 - **WHEN** the profile dir has the classic layout
-- **THEN** a unit is `<name>-<16 hex digits>`, its group `<name>` (`-` and `_` the same, without the `lib` of a library
-  file) and the target of its dir in `.fingerprint/`
-- **AND** its files are all of that name and hash in `deps/` (`lib<name>-<hash>.rlib` and `.rmeta`, `<name>-<hash>.d`,
-  the object files, the test or bin executable and its `.dSYM`, `.pdb` or `.exe`), `.fingerprint/` and `build/` (a
-  build script and its run, `out/`), built at the newest mtime of its files
+- **THEN** a unit is the hash of `<name>-<16 hex digits>`, its group the package that its dir in `.fingerprint/` names
+  (`-` and `_` the same) and the target of that dir; without that dir, `<name>` without the `lib` of a library file
+- **AND** its files are all of that hash in `deps/` (`lib<name>-<hash>.rlib` and `.rmeta`, `<name>-<hash>.d`, the
+  object files, the test or bin executable and its `.dSYM`, `.pdb` or `.exe`), `.fingerprint/` and `build/` (a build
+  script and its run, `out/`), built at the newest mtime of its files
   [@test] crates/lease-pool/src/lease_clean_test.rs (`the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash`, `a_classic_unit_is_its_name_and_its_hash`)
+
+#### Scenario: A bin named apart from its package
+- **GIVEN** the classic layout with a bin `pbrd` of the package `probe-app`: `deps/pbrd-<hash>` beside
+  `.fingerprint/probe-app-<hash>/`, two builds of the bin and one of its test harness
+- **WHEN** a cargo rule with `keep` 1 prunes the profile dir
+- **THEN** the old build of the bin goes whole, and the files of the test harness stay beside its fingerprint dir
+  [@test] crates/lease-pool/src/lease_clean_test.rs (`a_bin_named_apart_from_its_package_is_one_unit_with_its_fingerprint`)
 
 #### Scenario: Incremental units
 - **WHEN** the profile dir has `incremental/<crate>-<hash>/`, in either layout
@@ -1960,10 +1973,10 @@ to 30 s first, a takeover and a reclaim do not wait. A dry run takes no lock.
 
 ### Requirement: Clean rules: A cargo rule deletes the stale objects of rustc in its kept units
 
-In a kept unit the cargo rule MUST delete each object of an incremental compile (`*.rcgu.o`) older than `age` whose
-inode no session of `incremental/` holds: in a unit that links only an rlib, each one; in another unit, each one that
-no name of the invocation of its newest object holds. An object of a compile without incremental MUST stay. A stale
-object MUST be deleted in place once the slot is free, never through the trash.
+After the release of the locks of cargo, the cargo rule MUST delete in a kept unit each incremental object
+(`*.rcgu.o`) older than `age` and than the newest rlib, rmeta or executable of the unit, whose inode no session holds:
+in a unit that links only an rlib, each one; in another, each one that no name of the invocation of its newest object
+holds. Other objects MUST stay. They go in place, never through the trash, when the caller empties its trash, also in a leased slot.
 
 #### Scenario: A unit that links only an rlib
 - **GIVEN** a kept unit with an rlib, old objects of two invocations, one of them held by a session, and a young one
@@ -1996,6 +2009,13 @@ object MUST be deleted in place once the slot is free, never through the trash.
 - **WHEN** the cargo rule prunes
 - **THEN** every object of the three stays
   [@test] crates/lease-pool/src/lease_clean_test.rs (`the_cargo_rule_keeps_the_objects_of_units_with_other_names`)
+
+#### Scenario: An object of a compile under way
+- **GIVEN** a kept unit that links only an rlib, with an object older than the rlib and two objects newer than it but
+  older than `age`, and a unit with objects of two invocations and no output yet
+- **WHEN** the cargo rule prunes after the release of the locks of cargo
+- **THEN** only the object older than the rlib goes
+  [@test] crates/lease-pool/src/lease_clean_test.rs (`an_object_newer_than_the_outputs_of_its_unit_stays_whatever_its_age`)
 
 #### Scenario: Stale objects through a clean with the trash
 - **WHEN** a clean with the trash finds stale objects

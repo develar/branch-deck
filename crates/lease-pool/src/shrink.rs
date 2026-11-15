@@ -104,6 +104,12 @@ impl Shrunk {
   pub fn freed_bytes(&self) -> u64 {
     self.leased.iter().chain(&self.slots).map(ShrunkSlot::freed_bytes).sum()
   }
+
+  /// How many of its slots freed bytes: a leased slot with no stale output, or one that a failed lock of cargo left as
+  /// it is, is in `leased` too, and a `low_disk_space` names only the slots that gave the volume something
+  pub fn freed_slots(&self) -> usize {
+    self.leased.iter().chain(&self.slots).filter(|slot| slot.freed_bytes() > 0).count()
+  }
 }
 
 /// A leased slot that a shrink left as it is: the lock of cargo of every profile dir its cargo rules found is held

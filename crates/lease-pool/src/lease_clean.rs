@@ -28,11 +28,13 @@
 //! has a file of it open, which no rename moves) stays whole in the checkout and the error of its rule names it, never
 //! half deleted: a later clean deletes it once it is free.
 //!
-//! A cargo rule that deletes takes the locks of cargo of each profile dir exclusive (`CargoLock`): no build, check or
-//! test of cargo works there while it reads the units, decides and moves the stale ones, and a build that starts waits.
-//! A held lock skips that profile dir. Then it deletes the stale objects of rustc in the kept units (`stale_objects`),
-//! after the release when its `age` is at least `UNLOCKED_OBJECT_AGE`: in place, never through the trash, once the
-//! slot is free (`Cleaned::deferred`).
+//! A cargo rule that deletes takes the locks of cargo of each profile dir exclusive (`CargoLock`) while it moves the
+//! stale units that it read before: no build, check or test of cargo works there meanwhile, and a build that starts
+//! waits. A held lock skips that profile dir. After the release it reads the stale objects of rustc in the kept units
+//! (`stale_objects`). An object that a build writes meanwhile is newer than the current outputs of its unit, and such
+//! an object stays, whatever the compile time. The objects go in place, never through the trash, when the caller
+//! empties its trash (`Cleaned::deferred`): a return once the slot is free, the prune of a leased slot while the lease
+//! holds.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -60,13 +62,9 @@ const PROFILE_DEPTH: usize = 4;
 /// and `.cargo-lock` shared, a cargo before 1.91 has only `.cargo-lock`, which it holds exclusive
 const CARGO_LOCKS: [&str; 2] = [".cargo-build-lock", ".cargo-lock"];
 /// How long a return waits for the locks of cargo of a profile dir (`LeaseReturnParams::cargo_lock_wait`): the return
-/// found no process in the slot, so only another clean holds them, and a clean holds them for at most 10 s
+/// found no process in the slot, so only another clean holds them. A clean holds them only while it moves its stale
+/// units, one rename each, and reads the objects after the release
 pub const RETURN_CARGO_LOCK_WAIT: Duration = Duration::from_secs(30);
-/// From this `age` on the cargo rule reads the objects of the kept units after the release of the locks of cargo. A
-/// build writes each object as a new file, which a session of `incremental/` holds once rustc ends the compile of its
-/// crate, minutes later at most. So an object older than this that no session holds stays stale. Below it (`keep` 0
-/// and `age` 0 of a shrink of a free slot) the rule reads them under the locks
-const UNLOCKED_OBJECT_AGE: Duration = Duration::from_mins(10);
 /// The trash of a cargo rule in its profile dir, when the trash of the run is on another volume
 const PROFILE_TRASH: &str = ".brd-trash";
 
@@ -364,9 +362,10 @@ pub struct Cleaned {
   pub error: Option<String>,
   /// What it moved into the trash: `Trash::empty` deletes it and counts its bytes
   pub trashed: Vec<PathBuf>,
-  /// What it deletes in place once the slot is free: the stale objects of rustc in the kept units of a cargo rule, and
-  /// the trash of a cargo rule in its profile dir (`.brd-trash/`). `Trash::empty` deletes it after `trashed` and counts
-  /// its bytes; a delete that stops leaves the rest in place for the next clean
+  /// What it deletes in place when the caller empties the trash: the stale objects of rustc in the kept units of a
+  /// cargo rule, and the trash of a cargo rule in its profile dir (`.brd-trash/`). `Trash::empty` deletes it after
+  /// `trashed` and counts its bytes; a delete that stops leaves the rest in place for the next clean. A return empties
+  /// the trash once the slot is free, the prune of a leased slot while the lease holds
   pub deferred: Vec<PathBuf>,
   /// What a cargo rule did with its profile dirs
   pub profiles: Profiles,
@@ -620,9 +619,9 @@ struct ProfilePrune<'a> {
 
 impl ProfilePrune<'_> {
   /// Read the units, keep the `keep` newest of each group and the ones built within `age`; then, under the locks of cargo
-  /// when the rule deletes, move the others, each one only while no build wrote it since the read. Then the stale
-  /// objects of the kept units, after the release when `age` is at least `UNLOCKED_OBJECT_AGE`. A held lock skips the
-  /// dir, its error in the error of the rule
+  /// when the rule deletes, move the others, each one only while no build wrote it since the read. Then, after the
+  /// release, the stale objects of the kept units (`stale_objects`). A held lock skips the dir, its error in the error
+  /// of the rule
   fn run(&self, mode: CleanMode<'_>, options: CleanOptions<'_>, removals: &mut Removals, moved: &mut Moved) {
     let started = Instant::now();
     let cutoff = SystemTime::now().checked_sub(self.age).unwrap_or(SystemTime::UNIX_EPOCH);
@@ -671,13 +670,9 @@ impl ProfilePrune<'_> {
       removals.add(self.remove_unit(&unit.paths, mode, &mut own_trash, &mut moved.trashed));
     }
     let held = locked_at.elapsed();
-    // a build that waits starts now, while the objects are read: it writes new files only (`UNLOCKED_OBJECT_AGE`)
-    let lock = if self.age >= UNLOCKED_OBJECT_AGE {
-      drop(lock);
-      None
-    } else {
-      lock
-    };
+    // a build that waits starts now, while the objects are read: what it writes is newer than the outputs of its unit,
+    // which `stale_objects` keeps
+    drop(lock);
     let objects_started = Instant::now();
     let objects = stale_objects(&kept, cutoff);
     let object_count = objects.len();
@@ -691,7 +686,6 @@ impl ProfilePrune<'_> {
       CleanMode::Trash(_) => moved.deferred.extend(objects.into_iter().map(|object| object.path)),
     }
     moved.deferred.extend(own_trash.map(|trash| trash.dir().to_path_buf()));
-    drop(lock);
     if mode.applies() {
       sweep_profile_trash(self.profile);
     }
@@ -1283,7 +1277,7 @@ fn subdirs(dir: &Path) -> Vec<PathBuf> {
 /// The files of one unit, removed together, and when the unit was last built (the newest of `last_built` of its files)
 #[derive(Debug, Default)]
 struct Unit {
-  /// The package or the crate (`-` as `_`) of the unit
+  /// The package of the unit (`-` as `_`); of a classic unit without a fingerprint dir, the crate of its files
   package: String,
   /// The kind and the name of its target as its fingerprint names them (`lib-bd_cli`, `test-bin-brd`,
   /// `run-build-script-build-script-build`), when it has one
@@ -1354,13 +1348,17 @@ const fn entry_inode(_entry: &std::fs::DirEntry) -> u64 {
   0
 }
 
-/// The units of the classic layout of a profile dir: `<name>-<16 hex>` in `deps/` (`lib<name>-<hash>.rlib`,
-/// `.rmeta`, `<name>-<hash>.d`, the executable, its `.dSYM`, `.pdb` or `.exe`, the object files), `.fingerprint/` and
-/// `build/` (a build script and its run, `out/`). One name and hash is one unit, whose files go together. The uplifted
-/// artifacts at the top of the profile dir and `.cargo-lock` are never part of one. Only the dirs `walks` names are read
+/// The units of the classic layout of a profile dir: `<name>-<16 hex>` in `.fingerprint/` and `build/` (a build script
+/// and its run, `out/`), whose name is the package, and in `deps/` (`lib<name>-<hash>.rlib`, `.rmeta`,
+/// `<name>-<hash>.d`, the executable, its `.dSYM`, `.pdb` or `.exe`, the object files), whose name is the crate of the
+/// target: a bin `brd` of the package `bd-cli` is `deps/brd-<hash>` beside `.fingerprint/bd-cli-<hash>/`. So one hash is
+/// one unit, whose files go together, of the package its fingerprint dir names (else of the crate of its files). The
+/// uplifted artifacts at the top of the profile dir and `.cargo-lock` are never part of one. Only the dirs `walks`
+/// names are read
 fn classic_units(profile: &Path, walks: &impl Fn(&str) -> bool) -> Units {
   let mut units = Units::new();
-  for dir in ["deps", ".fingerprint", "build"].into_iter().filter(|dir| walks(dir)) {
+  // the dirs named by the package first, so the unit gets the package, which its fingerprint dir names
+  for dir in [".fingerprint", "build", "deps"].into_iter().filter(|dir| walks(dir)) {
     let Ok(entries) = std::fs::read_dir(profile.join(dir)) else { continue };
     for entry in entries.flatten() {
       // a symlink is never part of a unit: its target may be out of the slot
@@ -1369,8 +1367,8 @@ fn classic_units(profile: &Path, walks: &impl Fn(&str) -> bool) -> Units {
         continue;
       }
       let name = entry.file_name().to_string_lossy().into_owned();
-      if let Some((package, hash)) = classic_unit_name(&name) {
-        let unit = units.entry(format!("{package} {hash}")).or_insert_with(|| Unit::new(package));
+      if let Some((name, hash)) = classic_unit_name(&name) {
+        let unit = units.entry(hash).or_insert_with(|| Unit::new(name));
         match dir {
           "deps" if !file_type.is_dir() => unit.outputs.push(Output::File(entry.path(), entry_inode(&entry))),
           "build" if file_type.is_dir() => unit.outputs.push(Output::Dir(entry.path())),
@@ -1383,7 +1381,7 @@ fn classic_units(profile: &Path, walks: &impl Fn(&str) -> bool) -> Units {
   units
 }
 
-/// The group and the hash of a file or a dir of the classic layout: the name before `-<16 hex digits>`, which the end
+/// The name and the hash of a file or a dir of the classic layout: the name before `-<16 hex digits>`, which the end
 /// or a `.` follows, without the `lib` of a library file, `-` as `_`
 pub fn classic_unit_name(file_name: &str) -> Option<(String, String)> {
   let bytes = file_name.as_bytes();
@@ -1508,7 +1506,8 @@ fn incremental_invocation(name: &str) -> Option<&str> {
   (rest.contains('.') && !invocation.is_empty()).then_some(invocation)
 }
 
-/// The stale objects of rustc in the `kept` units, older than `cutoff`. Only the objects of an incremental compile go:
+/// The stale objects of rustc in the `kept` units, older than `cutoff` and older than the newest output of their unit
+/// (`final_output`). Only the objects of an incremental compile go:
 ///
 /// - first the sessions of the kept dirs of `incremental/`, the inode of each file. A session links the objects that
 ///   the next build of its crate reuses, under new names, so an object whose inode a session holds stays;
@@ -1517,7 +1516,10 @@ fn incremental_invocation(name: &str) -> Option<&str> {
 /// - another unit (an executable, a test harness, a build script, a dylib) names its own objects in its debug map: the
 ///   objects of each invocation that names an inode of the newest mtime of the unit stay, the others go.
 ///
-/// An object of a compile without incremental stays, as its name tells no invocation
+/// An object of a compile without incremental stays, as its name tells no invocation. An object that a running rustc
+/// writes is newer than every current output of its unit: rustc writes the rmeta before the objects, and the rlib or
+/// the executable after the objects it reads. So that object stays, whatever the compile time and without the locks of
+/// cargo, and a unit with no output yet keeps every object
 #[cfg(unix)]
 fn stale_objects(kept: &[Unit], cutoff: SystemTime) -> Vec<StaleObject> {
   use std::os::unix::fs::MetadataExt;
@@ -1552,6 +1554,12 @@ fn stale_objects(kept: &[Unit], cutoff: SystemTime) -> Vec<StaleObject> {
       metadata.insert(file.inode, read.clone());
       Some(read)
     };
+    let newest_output = files
+      .iter()
+      .filter(|file| final_output(&file.name))
+      .filter_map(|file| stat(file).and_then(|read| read.modified().ok()))
+      .max();
+    let Some(newest_output) = newest_output else { continue };
     // the inodes that the names of the newest invocations hold
     let mut kept_inodes = HashSet::new();
     if !links_only_an_rlib {
@@ -1574,7 +1582,7 @@ fn stale_objects(kept: &[Unit], cutoff: SystemTime) -> Vec<StaleObject> {
         continue;
       }
       let Some(read) = stat(file) else { continue };
-      if read.modified().is_ok_and(|modified| modified < cutoff) {
+      if read.modified().is_ok_and(|modified| modified < cutoff && modified < newest_output) {
         stale.push(StaleObject {
           path: file.path.clone(),
           inode: file.inode,
@@ -1585,6 +1593,16 @@ fn stale_objects(kept: &[Unit], cutoff: SystemTime) -> Vec<StaleObject> {
     }
   }
   stale
+}
+
+/// Whether a file of a unit is an output that rustc writes once per compile, beside its objects: the rlib, the rmeta,
+/// a dylib or a static library, the executable (no extension). Not an object, not the dep file, not a `.dSYM` or a file
+/// that a build script generates
+#[cfg(unix)]
+fn final_output(name: &str) -> bool {
+  Path::new(name)
+    .extension()
+    .is_none_or(|extension| ["rlib", "rmeta", "dylib", "so", "a"].iter().any(|known| extension == *known))
 }
 
 /// No inode off Unix: no object is known to be stale

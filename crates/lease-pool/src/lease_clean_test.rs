@@ -415,6 +415,36 @@ fn the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash() {
   assert_eq!(entry_names(&release.join("build/git-ops")), ["h1"]);
 }
 
+/// The classic layout names a unit of a bin by the bin in `deps/` and by its package in `.fingerprint/`, as stable cargo
+/// builds `pbrd` of the package `probe-app`: one hash is one unit of the package and the target. With keep 1 the old
+/// build of the bin goes whole, and the test harness, the only unit of its target, keeps its files beside its
+/// fingerprint
+#[cfg(unix)]
+#[test]
+fn a_bin_named_apart_from_its_package_is_one_unit_with_its_fingerprint() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  let hours = |hours: u64| Duration::from_hours(hours);
+  let (bin, old_bin, test) = ("aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb", "cccccccccccccccc");
+  for (hash, target, built) in [(bin, "bin-pbrd", hours(2)), (old_bin, "bin-pbrd", hours(3)), (test, "test-bin-pbrd", hours(4))] {
+    output(&profile.join(format!("deps/pbrd-{hash}")), built);
+    output(&profile.join(format!("deps/pbrd-{hash}.d")), built);
+    let fingerprint = profile.join(format!(".fingerprint/probe-app-{hash}"));
+    output(&fingerprint.join(target), built);
+    output(&fingerprint.join(format!("dep-{target}")), built);
+    age(&fingerprint, built);
+  }
+  let rules = parse_clean_rules("[lease]\nclean = [{ cargo = \"target\", keep = 1, age = \"1h\" }]\n").unwrap();
+  let cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Delete);
+  assert_eq!(cleaned[0].error, None);
+  assert_eq!(
+    entry_names(&profile.join("deps")),
+    [format!("pbrd-{bin}"), format!("pbrd-{bin}.d"), format!("pbrd-{test}"), format!("pbrd-{test}.d")]
+  );
+  assert_eq!(entry_names(&profile.join(".fingerprint")), [format!("probe-app-{bin}"), format!("probe-app-{test}")]);
+}
+
 /// A `delete` with `except` removes every entry of its directory but the kept ones, a symlink at its end as the link (the
 /// target stays, the link is deleted in place and never goes into the trash), and refuses a symlink on its way. Into
 /// the trash, the entries leave the checkout at once and the trash counts their bytes once it deletes them; the trash of
@@ -1066,6 +1096,48 @@ fn the_cargo_rule_deletes_the_stale_objects_of_a_classic_unit() {
     entry_names(&deps),
     [format!("app-{hash}"), format!("app-{hash}.cgu0.0bbbbbb.rcgu.o"), format!("app-{hash}.d")]
   );
+}
+
+/// A rustc that still compiles writes objects newer than the outputs of its unit, also an hour after the age of the
+/// rule: they stay, and the object older than the rlib goes. A unit with objects of two invocations and no output yet,
+/// as its first compile, keeps every object
+#[cfg(unix)]
+#[test]
+fn an_object_newer_than_the_outputs_of_its_unit_stays_whatever_its_age() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  let hours = |hours: u64| Duration::from_hours(hours);
+  let compiling = profile.join("build/app/h1/out");
+  for file in ["libapp-h1.rlib", "libapp-h1.d"] {
+    output(&compiling.join(file), hours(3));
+  }
+  output(&compiling.join("libapp-h1.rmeta"), hours(2));
+  output(&compiling.join("app-h1.cgu0.0aaaaaa.rcgu.o"), hours(4));
+  for cgu in ["cgu0", "cgu1"] {
+    output(&compiling.join(format!("app-h1.{cgu}.0bbbbbb.rcgu.o")), hours(1));
+  }
+  unit(&profile.join("build/app/h1"), hours(1));
+  let first = profile.join("build/app/h2/out");
+  output(&first.join("app-h2.d"), hours(3));
+  output(&first.join("app-h2.cgu0.0cccccc.rcgu.o"), hours(3));
+  output(&first.join("app-h2.cgu0.0dddddd.rcgu.o"), hours(2));
+  unit(&profile.join("build/app/h2"), hours(2));
+
+  let rules = parse_clean_rules("[lease]\nclean = [{ cargo = \"target\", keep = 8, age = \"30m\" }]\n").unwrap();
+  let cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Delete);
+  assert_eq!((cleaned[0].freed_bytes, &cleaned[0].error), (8192, &None), "{cleaned:?}");
+  assert_eq!(
+    entry_names(&compiling),
+    [
+      "app-h1.cgu0.0bbbbbb.rcgu.o",
+      "app-h1.cgu1.0bbbbbb.rcgu.o",
+      "libapp-h1.d",
+      "libapp-h1.rlib",
+      "libapp-h1.rmeta"
+    ]
+  );
+  assert_eq!(entry_names(&first).len(), 3);
 }
 
 /// A registry build script named `build_script_build`, as the build scripts of the workspace in `incremental/`, a

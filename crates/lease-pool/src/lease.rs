@@ -693,7 +693,8 @@ pub struct FreedBy {
   pub reclaim: Freed,
   /// The free slots past `branchdeck.leaseMaxSlots` and the output bases of gone workspaces it deleted first (`trim`)
   pub trim: Freed,
-  /// The free slots whose build output it deleted after the trim (`shrink`)
+  /// The slots whose build output it deleted after the trim, the leased and the free ones that freed bytes (`shrink`,
+  /// `Shrunk::freed_slots`)
   pub shrink: Freed,
   /// The free slots below `branchdeck.leaseMaxSlots` it deleted after the shrink (`trim::evict_core`)
   pub evict: Freed,
@@ -1840,7 +1841,7 @@ fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_fre
     return Ok(FreeSpace::Evict);
   }
   let shrink = relief.shrunk.as_ref().map_or_else(Freed::default, |shrunk| Freed {
-    slots: shrunk.leased.len() + shrunk.slots.len(),
+    slots: shrunk.freed_slots(),
     bytes: shrunk.freed_bytes(),
   });
   let evict = relief.evicted.as_ref().map_or_else(Freed::default, |evicted| Freed {
