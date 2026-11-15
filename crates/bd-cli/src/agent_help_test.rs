@@ -212,6 +212,8 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::Internal
     // an action of Settings → Tools in the app, no command of brd
     | ErrorCode::CliToolBusy
+    // an intent of a window of the app whose session knew no lease of its slot; brd reads the lease as it starts
+    | ErrorCode::LeaseReadAgain
     | ErrorCode::Canceled => &[],
     ErrorCode::InvalidPlan => &["reword"],
     ErrorCode::StackConflict

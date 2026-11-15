@@ -58,6 +58,11 @@ pub enum ErrorCode {
   /// session, a pull request, a robot, a remote branch): its plan is another one now, and nothing was done. Read the
   /// plan again (`brd safe-push --dry-run`), then retry
   PlanChanged,
+  /// An intent of a window whose session opened while the lease of its worktree (a slot of a lease pool) could not be
+  /// told, asked once the slot reads one: the session was of no lease it knew and opens anew under the one read, so
+  /// nothing was done. The window shows the view of that lease at once; ask again on it. `bd` reads the lease as its
+  /// command starts and never answers it
+  LeaseReadAgain,
   /// `brd unpark`: the branch is not parked
   NotParked,
   /// `brd unapply`: the virtual branch is not the copies of its commits now (a conflict, no sync since a new commit):
@@ -367,6 +372,7 @@ impl ErrorCode {
       | Self::PrefixChanged
       | Self::RoundMoved
       | Self::PlanChanged
+      | Self::LeaseReadAgain
       | Self::BaselineMoved
       | Self::Locked
       | Self::Busy => 3,
@@ -454,7 +460,7 @@ impl ErrorCode {
     match self {
       Self::Locked | Self::Busy | Self::NetworkError => Retry::Same,
       code if code.moved_ref() => Retry::AfterReread,
-      Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged | Self::BaselineMoved => Retry::AfterReread,
+      Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged | Self::LeaseReadAgain | Self::BaselineMoved => Retry::AfterReread,
       _ => Retry::No,
     }
   }

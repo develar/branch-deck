@@ -2485,7 +2485,13 @@ epoch for a while writes nothing meanwhile and opens nothing anew
 rewrite and a dismiss name the epoch of the view they were asked on, are refused (`plan_changed`) on another epoch or
 on a slot that holds another lease than their session opened under, and write under the lease of that view
 (`under_its_lease`, `Sessions::lease_guard`;
-`an_intent_of_a_slot_leased_again_writes_nothing_into_the_files_of_the_next_lease`), and `brd` writes under the lease
+`an_intent_of_a_slot_leased_again_writes_nothing_into_the_files_of_the_next_lease`); one of a session that opened while
+the lease of its slot could not be told, asked once the slot reads one, is refused with a code of its own
+(`lease_read_again`, `AnotherLease::ReadAgain`), as the lease may be the same, and its refusal opens the session anew
+under that lease at once (`Message::LeaseRead`), without the run or the stamp a worktree never synced may never have, so
+the same ask runs on the view the window gets
+(`an_update_of_a_session_that_knew_no_lease_is_asked_again_on_the_view_of_the_lease_read`,
+`an_intent_of_a_session_that_knew_no_lease_opens_it_anew_under_the_lease_read`). `brd` writes under the lease
 of the slot as the command started (`RepoContext::lease`; `a_command_in_a_slot_writes_nothing_of_the_lease_once_the_slot_holds_another`).
 The check of the guard and the write hold the lock of the lease (`lease.lock`), which the forget of the return and of
 the get that reuses the slot takes before it removes: a write that passed its check lands before the forget, which

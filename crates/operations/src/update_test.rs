@@ -475,6 +475,42 @@ async fn landed_in_a_slot() -> (TestRepo, TestRepo, Arc<TestLease>, Registry, Se
   (upstream, clone, lease, registry, key)
 }
 
+/// Update Project asked of a session that opened while the lease of its slot could not be told, once the slot reads one,
+/// is refused with `lease_read_again` before anything is done, and the refusal opens the session anew under that lease
+/// at once, without a sync: the same ask on the view of the new session runs
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_of_a_session_that_knew_no_lease_is_asked_again_on_the_view_of_the_lease_read() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", "one\ntwo\nthree\n")]);
+  clone.create_commit_with_timestamp("(auth) Add login", "login.txt", "login\n", Some(LOGIN_TIME));
+  upstream.create_commit_with_timestamp("Add login", "login.txt", "login\n", Some(LOGIN_TIME));
+  let lease = Arc::new(TestLease {
+    now: Mutex::new(WorktreeEpoch::Unknown),
+    after_the_next_read: Mutex::default(),
+  });
+  let (registry, key) = registry_on(&clone, host_under(Arc::clone(&lease)), true).await;
+  let epoch = registry.sessions().view_version(&key).await.unwrap().epoch;
+  let heard = Arc::new(Heard::default()) as Arc<dyn EventSink>;
+  lease.set("lease-a");
+  let head = clone.head();
+  let error = within_a_minute(Box::pin(execute_update(&registry, &key, true, Some(epoch), OFFLINE.hosts(), Arc::clone(&heard))))
+    .await
+    .unwrap_err();
+  assert_eq!(error.code, ErrorCode::LeaseReadAgain, "{error:?}");
+  assert!(error.message.contains("could not tell the lease of this worktree"), "{}", error.message);
+  assert_eq!(clone.head(), head, "nothing done");
+
+  let reopened = registry.sessions().view_version(&key).await.unwrap().epoch;
+  assert_ne!(reopened, epoch, "the session opened anew under lease-a");
+  within_a_minute(Box::pin(execute_update(&registry, &key, true, Some(reopened), OFFLINE.hosts(), heard)))
+    .await
+    .unwrap();
+  assert_eq!(
+    read_report(clone.git_executor(), clone.path_str()).unwrap().len(),
+    1,
+    "the update of the view of lease-a ran"
+  );
+}
+
 /// Update Project and the dismissal of what landed, asked on the view of the session, are refused when the slot holds
 /// another lease than the session opened under (a return and a get the stamp of `brd` did not tell the session yet):
 /// the branch and the report there are of another lease. Under the lease of the session they run, and one whose slot

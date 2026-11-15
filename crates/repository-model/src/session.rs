@@ -355,9 +355,15 @@ impl SessionLife {
   }
 }
 
-/// The worktree of a session holds another lease now than the session opened under (`Sessions::lease_guard`)
+/// The worktree of a session holds another lease now than the session is of (`Sessions::lease_guard`, `lease_began`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AnotherLease;
+pub enum AnotherLease {
+  /// Another known lease than the session opened under, or a view of a session that opened anew since
+  Held,
+  /// The session opened while the epoch of its slot could not be told, and the slot reads a lease now: the session was
+  /// of no lease it knew, and opens anew under the one read (`Sessions::lease_guard` asks it to at once)
+  ReadAgain,
+}
 
 /// Whether the worktree holds another lease now (`now`) than a session that opened under `opened` is of: two known epochs
 /// that differ, or a known one where the session opened while the epoch could not be told (`WorktreeEpoch::Unknown`),
@@ -383,7 +389,7 @@ pub fn holds_another_lease(opened: &WorktreeEpoch, now: &WorktreeEpoch) -> bool 
 /// `AnotherLease`, as above
 pub fn lease_began(opened: WorktreeEpoch, now: &WorktreeEpoch) -> Result<WorktreeEpoch, AnotherLease> {
   if holds_another_lease(&opened, now) {
-    return Err(AnotherLease);
+    return Err(if opened.recorded().is_none() { AnotherLease::ReadAgain } else { AnotherLease::Held });
   }
   Ok(opened)
 }
@@ -664,7 +670,7 @@ impl Sessions {
     if let Some(asked) = asked
       && self.view_version(key).await.is_some_and(|now| now.epoch != asked)
     {
-      return Err(AnotherLease);
+      return Err(AnotherLease::Held);
     }
     self.lease_now(key).await
   }
@@ -678,7 +684,15 @@ impl Sessions {
       .await
       .unwrap_or(WorktreeEpoch::Unknown);
     // a session that is not open: the lease now
-    lease_began(opened.unwrap_or_else(|| now.clone()), &now)
+    let began = lease_began(opened.unwrap_or_else(|| now.clone()), &now);
+    if began == Err(AnotherLease::ReadAgain)
+      && let Some(entry) = self.lock().get(key)
+    {
+      // the session knew no lease of its slot, which reads one now: it opens anew under it at once, not at the next run
+      // or stamp, which a worktree never synced runs only once the user syncs; another known lease waits for its stamp
+      let _ = entry.mailbox.send(Message::LeaseRead { epoch: now });
+    }
+    began
   }
 
   /// The group `message` would put its commit into (`history_rewrite::commit_grouper::group_of` of its subject as git

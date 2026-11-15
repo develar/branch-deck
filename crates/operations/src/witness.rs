@@ -145,10 +145,22 @@ pub async fn under_its_lease(sessions: &Sessions, key: &SessionKey, intent: &Int
   {
     return Err(plan_changed(intent, Some("it was asked on the view of the worktree before, the slot holds another lease")));
   }
-  sessions
-    .lease_guard(key)
-    .await
-    .map_err(|AnotherLease| plan_changed(intent, Some("the slot holds another lease than the view it was asked on")))
+  sessions.lease_guard(key).await.map_err(|refused| match refused {
+    AnotherLease::Held => plan_changed(intent, Some("the slot holds another lease than the view it was asked on")),
+    AnotherLease::ReadAgain => lease_read_again(intent),
+  })
+}
+
+/// `lease_read_again` of `intent`: its session opened while the lease of its worktree could not be told and reads it
+/// again now (`AnotherLease::ReadAgain`), so nothing was done; the window shows the view of that lease at once, on which
+/// the same ask runs
+#[must_use]
+pub fn lease_read_again(intent: &Intent) -> ApiError {
+  let (asked, again) = asked(intent);
+  ApiError::new(
+    ErrorCode::LeaseReadAgain,
+    format!("Branch Deck could not tell the lease of this worktree as it opened it and reads it again now: nothing of {asked} was done; {again}"),
+  )
 }
 
 /// What the user asked of `intent`, and how to ask it again

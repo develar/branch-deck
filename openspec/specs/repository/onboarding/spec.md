@@ -1598,6 +1598,16 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
 - **THEN** it is refused before anything is done (`plan_changed`): no fetch, no move of the branch, the report stays
   [@test] crates/operations/src/update_test.rs (`an_update_a_dismiss_and_an_undo_asked_on_the_view_before_the_session_opened_anew_are_refused`, `an_intent_of_a_slot_leased_again_writes_nothing_into_the_files_of_the_next_lease`)
 
+#### Scenario: An intent of a session that knew no lease of its slot
+- **GIVEN** the session of the window opened while the lease of its slot could not be told, and the slot reads one now
+- **WHEN** the window asks Update Project, an undo or a dismiss on its view
+- **THEN** it is refused before anything is done with a code of its own (`lease_read_again`, exit 3, retried after a
+  new read), as the lease may be the same, and the session opens anew under the lease read at once, without a sync, so
+  the same ask runs on the view the window gets
+- **AND** a session of another known lease is refused with `plan_changed` and opens anew at the stamp of that lease
+  [@test] crates/operations/src/update_test.rs (`an_update_of_a_session_that_knew_no_lease_is_asked_again_on_the_view_of_the_lease_read`)
+  [@test] crates/repository-model/src/session_test.rs (`an_intent_of_a_session_that_knew_no_lease_opens_it_anew_under_the_lease_read`)
+
 #### Scenario: An intent whose slot is leased again while it runs
 - **GIVEN** Update Project, an undo or a dismiss began under the lease of the view it was asked on
 - **WHEN** the slot is returned and leased again before it writes the files of the lease

@@ -2723,6 +2723,13 @@ export type ErrorCode =
  *  plan again (`brd safe-push --dry-run`), then retry
  */
 "plan_changed" | 
+/**
+ *  An intent of a window whose session opened while the lease of its worktree (a slot of a lease pool) could not be
+ *  told, asked once the slot reads one: the session was of no lease it knew and opens anew under the one read, so
+ *  nothing was done. The window shows the view of that lease at once; ask again on it. `bd` reads the lease as its
+ *  command starts and never answers it
+ */
+"lease_read_again" | 
 /**  `brd unpark`: the branch is not parked */
 "not_parked" | 
 /**

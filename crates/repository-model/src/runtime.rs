@@ -217,6 +217,12 @@ pub(crate) enum Message {
     synced_before: bool,
     epoch: Option<WorktreeEpoch>,
   },
+  /// An operation of a session that opened while the epoch of its worktree could not be told read a lease of it
+  /// (`Sessions::lease_guard`, `AnotherLease::ReadAgain`): the session opens anew under it, as for a stamp that finds
+  /// it, so the window moves to the view of that lease at once
+  LeaseRead {
+    epoch: WorktreeEpoch,
+  },
   /// A change of the table outside a sync; `reply` gets the version of the view after its patch
   Apply {
     change: Box<dyn FnOnce(&mut TableState) + Send>,
@@ -814,6 +820,11 @@ impl Actor {
         self.synced_before |= synced_before;
         self.decide_sync(reason, waiter);
         self.flush();
+      }
+      Message::LeaseRead { epoch } => {
+        if self.leased_anew(&epoch) {
+          self.reopen_for_lease(Waiter::unheard(&self.life));
+        }
       }
       Message::Apply { change, reply } => {
         change(&mut self.state);

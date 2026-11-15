@@ -1106,6 +1106,32 @@ async fn a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease_and_o
   }
 }
 
+/// An intent of a session that opened while the epoch of its slot could not be told, asked once the slot reads a lease,
+/// is refused as of a lease the session did not know (`AnotherLease::ReadAgain`), and the refusal opens the session anew
+/// under the lease read at once, with no run or stamp (a worktree never synced runs none until the user syncs): the
+/// window moves to the view of that lease, on which the next intent is of it. A session of another known lease is
+/// refused as of another lease (`Held`) and opens anew at the stamp of that lease, not at the refusal
+#[tokio::test]
+async fn an_intent_of_a_session_that_knew_no_lease_opens_it_anew_under_the_lease_read() {
+  let (_repo, key, leases, sessions) = opened_under(WorktreeEpoch::Unknown).await;
+  let opens = || leases.opens.load(std::sync::atomic::Ordering::SeqCst);
+  let before = sessions.view_version(&key).await.unwrap().epoch;
+  *leases.epoch.lock().unwrap() = lease("lease-a");
+  assert_eq!(sessions.lease_guard(&key).await.err(), Some(crate::session::AnotherLease::ReadAgain));
+  // the actor opens the session anew right after the message of the refusal, before it answers the next
+  assert_ne!(sessions.view_version(&key).await.unwrap().epoch, before, "the view of lease-a");
+  assert_eq!(opens(), 2, "the open and one reopen, without a sync");
+  assert!(sessions.lease_guard(&key).await.is_ok(), "the next intent is of lease-a");
+  assert_eq!(opens(), 2, "no further reopen");
+
+  let (_repo, key, leases, sessions) = opened_under_lease_a().await;
+  let before = sessions.view_version(&key).await.unwrap().epoch;
+  *leases.epoch.lock().unwrap() = lease("lease-b");
+  assert_eq!(sessions.lease_guard(&key).await.err(), Some(crate::session::AnotherLease::Held));
+  assert_eq!(sessions.view_version(&key).await.unwrap().epoch, before, "another known lease waits for its stamp");
+  assert_eq!(leases.opens.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
 /// A session opened under lease-a whose slot then reads no epoch (the state of the pool cannot be read) syncs and
 /// writes no file of the lease, opens nothing anew, and marks again once the epoch reads lease-a (the probe of the review)
 #[tokio::test]
@@ -1142,7 +1168,7 @@ async fn a_hide_asked_on_the_view_before_a_reopen_is_of_no_lease() {
   assert_ne!(after, before, "the view of lease-b");
   assert_eq!(
     sessions.lease_of_view(&key, Some(before)).await,
-    Err(crate::session::AnotherLease),
+    Err(crate::session::AnotherLease::Held),
     "the view of lease-a hides nothing of lease-b"
   );
   assert_eq!(sessions.lease_of_view(&key, Some(after)).await, Ok(lease("lease-b")));
@@ -1164,7 +1190,7 @@ async fn an_operation_of_a_session_writes_the_files_of_the_lease_only_under_the_
   *leases.epoch.lock().unwrap() = lease("lease-b");
   sync_core::synced_mark::mark_synced(&guard, &paths, "after-the-change");
   assert!(!marked("after-the-change"), "a write after the slot changed its lease lands nowhere");
-  assert_eq!(sessions.lease_guard(&key).await.err(), Some(crate::session::AnotherLease));
+  assert_eq!(sessions.lease_guard(&key).await.err(), Some(crate::session::AnotherLease::Held));
 }
 
 /// Two worktrees of one repository are two sessions, each with the table of its own HEAD
