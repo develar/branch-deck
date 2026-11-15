@@ -1,4 +1,4 @@
-import { execFile } from "child_process"
+import { execFile, execFileSync } from "child_process"
 import { readFileSync } from "fs"
 import { freemem, loadavg, platform } from "os"
 
@@ -41,12 +41,50 @@ export function parseProcVmStat(text: string): Pick<MachineSample, "swapins" | "
   return { swapins: counter("pswpin"), swapouts: counter("pswpout") }
 }
 
-/** Samples the machine every `SAMPLE_MS` from `start` to `stop`, on a timer that keeps no run alive */
+/** The counters of the swap and the compressor that a sample holds */
+type Counters = Pick<MachineSample, "swapins" | "swapouts" | "decompressions">
+
+/** How the sampler reads the counters: at once (the last sample) and in the background (the samples of the run) */
+export interface CounterReaders {
+  now: () => Counters | null
+  later: (done: (counters: Counters | null) => void) => void
+}
+
+const VM_STAT = "/usr/bin/vm_stat"
+
+/** The counters of this machine: `/proc/vmstat` on Linux, a `vm_stat` on macOS, none elsewhere */
+export const SYSTEM_COUNTERS: CounterReaders = {
+  now: () => {
+    try {
+      if (platform() === "linux") {
+        return parseProcVmStat(readFileSync("/proc/vmstat", "utf8"))
+      }
+      return platform() === "darwin" ? parseVmStat(execFileSync(VM_STAT, { encoding: "utf8", timeout: 2000 })) : null
+    } catch {
+      return null
+    }
+  },
+  later: done => {
+    if (platform() === "darwin") {
+      execFile(VM_STAT, (error, stdout) => done(error === null ? parseVmStat(stdout) : null))
+    } else {
+      done(SYSTEM_COUNTERS.now())
+    }
+  },
+}
+
+/**
+ * Samples the machine every `SAMPLE_MS` from `start` to `stop`, on a timer that keeps no run alive, and once more as it
+ * stops, with the counters read at once (one `vm_stat`): a stall at the end of the run has a sample of the counters
+ * after it too
+ */
 export class MachineSampler {
   readonly samples: MachineSample[] = []
   private timer: NodeJS.Timeout | undefined
   private reading = false
   private count = 0
+
+  constructor(private readonly counters: CounterReaders = SYSTEM_COUNTERS) {}
 
   start(): void {
     this.sample()
@@ -56,29 +94,25 @@ export class MachineSampler {
 
   stop(): void {
     clearInterval(this.timer)
+    this.samples.push({ ...current(), ...this.counters.now() })
   }
 
   private sample(): void {
-    const sample: MachineSample = { at: Date.now(), load: loadavg()[0] ?? 0, freeBytes: freemem() }
-    const counters = this.count++ % COUNTERS_EVERY === 0
-    if (!counters) {
+    const sample = current()
+    if (this.count++ % COUNTERS_EVERY !== 0 || this.reading) {
+      // one read of the counters at a time: a machine slow enough to make it outlast a second samples the load alone
       this.samples.push(sample)
-    } else if (platform() === "linux") {
-      try {
-        Object.assign(sample, parseProcVmStat(readFileSync("/proc/vmstat", "utf8")))
-      } catch {
-        // no /proc: the load and the memory only
-      }
-      this.samples.push(sample)
-    } else if (platform() === "darwin" && !this.reading) {
-      // one `vm_stat` at a time: a machine slow enough to make it outlast a second samples the load alone meanwhile
-      this.reading = true
-      execFile("/usr/bin/vm_stat", (error, stdout) => {
-        this.reading = false
-        this.samples.push(error === null ? { ...sample, ...parseVmStat(stdout) } : sample)
-      })
-    } else {
-      this.samples.push(sample)
+      return
     }
+    this.reading = true
+    this.counters.later(counters => {
+      this.reading = false
+      this.samples.push({ ...sample, ...counters })
+    })
   }
+}
+
+/** The load and the free memory now */
+function current(): MachineSample {
+  return { at: Date.now(), load: loadavg()[0] ?? 0, freeBytes: freemem() }
 }

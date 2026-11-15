@@ -20,7 +20,9 @@ export interface StallContext {
   to: number
   worker: number
   load: [number, number] | null
+  /** The pages swapped in between the samples of the counters that bracket the stall, and their rate a second */
   swapins: number | null
+  swapRate: number | null
   decompressions: number | null
   beside: TimedAction[]
   longTasks: [end: number, ms: number][]
@@ -57,10 +59,15 @@ export function stallContext(
   // the samples of the stall, and the one before and after it: a stall shorter than the interval still has its load
   const within = samples.filter(sample => sample.at >= from - sampleMs && sample.at <= to + sampleMs)
   const loads = within.map(sample => sample.load)
-  const delta = (counter: "swapins" | "decompressions") => {
-    const counted = within.filter(sample => sample[counter] !== undefined)
-    return counted.length < 2 ? null : counted[counted.length - 1]![counter]! - counted[0]![counter]!
+  // the counters come every few samples: the last of them at the start of the stall and the first at its end bracket it
+  const bracket = (counter: "swapins" | "decompressions") => {
+    // in the order of their time: the counters of a sample come after a read in the background
+    const counted = samples.filter(sample => sample[counter] !== undefined).toSorted((a, b) => a.at - b.at)
+    const before = counted.findLast(sample => sample.at <= from)
+    const after = counted.find(sample => sample.at >= to)
+    return before === undefined || after === undefined ? null : { count: after[counter]! - before[counter]!, ms: after.at - before.at }
   }
+  const swap = bracket("swapins")
   const beside = actions.filter(action => action.worker !== stall.worker && action.ms >= slowMs && action.start < to && action.start + action.ms > from).sort((a, b) => b.ms - a.ms)
   const longTasks = (health?.longTasks ?? []).filter(([end, ms]) => end - ms < to && end > from)
   const context = {
@@ -68,8 +75,9 @@ export function stallContext(
     to,
     worker: stall.worker,
     load: loads.length === 0 ? null : ([Math.min(...loads), Math.max(...loads)] as [number, number]),
-    swapins: delta("swapins"),
-    decompressions: delta("decompressions"),
+    swapins: swap?.count ?? null,
+    swapRate: swap === null ? null : (swap.count * 1000) / Math.max(swap.ms, 1),
+    decompressions: bracket("decompressions")?.count ?? null,
     beside,
     longTasks,
     answered: health?.answered ?? null,
@@ -91,14 +99,14 @@ export function verdictOf(stall: TimedAction, context: Omit<StallContext, "verdi
   if (longest >= stall.ms / 2) {
     return `the page: a long task of ${seconds(longest)} stood in it`
   }
-  const swapped = (context.swapins ?? 0) >= SWAP_INS_PER_SECOND * (stall.ms / 1000)
+  // a passing test asks its pages nothing, and WebKit tells no long task: nothing said the page was not stuck
+  const unasked = context.answered === null && context.longTasks.length === 0 ? " (the page was not asked)" : ""
+  const swapped = (context.swapRate ?? 0) >= SWAP_INS_PER_SECOND
   if (context.beside.length >= BESIDE_THE_MACHINE || swapped) {
-    const swap = swapped ? `, the machine swapped in ${context.swapins} pages` : ""
-    // a passing test asks its pages nothing, and WebKit tells no long task: nothing said the page was not stuck
-    const unasked = context.answered === null && context.longTasks.length === 0 ? " (the page was not asked)" : ""
+    const swap = swapped ? `, the machine swapped in ${context.swapins} pages, ${Math.round(context.swapRate!)} a second` : ""
     return `the machine${unasked}: ${context.beside.length} slow actions of other workers stood beside it${swap}`
   }
-  return "neither: no long task of its page and no stall of the machine beside it; an overlay over its target, or a page that did not take it"
+  return `neither${unasked}: no long task of its page and no stall of the machine beside it; an overlay over its target, or a page that did not take it`
 }
 
 /** The lines of a stalled action in the summary of a run: the action, then its verdict and what it rests on */

@@ -29,5 +29,9 @@ test("the probe of a failed test tells a page stuck in a task from one that answ
   expect(Date.now() - asked).toBeGreaterThanOrEqual(PROBE_MS - 50)
   // the other page of the test still answers
   expect(await pageAnswers(page)).toBe(true)
+  // a page that closes in the probe, as Playwright closes the pages at the timeout of a test, is unknown, never stuck
+  const probe = pageAnswers(stuck)
   await stuck.close()
+  expect(await probe).toBeNull()
+  expect(await pageAnswers(stuck)).toBeNull()
 })

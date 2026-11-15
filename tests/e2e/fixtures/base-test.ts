@@ -1,6 +1,6 @@
 import type { BrowserContext, Locator, Page, Request } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
-import { longTaskOf, NEAR_TIMEOUT_MS, PAGE_HEALTH, pageAnswers, PROBE_MS, watchLongTasks } from "../helpers/page-health"
+import { answeredTogether, longTaskOf, NEAR_TIMEOUT_MS, PAGE_HEALTH, pageAnswers, PROBE_MS, watchLongTasks } from "../helpers/page-health"
 import type { PageHealth } from "../helpers/page-health"
 import { resizeObservers } from "../setup/resize-observers"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
@@ -433,10 +433,7 @@ export const test = base.extend({
     // the pages of a test about to time out are asked whether they answer while they are open: Playwright closes them at
     // the timeout, before this teardown. A check of the clock of the runner, no round trip, until then
     let answered: boolean | null = null
-    const askPages = async (): Promise<boolean | null> => {
-      const open = context.pages().filter(opened => !opened.isClosed())
-      return open.length === 0 ? null : (await Promise.all(open.map(opened => pageAnswers(opened)))).every(Boolean)
-    }
+    const askPages = async (): Promise<boolean | null> => answeredTogether(await Promise.all(context.pages().map(opened => pageAnswers(opened))))
     let asked = false
     const nearTimeout = setInterval(() => {
       if (!asked && testInfo.timeout > 0 && Date.now() - began >= testInfo.timeout - PROBE_MS - NEAR_TIMEOUT_MS) {

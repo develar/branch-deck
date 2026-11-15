@@ -20,8 +20,12 @@ export const LONG_TASK_MS = 500
 /** How long a page may take to answer an evaluate at the end of a failed test before its main thread counts as stuck */
 export const PROBE_MS = 2000
 
-/** How long before the probe would end at the timeout of a test the pages are asked */
-export const NEAR_TIMEOUT_MS = 1000
+/**
+ * How long before the probe would end at the timeout of a test the pages are asked: the clock of the timeout starts
+ * with the fixtures of the test, before the page fixture, and the check of the runner ticks every 500 ms, later under
+ * load
+ */
+export const NEAR_TIMEOUT_MS = 2000
 
 const LONG_TASK_MARK = "[e2e-longtask] "
 
@@ -56,16 +60,26 @@ export function longTaskOf(text: string): number | null {
 
 /**
  * Whether the main thread of `page` answers within `ms`: a function of the page that holds at once, waited for no
- * longer, is `false` when the page is stuck in a task (or closed meanwhile)
+ * longer, is `false` when the page is stuck in a task; `null` when the page is closed or closes meanwhile (Playwright
+ * closes the pages at the timeout of the test, which may come in the probe): nothing is known then
  */
-export async function pageAnswers(page: Page, ms = PROBE_MS): Promise<boolean> {
+export async function pageAnswers(page: Page, ms = PROBE_MS): Promise<boolean | null> {
   if (page.isClosed()) {
-    return false
+    return null
   }
-  return page
+  const answered = await page
     .waitForFunction(() => true, undefined, { timeout: ms, polling: 100 })
     .then(
       () => true,
       () => false,
     )
+  return answered || !page.isClosed() ? answered : null
+}
+
+/** What the probes of the pages of a test say together: a page that did not answer is stuck; else one closed meanwhile leaves it unknown */
+export function answeredTogether(answers: readonly (boolean | null)[]): boolean | null {
+  if (answers.includes(false)) {
+    return false
+  }
+  return answers.length === 0 || answers.includes(null) ? null : true
 }

@@ -60,7 +60,7 @@ interface PhaseMetrics {
 
 /** In the page: long tasks, the bytes of the worker messages when asked, and a scan of the visible diff rows */
 function installProbes(measureBytes: boolean) {
-  const probe = { longTasks: [] as [number, number][], bytesToWorker: 0, bytesFromWorker: 0, lastMessageAt: 0, selectionReads: 0, scanRows }
+  const probe = { longTasks: [] as [number, number][], bytesToWorker: 0, bytesFromWorker: 0, lastMessageAt: 0, selectionReads: 0, scanRows, notesInView }
   ;(window as unknown as { __perf: typeof probe }).__perf = probe
   // a read of whether the selection selects something lays the page out: the painter reads it once a pass
   const collapsed = Object.getOwnPropertyDescriptor(Selection.prototype, "isCollapsed")!
@@ -95,6 +95,17 @@ function installProbes(measureBytes: boolean) {
       }
     }
     return { rows, highlighted }
+  }
+
+  /** The state (`aria-expanded`) of each note that opens whole in the view, below its sticky header, in their order */
+  function notesInView(): (string | null)[] {
+    const view = document.querySelector("[data-testid=diff-view]")!.getBoundingClientRect()
+    return [...document.querySelectorAll("[data-testid=diff-remark][aria-expanded]")]
+      .filter(note => {
+        const box = note.getBoundingClientRect()
+        return box.top >= view.top + 60 && box.bottom <= view.bottom
+      })
+      .map(note => note.getAttribute("aria-expanded"))
   }
 
   /** The length of the strings and the typed arrays of a message */
@@ -319,35 +330,22 @@ async function runScenario(page: Page, opened: OpenedSubWindow<BranchReviewWindo
  */
 async function toggleNotes(window: Page, expanded: "true" | "false"): Promise<PhaseMetrics> {
   await window.locator("[aria-label='Changes of the commit']").focus()
-  const notes = await window.evaluate(async () => {
+  // scrolled on until a note that opens is in view: the state of each note in view, in one frame
+  const before = await window.evaluate(async () => {
+    const { notesInView } = (window as unknown as { __perf: { notesInView: () => (string | null)[] } }).__perf
     const scroller = document.querySelector<HTMLElement>("[data-testid=diff-view]")!
-    const inView = () => {
-      const view = scroller.getBoundingClientRect()
-      return [...document.querySelectorAll("[data-testid=diff-remark][aria-expanded]")].filter(note => {
-        const box = note.getBoundingClientRect()
-        return box.top >= view.top + 60 && box.bottom <= view.bottom
-      }).length
-    }
     const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
-    for (let step = 0; step < 200 && inView() === 0; step++) {
+    for (let step = 0; step < 200 && notesInView().length === 0; step++) {
       scroller.scrollTop += scroller.clientHeight / 2
       await frame()
       await frame()
     }
-    return inView()
+    return notesInView()
   })
+  const notes = before.length
   expect(notes, "a note that opens in view, which H toggles").toBeGreaterThan(0)
   // the notes in view stand the other way before the press, so the time is of H turning them
-  const before = await window.evaluate(() => {
-    const view = document.querySelector("[data-testid=diff-view]")!.getBoundingClientRect()
-    return [...document.querySelectorAll("[data-testid=diff-remark][aria-expanded]")]
-      .filter(note => {
-        const box = note.getBoundingClientRect()
-        return box.top >= view.top + 60 && box.bottom <= view.bottom
-      })
-      .map(note => note.getAttribute("aria-expanded"))
-  })
-  expect(before, "the notes in view before H").toEqual(before.map(() => (expanded === "true" ? "false" : "true")))
+  expect(before, "the notes in view before H").toEqual(Array.from({ length: notes }, () => (expanded === "true" ? "false" : "true")))
   const [started, startedAt] = await window.evaluate(() => {
     ;(window as unknown as { __perf: { selectionReads: number } }).__perf.selectionReads = 0
     return [performance.now(), Date.now()] as const
@@ -357,12 +355,8 @@ async function toggleNotes(window: Page, expanded: "true" | "false"): Promise<Ph
   const pressMs = Date.now() - pressed
   const handle = await window.waitForFunction(
     ([state, start]) => {
-      const view = document.querySelector("[data-testid=diff-view]")!.getBoundingClientRect()
-      const inView = [...document.querySelectorAll("[data-testid=diff-remark][aria-expanded]")].filter(note => {
-        const box = note.getBoundingClientRect()
-        return box.top >= view.top + 60 && box.bottom <= view.bottom
-      })
-      return inView.length > 0 && inView.every(note => note.getAttribute("aria-expanded") === state) ? Date.now() - start : false
+      const inView = (window as unknown as { __perf: { notesInView: () => (string | null)[] } }).__perf.notesInView()
+      return inView.length > 0 && inView.every(note => note === state) ? Date.now() - start : false
     },
     [expanded, startedAt] as const,
     { polling: "raf", timeout: 120_000 },
