@@ -735,6 +735,7 @@ export class DiffPainter {
       }
     }
     const wants = new Map<string, BlobWant & { pages: number[] }>()
+    const selection = selectionOfPass()
     let firstScreenReady = true
     for (let file = first; file <= last; file++) {
       const host = this.hosts.get(file)
@@ -745,13 +746,13 @@ export class DiffPainter {
         }
         continue
       }
-      if (!this.paintFile(file, painterFile, host, from, to, top, top + height, wants)) {
+      if (!this.paintFile(file, painterFile, host, from, to, top, top + height, wants, selection)) {
         firstScreenReady = false
       }
     }
     this.markStuckHeader(top)
     this.requestTokens(wants)
-    this.selectRevealedName()
+    this.selectRevealedName(selection)
     this.markLanded()
     this.markMoveKey(top, height)
     if (this.firstScreen === "waiting" && firstScreenReady) {
@@ -818,6 +819,7 @@ export class DiffPainter {
     viewTop: number,
     viewBottom: number,
     wants: Map<string, BlobWant & { pages: number[] }>,
+    selection: () => SelectedEnds,
   ): boolean {
     const { layout } = this.model!
     const rows = painterFile.rows
@@ -833,7 +835,7 @@ export class DiffPainter {
     }
     for (const [row, entry] of painted) {
       // the row of an end of the selection stays, so the browser keeps the selection while it scrolls away
-      if ((row < first || row > last) && !holdsSelection(entry.element)) {
+      if ((row < first || row > last) && !holdsSelection(entry.element, selection)) {
         entry.element.remove()
         painted.delete(row)
       }
@@ -1485,6 +1487,7 @@ export class DiffPainter {
     this.textsChanged = false
     const arrived = new Set(this.arrivedPages)
     this.arrivedPages.clear()
+    const selection = selectionOfPass()
     for (const [file, rows] of this.painted) {
       const painterFile = model.files[file]
       if (painterFile?.rows === null || painterFile?.rows === undefined) {
@@ -1493,7 +1496,7 @@ export class DiffPainter {
       let tables: (LineTable | null)[] | undefined
       for (const [row, entry] of rows) {
         const stale = (textsChanged && !entry.textsRead) || entry.cells.some(cell => arrived.has(`${cell.blobId}:${Math.floor(cell.line / PAGE_LINES)}`))
-        if (!stale || holdsSelection(entry.element)) {
+        if (!stale || holdsSelection(entry.element, selection)) {
           continue
         }
         tables ??= this.tablesOf(painterFile)
@@ -1838,7 +1841,7 @@ export class DiffPainter {
     this.letRevealedNameGo()
     this.letLandedGo()
     this.revealedName = { file, side, line, start, end, word, selected: false }
-    this.selectRevealedName()
+    this.selectRevealedName(selectionOfPass())
   }
 
   /** The name a reveal selected is selected no more: the deleted parts of its Inline row are not selectable again */
@@ -1869,7 +1872,7 @@ export class DiffPainter {
     )
   }
 
-  private selectRevealedName(): void {
+  private selectRevealedName(selected: () => SelectedEnds): void {
     const name = this.revealedName
     const painterFile = name === null ? undefined : this.model?.files[name.file]
     const rows = painterFile?.rows
@@ -1878,7 +1881,7 @@ export class DiffPainter {
     }
     const row = rowOfLine(rows, name.side, name.line)
     const entry = this.painted.get(name.file)?.get(row)
-    if (entry === undefined || !entry.textsRead || holdsSelection(entry.element)) {
+    if (entry === undefined || !entry.textsRead || holdsSelection(entry.element, selected)) {
       return
     }
     const value = rowAt(rows, row)
@@ -2104,9 +2107,31 @@ function isSystemCopyKey(event: KeyboardEvent): boolean {
 }
 
 /** An end of a non-empty selection is in `element` */
-function holdsSelection(element: HTMLElement): boolean {
-  const selection = document.getSelection()
-  return selection !== null && !selection.isCollapsed && (element.contains(selection.anchorNode) || element.contains(selection.focusNode))
+/** The nodes of the ends of a selection that selects something; `null` for none or a caret */
+type SelectedEnds = readonly [Node | null, Node | null] | null
+
+/**
+ * The ends of the selection of the document for one pass of the painter, read once, at the first row the pass asks
+ * about: a read of the selection lays the page out (`isCollapsed`), and a read per row, between rows the pass removes or
+ * replaces, laid it out once per row. The rows of a pass that hold an end stay, so the selection is the same to its end
+ */
+function selectionOfPass(): () => SelectedEnds {
+  let read = false
+  let ends: SelectedEnds = null
+  return () => {
+    if (!read) {
+      const selection = document.getSelection()
+      ends = selection === null || selection.isCollapsed ? null : [selection.anchorNode, selection.focusNode]
+      read = true
+    }
+    return ends
+  }
+}
+
+/** Whether `element` holds an end of the selection a pass read (`selectionOfPass`) */
+function holdsSelection(element: HTMLElement, selection: () => SelectedEnds): boolean {
+  const ends = selection()
+  return ends !== null && (element.contains(ends[0]) || element.contains(ends[1]))
 }
 
 /** The characters of a name: letters, digits, `_` and `$` */

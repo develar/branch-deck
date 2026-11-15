@@ -206,11 +206,17 @@ export function largeCommit(): SyntheticFile[] {
 }
 
 /**
- * A commit of one file of 10,000 lines with a change every 20 lines, every fourth of them a quiet run of formatting,
- * two of every eight the ends of a move: 63 moves, half of them edited on the way
+ * The lines of the one file of `hugeFileCommit`: `PERF_HUGE_LINES` measures how a phase grows with the diff, up to the
+ * 10,000 of the default, since a change every 20 lines past it is over 1,000 changed lines, which start collapsed
+ */
+export const HUGE_LINES = Number(process.env.PERF_HUGE_LINES ?? 10_000)
+
+/**
+ * A commit of one file of 10,000 lines (`HUGE_LINES`) with a change every 20 lines, every fourth of them a quiet run of
+ * formatting, two of every eight the ends of a move: 63 moves at 10,000 lines, half of them edited on the way
  */
 export function hugeFileCommit(): SyntheticFile[] {
-  return [syntheticFile(0, { path: "core/src/main/kotlin/Huge.kt", lines: 10_000, changeEvery: 20 })]
+  return [syntheticFile(0, { path: "core/src/main/kotlin/Huge.kt", lines: HUGE_LINES, changeEvery: 20 })]
 }
 
 function sortByPath(specs: FileSpec[]): FileSpec[] {

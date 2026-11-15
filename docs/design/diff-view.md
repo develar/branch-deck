@@ -1920,7 +1920,13 @@ the current hit), and the rows, their sides, code cells and line numbers have te
   stays on one side. The one column of a row is always selectable (`:only-child`): the side of a press outlives a
   switch to Inline or Unified, where a name a reveal selects is of the one column.
 - The painter keeps the row of the anchor of a selection in the DOM while the selection lives. So the browser does
-  not lose the selection when that row leaves the view.
+  not lose the selection when that row leaves the view. A pass of the painter (a paint of the rows in view, a paint
+  of the tokens that came) reads the selection once, at the first row it asks about (`selectionOfPass`): a read of the
+  selection lays the page out, and one read per row, between the rows the pass removes or replaces, laid the page out
+  once per row. A paint of the tokens of 57 rows read it 114 times in two passes, now twice; in the profile of an H
+  with the CPU slowed 20×, the reads were 115 ms of a busy second (59 reads), the rest of the forced layouts a read of
+  the top of the view (`viewTop`) once a pass.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`a paint of the tokens of many rows reads the selection once a pass, never once a row`)
 - A new model paints every row again, and a model comes for answers a reader did not ask for: the scopes of a
   file, the marks of a subject, what the index proved of a name, seconds or minutes after the rows were shown. So
   the painter takes the selection across it (`DiffPainter.heldSelection`, `restoreHeld`): each end is the row of
@@ -2424,6 +2430,14 @@ fastest run is the nearest to a quiet machine.
 - **Open:** the time when the review root mounts (ready), when the first rows with text show, and when every visible
   row is highlighted; the long tasks until the window is quiet for 1.5 s; the DOM nodes of the view.
 - **Expand:** the time from a click on the first fold of a large file to its highlighted rows.
+- **H (show, hide):** from where the expansion left the diffs, scrolled on until a note that opens is in view, H
+  shows the old lines of the notes in view, then hides them again: the press until the page took the key, the time
+  until every note in view says so (`aria-expanded`), the long tasks and the reads of the selection meanwhile, each of
+  which lays the page out. `PERF_HUGE_LINES` sets the lines of the one file (10,000; past it a change every 20 lines is
+  over 1,000 changed lines, which start collapsed), to see a phase grow with the diff. On the developer Mac
+  (2026-11-15, Chromium, three runs at a load of 10 to 20, after the reads of the selection went to one a pass): show
+  9, 8, 9 ms and hide 6, 5, 8 ms at 2,500, 5,000 and 10,000 lines, the press 5–8 ms, no long task, no read of the
+  selection, the open 141, 152 and 180 ms: the rows of the view are painted, never the file, so H does not grow with it.
 - **Bytes:** the length of the strings and the typed arrays of each worker message, in a run of its own, because
   counting costs main-thread time.
 - **Scroll:** a scroll per frame through the diffs for 2 s, at 3 and at 20 viewports per second. It records the frame

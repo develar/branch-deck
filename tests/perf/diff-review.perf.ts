@@ -1,8 +1,10 @@
 // The time of the review window over large synthetic commits (docs/design/diff-view.md, "Performance Targets"): the
 // review root mounted, the first diff rows, the first screen highlighted, the long tasks of the main thread until it
 // is quiet, the DOM nodes and the heap, and the bytes of the worker messages, for an open and for the expansion of the
-// unchanged lines of a large file; then the frames of a scroll at 3 and at 20 viewports per second. Each commit in
-// Inline, the default layout, which the targets gate, and in Split, stored.
+// unchanged lines of a large file; then H, which shows the old lines of the notes in view and hides them again: the
+// press, the time until every note in view shows, the long tasks and the reads of the selection, each of which lays the
+// page out; then the frames of a scroll at 3 and at 20 viewports per second. Each commit in Inline, the default layout,
+// which the targets gate, and in Split, stored.
 //
 //   pnpm perf:diff                      3 runs of each scenario, a table on stdout
 //   PERF_RUNS=5 pnpm perf:diff          more runs
@@ -10,6 +12,7 @@
 //   PERF_QUIET_EVERY=0 pnpm perf:diff   the commits without a quiet run of the marks (every 4th change is one)
 //   PERF_MOVE_EVERY=0 pnpm perf:diff    the commits without a move of the marks (two changes of every 8 are its ends)
 //   PERF_RENAME_EVERY=0 pnpm perf:diff  the commits without a rename of the marks (one change of every 8 is its site)
+//   PERF_HUGE_LINES=40000 pnpm perf:diff -g "one file"   the one file of another length: how a phase grows with the diff
 //
 // The table goes to tests/results/perf/diff-review.json too. The commits are routed answers of the review's commands
 // (`get_commit_files`, `get_file_diffs` (as SSE, the way the test server streams its channel), `get_blob_texts`) with the blocks of the diff engine; the window is the
@@ -27,7 +30,7 @@ import { SPLIT_DIFFS } from "../e2e/helpers/setup-options"
 import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../e2e/helpers/sub-window-helpers"
-import { hugeFileCommit, largeCommit } from "./diff-fixtures"
+import { HUGE_LINES, hugeFileCommit, largeCommit } from "./diff-fixtures"
 import type { SyntheticFile } from "./diff-fixtures"
 
 const RUNS = Number(process.env.PERF_RUNS ?? 3)
@@ -49,12 +52,25 @@ interface PhaseMetrics {
   maxLongTaskMs: number
   bytesToWorker?: number
   bytesFromWorker?: number
+  /** H: the notes in view it toggled, the press until the page took the key, and the reads of the selection meanwhile */
+  notes?: number
+  pressMs?: number
+  selectionReads?: number
 }
 
 /** In the page: long tasks, the bytes of the worker messages when asked, and a scan of the visible diff rows */
 function installProbes(measureBytes: boolean) {
-  const probe = { longTasks: [] as [number, number][], bytesToWorker: 0, bytesFromWorker: 0, lastMessageAt: 0, scanRows }
+  const probe = { longTasks: [] as [number, number][], bytesToWorker: 0, bytesFromWorker: 0, lastMessageAt: 0, selectionReads: 0, scanRows }
   ;(window as unknown as { __perf: typeof probe }).__perf = probe
+  // a read of whether the selection selects something lays the page out: the painter reads it once a pass
+  const collapsed = Object.getOwnPropertyDescriptor(Selection.prototype, "isCollapsed")!
+  Object.defineProperty(Selection.prototype, "isCollapsed", {
+    ...collapsed,
+    get(this: Selection) {
+      probe.selectionReads++
+      return collapsed.get!.call(this)
+    },
+  })
   new PerformanceObserver(list => {
     for (const entry of list.getEntries()) {
       probe.longTasks.push([entry.startTime, entry.duration])
@@ -281,12 +297,65 @@ async function runScenario(page: Page, opened: OpenedSubWindow<BranchReviewWindo
   await button.click()
   const expand: PhaseMetrics = { highlightedMs: await timeWhen(window, "highlighted", startedAt), ...EMPTY_TASKS }
   Object.assign(expand, measureBytes ? await workerBytes(window) : await quietAndLongTasks(window, started))
+  const show = measureBytes ? undefined : await toggleNotes(window, "true")
+  const hide = measureBytes ? undefined : await toggleNotes(window, "false")
   // the frames of the same loop without a scroll: what the machine gives a frame at its load
   const still = measureBytes ? {} : await scrollFrames(window, 0)
   const scroll3 = measureBytes ? {} : await scrollFrames(window, 3)
   const scroll20 = measureBytes ? {} : await scrollFrames(window, 20)
   await window.close()
-  return { open, expand, still, scroll3, scroll20 }
+  return { open, expand, show: show ?? { ...EMPTY_TASKS, highlightedMs: 0 }, hide: hide ?? { ...EMPTY_TASKS, highlightedMs: 0 }, still, scroll3, scroll20 }
+}
+
+/**
+ * H in the diffs from where the expansion left them, scrolled on until a note that opens is in view (a quiet run, a
+ * rename): the notes in view show their old lines (`expanded` "true") or hide them ("false"). The press until the page
+ * took the key, the time until each of those notes says so, the long tasks until the window is quiet and the reads of
+ * the selection meanwhile
+ */
+async function toggleNotes(window: Page, expanded: "true" | "false"): Promise<PhaseMetrics> {
+  await window.locator("[aria-label='Changes of the commit']").focus()
+  const notes = await window.evaluate(async () => {
+    const scroller = document.querySelector<HTMLElement>("[data-testid=diff-view]")!
+    const inView = () => {
+      const view = scroller.getBoundingClientRect()
+      return [...document.querySelectorAll("[data-testid=diff-remark][aria-expanded]")].filter(note => {
+        const box = note.getBoundingClientRect()
+        return box.top >= view.top + 60 && box.bottom <= view.bottom
+      }).length
+    }
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
+    for (let step = 0; step < 200 && inView() === 0; step++) {
+      scroller.scrollTop += scroller.clientHeight / 2
+      await frame()
+      await frame()
+    }
+    return inView()
+  })
+  expect(notes, "a note that opens in view, which H toggles").toBeGreaterThan(0)
+  const [started, startedAt] = await window.evaluate(() => {
+    ;(window as unknown as { __perf: { selectionReads: number } }).__perf.selectionReads = 0
+    return [performance.now(), Date.now()] as const
+  })
+  const pressed = Date.now()
+  await window.keyboard.press("h")
+  const pressMs = Date.now() - pressed
+  const handle = await window.waitForFunction(
+    ([state, start]) => {
+      const view = document.querySelector("[data-testid=diff-view]")!.getBoundingClientRect()
+      const inView = [...document.querySelectorAll("[data-testid=diff-remark][aria-expanded]")].filter(note => {
+        const box = note.getBoundingClientRect()
+        return box.top >= view.top + 60 && box.bottom <= view.bottom
+      })
+      return inView.length > 0 && inView.every(note => note.getAttribute("aria-expanded") === state) ? Date.now() - start : false
+    },
+    [expanded, startedAt] as const,
+    { polling: "raf", timeout: 120_000 },
+  )
+  const highlightedMs = (await handle.jsonValue()) as number
+  const tasks = await quietAndLongTasks(window, started)
+  const selectionReads = await window.evaluate(() => (window as unknown as { __perf: { selectionReads: number } }).__perf.selectionReads)
+  return { highlightedMs, notes, pressMs, selectionReads, ...tasks }
 }
 
 /**
@@ -343,7 +412,7 @@ function median(values: number[]): number {
 }
 
 /** `openFastest`: the open of the run with the least highlighted time, the nearest of the runs to a quiet machine; the others are medians */
-type ScenarioResult = Record<"open" | "openFastest" | "expand" | "still" | "scroll3" | "scroll20", Record<string, number>>
+type ScenarioResult = Record<"open" | "openFastest" | "expand" | "show" | "hide" | "still" | "scroll3" | "scroll20", Record<string, number>>
 
 async function measure(page: Page, files: SyntheticFile[], expandPath: string, layout: Layout): Promise<ScenarioResult> {
   const opened = await openReviewData(page)
@@ -353,11 +422,13 @@ async function measure(page: Page, files: SyntheticFile[], expandPath: string, l
   }
   const bytes = await runScenario(page, opened, files, expandPath, true, layout)
   const result = {} as ScenarioResult
-  for (const phase of ["open", "expand"] as const) {
+  for (const phase of ["open", "expand", "show", "hide"] as const) {
     const keys = Object.keys(runs[0]![phase]) as (keyof PhaseMetrics)[]
     result[phase] = Object.fromEntries(keys.map(key => [key, Math.round(median(runs.map(run => run[phase][key] ?? Number.NaN)))]))
-    result[phase].bytesToWorker = bytes[phase].bytesToWorker ?? 0
-    result[phase].bytesFromWorker = bytes[phase].bytesFromWorker ?? 0
+    if (phase === "open" || phase === "expand") {
+      result[phase].bytesToWorker = bytes[phase].bytesToWorker ?? 0
+      result[phase].bytesFromWorker = bytes[phase].bytesFromWorker ?? 0
+    }
   }
   // the load of the machine only adds time: beside the medians, the open of the fastest run
   const fastest = runs.toSorted((a, b) => (a.open.highlightedMs ?? Number.NaN) - (b.open.highlightedMs ?? Number.NaN))[0]!.open
@@ -398,10 +469,10 @@ test.describe("Diff review performance", () => {
         results[`200 files${layout.suffix}`] = await measure(page, files, files.find(it => it.file.path.includes("/Large"))!.file.path, layout)
       })
 
-      test("a commit of one file of 10,000 lines", async ({ page }) => {
+      test(`a commit of one file of ${HUGE_LINES.toLocaleString("en-US")} lines`, async ({ page }) => {
         test.setTimeout(20 * 60_000)
         const files = hugeFileCommit()
-        results[`10k lines${layout.suffix}`] = await measure(page, files, files[0]!.file.path, layout)
+        results[`${HUGE_LINES / 1000}k lines${layout.suffix}`] = await measure(page, files, files[0]!.file.path, layout)
       })
     })
   }

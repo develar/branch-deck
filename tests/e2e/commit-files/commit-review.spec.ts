@@ -8,6 +8,7 @@ import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, g
 import { changedParts, deletedParts, diffRows, findMarks, joinedText } from "../helpers/diff-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
 import { errorLogs } from "../helpers/ipc-helpers"
+import { openMarksReview } from "../helpers/marks-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
@@ -1335,3 +1336,37 @@ simpleTest(
     await expect(review.getByTestId("diff-view")).toContainText("b@2.0.0")
   },
 )
+
+// a read of the selection lays the page out: the painter reads it once a pass, not once a row it replaces
+simpleTest("a paint of the tokens of many rows reads the selection once a pass, never once a row", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  // 150 changed lines of Kotlin: the rows in view and a viewport around them, each a row the tokens paint again
+  const repo = await setupRepo("simple")
+  const lines = (value: number) => Array.from({ length: 150 }, (_, index) => `fun line${index}() = ${value}\n`).join("")
+  await repo.commit("Add the lines", { "src/Lines.kt": lines(1) }, 1704120600)
+  await repo.pushInTerminal("master")
+  await repo.commit("(lines) change the lines", { "src/Lines.kt": lines(2) }, 1704121200)
+  await syncAndWaitForBranches()
+  // every read of whether the selection selects something, in the review page that opens next
+  await page.addInitScript(() => {
+    const reads = { count: 0 }
+    ;(window as unknown as { __selectionReads: typeof reads }).__selectionReads = reads
+    const collapsed = Object.getOwnPropertyDescriptor(Selection.prototype, "isCollapsed")!
+    Object.defineProperty(Selection.prototype, "isCollapsed", {
+      ...collapsed,
+      get(this: Selection) {
+        reads.count++
+        return collapsed.get!.call(this)
+      },
+    })
+  })
+  const release = await holdCommand(page, "get_blob_syntax")
+  const { window, code } = await openMarksReview(page, "lines", "change the lines")
+  // the rows are painted without their tokens, which the painter paints again as they come
+  const rows = diffRows(code)
+  await expect.poll(() => rows.count()).toBeGreaterThan(40)
+  await page.evaluate(() => ((window as unknown as { __selectionReads: { count: number } }).__selectionReads.count = 0))
+  release()
+  await expect(code.getByText("fun", { exact: true }).first()).toHaveCSS("color", await tokenColor(window, "--syntax-keyword"))
+  const reads = await page.evaluate(() => (window as unknown as { __selectionReads: { count: number } }).__selectionReads.count)
+  expect(reads).toBeLessThanOrEqual(4)
+})
