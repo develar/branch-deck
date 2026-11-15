@@ -69,7 +69,7 @@
       "required": ["command"],
       "properties": {
         "command": {
-          "description": "An absolute path of an executable. A relative path resolves from the directory of the file.",
+          "description": "An absolute path of an executable. A relative path resolves from the directory of the file. A path that is a place of the process that opens it, such as /proc/self/cwd/tool or /dev/fd/3, or reaches one through a link, gives the problem invalidExecutable, since air-ide would read a file of its own there.",
           "$ref": "#/$defs/ByOs"
         },
         "args": {
