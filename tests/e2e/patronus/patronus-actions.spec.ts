@@ -757,7 +757,7 @@ test.describe("Patronus actions", () => {
       status: "error",
       error: expect.objectContaining({
         code: "robot_running",
-        message: expect.stringMatching(/^Nothing was parked: A Safe Push of JIRA-456 is running \(\S+\/running-robot\): it lands JIRA-456 whatever a park says$/),
+        message: expect.stringMatching(/^Nothing was parked: a Safe Push of JIRA-456 is running \(\S+\/running-robot\): it lands JIRA-456 whatever a park says$/),
       }),
     }
     expect(await repo.invoke("prepare", { repositoryPath: repo.path, intent })).toEqual(refused)
@@ -1415,7 +1415,7 @@ test.describe("Patronus actions", () => {
         status: "error",
         error: expect.objectContaining({
           code: "patronus_refused",
-          message: "Nothing was pushed or started: Pull request #7 starts the Safe Push by its /patronus comment, which runs the default checks: it takes no profile",
+          message: "Nothing was pushed or started: pull request #7 starts the Safe Push by its /patronus comment, which runs the default checks: it takes no profile",
         }),
       })
       expect(await comments(repo)).toEqual([])

@@ -28,6 +28,7 @@ use domain_types::commit::Commit;
 use domain_types::landing::{LandDecisions, Landed, StartRoute};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
+use domain_types::operation::RunningOperation;
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
@@ -78,6 +79,18 @@ pub struct ActionSources<'a> {
 /// next steps they read
 #[must_use]
 pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources<'_>) -> BTreeMap<String, Vec<ActionState>> {
+  actions_over(state, facts, sources, state.operations())
+}
+
+/// `actions_of` without the operations of the session laid over them (`state::actions_now`): what the rules decide, for
+/// the engine that admits an operation by itself
+#[must_use]
+pub fn actions_without_operations(state: &TableState, facts: &FactStore, sources: &ActionSources<'_>) -> BTreeMap<String, Vec<ActionState>> {
+  actions_over(state, facts, sources, &[])
+}
+
+/// `actions_of` with `operations` laid over the actions
+fn actions_over(state: &TableState, facts: &FactStore, sources: &ActionSources<'_>, operations: &[RunningOperation]) -> BTreeMap<String, Vec<ActionState>> {
   let parts = &state.parts;
   let part = facts.patronus.part();
   let robots = facts.robots.view();
@@ -88,7 +101,6 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
   let listing = Listing::of_remote(&pull_requests.head, landing);
   let repository = github_repository_known(pull_requests, robots, landing);
   let sync_running = matches!(state.sync, SyncState::Running { .. });
-  let operations = state.operations();
   let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
   let push_route = matches!(route, LandingRoute::Push { .. });
   let merge_route = merges_on_github(&route, patronus_lands(facts.robots.view(), landing));
@@ -324,16 +336,6 @@ fn actions_of_robot(state: &TableState, facts: &FactStore, robot: &PatronusRobot
     cached,
   };
   robot_actions(&robot_facts)
-}
-
-/// The actions of the robot `robot_id` as `actions_of` derives them (`robot:<id>`) over the next steps `steps`, but the
-/// operations of the session laid over them, which the engine that runs one of them admits by itself
-/// (`operations::robot`: its own operation runs then); none for a robot the session lists not
-#[must_use]
-pub fn robot_actions_with(state: &TableState, facts: &FactStore, robot_id: &str, steps: &BTreeMap<String, NextStepView>) -> Option<Vec<ActionState>> {
-  let robot = facts.robots.view().robots.values().find(|robot| robot.id == robot_id)?;
-  let of_table = table_robots(&facts.patronus.part().view).contains(robot_id);
-  Some(actions_of_robot(state, facts, robot, of_table, steps, reads_cached_frame(state, facts, FrameReads::Robots)))
 }
 
 /// The branch and the branches stacked on it that aren't parked: what Push with Children reads the statuses of

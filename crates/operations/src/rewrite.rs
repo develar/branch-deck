@@ -40,6 +40,7 @@ use crate::engine::{Hosts, outcome_of, run, runs_only_in_bd};
 use crate::events::EventSink;
 use crate::registry::{Answer, OperationRequest, Registry, RunningGuard, Stepper};
 use crate::witness::{Witness, plan_changed, read_refs, under_its_lease};
+use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability};
 use domain_types::branch_names::{BranchKind, qualified_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::PlannedEffect;
@@ -64,9 +65,9 @@ use history_rewrite::reword::{RewordRequest, reword_request_core};
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use object_cache::cache::ObjectCache;
-use repository_model::derive::park_held;
 use repository_model::facts::FactStore;
 use repository_model::session::{SessionKey, Sessions, SyncTicket};
+use repository_model::state::actions_now;
 use repository_model::table::{RewriteLink, TableState};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -132,31 +133,45 @@ pub async fn prepare_rewrite(sessions: &Sessions, key: &SessionKey, rewrite: Rew
   read.transpose()
 }
 
-/// What refuses a park of `rewrite` as the menus refuse it (`ActionBlocker::ParkHeld`): a branch it parks that a robot
-/// holds now (`repository_model::derive::park_held`), which lands it whatever a park says; nothing was written then
-#[must_use]
-pub fn park_refusal(state: &TableState, facts: &FactStore, rewrite: &RewriteIntent) -> Option<ApiError> {
+/// What refuses a park of `rewrite` in the session as the menus refuse it: the Park of a branch it parks disabled by a
+/// robot that holds the branch (`park_refusal_of` of the actions of the branch, `repository_model::state::actions_now`)
+fn park_refusal(state: &TableState, facts: &FactStore, rewrite: &RewriteIntent) -> Option<ApiError> {
   let RewriteIntent::Park { branches, .. } = rewrite else {
     return None;
   };
+  let actions = actions_now(state, facts);
+  let robots = &facts.robots.view().robots;
   branches.iter().find_map(|line| {
-    let Reason::Held { hold, mode, .. } = park_held(state, facts, &line.branch_name)? else {
-      return None;
-    };
-    let url = facts
-      .robots
-      .view()
-      .robots
-      .get(&hold.by.robot_id)
-      .map_or_else(String::new, |robot| format!(" ({})", robot.url));
-    let words = format!(
-      "A {} of {} is running{url}: it lands {} whatever a park says",
-      push_mode_name(mode),
-      hold.by.subject().words(),
-      line.branch_name
-    );
-    Some(ApiError::new(ErrorCode::RobotRunning, format!("Nothing was parked: {words}")))
+    park_refusal_of(&line.branch_name, actions.get(&line.branch_name).map(Vec::as_slice), |id| {
+      robots.get(id).map(|robot| robot.url.as_str())
+    })
   })
+}
+
+/// The refusal of a park of the branch `name` by its actions as the menus have them (`actions`): its Park disabled by
+/// a robot that holds it (`ActionBlocker::ParkHeld`), which lands it whatever a park says (`robot_running`; `url_of` the
+/// robot's page by its id). Nothing was parked then. Any other state of Park is the core's to take: a branch without
+/// commits parks nothing, a parked one edits its note
+#[must_use]
+pub fn park_refusal_of<'a>(name: &str, actions: Option<&[ActionState]>, url_of: impl Fn(&str) -> Option<&'a str>) -> Option<ApiError> {
+  let park = actions?.iter().find(|action| action.id == ActionId::Park)?;
+  let Availability::Disabled {
+    reason: ActionBlocker::ParkHeld {
+      reason: Reason::Held { hold, mode, .. },
+    },
+  } = &park.availability
+  else {
+    return None;
+  };
+  let url = url_of(&hold.by.robot_id).map_or_else(String::new, |url| format!(" ({url})"));
+  Some(ApiError::new(
+    ErrorCode::RobotRunning,
+    format!(
+      "Nothing was parked: a {} of {} is running{url}: it lands {name} whatever a park says",
+      push_mode_name(*mode),
+      hold.by.subject().words()
+    ),
+  ))
 }
 
 /// `prepare_rewrite` on the table state `state`

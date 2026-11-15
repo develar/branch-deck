@@ -14,7 +14,7 @@
 //! window is the page's to know (a Tauri channel to a page that went away never fails a send, so the session can't tell
 //! which page got the patch of the table of this run): it remembers the end it saw beside the seed (`src/model/store.ts`).
 
-use crate::action_view::{ActionSources, actions_of, robot_actions_with};
+use crate::action_view::{ActionSources, actions_of, actions_without_operations};
 use crate::derive::{attention_of, github_layers_of, landed_states_of, landing_route_of, lands_of, next_steps_of, open_pull_requests_of, push_view};
 use crate::facts::FactStore;
 use crate::patch::{Now, apply_changes, changed, changes, diff_views, kept_parts, keyed_facts_change, pull_requests_change, robots_change};
@@ -184,17 +184,56 @@ struct Derived {
   route: LandingRoute,
 }
 
-/// The actions of the robot `robot_id` as the view derives them now (`robot:<id>` of `RepositoryView::actions`), over the
-/// next steps of the rows as they are, but the operations of the session over them (`robot_actions_with`), for the
-/// engine that runs its restart (`operations::robot`); none for a robot the session lists not
+/// What the next steps and the actions of a view are derived over, but the pushes and the starts: what landed each
+/// subject, the landing route, the layers of the stacks of GitHub, the open pull requests and the next steps of the rows
+struct Bases {
+  landed: BTreeMap<String, Landed>,
+  route: LandingRoute,
+  github_layers: BTreeMap<String, GitHubLayer>,
+  open: BTreeMap<String, PullRequestView>,
+  steps: BTreeMap<String, NextStepView>,
+}
+
+impl Bases {
+  fn of(state: &TableState, facts: &FactStore) -> Self {
+    let parts = &state.parts;
+    // what landed each subject, as the starts: over the table a sync leaves, its landing report with it
+    let landed = landed_states_of(state, facts);
+    let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
+    // the layers of the stacks of GitHub, over what landed: the bottom of a stack is the first branch not landed
+    let github_layers = github_layers_of(state, facts, &route, &landed);
+    let open = open_pull_requests_of(state, facts, parts.header.prefix.as_str(), &github_layers);
+    // the next steps of the rows as they are, a sync of a branch included (row 1): over the table of the last sync
+    let steps = next_steps_of(state, facts, &open, &landed);
+    Self {
+      landed,
+      route,
+      github_layers,
+      open,
+      steps,
+    }
+  }
+}
+
+/// The actions of every subject as the view derives them now (`RepositoryView::actions`, but those of the reviews), over
+/// the table and the facts as they are, the pushes and the starts too, without the operations of the session laid over
+/// them, which the engine that runs one of them admits by itself (its own operation runs then): the restart of a robot
+/// (`operations::robot`) and a park (`operations::rewrite`) are refused as the menus decide them
 #[must_use]
-pub fn robot_actions_now(state: &TableState, facts: &FactStore, robot_id: &str) -> Option<Vec<ActionState>> {
-  let parts = &state.parts;
-  let landed = landed_states_of(state, facts);
-  let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
-  let github_layers = github_layers_of(state, facts, &route, &landed);
-  let open = open_pull_requests_of(state, facts, parts.header.prefix.as_str(), &github_layers);
-  robot_actions_with(state, facts, robot_id, &next_steps_of(state, facts, &open, &landed))
+pub fn actions_now(state: &TableState, facts: &FactStore) -> BTreeMap<String, Vec<ActionState>> {
+  let bases = Bases::of(state, facts);
+  let prefix = state.parts.header.prefix.as_str();
+  let (pushes, lands) = (push_view(&state.parts, facts), lands_of(state, facts, prefix));
+  let sources = ActionSources {
+    prefix,
+    steps: &bases.steps,
+    pushes: &pushes,
+    lands: &lands,
+    open_pull_requests: &bases.open,
+    landed: &bases.landed,
+    github_layers: &bases.github_layers,
+  };
+  actions_without_operations(state, facts, &sources)
 }
 
 impl Derived {
@@ -207,16 +246,15 @@ impl Derived {
     // patch that ends it (a push waits for the sync), never resent with every status
     let syncing = matches!(state.sync, SyncState::Running { .. });
     let pushes = (!syncing).then(|| push_view(parts, facts));
-    // what landed each subject, as the starts: over the table a sync leaves, its landing report with it
-    let landed = landed_states_of(state, facts);
-    let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
-    // the layers of the stacks of GitHub, over what landed: the bottom of a stack is the first branch not landed
-    let github_layers = github_layers_of(state, facts, &route, &landed);
-    let open = open_pull_requests_of(state, facts, prefix, &github_layers);
+    let Bases {
+      landed,
+      route,
+      github_layers,
+      open,
+      steps,
+    } = Bases::of(state, facts);
     // the decisions of the starts, as the pushes: decided over the table a sync leaves, not over each of its statuses
     let lands = (!syncing).then(|| lands_of(state, facts, prefix));
-    // the next steps of the rows as they are, a sync of a branch included (row 1): over the table of the last sync
-    let steps = next_steps_of(state, facts, &open, &landed);
     // the actions of the subjects as they are, a sync included (a reason): over the steps just derived, and the pushes
     // and the starts as the view keeps them through a sync
     let sources = ActionSources {

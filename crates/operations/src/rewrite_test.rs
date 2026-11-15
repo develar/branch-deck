@@ -2,7 +2,7 @@ use crate::engine::execute;
 use crate::events::NoEvents;
 use crate::land_execute::Accepted;
 use crate::push::push_test::{Fixture, OFFLINE, alone, assert_done, fixture, on_space, registry_on, test_host, waits_for_the_agent};
-use crate::rewrite::{execute_rewrite, through_links};
+use crate::rewrite::{execute_rewrite, park_refusal_of, through_links};
 use domain_types::commit::CommitInfo;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::land_intent;
@@ -1206,4 +1206,56 @@ fn the_ids_go_through_the_newest_chain_of_rewrites_to_the_head() {
   assert_eq!(through_links(std::slice::from_ref(&drop), "h0", "h1", &beta()), Some(vec![None]));
   assert_eq!(through_links(&[drop], "h0", "h9", &beta()), None);
   assert_eq!(through_links(&[], "h0", "h0", &beta()), Some(vec![Some("beta".to_owned())]));
+}
+
+/// A park is refused where the menus disable it for a robot that holds the branch (`ActionBlocker::ParkHeld`): the robot
+/// lands it whatever a park says, named with its page; any other state of Park is the core's (a branch without commits,
+/// a parked one), and a branch without actions parks as its core decides
+#[test]
+fn a_park_of_a_branch_a_robot_holds_is_refused_as_its_menu_refuses_it() {
+  use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability};
+  use domain_types::fixtures::robot_of;
+  use domain_types::reason::Reason;
+  use domain_types::repository_view::{HoldKind, HoldView};
+  let park = |availability: Availability| {
+    vec![
+      ActionState {
+        id: ActionId::Rename,
+        availability: Availability::Enabled,
+      },
+      ActionState { id: ActionId::Park, availability },
+    ]
+  };
+  let held = |kind: HoldKind| Availability::Disabled {
+    reason: ActionBlocker::ParkHeld {
+      reason: Reason::Held {
+        branch: "auth".to_owned(),
+        hold: HoldView {
+          kind,
+          by: robot_of("oauth", "r1"),
+          carried: None,
+        },
+        mode: PatronusPushMode::RebaseAutosquash,
+        target: "master".to_owned(),
+      },
+    },
+  };
+  let url = |id: &str| (id == "r1").then_some("https://patronus.example/robot/r1");
+  let refused = park_refusal_of("auth", Some(&park(held(HoldKind::Span))), url).expect("a robot holds auth");
+  assert_eq!(
+    (refused.code, refused.message),
+    (
+      ErrorCode::RobotRunning,
+      "Nothing was parked: a Safe Push of oauth is running (https://patronus.example/robot/r1): it lands auth whatever a park says".to_owned()
+    )
+  );
+  let unknown = park_refusal_of("auth", Some(&park(held(HoldKind::Own))), |_| None).expect("a robot holds auth");
+  assert_eq!(unknown.message, "Nothing was parked: a Safe Push of oauth is running: it lands auth whatever a park says");
+  for (actions, case) in [
+    (Some(park(Availability::Enabled)), "enabled"),
+    (Some(park(Availability::Disabled { reason: ActionBlocker::NoCommits })), "no commits"),
+    (None, "no actions"),
+  ] {
+    assert_eq!(park_refusal_of("auth", actions.as_deref(), url), None, "{case}");
+  }
 }

@@ -47,7 +47,7 @@ use remote_facts::service_sources::ServiceHost;
 use repository_model::derive::{LandSources, with_land_sources};
 use repository_model::facts::listed_robots;
 use repository_model::session::{SessionKey, Sessions};
-use repository_model::state::robot_actions_now;
+use repository_model::state::actions_now;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tracing::{debug, instrument};
@@ -231,7 +231,7 @@ pub fn cancel_plan(robots: &[PatronusRobot], robot_id: &str) -> Option<Plan> {
 
 /// The plan of the restart of `robot_id` in the open session of `key`, over the facts it holds now (`restart_planned`),
 /// refused where the session offers the restart not as the menus decide it (`restart_refusal_of` of the actions of
-/// `robot:<id>`, `repository_model::state::robot_actions_now`); `None` before its Patronus view, or for a robot it
+/// `robot:<id>`, `repository_model::state::actions_now`); `None` before its Patronus view, or for a robot it
 /// offers no restart of
 ///
 /// # Errors
@@ -243,7 +243,7 @@ pub async fn prepare_restart(sessions: &Sessions, key: &SessionKey, robot_id: &s
       let planned = with_land_sources(state, facts, &prefix, |sources| restart_planned(sources, &robot_id)).flatten();
       let refusal = planned
         .as_ref()
-        .and_then(|_| restart_refusal_of(&robot_id, robot_actions_now(state, facts, &robot_id).as_deref()));
+        .and_then(|_| restart_refusal_of(&robot_id, actions_now(state, facts).get(&format!("robot:{robot_id}")).map(Vec::as_slice)));
       (planned, refusal)
     })
     .await;

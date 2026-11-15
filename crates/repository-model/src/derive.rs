@@ -1662,28 +1662,6 @@ pub(crate) fn live_hold<'a>(facts: &'a BranchPatronus, robots: &'a RobotsView, c
   hold_now(facts, |id| robots.robots.get(id), commits)
 }
 
-/// Why a park of the branch `name` is refused, as its Park of the menus is (`ActionBlocker::ParkHeld`): a robot holds
-/// the branch now (`live_hold`), which lands it whatever a park says; a robot that landed it holds nothing back. For the
-/// engine that runs the park (`operations::rewrite`)
-#[must_use]
-pub fn park_held(state: &TableState, facts: &FactStore, name: &str) -> Option<Reason> {
-  let branch = state.parts.branches.get(name)?;
-  let robots = facts.robots.view();
-  let (hold, robot) = facts
-    .patronus
-    .part()
-    .view
-    .branches
-    .get(name)
-    .and_then(|facts| live_hold(facts, robots, Some(&branch.commits)))?;
-  (hold.kind != HoldKind::Landed).then(|| Reason::Held {
-    branch: name.to_owned(),
-    hold: hold.clone(),
-    mode: robot.push_mode,
-    target: robot.target_branch.clone(),
-  })
-}
-
 /// The next step and the node of every branch of the rows of `sources` and of every whole stack that forks, by subject
 /// key (`domain_policy::next_step`, `domain_policy::landing_node`)
 #[must_use]
