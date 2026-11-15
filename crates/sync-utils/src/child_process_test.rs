@@ -291,6 +291,77 @@ fn a_scan_that_reads_no_list_confirms_nothing() {
   );
 }
 
+/// A round in which a process did not halt confirms nothing (the seam of the tests says so of the grandchild in the
+/// second round): the kill takes a third round, which confirms the tree
+#[cfg(unix)]
+#[test]
+fn a_round_in_which_a_process_did_not_halt_confirms_nothing() {
+  let dir = tempfile::tempdir().unwrap();
+  let tree = std::rc::Rc::new(std::cell::RefCell::new(Tree::new()));
+  let known = std::rc::Rc::clone(&tree);
+  crate::process_tree::seam::processes_run_on(move |round, pid| round == 1 && known.borrow().get("grandchild").is_some_and(|&(grandchild, _)| grandchild == pid));
+  let kill = kill_once_the_tree_runs(&dir, &tree).expect("the kill of the tree");
+  assert_eq!(kill.rounds.len(), 3, "{kill:?}");
+  assert!(kill.settled, "{kill:?}");
+  wait_for_the_tree(&tree.borrow(), &Some(kill));
+}
+
+/// The pids a child wrote into `pids` that `started` lacks, each with its start, read as soon as its pid is written: a
+/// pid the system gives again is no survivor; how many `started` holds
+fn record_forks(pids: &std::path::Path, started: &std::cell::RefCell<Vec<(u32, Option<u64>)>>) -> usize {
+  let written: Vec<u32> = std::fs::read_to_string(pids)
+    .unwrap_or_default()
+    .lines()
+    .filter_map(|pid| pid.trim().parse().ok())
+    .collect();
+  let mut started = started.borrow_mut();
+  for &pid in &written[started.len().min(written.len())..] {
+    started.push((pid, process_started(pid)));
+  }
+  started.len()
+}
+
+/// The child of `fake` that starts a `sleep 120` every 10 ms and writes its pid, as the system names it, into `pids`
+fn child_forking_into(dir: &tempfile::TempDir, pids: &std::path::Path) -> std::path::PathBuf {
+  let pid_of_last = if cfg!(windows) { "cat /proc/$!/winpid" } else { "echo $!" };
+  fake(dir, &format!("while :; do\n  sleep 120 &\n  {pid_of_last} >> '{}'\n  sleep 0.01\ndone", shell_path(pids)))
+}
+
+/// A child that a process outside the kill continues after its last round, with what the kill stopped below it (an
+/// external `SIGCONT`, as the `fg` of a terminal sends its group: the child may wait for a stopped `sleep 0.01`), and
+/// that forks before it is stopped again: the scan after the kill finds what it started, kills it, and the kill is not
+/// settled. No deadline but nextest's
+#[cfg(unix)]
+#[test]
+fn a_fork_after_an_external_sigcont_after_the_last_round_is_killed_and_unsettles_the_kill() {
+  let dir = tempfile::tempdir().unwrap();
+  let pids = dir.path().join("pids");
+  let child = child_forking_into(&dir, &pids);
+  let started = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+  let (outside, forks) = (pids.clone(), std::rc::Rc::clone(&started));
+  crate::process_tree::seam::when_confirmed(move |root| {
+    let before = record_forks(&outside, &forks);
+    let root_started = process_started(root).unwrap();
+    let below = crate::process_scan::descendants(root, root_started).unwrap_or_default();
+    let tree: Vec<String> = std::iter::once(root).chain(below.iter().map(|process| process.pid)).map(|pid| pid.to_string()).collect();
+    Command::new("sh").args(["-c", &format!("kill -CONT {}", tree.join(" "))]).status().unwrap();
+    while record_forks(&outside, &forks) == before {
+      std::thread::sleep(Duration::from_millis(1));
+    }
+    crate::process_scan::stop(root, root_started);
+    while crate::process_scan::halted(root) == Some(false) {
+      std::thread::sleep(Duration::from_millis(1));
+    }
+  });
+  let result = run_child_until_superseded(&mut windowless_command(child), None, &|| record_forks(&pids, &started) >= 3);
+  assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
+  let kill = last_kill().expect("the kill of the tree");
+  assert!(!kill.settled && !kill.left.is_empty(), "{kill:?}");
+  record_forks(&pids, &started);
+  let started: Vec<(u32, Option<u64>)> = started.borrow().iter().copied().filter(|(_, started)| started.is_some()).collect();
+  wait_for_the_exits(&started, "a process the child started", &Some(kill));
+}
+
 /// A child that starts a process every 10 ms while it is killed leaves none of them: what it forks while the kill scans
 /// is a child of a process that the scan stopped or the next pass finds. The kill comes after 20 starts, however long
 /// they take; no deadline but nextest's
@@ -298,23 +369,10 @@ fn a_scan_that_reads_no_list_confirms_nothing() {
 fn a_killed_child_that_keeps_forking_leaves_no_process_it_started() {
   let dir = tempfile::tempdir().unwrap();
   let pids = dir.path().join("pids");
-  let pid_of_last = if cfg!(windows) { "cat /proc/$!/winpid" } else { "echo $!" };
-  let child = fake(&dir, &format!("while :; do\n  sleep 120 &\n  {pid_of_last} >> '{}'\n  sleep 0.01\ndone", shell_path(&pids)));
-  // each process with its start, read as soon as its pid is written: a pid the system gives again is no survivor
+  let child = child_forking_into(&dir, &pids);
   let started: std::cell::RefCell<Vec<(u32, Option<u64>)>> = std::cell::RefCell::new(Vec::new());
-  let forked = || {
-    let written: Vec<u32> = std::fs::read_to_string(&pids)
-      .unwrap_or_default()
-      .lines()
-      .filter_map(|pid| pid.trim().parse().ok())
-      .collect();
-    let mut started = started.borrow_mut();
-    for &pid in &written[started.len().min(written.len())..] {
-      started.push((pid, process_started(pid)));
-    }
-    started.len()
-  };
-  let result = run_child_until_superseded(&mut Command::new(child), None, &|| forked() >= 20);
+  let forked = || record_forks(&pids, &started);
+  let result = run_child_until_superseded(&mut windowless_command(child), None, &|| forked() >= 20);
   assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
   let kill = last_kill();
   forked();

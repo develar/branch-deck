@@ -465,7 +465,10 @@ too) and every scan read the list (a list no read kept up with is no empty scan)
 and then the kill takes it from the bottom up, each process once its children have exited (zombies of their stopped
 parent), git's children before the caller kills git. Until then every process found stays stopped and alive, so what a
 round missed, at any depth (a hook's sh and its node, a fetch's `git-remote-https`), is still below a process that is
-there, and the next round finds it. The usual tree takes three scans, a git without children two. A kill whose rounds
+there, and the next round finds it. A scan after the kill finds what git started after the last round, when a process
+outside the kill continued it (an external `SIGCONT`: the job control of a terminal, as git shares the group of its
+caller), kills it and logs the kill as not settled; only a freezer would hold a git that something keeps continuing.
+The usual tree takes four scans, a git without children three. A kill whose rounds
 or waits ran out kills what it found without waiting and logs that a process may outlive it. So git dies last: a
 stopped process that outlived its parent would go to launchd or init alive, and on macOS the exits of such processes
 made the kernel send SIGHUP to the process group that git shares with the caller, the caller too. The list of the

@@ -33,13 +33,17 @@
 //! group with a stopped member, to the whole process group that the child shares with this process, this process too
 //! (the kill of a child with 20 stopped children, on every run of the macOS runners of CI and in most runs of a launchd
 //! job here, never under a terminal). A process forked before its parent stopped is a child of a process still there,
-//! so the next pass finds it. The usual tree takes three scans of the process list (a child without children two),
-//! about 4 ms each at 650 processes (the full scan, with the working directories and arguments, 17 ms), and the waits
-//! for the exits. Each signal goes only to a
+//! so the next pass finds it. The usual tree takes four scans of the process list, the one after the kill among them (a
+//! child without children three), about 4 ms each at 650 processes (the full scan, with the working directories and
+//! arguments, 17 ms), and the waits for the exits. Each signal goes only to a
 //! process that still has the start time the scan read (`process_scan::stop`, `process_scan::kill`), so a pid that the
 //! system gave again in the meantime gets none. Not found, and left running: a process whose parent exited before the
 //! kill, which the system gave to launchd or init (a daemon that detached, the child of a helper that ended), one that
-//! another user's process started, and one the scans of two rounds in a row missed.
+//! another user's process started, one the scans of two rounds in a row missed, and one the child starts after the scan
+//! that follows the kill, when a process outside the kill continues it after the last round (an external `SIGCONT`: the
+//! job control of a terminal, Ctrl+Z and `fg`, as the child shares the group of its caller). What the child started
+//! before that scan, it finds and kills, and the kill is not settled (`KillReport::left`); only a freezer would hold a
+//! child that something keeps continuing.
 //!
 //! No process group: a child stays in the foreground group of a terminal, so a login shell (`-i`) or the passphrase
 //! prompt of an ssh still reads it. On Linux `PR_SET_CHILD_SUBREAPER` would keep the orphans of a tree below this
@@ -67,9 +71,12 @@ pub struct KillReport {
   /// the last one is empty for a settled kill. The kill takes them all at its end
   pub rounds: Vec<Vec<crate::process_scan::Descendant>>,
   /// The kill made sure of the tree: a round after the first found nothing new, every scan read the list, every process
-  /// (the child too) halted, and each exited before its parent's kill. False when the rounds or the waits ran out: a
-  /// process may then outlive the kill
+  /// (the child too) halted, each exited before its parent's kill, and a scan after the kill found nothing left below
+  /// the child. False when the rounds or the waits ran out, or something was left: a process may then outlive the kill
   pub settled: bool,
+  /// What the scan after the kill still found below the child, which the kill then took without waiting: what the child
+  /// started after the last round, continued by a process outside the kill
+  pub left: Vec<crate::process_scan::Descendant>,
 }
 
 /// The longest wait of a kill for the children of a process to exit before it kills the process: a killed process
@@ -169,7 +176,9 @@ fn kill_tree(root: (u32, u64)) -> KillReport {
     let confirms = round > 0 && found.confirms();
     report.rounds.push(found.new);
     if confirms {
-      report.settled = kill_bottom_up(root.0, &tree, crate::process_scan::exited, kill, || wait_until(exit_deadline));
+      seam::confirmed(root.0);
+      let waited = kill_bottom_up(root.0, &tree, crate::process_scan::exited, kill, || wait_until(exit_deadline));
+      report.settled = waited && left_below(root, &mut report);
       return report;
     }
   }
@@ -178,6 +187,27 @@ fn kill_tree(root: (u32, u64)) -> KillReport {
   report.rounds.push(last.new);
   kill_bottom_up(root.0, &tree, crate::process_scan::exited, kill, || false);
   report
+}
+
+/// Whether a scan after the kill finds nothing below `root`: something outside the kill may have continued it after the
+/// last round (an external `SIGCONT`: the job control of a terminal, Ctrl+Z and `fg`, as the child shares the group of
+/// its caller), and what it started since is killed now, without waiting (`KillReport::left`); a scan that reads no
+/// list can't tell
+#[cfg(unix)]
+fn left_below(root: (u32, u64), report: &mut KillReport) -> bool {
+  let mut listed = crate::process_scan::descendants(root.0, root.1);
+  seam::scanned(usize::MAX, &mut listed);
+  let Some(listed) = listed else { return false };
+  report.left = listed.into_iter().filter(|process| !crate::process_scan::exited(process.pid, process.started)).collect();
+  if report.left.is_empty() {
+    return true;
+  }
+  tracing::warn!(left = ?report.left, "processes started below a killed child after the last round of its kill: killed without waiting");
+  for process in &report.left {
+    crate::process_scan::stop(process.pid, process.started);
+  }
+  kill_bottom_up(root.0, &report.left, crate::process_scan::exited, kill, || false);
+  false
 }
 
 #[cfg(unix)]
@@ -252,7 +282,7 @@ fn stopped_round(root: (u32, u64), round: usize, tree: &mut Vec<crate::process_s
   let known: Vec<(u32, u64)> = std::iter::once(root).chain(tree.iter().map(|process| (process.pid, process.started))).collect();
   let mut found_round = Round {
     new: Vec::new(),
-    not_halted: stop_all(&known, deadline),
+    not_halted: stop_all(&known, round, deadline),
     unread: false,
   };
   for _ in 0..MAX_PASSES {
@@ -273,7 +303,7 @@ fn stopped_round(root: (u32, u64), round: usize, tree: &mut Vec<crate::process_s
     }
     found_round
       .not_halted
-      .extend(stop_all(&found.iter().map(|process| (process.pid, process.started)).collect::<Vec<_>>(), deadline));
+      .extend(stop_all(&found.iter().map(|process| (process.pid, process.started)).collect::<Vec<_>>(), round, deadline));
     tree.extend(found.iter().copied());
     found_round.new.extend(found);
   }
@@ -281,13 +311,18 @@ fn stopped_round(root: (u32, u64), round: usize, tree: &mut Vec<crate::process_s
 }
 
 /// Stops each of `processes` and waits until each has halted or gone, or `deadline` passed; the ones that did not halt
+/// in `round`
 #[cfg(unix)]
-fn stop_all(processes: &[(u32, u64)], deadline: std::time::Instant) -> Vec<(u32, u64)> {
+fn stop_all(processes: &[(u32, u64)], round: usize, deadline: std::time::Instant) -> Vec<(u32, u64)> {
   for &(pid, started) in processes {
     crate::process_scan::stop(pid, started);
   }
   let mut not_halted = Vec::new();
   for &(pid, started) in processes {
+    if seam::runs_on(round, pid) {
+      not_halted.push((pid, started));
+      continue;
+    }
     while crate::process_scan::is_running(pid, Some(started)) && crate::process_scan::halted(pid) == Some(false) {
       if std::time::Instant::now() >= deadline {
         tracing::warn!(pid, "a process of a killed tree did not stop in time: the kill goes on with another round");
@@ -310,11 +345,19 @@ pub(crate) mod seam {
   type AfterSpawn = Box<dyn Fn()>;
   #[cfg(unix)]
   type Scanned = Box<dyn FnMut(usize, &mut Option<Vec<Descendant>>)>;
+  #[cfg(unix)]
+  type RunsOn = Box<dyn Fn(usize, u32) -> bool>;
+  #[cfg(unix)]
+  type Confirmed = Box<dyn FnMut(u32)>;
 
   thread_local! {
     static AFTER_SPAWN: RefCell<Option<AfterSpawn>> = const { RefCell::new(None) };
     #[cfg(unix)]
     static SCANNED: RefCell<Option<Scanned>> = const { RefCell::new(None) };
+    #[cfg(unix)]
+    static RUNS_ON: RefCell<Option<RunsOn>> = const { RefCell::new(None) };
+    #[cfg(unix)]
+    static CONFIRMED: RefCell<Option<Confirmed>> = const { RefCell::new(None) };
     #[cfg(all(test, unix))]
     pub(crate) static LAST_KILL: RefCell<Option<super::KillReport>> = const { RefCell::new(None) };
   }
@@ -346,6 +389,33 @@ pub(crate) mod seam {
     SCANNED.with(|cell| {
       if let Some(change) = cell.borrow_mut().as_mut() {
         change(round, listed);
+      }
+    });
+  }
+
+  /// The kills of this thread take a process for which `runs_on` says true, with the round, for one that did not halt
+  #[cfg(all(test, unix))]
+  pub(crate) fn processes_run_on(runs_on: impl Fn(usize, u32) -> bool + 'static) {
+    RUNS_ON.with(|cell| *cell.borrow_mut() = Some(Box::new(runs_on)));
+  }
+
+  #[cfg(unix)]
+  pub(super) fn runs_on(round: usize, pid: u32) -> bool {
+    RUNS_ON.with(|cell| cell.borrow().as_ref().is_some_and(|runs_on| runs_on(round, pid)))
+  }
+
+  /// The kills of this thread run `confirmed` with the pid of the child once their rounds confirmed the tree, before they
+  /// kill it: what a process outside the kill may do then
+  #[cfg(all(test, unix))]
+  pub(crate) fn when_confirmed(confirmed: impl FnMut(u32) + 'static) {
+    CONFIRMED.with(|cell| *cell.borrow_mut() = Some(Box::new(confirmed)));
+  }
+
+  #[cfg(unix)]
+  pub(super) fn confirmed(root: u32) {
+    CONFIRMED.with(|cell| {
+      if let Some(confirmed) = cell.borrow_mut().as_mut() {
+        confirmed(root);
       }
     });
   }
