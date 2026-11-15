@@ -1,0 +1,2 @@
+Touched by every publish of the Air build of the page (`airBuild` of vite.config.ts): its build script
+(build.rs) reruns on it and copies the new build into `brd mcp`. The content never changes.

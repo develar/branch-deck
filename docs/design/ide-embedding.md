@@ -222,10 +222,14 @@ sequenceDiagram
   `__INIT_DATA__`, `__SUB_WINDOW_OPEN__`, `__BD_TITLE_BAR__`), installs the shim and runs `src/main.tsx` on the page of
   its view (`main` is `/`). `vite build --mode air` writes `dist-air/`, which `brd mcp` embeds and serves as
   `ui://branch-deck/<path>`, `index.html` for every view; the chunks and the highlight worker stay files of their own
-  (no blob worker: the CSP of SEP-1865 refuses it). `pnpm build:air` (`scripts/build-air.mjs`) builds into
-  `target/dist-air.next/` and moves the build into the place of `dist-air/` whole, and the build script of `mcp-host`
-  copies the files into `OUT_DIR`, whose copies rustc reads: a cargo build beside a build of the page (the global setup
-  of the e2e tests beside nextest or clippy) never reads it half-written ("couldn't read dist-air/assets/…").
+  (no blob worker: the CSP of SEP-1865 refuses it). Each build goes into a directory of its own,
+  `target/dist-air.builds/<time>-<pid>/`, and `dist-air` becomes a link to it once it is finished, by one rename of a
+  new link (on Windows a junction, removed first; `scripts/air-dist.mjs`, called by the plugin `airBuild` of
+  vite.config.ts); the last two builds before it stay. The build script of `mcp-host` resolves the link once and copies
+  that build into `OUT_DIR`, whose copies rustc reads (`crates/mcp-host/build/air_build.rs`): a cargo build beside a
+  build of the page (the global setup of the e2e tests beside nextest or clippy) never reads half a build ("couldn't
+  read dist-air/assets/…"). Each publish touches `crates/mcp-host/air-build.stamp`, on which the build script reruns,
+  so a build that came after a cargo build found none is copied by the next one.
   - `src/platform/tauri-page.ts`: the internals of Tauri without the shell (`__TAURI_INTERNALS__`, the listeners of the
     event plugin, the table of the channels of `crates/app-api/commands.json`), installed by the page of the IDE and by
     the page mock of the E2E tests alike.

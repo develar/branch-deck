@@ -614,8 +614,9 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
 
 The Air build (`dist-air/`, [IDE Embedding](ide-embedding.md)) runs in a fake IDE, `tests/e2e/air-host/`, with no mock
 of Tauri: the page runs on its own shim (`src/platform/air/`). The global setup builds `dist-air/` beside `dist/`
-(`pnpm build:air`, by the same hash of the inputs), which takes the place of the last build whole
-([IDE Embedding](ide-embedding.md)).
+(`pnpm build:air`, by the same hash of the inputs), a new directory that `dist-air` links to once it is finished
+([IDE Embedding](ide-embedding.md)). A second `pnpm e2e` in the same checkout refuses at its global setup
+(`target/e2e-run.lock`): its build of `dist/` would empty it under the pages of the first.
 
 - **The fake IDE** (`openFakeIde` of `fake-host.ts`): one page of the test server's origin (its `/health`, then the
   content of the host page), so its WebSocket to the server is a loopback one. Each view is a frame at the origin of the

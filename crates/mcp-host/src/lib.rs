@@ -13,6 +13,13 @@
 //! - `resources`: the page and the files of the Air build, built into the binary.
 //! - `process`: the context of the process on the services of the app and its data directories, and the stdio loop.
 
+// the module of the build script that reads the Air build of the page, here for its test
+#[cfg(test)]
+#[path = "../build/air_build.rs"]
+mod air_build;
+#[cfg(test)]
+#[path = "air_build_test.rs"]
+mod air_build_test;
 pub mod hosts;
 pub mod link;
 pub mod mirror;

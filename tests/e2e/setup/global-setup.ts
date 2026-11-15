@@ -1,6 +1,6 @@
 import { execFileSync, execSync } from "child_process"
 import { createHash } from "crypto"
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs"
 import { chromium } from "@playwright/test"
 import type { FullConfig } from "@playwright/test"
 import { TEST_SERVER_PORT, TEST_SERVER_URL } from "../helpers/test-server-url"
@@ -74,8 +74,9 @@ const BUILD_INPUTS = [
 
 /**
  * The builds of the page: `dist/` of the desktop app, which the test server serves, and `dist-air/` of the page in the
- * IDE (`vite build --mode air`), which the fake IDE of `tests/e2e/air/` serves at the origin of the app. Each keeps the
- * hash of the inputs it was built from, written after the build; a build empties its directory, and with it the file
+ * IDE (`vite build --mode air`, a link to the newest of its builds: scripts/air-dist.mjs), which the fake IDE of
+ * `tests/e2e/air/` serves at the origin of the app. Each keeps the hash of the inputs it was built from, written after
+ * the build; a build of `dist/` empties it, and with it the file, and a build of the Air page is a new directory
  */
 const BUILDS = [
   { command: "pnpm build", builtInputs: "dist/.e2e-build-inputs" },
@@ -144,6 +145,49 @@ function buildFrontend() {
   console.log(`[Global Setup] Built the frontend in ${((Date.now() - started) / 1000).toFixed(1)} s`)
 }
 
+/** The run of `pnpm e2e` that holds this checkout: its pid */
+const RUN_LOCK = "target/e2e-run.lock"
+
+/**
+ * Takes the checkout for this run, until its process ends: a second `pnpm e2e` in it, also on another port, refuses at
+ * once, for its global setup would build `dist/` anew under the pages of the first. A lock whose run has ended (its
+ * process gone) is taken over
+ */
+function lockCheckout() {
+  mkdirSync("target", { recursive: true })
+  for (;;) {
+    try {
+      writeFileSync(RUN_LOCK, String(process.pid), { flag: "wx" })
+      break
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw error
+      }
+    }
+    const holder = Number(readBuiltInputs(RUN_LOCK))
+    if (Number.isInteger(holder) && holder > 0 && holder !== process.pid && isAlive(holder)) {
+      throw new Error(
+        `Another pnpm e2e runs in this checkout (pid ${holder}): one at a time, as its global setup builds dist/ under the other. Wait for it, or run in another checkout`,
+      )
+    }
+    rmSync(RUN_LOCK, { force: true })
+  }
+  process.on("exit", () => {
+    if (readBuiltInputs(RUN_LOCK) === String(process.pid)) {
+      rmSync(RUN_LOCK, { force: true })
+    }
+  })
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM"
+  }
+}
+
 /**
  * Global setup for Playwright tests
  * This runs once before all tests and builds the frontend and sets up the test environment
@@ -151,6 +195,7 @@ function buildFrontend() {
 async function globalSetup(_config: FullConfig) {
   console.log("[Global Setup] Initializing test environment...")
 
+  lockCheckout()
   ensureChromium()
   buildFrontend()
 

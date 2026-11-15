@@ -89,7 +89,7 @@ jobs:
 
       - name: Check macOS release credential handling
         if: runner.os == 'macOS'
-        run: pnpm exec node --test scripts/release-signing.test.mjs scripts/slowest-tests.test.mjs scripts/e2e-steps.test.mjs
+        run: pnpm exec node --test scripts/release-signing.test.mjs scripts/slowest-tests.test.mjs scripts/e2e-steps.test.mjs scripts/air-dist.test.mjs
 
       # `cargo fetch`: a test link into psi-syntax is read in the checkout cargo fetched (`cargo metadata --offline`),
       # and no build has fetched the dependencies yet
