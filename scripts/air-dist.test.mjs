@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
@@ -54,6 +54,18 @@ test("the first publish moves a directory dist-air of a build in place aside and
   publishAirBuild(root, build(root, "000000000000001-1"))
   assert.equal(readFileSync(join(root, "dist-air", "index.html"), "utf8"), "000000000000001-1")
   assert.deepEqual(readdirSync(join(root, AIR_BUILDS)), ["000000000000001-1"])
+})
+
+test("a publish removes the links of publishes that stopped between their steps a minute ago, not a newer one", () => {
+  const { root } = checkout()
+  const builds = join(root, AIR_BUILDS)
+  const first = build(root, "000000000000001-1")
+  const stale = join(builds, `link-4242-${Date.now() - 120_000}`)
+  const fresh = join(builds, `link-4343-${Date.now()}`)
+  symlinkSync(first, stale)
+  symlinkSync(first, fresh)
+  publishAirBuild(root, build(root, "000000000000002-1"))
+  assert.deepEqual(readdirSync(builds).sort(), ["000000000000001-1", "000000000000002-1", `link-4343-${fresh.slice(fresh.lastIndexOf("-") + 1)}`])
 })
 
 test("a build without its index.html is not published", () => {

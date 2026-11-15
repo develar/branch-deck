@@ -110,3 +110,33 @@ fn a_link_to_a_removed_build_is_no_build() {
   let files = copy_build(&dist, &dir.path().join("builds"), &dir.path().join("copies"), Duration::from_secs(2)).unwrap();
   assert_eq!(files, Vec::new());
 }
+
+/// A publish link `link-<pid>-<time>` in the builds, `age` old
+fn publish_link(builds: &Path, age: Duration) -> std::path::PathBuf {
+  std::fs::create_dir_all(builds).unwrap();
+  let time = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().saturating_sub(age);
+  let link = builds.join(format!("link-4242-{}", time.as_millis()));
+  std::fs::write(&link, "").unwrap();
+  link
+}
+
+/// A publish that stopped between its two steps a minute ago left its link and no `dist-air`: no build, the stub
+/// page, never a failure of the build that waits for a publish no one runs
+#[test]
+fn the_link_of_a_publish_that_stopped_a_minute_ago_is_no_publish() {
+  let dir = tempfile::tempdir().unwrap();
+  let builds = dir.path().join("builds");
+  publish_link(&builds, Duration::from_secs(120));
+  let files = copy_build(&dir.path().join("dist-air"), &builds, &dir.path().join("copies"), Duration::from_secs(2)).unwrap();
+  assert_eq!(files, Vec::new());
+}
+
+/// A publish between its two steps: the copy waits for it, and one that never ends fails with the way to a build
+#[test]
+fn a_publish_that_never_moves_its_build_in_fails_the_copy_with_the_way_to_build_it() {
+  let dir = tempfile::tempdir().unwrap();
+  let builds = dir.path().join("builds");
+  publish_link(&builds, Duration::ZERO);
+  let error = copy_build(&dir.path().join("dist-air"), &builds, &dir.path().join("copies"), Duration::from_millis(100)).unwrap_err();
+  assert!(error.contains("`pnpm build:air` builds it again"), "{error}");
+}

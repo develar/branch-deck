@@ -10,7 +10,7 @@
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The prefix of the link a publish creates beside the builds before it renames it into the place of `dist-air`: one
 /// there while `dist-air` is missing is a publish between its two steps (Windows), which the copy waits for
@@ -18,6 +18,10 @@ pub(crate) const PUBLISH_LINK_PREFIX: &str = "link-";
 
 /// How long a copy waits between two attempts: the next build is moved in at once, not written meanwhile
 const ATTEMPT_WAIT: Duration = Duration::from_millis(25);
+
+/// How old a publish link may be (`link-<pid>-<time in ms>`): one older is of a publish that stopped between its two
+/// steps, which no copy waits for; the next publish removes it (`STALE_LINK_MS` of `scripts/air-dist.mjs`, the same)
+const STALE_PUBLISH_LINK: Duration = Duration::from_secs(60);
 
 /// The paths the build script reruns on: the stamp, which every publish touches and which is in the repository, so the
 /// script never reruns on every build while no build of the page is there; and the build itself when there is one, so
@@ -31,9 +35,10 @@ pub(crate) fn rerun_paths(dist: &Path, stamp: &Path) -> Vec<PathBuf> {
 }
 
 /// The files of the build `dist` names copied into `copies`, by their path in it, sorted; none without a build (none
-/// yet, or a link to a build `cargo clean` removed). The link is resolved once, so the copy is of one build; one whose
-/// files went while they were copied (its build pruned, or a directory written in place) and a `dist` missing while a
-/// publish link waits in `builds` are copied again after a short wait, for at most `patience`
+/// yet, a link to a build `cargo clean` removed, or the link of a publish that stopped between its steps a minute ago).
+/// The link is resolved once, so the copy is of one build; one whose files went while they were copied (its build
+/// pruned, or a directory written in place) and a `dist` missing while a fresh publish link waits in `builds` are copied
+/// again after a short wait, for at most `patience`
 pub(crate) fn copy_build(dist: &Path, builds: &Path, copies: &Path, patience: Duration) -> Result<Vec<(String, PathBuf)>, String> {
   let deadline = Instant::now() + patience;
   loop {
@@ -50,14 +55,25 @@ pub(crate) fn copy_build(dist: &Path, builds: &Path, copies: &Path, patience: Du
         return Ok(files);
       }
       Err(error) if error.kind() == ErrorKind::NotFound && Instant::now() < deadline => std::thread::sleep(ATTEMPT_WAIT),
-      Err(error) => return Err(format!("cannot copy the Air build {}: {error}", dist.display())),
+      Err(error) => return Err(format!("cannot copy the Air build {}: {error}; `pnpm build:air` builds it again", dist.display())),
     }
   }
 }
 
-/// A publish link waits in `builds`: `dist-air` is between its two steps
+/// A publish link younger than `STALE_PUBLISH_LINK` waits in `builds`: `dist-air` is between the two steps of a publish
 fn publishing(builds: &Path) -> bool {
-  std::fs::read_dir(builds).is_ok_and(|entries| entries.flatten().any(|entry| entry.file_name().to_string_lossy().starts_with(PUBLISH_LINK_PREFIX)))
+  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+  std::fs::read_dir(builds).is_ok_and(|entries| {
+    entries.flatten().any(|entry| {
+      let name = entry.file_name();
+      let name = name.to_string_lossy();
+      let time = name
+        .strip_prefix(PUBLISH_LINK_PREFIX)
+        .and_then(|rest| rest.rsplit('-').next())
+        .and_then(|time| time.parse::<u64>().ok());
+      time.is_some_and(|time| now.saturating_sub(Duration::from_millis(time)) <= STALE_PUBLISH_LINK)
+    })
+  })
 }
 
 fn remove_copies(copies: &Path) -> Result<(), String> {
