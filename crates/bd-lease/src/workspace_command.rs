@@ -167,7 +167,7 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
     top_level: answer.top_level,
     subdir: answer.subdir,
     shared_checkout: answer.shared_checkout,
-    home: this_lease.map(|lease| LeaseHomeOutput::new(&lease.home, answer.home_switched.clone())),
+    home: this_lease.map(|lease| LeaseHomeOutput::new(&lease.home, answer.home_switched.clone(), answer.build_config_changed)),
     lease_id: this_lease.map(|lease| lease.lease_id.clone()),
     holder: this_lease.map(|lease| lease.holder.clone()),
     local_changes: answer.local_changes,

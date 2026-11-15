@@ -1,4 +1,5 @@
-//! Which paths differ between two trees, and which commits change some paths: the path facts of an update and its resolve rounds.
+//! Which paths differ between two trees, also since the merge base of two commits, and which commits change some paths:
+//! the path facts of an update and its resolve rounds, and of the build config of a lease (`brd workspace`).
 
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
@@ -59,7 +60,7 @@ pub(crate) fn parse_commits(output: &str) -> Vec<UpdateCommit> {
 
 /// A path that differs between two trees, with its side in the old tree
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ChangedPath {
+pub struct ChangedPath {
   /// `A`, `D`, `M` or `T`: renames are a delete and an add
   pub(crate) status: char,
   /// The mode and the blob in the old tree, `000000` and the null id for an added path
@@ -77,9 +78,19 @@ impl ChangedPath {
     self.status == 'A'
   }
 
-  /// The blob in the old tree
-  pub(crate) fn old_id(&self) -> &str {
+  /// The blob in the old tree, the null id for an added path
+  pub fn old_id(&self) -> &str {
     &self.old_id
+  }
+
+  /// The blob in the new tree, the null id for a deleted path
+  pub fn new_id(&self) -> &str {
+    &self.new_id
+  }
+
+  /// As git stores it, not necessarily UTF-8
+  pub fn path(&self) -> &[u8] {
+    &self.path
   }
 }
 
@@ -95,11 +106,29 @@ pub(crate) fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, 
   let output = git_executor
     .cmd(&["diff-tree", "-r", "-z", "--no-renames", "--end-of-options", from, to], repo_path)
     .bytes()?;
+  parse_changed_paths(&output, |_| true)
+}
+
+/// The paths that `to` changed since its merge base with `from` (`diff-tree -r -z --no-renames --merge-base`, raw
+/// format), the ones that `keep` takes only, in git's order. Every failure is an error: no merge base, a ref that is
+/// not there
+pub fn changed_paths_since_fork(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str, keep: impl FnMut(&[u8]) -> bool) -> Result<Vec<ChangedPath>> {
+  let output = git_executor
+    .cmd(&["diff-tree", "-r", "-z", "--no-renames", "--merge-base", "--end-of-options", from, to], repo_path)
+    .bytes()?;
+  parse_changed_paths(&output, keep)
+}
+
+/// The raw entries of `diff-tree -r -z` (`:<old mode> <new mode> <old id> <new id> <status>`, then the path), the
+/// entries whose path `keep` takes only: an entry it drops is never built
+fn parse_changed_paths(output: &[u8], mut keep: impl FnMut(&[u8]) -> bool) -> Result<Vec<ChangedPath>> {
   let mut fields = output.split(|&b| b == 0).filter(|field| !field.is_empty());
   let mut paths = Vec::new();
-  // `:<old mode> <new mode> <old id> <new id> <status>`, then the path
   while let Some(meta) = fields.next() {
     let path = fields.next().ok_or_else(|| anyhow!("Unexpected diff-tree output: no path after {:?}", meta.as_bstr()))?;
+    if !keep(path) {
+      continue;
+    }
     let mut meta = meta.to_str()?.trim_start_matches(':').split(' ');
     let (Some(old_mode), Some(_), Some(old_id), Some(new_id), Some(status)) = (meta.next(), meta.next(), meta.next(), meta.next(), meta.next()) else {
       bail!("Unexpected diff-tree output: {:?}", output.as_bstr());
@@ -114,3 +143,7 @@ pub(crate) fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, 
   }
   Ok(paths)
 }
+
+#[cfg(test)]
+#[path = "paths_test.rs"]
+mod paths_test;

@@ -1650,10 +1650,12 @@ fn the_host_slots_lend_give_back_and_shrink() {
 }
 
 /// `brd workspace` in the shared checkout: the repository, the `branchdeck.*` config, the pool config and one `status` of
-/// the checkout; in a lease the same without the pool config, the `status` of the shared checkout
+/// the checkout; in a lease the same without the pool config, the `status` of the shared checkout and one `diff-tree`
+/// since the fork point, with one `cat-file` for every build config file that the home branch changed
 #[test]
 fn a_workspace() {
   let repo = repo_with_branches();
+  repo.create_commit_with_files("Add the build config", &[(".cargo/config.toml", "[build]\n"), ("Cargo.toml", "[profile.dev]\ndebug = 1\n")]);
   let (_home, environment) = lease_environment(&repo);
   // bd's git, with the empty global config of the test
   let git = counted_git(&environment).unwrap();
@@ -1666,7 +1668,16 @@ fn a_workspace() {
   let git = counted_git(&environment).unwrap();
   let output = workspace_with(&git, &environment, Some(std::path::Path::new(&got.path))).unwrap();
   assert_eq!(output.lease_id.as_deref(), Some(got.lease_id.as_str()));
-  assert_git_processes(&git, &[("config", 1), ("rev-parse", 2), ("status", 1)]);
+  assert_git_processes(&git, &[("config", 1), ("diff-tree", 1), ("rev-parse", 2), ("status", 1)]);
+
+  repo.create_commit_with_files(
+    "Build without debug info",
+    &[(".cargo/config.toml", "[build]\njobs = 1\n"), ("Cargo.toml", "[profile.dev]\ndebug = 0\n")],
+  );
+  let git = counted_git(&environment).unwrap();
+  let output = workspace_with(&git, &environment, Some(std::path::Path::new(&got.path))).unwrap();
+  assert_eq!(output.home.unwrap().build_config_changed, [".cargo/config.toml", "Cargo.toml"]);
+  assert_git_processes(&git, &[("cat-file", 1), ("config", 1), ("diff-tree", 1), ("rev-parse", 2), ("status", 1)]);
 }
 
 /// A repository with a commit on master, the pool in a temporary home, which lives as long as its guard, and a lease of

@@ -8,6 +8,8 @@
 //!   pool lock, the lock of the `worktree` commands, and the clones lock, by which a pool adds one slot at a time
 //! - `agent_workspace`: where a coding agent works and how it writes a subject (`brd workspace`), before its first edit;
 //!   the agent rules of the global git config (`agent_defaults`, `brd install` and the app's Install Agent CLI)
+//! - `build_config`: the build config that the home branch of a lease changed since the lease forked from it, which
+//!   `brd workspace` names, so the holder follows before its next build
 //! - `host_slots`: the slots that the agent of `brd-host` keeps for the runs of other machines, plain leases of the
 //!   holders `brd-host/<n>`, and the lend table that lends each to one run at a time, gives it back, cleans and shrinks
 //!   it
@@ -44,6 +46,7 @@
 
 pub mod agent_workspace;
 mod bazel_servers;
+pub mod build_config;
 pub mod check_record;
 pub mod clone_dir;
 pub mod epoch;

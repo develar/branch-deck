@@ -2140,7 +2140,8 @@ Run by an agent before its first edit or commit (the skill says so; the contract
 [brd workspace](../../openspec/specs/cli/workspace/spec.md)). Read only: `lease_pool::agent_workspace`, one `rev-parse`, one
 `git config` of the `branchdeck.*` keys, in the main worktree one more of the pool config, in the main worktree or a
 lease one `status` of the shared checkout, and in a lease one more `rev-parse` of the branch the shared checkout has
-checked out now. Three rules of the git config, each `{on, source, invalid, reason}`:
+checked out now. In a lease with a home branch, one `diff-tree` since the fork point runs beside the `status`, and one
+`cat-file` only when it names a build config file. Three rules of the git config, each `{on, source, invalid, reason}`:
 
 - `lease`: `branchdeck.agentLease`, on by default. Work in a lease of the pool, land each commit that builds and passes
   its tests at once with `brd lease pick`, return the lease when done. Off with a `reason` in a linked worktree outside the
@@ -2162,7 +2163,10 @@ checked out now. Three rules of the git config, each `{on, source, invalid, reas
 sets the global value and the repository's own in Settings → Agents, or with `git config [--global]`. `kind` is
 `main`, `linked`, `lease` or `none`; `subdir` where brd runs below the top level; `shared_checkout` the checkout the
 commits land on (the main worktree, or the source of this lease); in a lease `home` as `brd lease get` prints it, with
-`switched_to` when the shared checkout has another branch checked out now (`null`: detached); `lease_id` and `holder` this slot's lease;
+`switched_to` when the shared checkout has another branch checked out now (`null`: detached), and
+`build_config_changed` when the home branch changed the build config since the lease forked (the cargo config and the
+toolchain at any depth, the `profile` table of a `Cargo.toml`, the `[host]` table of `.branchdeck.toml`), which the
+lease has in another form: its builds use the old config until `brd lease pick` moves it onto the tip; `lease_id` and `holder` this slot's lease;
 `local_changes` the number of local changes of the shared checkout, which a lease lacks; `active_leases` every ready
 lease of the pool (`lease_id`, `holder`, `path`, `holder_alive`, `idle` for one whose holder is gone); in a slot taken
 over from a dead holder, another session's `brd workspace` is `lease_reclaimed`; `next` the commands to run, in order:

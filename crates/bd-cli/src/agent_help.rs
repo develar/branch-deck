@@ -326,6 +326,9 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
      `home.switched_to`). `no_home_branch` (exit 4): the lease was cut from a detached HEAD, no branch is named; ask
      the user where the commits go. `no_lease` (exit 2): run it inside your lease. `resolve_in_progress` (exit 4): the
      session of its conflict is still open; finish or close it first.
+     In the lease, `brd workspace` names `home.build_config_changed` when `home.branch` changed the build config since
+     the lease forked: your builds use the old config, so run `brd lease pick` before the next build, once your commits
+     pass their tests.
    - `unchecked_tree` (exit 4), of `brd lease pick` and `brd pick` alike: the repository sets `pick_requires_check` in
      `.branchdeck.toml`, and no green build or test recorded the tree of your HEAD (the check tool writes
      `bd-checks.jsonl`; a raw build writes nothing); run the build and the tests on this tree, then pick again. A pick
@@ -877,6 +880,9 @@ wins over it:
   name of this session) and edit, build and commit only in its `path` (and `subdir` there). Its `next` (and
   `brd workspace` inside it) names the rest: land each commit that builds and passes its tests at once with
   `brd -C <path> lease pick`, onto the branch of `home`; a conflict comes back to you, `conflict.next` says what to do.
+  In your lease, run `brd workspace` again when the session resumes and before a full build or test run. When its
+  `home.build_config_changed` names files, your builds use an old build config: run `brd -C <path> lease pick` before
+  the build, once your commits pass their tests, or at once when nothing is unlanded.
   Once the task is done and every commit landed, `brd lease return --lease-id <lease_id>`. Never `git rebase` or
   `git merge` into the shared checkout, and never `brd update` in a lease. Return only your own lease, never one of
   `active_leases` that another session holds. A lease lacks the `local_changes` of the shared checkout: when the task

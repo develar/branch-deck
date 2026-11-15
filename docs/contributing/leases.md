@@ -46,7 +46,9 @@ Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<
   A leased worktree is never handed out again.
 - **Inside**: the rules of the main checkout apply (`.githooks/` via the shared `core.hooksPath`, `cargo nextest`).
   `node_modules` and `target/` survive a reuse; on macOS a new slot is an APFS clone of a free slot or of the main
-  checkout, so it starts with them too. Run `pnpm install` when `pnpm-lock.yaml` changed.
+  checkout, so it starts with them too. Run `pnpm install` when `pnpm-lock.yaml` changed. Run `brd workspace` in the
+  lease when the session resumes and before a full build. When it names `home.build_config_changed`, the builds use an
+  old build config, and `brd lease pick` moves the lease onto the tip.
 - **Rust cache**: every checkout keeps its own `target/`; never a shared `CARGO_TARGET_DIR` or `build.build-dir`: the
   unit hash of a workspace crate does not depend on the checkout's path, so worktrees would overwrite each other's
   units. Cargo never deletes a stale unit, so the return of a lease applies the clean rules of `.branchdeck.toml` (the

@@ -12,7 +12,8 @@
 //! - `commit_utils`: commits by id from one `log --no-walk --stdin`; the empty tree and blob ids without a process
 //! - `cat_file_batch`: many objects from one `cat-file --batch --buffer -Z`, streamed; types from `--batch-check`
 //! - `object_texts`: the bytes, texts and tree entries of many names, through `cat_file_batch`
-//! - `paths`: the paths two trees differ in, as bytes; the commits that change some paths
+//! - `paths`: the paths two trees differ in, as bytes, also since the merge base of two commits; the commits that change
+//!   some paths
 //! - `notes`: the mapping notes of the sync (original commit -> its virtual copy) and the notes of many commits, with
 //!   their committer times and subjects; the source and the resolve a note records are `domain_types::commit`'s
 //! - `attributes`: the git attributes of paths at a tree-ish, one `check-attr --stdin -z`

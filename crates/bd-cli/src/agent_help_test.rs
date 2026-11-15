@@ -455,6 +455,13 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_brd_fails_and_in_a_sandbox()
   let rule_end = rule_start + 2 + skill[rule_start + 2..].find("\n- ").unwrap();
   let rule = &skill[rule_start..rule_end];
   assert!(rule.contains("`brd -C <path> lease pick`"), "{rule}");
+  // a long session runs `brd workspace` in its lease again, so it learns that its builds use an old build config
+  assert!(
+    rule.contains(
+      "In your lease, run `brd workspace` again when the session resumes and before a full build or test run. When its\n  `home.build_config_changed` names files, your builds use an old build config: run `brd -C <path> lease pick` before\n  the build, once your commits pass their tests, or at once when nothing is unlanded."
+    ),
+    "{rule}"
+  );
   for agent_word in ["Claude", "Codex", "Junie", "EnterWorktree", "request_permissions"] {
     assert!(!rule.contains(agent_word), "the rule of the lease names `{agent_word}`: {rule}");
   }

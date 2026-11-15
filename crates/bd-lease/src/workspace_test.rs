@@ -1,5 +1,5 @@
-use crate::lease_test::{Fixture, path_of};
-use bd_cli::fixture_test::{canonical, git};
+use crate::lease_test::{Fixture, path_of, slot_git};
+use bd_cli::fixture_test::{PREFIX, canonical, git};
 use bd_core::bd_command::{CLI_NAME, shell_word};
 use domain_types::landing_route::AGENT_PULL_REQUEST_OFF_UNDER_PUSH;
 use pretty_assertions::assert_eq;
@@ -188,4 +188,157 @@ fn a_pool_that_cant_be_written_turns_the_lease_off() {
   assert_eq!((&output["lease"]["on"], &output["next"]), (&json!(false), &json!([])));
   let reason = output["lease"]["reason"].as_str().unwrap();
   assert!(reason.contains(&display(pool.path())) && reason.contains("can't be written"), "{reason}");
+}
+
+/// Commits `files` in the worktree at `path`, with their directories
+fn commit_files(path: &str, subject: &str, files: &[(&str, &str)]) {
+  for (file, content) in files {
+    let file = Path::new(path).join(file);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, content).unwrap();
+  }
+  let names: Vec<&str> = files.iter().map(|(file, _)| *file).collect();
+  slot_git(path, &[&["add", "--"][..], &names].concat());
+  slot_git(path, &["commit", "-q", "-m", subject]);
+}
+
+/// `home.build_config_changed` of `brd workspace` in the lease at `slot`; `None` when it is omitted
+fn build_config_changed(fixture: &Fixture, slot: &str) -> Option<Value> {
+  workspace_in(fixture, Path::new(slot))["home"].get("build_config_changed").cloned()
+}
+
+/// `brd lease pick` in the lease at `slot`, which must land or follow
+fn pick(fixture: &Fixture, slot: &str) {
+  let (exit_code, output) = fixture.run_in(Path::new(slot), &["--prefix", PREFIX, "lease", "pick"]);
+  assert_eq!(exit_code, 0, "{output}");
+}
+
+/// A home commit that changes the cargo config at the root and below it and the toolchain is named in `home`, a code
+/// change is not, and the first command of `next` is the pick; once the lease follows, `home` names nothing
+#[test_log::test]
+fn a_lease_names_the_build_config_that_its_home_branch_changed_until_it_follows() {
+  let fixture = Fixture::new();
+  let shared = display(fixture.repo.path());
+  let lease = fixture.get(&[]);
+  let slot = path_of(&lease);
+  fixture.repo.create_commit_with_files(
+    "Build on the new config",
+    &[
+      (".cargo/config.toml", "[build]\nrustflags = [\"-Csplit-debuginfo=off\"]\n"),
+      ("tools/x/.cargo/config.toml", "[build]\n"),
+      ("rust-toolchain.toml", "[toolchain]\nchannel = \"1.99\"\n"),
+      ("src/a.rs", "fn a() {}\n"),
+    ],
+  );
+
+  let output = workspace_in(&fixture, Path::new(&slot));
+  assert_eq!(
+    output["home"],
+    json!({
+      "checkout": shared,
+      "branch": "master",
+      "build_config_changed": [".cargo/config.toml", "rust-toolchain.toml", "tools/x/.cargo/config.toml"],
+    })
+  );
+  assert_eq!(output["next"][0], json!(format!("{CLI_NAME} -C {} lease pick", shell_word(&slot))));
+
+  pick(&fixture, &slot);
+  assert_eq!(workspace_in(&fixture, Path::new(&slot))["home"], json!({ "checkout": shared, "branch": "master" }));
+}
+
+/// A dependency of a manifest, the `[commit]` table of `.branchdeck.toml` and the holder's own profile are no build
+/// config; a profile that the home branch changed and its `[host]` table are
+#[test_log::test]
+fn only_the_profile_of_a_manifest_and_the_host_table_of_branchdeck_toml_count() {
+  let fixture = Fixture::new();
+  let manifest =
+    |profile: &str, dependency: &str| format!("[workspace]\nmembers = [\"crates/a\"]\n\n[profile.dev]\n{profile}\n\n[workspace.dependencies]\nanyhow = \"{dependency}\"\n");
+  let member = |dependency: &str| format!("[package]\nname = \"a\"\n\n[dependencies]\nanyhow = \"{dependency}\"\n");
+  let branch_deck = |check: &str, outputs: &str| format!("[commit]\ncheck = [\"{check}\"]\n\n[host]\noutputs = [\"{outputs}\"]\n");
+  fixture.repo.create_commit_with_files(
+    "Add the manifests",
+    &[
+      ("Cargo.toml", &manifest("debug = 1", "1.0")),
+      ("crates/a/Cargo.toml", &member("1.0")),
+      (".branchdeck.toml", &branch_deck(".+", "out")),
+    ],
+  );
+  let slot = path_of(&fixture.get(&[]));
+  commit_files(&slot, "(lane) Build without debug info", &[("Cargo.toml", &manifest("debug = 0", "1.0"))]);
+
+  fixture
+    .repo
+    .create_commit_with_files("Bump anyhow", &[("Cargo.toml", &manifest("debug = 1", "1.1")), ("crates/a/Cargo.toml", &member("1.1"))]);
+  assert_eq!(build_config_changed(&fixture, &slot), None, "the home branch changed no profile");
+
+  fixture.repo.create_commit_with_files(
+    "Build with line tables and check every subject",
+    &[
+      ("Cargo.toml", &manifest("debug = \"line-tables-only\"", "1.1")),
+      (".branchdeck.toml", &branch_deck(".*", "out")),
+    ],
+  );
+  assert_eq!(build_config_changed(&fixture, &slot), Some(json!(["Cargo.toml"])));
+
+  fixture
+    .repo
+    .create_commit_with_files("Take the logs back", &[(".branchdeck.toml", &branch_deck(".*", "logs"))]);
+  assert_eq!(build_config_changed(&fixture, &slot), Some(json!([".branchdeck.toml", "Cargo.toml"])));
+}
+
+/// The holder's own change of the cargo config is not named, also as a copy on a home branch rewritten after the pick,
+/// and neither is a change that only the lease made; a change of the home branch is
+#[test_log::test]
+fn a_config_change_of_the_lease_or_its_copy_on_a_rewritten_home_is_not_named() {
+  let fixture = Fixture::new();
+  fixture.repo.create_commit_with_files(
+    "Add the build config",
+    &[
+      (".cargo/config.toml", "[build]\n"),
+      ("tools/x/.cargo/config.toml", "[build]\n"),
+      ("rust-toolchain.toml", "[toolchain]\nchannel = \"1.98\"\n"),
+    ],
+  );
+  let slot = path_of(&fixture.get(&[]));
+  commit_files(
+    &slot,
+    "(lane) Build without split debug info",
+    &[(".cargo/config.toml", "[build]\nrustflags = [\"-Csplit-debuginfo=off\"]\n")],
+  );
+  pick(&fixture, &slot);
+  // the home tip gets another id: the fork point of the lease is no longer on the branch
+  git(&fixture.repo, &["commit", "-q", "--amend", "-m", "Build without split debug info, reworded"]);
+  assert_ne!(fixture.repo.head(), slot_git(&slot, &["rev-parse", "HEAD"]).trim());
+
+  fixture
+    .repo
+    .create_commit_with_files("Take the next toolchain", &[("rust-toolchain.toml", "[toolchain]\nchannel = \"1.99\"\n")]);
+  commit_files(&slot, "(lane) Build the tool alone", &[("tools/x/.cargo/config.toml", "[build]\njobs = 1\n")]);
+  assert_eq!(build_config_changed(&fixture, &slot), Some(json!(["rust-toolchain.toml"])));
+}
+
+/// A read of the build config that fails omits the field, and `brd workspace` answers as it does without it: a home
+/// branch that shares no commit with the lease, and a home branch that no longer exists
+#[test_log::test]
+fn a_failed_read_of_the_build_config_omits_the_field() {
+  let fixture = Fixture::new();
+  let slot = path_of(&fixture.get(&[]));
+  git(&fixture.repo, &["checkout", "-q", "--orphan", "orphan"]);
+  fixture.repo.create_commit("Start anew", ".cargo/config.toml", "[build]\njobs = 1\n");
+  git(&fixture.repo, &["branch", "-M", "master"]);
+  let output = workspace_in(&fixture, Path::new(&slot));
+  assert_eq!((output.get("error"), output["home"].get("build_config_changed")), (None, None), "{output}");
+  assert_eq!(output["home"]["branch"], json!("master"));
+
+  let fixture = Fixture::new();
+  let slot = path_of(&fixture.get(&[]));
+  fixture.repo.create_commit("Build without split debug info", ".cargo/config.toml", "[build]\n");
+  assert_eq!(build_config_changed(&fixture, &slot), Some(json!([".cargo/config.toml"])));
+  git(&fixture.repo, &["branch", "-m", "master", "main"]);
+  let output = workspace_in(&fixture, Path::new(&slot));
+  assert_eq!(
+    (output.get("error"), &output["home"]["switched_to"], output["home"].get("build_config_changed")),
+    (None, &json!("main"), None),
+    "{output}"
+  );
 }

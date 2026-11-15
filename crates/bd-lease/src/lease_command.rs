@@ -326,14 +326,22 @@ pub struct LeaseHomeOutput {
   /// `brd lease pick` refuses (`home_branch_switched`) until it is back; ask the user
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub switched_to: Option<Option<String>>,
+  /// `brd workspace`: the build config files that `branch` changed since this lease forked from it, and that the lease
+  /// has in another form, so its builds still use the old config: every `.cargo/config.toml`, `.cargo/config`,
+  /// `rust-toolchain.toml` and `rust-toolchain`, a `Cargo.toml` whose `profile` table changed, the `[host]` table of
+  /// `.branchdeck.toml`. `brd lease pick` (the first command of `next`) moves the lease onto the tip of `branch` after it
+  /// lands the commits of the lease; run it before the next build, once those commits build and pass their tests
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub build_config_changed: Vec<String>,
 }
 
 impl LeaseHomeOutput {
-  pub fn new(home: &LeaseHome, switched_to: Option<Option<String>>) -> Self {
+  pub fn new(home: &LeaseHome, switched_to: Option<Option<String>>, build_config_changed: Vec<String>) -> Self {
     Self {
       checkout: home.checkout.clone(),
       branch: home.branch.clone(),
       switched_to,
+      build_config_changed,
     }
   }
 }
@@ -722,7 +730,7 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
     slot: got.slot.name.clone(),
     source_head: lease.source_head.clone(),
     branch: lease.branch.clone(),
-    home: LeaseHomeOutput::new(&lease.home(), None),
+    home: LeaseHomeOutput::new(&lease.home(), None, Vec::new()),
     next: lease_next(
       &got.slot.path,
       &lease.home(),

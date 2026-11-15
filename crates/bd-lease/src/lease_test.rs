@@ -2692,6 +2692,13 @@ fn lease_outputs_match_the_schema() {
   assert_covered(&outputs["lease_adopt"], &outputs["lease_adopt"], &adopt, "lease_adopt");
   let (_, error) = fixture.run(&["lease", "return"]);
   assert_covered(&outputs["error"], &outputs["error"], &error, "error");
+
+  // in a lease whose home branch changed the build config: `home.build_config_changed`
+  let path = path_of(&fixture.get(&[]));
+  fixture.repo.create_commit("Build without split debug info", ".cargo/config.toml", "[build]\n");
+  let (exit_code, workspace) = fixture.run_in(Path::new(&path), &["workspace"]);
+  assert_eq!((exit_code, &workspace["home"]["build_config_changed"]), (0, &json!([".cargo/config.toml"])), "{workspace}");
+  assert_covered(&outputs["workspace"], &outputs["workspace"], &workspace, "workspace in a lease");
 }
 
 /// brd of the fixture in `cwd` with a git that holds its first command whose arguments match `pattern` (a `case`

@@ -4,11 +4,13 @@
 //! `branchdeck.agentPullRequest` (off by default) to push the branch after the pick and open its pull request, which the
 //! Push route of the repository turns off (`LandingSetting::agent_pull_request_off`).
 //! Read only: one `rev-parse`, one `git config`, and in the shared checkout or a lease one `status` of the shared
-//! checkout; in a lease one more `rev-parse` of the branch the shared checkout has checked out now; in the shared
-//! checkout with the lease on, one more `git config` for the pool directory.
+//! checkout; in a lease one more `rev-parse` of the branch the shared checkout has checked out now, and with a home
+//! branch one `diff-tree` since the fork point beside the `status`, with one `cat-file` only when it names a build config
+//! file (`build_config`); in the shared checkout with the lease on, one more `git config` for the pool directory.
 //! `agent_defaults` reads the same three rules of the global git config, what `brd install` and the app's Install Agent CLI
 //! report.
 
+use crate::build_config::build_config_changed;
 use crate::lease::{IdleCheck, LeaseHome, SlotState, canonical_path, lease_status_core, pool_dir, reclaimed_refusal};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -17,7 +19,8 @@ use git_ops::revs::{read_head, repository_dirs};
 use std::path::{Path, PathBuf};
 use sync_core::repository_config::{ConfigSetting, OriginFacts, read_config_entries, repository_config_from_entries};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, get_uncommitted_changes};
-use tracing::instrument;
+use sync_utils::span::in_current_span;
+use tracing::{instrument, warn};
 
 /// Where the agent runs
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +72,9 @@ pub struct AgentWorkspace {
   /// In a lease: the branch its home checkout has checked out now (`None`: a detached HEAD), when it is not the branch
   /// of the get: `brd lease pick` refuses until it is back
   pub home_switched: Option<Option<String>>,
+  /// In a lease with a home branch: the build config files that the branch changed since the lease forked from it, and
+  /// that the lease has in another form (`build_config`); empty when the read failed
+  pub build_config_changed: Vec<String>,
   /// Every lease of the pool that is ready
   pub active_leases: Vec<ActiveLease>,
   /// The number of local changes of the shared checkout: files a lease does not have
@@ -94,6 +100,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
       shared_checkout: None,
       this_lease: None,
       home_switched: None,
+      build_config_changed: Vec::new(),
       active_leases: Vec::new(),
       local_changes: None,
       pool_unusable: None,
@@ -136,20 +143,37 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
     (WorkspaceKind::Main, _) => Some(top_level.clone()),
     _ => None,
   };
-  let local_changes = match &shared_checkout {
-    Some(checkout) if Path::new(checkout).is_dir() => Some(
-      get_uncommitted_changes(
+  let home_branch = match (&kind, &this_lease) {
+    (WorkspaceKind::Lease, Some(lease)) => lease.home.branch.as_deref(),
+    _ => None,
+  };
+  // the two reads are independent, and the `status` sets the wall time
+  let (local_changes, build_config_changed) = std::thread::scope(|scope| {
+    let slot = top_level.as_str();
+    let build_config = home_branch.map(|branch| scope.spawn(in_current_span(move || build_config_changed(git, slot, branch))));
+    let local_changes = match &shared_checkout {
+      Some(checkout) if Path::new(checkout).is_dir() => get_uncommitted_changes(
         git,
         GetUncommittedChangesParams {
           repository_path: checkout.clone(),
         },
       )
-      .map_err(|error| anyhow!(error))?
-      .files
-      .len(),
-    ),
-    _ => None,
-  };
+      .map(|changes| Some(changes.files.len()))
+      .map_err(|error| anyhow!(error)),
+      _ => Ok(None),
+    };
+    let build_config_changed = build_config
+      .map(|read| read.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+      .transpose()
+      // a hint: a failed read must not fail the command
+      .unwrap_or_else(|error| {
+        warn!("Cannot read the build config that the home branch changed: {error:#}");
+        None
+      })
+      .unwrap_or_default();
+    (local_changes, build_config_changed)
+  });
+  let local_changes = local_changes?;
   let home_switched = match (&kind, &this_lease, &shared_checkout) {
     (WorkspaceKind::Lease, Some(lease), Some(checkout)) if Path::new(checkout).is_dir() => {
       let now = read_head(git, checkout)?.and_then(|(_, branch)| branch);
@@ -177,6 +201,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
     shared_checkout,
     this_lease,
     home_switched,
+    build_config_changed,
     active_leases,
     local_changes,
     pool_unusable,

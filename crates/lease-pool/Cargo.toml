@@ -23,7 +23,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11.1"
 schemars = { workspace = true, optional = true }
-# the clean rules of `.branchdeck.toml` (`lease_clean`)
+# the clean rules of `.branchdeck.toml` (`lease_clean`), the tables of the build config (`build_config`)
 toml = "1.2"
 # the output of Homebrew of `ensure_host_git` (`host_git`)
 tempfile.workspace = true

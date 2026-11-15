@@ -2574,6 +2574,20 @@ its finish names `brd lease pick` again. An update that applies at once (the wor
 is picked again at once. While that session is open (one `show-ref` of its ref) `brd lease pick` refuses
 (`resolve_in_progress`): a pick that lands meanwhile would leave the session stale.
 
+A lease builds with the build config of its own tree: the cargo config and the toolchain at any depth, the `profile`
+table of a root manifest, the `[host]` table that a remote run reads from its commit. No task edits these files, so a
+holder that works for hours without a pick does not see that its home branch changed them (on 2026-11-15 master turned
+off `split-debuginfo` on macOS, and leases 1 to 5 commits behind it kept the old config). `brd workspace` in a lease
+names them in `home.build_config_changed` (`lease_pool::build_config`), and the skill runs it when a session resumes
+and before a full build. The read is one `diff-tree --merge-base HEAD refs/heads/<home>` beside the `status` of the
+shared checkout (`git_ops::paths::changed_paths_since_fork`), filtered by name as git's output is parsed. It uses the
+fork point and not `source_head`, since a follow never moves `source_head`: after the first pick every later home
+change would look like drift. A diff since the fork point still names a file that the lease has as the home tip has
+it: after `brd update` rebased the home branch, the copies of the lease's own commits. So one `cat-file` compares the
+blob of each named file in the lease HEAD with the home tip. A table entry also reads the blob of the fork point: a
+`Cargo.toml` whose dependencies the home branch changed, while the lease changed its `profile` table, must not count.
+A failed read (no merge base, a home branch that no longer exists) omits the field, since it is a hint.
+
 A repository can make the pick land only what was built: `pick_requires_check = true` in `[lease]` of its
 `.branchdeck.toml`, read from the checkout the commits land in. Agents reported a green build that ran before their
 last edit, and a pick landed a tree that did not compile (the IntelliJ monorepo, 2026-10-27). So the check tool, not the
