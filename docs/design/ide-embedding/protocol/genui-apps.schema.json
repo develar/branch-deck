@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jetbrains.com/air/genui-apps.schema.json",
+  "title": "The project registry of the apps of a session, .air/genui-apps.json and .awb/genui-apps.json",
+  "description": "The apps of a project in the shape of .mcp.json. Each entry is an app with a server and no view. A local entry of .awb replaces the committed entry of its name. A file gives at most 64 apps, the first by name, and refuses each entry after them. An entry that this schema refuses is refused alone, and the other entries stay. A reader ignores a key that it does not know.",
+  "type": "object",
+  "properties": {
+    "mcpServers": {
+      "description": "The entries by their names. A name is the id of the app: lower-case letters, digits and single dashes. A project entry with the id of an app of the user is refused.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Entry"
+      }
+    }
+  },
+  "$defs": {
+    "Entry": {
+      "type": "object",
+      "required": ["command"],
+      "not": {
+        "description": "An entry with url is a remote server, which Air does not start.",
+        "required": ["url"]
+      },
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "command": {
+          "description": "The executable. A value with a path separator that is not absolute and does not start with - resolves against the project. A bare name is the file that the PATH of the entry, else of the IDE, finds, and the fingerprint covers its bytes. An interpreter line of the file, #!..., keeps the form of its runtime with the file as its script, of words of letters, digits and ._/+=:,@%- only, else the answer gets uncoveredCode. So does an executable or an interpreter that is a link of the project to a file out of it. The fingerprint covers the interpreter of the line by its absolute path, and the program of env where the PATH finds it; a relative or a nested interpreter gets uncoveredCode. A package runner such as npx, npm, uvx, pipx or corepack gives the problem uncoveredCode, and a path relative to a drive of Windows, such as C:tool, gives invalidExecutable on every OS.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "args": {
+          "description": "The arguments, each resolved as the command is. Each argument that does not start with - is a path from the project, and the fingerprint of the entry covers the bytes of the file there, unless a directory is there. So does the value of a flag --opt=value that names a regular file. A runtime, also by another name such as nodejs, tsx, ts-node, pypy or py, or with a version or a channel after its name such as node-22 or bun-canary, has one form, <runtime> [flags] <script> [args], with run or serve before the script for deno: the script is a regular file of .ts, .tsx, .js, .mjs, .cjs or .jsx, or .py for python. Another form, such as bun run dev, a flag before the script that is none of the allowed flags of its runtime, which load and configure no code (the permissions --allow-* and --deny-*, --quiet and --no-prompt of deno, --smol and --silent of bun, the switches of python), such as --require, --eval or --cwd, and a specifier of npm:, jsr:, http:, https:, data: or file: give the problem uncoveredCode. An argument on a share of another host or relative to a drive of Windows, such as C:app.ts, gives the problem invalidCover on every OS.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "description": "The variables that the process adds to the environment of the IDE. The consent banner shows each one. A name is letters, digits and underscores. A variable that loads code or gives flags to a runtime, such as BASH_ENV, NODE_OPTIONS, LD_PRELOAD or DYLD_*, and a PATH with a relative directory give the problem uncoveredCode.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "covers": {
+          "description": "The other files that the process runs or reads as code, such as the wrapper that bun.cmd runs, as paths from the project. The fingerprint of the entry covers the bytes of each one, which air-apps reads only after an answer of the user and again at each start. A path without a file is pinned as missing, so a file that comes later asks again. The fingerprint pins bunfig.toml, deno.json and deno.jsonc of the project for each entry too, which a runtime reads from its working directory. A directory or another file that is no regular file gives the problem invalidCover. The arguments and covers of an entry name at most 64 paths together.",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "description": "A path from the project: it starts neither with a separator nor with a drive of Windows, such as C:, and does not leave the project by a part '..'.",
+            "type": "string",
+            "minLength": 1,
+            "not": {
+              "pattern": "(^[/\\\\])|(^|[/\\\\])\\.\\.([/\\\\]|$)|^[A-Za-z]:"
+            }
+          }
+        }
+      }
+    }
+  }
+}

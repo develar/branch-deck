@@ -8,6 +8,7 @@ These files pin the wire.
 |---|---|
 | `air-app.schema.json` | The app file `~/.air/apps/<id>.yaml`, format 1, with the defaults that the registry fills in |
 | `examples/branch-deck.yaml` | The app file that the installer of Branch Deck writes |
+| `genui-apps.schema.json` | The project registry `.air/genui-apps.json` and `.awb/genui-apps.json` of the apps of a session, with the files that `covers` adds to the fingerprint of an entry |
 | `x-air-app.schema.json` | One line of the corpus. The defs `AppMessage`, `PageMessage`, `FrameMessage` and `IdeMessage` are the messages of the four links |
 | `corpus/*.ndjson` | The golden frames, one JSON object per line |
 

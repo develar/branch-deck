@@ -2571,7 +2571,7 @@
       "required": ["reason", "message"],
       "properties": {
         "reason": {
-          "enum": ["invalidFile", "unsupportedFormat", "idMismatch", "duplicateId", "noCommandForOs", "invalidExecutable", "remoteProject", "requirementUnmet", "vocabularyVersion", "refused"]
+          "enum": ["invalidFile", "unsupportedFormat", "idMismatch", "duplicateId", "noCommandForOs", "invalidExecutable", "invalidCover", "uncoveredCode", "remoteProject", "requirementUnmet", "vocabularyVersion", "refused"]
         },
         "message": {
           "type": "string",
@@ -2643,6 +2643,22 @@
             },
             "command": {
               "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "description": "The variables that the command adds to the environment of the IDE, by name. The banner shows each one as name=value, so a variable such as NODE_OPTIONS that loads code is in sight. Only when the command has one.",
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "covers": {
+              "description": "The paths of covers of a project entry, as genui-apps.json names them, which the banner shows and the fingerprint pins. Only when the entry has one.",
+              "type": "array",
+              "minItems": 1,
               "items": {
                 "type": "string"
               }
@@ -2747,7 +2763,8 @@
       "oneOf": [
         {
           "type": "object",
-          "required": ["type", "app", "answer"],
+          "description": "The answer of the user to the consent banner. It names the command, the variables and the covers that the banner showed: another of them in the entry refuses it with the reason stale before any write, and an answer without them gets badParams.",
+          "required": ["type", "app", "answer", "command", "env", "covers"],
           "properties": {
             "type": {
               "const": "x-air-ide/appConsent"
@@ -2757,6 +2774,27 @@
             },
             "answer": {
               "enum": ["allowOnce", "alwaysAllow", "deny"]
+            },
+            "command": {
+              "description": "The command line that the banner showed, consent.command of the entry. Another command line of the entry refuses the answer with the reason stale before any write.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "description": "The variables that the banner showed, consent.env of the entry, or {} for none. Other variables refuse the answer with stale.",
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "covers": {
+              "description": "The covers that the banner showed, consent.covers of the entry, or [] for none. Other covers refuse the answer with stale.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         },
