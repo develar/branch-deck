@@ -1,5 +1,4 @@
 import { useContext } from "react"
-import { cn } from "cn"
 import { GitPullRequestCreateIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -73,7 +72,6 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
                 size="xs"
                 disabled={createItem.disabled}
                 focusableWhenDisabled
-                className={cn(createItem.disabled === true && "opacity-50")}
                 onClick={() => {
                   closePreview?.()
                   createItem.onSelect(FROM_MENU)

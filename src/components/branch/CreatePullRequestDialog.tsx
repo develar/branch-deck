@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
-import { cn } from "cn"
 import { ExternalLinkIcon, PlusIcon, SearchIcon, ShieldOffIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -467,7 +466,7 @@ export function CreatePullRequestForm({
                     data-testid="create-pull-request-without-review"
                     variant="ghost"
                     size="xs"
-                    className={cn("text-muted-foreground", withoutReview.disabled && "opacity-50")}
+                    className="text-muted-foreground"
                     disabled={isCreating || withoutReview.disabled}
                     focusableWhenDisabled
                     onClick={actions.safePushWithoutReview}
@@ -491,9 +490,8 @@ export function CreatePullRequestForm({
                 variant={unavailable ? "default" : "ghost"}
                 size="xs"
                 disabled={isCreating || newPullRequestBlocker !== null}
-                // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+                // the hover says why: Base UI keeps the button focusable, dimmed by `Button`
                 focusableWhenDisabled
-                className={cn(newPullRequestBlocker !== null && "opacity-50")}
                 onClick={() => void continueOnGitHub()}
               />
             }
@@ -512,7 +510,8 @@ export function CreatePullRequestForm({
                   size="xs"
                   disabled={!canCreate}
                   focusableWhenDisabled
-                  className={cn(!canCreate && !isCreating && "opacity-50")}
+                  // the creation runs: not dimmed, its spinner says it
+                  aria-busy={isCreating || undefined}
                   onClick={() => void create()}
                 />
               }

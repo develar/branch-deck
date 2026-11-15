@@ -258,10 +258,9 @@ function SubmitButton({
         size="xs"
         variant={variant}
         disabled={!enabled}
-        // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`); the dimming is ours
+        // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`)
         focusableWhenDisabled={loading}
         aria-busy={loading || undefined}
-        className={cn(loading && "opacity-50")}
         onClick={onSubmit}
       >
         {children}
@@ -277,9 +276,8 @@ function SubmitButton({
             size="xs"
             variant={variant}
             disabled
-            // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+            // the hover says why: Base UI keeps the button focusable, dimmed by `Button`
             focusableWhenDisabled
-            className="opacity-50"
             data-testid="inline-form-submit"
             data-disabled-reason={reason}
           />

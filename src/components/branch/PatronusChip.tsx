@@ -408,7 +408,7 @@ export function RobotActionButton({ action, variant = "outline", className }: { 
     <Tooltip disabled={action.description === undefined}>
       <TooltipTrigger
         render={
-          // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+          // the hover says why: Base UI keeps the button focusable, dimmed by `Button` unless it runs
           <Button
             variant={variant}
             size="xs"
@@ -416,7 +416,7 @@ export function RobotActionButton({ action, variant = "outline", className }: { 
             disabled={action.disabled}
             aria-busy={running || undefined}
             focusableWhenDisabled
-            className={cn(action.disabled && "opacity-50", className)}
+            className={className}
             onClick={() => action.onSelect(FROM_MENU)}
           />
         }

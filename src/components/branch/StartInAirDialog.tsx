@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
-import { cn } from "cn"
 import { CheckIcon, ClipboardCopyIcon, RotateCcwIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -308,7 +307,8 @@ function StartInAirForm({
                 size="xs"
                 disabled={!canStart}
                 focusableWhenDisabled
-                className={cn(!canStart && !launching && "opacity-50")}
+                // the launch it started runs: not dimmed, its spinner says it
+                aria-busy={launching || undefined}
                 onClick={() => void start()}
               />
             }

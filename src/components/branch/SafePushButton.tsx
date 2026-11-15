@@ -166,12 +166,12 @@ export function SafePushButton({
             variant={variant}
             size="xs"
             disabled={disabled}
-            // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+            // the hover says why: Base UI keeps the button focusable, dimmed by `Button` unless a start runs
             focusableWhenDisabled
             aria-busy={(starting !== null && lost === null) || undefined}
             // the push a compact label says by its percent only, the wait by whom it is for
             aria-label={waiting ?? (compact && pushing !== null && elsewhere === null ? pushing : undefined)}
-            className={cn("tabular-nums", compact && "min-w-26 justify-start", disabled && starting === null && "opacity-50", className)}
+            className={cn("tabular-nums", compact && "min-w-26 justify-start", className)}
             data-testid="safe-push-button"
             ref={element => {
               buttonRef.current = element

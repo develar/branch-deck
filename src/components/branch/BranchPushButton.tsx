@@ -160,7 +160,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
             variant="ghost"
             // a running push keeps its colour beside the spinner, as Update and Sync do
             // compact: one width in every row ("⟳ 100%" fits), the arrows in a column
-            className={cn("tabular-nums", compact && "min-w-16 justify-start", colored && ghostButtonColorClass(push.color), !showsPush && "aria-disabled:opacity-50")}
+            className={cn("tabular-nums", compact && "min-w-16 justify-start", colored && ghostButtonColorClass(push.color))}
             disabled={disabled}
             // the description stays reachable on hover while the button is disabled
             focusableWhenDisabled

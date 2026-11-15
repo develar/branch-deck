@@ -1454,8 +1454,8 @@ your branch doesn't have: a push drops them." ([Pull Requests](../../branch/pull
   for a force push, in `ghostButtonColorClass`): the ghost variant would turn an open trigger to the foreground.
   [@test] tests/e2e/outgoing/outgoing.spec.ts (`should keep the colour of the push while its description is open`)
 - A disabled push button is `focusableWhenDisabled` (`aria-disabled`, no `disabled` attribute, which would stop the
-  pointer events of the hover) and dimmed by `aria-disabled:opacity-50`; a running push keeps its colour beside the
-  spinner, as Update and Sync do.
+  pointer events of the hover) and dimmed by `Button` (`aria-disabled`, unless busy); a running push (`aria-busy`)
+  keeps its colour beside the spinner, as Update and Sync do.
 - The question of a push that drops remote commits is a `destructive` `xs` button with the upload icon and the label
   of the push (`Force Push Branch (1)`), at the start of the line below the dropped commits.
 

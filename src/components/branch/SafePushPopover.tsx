@@ -259,7 +259,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           <Button size="xs" variant="ghost" onClick={close}>
             Cancel
           </Button>
-          <Button ref={startRef} size="xs" disabled={!canStart} focusableWhenDisabled className={cn(!canStart && "opacity-50")} onClick={start} data-testid="safe-push-start">
+          <Button ref={startRef} size="xs" disabled={!canStart} focusableWhenDisabled onClick={start} data-testid="safe-push-start">
             {mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : byPush ? <GitMergeIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
             {landingRefused !== null ? "Start Anyway" : read?.withoutReview === true ? "Safe Push Without Review" : modeName}
           </Button>
@@ -710,7 +710,7 @@ function WholeStackOption({ root, item, mode, onSelect }: { root: string; item: 
     <Button
       variant="outline"
       size="xs"
-      className={cn("w-fit", disabled && "opacity-50")}
+      className="w-fit"
       disabled={disabled}
       focusableWhenDisabled
       data-testid="safe-push-whole-stack"

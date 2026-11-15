@@ -1,6 +1,5 @@
 import { useId, useState } from "react"
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { cn } from "cn"
 import { ExternalLinkIcon, KeyRoundIcon, LogInIcon, LogOutIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -194,14 +193,8 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: Sign
               <Tooltip disabled={saveBlocker === null}>
                 <TooltipTrigger
                   render={
-                    // the hover says why; Base UI keeps the button focusable, so the dimming is ours
-                    <Button
-                      size="xs"
-                      disabled={saving || saveBlocker !== null}
-                      focusableWhenDisabled
-                      className={cn((saving || saveBlocker !== null) && "opacity-50")}
-                      onClick={save}
-                    />
+                    // the hover says why: Base UI keeps the button focusable, dimmed by `Button`
+                    <Button size="xs" disabled={saving || saveBlocker !== null} focusableWhenDisabled onClick={save} />
                   }
                 >
                   {saving && <Spinner data-icon="inline-start" />}

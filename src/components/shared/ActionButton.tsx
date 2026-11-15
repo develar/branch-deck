@@ -31,9 +31,8 @@ export function ActionButton({ label, icon: Icon, keyHint, disabled = false, des
             variant="ghost"
             size="sm"
             disabled={disabled}
-            // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+            // the hover says why: Base UI keeps the button focusable, dimmed by `Button`
             focusableWhenDisabled
-            className={cn(disabled && "opacity-50")}
             data-testid={testId}
             onClick={onClick}
           />

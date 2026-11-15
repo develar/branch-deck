@@ -1,6 +1,5 @@
 import { useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { cn } from "cn"
 import { CombineIcon, TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
@@ -160,10 +159,9 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
         <Button
           size="xs"
           disabled={!canSquash}
-          // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`); the dimming is ours
+          // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`)
           focusableWhenDisabled={isSquashing}
           aria-busy={isSquashing || undefined}
-          className={cn(isSquashing && "opacity-50")}
           onClick={() => void squash()}
         >
           {/* the spinner in the place of the icon: the button keeps its box under the pointer that pressed it */}

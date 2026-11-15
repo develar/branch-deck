@@ -1,6 +1,5 @@
 import { useRef, useState } from "react"
 import type { KeyboardEvent, ReactElement, ReactNode } from "react"
-import { cn } from "cn"
 import { CheckIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -265,10 +264,9 @@ export function CommitPreviewDialog({
                 <Button
                   size="xs"
                   disabled={isSaving}
-                  // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`); the dimming is ours
+                  // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`)
                   focusableWhenDisabled={isSaving}
                   aria-busy={isSaving || undefined}
-                  className={cn(isSaving && "opacity-50")}
                   onClick={() => void save()}
                 >
                   {/* the spinner in the place of the icon: the button keeps its box under the pointer that pressed it */}
@@ -286,7 +284,8 @@ export function CommitPreviewDialog({
                     size="xs"
                     disabled={!canReview || isOpeningReview}
                     focusableWhenDisabled
-                    className={cn(!canReview && "opacity-50")}
+                    // the open of the review runs: not dimmed
+                    aria-busy={isOpeningReview || undefined}
                     data-testid="commit-review-toggle"
                     onClick={() => review()}
                   />

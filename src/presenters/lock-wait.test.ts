@@ -47,7 +47,12 @@ describe("presentLockWait", () => {
 
   it("tells a screen reader whom an operation waits for without how long, so the words change with the holder only", () => {
     const first = presentLockWaitAnnouncement(pushIn({ kind: "waitingForLock", holder: BD_PICK }))
-    expect(first).toBe("Waiting for `brd pick --follow` (pid 4242)")
+    // the command line without the backticks of the text on the screen, which a screen reader reads aloud ("grave")
+    expect(first).toBe("Waiting for brd pick --follow (pid 4242)")
+    expect(first).not.toContain("`")
+    expect(presentLockWaitAnnouncement(pushIn({ kind: "waitingForLock", holder: { tool: "app", command: "branch-deck", pid: 17, held_for: 0 } }))).toBe(
+      "Waiting for Branch Deck (pid 17)",
+    )
     // told again a second later: the same words, which a live region does not say again
     expect(presentLockWaitAnnouncement(pushIn({ kind: "waitingForLock", holder: { ...BD_PICK, held_for: 13 } }))).toBe(first)
     expect(presentLockWaitAnnouncement(pushIn({ kind: "waitingForLock", holder: null }))).toBe("Waiting for another holder of the repository lock")

@@ -205,7 +205,8 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
                     size="xs"
                     disabled={!canReview || isOpeningReview}
                     focusableWhenDisabled
-                    className={cn(!canReview && "opacity-50")}
+                    // the open of the review runs: not dimmed
+                    aria-busy={isOpeningReview || undefined}
                     data-testid="branch-preview-review"
                     onClick={() => review()}
                   />

@@ -112,7 +112,7 @@ export function ChildrenPushButton({ root, push, held, testId, descriptionTestId
           <Button
             size="xs"
             variant="ghost"
-            className={cn("min-w-16 justify-start tabular-nums", ghostButtonColorClass(blocker === null ? "primary" : "neutral"), !busy && "aria-disabled:opacity-50")}
+            className={cn("min-w-16 justify-start tabular-nums", ghostButtonColorClass(blocker === null ? "primary" : "neutral"))}
             // a push of the stack branch runs: Push with Children would take it along
             disabled={busy || blocker !== null || stackBranchPushing}
             // the reason stays reachable on hover while the button is disabled

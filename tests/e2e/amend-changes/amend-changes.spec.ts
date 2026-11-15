@@ -177,7 +177,7 @@ test.describe("Amend Changes Feature", () => {
       // a screen reader is told whom for, and the keys are on Stop Waiting
       const status = dialog.getByTestId("lock-wait-status")
       await expect(status).toHaveRole("status")
-      await expect(status).toHaveText(/^Waiting for `[^`]+` \(pid \d+\)$/)
+      await expect(status).toHaveText(/^Waiting for [^`]+ \(pid \d+\)$/)
       const stop = dialog.getByRole("button", { name: "Stop Waiting" })
       await expect(stop).toBeFocused()
       expect(amends).toHaveLength(1)

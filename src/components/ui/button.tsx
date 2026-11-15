@@ -1,6 +1,8 @@
 // local customisation: the focus is the `bd-focus` token of src/index.css, an outline (no ring, no `border-ring`)
 // local customisation: `font-normal` on the `outline` and `ghost` variants; `outline` has the control border (`border-input`) and a solid hover
 // that keeps it a field on the canvas (the translucent `muted` would show the canvas through it)
+// local customisation: a disabled button that keeps the focus (`focusableWhenDisabled`: `aria-disabled`, no `disabled`)
+// takes no hover and no shift of a press, and is dimmed unless it is busy (`focusableDisabledClasses`)
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
@@ -38,7 +40,27 @@ const buttonVariants = cva(
 )
 
 function Button({ className, variant = "default", size = "default", ...props }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
-  return <ButtonPrimitive data-slot="button" className={cn(buttonVariants({ variant, size, className }))} {...props} />
+  const classes = cn(buttonVariants({ variant, size, className }))
+  const busy = props["aria-busy"] === true || props["aria-busy"] === "true"
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={props.disabled === true && props.focusableWhenDisabled === true ? focusableDisabledClasses(classes, busy) : classes}
+      {...props}
+    />
+  )
+}
+
+/**
+ * The classes of a disabled button that keeps the focus (`focusableWhenDisabled`: `aria-disabled`, no `disabled`), which
+ * the `disabled:` classes and their `pointer-events-none` miss (it keeps them for its tooltip): no hover and no press of
+ * its variant or of its caller, and dimmed unless it is busy (`aria-busy`: its spinner says it, as Update, Sync and the
+ * pushes do). A filter, not `aria-disabled:` variants of the hover classes: those would outrank the hover a caller gives
+ * in their place (`ghostButtonColorClass`), which `cn` merges with the hover of the variant only where both are `hover:`
+ */
+function focusableDisabledClasses(classes: string, busy: boolean): string {
+  const kept = classes.split(" ").filter(name => !/(^|:)(hover|active):/.test(name))
+  return (busy ? kept : [...kept, "opacity-50"]).join(" ")
 }
 
 export { Button, buttonVariants }

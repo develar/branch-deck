@@ -1,4 +1,3 @@
-import { cn } from "cn"
 import { RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -48,7 +47,6 @@ export function SyncButton() {
             size="sm"
             variant={syncError ? "destructive" : "ghost"}
             // a running sync keeps the full colour beside its spinner, as Update does; a repository that can't sync dims it
-            className={cn(!canSync && "opacity-50")}
             disabled={isSyncing || !canSync}
             // the tooltip stays reachable while the button is disabled
             focusableWhenDisabled

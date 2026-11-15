@@ -249,9 +249,9 @@ function stepButton(action: MenuItem, tone: NextStepTone, onClick: () => void) {
       size="xs"
       disabled={isDisabled}
       aria-busy={running || undefined}
-      // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+      // the hover says why: Base UI keeps the button focusable, dimmed by `Button` unless it runs
       focusableWhenDisabled
-      className={cn("max-w-full min-w-0", toneClass[tone], isDisabled && !running && "opacity-50")}
+      className={cn("max-w-full min-w-0", toneClass[tone])}
       data-testid="next-step"
       data-tone={tone}
       onClick={event => {

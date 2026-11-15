@@ -1,6 +1,5 @@
 import { useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { cn } from "cn"
 import { EllipsisIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -66,7 +65,7 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
     variant: "ghost",
     size: "icon-xs",
     // a running action keeps its colour beside the spinner: no dimming then
-    className: cn("text-muted-foreground", !running && "aria-disabled:opacity-50"),
+    className: "text-muted-foreground",
     "aria-label": `More actions for ${name}`,
     "aria-busy": running || undefined,
     disabled: !opensMenu,

@@ -22,6 +22,11 @@ function holderName(holder: LockHolderInfo): string {
   return holder.tool === "bd" ? `\`${holder.command}\`` : "Branch Deck"
 }
 
+/** `holderName` as a screen reader says it: the command line without the backticks, which it reads aloud ("grave") */
+function spokenHolderName(holder: LockHolderInfo): string {
+  return holder.tool === "bd" ? holder.command : "Branch Deck"
+}
+
 /** Who holds the repository, with the pid that tells two of them apart: "`brd push auth` (pid 4242) has held the repository for 40 s" */
 export function presentLockHolder(holder: LockHolderInfo): string {
   return `${holderName(holder)} (pid ${holder.pid}) has held the repository for ${formatHeldFor(holder.held_for)}`
@@ -89,15 +94,15 @@ export function presentOperationLockWait(operation: RunningOperation | undefined
 
 /**
  * Whom an operation waits for, as a screen reader is told it (`LockWaitNotice`): `presentLockWait` without how long,
- * which its step tells again about once a second, so the words change only with the holder ("Waiting for `brd pick`
- * (pid 4242)"); null while it waits for nobody
+ * which its step tells again about once a second, so the words change only with the holder, and without the backticks
+ * of the command line, which it reads aloud ("Waiting for brd pick (pid 4242)"); null while it waits for nobody
  */
 export function presentLockWaitAnnouncement(operation: RunningOperation | undefined): string | null {
   if (operation?.step.kind !== "waitingForLock") {
     return null
   }
   const holder = operation.step.holder
-  return holder === null ? presentLockWait(null) : `Waiting for ${holderName(holder)} (pid ${holder.pid})`
+  return holder === null ? presentLockWait(null) : `Waiting for ${spokenHolderName(holder)} (pid ${holder.pid})`
 }
 
 /** An operation of the session a surface shows while it runs (`useSurfaceOperation`, `waitingOf`), as Stop Waiting reads it */

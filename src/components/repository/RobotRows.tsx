@@ -240,9 +240,9 @@ function IconAction({ action, label }: { action: RobotAction; label: string }) {
             variant="ghost"
             size="icon-xs"
             disabled={action.disabled}
-            // a disabled action says why on hover: Base UI keeps it focusable, so the dimming is ours
+            // a disabled action says why on hover: Base UI keeps it focusable, dimmed by `Button` unless it runs
             focusableWhenDisabled
-            className={cn("text-muted-foreground", action.disabled && "opacity-50")}
+            className="text-muted-foreground"
             aria-label={label}
             aria-busy={action.running === true || undefined}
             onClick={() => action.onSelect(FROM_MENU)}
