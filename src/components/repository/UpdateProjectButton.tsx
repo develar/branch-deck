@@ -184,50 +184,54 @@ function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: Base
   const summary = landingSentence === null ? description.summary : `${description.summary} · ${landingSentence}`
   const state = status.update?.state.status ?? "unknown"
   const upstream = upstreamName(status)
-  // the update waits for another holder of the repository lock: Stop Waiting beside the button, the tooltip says whom for
+  // the update waits for another holder of the repository lock: Stop Waiting beside the button, the tooltip says whom for.
+  // On its left: the header stands at its end, so a control that came on its right moved the button from under the
+  // pointer, and the tooltip with the steps closed
   const stopWaiting = stopWaitingUpdateItem(running?.run)
   return (
-    <span className="relative inline-flex">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn("tabular-nums", description.tone === "muted" && running === undefined && "text-muted-foreground")}
-              disabled={running !== undefined}
-              // the tooltip with the steps stays reachable while the update runs
-              focusableWhenDisabled
-              aria-busy={running !== undefined || undefined}
-              // the bar says how far; a name that changed every tick would be read again and again
-              aria-label={running === undefined ? `Update Project: ${summary}` : `Update Project: ${running.run.kind === "fetch" ? "fetching" : "updating"}`}
-              data-testid="update-project-button"
-              data-status={state}
-              onClick={() => void runUpdateProject()}
-            />
-          }
-        >
-          {running === undefined ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
-          {running === undefined ? "Update" : <RunLabel shown={running} />}
-          {running === undefined && <StateIcon tone={description.tone} unknown={status.update === null} landing={landing.length > 0} data-icon="inline-end" />}
-        </TooltipTrigger>
-        <TooltipContent data-testid="update-project-tooltip">
-          {running === undefined ? (
-            <div className="flex flex-col gap-0.5">
-              <span>{waitsFor ?? summary}</span>
-              <span className="flex items-center gap-1.5 opacity-70">
-                <FetchAndUpdateLine fetchTime={fetchTime} />
-                <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>
-              </span>
-            </div>
-          ) : (
-            <RunSteps shown={running} upstream={upstream} />
-          )}
-        </TooltipContent>
-      </Tooltip>
-      {shown !== undefined && <RunProgressLine shown={shown} upstream={upstream} />}
-      {stopWaiting !== null && <MenuItemButton item={stopWaiting} variant="outline" size="sm" className="ml-1" data-testid="stop-waiting" />}
-    </span>
+    <>
+      {stopWaiting !== null && <MenuItemButton item={stopWaiting} variant="outline" size="sm" data-testid="stop-waiting" />}
+      <span className="relative inline-flex">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn("tabular-nums", description.tone === "muted" && running === undefined && "text-muted-foreground")}
+                disabled={running !== undefined}
+                // the tooltip with the steps stays reachable while the update runs
+                focusableWhenDisabled
+                aria-busy={running !== undefined || undefined}
+                // the bar says how far; a name that changed every tick would be read again and again
+                aria-label={running === undefined ? `Update Project: ${summary}` : `Update Project: ${running.run.kind === "fetch" ? "fetching" : "updating"}`}
+                data-testid="update-project-button"
+                data-status={state}
+                onClick={() => void runUpdateProject()}
+              />
+            }
+          >
+            {running === undefined ? <ArrowDownIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
+            {running === undefined ? "Update" : <RunLabel shown={running} />}
+            {running === undefined && <StateIcon tone={description.tone} unknown={status.update === null} landing={landing.length > 0} data-icon="inline-end" />}
+          </TooltipTrigger>
+          <TooltipContent data-testid="update-project-tooltip">
+            {running === undefined ? (
+              <div className="flex flex-col gap-0.5">
+                <span>{waitsFor ?? summary}</span>
+                <span className="flex items-center gap-1.5 opacity-70">
+                  <FetchAndUpdateLine fetchTime={fetchTime} />
+                  <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>
+                </span>
+              </div>
+            ) : (
+              <RunSteps shown={running} upstream={upstream} />
+            )}
+          </TooltipContent>
+        </Tooltip>
+        {shown !== undefined && <RunProgressLine shown={shown} upstream={upstream} />}
+      </span>
+    </>
   )
 }
 

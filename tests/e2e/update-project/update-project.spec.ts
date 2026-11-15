@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { getDockCalls } from "../helpers/header-helpers"
+import { boxOf, getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
 import { emitTauriEvent, finishedSyncCount, nextAnswer, pressSyncHeld, runAndWaitForSync, runAndWaitForUpdate, viewEpoch } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -266,6 +266,44 @@ test.describe("Update Project", () => {
     await expect(page.getByText("Nothing changed; the fetch stays")).toBeVisible()
     await expect(page.getByText(/^Cannot update/)).toHaveCount(0)
     expect(await repo.revision("HEAD")).toBe(head)
+    await repo.holdRepositoryLock(false)
+  })
+
+  // the header stands at its end: a control that came on the right of Update moved the button from under the pointer
+  // (about 110 px), and the tooltip with the steps closed; Stop Waiting comes on its left, where nothing it moves is hovered
+  test("should show Stop Waiting where the Update button stays under the pointer, its steps open, and stop the wait with it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    // the fetch of the update waits for an agent's fetch, its check after it for the holder of the repository lock
+    await repo.holdFetchLock(true)
+    await repo.holdRepositoryLock(true)
+    const button = updateButton(page)
+    await button.click()
+    await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "fetch")
+    await page.mouse.move(0, 0)
+    await button.hover()
+    const steps = page.getByTestId("update-steps")
+    await expect(steps).toBeVisible()
+    // its running width, once its transition ended
+    await animationsEnded(button)
+    const before = await boxOf(button)
+
+    // the fetch goes: the update waits for the lock, and Stop Waiting comes beside the button, which stays
+    await repo.holdFetchLock(false)
+    const stop = page.getByTestId("stop-waiting")
+    await expect(stop).toBeVisible()
+    await expect(steps).toContainText(/Waiting for `brd pick --follow` \(pid \d+, for \d+ s\)…/)
+    expect(await boxOf(button)).toEqual(before)
+    await expect(page.getByTestId("update-project-tooltip").and(page.locator("[data-open]"))).toBeVisible()
+
+    const cancels = await recordCommand(page, "cancel_operation")
+    await runAndWaitForUpdate(page, () => stop.click())
+    expect(cancels).toHaveLength(1)
+    await expect(page.getByText("Canceled the update before it started")).toBeVisible()
     await repo.holdRepositoryLock(false)
   })
 
