@@ -266,8 +266,8 @@ Where the pointer is on no name its items MUST be disabled, with the reason, als
 The name under the pointer MUST be a name whose text the pointer is on. Beside the text of a line (its number, the
 space before its first character, the blank end of its row) the pointer is on no name, though the nearest text is
 one: the modifier MUST underline nothing there, and the menu of the code MUST have no name. A caret the engine gives
-for the point outside its text (WebKit's `caretRangeFromPoint` past the end of a text, over code drawn anew) MUST be
-no name, never an error of the page.
+for the point outside its node (WebKit's of a point inside an empty line, after the empty text of its cell) MUST be no
+name, never an error of the page.
 
 #### Scenario: The pointer between the number of a line and its first word
 - **GIVEN** a line that starts with a word, and the modifier held with the pointer on a name, which is underlined
@@ -284,7 +284,14 @@ no name, never an error of the page.
 - **GIVEN** the modifier held with the pointer on a name, which is underlined
 - **WHEN** the engine gives the caret of the point past the end of its text
 - **THEN** nothing is underlined, the pointer is no hand, and the page logs no error
-  [@test] tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline no name where the engine gives the caret of the point past the end of its text, as WebKit did over code drawn anew`)
+  [@test] tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline no name where the engine gives the caret of the point past the end of its text`)
+
+#### Scenario: The pointer moves on to an empty line
+- **GIVEN** the modifier is held and a name under the pointer is underlined
+- **WHEN** the pointer moves on to an empty line, also past the start of its cell, where WebKit puts the caret after its empty text
+- **THEN** nothing is underlined and the pointer is no hand
+- **AND** the name is underlined again as the pointer comes back to it
+  [@test] tests/e2e/commit-files/symbol-navigation.spec.ts (`should take the underline of a name away as the pointer with the modifier moves on to an empty line, and underline the name again on its way back`)
 
 ### Requirement: The context menu key and Shift+F10 open the menu of the code on the name at the selection
 

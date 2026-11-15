@@ -157,37 +157,33 @@ test.describe("Go to Declaration", () => {
     await expectHelperShownAndBack(code)
   })
 
-  test(
-    "should underline no name where the engine gives the caret of the point past the end of its text, as WebKit did over code drawn anew",
-    { tag: "@webkit" },
-    async ({ page }) => {
-      const code = await openNavigationReview(page)
-      const scroller = code.getByTestId("diff-view")
-      const at = await pointOf(code, "src/Uses.kt", "helper")
-      await page.keyboard.down(MODIFIER)
-      await page.mouse.move(at.x, at.y)
-      await expect(scroller).toHaveCSS("cursor", "pointer")
-      // from now on the engine gives the caret of a point in a text past the end of that text (WebKit's
-      // `caretRangeFromPoint` once did, under a pointer that moved as the review drew its code anew)
-      await page.evaluate(() => {
-        const real = document.caretRangeFromPoint.bind(document)
-        Object.defineProperty(document, "caretPositionFromPoint", { configurable: true, value: undefined })
-        Object.defineProperty(document, "caretRangeFromPoint", {
-          configurable: true,
-          value: (x: number, y: number) => {
-            const range = real(x, y)
-            return range?.startContainer instanceof CharacterData
-              ? ({ startContainer: range.startContainer, startOffset: range.startContainer.length + 3 } as unknown as Range)
-              : range
-          },
-        })
+  test("should underline no name where the engine gives the caret of the point past the end of its text", { tag: "@webkit" }, async ({ page }) => {
+    const code = await openNavigationReview(page)
+    const scroller = code.getByTestId("diff-view")
+    const at = await pointOf(code, "src/Uses.kt", "helper")
+    await page.keyboard.down(MODIFIER)
+    await page.mouse.move(at.x, at.y)
+    await expect(scroller).toHaveCSS("cursor", "pointer")
+    // from now on the engine gives the caret of a point in a text past the end of that text, as WebKit gives the one
+    // of a point inside an empty line past its empty text (the test of the empty line below, on the engine as it is)
+    await page.evaluate(() => {
+      const real = document.caretRangeFromPoint.bind(document)
+      Object.defineProperty(document, "caretPositionFromPoint", { configurable: true, value: undefined })
+      Object.defineProperty(document, "caretRangeFromPoint", {
+        configurable: true,
+        value: (x: number, y: number) => {
+          const range = real(x, y)
+          return range?.startContainer instanceof CharacterData
+            ? ({ startContainer: range.startContainer, startOffset: range.startContainer.length + 3 } as unknown as Range)
+            : range
+        },
       })
-      // no name, no error of the page: the link goes
-      await page.mouse.move(at.x + 1, at.y)
-      await expect(scroller).not.toHaveCSS("cursor", "pointer")
-      await page.keyboard.up(MODIFIER)
-    },
-  )
+    })
+    // no name, no error of the page: the link goes
+    await page.mouse.move(at.x + 1, at.y)
+    await expect(scroller).not.toHaveCSS("cursor", "pointer")
+    await page.keyboard.up(MODIFIER)
+  })
 
   test("should offer the declarations of an ambiguous name and show the one chosen, from ⌘B and from the menu of the code", async ({ page }) => {
     const code = await openNavigationReview(page)
@@ -488,6 +484,49 @@ test(
     await expect(page.getByRole("listbox", { name: "Usages of helper" }).getByRole("option")).toHaveText([
       "callval sum = helper(2) + outsider(3) + outsider(4) + outsider(5)src/Uses.kt:4",
     ])
+  },
+)
+
+// WebKit puts the caret of a point inside an empty line after the empty text of its cell, where no range starts: the
+// move of the pointer there with the modifier threw, and the underline of the name it left stayed
+test(
+  "should take the underline of a name away as the pointer with the modifier moves on to an empty line, and underline the name again on its way back",
+  { tag: "@webkit" },
+  async ({ page, setupRepo, syncAndWaitForBranches, browserName }) => {
+    const repo = await setupRepo("symbol_navigation")
+    // an empty line comes between the call of `store.add` and the call of `helper`
+    const uses = "class Uses {\n  fun run(store: Any) {\n    store.add(1)\n\n    helper(2)\n    outsider(3)\n  }\n}\n"
+    await repo.commit("(nav) space the calls", { "src/Uses.kt": uses }, 1704120600)
+    await syncAndWaitForBranches()
+    const code = await openNavigationReview(page, "space the calls", "helper(2)")
+    const scroller = code.getByTestId("diff-view")
+    const links = code.getByTestId("diff-link")
+    const name = await wordIn(code, "src/Uses.kt", "helper")
+    await page.mouse.move(name.x, name.y)
+    await page.keyboard.down(MODIFIER)
+    await page.mouse.move(name.x + 1, name.y)
+    await expect(links).toHaveCount(1)
+    await expect(scroller).toHaveCSS("cursor", "pointer")
+
+    // the one line the commit adds, the empty one
+    const added = diffRows(code, "added")
+    await expect(added).toHaveCount(1)
+    await expect(added.getByTestId("diff-code")).toHaveText("")
+    // the middle of the empty line, past the start of its cell, where WebKit's caret is after its empty text: offset 1
+    // of an element without children, where no range starts
+    const empty = (await added.getByTestId("diff-code").boundingBox())!
+    const middle = { x: empty.x + empty.width / 2, y: empty.y + empty.height / 2 }
+    const caret = await page.evaluate(({ x, y }) => {
+      const position = document.caretPositionFromPoint(x, y)
+      return position === null ? null : { children: position.offsetNode.childNodes.length, offset: position.offset, text: position.offsetNode.textContent }
+    }, middle)
+    expect(caret).toEqual(browserName === "webkit" ? { children: 0, offset: 1, text: "" } : { children: 0, offset: 0, text: "" })
+    await page.mouse.move(middle.x, middle.y)
+    await expect(links).toHaveCount(0)
+    await expect(scroller).not.toHaveCSS("cursor", "pointer")
+    await page.mouse.move(name.x, name.y)
+    await expect(links).toHaveCount(1)
+    await page.keyboard.up(MODIFIER)
   },
 )
 
