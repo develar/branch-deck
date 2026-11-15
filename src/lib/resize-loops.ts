@@ -14,8 +14,8 @@ export const LOOP_REPEATS = 3
 export const LOOP_REPEAT_MS = 5000
 
 /**
- * An element of ours resized in the delivery of its own observers, by a change of its callback, in `CYCLE_RELEASES` of
- * `CYCLE_FRAMES` frames is a cycle (its callback resizes it again, in every frame or in every other): frames, not time,
+ * An element of ours resized after its report in a delivery by a change of a callback of ours (its own observer's or
+ * another's), in `CYCLE_RELEASES` of `CYCLE_FRAMES` frames, is a cycle (resized again in every frame or in every other): frames, not time,
  * so a window that renders slowly (a loaded machine, a window in the background) tells it as well
  */
 export const CYCLE_RELEASES = 10

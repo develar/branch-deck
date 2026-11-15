@@ -32,12 +32,17 @@
  *   a frame, as an animation, a transition, a drag or a resize of the window does for as long as they last, and no size,
  *   frame or time tells it from them.
  * - A loop the engine reports anyway: the elements of ours left resized since their report (`pendingOfOurs`), which
- *   src/lib/page-errors.ts logs as an error (src/lib/resize-loops.ts).
+ *   src/lib/page-errors.ts logs as an error (src/lib/resize-loops.ts). Resized as the engine tells it: the box each
+ *   observation observes, the content box unless the border box, as laid out (src/lib/laid-out.ts: a scroll bar that
+ *   takes room is in the border box, not in the content box). An element observed again in a delivery leaves the engine
+ *   as its new observation waits, so a change does not leave its old observation to skip.
  *
  * A loop of the observers of a library is theirs, timed as the specification says: a warning of the page, repeated an
  * error
  */
 import { logError } from "@/lib/errors"
+import type { Box, Boxes } from "@/lib/laid-out"
+import { laidOutBoxes } from "@/lib/laid-out"
 import { attributeLoopsWith, CYCLE_FRAMES, CYCLE_RELEASES } from "@/lib/resize-loops"
 
 /** The mark of an observer made here, which the test wrapper of the observers reads (tests/e2e/setup/resize-observers.ts) */
@@ -45,18 +50,6 @@ export const SIZE_OBSERVER_MARK = Symbol.for("branch-deck.observeSize")
 
 /** Two sizes this close are the same: less than a layout unit (1/64 px), more than the rounding of a computed style */
 const SAME_SIZE = 0.01
-
-/** A box as laid out, inline (the width of the page) and block */
-interface Box {
-  readonly inline: number
-  readonly block: number
-}
-
-/** The content box and the border box of an element, what an observation compares (`box`, the content box by default) */
-interface Boxes {
-  readonly content: Box
-  readonly border: Box
-}
 
 /** What an observer observes an element with, and the boxes it reported it with since */
 interface Observation {
@@ -136,37 +129,8 @@ function boxesOf(entry: ResizeObserverEntry): Boxes | null {
   }
 }
 
-/** The boxes of `element` as laid out now, which no transform changes; null without a box */
-function laidOut(element: Element): Boxes | null {
-  if (!element.isConnected || typeof getComputedStyle === "undefined") {
-    return null
-  }
-  const style = getComputedStyle(element)
-  if (style.display === "none") {
-    return { content: { inline: 0, block: 0 }, border: { inline: 0, block: 0 } }
-  }
-  const width = Number.parseFloat(style.width)
-  const height = Number.parseFloat(style.height)
-  if (!Number.isFinite(width) || !Number.isFinite(height)) {
-    return null
-  }
-  const sum = (...values: string[]) => values.reduce((total, value) => total + (Number.parseFloat(value) || 0), 0)
-  const around = {
-    inline: sum(style.paddingLeft, style.paddingRight, style.borderLeftWidth, style.borderRightWidth),
-    block: sum(style.paddingTop, style.paddingBottom, style.borderTopWidth, style.borderBottomWidth),
-  }
-  return style.boxSizing === "border-box"
-    ? { content: { inline: width - around.inline, block: height - around.block }, border: { inline: width, block: height } }
-    : { content: { inline: width, block: height }, border: { inline: width + around.inline, block: height + around.block } }
-}
-
 function sameBox(one: Box, other: Box): boolean {
   return Math.abs(one.inline - other.inline) <= SAME_SIZE && Math.abs(one.block - other.block) <= SAME_SIZE
-}
-
-/** Whether a box reported as `reported` is laid out as `now`, what the engine compares to tell an observation active */
-function sameBoxes(reported: Boxes, now: Boxes): boolean {
-  return sameBox(reported.content, now.content) && sameBox(reported.border, now.border)
 }
 
 /** An element in a log line: its test id, its slot, else its tag */
@@ -290,7 +254,7 @@ function release(element: Element, depth: number, ofOurs: boolean): void {
     }
   }
   if (by.size > 0) {
-    // the frame that makes a cycle is measured (a layout now): resized by a change of its own, not by a drag between frames
+    // the frame that makes a cycle is measured (a layout now): resized by the change of a callback, not by a drag between frames
     const resized = ofOurs && recentFrames(element, frame).length + 1 >= CYCLE_RELEASES && resizedSinceReport(element, by)
     released.set(element, { depth, by, frame, ofOurs, resized })
   }
@@ -298,7 +262,7 @@ function release(element: Element, depth: number, ofOurs: boolean): void {
 
 /** Whether `element` is laid out other than one of `by` reported it */
 function resizedSinceReport(element: Element, by: ReadonlySet<SizeObserver>): boolean {
-  const now = laidOut(element)
+  const now = laidOutBoxes(element)
   return now !== null && [...by].some(observer => observer.differs(element, now))
 }
 
@@ -491,6 +455,8 @@ export class SizeObserver {
     if (this.resize === null) {
       return
     }
+    // an element it observes already, which the engine observes (not let go): the engine keeps it until unobserved
+    const live = this.observed.has(element) && !this.gone.has(element)
     this.observed.set(element, { options, reported: null })
     this.gone.delete(element)
     observers.add(this)
@@ -505,6 +471,9 @@ export class SizeObserver {
     if (open !== null) {
       const depth = depthIn(open, element)
       if (depth <= open.depth) {
+        if (live) {
+          this.resize.unobserve(element)
+        }
         this.gone.add(element)
         deferObservation(element, this, depth)
         return
@@ -541,7 +510,14 @@ export class SizeObserver {
   /** Whether `element` is laid out as `now`, other boxes than it reported, or a size never reported */
   differs(element: Element, now: Boxes): boolean {
     const reported = this.observed.get(element)?.reported
-    return reported === undefined ? false : reported === null ? now.border.inline > 0 || now.border.block > 0 : !sameBoxes(reported, now)
+    if (reported === undefined) {
+      return false
+    }
+    if (reported === null) {
+      return now.border.inline > 0 || now.border.block > 0
+    }
+    // the box the observation compares, as the engine does: the content box unless it observes the border box
+    return this.observed.get(element)?.options?.box === "border-box" ? !sameBox(reported.border, now.border) : !sameBox(reported.content, now.content)
   }
 
   /** `element` leaves it until the delivery ends; false when it does not observe it, or let it go already */
@@ -567,7 +543,7 @@ export class SizeObserver {
   /** Its elements a loop left pending: resized since their report, or observed with a size and never reported */
   pending(): Element[] {
     return [...this.observed.keys()].filter(element => {
-      const now = this.gone.has(element) ? null : laidOut(element)
+      const now = this.gone.has(element) ? null : laidOutBoxes(element)
       return now !== null && this.differs(element, now)
     })
   }

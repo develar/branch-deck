@@ -430,6 +430,58 @@ describe("observeSize", () => {
     expect(observed()).toBe(true)
   })
 
+  it("lets the view go on a change a commit of React makes in a microtask right after the callback", async () => {
+    const { observeSize } = await import("@/lib/observe-size")
+    const view = element(body, "view")
+    const above = node(body, "above")
+    observeSize(() => queueMicrotask(() => commit(above as unknown as Node))).observe(view.element)
+    const resizeObserver = FakeResizeObserver.all[0]!
+    resizeObserver.report(view.element)
+    await microtasks()
+    expect(resizeObserver.observed.has(view.element)).toBe(false)
+    await nextTask()
+    expect(resizeObserver.observed.has(view.element)).toBe(true)
+  })
+
+  it("lets an element its observer observes again in the delivery leave the engine's observer until the delivery ends", async () => {
+    // a ref called again for an element observed already: the engine keeps its observation, which the update would skip
+    // once a change resizes it, so it leaves the engine as the new one waits
+    const { observeSize } = await import("@/lib/observe-size")
+    const view = element(body, "view")
+    const cell = element(body, "cell")
+    const columns = observeSize(() => {})
+    columns.observe(cell.element)
+    const cells = FakeResizeObserver.all[0]!
+    observeSize(() => {
+      columns.observe(cell.element)
+      grow(cell)
+    }).observe(view.element)
+    FakeResizeObserver.all[1]!.report(view.element)
+    await microtasks()
+    expect(cells.observed.has(cell.element)).toBe(false)
+    await nextTask()
+    expect(cells.observed.has(cell.element)).toBe(true)
+  })
+
+  it("keeps an element observed first in the delivery waiting when a report shallower than the delivery, but not than it, follows", async () => {
+    // a row observed in the delivery of a report of deeper cells waits at its own depth: a report of the rows after it,
+    // shallower than the cells, is not shallower than the row, which the next iteration would skip
+    const { observeSize } = await import("@/lib/observe-size")
+    const row = element(body, "row")
+    const cell = element(node(node(row.element as unknown as FakeNode)), "cell")
+    const between = element(node(row.element as unknown as FakeNode), "between")
+    const ofRows = observeSize(() => {})
+    observeSize(() => ofRows.observe(row.element)).observe(cell.element)
+    observeSize(() => {}).observe(between.element)
+    const [rows, ofCells, ofBetween] = FakeResizeObserver.all
+    ofCells!.report(cell.element)
+    expect(rows!.observed.has(row.element)).toBe(false)
+    ofBetween!.report(between.element)
+    expect(rows!.observed.has(row.element)).toBe(false)
+    nextFrame()
+    expect(rows!.observed.has(row.element)).toBe(true)
+  })
+
   it("observes an element first observed microtasks after the callback, with no change, only as the delivery ends", async () => {
     // an effect three promises after the callback (as floating-ui's flushSync after the observer of Base UI) observes an
     // element in place: still in the update, with no change of its own to let it go
@@ -596,6 +648,22 @@ describe("observeSize", () => {
     observeSize(() => {}).observe(panel.element)
     FakeResizeObserver.all[0]!.report(panel.element)
     expect(loopOfOurs()).toEqual([])
+    resize(panel.element, 100, 20, 4)
+    expect(loopOfOurs()).toEqual(["panel"])
+  })
+
+  it("compares the box an observation observes alone, as the engine does", async () => {
+    // the columns observe the border box of their items: a padding that resizes the content alone is no change of theirs
+    const { observeSize } = await import("@/lib/observe-size")
+    const { loopOfOurs } = await import("@/lib/resize-loops")
+    const item = element(body, "item")
+    const panel = element(body, "panel")
+    const ofItems = observeSize(() => {})
+    ofItems.observe(item.element, { box: "border-box" })
+    observeSize(() => {}).observe(panel.element)
+    FakeResizeObserver.all[0]!.report(item.element)
+    FakeResizeObserver.all[1]!.report(panel.element)
+    resize(item.element, 100, 20, 4)
     resize(panel.element, 100, 20, 4)
     expect(loopOfOurs()).toEqual(["panel"])
   })

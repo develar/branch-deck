@@ -33,6 +33,7 @@ targets:
   - src/lib/page-errors.ts
   - src/lib/resize-loops.ts
   - src/lib/observe-size.ts
+  - src/lib/laid-out.ts
   - src/components/repository/MainMenuButton.tsx
   - src/lib/title-bar-mouse.ts
   - src/lib/main-menu.ts
@@ -774,11 +775,13 @@ that repeats and one of the page's own observers as an error.
 #### Scenario: A ResizeObserver loop
 - **WHEN** the engine reports a ResizeObserver loop, whose notifications come in the next frame
 - **THEN** the log of the app has a warning of a loop of the observers of a library; three within five seconds are an error, a loop that repeats however slowly
-- **AND** a loop that left an element of an observer of the page pending is an error at once
+- **AND** a loop that left an element of an observer of the page pending is an error at once: one laid out at another size than reported in the box it observes (the content box unless the border box), a scroll bar that takes room in the border box and not in the content box, as the engine tells it
 - **AND** each kind of line comes once in ten seconds at most, with the count of the loops it left out
 - **AND** the page takes the event of the engine as its own: no console reports the loop as an uncaught error
   [@test] src/lib/page-errors.test.ts (`logs a loop of the observers of a library as a warning, and three within five seconds as an error, however slowly they repeat`, `logs loops five seconds apart as warnings, one in ten seconds at most with the count of those it left out`, `logs a loop that left an element of the observers of the page pending as an error at once, then once in ten seconds with the count`)
-  [@test] src/lib/observe-size.test.ts (`names at a loop the elements of ours resized since their report, or observed with a size and never reported`, `names at a loop an element whose content box changed inside the same border box, as the engine compares it`)
+  [@test] src/lib/observe-size.test.ts (`names at a loop the elements of ours resized since their report, or observed with a size and never reported`, `names at a loop an element whose content box changed inside the same border box, as the engine compares it`, `compares the box an observation observes alone, as the engine does`)
+  [@test] src/lib/laid-out.test.ts (`reads the content box of a scroller without its scroll bar, as its observer reports it, in either box sizing`, `reads no scroll bar of an overlay bar or of none`)
+  [@test] tests/e2e/resize-loops/resize-loops.spec.ts (`should read the boxes of a scroller whose scroll bar takes room as its observer reports them @webkit`)
   [@test] tests/e2e/resize-loops/resize-loops.spec.ts (`should attribute a loop to the observer of the app or of a library whose element it left pending`)
 
 #### Scenario: No observer of the page makes a loop
@@ -786,9 +789,10 @@ that repeats and one of the page's own observers as an error.
 - **THEN** a change in the callback or in the microtasks right after it lets go every element of the observers of the page no deeper than the elements of the latest report, as it may have resized it (the layout is the page's: a block above a view that grows shrinks the view, a view hidden around a table empties its cells); a change later in the delivery (however many promises after the callback, a render in a task) lets go the elements it is in; each is observed anew as the delivery ends
 - **AND** an element deeper than them stays observed, delivered at its depth in that frame, and one let go comes back at once when a report of shallower elements shows it deeper
 - **AND** a change after the delivery lets nothing go: the next update delivers it in its own frame
-- **AND** an element first observed in the delivery, no deeper than the elements of the latest report (a block a flushSync in a callback mounted, observed by its ref; the cells of a table mounted again; an element in place an effect observes), is observed only as it ends
+- **AND** an element first observed in the delivery, no deeper than the elements of the latest report (a block a flushSync in a callback mounted, observed by its ref; the cells of a table mounted again; an element in place an effect observes), is observed only as it ends; one its observer observes again there leaves the engine's observer until then
 - **AND** a report of an observer of a library opens the delivery at its depth as one of ours does; the observer of the library is the engine's class, prototype and methods, with the same entries in the same frames
   [@test] src/lib/observe-size.test.ts (`lets an element go at once on a change of the delivery, and observes it anew as the delivery ends`, `observes an element the delivery let go anew at the next frame, when that frame comes before the next task`, `leaves an element observed that a change after the delivery resizes: the next update delivers it in its own frame`, `leaves an element deeper than the elements of the latest report observed: the update delivers it at its depth`, `observes an element its report let go anew as a report of shallower elements shows it deeper than they are`, `leaves an element it no longer observes alone`)
+  [@test] src/lib/observe-size.test.ts (`lets the view go on a change a commit of React makes in a microtask right after the callback`, `lets an element its observer observes again in the delivery leave the engine's observer until the delivery ends`, `keeps an element observed first in the delivery waiting when a report shallower than the delivery, but not than it, follows`)
   [@test] src/lib/observe-size.test.ts (`lets an element go that a change three microtasks after the callback resizes, still in the update`, `lets go after the microtasks of the callback only the elements a change is in, not every one of the depth`, `observes a row a callback inserted and first observed only as the delivery ends`, `observes a row a commit of React inserted and first observed in a microtask after the callback only as the delivery ends`, `observes an element first observed microtasks after the callback, with no change, only as the delivery ends`)
   [@test] src/lib/observe-size.test.ts (`lets every element of ours go that a change anywhere in the delivery can resize, and leaves one deeper than the report observed`, `keeps an element let go above a report of deeper elements let go when a report shallower than they are, but not than it, follows`)
   [@test] src/lib/observe-size.test.ts (`observes an element first observed in the delivery no deeper than its report only as it ends, with no change to tell it`, `observes the cells of a table mounted again in the delivery only as it ends`)
@@ -801,7 +805,7 @@ that repeats and one of the page's own observers as an error.
   [@test] tests/e2e/resize-loops/resize-loops.spec.ts (`should paint no frame of a review with its overview over its first file as it opens, on a slow CPU`)
 
 #### Scenario: A cycle of an observer of the page
-- **WHEN** an element is let go so in ten of twenty frames (in every frame, in every other) after its report there, resized by a change of its own callback
+- **WHEN** an element is let go so in ten of twenty frames (in every frame, in every other) after its report there, resized by a change of a callback of the page (its own observer's or another's)
 - **THEN** the log of the app has an error, once while the cycle goes on, however slowly the window renders its frames
 - **AND** an element let go three frames apart, one resized between frames (a drag), one let go before its own report in the delivery, or one let go by a change after the update, is no cycle
   [@test] src/lib/observe-size.test.ts (`logs a cycle once when its own callback resizes an element in its delivery in every frame`, `logs a cycle that resizes an element in the delivery of every other frame`, `logs no cycle of an element let go three frames apart, nor of one whose releases a pause of twenty frames parts`, `counts an element its observers let go in one delivery once`, `logs no cycle of an element resized between frames, nor of one let go by a change after the update`, `logs no cycle of an element another callback lets go before its own report in every frame, as a drag resized it`)

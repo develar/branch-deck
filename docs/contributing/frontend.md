@@ -196,7 +196,7 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   the delivery at the depth of their report as one of ours does (`watchTheLibraries`): the same class, prototype,
   methods and `instanceof`, the same entries in the same frame, none of their elements let go. An element let go so in
   10 of 20 frames (`CYCLE_RELEASES`, `CYCLE_FRAMES`: every frame, every other) after its report there, resized by a
-  change of its own callback, is a cycle, logged as an error: frames, not time, so a window that renders slowly tells it
+  change of a callback of ours (its own observer's or another's), is a cycle, logged as an error: frames, not time, so a window that renders slowly tells it
   too, and a drag that resizes it between frames is none, nor one let go before its report (a commit lets an element go once, however many of our observers observe it: a
   diff view has three). A cycle that resizes its element after the delivery (in a frame callback, a timer) is not
   caught: it resizes the element once a frame, as an animation, a transition, a drag or a live resize of the window do

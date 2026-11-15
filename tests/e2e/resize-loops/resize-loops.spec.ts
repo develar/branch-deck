@@ -1,5 +1,6 @@
 // @spec openspec/specs/repository/title-bar/spec.md
 import type { Page } from "@playwright/test"
+import { laidOutBoxes } from "../../../src/lib/laid-out"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { expectOverviewLaidOut } from "../helpers/diff-helpers"
@@ -288,5 +289,55 @@ test.describe("The observers of the libraries", () => {
     expect(seen.ofLibrary).toEqual(seen.ofEngine)
     // the first report and at least one of a resize (a loaded machine renders two resizes in one frame)
     expect(seen.ofEngine.length).toBeGreaterThan(1)
+  })
+})
+
+test.describe("The boxes of the observed elements", () => {
+  // the page tells an element of its observers resized by the boxes it reads (src/lib/laid-out.ts): a scroll bar that takes
+  // room (WebKit on macOS with a mouse, "Always show scroll bars", a scroll bar of the page's own style) lies between the
+  // padding and the border, which the computed style does not say. Read as the observer reports them, in either box sizing
+  test("should read the boxes of a scroller whose scroll bar takes room as its observer reports them @webkit", async ({ page, browserName }) => {
+    await page.setContent(`<style>
+      .scroller { overflow: auto; height: 100px; padding: 4px; border: 1px solid black; width: 300px; }
+      .scroller::-webkit-scrollbar { width: 12px; height: 12px; }
+      .scroller::-webkit-scrollbar-thumb { background: gray; }
+    </style>
+    <div class="scroller" id="border" style="box-sizing: border-box"><div style="height: 400px; width: 600px">x</div></div>
+    <div class="scroller" id="content" style="box-sizing: content-box"><div style="height: 400px">x</div></div>
+    <div class="scroller" id="none" style="overflow: hidden"><div>x</div></div>`)
+    await page.addScriptTag({ content: `window.laidOutBoxes = ${laidOutBoxes.toString()}` })
+    const boxes = await page.evaluate(
+      () =>
+        new Promise<Record<string, unknown>>(resolve => {
+          const read = (window as unknown as { laidOutBoxes: (element: Element) => unknown }).laidOutBoxes
+          const observer = new ResizeObserver(entries => {
+            observer.disconnect()
+            resolve(
+              Object.fromEntries(
+                entries.map(entry => [
+                  entry.target.id,
+                  {
+                    reported: {
+                      content: { inline: entry.contentBoxSize[0]!.inlineSize, block: entry.contentBoxSize[0]!.blockSize },
+                      border: { inline: entry.borderBoxSize[0]!.inlineSize, block: entry.borderBoxSize[0]!.blockSize },
+                    },
+                    laidOut: read(entry.target),
+                  },
+                ]),
+              ),
+            )
+          })
+          for (const id of ["border", "content", "none"]) {
+            observer.observe(document.getElementById(id)!)
+          }
+        }),
+    )
+    for (const [id, { reported, laidOut }] of Object.entries(boxes as Record<string, { reported: unknown; laidOut: unknown }>)) {
+      expect(laidOut, id).toEqual(reported)
+    }
+    // WebKit draws the scroll bars of the style, which take room: a content box narrower than the computed style says
+    // (Chromium headless draws overlay bars, which take none)
+    const contentOfBorderBox = (boxes.border as { reported: { content: { inline: number } } }).reported.content.inline
+    expect(contentOfBorderBox).toBe(browserName === "webkit" ? 278 : 290)
   })
 })
