@@ -1,7 +1,11 @@
 #[cfg(unix)]
 use crate::lease::stop_servers;
-use crate::lease::{DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
+use crate::lease::{
+  DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, RECLAIM_ROOM, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates, stamp_reclaimed,
+  stamp_returned,
+};
 use crate::shrink::{next_free, shrink_order};
+use crate::trim::trim_order;
 use std::path::Path;
 use std::time::Duration;
 #[cfg(unix)]
@@ -214,39 +218,146 @@ fn the_wait_for_the_shrink_of_another_names_the_holder_its_time_and_the_free_spa
   );
 }
 
-/// A reclaimed slot is returned as of when its lease went quiet, with the next number of the pool
-/// (`Slot::return_order`): the free slots are ordered by the time of their return, so the reclaimed slot comes before
-/// the ones returned after that time for the reserve and the shrink, and the slot returned last stays the next slot of
-/// the pool. One of a brd that recorded no time comes before every slot with a time. No other slot changes its number
-#[test]
-fn a_reclaimed_slot_comes_before_the_free_slots_returned_after_its_lease_went_quiet() {
-  let slot = |returned: u64, returned_at: Option<u64>| Slot {
-    name: String::new(),
-    path: format!("/pool/{returned}/repo"),
+/// A free slot `n` of a pool under `root`, its directory there, returned as the `returned`-th at `returned_at`
+fn returned_slot(root: &Path, n: u64, returned: Option<u64>, returned_at: Option<u64>) -> Slot {
+  let path = root.join(n.to_string());
+  std::fs::create_dir_all(&path).unwrap();
+  Slot {
+    name: format!("slot{n}"),
+    path: path.to_string_lossy().into_owned(),
     dirty: false,
     dirty_check: None,
-    returned: Some(returned),
+    returned,
     returned_at,
     lease: None,
     reclaimed: None,
-  };
-  // the reclaimed slot is 6: one past the last return, as of the time its lease went quiet
-  let slots = [
-    slot(1, Some(500)),
-    slot(2, None),
-    slot(3, Some(900)),
-    slot(4, Some(1_100)),
-    slot(5, Some(1_200)),
-    slot(6, Some(1_000)),
+  }
+}
+
+/// The names of the free slots of one pool in the order of each reader: a get (`next_free` first), the trim
+/// (`trim_order`), the shrink (`shrink_order`, the next slot of the get last), and the time first, as a brd of
+/// `Slot::return_order` ordered a pool
+fn orders(slots: &[Slot]) -> (Option<String>, Vec<String>, Vec<String>, Vec<String>) {
+  let names = |order: Vec<&Slot>| order.into_iter().map(|slot| slot.name.clone()).collect::<Vec<_>>();
+  let mut by_time: Vec<&Slot> = slots.iter().filter(|slot| slot.lease.is_none()).collect();
+  by_time.sort_by_key(|slot| (slot.returned_at, slot.returned));
+  (
+    next_free(slots.iter().filter(|slot| slot.lease.is_none())).map(|slot| slot.name.clone()),
+    names(trim_order(slots).1),
+    names(shrink_order(&[slots], |_| true).into_iter().map(|(_, slot)| slot).collect()),
+    names(by_time),
+  )
+}
+
+/// `slot` under a lease that its return or reclaim holds
+fn returning(mut slot: Slot) -> Slot {
+  slot.lease = Some(Lease::marker("lease", "agent", LeaseState::Returning));
+  slot
+}
+
+/// Every reader orders the free slots of `slots` as `coldest_first`: a get takes the last first, the trim and the
+/// shrink take the first first, and the time orders them as the number does
+fn assert_coldest_first(slots: &[Slot], coldest_first: &[&str]) {
+  let names: Vec<String> = coldest_first.iter().map(|name| (*name).to_owned()).collect();
+  assert_eq!(orders(slots), (names.last().cloned(), names.clone(), names.clone(), names));
+}
+
+/// A reclaim gives its slot a number below every other free slot of the pool and a time not after any of theirs
+/// (`stamp_reclaimed`), so a get takes it last, and the trim and the shrink take it first, by the number alone or by the
+/// time first: every brd that reads the state orders it the same. No other slot changes its number, and the reclaimed
+/// slot does not get its number from before the lease again
+#[test]
+fn a_reclaimed_slot_is_the_coldest_free_slot_of_its_pool_by_number_and_by_time() {
+  let dir = tempfile::tempdir().unwrap();
+  // the reclaimed slot had 2 before its lease, which went quiet at 1000; slot 3 was returned before it, 4 and 5 after
+  let mut slots = vec![
+    returned_slot(dir.path(), 3, Some(3), Some(500)),
+    returned_slot(dir.path(), 4, Some(4), Some(1_100)),
+    returned_slot(dir.path(), 5, Some(5), Some(1_200)),
+    returning(returned_slot(dir.path(), 2, Some(2), Some(400))),
+    returning(returned_slot(dir.path(), 9, Some(1), Some(300))),
   ];
-  let numbers = |order: Vec<&Slot>| order.into_iter().filter_map(|slot| slot.returned).collect::<Vec<_>>();
-  assert_eq!(next_free(slots.iter()).and_then(|slot| slot.returned), Some(5), "the slot returned last is the next one");
+  stamp_reclaimed(&mut slots, 3, 1_000);
+  slots[3].lease = None;
+  let numbers = |slots: &[Slot]| slots.iter().map(|slot| (slot.returned, slot.returned_at)).collect::<Vec<_>>();
   assert_eq!(
-    numbers(shrink_order(&[&slots], |_| true).into_iter().map(|(_, slot)| slot).collect()),
-    vec![2, 1, 3, 6, 4, 5]
+    numbers(&slots),
+    [
+      (Some(3), Some(500)),
+      (Some(4), Some(1_100)),
+      (Some(5), Some(1_200)),
+      (Some(1), Some(500)),
+      (Some(1), Some(300))
+    ]
   );
-  // two returns in one second: the number orders them
-  assert!(slot(8, Some(1_200)).return_order() > slot(5, Some(1_200)).return_order());
+  assert_coldest_first(&slots, &["slot2", "slot3", "slot4", "slot5"]);
+
+  // a free slot of a brd before `returned_at`: the reclaimed slot has no time either, so it comes first by the time too
+  let mut slots = vec![
+    returned_slot(dir.path(), 3, Some(3), None),
+    returned_slot(dir.path(), 4, Some(4), Some(1_100)),
+    returning(returned_slot(dir.path(), 2, Some(7), Some(400))),
+  ];
+  stamp_reclaimed(&mut slots, 2, 1_000);
+  slots[2].lease = None;
+  assert_eq!(numbers(&slots)[2], (Some(2), None));
+  assert_coldest_first(&slots, &["slot2", "slot3", "slot4"]);
+
+  // no other free slot that was returned: one past the last number of the pool, as of when its lease went quiet
+  let mut slots = vec![
+    returned_slot(dir.path(), 3, None, None),
+    returning(returned_slot(dir.path(), 9, Some(6), Some(300))),
+    returning(returned_slot(dir.path(), 2, Some(2), Some(400))),
+  ];
+  stamp_reclaimed(&mut slots, 2, 1_000);
+  assert_eq!(numbers(&slots)[2], (Some(7), Some(1_000)));
+}
+
+/// With no number left below the other free slots (the lowest is 0, or 1 and the reclaimed slot had 0), they move up
+/// by `RECLAIM_ROOM` and the reclaimed slot takes the number below them; a leased slot keeps its number
+#[test]
+fn a_reclaim_with_no_number_left_below_moves_the_free_slots_up_once() {
+  let dir = tempfile::tempdir().unwrap();
+  for (own, lowest) in [(Some(0), 1), (Some(5), 0)] {
+    let mut slots = vec![
+      returned_slot(dir.path(), 3, Some(lowest), Some(500)),
+      returned_slot(dir.path(), 4, Some(4), Some(1_100)),
+      returning(returned_slot(dir.path(), 9, Some(2), Some(300))),
+      returning(returned_slot(dir.path(), 2, own, Some(400))),
+    ];
+    stamp_reclaimed(&mut slots, 3, 1_000);
+    slots[3].lease = None;
+    let numbers: Vec<Option<u64>> = slots.iter().map(|slot| slot.returned).collect();
+    let room = RECLAIM_ROOM;
+    assert_eq!(numbers, [Some(lowest + room), Some(4 + room), Some(2), Some(lowest + room - 1)], "own {own:?}");
+    assert_coldest_first(&slots, &["slot2", "slot3", "slot4"]);
+  }
+}
+
+/// A return after a step back of the clock is the warmest free slot of its pool for every reader: its number is one
+/// past the last, and its time is that of the last return of the pool, not the earlier time of the clock
+/// (`stamp_returned`)
+#[test]
+fn a_return_after_a_step_back_of_the_clock_is_the_warmest_free_slot_of_its_pool() {
+  let dir = tempfile::tempdir().unwrap();
+  let mut slots = vec![
+    returned_slot(dir.path(), 1, Some(1), Some(1_900)),
+    returned_slot(dir.path(), 2, Some(2), Some(2_000)),
+    returned_slot(dir.path(), 3, Some(3), Some(1_000)),
+  ];
+  slots[2].lease = Some(Lease::marker("lease", "agent", LeaseState::Returning));
+  stamp_returned(&mut slots, 2, 1_500);
+  slots[2].lease = None;
+  assert_eq!((slots[2].returned, slots[2].returned_at), (Some(4), Some(2_000)));
+  assert_coldest_first(&slots, &["slot1", "slot2", "slot3"]);
+  // a clock that goes on records its own time
+  slots[0].lease = Some(Lease::marker("lease", "agent", LeaseState::Returning));
+  stamp_returned(&mut slots, 0, 2_100);
+  assert_eq!((slots[0].returned, slots[0].returned_at), (Some(5), Some(2_100)));
+  // a state that a brd without the bound wrote after a step back: the number orders the pool for a get and the trim
+  let slots = [returned_slot(dir.path(), 1, Some(1), Some(2_000)), returned_slot(dir.path(), 2, Some(2), Some(1_500))];
+  let (next, trim, _, _) = orders(&slots);
+  assert_eq!((next, trim), (Some("slot2".to_owned()), vec!["slot1".to_owned(), "slot2".to_owned()]));
 }
 
 /// A prune of a leased slot whose lease changed after the shrink read it (a return and a new get came between) prunes

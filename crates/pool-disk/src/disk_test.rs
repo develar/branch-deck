@@ -472,5 +472,6 @@ fn a_reclaim_leaves_the_measures_of_the_other_free_slots_valid() {
   };
   assert_eq!(report(&free[0]), (Some(2), true), "a free slot keeps its number and its measure");
   assert_eq!(report(&free[1]), (Some(3), true), "a free slot keeps its number and its measure");
-  assert_eq!(report(&idle), (Some(4), false), "the reclaimed slot is measured again");
+  // below the other free slots, and not its number from before the lease
+  assert_eq!(report(&idle), (Some(0), false), "the reclaimed slot is measured again");
 }

@@ -96,12 +96,15 @@ pub struct Slot {
   /// The `status` that found it dirty, while `dirty`: a later get skips the slot without another while it holds
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub dirty_check: Option<DirtyCheck>,
-  /// The number of its last return in the pool, higher for a later one: a get takes the free slot returned last first
+  /// The number of its last return in the pool, higher for a later one, below every other free slot for a reclaim
+  /// (`stamp_reclaimed`): the order of the free slots of one pool. A get takes the highest first, the trim the lowest
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub returned: Option<u64>,
-  /// Unix seconds of its last return: `returned` counts within one pool, and the shrink of a get below the minimum free
-  /// space orders the free slots of every pool of the machine by this (`shrink::shrink_order`). `None` for a slot never
-  /// returned and for one a brd before this field returned
+  /// Unix seconds of its last return, never before an earlier return of the pool (`stamp_returned`), so it orders the
+  /// free slots of one pool as `returned` does: `returned` counts within one pool, and the shrink of a get below the
+  /// minimum free space orders the free slots of every pool of the machine by this (`shrink::shrink_order`). `None` for
+  /// a slot never returned, for one a brd before this field returned, and for a reclaimed slot that comes before such a
+  /// slot
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub returned_at: Option<u64>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -112,14 +115,62 @@ pub struct Slot {
   pub reclaimed: Option<Reclaimed>,
 }
 
-impl Slot {
-  /// The order of its last return among the free slots of every pool, the one returned last highest: its time
-  /// (`returned_at`), then its number (`returned`) within the same second. A reclaim returns a slot as of when its
-  /// lease went quiet, with the next number, so no other free slot changes its number, its epoch or the measure of
-  /// `pool-disk`. A slot never returned comes first of all, then one returned before `returned_at` existed
-  pub const fn return_order(&self) -> (Option<u64>, Option<u64>) {
-    (self.returned_at, self.returned)
-  }
+/// How far a reclaim moves up the numbers of the other free slots of its pool when no number is left below them
+/// (`stamp_reclaimed`). The move gives each of them a new epoch, and `pool-disk` measures it again, so it leaves room
+/// for many reclaims
+pub(crate) const RECLAIM_ROOM: u64 = 1_000;
+
+/// Record a return of the slot `index` of `slots` at `now` (Unix seconds): one past the last number of the pool, and a
+/// time not before the last return of the pool. So a step back of the clock leaves the order of the pool by time, which
+/// the shrink across pools reads, the same as its order by number
+pub(crate) fn stamp_returned(slots: &mut [Slot], index: usize, now: u64) {
+  let last_number = slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
+  let last_time = slots.iter().filter_map(|slot| slot.returned_at).max().unwrap_or(0);
+  let slot = &mut slots[index];
+  slot.returned = Some(last_number + 1);
+  slot.returned_at = Some(now.max(last_time));
+}
+
+/// Record the return of the slot `index` of `slots` by a reclaim, its lease quiet since `quiet_at` (Unix seconds), as
+/// the coldest free slot of the pool. Its number is below that of every other free slot and is not its number before
+/// the lease, so no other free slot changes its epoch or its measure of `pool-disk`. Its time is not after that of
+/// any of them (`None` before a slot without one). So every brd orders it last for a get and first for the trim and
+/// the shrink, by the number alone (a brd before `returned_at`) or by the time first, and no clock moves it. With no
+/// number left below, the other free slots move up by `RECLAIM_ROOM` first. With no other free slot that was returned,
+/// it gets one past the last number of the pool and `quiet_at`
+pub(crate) fn stamp_reclaimed(slots: &mut [Slot], index: usize, quiet_at: u64) {
+  let own = slots[index].returned;
+  let other_free = |(other, slot): &(usize, &Slot)| *other != index && slot.lease.is_none() && slot.returned.is_some();
+  let lowest = slots.iter().enumerate().filter(other_free).filter_map(|(_, slot)| slot.returned).min();
+  let Some(lowest) = lowest else {
+    let last_number = slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
+    slots[index].returned = Some(last_number + 1);
+    slots[index].returned_at = Some(quiet_at);
+    return;
+  };
+  let time = slots
+    .iter()
+    .enumerate()
+    .filter(other_free)
+    .map(|(_, slot)| slot.returned_at)
+    .chain([Some(quiet_at)])
+    .min()
+    .flatten();
+  // the two highest numbers below `lowest`: one of them is not its own
+  let below = |lowest: u64| (0..lowest).rev().take(2).find(|&number| Some(number) != own);
+  let number = below(lowest).unwrap_or_else(|| {
+    for (other, slot) in slots.iter_mut().enumerate() {
+      if other != index
+        && slot.lease.is_none()
+        && let Some(number) = slot.returned.as_mut()
+      {
+        *number += RECLAIM_ROOM;
+      }
+    }
+    below(lowest + RECLAIM_ROOM).unwrap_or(lowest + RECLAIM_ROOM - 1)
+  });
+  slots[index].returned = Some(number);
+  slots[index].returned_at = time;
 }
 
 /// A lease that was taken from its dead holder because its work had landed
@@ -2159,7 +2210,7 @@ fn reserve(
       .filter(|&index| reservable(&store.slots[index], tried) && store.slots[index].dirty == dirty)
       .collect();
     // stable: the slots never returned come last, in the order they joined
-    order.sort_by_key(|&index| std::cmp::Reverse(store.slots[index].return_order()));
+    order.sort_by_key(|&index| std::cmp::Reverse(store.slots[index].returned));
     for index in order {
       let slot = &mut store.slots[index];
       // tried before any check: the wait for the clones lock ends only for a slot this get has not looked at
@@ -2716,10 +2767,16 @@ fn is_worktree_of(dir: &Path, git_common_dir: &Path) -> bool {
 
 /// The slot at `path` whose lease is `lease_id`
 fn leased_slot<'a>(store: &'a mut LeaseStore, path: &str, lease_id: &str) -> Option<&'a mut Slot> {
+  let index = leased_index(store, path, lease_id)?;
+  store.slots.get_mut(index)
+}
+
+/// The index of the slot of `path` whose lease is `lease_id`
+fn leased_index(store: &LeaseStore, path: &str, lease_id: &str) -> Option<usize> {
   store
     .slots
-    .iter_mut()
-    .find(|slot| slot.path == path && slot.lease.as_ref().is_some_and(|lease| lease.id == lease_id))
+    .iter()
+    .position(|slot| slot.path == path && slot.lease.as_ref().is_some_and(|lease| lease.id == lease_id))
 }
 
 /// Give the slot of a failed get back: free it, or drop it from the state when it was never added (`remove`). The
@@ -3248,13 +3305,12 @@ fn return_once(
     }
   };
   pool.update(params.lock_timeout, |store| {
-    let last_return = store.slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
-    let slot = leased_slot(store, &path, &lease.id).ok_or_else(|| anyhow!("The lease of {path} changed while it was returned"))?;
+    let index = leased_index(store, &path, &lease.id).ok_or_else(|| anyhow!("The lease of {path} changed while it was returned"))?;
+    stamp_returned(&mut store.slots, index, now());
+    let slot = &mut store.slots[index];
     slot.lease = None;
     slot.dirty = false;
     slot.dirty_check = None;
-    slot.returned = Some(last_return + 1);
-    slot.returned_at = Some(now());
     Ok(())
   })?;
   // the slot is free. With `maintenance.auto` false no commit in a slot starts git's maintenance, whose repack held a
@@ -3955,8 +4011,8 @@ pub enum IdleSkip {
 /// Return every idle lease of the pool whose work landed (`check_idle`: the commits in its home branch, a clean tree,
 /// no operation in progress), each under its own CAS on its lease, its holder gone and its slot unchanged, as a return
 /// does: its Bazel servers stopped, its seeded paths removed, its branch detached, the clean rules applied into the
-/// trash, the slot free with the record of its lease (`Slot::reclaimed`), returned as of when its lease went quiet
-/// (`Slot::return_order`). The trash is deleted once, after the last slot, so no slot waits for the delete of another's
+/// trash, the slot free with the record of its lease (`Slot::reclaimed`), returned as the coldest free slot of the pool
+/// (`stamp_reclaimed`). The trash is deleted once, after the last slot, so no slot waits for the delete of another's
 /// build output. One with work is kept, its check recorded for the gets; with `apply` false nothing is written. The
 /// config and the process scan are read at the first lease that needs them, so a pool with no idle lease runs no git,
 /// and one whose kept leases hold their verdict (`reuse_checks`) runs one `rev-parse` each. With `full_checks` the
@@ -4098,15 +4154,13 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
     // the time its lease went quiet, the two times `is_quiet` reads, never past now
     let quiet_at = lease.leased_at.max(mark.log_modified).min(now);
     pool.update(params.lock_timeout, |store| {
-      let last_return = store.slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
-      if let Some(slot) = leased_slot(store, &path, &lease.id) {
+      if let Some(index) = leased_index(store, &path, &lease.id) {
+        // the coldest free slot of the pool, by its number and by its time, and no other free slot moves
+        stamp_reclaimed(&mut store.slots, index, quiet_at);
+        let slot = &mut store.slots[index];
         slot.lease = None;
         slot.dirty = false;
         slot.dirty_check = None;
-        // a number of its own, the time its lease went quiet: the order of the free slots (`Slot::return_order`) puts it
-        // before those returned since, and none of them moves
-        slot.returned = Some(last_return + 1);
-        slot.returned_at = Some(quiet_at);
         slot.reclaimed = Some(Reclaimed::of(&lease, None));
       }
       Ok(())

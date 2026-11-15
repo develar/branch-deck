@@ -360,7 +360,8 @@ pub fn leased_order(mut candidates: Vec<LeasedCandidate<'_>>) -> Vec<LeasedCandi
 /// shrink takes them: the ones returned longest ago first across every pool (`Slot::returned_at`, then `returned` for a
 /// slot a brd before that time returned; one never returned first of all), then, once no other is left, the slot of each
 /// pool that its next get would take (clean before dirty, returned last first, as `lease::reserve` orders them), whose
-/// warm output that get reuses. A slot with a lease of any state is no candidate. Each with the index of its pool
+/// warm output that get reuses. Within one pool the time orders the slots as their numbers do (`lease::stamp_returned`,
+/// `lease::stamp_reclaimed`). A slot with a lease of any state is no candidate. Each with the index of its pool
 pub fn shrink_order<'a>(pools: &[&'a [Slot]], usable: impl Fn(&Slot) -> bool) -> Vec<(usize, &'a Slot)> {
   let mut first: Vec<(usize, &Slot)> = Vec::new();
   let mut last: Vec<(usize, &Slot)> = Vec::new();
@@ -376,8 +377,8 @@ pub fn shrink_order<'a>(pools: &[&'a [Slot]], usable: impl Fn(&Slot) -> bool) ->
     }
   }
   // stable: the slots of the same time in the order of their pools and of the state
-  first.sort_by_key(|(_, slot)| slot.return_order());
-  last.sort_by_key(|(_, slot)| slot.return_order());
+  first.sort_by_key(|(_, slot)| (slot.returned_at, slot.returned));
+  last.sort_by_key(|(_, slot)| (slot.returned_at, slot.returned));
   first.extend(last);
   first
 }
@@ -385,7 +386,7 @@ pub fn shrink_order<'a>(pools: &[&'a [Slot]], usable: impl Fn(&Slot) -> bool) ->
 /// Of the free slots `free`, the one a get takes first, as `lease::reserve` orders them: clean before dirty, returned
 /// last first, then the first never returned (the first of the minimum, as the stable sort of `reserve` takes it)
 pub fn next_free<'a>(free: impl Iterator<Item = &'a Slot>) -> Option<&'a Slot> {
-  free.min_by_key(|slot| (slot.dirty, Reverse(slot.return_order())))
+  free.min_by_key(|slot| (slot.dirty, Reverse(slot.returned)))
 }
 
 #[cfg(test)]

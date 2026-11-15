@@ -327,6 +327,54 @@ fn reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest() {
   assert_eq!(slot_status(&fixture, &young)["state"], json!("ready"));
 }
 
+/// A pool of a reclaimed slot and two free slots returned after its lease went quiet: `brd lease reclaim --idle`
+/// returned the idle lease, whose work landed. Returns the reclaimed slot and the two free slots, the first returned
+/// first
+fn reclaimed_beside_warm_slots(fixture: &Fixture) -> (String, [String; 2]) {
+  let landed = path_of(&landed_lease(fixture, "landed-agent").0);
+  let warm: Vec<String> = (1..=2).map(|n| path_of(&fixture.get(&["--holder", &format!("lane-{n}")]))).collect();
+  for slot in &warm {
+    fixture.give_back(slot);
+  }
+  make_idle(fixture, &landed);
+  let (exit_code, reclaimed) = fixture.run(&["lease", "reclaim", "--idle"]);
+  assert_eq!(exit_code, 0, "{reclaimed}");
+  assert_eq!(reclaimed["reclaimed"][0]["path"], json!(slot_path(&landed)), "{reclaimed}");
+  (landed, warm.try_into().unwrap())
+}
+
+/// A reclaimed slot is the coldest free slot of its pool: the trim past `branchdeck.leaseMaxSlots` deletes it and keeps
+/// the free slots returned after its lease went quiet
+#[test_log::test]
+fn the_trim_deletes_a_reclaimed_slot_before_the_free_slots_returned_after_its_lease_went_quiet() {
+  let fixture = Fixture::new();
+  let (landed, warm) = reclaimed_beside_warm_slots(&fixture);
+  let reclaimed = slot_path(&landed);
+  let (exit_code, trimmed) = fixture.run(&["lease", "trim", "--max", "2"]);
+  assert_eq!(exit_code, 0, "{trimmed}");
+  let removed: Vec<&str> = trimmed["pools"][0]["removed"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|slot| slot["path"].as_str().unwrap())
+    .collect();
+  assert_eq!(removed, [reclaimed], "{trimmed}");
+  assert!(!Path::new(&landed).exists());
+  for slot in &warm {
+    assert!(Path::new(slot).is_dir(), "{slot}");
+  }
+}
+
+/// A reclaimed slot is the coldest free slot of its pool: the gets take the free slots returned after its lease went
+/// quiet first, the one returned last first, and it last
+#[test_log::test]
+fn the_gets_take_a_reclaimed_slot_after_the_free_slots_returned_after_its_lease_went_quiet() {
+  let fixture = Fixture::new();
+  let (landed, [first, second]) = reclaimed_beside_warm_slots(&fixture);
+  let taken: Vec<String> = (1..=3).map(|n| path_of(&fixture.get(&["--holder", &format!("after-{n}")]))).collect();
+  assert_eq!(taken, [second, first, landed]);
+}
+
 /// A ready lease whose get recorded no holder process (a brd that named none on Windows) can't be told idle: the
 /// reclaim names it as `holder_unknown`, checks nothing and leaves it ready, the dry run and the reclaim alike
 #[test_log::test]

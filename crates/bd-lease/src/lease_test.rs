@@ -415,7 +415,8 @@ fn every_status_of_the_pool_lists_untracked_files_in_the_mode_the_repository_con
 
 /// A get takes the free slot returned last first: its index, fsmonitor daemon and build caches are the warmest and its
 /// commit the closest; the order they joined the pool decides only among the slots never returned. Each return records
-/// its number in the pool and its time, by which the shrink orders the slots of every pool
+/// its number in the pool and its time, by which the shrink orders the slots of every pool. The number alone orders the
+/// pool for a get: a time that a step back of the clock made earlier does not change it
 #[test_log::test]
 fn the_free_slot_returned_last_is_leased_first() {
   let fixture = Fixture::new();
@@ -432,6 +433,10 @@ fn the_free_slot_returned_last_is_leased_first() {
     .map(|slot| (&slot["returned"], slot["returned_at"].as_u64().is_some_and(|at| at >= before)))
     .collect();
   assert_eq!(returns, [(&json!(1), true), (&json!(2), true)], "{state}");
+  // the second return an hour before the first, as a brd before the bound of `stamp_returned` records a step back
+  let mut state = state;
+  state["slots"][1]["returned_at"] = json!(before - 3_600);
+  std::fs::write(fixture.state_file(), serde_json::to_vec(&state).unwrap()).unwrap();
   assert_eq!(path_of(&fixture.get(&[])), second);
   assert_eq!(path_of(&fixture.get(&[])), first);
 }

@@ -2241,14 +2241,17 @@ nothing but LFS puts the content back after a checkout of the blobs.
    exit, the return fails) records its time (`Lease::reclaim_failed_at`), which counts as a check: the gets pass over
    the lease for an hour (`RECLAIM_RETRY`) and then take it after the leases checked before. Without the record the
    lease would stay the one checked longest ago, and each get would spend its two full checks (a `status` of 2 to 40 s
-   in idea-1 and the wait for the servers) on it before any other. The reclaimed slot is returned as of when its lease
-   went quiet (the later of its get and the last change of its reflog), with the next `returned` of its pool. The free
-   slots are ordered by the time of their return, then by the number (`Slot::return_order`). So the trim, the shrink and
-   the eviction take it before the free slots returned since, and the next get takes the free slot returned last, which
-   is warm; with the time of the reclaim it would be the next slot of its pool, leased with stale output, and the shrink
-   would clean a warm slot instead. No other slot changes its number, so no other free slot gets a new epoch, and
-   `pool-disk` keeps their measures (`measured.returned == slot.returned`): a moved number would give the slot a new
-   epoch, and the next `brd lease disk` would walk it again.
+   in idea-1 and the wait for the servers) on it before any other. The reclaimed slot is returned as the coldest free
+   slot of its pool (`stamp_reclaimed`): a `returned` below every other free slot, never its number before the lease,
+   and a `returned_at` not after any of theirs (the time its lease went quiet, the later of its get and the last change
+   of its reflog, at most). So the trim, the shrink and the eviction take it first, and a get takes it last; with the
+   next number it would be the next slot of its pool, leased with stale output, and the trim would keep it over a warm
+   slot. Every brd that reads the state agrees on this order, whether it orders a pool by the number alone or by the
+   time first: the number and the time put the slot last alike. No other slot changes its number, so no other free
+   slot gets a new epoch, and `pool-disk` keeps their measures (`measured.returned == slot.returned`): a moved number
+   would give the slot a new epoch, and the next `brd lease disk` would walk it again. Only when no number is left
+   below them (0, or 1 while the reclaimed slot had 0) do the other free slots move up, by `RECLAIM_ROOM` (1000) at
+   once, so that move comes once in many reclaims.
    A pool only grows, and a free slot keeps its build outputs, `target/` inside it and its
    Bazel output bases outside it (`<output_user_root>/<md5 of the workspace>`, one per workspace, which no clean rule
    reaches): on 2026-11-02 they held 380 GB for 12 slots of idea-1. The trim keeps `branchdeck.leaseMaxSlots` (10)
@@ -2309,9 +2312,10 @@ nothing but LFS puts the content back after a checkout of the blobs.
 1. Get: under the pool lock, a `preparing` lease whose process is gone (its pid and start time, `process_scan`) is
    freed, and a free slot whose directory is gone is dropped. The first free slot that is a linked worktree of the same
    common dir (its `.git` file and admin directory, no git process) and has no process in it is reserved, clean slots
-   before the ones marked dirty, and among them the one returned last first (`returned_at`, the time of its return,
-   then `returned`, the number of its return in the pool, as `Slot::return_order` orders them), then the ones never
-   returned in the order they joined. The slot returned last has the warmest index,
+   before the ones marked dirty, and among them the one returned last first (`returned`, the number of its return in
+   the pool; `returned_at`, its time, orders only the slots of different pools, and a return records a time not before
+   the last return of its pool, `stamp_returned`, so a step back of the clock changes no order of one pool), then the
+   ones never returned in the order they joined. The slot returned last has the warmest index,
    fsmonitor daemon and build caches and the commit closest to the source; by the order they joined alone, the first
    slot served every lease and the others sat idle for days, cold and thousands of files behind. A free slot whose only
    processes are its Bazel servers is reserved with them, and the get stops them with SIGTERM (`bazel shutdown` on
