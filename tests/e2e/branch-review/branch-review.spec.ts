@@ -649,6 +649,8 @@ test.describe("Branch review window", () => {
     await page.keyboard.press("p")
     await expect(position).toHaveText("All Changes · File 1 / 1 · Monorepo")
     await page.getByRole("button", { name: "Show All Files" }).click()
+    // every file again, README.md the last of them: a key the page handled before it showed them all did nothing
+    await expect(position).toHaveText("All Changes · File 4 / 4")
     await focusDiffs()
     await page.keyboard.press("p")
     await expect(position).toHaveText("All Changes · File 3 / 4")
@@ -662,6 +664,7 @@ test.describe("Branch review window", () => {
     await page.keyboard.press("k")
     await expect(position).toHaveText("All Changes · File 1 / 1 · Monorepo")
     await page.getByRole("button", { name: "Show All Files" }).click()
+    await expect(position).toHaveText("All Changes · File 4 / 4")
     await focusDiffs()
     await page.keyboard.press("k")
     await expect(position).toHaveText("All Changes · File 3 / 4")
