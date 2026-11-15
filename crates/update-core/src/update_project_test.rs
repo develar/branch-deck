@@ -830,15 +830,21 @@ fn the_probe_of_a_file_its_filters_keep_answers_no_change() {
   assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), clean, "-text");
 }
 
+/// `-text` written into `file` of `clone`: its CRLF file is no change, in two trusted previews; then `text eol=lf` written
+/// there, the CRLF file untouched: the change git sees
+fn assert_a_change_of_the_attributes_in(clone: &TestRepo, file: &str) {
+  write_trusted(clone, file, "*.txt -text\n");
+  assert_eq!(trusted_previews(clone, "one\r\ntwo\r\n"), UpdateState::Clean { kind: UpdateKind::FastForward }, "{file}");
+  write_trusted(clone, file, "*.txt text eol=lf\n");
+  assert_eq!(preview(clone), blocked(&["win.txt"]), "{file}");
+}
+
 /// The probe answers only under the attribute sources it hashed under: a file the filters of `-text` keep, then
 /// `text eol=lf` written beside it, without a touch of the file, is the change git sees
 #[test]
 fn a_change_of_the_attributes_is_seen_without_a_touch_of_the_file() {
   let Setup { upstream: _upstream, clone } = crlf_clone("");
-  write_trusted(&clone, ".gitattributes", "*.txt -text\n");
-  assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), UpdateState::Clean { kind: UpdateKind::FastForward });
-  write_trusted(&clone, ".gitattributes", "*.txt text eol=lf\n");
-  assert_eq!(preview(&clone), blocked(&["win.txt"]));
+  assert_a_change_of_the_attributes_in(&clone, ".gitattributes");
   fs::create_dir_all(clone.path().join(".git/info")).unwrap();
   write_trusted(&clone, ".gitattributes", "*.txt -text\n");
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
@@ -878,10 +884,16 @@ fn attributes_changed_within_the_racy_margin_of_the_hash_are_read_again() {
 fn a_change_of_the_global_attributes_file_is_seen_without_a_touch_of_the_file() {
   let Setup { upstream: _upstream, clone } = crlf_clone("");
   git(&clone, &["config", "core.attributesFile", ".git/global-attributes"]);
-  write_trusted(&clone, ".git/global-attributes", "*.txt -text\n");
-  assert_eq!(trusted_previews(&clone, "one\r\ntwo\r\n"), UpdateState::Clean { kind: UpdateKind::FastForward });
-  write_trusted(&clone, ".git/global-attributes", "*.txt text eol=lf\n");
-  assert_eq!(preview(&clone), blocked(&["win.txt"]));
+  assert_a_change_of_the_attributes_in(&clone, ".git/global-attributes");
+}
+
+/// A global file the preview can't place (`%(prefix)/`, the install of git) leaves the probe nothing to watch: it answers
+/// for no file in a later check, so a change of the root `.gitattributes`, the file untouched, is the change git sees
+#[test]
+fn a_global_attributes_file_the_preview_cannot_place_keeps_no_answer_of_the_probe() {
+  let Setup { upstream: _upstream, clone } = crlf_clone("");
+  git(&clone, &["config", "core.attributesFile", "%(prefix)/etc/branch-deck-test-attributes"]);
+  assert_a_change_of_the_attributes_in(&clone, ".gitattributes");
 }
 
 /// The system file of attributes of the git binary (`git var GIT_ATTR_SYSTEM`, here a file of the wrapper, which the

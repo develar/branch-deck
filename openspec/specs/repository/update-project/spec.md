@@ -335,7 +335,7 @@ the same check.
   stamp of the source
 - **THEN** the probe does not answer for the file, and the check sees what git sees; under the same sources it answers
   with no `hash-object`, also for a file its filters keep and in the next sync
-  [@test] crates/update-core/src/update_project_test.rs (`a_change_of_the_attributes_is_seen_without_a_touch_of_the_file`, `the_probe_of_a_file_its_filters_keep_answers_no_change`, `the_attributes_of_the_directory_of_a_file_are_a_source_of_its_probe`, `attributes_changed_within_the_racy_margin_of_the_hash_are_read_again`, `a_change_of_the_global_attributes_file_is_seen_without_a_touch_of_the_file`, `a_change_of_the_system_attributes_file_hashes_the_file_again`)
+  [@test] crates/update-core/src/update_project_test.rs (`a_change_of_the_attributes_is_seen_without_a_touch_of_the_file`, `the_probe_of_a_file_its_filters_keep_answers_no_change`, `the_attributes_of_the_directory_of_a_file_are_a_source_of_its_probe`, `attributes_changed_within_the_racy_margin_of_the_hash_are_read_again`, `a_change_of_the_global_attributes_file_is_seen_without_a_touch_of_the_file`, `a_global_attributes_file_the_preview_cannot_place_keeps_no_answer_of_the_probe`, `a_change_of_the_system_attributes_file_hashes_the_file_again`)
   [@test] crates/sync-core/src/process_budget_test.rs (`the_update_check_of_an_unchanged_sync_hashes_no_file_again`)
   [@test] crates/git-ops/src/update_branch_test.rs (`the_global_attributes_file_is_where_git_reads_it`)
   [@test] crates/sync-core/src/config_snapshot_test.rs (`the_attributes_file_is_the_last_core_attributes_file`)
