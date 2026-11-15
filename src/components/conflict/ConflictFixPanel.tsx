@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { cn } from "cn"
 import { CopyCheckIcon, CopyIcon, RotateCwIcon, WandSparklesIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -107,7 +108,16 @@ function FixSteps({ component }: { component: FixComponent }) {
   const result = describeFixResult(component, branch => pullRequests[branch]?.state === "open")
   const apply = (
     <>
-      <Button size="sm" disabled={applying || reason !== null} onClick={() => void applyConflictFix(component)} data-testid="apply-conflict-fix">
+      <Button
+        size="sm"
+        disabled={applying || reason !== null}
+        // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`); the dimming is ours
+        focusableWhenDisabled={applying}
+        aria-busy={applying || undefined}
+        className={cn(applying && "opacity-50")}
+        onClick={() => void applyConflictFix(component)}
+        data-testid="apply-conflict-fix"
+      >
         {applying ? <Spinner data-icon="inline-start" /> : <WandSparklesIcon data-icon="inline-start" />}
         Apply Fix
       </Button>

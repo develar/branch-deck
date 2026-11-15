@@ -87,17 +87,37 @@ export function presentOperationLockWait(operation: RunningOperation | undefined
   return operation?.step.kind === "waitingForLock" ? presentLockWait(operation.step.holder) : null
 }
 
+/**
+ * Whom an operation waits for, as a screen reader is told it (`LockWaitNotice`): `presentLockWait` without how long,
+ * which its step tells again about once a second, so the words change only with the holder ("Waiting for `brd pick`
+ * (pid 4242)"); null while it waits for nobody
+ */
+export function presentLockWaitAnnouncement(operation: RunningOperation | undefined): string | null {
+  if (operation?.step.kind !== "waitingForLock") {
+    return null
+  }
+  const holder = operation.step.holder
+  return holder === null ? presentLockWait(null) : `Waiting for ${holderName(holder)} (pid ${holder.pid})`
+}
+
 /** An operation of the session a surface shows while it runs (`useSurfaceOperation`, `waitingOf`), as Stop Waiting reads it */
 export interface WaitingOperation {
   /** The operation of the session, once its channel named it; null before */
   readonly op: OperationId | null
   /** Whom it waits for while another holder has the repository lock (`presentLockWait`); null while it waits for nobody */
   readonly lockWait: string | null
+  /** The same, as a screen reader is told it once per holder (`presentLockWaitAnnouncement`) */
+  readonly lockWaitAnnouncement: string | null
+}
+
+/** `operation` of the session as a surface that started it reads it, while it runs; one that waits for nobody, `lockWait` null */
+export function waitingOfSession(op: OperationId | null, operation: RunningOperation | undefined): WaitingOperation {
+  return { op, lockWait: presentOperationLockWait(operation), lockWaitAnnouncement: presentLockWaitAnnouncement(operation) }
 }
 
 /** `operation` of the view as Stop Waiting reads it: one of another process, which no window here stops, never waits */
 export function waitingOf(operation: RunningOperation | undefined): WaitingOperation | undefined {
-  return operation === undefined || operation.origin.kind !== "thisProcess" ? undefined : { op: operation.id, lockWait: presentOperationLockWait(operation) }
+  return operation === undefined || operation.origin.kind !== "thisProcess" ? undefined : waitingOfSession(operation.id, operation)
 }
 
 /**

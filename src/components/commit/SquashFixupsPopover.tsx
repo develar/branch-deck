@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { cn } from "cn"
 import { CombineIcon, CornerDownRightIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
@@ -104,7 +105,16 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
         <Button size="xs" variant="ghost" disabled={isSquashing} onClick={onClose}>
           Cancel
         </Button>
-        <Button size="xs" disabled={fixups.count === 0 || isSquashing} onClick={squash} data-testid="squash-fixups-confirm">
+        <Button
+          size="xs"
+          disabled={fixups.count === 0 || isSquashing}
+          // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`); the dimming is ours
+          focusableWhenDisabled={isSquashing}
+          aria-busy={isSquashing || undefined}
+          className={cn(isSquashing && "opacity-50")}
+          onClick={squash}
+          data-testid="squash-fixups-confirm"
+        >
           {isSquashing ? <Spinner data-icon="inline-start" /> : <CombineIcon data-icon="inline-start" />}
           Squash
         </Button>

@@ -25,6 +25,9 @@ const ISSUE = "ABC-123"
 /** Whom a rewrite or a push waits for while another process holds the repository lock: here the test server */
 const WAITING = /^Waiting for `[^`]+` \(pid \d+, for \d+ s\)/
 
+/** The same, as a screen reader is told it once per holder: without the time, which grows every second */
+const WAITING_FOR = /^Waiting for `[^`]+` \(pid \d+\)$/
+
 /** The `issue_split` repository synced, its issue branch expanded */
 async function setup(page: Page, setupRepo: (template: string) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo("issue_split")
@@ -46,11 +49,29 @@ async function openSquashOfTwo(page: Page): Promise<Locator> {
   return dialog
 }
 
-/** Opens the squash dialog of "Add tokens" and "Add parser" and presses Squash; the dialog */
-async function squashTwo(page: Page): Promise<Locator> {
+/**
+ * Opens the squash dialog of "Add tokens" and "Add parser" and presses Squash by key while another process holds the
+ * lock (`brd pick --follow` of an agent: here the test server, whose record names it); the dialog, and its notice of whom
+ * the squash waits for, there once the squash reached the backend, where it waits without a bound while the holder lives
+ */
+async function squashTwoWhileHeld(page: Page, repo: TestRepositoryBuilder): Promise<{ dialog: Locator; notice: Locator }> {
+  await repo.holdRepositoryLock(true)
   const dialog = await openSquashOfTwo(page)
   await page.keyboard.press("ControlOrMeta+Enter")
-  return dialog
+  const notice = dialog.getByTestId("lock-wait-notice")
+  await expect(notice).toContainText(WAITING)
+  return { dialog, notice }
+}
+
+/** Opens Move to… of "Add parser" of the issue branch and types "docs", the lock held; its input, focused, and the form */
+async function openMoveToDocsWhileHeld(page: Page, repo: TestRepositoryBuilder): Promise<{ input: Locator; form: Locator }> {
+  await repo.holdRepositoryLock(true)
+  await selectCommit(getBranchCommitRow(page, ISSUE, "Add parser"))
+  await getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions").getByRole("button", { name: "Move to…" }).click()
+  const input = inlineBranchCreator.getInput(page)
+  await expect(input).toBeFocused()
+  await page.keyboard.type("docs")
+  return { input, form: inlineBranchCreator.getPortal(page) }
 }
 
 /** Moves "Add parser" of the issue branch to docs through Move to Existing of its context menu */
@@ -64,13 +85,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
   test("should wait for the holder in the squash dialog, say whom for, and squash once it released the lock", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const squashes = await recordRewrites(page, "squash")
-    // another process holds the lock (`brd pick --follow` of an agent): here the test server, whose record names it
-    await repo.holdRepositoryLock(true)
-    const dialog = await squashTwo(page)
-
-    // the squash reached the backend and waits there, without a bound while the holder lives; the dialog says whom for
-    const notice = dialog.getByTestId("lock-wait-notice")
-    await expect(notice).toContainText(WAITING)
+    const { dialog, notice } = await squashTwoWhileHeld(page, repo)
     await expect(notice.getByRole("button", { name: "Stop Waiting" })).toBeVisible()
     expect(squashes).toHaveLength(1)
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
@@ -84,19 +99,21 @@ test.describe("Rewrites while another process holds the repository lock", () => 
 
   test("should stop the wait of a squash with Stop Waiting in its dialog, squash nothing, and squash on the next press", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
-    await repo.holdRepositoryLock(true)
-    const dialog = await squashTwo(page)
-    const notice = dialog.getByTestId("lock-wait-notice")
-    await expect(notice).toContainText(WAITING)
+    const { dialog, notice } = await squashTwoWhileHeld(page, repo)
 
-    await runAndWaitForAnswer(page, "execute", () => notice.getByRole("button", { name: "Stop Waiting" }).click())
+    // the press by key left the focus nowhere (the message became disabled): Stop Waiting took it, Space stops the wait,
+    // and the focus goes to Squash, which can be pressed again
+    await expect(notice.getByRole("button", { name: "Stop Waiting" })).toBeFocused()
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Space"))
     await expect(page.getByText("Canceled squashing 2 commits before it started")).toBeVisible()
     await expect(notice).toHaveCount(0)
     await expect(page.getByText("Cannot squash the commits")).toHaveCount(0)
+    const squash = dialog.getByRole("button", { name: /Squash/ })
+    await expect(squash).toBeFocused()
     // nothing changed, and the dialog stays with its message: the next press squashes, once the holder is done
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
     await repo.holdRepositoryLock(false)
-    await runAndWaitForAnswer(page, "execute", () => dialog.getByRole("button", { name: /Squash/ }).click())
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
     await expect(page.getByText("Squashed 2 commits")).toBeVisible()
     await verifyCommitCount(findBranchRow(page, ISSUE), 2)
   })
@@ -235,9 +252,11 @@ test.describe("Rewrites while another process holds the repository lock", () => 
 /**
  * `button` of `form` pressed with the pointer while another process holds the repository lock: whom the rewrite waits
  * for comes in `form` where it moves the button from under the pointer by nothing (`LockWaitNotice`, on the line of the
- * buttons before them, or below them; a line of its own above them moved them), and its Stop Waiting stops the rewrite.
- * The button keeps its box, or with `grows` (a spinner that came where it had no icon) at least the point the pointer
- * pressed, its middle: which way it grows depends on the room of the line (a narrow window, an input not at its widest)
+ * buttons before them, or below them; a line of its own above them moved them), a screen reader is told it (the live
+ * region of `form`), and its Stop Waiting, which took the focus the press left on the button, stops the rewrite by Enter
+ * and gives the focus back. The button keeps its box, or with `grows` (a spinner that came where it had no icon) at least
+ * the point the pointer pressed, its middle: which way it grows depends on the room of the line (a narrow window, an
+ * input not at its widest)
  */
 async function expectWaitBesideItsButton(page: Page, form: Locator, button: Locator, canceled: string, { grows = false }: { grows?: boolean } = {}): Promise<void> {
   await animationsEnded(form)
@@ -246,6 +265,9 @@ async function expectWaitBesideItsButton(page: Page, form: Locator, button: Loca
   await button.click()
   const notice = form.getByTestId("lock-wait-notice")
   await expect(notice).toContainText(WAITING)
+  const status = form.getByTestId("lock-wait-status")
+  await expect(status).toHaveRole("status")
+  await expect(status).toHaveText(WAITING_FOR)
   const after = await boxOf(button)
   if (grows) {
     const pressed = { x: before.x + before.width / 2, y: before.y + before.height / 2 }
@@ -256,9 +278,13 @@ async function expectWaitBesideItsButton(page: Page, form: Locator, button: Loca
   } else {
     expect(after).toEqual(before)
   }
-  await runAndWaitForAnswer(page, "execute", () => notice.getByRole("button", { name: "Stop Waiting" }).click())
+  // the pointer focused the button, which stays focusable while it is busy: Stop Waiting took the focus as the wait came
+  await expect(notice.getByRole("button", { name: "Stop Waiting" })).toBeFocused()
+  await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
   await expect(page.getByText(canceled)).toBeVisible()
   expect(cancels).toHaveLength(1)
+  await expect(button).toBeFocused()
+  await expect(status).toBeEmpty()
 }
 
 test.describe("A wait for the lock beside the button that started it", () => {
@@ -275,19 +301,39 @@ test.describe("A wait for the lock beside the button that started it", () => {
 
   test("should say whom a move to a branch waits for below its input, Move under the pointer, and stop it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
-    await repo.holdRepositoryLock(true)
-    await selectCommit(getBranchCommitRow(page, ISSUE, "Add parser"))
-    await getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions").getByRole("button", { name: "Move to…" }).click()
-    const input = inlineBranchCreator.getInput(page)
-    await expect(input).toBeFocused()
-    await page.keyboard.type("docs")
-    const form = inlineBranchCreator.getPortal(page)
+    const { form } = await openMoveToDocsWhileHeld(page, repo)
     await expectWaitBesideItsButton(page, form, form.getByRole("button", { name: /^(Loading )?Move$/ }), "Canceled moving 1 commit to docs before it started", {
       grows: true,
     })
     await verifyCommitCount(findBranchRow(page, "docs"), 1)
     await repo.holdRepositoryLock(false)
   })
+
+  test(
+    "should take the keys to Stop Waiting as a move pressed by Enter waits for the lock, and give them back to its input as Space stops it",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+      const { input, form } = await openMoveToDocsWhileHeld(page, repo)
+      const cancels = await recordCommand(page, "cancel_operation")
+      await page.keyboard.press("Enter")
+
+      // the screen reader is told whom for, and the keys are on Stop Waiting: no Tab to reach it
+      const notice = form.getByTestId("lock-wait-notice")
+      await expect(notice).toContainText(WAITING)
+      await expect(form.getByTestId("lock-wait-status")).toHaveText(WAITING_FOR)
+      await expect(notice.getByRole("button", { name: "Stop Waiting" })).toBeFocused()
+      await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Space"))
+      await expect(page.getByText("Canceled moving 1 commit to docs before it started")).toBeVisible()
+      expect(cancels).toHaveLength(1)
+      // the focus is back where the press left it: Enter moves, once the holder is done
+      await expect(input).toBeFocused()
+      await verifyCommitCount(findBranchRow(page, "docs"), 1)
+      await repo.holdRepositoryLock(false)
+      await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
+      await verifyCommitCount(findBranchRow(page, "docs"), 2)
+    },
+  )
 
   test("should say whom a squash of fixups waits for on the line of its buttons, Squash under the pointer, and stop it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("fixups")

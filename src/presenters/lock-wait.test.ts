@@ -6,6 +6,7 @@ import {
   canceledBeforeStart,
   presentLockHolder,
   presentLockWait,
+  presentLockWaitAnnouncement,
   presentOperationHolder,
   presentOperationLockWait,
   presentStopWaiting,
@@ -43,6 +44,16 @@ describe("presentLockWait", () => {
     expect(presentOperationLockWait(pushIn({ kind: "pushing" }))).toBeNull()
     expect(presentOperationLockWait(undefined)).toBeNull()
   })
+
+  it("tells a screen reader whom an operation waits for without how long, so the words change with the holder only", () => {
+    const first = presentLockWaitAnnouncement(pushIn({ kind: "waitingForLock", holder: BD_PICK }))
+    expect(first).toBe("Waiting for `brd pick --follow` (pid 4242)")
+    // told again a second later: the same words, which a live region does not say again
+    expect(presentLockWaitAnnouncement(pushIn({ kind: "waitingForLock", holder: { ...BD_PICK, held_for: 13 } }))).toBe(first)
+    expect(presentLockWaitAnnouncement(pushIn({ kind: "waitingForLock", holder: null }))).toBe("Waiting for another holder of the repository lock")
+    expect(presentLockWaitAnnouncement(pushIn({ kind: "pushing" }))).toBeNull()
+    expect(presentLockWaitAnnouncement(undefined)).toBeNull()
+  })
 })
 
 describe("presentStopWaiting", () => {
@@ -50,11 +61,11 @@ describe("presentStopWaiting", () => {
     const waiting = "Waiting for `brd pick --follow` (pid 4242, for 12 s)"
     const cancel = vi.fn(async (_op: string) => true)
     expect(presentStopWaiting(undefined, cancel)).toBeNull()
-    expect(presentStopWaiting({ op: "op-1", lockWait: null }, cancel)).toBeNull()
+    expect(presentStopWaiting({ op: "op-1", lockWait: null, lockWaitAnnouncement: null }, cancel)).toBeNull()
     // the channel has not named the operation yet: nothing to stop
-    expect(presentStopWaiting({ op: null, lockWait: waiting }, cancel)).toBeNull()
+    expect(presentStopWaiting({ op: null, lockWait: waiting, lockWaitAnnouncement: null }, cancel)).toBeNull()
 
-    const stop = presentStopWaiting({ op: "op-1", lockWait: waiting }, cancel)!
+    const stop = presentStopWaiting({ op: "op-1", lockWait: waiting, lockWaitAnnouncement: null }, cancel)!
     expect(stop).toMatchObject({ id: "stop-waiting", label: "Stop Waiting", description: `${waiting}; stop and change nothing` })
     stop.onSelect({ surface: null })
     expect(cancel).toHaveBeenCalledExactlyOnceWith("op-1")

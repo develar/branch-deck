@@ -3,7 +3,7 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { OperationId, RunningOperation } from "@/lib/bindings"
 import type { WaitingOperation } from "@/presenters/lock-wait"
-import { presentOperationLockWait } from "@/presenters/lock-wait"
+import { waitingOfSession } from "@/presenters/lock-wait"
 import type { OperationWords } from "@/presenters/operations"
 import { presentOperationBusy } from "@/presenters/operations"
 import { branchSyncStore, useBranchSyncField } from "@/stores/branch-sync"
@@ -132,7 +132,7 @@ export function useSurfaceBusy(surface: string | undefined): string | null {
 export function useSurfaceOperation(surface: string | undefined): WaitingOperation | undefined {
   const run = useSurfaceRun(surface)
   const operation = useRunOperation(run)
-  return run === undefined ? undefined : { op: run.op, lockWait: presentOperationLockWait(operation) }
+  return run === undefined ? undefined : waitingOfSession(run.op, operation)
 }
 
 /**

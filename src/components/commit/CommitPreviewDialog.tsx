@@ -262,7 +262,15 @@ export function CommitPreviewDialog({
             {isEditing ? (
               <>
                 <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
-                <Button size="xs" disabled={isSaving} onClick={() => void save()}>
+                <Button
+                  size="xs"
+                  disabled={isSaving}
+                  // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`); the dimming is ours
+                  focusableWhenDisabled={isSaving}
+                  aria-busy={isSaving || undefined}
+                  className={cn(isSaving && "opacity-50")}
+                  onClick={() => void save()}
+                >
                   {/* the spinner in the place of the icon: the button keeps its box under the pointer that pressed it */}
                   {isSaving ? <Spinner data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
                   Save

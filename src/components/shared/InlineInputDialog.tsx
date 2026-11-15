@@ -151,7 +151,16 @@ export function InlineInputDialog({
           <Button size="xs" variant="ghost" onClick={onCancel}>
             {cancelText}
           </Button>
-          <Button size="xs" variant={submitVariant} disabled={!canSubmit || loading} aria-busy={loading || undefined} onClick={handleSubmit}>
+          <Button
+            size="xs"
+            variant={submitVariant}
+            disabled={!canSubmit || loading}
+            // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`); the dimming is ours
+            focusableWhenDisabled={loading}
+            aria-busy={loading || undefined}
+            className={cn(loading && "opacity-50")}
+            onClick={handleSubmit}
+          >
             {loading ? <Spinner data-icon="inline-start" /> : submitIcon}
             {submitText}
           </Button>

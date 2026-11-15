@@ -253,7 +253,17 @@ function SubmitButton({
 }) {
   if (reason === null) {
     return (
-      <Button ref={submitRef} size="xs" variant={variant} disabled={!enabled} aria-busy={loading || undefined} onClick={onSubmit}>
+      <Button
+        ref={submitRef}
+        size="xs"
+        variant={variant}
+        disabled={!enabled}
+        // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`); the dimming is ours
+        focusableWhenDisabled={loading}
+        aria-busy={loading || undefined}
+        className={cn(loading && "opacity-50")}
+        onClick={onSubmit}
+      >
         {children}
       </Button>
     )

@@ -189,7 +189,10 @@ waits for nobody, and for an operation of another process), and every surface th
 and an inline form show it beside themselves, `LockWaitNotice` beside the text. It calls `cancel_operation` of the
 operation: the rewrite answers the code `canceled`, nothing changed, and says so in an info toast ("Canceled squashing
 2 commits before it started", `canceledBeforeStart`), never an error; the surface that started it stays (the squash
-dialog keeps its message). A push and a Safe Push start, operations of the session too, say it in their step in the
+dialog keeps its message). There a polite live region says whom it waits for once per holder
+(`presentLockWaitAnnouncement`, without the time), and Stop Waiting takes the focus the press left on the surface and
+gives it back as the wait ends ([Frontend Rules](../contributing/frontend.md)). A push and a Safe Push start,
+operations of the session too, say it in their step in the
 view (`OperationStep.waitingForLock` with the holder its record names, so every window says it): the hover of the push
 button (`useBranchPushProgress`, `lockWaitProgress`) and the step of the Safe Push (`LandRun.waitingFor`), each with
 its Stop Waiting (`stopWaitingPushItem`, `stopStartItem`: `cancel_operation` of the operation). Update Project says it
