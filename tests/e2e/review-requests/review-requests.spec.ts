@@ -55,6 +55,15 @@ const DESCRIPTION = [
 
 type SetupRepo = (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>
 
+/** The review of `OLD` open, `RECENT` waiting beside it, its first commit on screen */
+async function reviewOfOld(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>): Promise<{ repo: TestRepositoryBuilder; review: Locator }> {
+  const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT]) })
+  await syncAndWaitForBranches()
+  const { review } = await openRequestReview(page, 101)
+  await expect(review.getByTestId("review-commit").first()).toBeVisible()
+  return { repo, review }
+}
+
 async function setupRequests(
   page: Page,
   setupRepo: SetupRepo,
@@ -1044,10 +1053,7 @@ test.describe("Review window", () => {
   })
 
   test("should keep the review when the request is withdrawn meanwhile, and its refs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT]) })
-    await syncAndWaitForBranches()
-    const { review } = await openRequestReview(page, 101)
-    await expect(review.getByTestId("review-commit").first()).toBeVisible()
+    const { repo, review } = await reviewOfOld(page, setupRepo, syncAndWaitForBranches)
     // the session prunes the review refs of every pull request but those that wait, an earlier start's too; the window of
     // #101 keeps the same
     await expect.poll(async () => (await repo.getReviewRequestsFixture()).prunes).toEqual([[101, 102]])
@@ -1060,6 +1066,22 @@ test.describe("Review window", () => {
     const fixture = await repo.getReviewRequestsFixture()
     expect(fixture.fetchCalls).toBe(1)
     expect(fixture.prunes).toEqual([[101, 102]])
+  })
+
+  test("should fetch a request pushed while its review is open once, and keep the pushed one once it is withdrawn", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const { repo, review } = await reviewOfOld(page, setupRepo, syncAndWaitForBranches)
+    const fetches = async () => (await repo.getReviewRequestsFixture()).fetchCalls
+    expect(await fetches()).toBe(1)
+    // someone pushed to #101: the window fetches the new head, once
+    const pushed = { ...OLD, headRefOid: await repo.revision("user-name/virtual/ABC-123~1") }
+    await repo.setReviewRequests(availableReviewRequests([pushed, RECENT]))
+    await moveClockUntil(repo, 300_000, async () => (await fetches()) === 2)
+    await expect(review.getByTestId("review-commit").first()).toBeVisible()
+    // then it leaves the list: the window keeps the pushed request, which it fetched, and fetches nothing again
+    await repo.setReviewRequests(availableReviewRequests([RECENT]))
+    await moveClockUntil(repo, 300_000, () => review.getByTestId("review-withdrawn").isVisible())
+    await expect(review.getByTestId("review-commit").first()).toBeVisible()
+    expect(await fetches()).toBe(2)
   })
 })
 

@@ -90,6 +90,11 @@ export function PullRequestReviewWindow({ data, back, onPlace }: { data: ShownPu
   const [selected, setSelected] = useState(ALL_CHANGES)
 
   const live = rows.requests.find(it => it.number === shown.request.number)
+  // the request as the list had it last: a push while the window shows it is the request it shows, also once it left the
+  // list (approved, merged), whose fetch would else go back to the head of the open
+  if (live !== undefined && live !== shown.request) {
+    setShown({ ...shown, request: live })
+  }
   const request = live ?? shown.request
   const index = live === undefined ? -1 : rows.requests.indexOf(live)
   const number = request.number
