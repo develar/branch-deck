@@ -822,6 +822,7 @@ lease pool, written by Rust under the lease of the view it was asked on (`hide_l
 - **AND** the island stays seen as it was, so the next sync hides what was seen on the view of that lease, unless the
   island of that view shows something else
   [@test] crates/repository-model/src/session_test.rs (`a_hide_asked_on_the_view_of_a_session_that_knew_no_lease_is_of_the_lease_read_on_the_view_after`)
+  [@test] crates/app-api/src/session/landed_test.rs (`a_hide_of_a_session_that_knew_no_lease_of_its_slot_is_asked_again_and_hides_nothing`)
   [@test] src/stores/landed.test.ts (`asks again on the view of the lease read when the session knew no lease of its slot, and only then`, `keeps the island unseen after another refusal, as a hide of the view of another lease is`)
 
 #### Scenario: More lands later
