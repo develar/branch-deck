@@ -4,6 +4,13 @@ RUST_LOG = { value = "debug", force = true }
 [build]
 rustflags = ["-Z", "threads=8"]
 
+# On macOS the debug info of a unit stays in its rlib (`-C split-debuginfo=off`) instead of beside it: the dev default
+# `unpacked` keeps every object file of a unit in its `out/`, and the objects of the incremental sessions that rustc
+# deleted stay there too. Backtraces and lldb read the rlib. Windows MSVC refuses `off`, so this is not a profile key.
+# The flags of a target replace `build.rustflags`, so they repeat its flags
+[target.'cfg(target_os = "macos")']
+rustflags = ["-Z", "threads=8", "-C", "split-debuginfo=off"]
+
 # Features of dependencies are unified over the whole workspace, whether a command builds one package (`-p`) or all,
 # so `cargo build -p`, `nextest -p` and `clippy --workspace` reuse the same units instead of a copy per feature set.
 [unstable]
