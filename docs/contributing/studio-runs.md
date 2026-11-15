@@ -43,10 +43,12 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
 - **Heavy runs take turns**: a run that `heavy` of `[host]` names, or one with `--heavy`, waits until no other heavy
   run of the Studio goes, whatever its repository, so two full suites never slow each other into timeouts. A pattern
   matches what a command runs, not how it is written: `playwright test*` every run of it (`npx`, `pnpm exec`,
-  `pnpm playwright`, a path of the binary), `pnpm e2e*` also `pnpm -C web e2e`, `--dir`, `--filter`. A shell
+  `npx -y`, `pnpm playwright`, a path of the binary), `pnpm e2e*` also `pnpm -C web e2e`, `--dir`, `--filter` and pnpm
+  by its path. A shell
   that wraps a command counts by what it runs: `zsh -c 'pnpm install; pnpm e2e > e2e.log 2>&1'`, `bash -lc`,
   `env FOO=1 zsh -c`, a shell in it, a substitution `"$(…)"`, and a script file of the shipped working tree
-  (`zsh probe/run.sh`, `./probe/run.sh` whose first line names a shell, `. ./lib.sh`) are heavy when any command in them
+  (`zsh probe/run.sh`, `./probe/run.sh` whose first line names a shell or that has no first line `#!`, `. ./lib.sh`)
+  are heavy when any command in them
   is (`brd-host: a heavy run by `pnpm e2e*` of [host] in its script`); a shell's script file that the client cannot
   read from the working tree (outside of it, absent, over 256 KiB) counts as heavy. Before 2026-11-15 a wrapper went
   beside the run that held the turn. The wrapper itself counts too: a pattern that names it (`./probe/run.sh*`) matches.

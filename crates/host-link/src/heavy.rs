@@ -1,13 +1,15 @@
 //! What the command of a remote run runs, for `heavy` of `[host]` ([`crate::config::RepoConfig::heavy_reason`]): the
-//! command itself; the commands of the script of a shell that it starts with `-c` (`zsh -c '…; pnpm e2e …'`, `bash -lc`,
-//! `env FOO=1 zsh -c`, a shell in that script too); the commands of a script file that a shell runs (`zsh probe/run.sh`)
-//! or that the command runs by its path, a file of the working tree whose first line names a shell (`./probe/run.sh`
-//! with `#!/bin/zsh`), and of one that a script sources (`. ./lib.sh`, `source lib.sh`), which the client reads from its
-//! checkout. A script file of a shell that it cannot read, and a shell nested deeper than `MAX_DEPTH`, are
-//! [`Ran::Unread`], which counts as a heavy run: a wrapper is how a heavy run of an agent slipped beside the one that
-//! held the turn (2026-11-15). The command itself comes before what it runs, so a pattern that names the wrapper
-//! matches; each path is read once a classification, `MAX_READS` paths at most, past which a script counts as heavy. A file run by its path without a shell's first line (a binary of the tree) and a file
-//! sourced from outside the tree (`source ~/.cargo/env`) run nothing that counts.
+//! command itself; the commands of the script of a shell that it starts with `-c` (`zsh -c '…; pnpm e2e …'`, `bash
+//! -lc`, `env FOO=1 zsh -c`, a shell in that script too); the commands of a script file that a shell runs (`zsh
+//! probe/run.sh`) or that the command runs by its path, a file of the working tree whose first line names a shell
+//! (`./probe/run.sh` with `#!/bin/zsh`) or a text without a first line `#!`, which a shell runs itself, and of one that
+//! a script sources (`. ./lib.sh`, `source lib.sh`), which the client reads from its checkout. A script file of a shell
+//! that it cannot read, and a shell nested deeper than `MAX_DEPTH`, are [`Ran::Unread`], which counts as a heavy run: a
+//! wrapper is how a heavy run of an agent slipped beside the one that held the turn (2026-11-15). The command itself
+//! comes before what it runs, so a pattern that names the wrapper matches; each path is read once a classification and
+//! expanded once, `MAX_READS` paths at most, past which a script counts as heavy. A file run by its path that is no
+//! script (a binary of the tree, a script of another interpreter) and a file sourced from outside the tree (`source
+//! ~/.cargo/env`) run nothing that counts.
 //!
 //! The script is split as a shell splits it, as far as a heavy command shows: at `;`, `&`, `&&`, `|`, `||`, a newline,
 //! `(`, `)`, a backquote and `$(`, outside quotes, and the substitutions in double quotes (`"$(pnpm e2e)"`) are scripts
@@ -55,7 +57,8 @@ pub const MAX_READS: usize = 64;
 pub fn commands_of(words: &[String], read: &dyn Fn(&str) -> Option<String>) -> Vec<Ran> {
   let mut reading = Reading {
     read,
-    seen: std::collections::HashSet::new(),
+    texts: std::collections::HashMap::new(),
+    expanded: std::collections::HashSet::new(),
     ran: Vec::new(),
   };
   reading.collect(words.to_vec(), 0);
@@ -65,7 +68,10 @@ pub fn commands_of(words: &[String], read: &dyn Fn(&str) -> Option<String>) -> V
 /// One classification: the reader of the working tree, the paths it read, and what the command runs so far
 struct Reading<'a> {
   read: &'a dyn Fn(&str) -> Option<String>,
-  seen: std::collections::HashSet<String>,
+  /// The text of each path read, once: `None` for one the reader could not give
+  texts: std::collections::HashMap<String, Option<String>>,
+  /// The paths whose script was expanded, once whatever runs it again
+  expanded: std::collections::HashSet<String>,
   ran: Vec<Ran>,
 }
 
@@ -119,26 +125,37 @@ impl Reading<'_> {
   /// shell that cannot be read, a script past the reads or past the depth may run anything and is [`Ran::Unread`]
   fn file(&mut self, path: &str, kind: FileKind, depth: usize) {
     let inner = inner_script_path(path).to_owned();
-    if self.seen.contains(&inner) {
-      return;
-    }
-    if self.seen.len() >= MAX_READS {
-      self.ran.push(Ran::Unread(path.to_owned()));
-      return;
-    }
-    self.seen.insert(inner.clone());
-    let text = (self.read)(&inner);
+    let text = if let Some(text) = self.texts.get(&inner) {
+      text.clone()
+    } else {
+      if self.texts.len() >= MAX_READS {
+        self.ran.push(Ran::Unread(path.to_owned()));
+        return;
+      }
+      let text = (self.read)(&inner);
+      self.texts.insert(inner.clone(), text.clone());
+      text
+    };
     let is_script = match (&text, kind) {
-      (Some(text), FileKind::ByPath) => runs_a_shell(text),
+      // run by its path: a script of a shell, or a text that a shell runs itself, as it has no first line `#!`
+      (Some(text), FileKind::ByPath) => runs_a_shell(text) || (!text.starts_with("#!") && !text.contains('\0')),
       (_, FileKind::Shell) | (Some(_), FileKind::Sourced) => true,
       (None, _) => false,
     };
+    if !is_script {
+      return;
+    }
     match text {
-      Some(text) if is_script && depth < MAX_DEPTH => self.script(&text, depth),
-      // a script on the limit of the depth is not read, a shell's script that is not there runs anyway
-      Some(_) if is_script => self.ran.push(Ran::Unread(path.to_owned())),
-      None if kind == FileKind::Shell => self.ran.push(Ran::Unread(path.to_owned())),
-      _ => {}
+      // a shell's script that is not there runs anyway
+      None => self.ran.push(Ran::Unread(path.to_owned())),
+      // expanded once: what runs it again adds nothing
+      Some(_) if self.expanded.contains(&inner) => {}
+      // a script on the limit of the depth is not read
+      Some(_) if depth >= MAX_DEPTH => self.ran.push(Ran::Unread(path.to_owned())),
+      Some(text) => {
+        self.expanded.insert(inner);
+        self.script(&text, depth);
+      }
     }
   }
 }

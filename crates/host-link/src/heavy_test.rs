@@ -31,10 +31,12 @@ fn checkout(path: &str) -> Option<String> {
   match path {
     "probe/run.sh" => Some(format!("#!/bin/zsh\nset -u\n{e2e}echo done\n")),
     "probe/env.sh" => Some(format!("#!/usr/bin/env bash -e\n{e2e}")),
-    "probe/lib.sh" => Some(e2e.to_owned()),
+    // sourced, and a text without a first line `#!` that a shell runs itself
+    "probe/lib.sh" | "probe/plain" => Some(e2e.to_owned()),
     // read as a shell would read them, each would run the suite
     "probe/tool.py" => Some(format!("#!/usr/bin/python3\n{e2e}")),
-    "target/debug/brd" => Some(format!("\u{7f}ELF\n{e2e}")),
+    // a binary holds a NUL, which no text a shell runs does
+    "target/debug/brd" => Some(format!("\u{7f}ELF\u{2}\u{1}\u{0}\n{e2e}")),
     _ => None,
   }
 }
@@ -101,6 +103,9 @@ fn a_heavy_command_in_the_script_of_a_shell_makes_the_run_heavy() {
     // a script of the tree run by its path, whose first line names a shell, and a file it sources
     (&["./probe/run.sh"], Some("`pnpm e2e*` of [host] in its script")),
     (&["probe/env.sh", "x"], Some("`pnpm e2e*` of [host] in its script")),
+    (&["./probe/plain"], Some("`pnpm e2e*` of [host] in its script")),
+    // a file run by its path as no script, then by a shell, which runs it as one: read once, expanded by the shell
+    (&["bash", "-c", "./probe/tool.py; bash ./probe/tool.py"], Some("`pnpm e2e*` of [host] in its script")),
     (&["bash", "-c", "./probe/run.sh"], Some("`pnpm e2e*` of [host] in its script")),
     (&["bash", "-c", ". ./probe/lib.sh"], Some("`pnpm e2e*` of [host] in its script")),
     (&["zsh", "-c", "source probe/lib.sh && echo sourced"], Some("`pnpm e2e*` of [host] in its script")),

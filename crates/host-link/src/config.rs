@@ -87,8 +87,21 @@ impl RepoConfig {
   }
 }
 
-/// The options of pnpm that name a value in the next word (`-C web`), before its script
-const PNPM_VALUE_OPTIONS: [&str; 7] = ["-C", "--dir", "--filter", "-F", "--filter-prod", "--reporter", "--workspace-concurrency"];
+/// The options of pnpm that name a value in the next word (`-C web`), before its script: every option of the CLI of pnpm
+/// that its documentation gives a value (`--loglevel <level>`, `--filter <selector>`); the others are flags
+const PNPM_VALUE_OPTIONS: [&str; 11] = [
+  "-C",
+  "--dir",
+  "--filter",
+  "-F",
+  "--filter-prod",
+  "--test-pattern",
+  "--changed-files-ignore-pattern",
+  "--reporter",
+  "--loglevel",
+  "--workspace-concurrency",
+  "--resume-from",
+];
 
 /// The programs and the words that run a package binary for the next word: `npx playwright`, `pnpm exec playwright`
 const RUNNERS: [&str; 6] = ["npx", "bunx", "yarn", "pnpm", "exec", "dlx"];
@@ -110,8 +123,10 @@ fn heavy_line(command: &[String]) -> (String, String) {
   let mut line: Vec<&str> = Vec::with_capacity(words.len());
   let mut rest = words.iter().map(String::as_str);
   if let Some(program) = rest.next() {
-    line.push(program);
-    if program == "pnpm" {
+    let pnpm = program.rsplit('/').next() == Some("pnpm");
+    // `/opt/homebrew/bin/pnpm` is `pnpm`
+    line.push(if pnpm { "pnpm" } else { program });
+    if pnpm {
       // its options before its script, and before the script of its `run` or the binary of its `exec`
       while let Some(word) = rest.next() {
         if PNPM_VALUE_OPTIONS.contains(&word) {
@@ -129,7 +144,8 @@ fn heavy_line(command: &[String]) -> (String, String) {
   let playwright = line.iter().position(|word| word.rsplit('/').next() == Some("playwright"));
   if let Some(at) = playwright
     && line.get(at + 1) == Some(&"test")
-    && line[..at].iter().all(|word| RUNNERS.contains(word))
+    // the runners and their options before it: `npx -y`, `npx --yes`
+    && line[..at].iter().all(|word| RUNNERS.contains(word) || word.starts_with('-'))
   {
     return (std::iter::once("playwright").chain(line[at + 1..].iter().copied()).collect::<Vec<_>>().join(" "), written);
   }
@@ -155,7 +171,8 @@ pub(crate) fn env_end(words: &[String]) -> Option<usize> {
       break;
     }
   }
-  Some(at)
+  // `env -u` without its name
+  Some(at.min(words.len()))
 }
 
 /// `NAME=value`, with a name of letters, digits and `_` that does not start with a digit

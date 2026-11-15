@@ -339,6 +339,11 @@ fn a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runn
     ("pnpm -C web exec playwright test", Some("playwright test*")),
     ("pnpm playwright test --project=webkit", Some("playwright test*")),
     ("yarn playwright test", Some("playwright test*")),
+    ("npx -y playwright test", Some("playwright test*")),
+    ("npx --yes playwright test x.spec.ts", Some("playwright test*")),
+    ("/opt/homebrew/bin/pnpm -C . e2e", Some("pnpm e2e*")),
+    ("pnpm --loglevel error e2e", Some("pnpm e2e*")),
+    ("pnpm --workspace-concurrency 2 --test-pattern x -r e2e", Some("pnpm e2e*")),
     ("node_modules/.bin/playwright test", Some("playwright test*")),
     ("playwright test", Some("playwright test*")),
     ("npx playwright install webkit", None),
@@ -348,6 +353,8 @@ fn a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runn
   ] {
     assert_eq!(entry(line), expected.map(str::to_owned), "{line}");
   }
+  // an `env -u` without its name, which no shell runs, still has an answer
+  assert_eq!(entries_of(&["pnpm e2e*"])("env -u"), None);
   // a pattern written with its runner matches the line as written
   assert_eq!(
     entries_of(&["pnpm exec playwright test*"])("pnpm exec playwright test"),
