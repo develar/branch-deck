@@ -72,18 +72,46 @@ pub struct KillReport {
   /// The processes below the child that each round found and no round before it, each after its parent, round by round:
   /// the last one is empty for a settled kill. The kill takes them all at its end
   pub rounds: Vec<Vec<crate::process_scan::Descendant>>,
-  /// The kill made sure of the tree: a round after the first found nothing new, every scan read the list, every process
-  /// (the child too) halted, each exited before its parent's kill, and a scan after the kill found nothing left below
-  /// the child. False when the rounds or the waits ran out, or something was left: a process may then outlive the kill
-  pub settled: bool,
+  /// Why the kill is not sure of the tree, each reason once; none for a settled kill (`settled`)
+  pub unsettled: Vec<Unsettled>,
   /// What the scan after the kill still found below the child, which the kill then took without waiting: what the child
   /// started after the last round, continued by a process outside the kill
   pub left: Vec<crate::process_scan::Descendant>,
 }
 
-/// The longest wait of a kill for the children of a process to exit before it kills the process: a killed process
-/// exits as soon as it runs again; one that won't (a thread stuck in a call) is waited for no longer, and its parent is
-/// killed anyway
+#[cfg(unix)]
+impl KillReport {
+  /// The kill made sure of the tree: a round after the first found nothing new, every scan read the list, every process
+  /// (the child too) halted, each exited before its parent's kill, and a scan after the kill found nothing left below
+  /// the child. Else a process may outlive the kill
+  pub const fn settled(&self) -> bool {
+    self.unsettled.is_empty()
+  }
+
+  fn unsettled_by(&mut self, reason: Unsettled) {
+    if !self.unsettled.contains(&reason) {
+      self.unsettled.push(reason);
+    }
+  }
+}
+
+/// Why a kill of a tree on Unix is not sure of it
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unsettled {
+  /// No round confirmed the tree before `MAX_ROUNDS`: a scan read no list, or a process did not halt, every time
+  OutOfRounds,
+  /// A killed process did not exit within `EXIT_WAIT` of the start of the kills: its parent was killed before it
+  ExitWait,
+  /// The scan after the kill read no list, also when tried again
+  Unread,
+  /// The scan after the kill found processes below the child (`KillReport::left`)
+  Left,
+}
+
+/// The longest wait of a kill, from its first kill, for the children of a process to exit before it kills the process: a
+/// killed process exits as soon as it runs again; one that won't (a thread stuck in a call) is waited for no longer,
+/// and its parent is killed anyway
 #[cfg(unix)]
 const EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -165,10 +193,10 @@ impl ProcessTree {
     #[cfg(unix)]
     if let Some(root) = self.root {
       let report = kill_tree(root);
-      if report.settled {
+      if report.settled() {
         tracing::debug!(child = child.id(), rounds = ?report.rounds, "killed a process tree");
       } else {
-        tracing::warn!(child = child.id(), rounds = ?report.rounds, "a kill of a process tree ran out of its rounds or waits: a process may outlive it");
+        tracing::warn!(child = child.id(), rounds = ?report.rounds, unsettled = ?report.unsettled, left = ?report.left, "a kill of a process tree is not sure of it: a process may outlive it");
       }
       #[cfg(test)]
       seam::LAST_KILL.set(Some(report));
@@ -181,8 +209,7 @@ impl ProcessTree {
 /// along; the caller kills `root` itself
 #[cfg(unix)]
 fn kill_tree(root: (u32, u64)) -> KillReport {
-  let now = std::time::Instant::now();
-  let (stop_deadline, exit_deadline) = (now + STOP_WAIT, now + EXIT_WAIT);
+  let stop_deadline = std::time::Instant::now() + STOP_WAIT;
   let mut report = KillReport::default();
   let mut tree = Vec::new();
   for round in 0..MAX_ROUNDS {
@@ -192,37 +219,48 @@ fn kill_tree(root: (u32, u64)) -> KillReport {
     report.rounds.push(found.new);
     if confirms {
       seam::confirmed(root.0);
-      let waited = kill_bottom_up(root.0, &tree, crate::process_scan::exited, kill, || wait_until(exit_deadline));
-      report.settled = waited && left_below(root, &mut report);
+      // the wait for the exits counts from the first kill, not from the stops before it
+      let exit_deadline = std::time::Instant::now() + EXIT_WAIT;
+      if !kill_bottom_up(root.0, &tree, crate::process_scan::exited, kill, || wait_until(exit_deadline)) || seam::exit_waits_run_out() {
+        report.unsettled_by(Unsettled::ExitWait);
+      }
+      // whatever the waits did: what the child started since the last round must not outlive it
+      left_below(root, &mut report);
       return report;
     }
   }
   // out of rounds: what is there is killed without waiting
+  report.unsettled_by(Unsettled::OutOfRounds);
   let last = stopped_round(root, MAX_ROUNDS, &mut tree, std::time::Instant::now());
   report.rounds.push(last.new);
   kill_bottom_up(root.0, &tree, crate::process_scan::exited, kill, || false);
   report
 }
 
-/// Whether a scan after the kill finds nothing below `root`: something outside the kill may have continued it after the
-/// last round (an external `SIGCONT`: the job control of a terminal, Ctrl+Z and `fg`, as the child shares the group of
-/// its caller), and what it started since is killed now, without waiting (`KillReport::left`); a scan that reads no
-/// list can't tell
+/// The scan after the kill: something outside the kill may have continued `root` after the last round (an external
+/// `SIGCONT`: the job control of a terminal, Ctrl+Z and `fg`, as the child shares the group of its caller), and what it
+/// started since is killed now, without waiting (`KillReport::left`, `Unsettled::Left`). A scan that reads no list is
+/// tried again, up to `MAX_PASSES` scans (`Unsettled::Unread`)
 #[cfg(unix)]
-fn left_below(root: (u32, u64), report: &mut KillReport) -> bool {
-  let mut listed = crate::process_scan::descendants(root.0, root.1);
-  seam::scanned(usize::MAX, &mut listed);
-  let Some(listed) = listed else { return false };
+fn left_below(root: (u32, u64), report: &mut KillReport) {
+  let listed = (0..MAX_PASSES).find_map(|_| {
+    let mut listed = crate::process_scan::descendants(root.0, root.1);
+    seam::scanned(usize::MAX, &mut listed);
+    listed
+  });
+  let Some(listed) = listed else {
+    report.unsettled_by(Unsettled::Unread);
+    return;
+  };
   report.left = listed.into_iter().filter(|process| !crate::process_scan::exited(process.pid, process.started)).collect();
   if report.left.is_empty() {
-    return true;
+    return;
   }
-  tracing::warn!(left = ?report.left, "processes started below a killed child after the last round of its kill: killed without waiting");
+  report.unsettled_by(Unsettled::Left);
   for process in &report.left {
     crate::process_scan::stop(process.pid, process.started);
   }
   kill_bottom_up(root.0, &report.left, crate::process_scan::exited, kill, || false);
-  false
 }
 
 #[cfg(unix)]
@@ -380,6 +418,22 @@ pub(crate) mod seam {
   type RunsOn = Box<dyn Fn(usize, u32) -> bool>;
   #[cfg(unix)]
   type Confirmed = Box<dyn FnMut(u32)>;
+
+  #[cfg(unix)]
+  thread_local! {
+    static NO_EXIT_WAIT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+  }
+
+  /// The kills of this thread take their wait for the exits as run out (`Unsettled::ExitWait`), as one past `EXIT_WAIT`
+  #[cfg(all(test, unix))]
+  pub(crate) fn run_exit_waits_out() {
+    NO_EXIT_WAIT.set(true);
+  }
+
+  #[cfg(unix)]
+  pub(super) fn exit_waits_run_out() -> bool {
+    NO_EXIT_WAIT.get()
+  }
 
   thread_local! {
     static AFTER_SPAWN: RefCell<Option<AfterSpawn>> = const { RefCell::new(None) };

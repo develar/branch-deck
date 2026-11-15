@@ -80,7 +80,7 @@ fn wait_for_the_exits(processes: &[(u32, Option<u64>)], what: &str, kill: &KillT
           crate::process_scan::halted(pid),
           kill
             .as_ref()
-            .map(|kill| (kill.settled, kill.rounds.iter().position(|round| round.iter().any(|process| process.pid == pid)))),
+            .map(|kill| (kill.settled(), kill.rounds.iter().position(|round| round.iter().any(|process| process.pid == pid)))),
         );
         #[cfg(not(unix))]
         let (halted, found) = ((), kill);
@@ -229,7 +229,7 @@ fn kill_with_scans_that_miss(change: impl Fn(usize, &Tree, &mut Option<Vec<crate
   let (pid, _) = tree[found_later];
   let round = kill.rounds.iter().position(|round| round.iter().any(|process| process.pid == pid));
   assert!(round.is_some_and(|round| round > 0), "a later round found the {found_later}: {kill:?}");
-  assert!(kill.settled, "{kill:?}");
+  assert!(kill.settled(), "{kill:?}");
   wait_for_the_tree(&tree, &Some(kill));
 }
 
@@ -317,7 +317,7 @@ fn a_round_in_which_a_process_did_not_halt_confirms_nothing() {
   crate::process_tree::seam::processes_run_on(move |round, pid| round == 1 && known.borrow().get("grandchild").is_some_and(|&(grandchild, _)| grandchild == pid));
   let kill = kill_once_the_tree_runs(&dir, &tree).expect("the kill of the tree");
   assert_eq!(kill.rounds.len(), 3, "{kill:?}");
-  assert!(kill.settled, "{kill:?}");
+  assert!(kill.settled(), "{kill:?}");
   wait_for_the_tree(&tree.borrow(), &Some(kill));
 }
 
@@ -342,18 +342,22 @@ fn child_forking_into(dir: &tempfile::TempDir, pids: &std::path::Path) -> std::p
   fake(dir, &format!("while :; do\n  sleep 120 &\n  {pid_of_last} >> '{}'\n  sleep 0.01\ndone", shell_path(pids)))
 }
 
-/// A child that a process outside the kill continues after its last round, with what the kill stopped below it (an
-/// external `SIGCONT`, as the `fg` of a terminal sends its group: the child may wait for a stopped `sleep 0.01`), and
-/// that forks before it is stopped again: the scan after the kill finds what it started, kills it, and the kill is not
-/// settled. No deadline but nextest's
+/// The kill of a child that a process outside the kill continues after its last round, with what the kill stopped below
+/// it (an external `SIGCONT`, as the `fg` of a terminal sends its group: the child may wait for a stopped `sleep 0.01`),
+/// and that forks before it is stopped again; the seams of `seams` set first. The scan after the kill finds what the
+/// child started (`left` holds each such fork, which the test asserts) and kills it: what the kill reports. No deadline
+/// but nextest's
 #[cfg(unix)]
-#[test]
-fn a_fork_after_an_external_sigcont_after_the_last_round_is_killed_and_unsettles_the_kill() {
+fn kill_after_an_external_sigcont(seams: impl FnOnce()) -> crate::process_tree::KillReport {
+  seams();
   let dir = tempfile::tempdir().unwrap();
   let pids = dir.path().join("pids");
   let child = child_forking_into(&dir, &pids);
   let started = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
   let (outside, forks) = (pids.clone(), std::rc::Rc::clone(&started));
+  // the forks after the confirm, as the hook saw them
+  let after = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+  let after_confirm = std::rc::Rc::clone(&after);
   crate::process_tree::seam::when_confirmed(move |root| {
     let root_started = process_started(root).unwrap();
     let below = crate::process_scan::descendants(root, root_started).unwrap_or_default();
@@ -371,14 +375,57 @@ fn a_fork_after_an_external_sigcont_after_the_last_round_is_killed_and_unsettles
     while crate::process_scan::halted(root) == Some(false) {
       std::thread::sleep(Duration::from_millis(1));
     }
+    // each fork of the child since the confirm, once the child stopped again
+    record_forks(&outside, &forks);
+    *after_confirm.borrow_mut() = forks.borrow().iter().copied().filter(|(pid, _)| is_new(pid)).collect::<Vec<_>>();
   });
   let result = run_child_until_superseded(&mut windowless_command(child), None, &|| record_forks(&pids, &started) >= 3);
   assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
   let kill = last_kill().expect("the kill of the tree");
-  assert!(!kill.settled && !kill.left.is_empty(), "{kill:?}");
+  let missed: Vec<u32> = after
+    .borrow()
+    .iter()
+    .filter(|(pid, started)| started.is_some() && !kill.left.iter().any(|process| process.pid == *pid))
+    .map(|(pid, _)| *pid)
+    .collect();
+  assert!(missed.is_empty(), "the forks after the confirm {missed:?} are not left: {kill:?}");
   record_forks(&pids, &started);
   let started: Vec<(u32, Option<u64>)> = started.borrow().iter().copied().filter(|(_, started)| started.is_some()).collect();
-  wait_for_the_exits(&started, "a process the child started", &Some(kill));
+  wait_for_the_exits(&started, "a process the child started", &Some(kill.clone()));
+  kill
+}
+
+/// A fork after an external `SIGCONT` after the last round (`kill_after_an_external_sigcont`) is killed, and the kill
+/// says it is not settled because of it (`Unsettled::Left`)
+#[cfg(unix)]
+#[test]
+fn a_fork_after_an_external_sigcont_after_the_last_round_is_killed_and_unsettles_the_kill() {
+  let kill = kill_after_an_external_sigcont(|| {});
+  assert_eq!(kill.unsettled, [crate::process_tree::Unsettled::Left], "{kill:?}");
+}
+
+/// A kill whose wait for the exits ran out (the seam of the tests) still scans after it: the fork is killed too, and the
+/// kill names both reasons
+#[cfg(unix)]
+#[test]
+fn a_kill_whose_exit_wait_ran_out_still_kills_the_forks_after_its_last_round() {
+  let kill = kill_after_an_external_sigcont(crate::process_tree::seam::run_exit_waits_out);
+  assert_eq!(kill.unsettled, [crate::process_tree::Unsettled::ExitWait, crate::process_tree::Unsettled::Left], "{kill:?}");
+}
+
+/// A scan after the kill that reads no list is tried again: the next one finds the fork
+#[cfg(unix)]
+#[test]
+fn a_scan_after_the_kill_that_reads_no_list_is_tried_again() {
+  let kill = kill_after_an_external_sigcont(|| {
+    let mut first = true;
+    crate::process_tree::seam::change_scans(move |round, listed| {
+      if round == usize::MAX && std::mem::take(&mut first) {
+        *listed = None;
+      }
+    });
+  });
+  assert_eq!(kill.unsettled, [crate::process_tree::Unsettled::Left], "{kill:?}");
 }
 
 /// A child that starts a process every 10 ms while it is killed leaves none of them: what it forks while the kill scans

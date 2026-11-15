@@ -468,7 +468,9 @@ parent), git's children before the caller kills git. Until then every process fo
 round missed, at any depth (a hook's sh and its node, a fetch's `git-remote-https`), is still below a process that is
 there, and the next round finds it. A scan after the kill finds what git started after the last round, when a process
 outside the kill continued it (an external `SIGCONT`: the job control of a terminal, as git shares the group of its
-caller), kills it and logs the kill as not settled; only a freezer would hold a git that something keeps continuing.
+caller), kills it and logs the kill as not settled, with why (`Unsettled`: the rounds ran out, a killed process did not
+exit within 10 s of the first kill, the scan after the kill read no list after `MAX_PASSES` tries, or it found
+processes); the scan runs whatever the waits did. Only a freezer would hold a git that something keeps continuing.
 The usual tree takes four scans, a git without children three. A kill whose rounds
 or waits ran out kills what it found without waiting and logs that a process may outlive it. So git dies last: a
 stopped process that outlived its parent would go to launchd or init alive, and on macOS the exits of such processes
