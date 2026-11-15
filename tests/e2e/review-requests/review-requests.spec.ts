@@ -30,7 +30,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { expectClosed, holdCommandCalls, openTooltip } from "../helpers/wait-helpers"
+import { expectClosed, holdCommandCalls, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the requests review them as the branches of others
 const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
@@ -85,6 +85,9 @@ async function setupSafePush(page: Page, setupRepo: SetupRepo, syncAndWaitForBra
   const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests(requests), patronus: availableRobots() })
   await syncAndWaitForBranches()
   await expect(getYourTurnCard(page)).toBeVisible()
+  // the menu of a row has the Safe Push of its pull request once Patronus answered (the target it merges into), and an
+  // open menu doesn't move: one opened before shows it at the next open only
+  await waitForStepFacts(page.getByTestId("next-step-slot"))
   if (head !== undefined) {
     await repo.answerGitHub("GET", repoPath("pulls", 101), 200, { number: 101, head: { ref: "user-name/virtual/ABC-123", sha: head } })
   }
@@ -972,7 +975,9 @@ test.describe("Review window", () => {
     await expect(page.getByRole("menuitem", { name: /^Approve and Safe Push…/ })).not.toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
 
-    const { window: reviewPage, review } = await openRequestReview(page, 101)
+    // the commits once the fetch of the window answered, however long it takes under load
+    const { window: reviewPage, review, fetched } = await openRequestReview(page, 101)
+    await fetched
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     const safePush = review.getByTestId("review-safe-push")
     await expect(safePush).toHaveText("Approve and Safe Push…M")
@@ -1003,8 +1008,10 @@ test.describe("Review window", () => {
 
     // a pull request into another base than the target: Patronus refuses its Safe Push before the start
     await review.getByTestId("review-dialog-body").focus()
+    const backport = reviewFetched(reviewPage)
     await reviewPage.keyboard.press("ArrowDown")
     await expect(review.getByRole("heading", { name: "Backport the pool fix" })).toBeVisible()
+    await backport
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await expect(review.getByTestId("review-safe-push")).toBeDisabled()
   })
