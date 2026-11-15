@@ -7,7 +7,7 @@ import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/bran
 import { openCommitPreview } from "../helpers/preview-helpers"
 import { expectSettingsOpened, openSettingsWindow, settingsTab } from "../helpers/settings-helpers"
 import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls, windowTheme } from "../helpers/title-bar-helpers"
 import { routeCommand, expectClosed } from "../helpers/wait-helpers"
@@ -413,7 +413,10 @@ test.describe("Settings window", () => {
       // the statuses of the tools come after the window: the dot of Tools, a step to do, is in every snapshot
       await expect(settingsTab(window, "Tools").getByTestId("setup-dot")).toBeVisible()
       for (const name of ["General", "Appearance", "Diffs", "Notifications", "Tools"]) {
+        // Tools reads the statuses of the tools as it shows, which runs their fakes: seconds under load
+        const read = name === "Tools" ? nextAnswer(window, "cli_tools_status") : null
         await settingsTab(window, name).click()
+        await read
         await expectTallestState(window, name, "all")
         await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${name.toLowerCase()}`)
       }

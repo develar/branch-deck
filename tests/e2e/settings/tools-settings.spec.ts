@@ -3,14 +3,14 @@
 import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { openSettingsWindow } from "../helpers/settings-helpers"
+import { focusAndReadTools, openSettingsWindow, openToolsSettings } from "../helpers/settings-helpers"
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { completeYouTrackSignIn, issueKeyLink, linkIssuesToYouTrack, openIssue, youTrackHost, youTrackUrlOf } from "../helpers/youtrack-helpers"
 
 test.describe("Settings → Tools", () => {
   test("should install Branch Deck in IntelliJ IDEA beside brd, which then names its app file, and remove it", async ({ page, setupRepo }) => {
     await setupRepo("simple", { prepopulateStore: true })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("ide-app")
     await expect(row).toContainText("IntelliJ IDEA with Air shows Branch Deck in a tool window of each Git project")
     await expect(row.getByRole("button", { name: "Remove Branch Deck from IntelliJ IDEA" })).toHaveCount(0)
@@ -28,7 +28,7 @@ test.describe("Settings → Tools", () => {
   test("should install a missing CLI through Homebrew with its agent skill, then show its version and its sign-in", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ brew: true, latest: { teamcity: "1.6.3" }, files: { "teamcity.skill": "1.4.0" } })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-teamcity")
     await expect(row).toContainText("Not installed")
     // the skill comes along by default
@@ -51,7 +51,7 @@ test.describe("Settings → Tools", () => {
   test("should install a CLI without its skill once its checkbox is off", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ brew: true })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-youtrack")
     const checkbox = row.getByRole("checkbox", { name: "Also install the agent skill youtrack-cli" })
     await checkbox.click()
@@ -66,7 +66,7 @@ test.describe("Settings → Tools", () => {
 
   test("should give the command to install a CLI without Homebrew", async ({ page, setupRepo }) => {
     await setupRepo("simple", { prepopulateStore: true })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-youtrack")
     await expect(row).toContainText("Not installed")
     await expect(row.getByText("Install it in a terminal:")).toBeVisible()
@@ -77,7 +77,7 @@ test.describe("Settings → Tools", () => {
   test("should update a CLI to its newest release, and install, update and remove its skill from the line of the skill", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools(teamcityBehindOnHomebrew({ "teamcity.skill": "1.4.0" }))
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-teamcity")
     await expect(row.getByTestId("cli-tool-server")).toContainText("ci.example · jane · expires Nov 21")
     await expect(row).toContainText("1.6.0 · 1.7.0 is out")
@@ -96,7 +96,7 @@ test.describe("Settings → Tools", () => {
 
     // a newer one in the CLI: Update Skill
     await repo.setCliTools({ files: { "teamcity.skill": "1.5.0" } })
-    await emitTauriEvent(window, "tauri://focus")
+    await focusAndReadTools(window)
     await expect(skill).toContainText("Agent skill teamcity-cli 1.4.0 · teamcity has 1.5.0")
     await runAndWaitForAnswer(window, "run_cli_tool_action", () => skill.getByRole("button", { name: "Update Skill" }).click())
     await expect(window.locator("[data-slot=toast]", { hasText: "Updated the teamcity agent skill to 1.5.0" })).toBeVisible()
@@ -118,7 +118,7 @@ test.describe("Settings → Tools", () => {
     expectErrorLog(page, /^Cannot install youtrack: another brew holds its lock/)
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ brew: true, files: { "brew.fail": "Error: A `brew install` process has already locked /opt/homebrew/Cellar" } })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-youtrack")
     await runAndWaitForAnswer(window, "run_cli_tool_action", () => row.getByRole("button", { name: "Install" }).click())
     await expect(window.locator("[data-slot=toast]", { hasText: "Cannot install youtrack" })).toContainText("another brew holds its lock")
@@ -128,7 +128,7 @@ test.describe("Settings → Tools", () => {
   test("should stop a running install on Cancel, without an error", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ brew: true, files: { "brew.hang": "" } })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-youtrack")
     await row.getByRole("button", { name: "Install" }).click()
     await expect(row.getByTestId("cli-tool-progress")).toBeVisible()
@@ -148,7 +148,7 @@ test.describe("Settings → Tools", () => {
       latest: { youtrack: "0.7.0" },
       files: { "youtrack.auth": JSON.stringify({ url: "https://yt.example", login: "jane", status: "authenticated" }) },
     })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const tab = window.getByTestId("settings-tab-tools")
     await expect(tab.getByTestId("setup-dot")).toBeVisible()
     await runAndWaitForAnswer(window, "run_cli_tool_action", () => window.getByTestId("cli-tool-youtrack").getByRole("button", { name: "Update to 0.7.0" }).click())
@@ -177,11 +177,11 @@ test.describe("Settings → Tools", () => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ installed: [{ tool: "teamcity", version: "1.6.3" }] })
     // the server of a robot's build, as the toast of a copied prompt opens it
-    const window = await openSettingsWindow(page, { page: "tools", focus: "cli-teamcity", server: "https://ci.example" })
+    const window = await openToolsSettings(page, { page: "tools", focus: "cli-teamcity", server: "https://ci.example" })
     const row = window.getByTestId("cli-tool-teamcity")
     const field = row.getByRole("textbox", { name: "TeamCity server" })
     await expect(field).toHaveValue("https://ci.example")
-    await row.getByRole("button", { name: "Sign In" }).click()
+    await runAndWaitForAnswer(window, "run_cli_tool_action", () => row.getByRole("button", { name: "Sign In" }).click())
     await expect(window.locator("[data-slot=toast]", { hasText: "Signed in to ci.example as jane" })).toBeVisible()
     await expect(row.getByTestId("cli-tool-server")).toContainText("ci.example · jane · expires Dec 1")
     // the CLI's own sign-in, without a terminal: no token on its command line
@@ -194,20 +194,20 @@ test.describe("Settings → Tools", () => {
     expectErrorLog(page, /^Cannot sign teamcity in: browser sign-in is not available on https:\/\/ci\.example$/)
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ installed: [{ tool: "teamcity", version: "1.6.3" }], files: { "teamcity.no-web": "" } })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-teamcity")
     const field = row.getByRole("textbox", { name: "TeamCity server" })
     await expect(row.getByRole("button", { name: "Sign In" })).toBeDisabled()
     await field.click()
     await expect(field).toBeFocused()
     await field.fill("https://old.example")
-    await field.press("Enter")
+    await runAndWaitForAnswer(window, "run_cli_tool_action", () => field.press("Enter"))
     await expect(window.locator("[data-slot=toast]", { hasText: "Cannot sign teamcity in" })).toContainText("browser sign-in is not available on https://old.example")
 
     await repo.setCliTools({ files: { "teamcity.auth": teamcitySignedIn("2024-01-03T10:00:00Z") } })
-    await emitTauriEvent(window, "tauri://focus")
+    await focusAndReadTools(window)
     await expect(row.getByTestId("cli-tool-server")).toContainText("expires Jan 3")
-    await row.getByTestId("cli-tool-server").getByRole("button", { name: "Sign In Again" }).click()
+    await runAndWaitForAnswer(window, "run_cli_tool_action", () => row.getByTestId("cli-tool-server").getByRole("button", { name: "Sign In Again" }).click())
     await expect.poll(() => repo.getCliToolsLog()).toContain("teamcity auth login --server https://ci.example --web --json --no-input")
     // this TeamCity has no browser sign-in either: refused again, for its own server
     await expect(window.locator("[data-slot=toast]", { hasText: "https://ci.example" })).toContainText("browser sign-in is not available on https://ci.example")
@@ -217,7 +217,7 @@ test.describe("Settings → Tools", () => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     const gateway = JSON.stringify([{ server: "https://ci.example", status: "error", error: "login gateway detected - https://jb.gg/warp may be required" }])
     await repo.setCliTools({ installed: [{ tool: "teamcity", version: "1.6.3" }], files: { "teamcity.auth": gateway } })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-teamcity")
     const line = row.getByTestId("cli-tool-server")
     await expect(line).toHaveText("ci.example · login gateway detected - https://jb.gg/warp may be required")
@@ -226,20 +226,20 @@ test.describe("Settings → Tools", () => {
     await expect(row.getByRole("textbox", { name: "TeamCity server" })).toHaveCount(0)
     await line.getByRole("button", { name: "https://jb.gg/warp" }).click()
     await expect.poll(() => getOpenedUrls(window)).toContain("https://jb.gg/warp")
-    await row.getByRole("button", { name: "Sign In", exact: true }).click()
+    await runAndWaitForAnswer(window, "run_cli_tool_action", () => row.getByRole("button", { name: "Sign In", exact: true }).click())
     await expect(window.locator("[data-slot=toast]", { hasText: "Signed in to ci.example as jane" })).toBeVisible()
     expect(await repo.getCliToolsLog()).toContain("teamcity auth login --server https://ci.example --web --json --no-input")
 
     // failed again: another server through the form
     await repo.setCliTools({ files: { "teamcity.auth": gateway } })
-    await emitTauriEvent(window, "tauri://focus")
+    await focusAndReadTools(window)
     await row.getByRole("button", { name: "Other Server…" }).click()
     const field = row.getByRole("textbox", { name: "TeamCity server" })
     await expect(field).toHaveValue("")
     await field.click()
     await expect(field).toBeFocused()
     await field.fill("https://other.example")
-    await field.press("Enter")
+    await runAndWaitForAnswer(window, "run_cli_tool_action", () => field.press("Enter"))
     await expect(window.locator("[data-slot=toast]", { hasText: "Signed in to other.example as jane" })).toBeVisible()
     expect(await repo.getCliToolsLog()).toContain("teamcity auth login --server https://other.example --web --json --no-input")
   })
@@ -247,7 +247,7 @@ test.describe("Settings → Tools", () => {
   test("should offer an older teamcity its update before the sign-in, else the sign-in of a terminal", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ installed: [{ tool: "teamcity", version: "1.6.1", unmanaged: true }] })
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-teamcity")
     // before --web and no newer release known: the sign-in of a terminal, no form
     await expect(row.getByText("Sign in in a terminal:")).toBeVisible()
@@ -256,7 +256,7 @@ test.describe("Settings → Tools", () => {
 
     // a newer release: its update first, then the browser sign-in of the app
     await repo.setCliTools({ latest: { teamcity: "1.6.3" } })
-    await emitTauriEvent(window, "tauri://focus")
+    await focusAndReadTools(window)
     await runAndWaitForAnswer(window, "run_cli_tool_action", () => row.getByRole("button", { name: "Update to 1.6.3" }).click())
     await expect(window.locator("[data-slot=toast]", { hasText: "Updated teamcity to 1.6.3" })).toBeVisible()
     expect(await repo.getCliToolsLog()).toContain("teamcity update --yes --no-input --no-color")
@@ -269,7 +269,7 @@ test.describe("Settings → Tools", () => {
     await repo.setYouTrack({ signedIn: "signIn" })
     await repo.setCliTools({ installed: [{ tool: "youtrack", version: "0.7.0" }] })
     const url = await youTrackUrlOf(repo)
-    const window = await openSettingsWindow(page, { page: "tools" })
+    const window = await openToolsSettings(page)
     const row = window.getByTestId("cli-tool-youtrack")
     // no command to copy: the app's sign-in signs it in
     await expect(row.locator("pre")).toHaveCount(0)

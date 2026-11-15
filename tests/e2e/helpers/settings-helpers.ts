@@ -3,7 +3,7 @@ import type { SettingsTarget } from "../../../src/lib/settings-window"
 import { expect } from "../fixtures/base-test"
 import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
-import { emitTauriEvent, waitForTauriListener } from "./sync-helpers"
+import { emitTauriEvent, nextAnswer, runAndWaitForAnswer, waitForTauriListener } from "./sync-helpers"
 
 /**
  * The Settings window the main window opened as the `count`-th sub-window (so exactly one more than before), at
@@ -29,6 +29,28 @@ export async function openSettingsWindow(page: Page, target: SettingsTarget = {}
   const window = await openLinkedSubWindow(page, await expectSettingsOpened(page, target, count + 1), options)
   await expect(window.getByTestId("settings-window")).toBeVisible()
   return window
+}
+
+/**
+ * Opens Settings at Tools (`target` names its focus and server) once the first read of the statuses of the tools
+ * answered (`cli_tools_status`): it runs every CLI and its fakes, seconds under load, past the 5 s of an assertion of
+ * what a row shows. A test of the read itself holds it (`HeldAnswer::CliTools`) and opens the window with
+ * `openSettingsWindow`
+ */
+export async function openToolsSettings(page: Page, target: SettingsTarget = { page: "tools" }): Promise<Page> {
+  let read!: Promise<unknown>
+  const window = await openSettingsWindow(page, target, {
+    beforeLoad: async window => {
+      read = nextAnswer(window, "cli_tools_status")
+    },
+  })
+  await read
+  return window
+}
+
+/** The window gets the focus, which reads the statuses of the tools again; resolves once that read answered */
+export async function focusAndReadTools(window: Page): Promise<void> {
+  await runAndWaitForAnswer(window, "cli_tools_status", () => emitTauriEvent(window, "tauri://focus"))
 }
 
 /** The tab of a page in the sidebar */
