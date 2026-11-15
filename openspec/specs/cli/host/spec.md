@@ -1680,7 +1680,7 @@ once and once a minute; it MUST give it back after its give-back. A run that is 
 - **AND** the run that is not heavy runs beside the first at once
 - **AND** the first gives the turn back after the give-back of its slot
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_the_host_run_one_at_a_time_and_a_run_that_is_not_heavy_goes_beside_them`)
-  [@test] crates/lease-pool/src/host_turn_test.rs (`heavy_runs_take_the_turn_one_at_a_time_first_come_first`, `a_waiting_run_takes_the_turn_once_the_holder_leaves`, `a_holder_holds_the_turn_from_the_moment_it_took_it`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`heavy_runs_take_the_turn_one_at_a_time_first_come_first`, `a_waiting_run_takes_the_turn_once_the_holder_leaves`, `a_wait_without_the_event_takes_the_turn_at_its_next_look`, `a_wait_whose_time_is_up_answers_its_place_and_keeps_its_ticket`, `a_holder_holds_the_turn_from_the_moment_it_took_it`)
 
 #### Scenario: The line of the wait
 - **WHEN** a heavy run waits for the turn

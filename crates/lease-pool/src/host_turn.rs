@@ -93,7 +93,8 @@ pub struct TurnParams<'a> {
   pub dir: &'a Path,
   /// The wait for the lock of the table
   pub lock_timeout: Duration,
-  /// How often a wait looks again without a file event (`RECHECK`): the end of a holder makes none
+  /// How often a wait looks again without a file event (`RECHECK`): the end of a holder makes none, and `FSEvents` of
+  /// macOS delays and drops events under load, so the look bounds every wait
   pub recheck: Duration,
 }
 
@@ -191,7 +192,8 @@ pub fn take(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
 
 /// Give the turn to the run of `request` (`take`), waiting up to `timeout` while it is queued, woken by `watch`, which
 /// the caller started before its first look and keeps for its whole wait; without a file event it looks again every
-/// `params.recheck`, since the end of a holder makes none. The answer is the turn, or the place in the queue once the
+/// `params.recheck`, since the end of a holder makes none and an event may come late or never (`FSEvents` under load). The
+/// answer is the turn, or the place in the queue once the
 /// time is up: the ticket stays while the process lives, and `leave` takes it out
 pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout: Duration, watch: &TurnWatch) -> Result<TurnAnswer> {
   let started = Instant::now();

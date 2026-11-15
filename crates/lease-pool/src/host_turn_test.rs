@@ -119,16 +119,11 @@ fn a_run_that_leaves_the_queue_waits_no_more() {
   assert_eq!(queued(&take(&params, &request("run-3", &command)).unwrap()), (Some("run-1"), vec![]));
 }
 
-/// A wait for the turn ends as the holder gives it back, by the file event of the table: its look again and its limit
-/// are an hour, which no run reaches, so only the event wakes it. A wait whose time is up answers the place in the
-/// queue with its ticket kept
+/// A wait whose time is up answers the place in the queue with its ticket kept, which `leave` takes out
 #[test]
-fn a_waiting_run_takes_the_turn_once_the_holder_leaves() {
+fn a_wait_whose_time_is_up_answers_its_place_and_keeps_its_ticket() {
   let dir = tempfile::tempdir().unwrap();
-  let params = TurnParams {
-    recheck: Duration::from_hours(1),
-    ..params(dir.path())
-  };
+  let params = params(dir.path());
   let command = command();
   let watched = watch(&params);
   assert_eq!(take(&params, &request("run-1", &command)).unwrap(), TurnAnswer::Taken);
@@ -136,18 +131,54 @@ fn a_waiting_run_takes_the_turn_once_the_holder_leaves() {
   assert_eq!(queued(&answer), (Some("run-1"), vec![]), "the time is up");
   assert_eq!(runs(&read_live(dir.path()).unwrap()), (Some("run-1"), vec!["run-2"]), "the ticket stays");
   assert!(!leave(&params, "run-2").unwrap(), "the ticket leaves");
+}
 
-  let waited = std::thread::scope(|scope| {
-    let waiting = scope.spawn(|| {
-      let watched = watch(&params);
-      take_waiting(&params, &request("run-2", &command), Duration::from_hours(1), &watched).unwrap()
-    });
-    // the holder leaves once the first look of the wait queued the run, after its watch started
-    while runs(&read_live(dir.path()).unwrap()).1 != ["run-2"] {
+/// `waiting`, a wait for the turn of run-2 started in a thread of its own, takes the turn after run-1, which holds it,
+/// leaves once the first look of the wait queued run-2
+fn takes_the_turn_once_the_holder_leaves(params: &TurnParams<'_>, waiting: impl FnOnce() -> TurnAnswer + Send) -> TurnAnswer {
+  let command = command();
+  assert_eq!(take(params, &request("run-1", &command)).unwrap(), TurnAnswer::Taken);
+  std::thread::scope(|scope| {
+    let waiting = scope.spawn(waiting);
+    while runs(&read_live(params.dir).unwrap()).1 != ["run-2"] && !waiting.is_finished() {
       std::thread::yield_now();
     }
-    assert!(leave(&params, "run-1").unwrap());
+    assert!(leave(params, "run-1").unwrap());
     waiting.join().unwrap()
+  })
+}
+
+/// A wait for the turn ends as the holder gives it back: woken by the file event of the table, else at its next look
+/// (`RECHECK` of the agent's waits). The event is the way, the look the bound: `FSEvents` of macOS delays and drops events
+/// under load (at load 100 a wait saw no event of the table for 30 s while the events of another file of the directory
+/// came a second late), and this test waited for the event alone, with a look an hour off, until its timeout
+#[test]
+fn a_waiting_run_takes_the_turn_once_the_holder_leaves() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  let waited = takes_the_turn_once_the_holder_leaves(&params, || {
+    let watched = watch(&params);
+    take_waiting(&params, &request("run-2", &command), Duration::from_hours(1), &watched).unwrap()
+  });
+  assert_eq!(waited, TurnAnswer::Taken);
+}
+
+/// A wait whose file event never comes, a watch of another directory, takes the turn at its next look after the holder
+/// left: no event of the system is needed for a wait to end
+#[test]
+fn a_wait_without_the_event_takes_the_turn_at_its_next_look() {
+  let dir = tempfile::tempdir().unwrap();
+  let elsewhere = tempfile::tempdir().unwrap();
+  let looking = TurnParams {
+    recheck: Duration::from_millis(50),
+    ..params(dir.path())
+  };
+  let deaf = params(elsewhere.path());
+  let command = command();
+  let waited = takes_the_turn_once_the_holder_leaves(&looking, || {
+    let watched = watch(&deaf);
+    take_waiting(&looking, &request("run-2", &command), Duration::from_hours(1), &watched).unwrap()
   });
   assert_eq!(waited, TurnAnswer::Taken);
 }
