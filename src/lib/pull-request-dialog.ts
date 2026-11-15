@@ -78,11 +78,11 @@ export interface CreatePullRequestFacts {
   readonly baselineBranch: string | null
   readonly pullRequest: PullRequest | undefined
   /**
-   * All of the branch landed, as the next step of Rust says it (`BranchNextStep.landed`): a merged pull request lands it
-   * only merged into the target with its commits; one merged into a parent's branch, which the target lacks, is no
-   * pull request of the branch a new one would repeat
+   * Rust offers Create Pull Request… of the branch (`create-pull-request` of its actions,
+   * `domain_policy::pull_request::creation_blocker`): without it, its pull request refuses a new one (an open one, a merged
+   * one that landed it), which the dialog says
    */
-  readonly landed: boolean
+  readonly createOffered: boolean
   readonly availability: PullRequestAvailability | null
   readonly patronusAvailable: boolean
   readonly review: ReviewRequirementState
@@ -95,7 +95,7 @@ export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequ
   const head = getFullBranchName(branch.name)
   const ancestors = getStackAncestors(branch.name).flatMap(name => getBranch(name) ?? [])
   const pullRequest = facts.pullRequest
-  const existing = pullRequest !== undefined && (pullRequest.state === "open" || (pullRequest.state === "merged" && facts.landed)) ? pullRequest : null
+  const existing = facts.createOffered ? null : (pullRequest ?? null)
   const withoutReview = facts.withoutReview
   // a layer of a stack of GitHub shows only its own commits, against the branch below it
   const layer = facts.layer
@@ -130,6 +130,8 @@ export interface StackPullRequestFacts {
   /** The baseline of the view (`BranchSyncState.baselineBranch`): the base of the pull request on the remote */
   readonly baselineBranch: string | null
   readonly pullRequest: PullRequest | undefined
+  /** Rust offers Create Stack Pull Request… of the stack (`create-stack-pull-request` of `stack:<root>`) */
+  readonly createOffered: boolean
   readonly availability: PullRequestAvailability | null
   readonly branchOf: (name: string) => Branch | undefined
   /** Patronus is available and the sync built the stack branch: Patronus is asked about it */
@@ -151,7 +153,7 @@ export function toStackPullRequestContext(root: string, stack: StackBranch | und
     const branch = facts.branchOf(name)
     return branch === undefined ? [] : [{ branch, parent: name === root ? null : (branch.stack?.effectiveBase ?? null) }]
   })
-  const existing = facts.pullRequest !== undefined && facts.pullRequest.state !== "closed" ? facts.pullRequest : null
+  const existing = facts.createOffered ? null : (facts.pullRequest ?? null)
   const label = formatWholeStackStart(root)
   const commitCount = stack?.commitCount ?? 0
   const names = members.map(it => it.branch.name)

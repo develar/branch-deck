@@ -4,6 +4,8 @@ import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequireme
 import type { CreatePullRequestContext } from "@/lib/pull-request-dialog"
 import { toCreatePullRequestContext, toStackPullRequestContext } from "@/lib/pull-request-dialog"
 import { stackReadinessKey } from "@/lib/whole-stack"
+import { useRowPart } from "@/model/store"
+import { findAction } from "@/presenters/actions"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync, useStackBranch } from "@/stores/branch-sync"
 import { usePatronusAvailable } from "@/stores/patronus"
@@ -21,7 +23,7 @@ export function useCreatePullRequestContext(branch: Branch): CreatePullRequestCo
     repositoryPath: useSelectedProjectPath() ?? "",
     baselineBranch: useBranchSync(state => state.baselineBranch),
     pullRequest: usePullRequest(branch.name),
-    landed: (nextStep?.landed ?? null) !== null,
+    createOffered: findAction(useRowPart(branch.name, "actions"), "create-pull-request") !== undefined,
     availability: usePullRequestAvailability(),
     patronusAvailable,
     review: usePatronusReviewRequirement(branch.name, patronusAvailable).state,
@@ -45,6 +47,7 @@ export function useStackPullRequestContext(root: string): CreatePullRequestConte
     repositoryPath: useSelectedProjectPath() ?? "",
     baselineBranch: useBranchSync(state => state.baselineBranch),
     pullRequest: useStackPullRequest(root),
+    createOffered: findAction(useRowPart(stackReadinessKey(root), "actions"), "create-stack-pull-request") !== undefined,
     availability: usePullRequestAvailability(),
     branchOf: name => branches[name],
     patronusAvailable,

@@ -52,7 +52,12 @@ pub(crate) fn create(on_github: bool) -> CreatePullRequest {
 }
 
 pub(crate) fn created(sources: &Sources, push: ActionPushView, create: &CreatePullRequest) -> Planned {
-  sources.with(|sources| create_planned(&PullRequestFacts { sources, push }, create)).unwrap()
+  created_landed(sources, push, create, false)
+}
+
+/// `created` of a subject that landed all of it, as its next step says, or not (`landed`)
+fn created_landed(sources: &Sources, push: ActionPushView, create: &CreatePullRequest, landed: bool) -> Planned {
+  sources.with(|sources| create_planned(&PullRequestFacts { sources, push, landed }, create)).unwrap()
 }
 
 /// The creation of the pull request of a layer of a stack of GitHub (docs/design/github-stacks.md) opens the pull
@@ -153,14 +158,15 @@ fn a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request() {
     })
   );
   assert!(retargeted.witness.pull_requests.contains_key(&7), "the pull request it retargets is of its witness");
-  // never a second pull request of a branch that has one, as the menus offer Open Pull Request in its place: an open one
-  // refuses it before the push, one merged into the target too; one merged into a parent's branch, and a closed one,
-  // leave the way to a new one
+  // never a second pull request of a branch whose pull request refuses one (`creation_blocker`), before the push: an
+  // open one, a merged one that landed it; one merged into the target with commits after it, one merged into a parent's
+  // branch and a closed one leave the way to a new one
   assert_eq!(retargeted.plan.blockers, [Reason::PullRequestOpen { number: 7 }]);
-  for (state, base, blockers) in [
-    (PullRequestState::Merged, "master", vec![Reason::PullRequestMerged { number: 7 }]),
-    (PullRequestState::Merged, "user/virtual/base", Vec::new()),
-    (PullRequestState::Closed, "master", Vec::new()),
+  for (state, base, landed, blockers) in [
+    (PullRequestState::Merged, "master", true, vec![Reason::PullRequestMerged { number: 7 }]),
+    (PullRequestState::Merged, "master", false, Vec::new()),
+    (PullRequestState::Merged, "user/virtual/base", false, Vec::new()),
+    (PullRequestState::Closed, "master", false, Vec::new()),
   ] {
     let mut listed = sources(false);
     let pull_request = PullRequest {
@@ -169,7 +175,11 @@ fn a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request() {
       ..pull_request("auth", 7)
     };
     listed.pull_requests.pull_requests.insert("auth".to_owned(), pull_request);
-    assert_eq!(created(&listed, pushes(&["auth"], None), &create(false)).plan.blockers, blockers, "{state:?} into {base}");
+    assert_eq!(
+      created_landed(&listed, pushes(&["auth"], None), &create(false), landed).plan.blockers,
+      blockers,
+      "{state:?} into {base}, landed {landed}"
+    );
   }
 }
 
@@ -310,7 +320,7 @@ fn reviewed(up_to_date: bool, readiness: Option<Fact<SubjectReadiness>>) -> Sour
 
 fn requested(sources: &Sources, push: ActionPushView, reviewers: &[&str], push_first: bool) -> Option<Planned> {
   let reviewers: Vec<String> = reviewers.iter().map(|login| (*login).to_owned()).collect();
-  sources.with(|sources| review_planned(&PullRequestFacts { sources, push }, &Subject::branch("auth"), &reviewers, push_first))
+  sources.with(|sources| review_planned(&PullRequestFacts { sources, push, landed: false }, &Subject::branch("auth"), &reviewers, push_first))
 }
 
 fn ask(reviewers: &[&str]) -> PlannedEffect {
@@ -715,7 +725,18 @@ fn link_github_stack_joins_an_old_pull_request_and_has_nothing_to_link_in_line()
       creates: Vec::new(),
     },
   );
-  let linked = |sources: &Sources| sources.with(|sources| link_planned(&PullRequestFacts { sources, push: pushes(&[], None) }, "auth"));
+  let linked = |sources: &Sources| {
+    sources.with(|sources| {
+      link_planned(
+        &PullRequestFacts {
+          sources,
+          push: pushes(&[], None),
+          landed: false,
+        },
+        "auth",
+      )
+    })
+  };
   let planned = linked(&pushed).unwrap();
   assert_eq!(planned.plan.intent, Intent::LinkStack { branch: "auth".to_owned() });
   assert_eq!(planned.plan.effects, [PlannedEffect::LinkStack { chain, join: true }]);

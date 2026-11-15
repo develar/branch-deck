@@ -215,6 +215,13 @@ impl Bases {
   }
 }
 
+/// Whether all of the subject `key` (a branch name, `stack:<root>`) landed, as its next step says it now
+/// (`NextStep::landed`), for the engine that refuses a new pull request by it (`operations::pull_request`)
+#[must_use]
+pub fn landed_now(state: &TableState, facts: &FactStore, key: &str) -> bool {
+  Bases::of(state, facts).steps.get(key).is_some_and(|view| view.step.landed.is_some())
+}
+
 /// The actions of every subject as the view derives them now (`RepositoryView::actions`, but those of the reviews), over
 /// the table and the facts as they are, the pushes and the starts too, without the operations of the session laid over
 /// them, which the engine that runs one of them admits by itself (its own operation runs then): the restart of a robot

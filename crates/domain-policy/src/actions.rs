@@ -31,6 +31,7 @@
 //! items (the fixups of the autosquash plan, the label of Ungroup, an orphaned pull request of a whole stack).
 
 use crate::next_step::{Listing, PatronusAnswer};
+use crate::pull_request::creation_blocker;
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability, NothingBeyond};
 use domain_types::landing::Landed;
 use domain_types::landing::Subject;
@@ -166,9 +167,9 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   if facts.links_stack {
     offer(ActionId::LinkGithubStack, None);
   }
-  let live = facts.pull_request.is_some_and(|pull_request| pull_request.state != PullRequestState::Closed);
-  // from the first view where git names the GitHub repository; Open Pull Request #N takes its place once listed
-  if facts.repository && !live {
+  // from the first view where git names the GitHub repository; Open Pull Request #N takes its place while its pull
+  // request refuses a new one (`creation_blocker`)
+  if facts.repository && creation_blocker(facts.pull_request, step.landed.is_some()).is_none() {
     // the pull request of the branch is not known yet: never a second one of a branch that has one
     let reason = if matches!(facts.listing, Listing::Loading) {
       Some(ActionBlocker::Pending { fact: StepFact::PullRequests })
@@ -512,7 +513,7 @@ pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
   }
   if let StackShape::Forking { not_built, .. } = facts.shape
     && facts.repository
-    && pull_request.is_none()
+    && creation_blocker(facts.pull_request, facts.step.is_some_and(|step| step.landed.is_some())).is_none()
   {
     // the pull request of its stack branch is not known yet: never a second one of a stack that has one
     let listing = matches!(facts.listing, Listing::Loading).then_some(ActionBlocker::Pending { fact: StepFact::PullRequests });

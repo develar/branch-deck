@@ -2,8 +2,10 @@
 //! openspec/specs/branch/next-step/spec.md rows 5 and 5′): where it goes (`base_of`: the target, a virtual branch of the user that
 //! every such pull request leaves for the target, or another base that may be meant), the pull request a robot starts
 //! from (`start_pull_request`: one into the target or, of a branch, into a virtual branch it retargets first, D11), and what a push of new commits does to its approvals by the rules of its base
-//! (`dismisses_approvals`, a fact without an answer never read as "keeps them"). The app (the view of the session, the
-//! readiness asks) and `bd` (`brd push`, `brd safe-push`, `brd request-review`) read these, never a copy.
+//! (`dismisses_approvals`, a fact without an answer never read as "keeps them"), and why a new pull request of a subject
+//! is refused while it has one (`creation_blocker`). The app (the view of the session, the readiness asks, the menus and
+//! the dialogs of Create Pull Request…, the engine) and `bd` (`brd push`, `brd safe-push`, `brd request-review`) read
+//! these, never a copy.
 
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::error::ApiError;
@@ -11,6 +13,21 @@ use domain_types::landing_route::{LandingRemote, LocalGitHub};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, ReviewerState};
 use domain_types::reason::Reason;
 use domain_types::session::{Fact, FactState, PullRequestsView, RobotsView};
+
+/// Why a new pull request of a subject is refused while GitHub lists `listed` of it (any state): an open one, or a merged
+/// one that landed the subject (`landed`: all of it landed, as its next step says, `NextStep::landed`). One merged that
+/// did not land it (into a parent's branch, or with commits after it, a follow-up) and a closed one let a new one repeat
+/// it. The menus offer Create Pull Request… only without it (Open Pull Request in its place), the dialogs say it, the
+/// engine refuses a creation by it before any push
+#[must_use]
+pub fn creation_blocker(listed: Option<&PullRequest>, landed: bool) -> Option<Reason> {
+  let listed = listed?;
+  match listed.state {
+    PullRequestState::Open => Some(Reason::PullRequestOpen { number: listed.number }),
+    PullRequestState::Merged if landed => Some(Reason::PullRequestMerged { number: listed.number }),
+    PullRequestState::Merged | PullRequestState::Closed => None,
+  }
+}
 
 /// The GitHub repository of the branches is known, so their pull requests are offered: git names it
 /// (`LandingRemote::github`, from the first view, so the slot of the pull request is there before GitHub answers), or,

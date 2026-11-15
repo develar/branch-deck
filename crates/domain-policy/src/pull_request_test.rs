@@ -1,7 +1,8 @@
-use crate::pull_request::{RulesAnswer, base_of, dismisses_approvals, start_base, start_pull_request};
+use crate::pull_request::{RulesAnswer, base_of, creation_blocker, dismisses_approvals, start_base, start_pull_request};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::pull_request;
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, PullRequestStackEntry, PullRequestState, Reviewer, ReviewerState};
+use domain_types::reason::Reason;
 use domain_types::session::{Fact, FactState};
 use pretty_assertions::assert_eq;
 
@@ -136,4 +137,37 @@ fn a_push_keeps_or_dismisses_the_approvals_by_the_rules_and_never_reads_a_missin
   // nobody approved: nothing to dismiss, whatever the rules
   assert_eq!(dismisses_approvals(Some(&unavailable), &pull_request("auth", 7)), RulesAnswer::Keep);
   assert_eq!(dismisses_approvals(None, &pull_request("auth", 7)), RulesAnswer::Keep);
+}
+
+/// A new pull request of a subject is refused only while it has an open one, or a merged one that landed it as its next
+/// step says; one merged into the target with commits after it (a follow-up), one merged into a parent's branch (which
+/// lands nothing of it) and a closed one let a new one repeat it, as no pull request does
+#[test]
+fn a_new_pull_request_is_refused_only_beside_an_open_one_or_a_merged_one_that_landed_the_subject() {
+  let listed = |state: PullRequestState, base: &str| PullRequest {
+    state,
+    base_ref_name: base.to_owned(),
+    ..pull_request("auth", 7)
+  };
+  let cases = [
+    ("open", Some(listed(PullRequestState::Open, "master")), false, Some(Reason::PullRequestOpen { number: 7 })),
+    (
+      "merged, landed",
+      Some(listed(PullRequestState::Merged, "master")),
+      true,
+      Some(Reason::PullRequestMerged { number: 7 }),
+    ),
+    (
+      "merged into the target, a follow-up after it",
+      Some(listed(PullRequestState::Merged, "master")),
+      false,
+      None,
+    ),
+    ("merged into a parent's branch", Some(listed(PullRequestState::Merged, "user/virtual/base")), false, None),
+    ("closed", Some(listed(PullRequestState::Closed, "master")), false, None),
+    ("none", None, false, None),
+  ];
+  for (case, pull_request, landed, blocker) in cases {
+    assert_eq!(creation_blocker(pull_request.as_ref(), landed), blocker, "{case}");
+  }
 }

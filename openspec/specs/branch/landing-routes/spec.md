@@ -1565,7 +1565,7 @@ landed: only one by which the branch landed is.
 #### Scenario: A new pull request repeats a merged one
 - **WHEN** the dialog creates a pull request of a branch whose pull request was merged
 - **THEN** it may repeat the merged one while the branch did not land by it, as into a parent's branch
-  [@test] src/lib/pull-request-dialog.test.ts (`lets a new pull request repeat a merged one only while the branch did not land by it, as into a parent's branch`)
+  [@test] src/lib/pull-request-dialog.test.ts (`lets a new pull request repeat a merged one only while Rust offers its creation, and says the one that refuses it`)
 
 ### Requirement: The page: Settings → Landing names the route
 

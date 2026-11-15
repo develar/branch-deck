@@ -104,6 +104,13 @@ async function expectPushedThenCreated(page: Page, repo: TestRepositoryBuilder):
   await expect(page.locator("[data-slot=toast]", { hasText: "Cannot create" })).toHaveCount(0)
 }
 
+/** The menu of a branch with an open pull request: Open Pull Request in the place of Create; the menu stays open. */
+async function expectOpenInPlaceOfCreate(page: Page, branchName: string, number: number): Promise<void> {
+  await findBranchRow(page, branchName).click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: `Open Pull Request #${number}` })).toBeVisible()
+  await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).toHaveCount(0)
+}
+
 function getChip(page: Page, branchName: string): Locator {
   return findBranchRow(page, branchName).getByTestId("pull-request-chip")
 }
@@ -431,20 +438,40 @@ test.describe("Pull request chip", () => {
     expect(await getOpenedUrls(page)).toEqual([pullRequest("feature-auth", 905).url])
   })
 
-  test("should refuse in the backend a second pull request of a branch that has an open one, before any push", async ({ page, repo }) => {
-    // the menu offers Open Pull Request #760 in the place of Create Pull Request…
-    await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await expect(page.getByRole("menuitem", { name: "Open Pull Request #760" })).toBeVisible()
-    await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).toHaveCount(0)
+  test("should offer a new pull request beside a merged one that did not land the branch, and refuse one beside an open one, alike in the menu, the dialog and the backend", async ({
+    page,
+    repo,
+  }) => {
+    const prepare = async (name: string) =>
+      (await repo.invoke("prepare", {
+        repositoryPath: repo.path,
+        intent: { kind: "createPullRequest", subject: { kind: "branch", name }, title: "Again", body: "", assignSelf: false, reviewers: [], onGitHub: false },
+      })) as { fingerprint: string; blockers: unknown[]; intent: unknown }
+
+    // #763 of feature-db merged a commit the branch is no longer at, so none of feature-db is in master (its next step
+    // says nothing landed it): the menu offers Create Pull Request… beside Open Pull Request #763, the dialog says nothing
+    // against it, the plan has no blocker
+    const elsewhere = pullRequest("feature-db", 763, { state: "merged", reviewDecision: "approved", headRefOid: EARLIER_COMMIT })
+    await repo.setPullRequests({ ...ALL, ...availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, elsewhere, CLOSED, OUTDATED) })
+    await moveClockUntil(repo, 121_000, async () => (await prepare("feature-db")).blockers.length === 0, { focus: page })
+    await findBranchRow(page, "feature-db").click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Open Pull Request #763" })).toBeVisible()
+    await page.getByRole("menuitem", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(page)
+    await expect(dialog.getByTestId("create-pull-request-title")).toBeVisible()
+    await expect(dialog.getByTestId("create-pull-request-exists")).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expectClosed(dialog)
+    expect((await prepare("feature-db")).blockers).toEqual([])
+
+    // #760 of JIRA-456 is open: the menu offers Open Pull Request #760 in the place of Create, and the backend refuses a
+    // creation asked anyway (a window of a state before, another client) before a push and before GitHub would (422)
+    await expectOpenInPlaceOfCreate(page, "JIRA-456", 760)
     await page.keyboard.press("Escape")
     await expectClosed(page.getByRole("menu"))
-
-    // a window of a state before, or another client, creates one anyway: the backend refuses it as the menu does, before
-    // a push and before GitHub would refuse it (422)
-    const intent = { kind: "createPullRequest", subject: { kind: "branch", name: "JIRA-456" }, title: "Again", body: "", assignSelf: false, reviewers: [], onGitHub: false }
-    const plan = (await repo.invoke("prepare", { repositoryPath: repo.path, intent })) as { fingerprint: string; blockers: unknown[] }
+    const plan = await prepare("JIRA-456")
     expect(plan.blockers).toEqual([{ code: "pullRequestOpen", number: 760 }])
-    expect(await repo.invoke("execute", { repositoryPath: repo.path, intent, fingerprint: plan.fingerprint, accepted: [] })).toEqual({
+    expect(await repo.invoke("execute", { repositoryPath: repo.path, intent: plan.intent, fingerprint: plan.fingerprint, accepted: [] })).toEqual({
       status: "error",
       error: expect.objectContaining({ code: "plan_changed", message: "Nothing was pushed or created: JIRA-456 has the open pull request #760: Open Pull Request shows it" }),
     })
@@ -459,9 +486,7 @@ test.describe("Pull request chip", () => {
     expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
 
     // it has one: nothing to create
-    await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await expect(page.getByRole("menuitem", { name: "Open Pull Request #760" })).toBeVisible()
-    await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).toHaveCount(0)
+    await expectOpenInPlaceOfCreate(page, "JIRA-456", 760)
   })
 
   test("should show the pull request in the branch preview and open it with O", async ({ page }) => {

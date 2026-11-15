@@ -30,7 +30,7 @@ use crate::robot_start::github_failure;
 use crate::run_frame::{SyncWait, wait_for_facts};
 use crate::witness::Witness;
 use domain_policy::github_stack::stack_writes;
-use domain_policy::pull_request::layer_base_of;
+use domain_policy::pull_request::{creation_blocker, layer_base_of};
 use domain_policy::reasons::stack_not_built;
 use domain_policy::review::{Candidates, candidates};
 use domain_types::branch_names::{baseline_on_remote, to_final_branch_name};
@@ -52,6 +52,7 @@ use repository_model::derive::{ActionPushView, Holds, LandSources, action_push_o
 use repository_model::one_shot::OneShot;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::{SessionKey, Sessions};
+use repository_model::state::landed_now;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
@@ -244,6 +245,9 @@ fn retarget_outcome(op: OperationId, effects: Vec<EffectRecord>, version: Option
 pub struct PullRequestFacts<'s, 'a> {
   pub sources: &'s LandSources<'a>,
   pub push: ActionPushView,
+  /// All of the subject landed, as its next step says it (`repository_model::state::landed_now`): a merged pull request
+  /// of it refuses a new one
+  pub landed: bool,
 }
 
 /// The push a plan of a subject makes first, when its remote lacks work of it: the retargets of the pull requests of the
@@ -413,17 +417,14 @@ fn planned(intent: Intent, subject: &Subject, first: PushStep<'_>, mut effects: 
 pub fn create_planned(facts: &PullRequestFacts<'_, '_>, create: &CreatePullRequest) -> Option<Planned> {
   let first = push_step(facts, &create.subject)?;
   let mut blockers: Vec<Reason> = first.blocker.iter().cloned().collect();
-  // never a second pull request of a branch that has one, as the menus offer Open Pull Request in its place: GitHub
-  // would refuse it (422) after the push. One merged into the target landed it; one merged into a parent's branch lets
-  // a new one repeat it
-  if let Subject::Branch { name } = &create.subject
-    && let Some(listed) = facts.sources.pull_requests.pull_requests.get(name)
-  {
-    match listed.state {
-      PullRequestState::Open => blockers.insert(0, Reason::PullRequestOpen { number: listed.number }),
-      PullRequestState::Merged if listed.base_ref_name == facts.sources.target => blockers.insert(0, Reason::PullRequestMerged { number: listed.number }),
-      PullRequestState::Merged | PullRequestState::Closed => {}
-    }
+  // never a second pull request of a subject whose pull request refuses one, as the menus offer Open Pull Request in
+  // its place (`creation_blocker`): GitHub would refuse it (422) after the push
+  let listed = match &create.subject {
+    Subject::Branch { name } => facts.sources.pull_requests.pull_requests.get(name),
+    Subject::WholeStack { root } => facts.sources.pull_requests.stack_pull_requests.get(root),
+  };
+  if let Some(reason) = creation_blocker(listed, facts.landed) {
+    blockers.insert(0, reason);
   }
   let pushes = !first.pushes.is_empty();
   let sources = facts.sources;
@@ -560,7 +561,7 @@ pub async fn prepare_planned(sessions: &Sessions, key: &SessionKey, intent: &Int
         if sources.target.is_empty() {
           return None;
         }
-        planned_of(sources, |name| action_push_of(state, facts, name), &intent)
+        planned_of(sources, |name| action_push_of(state, facts, name), |key| landed_now(state, facts, key), &intent)
       })
       .flatten()
     })
@@ -568,9 +569,9 @@ pub async fn prepare_planned(sessions: &Sessions, key: &SessionKey, intent: &Int
     .flatten()
 }
 
-/// The plan of `intent` over `sources`, `push` the push the branch of its subject needs first; `None` for another
-/// intent
-pub fn planned_of(sources: &LandSources<'_>, push: impl FnOnce(&str) -> ActionPushView, intent: &Intent) -> Option<Planned> {
+/// The plan of `intent` over `sources`, `push` the push the branch of its subject needs first, `landed` whether all of
+/// a subject landed by its key, as its next step says it; `None` for another intent
+pub fn planned_of(sources: &LandSources<'_>, push: impl FnOnce(&str) -> ActionPushView, landed: impl FnOnce(&str) -> bool, intent: &Intent) -> Option<Planned> {
   let link;
   let subject = match intent {
     Intent::CreatePullRequest(create) => &create.subject,
@@ -587,6 +588,7 @@ pub fn planned_of(sources: &LandSources<'_>, push: impl FnOnce(&str) -> ActionPu
       Subject::Branch { name } => push(name),
       Subject::WholeStack { .. } => ActionPushView::default(),
     },
+    landed: landed(&subject.key()),
   };
   match intent {
     Intent::CreatePullRequest(create) => create_planned(&facts, create),
@@ -638,7 +640,12 @@ pub fn link_planned(facts: &PullRequestFacts<'_, '_>, branch: &str) -> Option<Pl
 #[must_use]
 pub fn one_shot_planned(session: &OneShot, host: &LandHost<'_>, intent: &Intent) -> Option<Planned> {
   with_one_shot_sources(session, host, |sources| {
-    planned_of(sources, |name| action_push_of(session.state(), session.facts(), name), intent)
+    planned_of(
+      sources,
+      |name| action_push_of(session.state(), session.facts(), name),
+      |key| landed_now(session.state(), session.facts(), key),
+      intent,
+    )
   })
 }
 

@@ -550,6 +550,28 @@ fn the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts()
     ..ready_step()
   };
   assert_eq!(create(facts(&landed, &status)), Some(Some(ActionBlocker::Landed { landed: landed_by_oauth() })));
+  // a merged one: Open in its place while it landed the branch; beside it where it did not (a follow-up, or merged into
+  // a parent's branch), as `creation_blocker` decides it
+  let merged = PullRequest {
+    state: PullRequestState::Merged,
+    ..pull_request("auth", 3)
+  };
+  assert_eq!(
+    create(BranchFacts {
+      pull_request: Some(&merged),
+      ..facts(&landed, &status)
+    }),
+    None,
+    "a merged one that landed it"
+  );
+  assert_eq!(
+    create(BranchFacts {
+      pull_request: Some(&merged),
+      ..facts(&ready, &status)
+    }),
+    Some(None),
+    "a merged one that did not land it"
+  );
   assert_eq!(
     create(BranchFacts {
       repository: false,
@@ -739,9 +761,15 @@ fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_b
     patronus: PatronusAnswer::NotOnSpace,
     ..stack_facts(built, Some(&step))
   };
+  // a merged one that did not land the stack (its step says nothing landed it) lets a new one repeat it beside it
   assert_eq!(
     table(&stack_actions(&with_pull_request)),
-    [(OpenStackPullRequest, None), (RequestReview, None), (ReviewWholeStack, None)]
+    [
+      (OpenStackPullRequest, None),
+      (RequestReview, None),
+      (CreateStackPullRequest, None),
+      (ReviewWholeStack, None)
+    ]
   );
   // an open one that matches the stack (it forks, its stack branch built, nothing landed its root) is not closed
   let open_pull_request = pull_request("stack/air", 12);
