@@ -7,7 +7,7 @@ import { openPalette, palette, runByKeyboard, search } from "../helpers/command-
 import { header } from "../helpers/header-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
-import { expectSettingsOpened } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { runAndWaitForSync, runAndWaitForUpdate, syncFromMenu } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
@@ -154,8 +154,7 @@ testWithIssueLinks.describe("Command palette", () => {
     await runAndWaitForSync(page, () => runByKeyboard(page, "sync", "Sync Branches"))
 
     await openPalette(page)
-    await runByKeyboard(page, "settings", "Settings…")
-    await expectSettingsOpened(page, {})
+    await pressAndExpectSettingsOpened(page, () => runByKeyboard(page, "settings", "Settings…"), {})
 
     await openPalette(page)
     await palette(page).getByRole("option", { name: "Install Agent CLI…" }).click()

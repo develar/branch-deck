@@ -5,7 +5,7 @@ import { findBranchRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { availableRobots, failedFastTests, robot, setupRobotsWith } from "../helpers/patronus-helpers"
 import { hoverStatusChip } from "../helpers/review-status-helpers"
-import { expectSettingsOpened } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the fake Patronus fails the robot with one failed check
 const RUNNING = robot("JIRA-456", "running-robot")
@@ -56,8 +56,11 @@ test.describe("Prompt for an agent of a failed Safe Push", () => {
     expect(prompt).toContain("Failed test `com.example.AuthTest.testLogin`:\n```text\nexpected: <true> but was: <false>\n")
     // the test server has no teamcity CLI: no build logs, and the way to them
     await expect(toast).toContainText("no build logs: teamcity is not signed in to ci.example")
-    await toast.getByRole("button", { name: "Set Up TeamCity CLI" }).click()
-    await expectSettingsOpened(page, { page: "tools", focus: "cli-teamcity", server: "https://ci.example" })
+    await pressAndExpectSettingsOpened(page, () => toast.getByRole("button", { name: "Set Up TeamCity CLI" }).click(), {
+      page: "tools",
+      focus: "cli-teamcity",
+      server: "https://ci.example",
+    })
   })
 
   test("should list the commits of the whole stack for the robot of a stacked branch, each with its branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {

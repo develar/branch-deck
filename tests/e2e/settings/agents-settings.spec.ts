@@ -1,7 +1,7 @@
 // @spec openspec/specs/repository/settings/spec.md
 import type { RepositoryConfig } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { routeCommand, openTooltip } from "../helpers/wait-helpers"
@@ -122,8 +122,7 @@ test.describe("Settings → Agents", () => {
     await expect(pullRequests.getByRole("switch")).toBeDisabled()
     await expect(pullRequests.getByRole("switch")).not.toBeChecked()
     // the way to the route: the main window opens Landing at it
-    await off.getByRole("button", { name: "Change Route" }).click()
-    await expectSettingsOpened(page, { page: "landing", scope: "repository", focus: "landing" }, 2)
+    await pressAndExpectSettingsOpened(page, () => off.getByRole("button", { name: "Change Route" }).click(), { page: "landing", scope: "repository", focus: "landing" }, 2)
   })
 
   test("should install the agent skill from the page, which Tools then names", async ({ page, setupRepo }) => {

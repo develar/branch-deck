@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { settledIpc } from "../helpers/ipc-helpers"
-import { closeAsTheAnswerLands, expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
+import { closeAsTheAnswerLands, pressAndExpectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, nextAnswer, pressSyncHeld, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
@@ -185,8 +185,12 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
     // the window is gone, its toast with it: the main window tells the failure, and its action opens the field
     const toast = openToast(page, `Cannot change the GitHub repository of ${nameOf(repo.path)}`)
     await expect(toast).toContainText("git config branchdeck.githubRepository failed")
-    await toast.getByRole("button", { name: "Open Settings" }).click()
-    await expectSettingsOpened(page, { page: "landing", scope: "repository", focus: "githubRepository" }, 2)
+    await pressAndExpectSettingsOpened(
+      page,
+      () => toast.getByRole("button", { name: "Open Settings" }).click(),
+      { page: "landing", scope: "repository", focus: "githubRepository" },
+      2,
+    )
   })
 
   test("should keep a prefix saved while a mode's write runs, when the mode's older answer comes last", async ({ page, setupRepo }) => {
@@ -254,8 +258,12 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
     await window.getByTestId("settings-scope-all").click()
     const general = window.getByTestId("setting-branch-prefix-repository")
     await expect(general).toContainText("This repository uses its own prefix team")
-    await general.getByRole("button", { name: /^Open repo-\d+$/ }).click()
-    await expectSettingsOpened(page, { page: "branches", scope: "repository", focus: "branchPrefix" }, 2)
+    await pressAndExpectSettingsOpened(
+      page,
+      () => general.getByRole("button", { name: /^Open repo-\d+$/ }).click(),
+      { page: "branches", scope: "repository", focus: "branchPrefix" },
+      2,
+    )
   })
 
   test("should open and sync the session of a prefix written here, for a repository synced before", async ({ page, setupRepo, syncAndWaitForBranches }) => {

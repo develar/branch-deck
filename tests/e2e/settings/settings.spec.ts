@@ -5,7 +5,7 @@ import { test, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
-import { expectSettingsOpened, openSettingsWindow, settingsTab } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened, openSettingsWindow, settingsTab } from "../helpers/settings-helpers"
 import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, nextAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -70,8 +70,7 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
 
 /** The main window opens Settings again (the native menu, a button) at `target`, the window shows the new open */
 async function reopenSettings(page: Page, window: Page, target: object, count: number): Promise<void> {
-  await emitTauriEvent(page, "open_settings", target)
-  await reopenLinkedSubWindow(window, await expectSettingsOpened(page, target, count))
+  await reopenLinkedSubWindow(window, await pressAndExpectSettingsOpened(page, () => emitTauriEvent(page, "open_settings", target), target, count))
 }
 
 /** The page of the window, as the zoom the main window applied (`__e2eWebviewZoom` of its webview mock) */
@@ -234,8 +233,7 @@ test.describe("Settings window", () => {
 
     // a new window starts at the page shown last
     await window.close()
-    await emitTauriEvent(page, "open_settings", null)
-    const next = await openLinkedSubWindow(page, await expectSettingsOpened(page, {}, 4))
+    const next = await openLinkedSubWindow(page, await pressAndExpectSettingsOpened(page, () => emitTauriEvent(page, "open_settings", null), {}, 4))
     await expect(settingsTab(next, "Notifications")).toHaveAttribute("aria-selected", "true")
     await expect(settingsTab(next, "Notifications")).toBeFocused()
   })

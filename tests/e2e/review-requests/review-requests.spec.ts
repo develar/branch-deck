@@ -25,7 +25,7 @@ import {
   routeReviewFetch,
 } from "../helpers/review-request-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
-import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -1168,8 +1168,10 @@ test.describe("Settings", () => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
     const count = (await getOpenedSubWindows(page)).length
     await getYourTurnCard(page).getByRole("button", { name: "More actions for Your Turn" }).click()
-    await page.getByRole("menuitem", { name: "Notification Settings…" }).click()
-    const settings = await openLinkedSubWindow(page, await expectSettingsOpened(page, { page: "notifications" }, count + 1))
+    const settings = await openLinkedSubWindow(
+      page,
+      await pressAndExpectSettingsOpened(page, () => page.getByRole("menuitem", { name: "Notification Settings…" }).click(), { page: "notifications" }, count + 1),
+    )
     const notifications = settings.getByTestId("settings-page-notifications")
     await expect(notifications.getByRole("heading", { name: "Notifications" })).toBeVisible()
     const reviews = notifications.getByTestId("setting-notifyReviewRequests").getByRole("switch")

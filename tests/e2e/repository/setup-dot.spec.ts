@@ -2,7 +2,7 @@
 import type { Page } from "@playwright/test"
 import { expect, test, expectErrorLog } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
-import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 
 /** The main window reads the items again, as once the CLIs were read (`setup-changed`), and opens the dot */
@@ -20,8 +20,7 @@ test.describe("Setup dot", () => {
     const button = page.getByTestId("settings-button")
     await expect(button).toHaveAccessibleName("Settings")
     await expect(button.getByTestId("setup-dot")).toHaveCount(0)
-    await button.click()
-    await expectSettingsOpened(page, {})
+    await pressAndExpectSettingsOpened(page, () => button.click(), {})
   })
 
   test("should keep a downloaded update of the app in the dot, not in a toast, and install it from there", async ({ page, setupRepo }) => {
@@ -134,8 +133,7 @@ test.describe("Setup dot", () => {
     await repo.setCliTools({ installed: [{ tool: "teamcity", version: "1.6.0" }], files: { "teamcity.auth": teamcitySignedIn("2024-01-05T10:00:00Z") } })
     const item = (await openSetup(page)).getByTestId("setup-item")
     await expect(item).toHaveText(/The teamcity sign-in to ci\.example expires Jan 5/)
-    await item.getByRole("button", { name: "Sign In" }).click()
-    await expectSettingsOpened(page, { page: "tools", focus: "cli-teamcity" })
+    await pressAndExpectSettingsOpened(page, () => item.getByRole("button", { name: "Sign In" }).click(), { page: "tools", focus: "cli-teamcity" })
 
     const again = (await openSetup(page)).getByTestId("setup-item")
     await again.getByRole("button", { name: "Remind Tomorrow" }).click()

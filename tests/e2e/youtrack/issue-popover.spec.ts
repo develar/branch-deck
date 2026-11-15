@@ -2,7 +2,7 @@
 import type { Page } from "@playwright/test"
 import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { bringUnderStillPointer, findBranchRow } from "../helpers/branch-helpers"
-import { expectSettingsOpened } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, moveClockUntil, pressSyncHeld, releaseHeldSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
@@ -148,8 +148,7 @@ test.describe("YouTrack issue popover", () => {
     await repo.setYouTrack({ signedIn: "expired" })
     await issueKeyLink(page, "ABC-123").hover()
     await expect(popover.getByTestId("issue-sign-in")).toContainText("Your YouTrack sign-in expired: sign in again")
-    await popover.getByRole("button", { name: "YouTrack Settings…" }).click()
-    await expectSettingsOpened(page, { page: "accounts", focus: "account-youtrack" })
+    await pressAndExpectSettingsOpened(page, () => popover.getByRole("button", { name: "YouTrack Settings…" }).click(), { page: "accounts", focus: "account-youtrack" })
   })
 
   test("should leave the links of a signed-out user as they are", async ({ page, setupRepo, syncAndWaitForBranches }) => {

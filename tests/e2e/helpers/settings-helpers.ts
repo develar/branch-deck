@@ -6,12 +6,16 @@ import type { OpenedSubWindow } from "./sub-window-helpers"
 import { emitTauriEvent, nextAnswer, runAndWaitForAnswer, waitForTauriListener } from "./sync-helpers"
 
 /**
- * The Settings window the main window opened as the `count`-th sub-window (so exactly one more than before), at
- * `target`: the page and the field the entry point asked for
+ * Runs `press` (a click, a key, an event of the native menu), which makes `page` open Settings, and returns the Settings
+ * window it opened as the `count`-th sub-window (so exactly one more than before), at `target`: the page and the field
+ * the entry point asked for. The open is read once its command answered (`open_sub_window`, which the backend records
+ * as it handles it and which takes seconds under load), never by a poll of the recorded opens, which gave up after 5 s
  */
-export async function expectSettingsOpened(page: Page, target: SettingsTarget, count = 1): Promise<OpenedSubWindow<SettingsTarget>> {
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
-  const opened = (await getOpenedSubWindows<SettingsTarget>(page)).at(-1)!
+export async function pressAndExpectSettingsOpened(page: Page, press: () => Promise<unknown>, target: SettingsTarget, count = 1): Promise<OpenedSubWindow<SettingsTarget>> {
+  await runAndWaitForAnswer(page, "open_sub_window", press)
+  const opens = await getOpenedSubWindows<SettingsTarget>(page)
+  expect(opens).toHaveLength(count)
+  const opened = opens.at(-1)!
   expect(opened).toMatchObject({ windowId: "settings", url: "/settings", title: "Settings" })
   expect(opened.data).toEqual(target)
   return opened
@@ -25,9 +29,8 @@ export async function expectSettingsOpened(page: Page, target: SettingsTarget, c
 export async function openSettingsWindow(page: Page, target: SettingsTarget = {}, options: { beforeLoad?: (window: Page) => Promise<unknown> } = {}): Promise<Page> {
   const count = (await getOpenedSubWindows(page)).length
   await waitForTauriListener(page, "open_settings")
-  // the main window opens it by its command, whose answer can take seconds under load
-  await runAndWaitForAnswer(page, "open_sub_window", () => emitTauriEvent(page, "open_settings", target))
-  const window = await openLinkedSubWindow(page, await expectSettingsOpened(page, target, count + 1), options)
+  const opened = await pressAndExpectSettingsOpened(page, () => emitTauriEvent(page, "open_settings", target), target, count + 1)
+  const window = await openLinkedSubWindow(page, opened, options)
   await expect(window.getByTestId("settings-window")).toBeVisible()
   return window
 }

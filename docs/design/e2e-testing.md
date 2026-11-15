@@ -506,8 +506,9 @@ Mock implementation:
     the repository changed after an operation, as the backend does). The
     Settings window is always linked: `openSettingsWindow` of
     `settings-helpers.ts` fires `open_settings` in the main window's page once it listens (`waitForTauriListener`; an
-    event fired before a lazy page registered its listener is lost) and shows the open, `expectSettingsOpened` checks
-    that it is the only new one. A write of Settings → Branches, Landing or Agents (`set_repository_config`) is answered by the test
+    event fired before a lazy page registered its listener is lost) and shows the open; `pressAndExpectSettingsOpened`
+    runs the press of an entry point and checks that the open it made is the only new one, read once `open_sub_window`
+    answered (the server records the open as it handles it, which takes seconds under load), never by a poll. A write of Settings → Branches, Landing or Agents (`set_repository_config`) is answered by the test
     server, which sends the main window `repository_config_changed`, as the command does. A change of the settings
     (`set_setting`) goes to the test server's writer of the repository (`TestRepository::store`, the app's
     `SettingsService` on a file of its app data), which sends the change to every page whose window gets its key

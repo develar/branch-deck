@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot, captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
 import { openModal } from "../helpers/modal-helpers"
-import { expectSettingsOpened } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed } from "../helpers/wait-helpers"
 
@@ -42,15 +42,18 @@ test.describe("Welcome Card", () => {
     await setupRepo("simple_no_prefix", { prepopulateStore: true })
     await page.getByRole("button", { name: "View guide" }).click()
     const guide = page.getByTestId("branch-prefix-help-dialog")
-    await guide.getByRole("button", { name: "Open Settings" }).click()
+    await pressAndExpectSettingsOpened(page, () => guide.getByRole("button", { name: "Open Settings" }).click(), { page: "branches", focus: "branchPrefix" })
     await expectClosed(guide)
-    await expectSettingsOpened(page, { page: "branches", focus: "branchPrefix" })
 
     // the prefix of one repository: its page in Settings
     await page.getByRole("button", { name: "View guide" }).click()
-    await guide.getByRole("button", { name: "Open Repository Settings" }).click()
+    await pressAndExpectSettingsOpened(
+      page,
+      () => guide.getByRole("button", { name: "Open Repository Settings" }).click(),
+      { page: "branches", scope: "repository", focus: "branchPrefix" },
+      2,
+    )
     await expectClosed(guide)
-    await expectSettingsOpened(page, { page: "branches", scope: "repository", focus: "branchPrefix" }, 2)
   })
 
   test("shows the prefix step as step 1 when the repository has no branch prefix configured", async ({ page, setupRepo }) => {

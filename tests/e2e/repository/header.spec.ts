@@ -11,7 +11,7 @@ import type { Box } from "../helpers/header-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, headerBoxes, MIN_WINDOW } from "../helpers/header-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
 import { expectPushedToast } from "../helpers/push-helpers"
-import { expectSettingsOpened } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, focusWindow, nextAnswer, runAndWaitForAnswer, runAndWaitForUpdate, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { holdCommand, holdIntent, expectClosed, openTooltip } from "../helpers/wait-helpers"
@@ -107,8 +107,7 @@ test.describe("Header", () => {
     await page.mouse.move(0, 0)
     await button.hover()
     await expect(openTooltip(page)).toHaveText(/^Settings(⌘,|Ctrl\+,)$/)
-    await button.click()
-    await expectSettingsOpened(page, {})
+    await pressAndExpectSettingsOpened(page, () => button.click(), {})
   })
 })
 
@@ -211,8 +210,7 @@ test.describe("Header without a repository", () => {
   test("should offer Settings before a repository is chosen", async ({ page, setupRepo }) => {
     await setupRepo("NO_REPO", { prepopulateStore: false })
     await expect(page.getByTestId("welcome-card")).toBeVisible()
-    await header(page).getByTestId("settings-button").click()
-    await expectSettingsOpened(page, {})
+    await pressAndExpectSettingsOpened(page, () => header(page).getByTestId("settings-button").click(), {})
   })
 })
 

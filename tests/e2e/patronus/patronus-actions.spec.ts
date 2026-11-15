@@ -46,7 +46,7 @@ import { addRecentProject, switchRepository } from "../helpers/repository-switch
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
-import { expectSettingsOpened } from "../helpers/settings-helpers"
+import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
@@ -1060,8 +1060,11 @@ test.describe("Patronus actions", () => {
         "Needs review by the code owners: a Safe Push fails without these approvals. They count in the GitHub pull request of the branch, and its GitHub repository is unknown.",
       )
       await expect(popover.getByRole("button", { name: /Merge Request/ })).toHaveCount(0)
-      await popover.getByRole("button", { name: "Set GitHub Repository…" }).click()
-      await expectSettingsOpened(page, { page: "landing", scope: "repository", focus: "githubRepository" })
+      await pressAndExpectSettingsOpened(page, () => popover.getByRole("button", { name: "Set GitHub Repository…" }).click(), {
+        page: "landing",
+        scope: "repository",
+        focus: "githubRepository",
+      })
       // Review Changes opens the branch in its review window, the groups as its filters
       await popover.getByTestId("safe-push-review-changes").click()
       await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.windowId)).toEqual(["settings", "review"])
