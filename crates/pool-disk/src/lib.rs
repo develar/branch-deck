@@ -567,7 +567,7 @@ fn disk_usage_core_inner(
     usage.orphans.push(orphan);
   }
 
-  let measuring = u32::try_from(refreshing_slots.len() + pending_checks.len()).unwrap_or(u32::MAX);
+  let mut measuring = u32::try_from(refreshing_slots.len() + pending_checks.len()).unwrap_or(u32::MAX);
   if let Some(progress) = on_progress.as_deref_mut() {
     progress(DiskUsageProgress::Cached { usage: usage.clone(), measuring });
   }
@@ -613,10 +613,12 @@ fn disk_usage_core_inner(
       },
     );
   }
-  if planning && let Some(progress) = on_progress.as_deref_mut() {
-    progress(DiskUsageProgress::Planning {
-      measuring: u32::try_from(refreshing_slots.len()).unwrap_or(u32::MAX),
-    });
+  if planning {
+    // the slots that the check found unchanged leave the count: each `Slot` event counts to what `Planning` sets
+    measuring = u32::try_from(refreshing_slots.len()).unwrap_or(u32::MAX);
+    if let Some(progress) = on_progress.as_deref_mut() {
+      progress(DiskUsageProgress::Planning { measuring });
+    }
   }
   for refreshing in &refreshing_slots {
     if !refreshing.incremental {
@@ -981,6 +983,7 @@ fn build_dirs(slot: &Path) -> Vec<String> {
 }
 
 pub mod report;
+pub mod step;
 pub mod trim_report;
 #[cfg(test)]
 #[path = "walk_test.rs"]

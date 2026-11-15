@@ -3,7 +3,7 @@ use crate::{DiskParams, DiskScope, DiskUsageProgress, build_dirs, disk_file, dis
 use fs_walk::Walk;
 use fs_walk::changes::Changes;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::repository_dirs;
+use git_ops::revs::{RepositoryDirs, repository_dirs};
 use lease_pool::lease::{Lease, Pool, Slot};
 use std::path::Path;
 use std::time::Duration;
@@ -41,13 +41,19 @@ fn wait_for_the_event_of(root: &Path, last: &Path, since: Option<fs_walk::change
   }
 }
 
-#[test]
-fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
+/// A repository with one commit, the executor and its dirs: the pool that a test registers its slots in
+fn repository() -> (TestRepo, GitCommandExecutor, RepositoryDirs) {
   let repo = TestRepo::new();
   repo.create_commit("initial", "file", "content");
-  std::fs::write(repo.path().join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
   let git = GitCommandExecutor::new();
   let dirs = repository_dirs(&git, repo.path_str()).unwrap().unwrap();
+  (repo, git, dirs)
+}
+
+#[test]
+fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
+  let (repo, git, dirs) = repository();
+  std::fs::write(repo.path().join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
   let slot_root = tempfile::tempdir().unwrap();
   #[cfg(target_os = "macos")]
   let before_the_files = fs_walk::changes::mark(slot_root.path());
@@ -294,4 +300,84 @@ fn a_changed_file_selects_its_nearest_saved_node_and_uncached_paths_select_a_roo
   let requests = walk_requests(&changes, &roots, &root_keys, &cached_roots, &linked_node);
   assert_eq!(requests.len(), 2);
   assert!(requests.iter().all(|request| request.node.is_none()));
+}
+
+/// Two free slots measured with their marks, then a file written into the second: on macOS the default run checks both
+/// with `FSEvents`, `Planning` leaves the changed slot alone, and its `Slot` event counts 1 of that 1, not of the 2 that
+/// `Cached` named. Off macOS no check runs, and a free slot stays cached
+#[test]
+fn a_slot_event_counts_the_slots_that_the_fsevents_check_left() {
+  let (_repo, git, dirs) = repository();
+  let slot_root = tempfile::tempdir().unwrap();
+  #[cfg(target_os = "macos")]
+  let before_the_files = fs_walk::changes::mark(slot_root.path());
+  let slots: Vec<std::path::PathBuf> = (1..=2).map(|n| slot_root.path().join(format!("{n}/repo"))).collect();
+  for slot in &slots {
+    std::fs::create_dir_all(slot.join("target")).unwrap();
+    std::fs::write(slot.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
+    std::fs::write(slot.join("target/output"), vec![2u8; 8192]).unwrap();
+  }
+  // the measurement below marks the event log, and the check after it asks what changed since: not these files
+  #[cfg(target_os = "macos")]
+  wait_for_the_event_of(slot_root.path(), &slots[1].join("target/output"), before_the_files);
+  Pool::new(Path::new(&dirs.git_common_dir))
+    .update(Duration::from_secs(1), |store| {
+      for (index, slot) in slots.iter().enumerate() {
+        store.slots.push(Slot {
+          name: format!("repo{}", index + 1),
+          path: slot.to_string_lossy().into_owned(),
+          dirty: false,
+          dirty_check: None,
+          returned: Some(1),
+          returned_at: Some(1),
+          lease: None,
+          reclaimed: None,
+        });
+      }
+      Ok(())
+    })
+    .unwrap();
+  let params = DiskParams {
+    repository: &dirs,
+    home: None,
+    scope: DiskScope::Repository,
+    fresh: true,
+    cached: false,
+    lock_timeout: Duration::from_secs(1),
+  };
+  disk_usage_core(&git, &params).unwrap();
+  #[cfg(target_os = "macos")]
+  let before_the_change = fs_walk::changes::mark(slot_root.path());
+  let changed = slots[1].join("target/changed");
+  {
+    use std::io::Write;
+    let mut file = std::fs::File::create(&changed).unwrap();
+    file.write_all(&vec![3u8; 16 * 1024]).unwrap();
+    file.sync_all().unwrap();
+  }
+  #[cfg(target_os = "macos")]
+  wait_for_the_event_of(slot_root.path(), &changed, before_the_change);
+  let mut events = Vec::new();
+  disk_usage_core_with_progress(&git, &DiskParams { fresh: false, ..params }, |event| events.push(event)).unwrap();
+  if cfg!(target_os = "macos") {
+    assert!(
+      matches!(
+        &events[..],
+        [
+          DiskUsageProgress::Cached { measuring: 2, .. },
+          DiskUsageProgress::Planning { measuring: 1 },
+          DiskUsageProgress::Slot {
+            pool_index: 0,
+            slot_index: 1,
+            measured: 1,
+            measuring: 1,
+            ..
+          }
+        ]
+      ),
+      "{events:?}"
+    );
+  } else {
+    assert!(matches!(&events[..], [DiskUsageProgress::Cached { measuring: 0, .. }]), "{events:?}");
+  }
 }

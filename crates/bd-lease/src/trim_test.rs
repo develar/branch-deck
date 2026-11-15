@@ -3,13 +3,18 @@
 //! output bases of gone workspaces of a pool. The output bases are fakes: an output user root whose directories name
 //! their workspace in `DO_NOT_BUILD_HERE`, found through the `out/bazel-out` link of the source checkout
 
+use crate::disk_command::{LeaseDiskArgs, lease_disk_reporting};
+use crate::lease_command::LeaseContext;
 use crate::lease_test::{Fixture, path_of, slot_path, states};
 #[cfg(unix)]
 use crate::lease_test::{Killed, busy_in};
 use bd_cli::fixture_test::{assert_error, canonical, git, repo_on_baseline, run_json};
+use lease_pool::lease_clean::describe_size;
+use pool_disk::step::DiskStep;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use test_utils::links::directory_link;
 
 /// The bytes of the file in each fake output base: a delete that frees them counts them
@@ -64,6 +69,13 @@ impl TrimFixture {
   /// `brd lease trim <args>`, which must succeed
   fn trim(&self, args: &[&str]) -> Value {
     let (exit_code, output) = self.fixture.run(&[&["lease", "trim"][..], args].concat());
+    assert_eq!(exit_code, 0, "{output}");
+    output
+  }
+
+  /// `brd lease disk <args>`, which must succeed
+  fn disk(&self, args: &[&str]) -> Value {
+    let (exit_code, output) = self.fixture.run(&[&["lease", "disk"][..], args].concat());
     assert_eq!(exit_code, 0, "{output}");
     output
   }
@@ -210,11 +222,7 @@ fn the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is
   std::fs::write(Path::new(first).join("target/debug/bin"), vec![1u8; BASE_BYTES]).unwrap();
   // a file of the worktree of its own, which shares no block with the clone the slot came from
   std::fs::write(Path::new(first).join("notes.bin"), vec![2u8; 2 * BASE_BYTES]).unwrap();
-  let report = |args: &[&str]| {
-    let (exit_code, output) = fixture.run(&[&["lease", "disk"][..], args].concat());
-    assert_eq!(exit_code, 0, "{output}");
-    output
-  };
+  let report = |args: &[&str]| trim.disk(args);
   let slot = |output: &Value, path: &str| -> Value {
     output["pools"][0]["slots"]
       .as_array()
@@ -270,11 +278,7 @@ fn the_disk_report_names_the_pool_of_the_repository_and_with_all_every_pool() {
   std::fs::create_dir_all(other_gone.join("execroot/_main/bazel-out")).unwrap();
   std::fs::write(other_gone.join("DO_NOT_BUILD_HERE"), other_pool.join("99/repo").to_string_lossy().as_bytes()).unwrap();
   std::fs::write(other_gone.join("execroot/_main/bazel-out/action"), vec![7u8; BASE_BYTES]).unwrap();
-  let report = |args: &[&str]| {
-    let (exit_code, output) = fixture.run(&[&["lease", "disk"][..], args].concat());
-    assert_eq!(exit_code, 0, "{output}");
-    output
-  };
+  let report = |args: &[&str]| trim.disk(args);
   let pools = |output: &Value| -> Vec<String> {
     output["pools"]
       .as_array()
@@ -315,4 +319,62 @@ fn the_disk_report_names_the_pool_of_the_repository_and_with_all_every_pool() {
   assert!(grown >= all_orphans[0].1 + 2 * BASE_BYTES as u64, "{grown} {all_orphans:?}");
   let cached = report(&["--all", "--cached"]);
   assert_eq!(orphans(&cached)[0], (gone, grown), "{cached}");
+}
+
+/// The steps of `brd lease disk` in the order the core tells them, each as `lease_disk` prints it on stderr
+fn disk_steps(fixture: &Fixture, args: &LeaseDiskArgs) -> (Vec<DiskStep>, Value) {
+  let environment = fixture.environment(fixture.repo.path());
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let steps = Mutex::new(Vec::new());
+  let output = lease_disk_reporting(&context, &environment, args, &|step| steps.lock().unwrap().push(step)).unwrap();
+  (steps.into_inner().unwrap(), serde_json::to_value(output).unwrap())
+}
+
+#[test_log::test]
+fn the_disk_report_tells_each_step_on_stderr() {
+  let trim = TrimFixture::new();
+  let fixture = &trim.fixture;
+  let (steps, output) = disk_steps(
+    fixture,
+    &LeaseDiskArgs {
+      fresh: true,
+      ..LeaseDiskArgs::default()
+    },
+  );
+  // --fresh puts no slot into an FSEvents check, so no `Checked` step comes
+  assert_eq!(steps.first(), Some(&DiskStep::Start { pools: 1, slots: 3, measuring: 3 }), "{steps:?}");
+  assert_eq!(steps.first().unwrap().to_string(), "3 of 3 slot(s) in 1 pool(s) to check or measure");
+  assert_eq!(steps.last(), Some(&DiskStep::Done { checkout_bases: 1, orphans: 1 }), "{steps:?}");
+  // a walked step for each slot, in the order their walks end, counted 1 to 3 of 3, with the bytes of the report
+  let walked: Vec<(String, u64, u32, u32)> = steps[1..steps.len() - 1]
+    .iter()
+    .map(|step| match step {
+      DiskStep::Walked { path, bytes, measured, measuring } => (path.clone(), *bytes, *measured, *measuring),
+      other => panic!("a walked step, not {other:?}"),
+    })
+    .collect();
+  assert_eq!(walked.iter().map(|step| (step.2, step.3)).collect::<Vec<_>>(), [(1, 3), (2, 3), (3, 3)], "{steps:?}");
+  let mut paths: Vec<&str> = walked.iter().map(|step| step.0.as_str()).collect();
+  paths.sort_unstable();
+  let mut slots: Vec<&str> = trim.slots.iter().map(String::as_str).collect();
+  slots.sort_unstable();
+  assert_eq!(paths, slots);
+  for (path, bytes, ..) in &walked {
+    let slot = output["pools"][0]["slots"].as_array().unwrap().iter().find(|slot| slot["path"] == path.as_str()).unwrap();
+    assert_eq!(slot["bytes"].as_u64(), Some(*bytes), "{output}");
+  }
+  let (path, bytes, ..) = &walked[0];
+  assert_eq!(steps[1].to_string(), format!("walked {path}: {} (1 of 3)", describe_size(*bytes)));
+  // --cached walks nothing: the start with no slot to check or measure, and the end
+  let (cached, _) = disk_steps(
+    fixture,
+    &LeaseDiskArgs {
+      cached: true,
+      ..LeaseDiskArgs::default()
+    },
+  );
+  assert_eq!(
+    cached,
+    [DiskStep::Start { pools: 1, slots: 3, measuring: 0 }, DiskStep::Done { checkout_bases: 1, orphans: 1 }]
+  );
 }

@@ -1,16 +1,19 @@
 //! `brd lease disk`: what the pool of the repository holds on disk (`--all`: every pool of this machine), the bytes the
 //! builds of each slot wrote (its clean rule directories and its Bazel output bases), the output bases of the main
-//! worktrees and the orphans (openspec/specs/cli/lease/spec.md, "Disk"). The core and the shape of the report are `pool_disk`; read only but for
-//! `disk.json`, the bytes it keeps
+//! worktrees and the orphans (openspec/specs/cli/lease/spec.md, "Disk"). The core, the shape of the report and the
+//! words of its steps are `pool_disk`; read only but for `disk.json`, the bytes it keeps. Each step goes to stderr
 
 use crate::lease_command::{LeaseContext, lease_error};
 use bd_core::context::Environment;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use pool_disk::report::DiskReport;
-use pool_disk::{DiskParams, DiskScope, disk_usage_core};
+use pool_disk::step::DiskStep;
+use pool_disk::{DiskParams, DiskScope, disk_usage_core_with_progress};
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::io::Write;
+use std::time::Instant;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct LeaseDiskArgs {
@@ -33,9 +36,19 @@ pub struct LeaseDiskOutput {
   pub report: DiskReport,
 }
 
-/// `context` is of a checkout of the repository that asks: its pool is reported wherever it lives; `--all` adds every
-/// pool under `~/.branch-deck/pool`
+/// `brd lease disk`, each step on stderr as it ends, with the seconds since the start: the JSON goes to stdout at the end,
+/// and whoever waits for a walk of minutes sees where it is
 pub fn lease_disk(context: &LeaseContext, environment: &Environment, args: &LeaseDiskArgs) -> Result<LeaseDiskOutput, CliError> {
+  let started = Instant::now();
+  lease_disk_reporting(context, environment, args, &|step| {
+    let _ = writeln!(std::io::stderr().lock(), "brd lease disk: {step} ({:.1} s)", started.elapsed().as_secs_f64());
+  })
+}
+
+/// `brd lease disk`, each step told to `progress` as it ends; the walk threads tell it, so it is `Sync`. `context` is of
+/// a checkout of the repository that asks: its pool is reported wherever it lives; `--all` adds every pool under
+/// `~/.branch-deck/pool`
+pub fn lease_disk_reporting(context: &LeaseContext, environment: &Environment, args: &LeaseDiskArgs, progress: &(dyn Fn(DiskStep) + Sync)) -> Result<LeaseDiskOutput, CliError> {
   let params = DiskParams {
     repository: &context.dirs,
     home: environment.home.as_deref(),
@@ -44,7 +57,8 @@ pub fn lease_disk(context: &LeaseContext, environment: &Environment, args: &Leas
     cached: args.cached,
     lock_timeout: context.lock_timeout,
   };
-  let usage = disk_usage_core(&context.git, &params).map_err(lease_error)?;
+  let usage = disk_usage_core_with_progress(&context.git, &params, |event| progress(DiskStep::of(&event))).map_err(lease_error)?;
+  progress(DiskStep::done(&usage));
   Ok(LeaseDiskOutput {
     schema: SchemaVersion,
     report: DiskReport::of(&usage),

@@ -91,7 +91,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   (`git_ops::revs::short_id`). When two ids of one output share that prefix, all ids in it get longer.
 - `--no-cache` neither reads nor writes the object cache (see below).
 - `-v` logs debug output to stderr and `-vv` logs trace output. Without either, stderr has only the progress lines of
-  the commands that take minutes (the trials of `brd check --fix`, the steps of `brd lease get`). Each line starts
+  the commands that take minutes (the trials of `brd check --fix`, the steps of `brd lease get` and of `brd lease disk`). Each line starts
   with the root span of the run, `operation{op=status operation_id=01K…}` (a ULID, `sync_utils::operation_id`), also
   the lines of the threads a sync builds its branches on, so the lines of two runs that interleave stay apart.
 - Git comes from `BD_GIT`, else `git` on `PATH`, else Homebrew's git on macOS. It must be 2.54 or newer. Unlike the

@@ -169,7 +169,7 @@ as its walk completes and advance the measured count. Host answers MUST arrive a
 #### Scenario: Each finished slot replaces its row and advances the count
 - **WHEN** the walk of a slot completes
 - **THEN** a `Slot` event replaces that slot and advances the measured count of the slots `Planning` set
-  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`)
+  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`, `a_slot_event_counts_the_slots_that_the_fsevents_check_left`)
   [@test] src/presenters/disk.test.ts (`words when slot bytes were measured and disk progress`)
   [@test] tests/e2e/disk/disk-usage.spec.ts (`should show the pools of this Mac and of the hosts, and trim the free slots of this Mac past the limit`)
 
