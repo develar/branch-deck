@@ -17,14 +17,15 @@ function formatHeldFor(seconds: number): string {
   return seconds >= 60 ? `${Math.floor(seconds / 60)} min ${seconds % 60} s` : `${seconds} s`
 }
 
-/** Who holds the repository: `brd` by its command line, the app by its name */
-function holderName(holder: LockHolderInfo): string {
-  return holder.tool === "bd" ? `\`${holder.command}\`` : "Branch Deck"
-}
-
-/** `holderName` as a screen reader says it: the command line without the backticks, which it reads aloud ("grave") */
-function spokenHolderName(holder: LockHolderInfo): string {
-  return holder.tool === "bd" ? holder.command : "Branch Deck"
+/**
+ * Who holds the repository: `brd` by its command line, the app by its name; `spoken`, as a screen reader says it, the
+ * command line without the backticks of the screen, which it reads aloud ("grave")
+ */
+function holderName(holder: LockHolderInfo, as: "shown" | "spoken" = "shown"): string {
+  if (holder.tool !== "bd") {
+    return "Branch Deck"
+  }
+  return as === "spoken" ? holder.command : `\`${holder.command}\``
 }
 
 /** Who holds the repository, with the pid that tells two of them apart: "`brd push auth` (pid 4242) has held the repository for 40 s" */
@@ -102,7 +103,7 @@ export function presentLockWaitAnnouncement(operation: RunningOperation | undefi
     return null
   }
   const holder = operation.step.holder
-  return holder === null ? presentLockWait(null) : `Waiting for ${spokenHolderName(holder)} (pid ${holder.pid})`
+  return holder === null ? presentLockWait(null) : `Waiting for ${holderName(holder, "spoken")} (pid ${holder.pid})`
 }
 
 /** An operation of the session a surface shows while it runs (`useSurfaceOperation`, `waitingOf`), as Stop Waiting reads it */

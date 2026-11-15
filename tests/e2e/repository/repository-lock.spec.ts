@@ -240,6 +240,32 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await repo.holdRepositoryLock(false)
   })
 
+  // the push gives the ghost button a hover of its colour (`hover:bg-primary/10` of `ghostButtonColorClass`): busy, it
+  // takes none, and keeps its background at rest, which only the caller knows
+  test("should give a busy push no hover of its colour, its background at rest kept", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links")
+    await syncAndWaitForBranches()
+    await repo.holdRepositoryLock(true)
+    const push = getPushButton(findBranchRow(page, "feature-auth"))
+    await push.click()
+    await expect(push).toHaveAttribute("aria-busy", "true")
+    await expect(push).toHaveAttribute("aria-disabled", "true")
+    // away from the button, its description closed: a hover then is the hover alone, the timers of the page stopped so
+    // that it opens no description (an open one tints the button by `aria-expanded`)
+    await push.evaluate(button => (button as HTMLElement).blur())
+    await page.mouse.move(0, 0)
+    await expect(push).toHaveAttribute("aria-expanded", "false")
+    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" })
+    const background = () => push.evaluate(button => getComputedStyle(button).backgroundColor)
+    const rest = await background()
+    await page.clock.pauseAt(new Date((await page.evaluate(() => Date.now())) + 1000))
+    await push.hover()
+    expect(await background()).toEqual(rest)
+    await expect(push).toHaveAttribute("aria-expanded", "false")
+    await page.clock.resume()
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRepositoryLock(false))
+  })
+
   test("should sync while another process holds the repository lock, and push once it released it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()

@@ -98,14 +98,24 @@ test.describe("Operations of another process of the repository", () => {
     const slot = slotSafePush(page, "JIRA-456")
     // no process runs it any more, and Patronus can't tell yet whether its robot started: it holds the branch
     await expect(slot).toHaveText("Start Unknown")
+    // a status of the slot, not an action: no button, not dimmed, its actions beside it
+    await expect(row.getByRole("button", { name: /Start Unknown/ })).toHaveCount(0)
+    await expect(row.getByTestId("open-unknown-start")).toBeVisible()
+    expect(await slot.evaluate(status => getComputedStyle(status).opacity)).toBe("1")
     // Open in Patronus opens where its robot would be
     expect(await getOpenedUrls(page)).toEqual([])
     await row.getByTestId("open-unknown-start").click()
     await expect.poll(() => getOpenedUrls(page)).toEqual(["https://patronus.test/"])
     await slot.hover()
-    await expect(openTooltip(page)).toHaveText(
-      "Cannot tell whether the Safe Push of JIRA-456 started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start; Patronus may still run it",
-    )
+    const why =
+      "Cannot tell whether the Safe Push of JIRA-456 started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start; Patronus may still run it"
+    await expect(openTooltip(page)).toHaveText(why)
+    // and on the focus of the keyboard: a focus after a key is one a tooltip opens on (`:focus-visible`)
+    await page.mouse.move(0, 0)
+    await expectClosed(openTooltip(page))
+    await page.keyboard.press("Shift")
+    await slot.focus()
+    await expect(openTooltip(page)).toHaveText(why)
 
     // S says why it can't start, and opens no popover
     await row.focus()

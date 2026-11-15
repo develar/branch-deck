@@ -16,6 +16,23 @@
 /* The colour scheme of Settings → Appearance → Theme (System follows the OS): `data-theme` of the root (`useTheme`) */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/*
+ * A disabled control that keeps the focus (`aria-disabled="true"`: `focusableWhenDisabled` of Base UI, which leaves out
+ * `disabled` and with it the `pointer-events-none` of `disabled:`, so its tooltip opens) takes no hover and no press, its
+ * own nor one a caller gives (`ghostButtonColorClass`): Tailwind's `hover` and `active` with a `:where` that leaves the
+ * specificity of every utility as it was. A variant of the disabled state (`aria-disabled:hover:`) could not give the
+ * control back its background at rest, which only its caller knows (`bg-primary/10` of an open push). `group-hover:` and
+ * `group-active:` are made of these, so the children of such a control take none either
+ */
+@custom-variant hover {
+  @media (hover: hover) {
+    &:hover:where(:not([aria-disabled="true"])) {
+      @slot;
+    }
+  }
+}
+@custom-variant active (&:active:where(:not([aria-disabled="true"])));
+
 /* Branch Deck specific padding utilities */
 
 /*

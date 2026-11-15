@@ -158,6 +158,38 @@ export function SafePushButton({
   }, [compact, busy, label])
   // it waits for another holder of the repository lock: Stop Waiting beside it, the hover says whom for
   const stopWaiting = waiting !== null && starting?.op != null && elsewhere === null ? stopStartItem(starting.op, waiting) : null
+  const tooltip = (
+    <TooltipContent>
+      {/* the branches a compact label leaves out: "Pushing 2 branches 45%"; whom the wait is for */}
+      {waiting ?? elsewhere?.description ?? (pushing !== null && pushing !== label ? pushing : (blocker ?? description ?? item?.description))}
+      {blocker === null && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
+    </TooltipContent>
+  )
+  // a start whose answer was lost is a status of the slot, no action: its actions stand beside it (Open in Patronus,
+  // Forget This Start), and a dimmed button read as one that is off. As high and as wide as the button, its reason on
+  // the hover and on the focus of the keyboard
+  const status = lost !== null && (
+    <Tooltip lazy>
+      <TooltipTrigger
+        render={
+          <span
+            tabIndex={0}
+            className={cn(
+              "inline-flex h-6 shrink-0 items-center gap-1 rounded-2xl px-2.5 text-xs whitespace-nowrap tabular-nums outline-none select-none focus-visible:bd-focus has-data-[icon=inline-start]:pl-2 [&_svg]:pointer-events-none [&_svg]:size-3 [&_svg]:shrink-0",
+              compact && "min-w-26 justify-start",
+              className,
+            )}
+            data-testid="safe-push-button"
+            data-status="unknown"
+          />
+        }
+      >
+        <CircleHelpIcon data-icon="inline-start" />
+        {label}
+      </TooltipTrigger>
+      {tooltip}
+    </Tooltip>
+  )
   const button = (
     <Tooltip lazy>
       <TooltipTrigger
@@ -166,9 +198,9 @@ export function SafePushButton({
             variant={variant}
             size="xs"
             disabled={disabled}
-            // the hover says why: Base UI keeps the button focusable, dimmed by `Button` unless a start runs
+            // the hover says why: Base UI keeps the button focusable, dimmed by `Button` unless a start runs (`aria-busy`)
             focusableWhenDisabled
-            aria-busy={(starting !== null && lost === null) || undefined}
+            aria-busy={starting !== null || undefined}
             // the push a compact label says by its percent only, the wait by whom it is for
             aria-label={waiting ?? (compact && pushing !== null && elsewhere === null ? pushing : undefined)}
             className={cn("tabular-nums", compact && "min-w-26 justify-start", className)}
@@ -191,20 +223,14 @@ export function SafePushButton({
           />
         }
       >
-        {lost !== null ? (
-          <CircleHelpIcon data-icon="inline-start" />
-        ) : starting !== null ? (
+        {starting !== null ? (
           <Spinner data-icon="inline-start" />
         ) : (
           (hint ?? (icon && (item?.icon === undefined ? <ShieldCheckIcon data-icon="inline-start" /> : <item.icon data-icon="inline-start" />)))
         )}
         {label}
       </TooltipTrigger>
-      <TooltipContent>
-        {/* the branches a compact label leaves out: "Pushing 2 branches 45%"; whom the wait is for */}
-        {waiting ?? elsewhere?.description ?? (pushing !== null && pushing !== label ? pushing : (blocker ?? description ?? item?.description))}
-        {blocker === null && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
-      </TooltipContent>
+      {tooltip}
     </Tooltip>
   )
   // the actions beside the slot are no label the cap of the step track truncates: the track takes their width. One
@@ -223,7 +249,7 @@ export function SafePushButton({
   return (
     <span className="inline-flex max-w-full min-w-0 items-center gap-1" data-beside-slot={beside ? "" : undefined}>
       {fixedEdge === "end" && besideItems}
-      {button}
+      {status || button}
       {fixedEdge === "start" && besideItems}
     </span>
   )

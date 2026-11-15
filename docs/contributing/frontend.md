@@ -190,8 +190,10 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   (`presentLockWaitAnnouncement`), so once per holder; the visible notice, whose time grows every second, is hidden from
   it. Stop Waiting takes the focus as the wait shows, where the press left it on the pressed button, in its
   form, dialog or popover, or nowhere, and gives it back as the wait ends, else to the button that waited; the pressed
-  button stays focusable while it is busy (`focusableWhenDisabled`, `aria-busy`); `Button` gives an `aria-disabled` button
-  no hover and no press shift and dims it unless it is busy, its spinner says that, so no caller dims by hand. Tested in
+  button stays focusable while it is busy (`focusableWhenDisabled`, `aria-busy`). `Button` dims a disabled button kept
+  focusable (`focusableWhenDisabled`) unless it is busy, its spinner says that, so no caller dims by hand; and no control
+  that is `aria-disabled="true"` takes a hover or a press, its own nor its caller's (the `hover` and `active` variants of
+  `src/index.css`, whose `:where` leaves the specificity as it was). Tested in
   `repository-lock.spec.ts`, by the pointer and by key, and in `amend-changes.spec.ts` for the progress row of a form,
   which takes the place of the pressed button, in both engines
 - **A popup that goes took the hover of its trigger** (Base UI 1.9): each popup part shares the timers of its trigger's

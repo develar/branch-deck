@@ -407,7 +407,8 @@ from, else to the button that waited, which stays focusable while busy and takes
 - **GIVEN** the pressed button busy, its wait for the lock shown
 - **WHEN** the pointer hovers it and presses it
 - **THEN** its look stays: no hover background, no shift of a press, not dimmed (its spinner says that it is busy), in both engines
-  [@test] tests/e2e/repository/repository-lock.spec.ts (`should change nothing of a busy button under the pointer, neither by its hover nor by a press`)
+- **AND** a hover its caller gives (the colour of a push) comes neither: the button keeps its background at rest
+  [@test] tests/e2e/repository/repository-lock.spec.ts (`should change nothing of a busy button under the pointer, neither by its hover nor by a press`, `should give a busy push no hover of its colour, its background at rest kept`)
 
 ### Requirement: Move operation: Once the holder released the lock the move runs on what it left
 
