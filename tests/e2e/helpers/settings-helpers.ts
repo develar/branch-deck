@@ -25,7 +25,8 @@ export async function expectSettingsOpened(page: Page, target: SettingsTarget, c
 export async function openSettingsWindow(page: Page, target: SettingsTarget = {}, options: { beforeLoad?: (window: Page) => Promise<unknown> } = {}): Promise<Page> {
   const count = (await getOpenedSubWindows(page)).length
   await waitForTauriListener(page, "open_settings")
-  await emitTauriEvent(page, "open_settings", target)
+  // the main window opens it by its command, whose answer can take seconds under load
+  await runAndWaitForAnswer(page, "open_sub_window", () => emitTauriEvent(page, "open_settings", target))
   const window = await openLinkedSubWindow(page, await expectSettingsOpened(page, target, count + 1), options)
   await expect(window.getByTestId("settings-window")).toBeVisible()
   return window

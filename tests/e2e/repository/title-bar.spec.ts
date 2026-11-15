@@ -8,7 +8,7 @@ import { availableRobots } from "../helpers/patronus-helpers"
 import { availableReviewRequests, getYourTurnCard, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents, getOpenedSubWindows, getWindowMenus, openSubWindowPage } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import { checkForUpdatesFromMenu, TITLE_BARS, toastWith, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
 import { waitForConflictViewer, expectClosed } from "../helpers/wait-helpers"
@@ -482,7 +482,8 @@ test.describe("Main menu", () => {
     const count = Number(await sync.getAttribute("data-sync-count"))
     await page.keyboard.press("Control+KeyR")
     await expect.poll(async () => Number(await sync.getAttribute("data-sync-count"))).toBeGreaterThan(count)
-    await page.keyboard.press("Control+Comma")
+    // the main window opens Settings by its command (`open_sub_window`), whose answer can take seconds under load
+    await runAndWaitForAnswer(page, "open_sub_window", () => page.keyboard.press("Control+Comma"))
     await expectSettingsOpened(page, {})
   })
 
