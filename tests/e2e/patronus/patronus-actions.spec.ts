@@ -1303,6 +1303,33 @@ test.describe("Patronus actions", () => {
       await stepSessionClockUntil(repo, answered)
     }
 
+    test("should refuse in the backend a Safe Push with a profile the user chose that the pull request starts by its comment, never drop the profile", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
+      // a window of a state before, or another client, asks for the Safe Push With Profile no menu offers here: the plan
+      // refuses the profile the comment would drop, and its run starts nothing
+      const land = (profile: object) => ({
+        repositoryPath: repo.path,
+        intent: { kind: "land", subject: { kind: "branch", name: "JIRA-456" }, mode: "rebaseAutosquash", profile, withoutApprovals: false, createPullRequest: false, allow: {} },
+      })
+      const chosen = land({ kind: "id", id: "lsc" })
+      const plan = (await repo.invoke("prepare", chosen)) as { fingerprint: string; confirmations: unknown[]; blockers: unknown[] }
+      expect(plan.blockers).toEqual([{ code: "profileOnComment", number: 7 }])
+      expect(await repo.invoke("execute", { ...chosen, fingerprint: plan.fingerprint, accepted: plan.confirmations })).toEqual({
+        status: "error",
+        error: expect.objectContaining({
+          code: "patronus_refused",
+          message: "Nothing was pushed or started: Pull request #7 starts the Safe Push by its /patronus comment, which runs the default checks: it takes no profile",
+        }),
+      })
+      expect(await comments(repo)).toEqual([])
+      // the default checks are no choice of a profile: the comment starts them
+      expect(((await repo.invoke("prepare", land({ kind: "default" }))) as { blockers: unknown[] }).blockers).toEqual([])
+    })
+
     test("should start a Safe Push from the pull request with a /patronus merge comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
       const started = robotOfComment()

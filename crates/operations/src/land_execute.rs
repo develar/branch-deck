@@ -725,7 +725,7 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
       ErrorCode::BaselineRefused
     }
     Reason::TargetConflict { .. } => ErrorCode::TargetConflict,
-    Reason::Draft { .. } | Reason::Unprotected { .. } => ErrorCode::PatronusRefused,
+    Reason::Draft { .. } | Reason::Unprotected { .. } | Reason::ProfileOnComment { .. } => ErrorCode::PatronusRefused,
     Reason::NeedsPush { .. } => ErrorCode::NeedsPush,
     Reason::NoReviewer { .. } => ErrorCode::NoReviewer,
     Reason::OtherBase { .. } => ErrorCode::PullRequestOtherBase,

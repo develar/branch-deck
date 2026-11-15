@@ -161,12 +161,13 @@
       },
       "land": {
         "start": "comment:7",
-        "pushes": ["auth"]
+        "pushes": ["auth"],
+        "blockers": ["profileOnComment"]
       }
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "a /patronus comment can't choose a profile: the app's popover offers none for it and starts the default checks, brd refuses --profile (openspec/specs/cli/agent-cli/spec.md, brd safe-push)"
+      "why": "a /patronus comment can't choose a profile: the plan refuses a chosen one (profileOnComment, patronus_refused), never drops it; brd refuses --profile before it plans (openspec/specs/cli/agent-cli/spec.md, brd safe-push)"
     },
     "bd": {
       "error": "invalid_arguments"

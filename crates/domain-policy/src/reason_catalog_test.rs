@@ -68,10 +68,11 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::KeptLandsNothing { .. } => 51,
     Reason::KeptCheckedOut { .. } => 52,
     Reason::MergedIntoBranch { .. } => 53,
+    Reason::ProfileOnComment { .. } => 54,
   }
 }
 
-const CODES: usize = 54;
+const CODES: usize = 55;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -198,6 +199,7 @@ fn examples() -> Vec<Reason> {
       groups: vec![s("IJPL Code Platform")],
     },
     Reason::Draft { number: 7 },
+    Reason::ProfileOnComment { number: 7 },
     Reason::OtherBase {
       number: 7,
       base: s("release/253"),

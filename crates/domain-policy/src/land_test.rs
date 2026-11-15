@@ -793,7 +793,8 @@ fn the_landing_gate_refuses_unless_allowed_then_a_conflict_with_the_target() {
 }
 
 /// The pull request of the branch decides the route: one into the target, or into a virtual branch once it is
-/// retargeted first (D11), takes a `/patronus` comment, which runs the default checks; a draft refuses a Safe Push. One
+/// retargeted first (D11), takes a `/patronus` comment, which runs the default checks, so a profile the user chose is
+/// refused, never dropped (the remembered one is no choice); a draft refuses a Safe Push. One
 /// into another base starts nothing from it and refuses only a Safe Push whose approvals count (D3b): a Dry Run, a start
 /// without approvals and a profile that skips the review go through the API
 #[test]
@@ -811,7 +812,19 @@ fn the_pull_request_decides_the_route_a_draft_refuses_and_another_base_refuses_o
   assert_eq!((start_route(&comment).cloned(), comment.pull_request), (Some(StartRoute::Comment { number: 7 }), Some(7)));
   let mut chosen = land(SAFE_PUSH);
   chosen.profile = ProfileChoice::Id { id: "lsc".to_string() };
-  assert_eq!(into("master", false).decide(&chosen).confirmations, vec![Confirmation::LandsMoreThanRow { count: 1 }]);
+  let refused = into("master", false).decide(&chosen);
+  assert_eq!(refused.blockers, vec![Reason::ProfileOnComment { number: 7 }]);
+  assert_eq!(refused.confirmations, vec![Confirmation::LandsMoreThanRow { count: 1 }]);
+  // the default profile, and the one the last robot ran with, are no choice of the user: the comment starts it
+  let remembered = World {
+    last_profile: Some(PatronusRobotProfile {
+      id: Some("lsc".to_string()),
+      name: None,
+      skips_review: None,
+    }),
+    ..into("master", false)
+  };
+  assert_eq!(codes(&remembered.decide(&land(SAFE_PUSH))), Vec::<String>::new());
   let virtual_base = into("user/virtual/auth", false).decide(&land(SAFE_PUSH));
   assert_eq!(
     &virtual_base.effects[..1],

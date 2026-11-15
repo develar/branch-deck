@@ -7080,7 +7080,12 @@ export type Reason =
 /**  The branch is kept outside HEAD, unapplied: it lands nothing until it is reapplied */
 { code: "keptLandsNothing"; branch: string } | 
 /**  A worktree has the kept branch checked out: a reapply and a delete would take it from under that worktree */
-{ code: "keptCheckedOut"; branch: string };
+{ code: "keptCheckedOut"; branch: string } | 
+/**
+ *  The user chose a merge profile for a Safe Push that the open pull request `number` starts by its `/patronus`
+ *  comment, which takes no profile and runs the default checks: the profile would be dropped without a word
+ */
+{ code: "profileOnComment"; number: number };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";

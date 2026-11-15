@@ -143,6 +143,7 @@ const words = {
   noReviewer: ({ groups }) => `Patronus names no code owner with a GitHub login of ${joinNames(groups)}: choose the reviewers`,
   unprotected: ({ target }) => `Patronus does not push into ${target}`,
   draft: ({ number }) => `#${number} is a draft: Patronus merges it once it is ready for review`,
+  profileOnComment: ({ number }) => `A comment on #${number} runs the default checks: it can't choose a profile`,
   otherBase: ({ number, base }) => `Approvals in #${number} don't count: its base is ${base}`,
   approvalsMissing: () => "Patronus checks the approvals when the robot starts and fails without them",
   dismissesApprovals: ({ number }) => `The push dismisses the approvals of #${number}: push first, then ask for the review again`,

@@ -61,6 +61,9 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     ),
     Reason::Unprotected { target } => format!("Patronus does not protect {target}: a robot can't be started into it"),
     Reason::Draft { number } => format!("Pull request #{number} is a draft: Patronus merges it once it is ready for review"),
+    Reason::ProfileOnComment { number } => {
+      format!("Pull request #{number} starts the Safe Push by its /patronus comment, which runs the default checks: it takes no profile")
+    }
     Reason::OtherBase { number, base, target } => {
       format!("pull request #{number} of {subject} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}")
     }

@@ -198,6 +198,10 @@
     "number": 7
   },
   {
+    "code": "profileOnComment",
+    "number": 7
+  },
+  {
     "code": "otherBase",
     "number": 7,
     "base": "release/253",

@@ -1678,6 +1678,7 @@ impl Told<'_> {
       // a review request and of a push up to a commit of a rewritten branch, never of a start; parked; the gates of the
       // routes into master, never of a Safe Push
       Reason::Draft { .. }
+      | Reason::ProfileOnComment { .. }
       | Reason::Unprotected { .. }
       | Reason::NeedsPush { .. }
       | Reason::NoReviewer { .. }

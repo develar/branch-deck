@@ -171,6 +171,9 @@ pub enum Reason {
   KeptLandsNothing { branch: String },
   /// A worktree has the kept branch checked out: a reapply and a delete would take it from under that worktree
   KeptCheckedOut { branch: String },
+  /// The user chose a merge profile for a Safe Push that the open pull request `number` starts by its `/patronus`
+  /// comment, which takes no profile and runs the default checks: the profile would be dropped without a word
+  ProfileOnComment { number: u32 },
 }
 
 impl Reason {
@@ -230,7 +233,8 @@ impl Reason {
       | Self::LayerNotLinked { .. }
       | Self::MergedIntoBranch { .. }
       | Self::KeptLandsNothing { .. }
-      | Self::KeptCheckedOut { .. } => None,
+      | Self::KeptCheckedOut { .. }
+      | Self::ProfileOnComment { .. } => None,
     }
   }
 }

@@ -479,6 +479,10 @@ fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) ->
   if let Some(pull_request) = start_pull_request.filter(|pull_request| pull_request.is_draft && safe_push) {
     decision.blockers.push(Reason::Draft { number: pull_request.number });
   }
+  // a profile the user chose, which the comment would drop: refused, never run with the default checks in its place
+  if let (Some(pull_request), ProfileChoice::Id { .. }) = (start_pull_request, &land.profile) {
+    decision.blockers.push(Reason::ProfileOnComment { number: pull_request.number });
+  }
   // D3b: Patronus merges a pull request into its base, so the approvals of one into another base count for no Safe Push
   // into the target; it may be meant, so it is never retargeted silently
   if let Some((pull_request, PullRequestBase::Other { base })) = &part.own
