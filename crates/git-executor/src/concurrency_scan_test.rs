@@ -1,8 +1,8 @@
 //! Nothing across the network or a wait (docs/design/rust-domain-authority.md, «Инварианты», 2; AGENTS.md, "Repository
 //! lock"). The guard of an async mutex or read-write lock lives across no other `.await` of its scope: a read that the
 //! others wait for is one shared future or a `watch` (single-flight), not a mutex. The guard of the repository lock, and
-//! of the file locks of a lease and of the companions (`FILE_LOCK_FUNCTIONS`), lives across no call of the network: a git of the remote (`execute_remote_command*`), the fetch and the push of the baseline
-//! (`fetch_baseline`, `push_baseline`), the leased push (`push_leased`, `push::send`), HTTP (`reqwest`, the `.send()` of a
+//! of every other file lock (`lock_functions`, below), lives across no call of the network: a git of the remote
+//! (`execute_remote_command*`), the fetch and the push of the baseline (`fetch_baseline`, `push_baseline`), the leased push (`push_leased`, `push::send`), HTTP (`reqwest`, the `.send()` of a
 //! request, a method of a `GitHubService`, `PatronusService`, `YouTrackService` or `ServiceFactSources` or of what the
 //! hosts answer for one), a runtime blocked on a future (`block_on`); nor across a sync or a wait for the index lock of
 //! another process (its own check, below).
@@ -14,6 +14,15 @@
 //! kept in a field or returned is not followed, nor a call of the network inside a function the scope calls: the lock span
 //! tests of the cores (`test_utils::lock_span`) name every git that runs under the lock. A file is exempt only with its
 //! reason and its exact number of hits.
+//!
+//! A lock is the call of a function that answers a `RepositoryLock` (`lock_functions`: every one of the scanned sources,
+//! in a `Result`, an `Option`, a tuple or a `Vec`, whatever its name), or of what the file types as a `Locker` (the
+//! closure of a start that takes it). So the repository lock (`lock_repository*`, `LockWait::lock*`,
+//! `RewriteOptions::lock_prepared`, the `lock` of `bd`) and every file lock of `repository_lock::lock_file` are one
+//! class with every wrapper of one: the locks of the files of a lease and of the companions (`lock_lease`,
+//! `lock_landed`, `lock_state`, `lock_companions`, under which the reads and writes of git config are by design), of the
+//! journal and of the operations registry, and `StateFile::lock_at` of the pool, each held across the read and the write
+//! of a few files and never across the network or a sync.
 
 use crate::source_scan_test::{Exemption, Source, check, code_text, line_at, production_sources};
 use std::collections::HashMap;
@@ -29,19 +38,6 @@ const ASYNC_GUARDS: [&str; 6] = [
   ".read_owned().await",
   ".write_owned().await",
 ];
-
-/// The functions of `history_rewrite::repository_lock` that take the repository lock, by the start of their name
-/// (`lock_repository_in`, `lock_prepared_move`, `RewriteOptions::lock_prepared`)
-const LOCK_FUNCTIONS: [&str; 5] = ["lock_repository", "try_lock_repository", "lock_prepared", "lock_checked_undo", "lock_as_another_process"];
-
-/// The file locks of the files of a lease and of the companions, by their whole name, each held as the repository lock is
-/// held: across the read and the write of a few files, never across the network or a sync (`sync_core::lease_state`:
-/// `lock_lease`, `lock_landed`; `sync_core::landed::lock_state`; `sync_core::companion_write::lock_companions`, under
-/// which the reads and writes of git config are by design)
-const FILE_LOCK_FUNCTIONS: [&str; 4] = ["lock_lease", "lock_landed", "lock_state", "lock_companions"];
-
-/// The methods of `LockWait` and `RewriteOptions` that take it, called with an argument: the `lock()` of a mutex has none
-const LOCK_METHODS: [&str; 3] = ["lock", "lock_with", "lock_in"];
 
 /// The calls of the network by the start of their name
 const NETWORK_CALLS: [&str; 5] = ["execute_remote_command", "fetch_baseline", "push_baseline", "push_leased", "block_on"];
@@ -247,35 +243,14 @@ fn block_values(text: &str) -> String {
   String::from_utf8(kept).expect("only whole statements are blanked")
 }
 
-/// Whether `value`, the initializer of a binding, takes the repository lock; `bare`: the names whose call by the bare name
-/// takes it in this file (`lock_takers`)
-fn takes_repository_lock(value: &str, bare: &[&str]) -> bool {
+/// Whether `value`, the initializer of a binding, calls one of `lockers` by its bare name with an argument: what the file
+/// types as a `Locker` (`operations::land_execute`: the closure of a start that takes the lock)
+fn calls_locker(value: &str, lockers: &[&str]) -> bool {
   let value = block_values(value);
   let value = value.as_str();
-  LOCK_FUNCTIONS.iter().any(|name| calls(value, name, false, |_| true).next().is_some())
-    || FILE_LOCK_FUNCTIONS.iter().any(|name| calls(value, name, true, |_| true).next().is_some())
-    || LOCK_METHODS
-      .iter()
-      .any(|name| calls(value, name, true, |before| before.trim_end().ends_with('.')).any(|at| has_argument(value, at)))
-    || calls(value, "lock", true, |before| before.ends_with("sync_command::")).next().is_some()
-    || bare
-      .iter()
-      .any(|name| calls(value, name, true, |before| !before.ends_with([':', '.'])).any(|at| has_argument(value, at)))
-}
-
-/// The names whose bare call takes the repository lock in the file of `code`: its `lockers`, what it types as a `Locker`
-/// (`operations::land_execute`: the closure of a start that takes it), and the lock of `bd`, when the file imports it
-/// (`use bd_core::sync_command::{…, lock, …}`)
-fn lock_takers<'a>(code: &str, lockers: &[&'a str]) -> Vec<&'a str> {
-  let imports_bd_lock = code.match_indices("sync_command::{").any(|(at, head)| {
-    let items = &code[at + head.len()..];
-    items[..items.find('}').unwrap_or(items.len())].split(',').any(|item| item.trim() == "lock")
-  }) || code.contains("sync_command::lock;");
-  let mut names = lockers.to_vec();
-  if imports_bd_lock {
-    names.push("lock");
-  }
-  names
+  lockers
+    .iter()
+    .any(|name| calls(value, name, true, |before| !before.ends_with([':', '.'])).any(|at| has_argument(value, at)))
 }
 
 /// The names that the file of `code` declares with a type that names `ty`: a parameter, a field or a binding
@@ -369,14 +344,152 @@ fn locks_across(source: &Source, reaches: impl Fn(&str, &[&str]) -> bool) -> Vec
   let code = code_text(&source.text);
   let all = bindings(&code);
   let services = service_names(&code, &all);
-  let takers = lock_takers(&code, &typed_names(&code, "Locker"));
+  let lockers = typed_names(&code, "Locker");
+  // the lock functions of every scanned source, and those of this one, which a case of a test declares
+  let own = lock_functions_of(&code);
+  let functions: Vec<&LockFunction> = lock_functions().iter().chain(&own).collect();
   all
     .iter()
     // a `Locker` holds the closure that takes the lock, not the lock
     .filter(|binding| binding.ty.as_ref().is_none_or(|ty| words(&code[ty.clone()], "Locker").next().is_none()))
-    .filter(|binding| takes_repository_lock(&code[binding.value.clone()], &takers) && reaches(lifetime(&code, &all, binding), &services))
+    .filter(|binding| {
+      let value = &code[binding.value.clone()];
+      (calls_locker(value, &lockers) || calls_lock_function(value, &functions)) && reaches(lifetime(&code, &all, binding), &services)
+    })
     .map(|binding| line_at(&code, binding.at))
     .collect()
+}
+
+/// A function that answers a type, as `functions_answering` finds it: a `RepositoryLock` (`lock_functions_of`), a
+/// `MutexGuard` (`guard_functions_of`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LockFunction {
+  name: String,
+  /// A method (its first parameter is `self`): called as `.name(…)`; a function is called as `name(…)`, bare or by its
+  /// path, never after a `.`
+  method: bool,
+  /// It takes an argument beside `self`: a call without one is of another function of the name (the `lock()` of a
+  /// mutex beside `LockWait::lock`)
+  arguments: bool,
+}
+
+/// The functions that `code` declares with an answer that names `RepositoryLock` (`-> Result<RepositoryLock>`,
+/// `-> std::io::Result<Vec<RepositoryLock>>`, `-> Result<(Prepared, RepositoryLock)>`)
+fn lock_functions_of(code: &str) -> Vec<LockFunction> {
+  functions_answering(code, "RepositoryLock")
+}
+
+/// The functions that `code` declares with an answer that names the type `ty`: their parameters to their closing
+/// parenthesis, past their generics, their answer from its `->` to the body, a `;` or a `where`
+fn functions_answering(code: &str, ty: &str) -> Vec<LockFunction> {
+  words(code, "fn")
+    .filter_map(|at| {
+      let after = code[at + 2..].trim_start();
+      let name = &after[..after.bytes().take_while(|&byte| is_word(byte)).count()];
+      if name.is_empty() {
+        return None;
+      }
+      let generics = generics_len(&after[name.len()..])?;
+      let open = name.len() + generics;
+      if !after[open..].starts_with('(') {
+        return None;
+      }
+      let parameters = &after[open + 1..];
+      let close = first_at_top(parameters, |_, _| false)?;
+      let (parameters, rest) = (&parameters[..close], parameters[close + 1..].trim_start());
+      let answer = rest.strip_prefix("->")?;
+      let end = answer_end(answer);
+      words(&answer[..end], ty).next()?;
+      let first = top_byte(parameters, b',', |_, _| true).map_or(parameters, |comma| &parameters[..comma]);
+      let method = words(first, "self").next().is_some();
+      let beside = if method {
+        top_byte(parameters, b',', |_, _| true).map_or("", |comma| &parameters[comma + 1..])
+      } else {
+        parameters
+      };
+      Some(LockFunction {
+        name: name.to_owned(),
+        method,
+        arguments: !beside.trim().is_empty(),
+      })
+    })
+    .collect()
+}
+
+/// The length of the generics that start `text` (`<T, F: Fn(&T) -> bool>`), with the blanks before them; 0 without
+/// them, None when they do not close
+fn generics_len(text: &str) -> Option<usize> {
+  let start = text.len() - text.trim_start().len();
+  if !text[start..].starts_with('<') {
+    return Some(start);
+  }
+  let bytes = text.as_bytes();
+  let mut depth = 0usize;
+  for (index, &byte) in bytes.iter().enumerate().skip(start) {
+    match byte {
+      b'<' => depth += 1,
+      // the `>` of a `->` closes nothing
+      b'>' if bytes[index - 1] != b'-' => {
+        depth -= 1;
+        if depth == 0 {
+          return Some(index + 1 + text[index + 1..].len() - text[index + 1..].trim_start().len());
+        }
+      }
+      b'{' | b';' => return None,
+      _ => {}
+    }
+  }
+  None
+}
+
+/// The end of the answer of a signature that starts `text`: its body (`{`), a `;` or a `where`, outside the parentheses
+/// and the brackets of a tuple or an array in it
+fn answer_end(text: &str) -> usize {
+  let bytes = text.as_bytes();
+  let mut depth = 0usize;
+  for (index, &byte) in bytes.iter().enumerate() {
+    match byte {
+      b'(' | b'[' => depth += 1,
+      b')' | b']' => depth = depth.saturating_sub(1),
+      b'{' | b';' if depth == 0 => return index,
+      b'w'
+        if depth == 0
+          && text[index..].starts_with("where")
+          && !bytes[..index].last().copied().is_some_and(is_word)
+          && !bytes.get(index + "where".len()).copied().is_some_and(is_word) =>
+      {
+        return index;
+      }
+      _ => {}
+    }
+  }
+  text.len()
+}
+
+/// The lock functions of every scanned source (`lock_functions_of`), each name and kind once
+fn lock_functions() -> &'static [LockFunction] {
+  static ALL: OnceLock<Vec<LockFunction>> = OnceLock::new();
+  ALL.get_or_init(|| {
+    let mut all: Vec<LockFunction> = production_sources().iter().flat_map(|source| lock_functions_of(&code_text(&source.text))).collect();
+    all.sort_by(|a, b| (&a.name, a.method).cmp(&(&b.name, b.method)));
+    all.dedup_by(|a, b| {
+      a.name == b.name && a.method == b.method && {
+        b.arguments |= a.arguments;
+        true
+      }
+    });
+    all
+  })
+}
+
+/// Whether `value`, the initializer of a binding, calls one of `functions` as what it gives (`block_values`)
+fn calls_lock_function(value: &str, functions: &[&LockFunction]) -> bool {
+  let value = block_values(value);
+  let value = value.as_str();
+  functions.iter().any(|function| {
+    let mut found = calls(value, &function.name, true, |before| before.trim_end().ends_with('.') == function.method);
+    found.any(|at| !function.arguments || has_argument(value, at))
+  })
 }
 
 #[test]
@@ -456,6 +569,48 @@ fn a_guard_lives_to_the_end_of_its_block_or_its_drop_there_and_on_in_the_binding
   assert_eq!(guards_across_await(&source), hits);
 }
 
+/// A lock function is one whose answer names `RepositoryLock`, whatever its name and wrapping, a method by its `self`,
+/// with the arguments it takes beside it; a `RepositoryLock` in a parameter, a closure or a body is none
+#[test]
+fn a_lock_function_answers_a_repository_lock() {
+  let code = code_text(
+    &[
+      "pub fn lock_file(path: PathBuf, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {",
+      "  inner(path)",
+      "}",
+      "fn lock_companions(git: &GitCommandExecutor, paths: &[Option<&str>]) -> std::io::Result<Vec<RepositoryLock>> { todo!() }",
+      "impl StateFile {",
+      "  pub(crate) fn lock_at(&self, name: &str, timeout: Duration, waiting: &str) -> Result<RepositoryLock> { todo!() }",
+      "  fn lock_prepared<T, F: Fn(&T) -> bool>(&self, git: &G, prepared: T, check: F) -> Result<(T, RepositoryLock)>",
+      "  where",
+      "    T: Clone,",
+      "  { todo!() }",
+      "  fn held(&self) -> Option<RepositoryLock>;",
+      "}",
+      "fn run_locked(lock: impl FnOnce() -> Result<RepositoryLock>) -> Result<()> { Ok(()) }",
+      "fn reads(path: &Path) -> Result<String> { let _lock: RepositoryLock = lock_file(path)?; read(path) }",
+      "fn answers_another(path: &Path) -> Result<String> where F: Fn() -> RepositoryLock { todo!() }",
+    ]
+    .join("\n"),
+  );
+  let found: Vec<(String, bool, bool)> = lock_functions_of(&code)
+    .into_iter()
+    .map(|function| (function.name, function.method, function.arguments))
+    .collect();
+  let expected = [
+    ("lock_file", false, true),
+    ("lock_companions", false, true),
+    ("lock_at", true, true),
+    ("lock_prepared", true, true),
+    ("held", true, false),
+  ];
+  assert_eq!(found, expected.map(|(name, method, arguments)| (name.to_owned(), method, arguments)));
+  let names: Vec<&str> = lock_functions().iter().map(|function| function.name.as_str()).collect();
+  for name in ["lock_repository", "lock_file", "lock_at", "lock_lease", "lock_companions", "lock_prepared", "lock_with"] {
+    assert!(names.contains(&name), "{name} is a lock function of the scanned sources: {names:?}");
+  }
+}
+
 #[test]
 fn a_repository_lock_lives_across_no_call_of_the_network() {
   let (source, hits) = marked(&[
@@ -530,6 +685,28 @@ fn a_repository_lock_lives_across_no_call_of_the_network() {
     "  execute_remote_command(git, &[\"fetch\"], path)?;",
     "  Ok(())",
     "}",
+    "fn lock_lease_of(paths: &LeasePaths) -> std::io::Result<RepositoryLock> {",
+    "  lock_lease(paths, &|| {})",
+    "}",
+    "fn a_wrapper_whatever_its_name(paths: &LeasePaths, git: &GitCommandExecutor) -> Result<()> {",
+    "  let _lock = lock_lease_of(paths)?; // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn the_file_lock_itself(app_data: &Path, git: &GitCommandExecutor) -> Result<()> {",
+    "  let _lock = lock_file(app_data.join(PAGE_LOCK), timeout, &|| {}).map_err(|error| failure(&error))?; // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
+    "fn a_lock_method_of_the_pool(&self, git: &GitCommandExecutor) -> Result<()> {",
+    "  let _lock = self.state.lock_at(WORKTREES_LOCK_FILE, timeout, \"waiting\")?; // hit",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  let file = self.lock_file(path);",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  let at = lock_at(WORKTREES_LOCK_FILE);",
+    "  execute_remote_command(git, &[\"fetch\"], path)?;",
+    "  Ok(())",
+    "}",
     "use bd_core::sync_command::{SyncOutput, lock, sync};",
   ]);
   assert_eq!(locks_across_network(&source), hits);
@@ -590,15 +767,7 @@ fn unwrapped(value: &str) -> &str {
 
 /// The functions of `code` that answer the guard of a std mutex (`-> MutexGuard<…>`), by name
 fn guard_functions_of(code: &str) -> Vec<String> {
-  words(code, "fn")
-    .filter_map(|at| {
-      let after = code[at + 2..].trim_start();
-      let name = &after[..after.bytes().take_while(|&byte| is_word(byte)).count()];
-      let signature = &after[..after.find(['{', ';']).unwrap_or(after.len())];
-      let answer = signature.rsplit_once("->")?.1;
-      (!name.is_empty() && words(answer, "MutexGuard").next().is_some()).then(|| name.to_owned())
-    })
-    .collect()
+  functions_answering(code, "MutexGuard").into_iter().map(|function| function.name).collect()
 }
 
 /// The crate of the source at `path` (`crates/repository-model/src/facts.rs`: `crates/repository-model`)
