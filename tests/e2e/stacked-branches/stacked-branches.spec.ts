@@ -1978,7 +1978,8 @@ test.describe("Stacked branches", () => {
       // the landing stays the start: Enter would start it
       await expectEnterStarts(page)
 
-      await alone.getByRole("button", { name: "Unstack from login" }).click()
+      // the unstack is a rewrite and its sync, seconds under load: the popover shows the new stack after it
+      await runAndWaitForSync(page, () => alone.getByRole("button", { name: "Unstack from login" }).click())
       // the popover shows itself again, of oauth alone, a root now: no start after the unstack
       await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands oauth into master: 1 commit.")
       await expect(alone).toHaveCount(0)
@@ -2043,7 +2044,7 @@ test.describe("Stacked branches", () => {
       await expect(review).toContainText("Needs review by the code owners: a Safe Push fails without these approvals.")
       await expect(groups).toHaveText([/^Icons Team/, /^UI Team/])
 
-      await alone.getByRole("button", { name: "Move 1 Commit Here" }).click()
+      await runAndWaitForSync(page, () => alone.getByRole("button", { name: "Move 1 Commit Here" }).click())
       await verifyCommitCount(findBranchRow(page, "perf-part-2"), 2)
       // the toast of the move offers the unstack too, never does it
       const moved = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to perf-part-2" })
@@ -2054,7 +2055,7 @@ test.describe("Stacked branches", () => {
 
       // the review of the new tip waits: until it answers, the popover says so and shows no review of the whole stack
       await repo.holdRemoteAnswers({ hold: ["readiness"] })
-      await alone.getByRole("button", { name: "Unstack from IJPL-257337" }).click()
+      await runAndWaitForSync(page, () => alone.getByRole("button", { name: "Unstack from IJPL-257337" }).click())
       // the popover shows itself again, without a start: a root with its 2 commits, reviewed alone
       await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands perf-part-2 into master: 2 commits.")
       await expect(popover.getByTestId("safe-push-status")).toHaveText("Checking the code-owner review…")
