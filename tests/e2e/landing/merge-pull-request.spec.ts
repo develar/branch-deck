@@ -10,7 +10,7 @@ import { virtualBranch } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
 
@@ -129,6 +129,32 @@ test.describe("Merge #7", () => {
     // it asks nothing: the click merges at once
     await mergeAndWait(page, () => mergeStep(page).click())
     await expectMerged(page, repo, copy)
+  })
+
+  test("should keep the toast of the merge while the update after it waits, past the time of a toast, and tell the update's end in it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    await expect(mergeStep(page)).toHaveText("Merge #7")
+    // the sync of the update after the merge waits
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
+    const answered = nextAnswer(page, "execute")
+    await mergeStep(page).click()
+    const title = `Merged #7 of ${BRANCH} into master · 3 commits`
+    const toasts = page.locator("[data-slot=toast]", { hasText: title })
+    await expect(toasts).toContainText("Rebuilding on the new master…")
+    await repo.arrival("sync")
+    // the 5 s of a toast without an action (`TOAST_TIMEOUT_MS`) run out while the update runs: the toast stays
+    await page.clock.fastForward(6000)
+    await expect(toasts).toHaveCount(1)
+    await expect(toasts).not.toHaveAttribute("data-ending-style")
+    // the update ends: its end in the same toast, never a second one beside it
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await answered
+    await expect(toasts).toContainText(`${BRANCH} landed in origin/master · Updated master`)
+    await expect(toasts).toHaveCount(1)
   })
 
   test("should open the popover of Merge #7 with S on the row, naming the method", async ({ page, setupRepo, syncAndWaitForBranches }) => {

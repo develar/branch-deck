@@ -680,8 +680,9 @@ interface PushFollow {
 /**
  * The toast of a push of the copy into the target (Push to master), one per push: "Pushed auth into master · 3
  * commits", or of a target that moved meanwhile "master moved: auth is rebuilt on the new commits" (nothing pushed), each
- * with the update that follows it in place ("Rebuilding on the new master…", then what it did, the push again after a moved
- * target; Update Project when it did not move the branch); a refusal of the server in its words (`notifyError`)
+ * with the update that follows it in place ("Rebuilding on the new master…", which stays while the update runs, then what
+ * it did, the push again after a moved target; Update Project when it did not move the branch); a refusal of the server
+ * in its words (`notifyError`)
  */
 function followPush(plan: Plan, land: Land, repositoryPath: string): PushFollow {
   const key = landKey(land)
@@ -704,6 +705,9 @@ function followPush(plan: Plan, land: Land, repositoryPath: string): PushFollow 
         ? `Nothing was pushed · ${following.description}`
         : `${following.description} · Push to ${target} again`
     const title = pushed.title
+    // while the update runs the toast stays: its end comes into the same toast, however long the update takes, and an
+    // end that came after the time of a toast opened a second one beside it as the first went
+    const running = update.kind === "running"
     showEventToast({
       key: toastKey,
       supersedes: [toastKeys.update(repositoryPath)],
@@ -711,6 +715,7 @@ function followPush(plan: Plan, land: Land, repositoryPath: string): PushFollow 
         type: moved ? "info" : "success",
         title,
         description,
+        ...(running && { timeout: 0 }),
         ...(following.offersUpdate && { action: { label: "Update Project", onClick: () => void runUpdateProjectOf(repositoryPath) } }),
       }),
     })
