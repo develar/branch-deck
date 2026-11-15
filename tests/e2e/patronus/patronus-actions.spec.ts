@@ -355,11 +355,16 @@ test.describe("Patronus actions", () => {
   }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
     const held = await holdRemotePushes(repo)
+    // the merge profiles the check of the start reads right before it asks for the repository lock: their arrival is
+    // the start in the backend, whatever the load made of the way there
+    await repo.holdRemoteAnswers({ hold: ["profiles"] })
     await repo.holdRepositoryLock(true)
     const button = slotSafePush(page, "JIRA-456")
     const before = await boxOf(button)
     // the click rests the pointer on the middle of the button
     await button.click()
+    await repo.arrival("profiles")
+    await repo.holdRemoteAnswers({ release: ["profiles"] })
     const stop = findBranchRow(page, "JIRA-456").getByRole("button", { name: "Stop Waiting" })
     await expect(stop).toBeVisible()
     await expect(button).toHaveAccessibleName(WAITING_FOR_HOLDER)
