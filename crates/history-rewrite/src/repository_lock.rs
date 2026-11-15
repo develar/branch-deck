@@ -35,7 +35,8 @@ use tracing::{debug, instrument, warn};
 
 /// How long an operation waits for another one to finish
 pub const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
-const POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// How often a wait for a held lock file tries it again
+pub const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const LOCK_FILE_NAME: &str = "branch-deck.lock";
 
 /// Another process held the lock for the whole timeout (the operations of this process wait for each other in its line)

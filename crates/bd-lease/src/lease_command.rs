@@ -21,7 +21,7 @@ use lease_pool::lease::{
   LeaseRefusal, LeaseReturnParams, Pool, Reclaimed, ReclaimedLease, SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core,
   lease_reclaim_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
 };
-use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age};
+use lease_pool::lease_clean::{CleanOverrides, Cleaned, RETURN_CARGO_LOCK_WAIT, parse_age};
 use lease_pool::lease_notes::read_notes;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -991,6 +991,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     server_timeout: context.server_stop_timeout,
     bazel: None,
     lock_timeout: context.lock_timeout,
+    cargo_lock_wait: RETURN_CARGO_LOCK_WAIT,
   };
   let returned = lease_return_core(&context.git, &params).map_err(lease_error)?;
   let lease = returned

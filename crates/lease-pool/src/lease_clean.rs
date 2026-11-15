@@ -27,10 +27,17 @@
 //! costs no more than its move, so the trash holds no links. What a process keeps (on Windows one that works in it or
 //! has a file of it open, which no rename moves) stays whole in the checkout and the error of its rule names it, never
 //! half deleted: a later clean deletes it once it is free.
+//!
+//! A cargo rule that deletes takes the locks of cargo of each profile dir exclusive (`CargoLock`): no build, check or
+//! test of cargo works there while it reads the units, decides and moves the stale ones, and a build that starts waits.
+//! A held lock skips that profile dir. Then it deletes the stale objects of rustc in the kept units (`stale_objects`),
+//! after the release when its `age` is at least `UNLOCKED_OBJECT_AGE`: in place, never through the trash, once the
+//! slot is free (`Cleaned::deferred`).
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::tracked_under;
+use history_rewrite::repository_lock::POLL_INTERVAL;
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -49,12 +56,26 @@ const DEFAULT_KEEP: usize = 8;
 const DEFAULT_AGE: Duration = Duration::from_hours(1);
 /// How deep below the target dir the cargo rule looks for profile dirs (`debug`, `<triple>/release`, a nested target)
 const PROFILE_DEPTH: usize = 4;
+/// The lock files of cargo in a profile dir, in the order cargo takes them. A build holds `.cargo-build-lock` exclusive
+/// and `.cargo-lock` shared, a cargo before 1.91 has only `.cargo-lock`, which it holds exclusive
+const CARGO_LOCKS: [&str; 2] = [".cargo-build-lock", ".cargo-lock"];
+/// How long a return waits for the locks of cargo of a profile dir (`LeaseReturnParams::cargo_lock_wait`): the return
+/// found no process in the slot, so only another clean holds them, and a clean holds them for at most 10 s
+pub const RETURN_CARGO_LOCK_WAIT: Duration = Duration::from_secs(30);
+/// From this `age` on the cargo rule reads the objects of the kept units after the release of the locks of cargo. A
+/// build writes each object as a new file, which a session of `incremental/` holds once rustc ends the compile of its
+/// crate, minutes later at most. So an object older than this that no session holds stays stale. Below it (`keep` 0
+/// and `age` 0 of a shrink of a free slot) the rule reads them under the locks
+const UNLOCKED_OBJECT_AGE: Duration = Duration::from_mins(10);
+/// The trash of a cargo rule in its profile dir, when the trash of the run is on another volume
+const PROFILE_TRASH: &str = ".brd-trash";
 
 /// A rule of `[lease] clean`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CleanRule {
   /// The units of the profile dirs under `dir` (a dir with `.cargo-lock`): `build/<package>/<hash>` and
-  /// `incremental/<crate>-<hash>` stay when they are among the `keep` newest of their group or younger than `age`
+  /// `incremental/<crate>-<hash>` stay when they are among the `keep` newest of their group or younger than `age`; in a
+  /// kept unit the objects of rustc that no build reads go
   Cargo { dir: String, keep: usize, age: Duration },
   /// Remove `path`, a file, a directory or a symlink; with `except`, the entries of the directory but the ones named
   Delete { path: String, except: Vec<String> },
@@ -343,6 +364,10 @@ pub struct Cleaned {
   pub error: Option<String>,
   /// What it moved into the trash: `Trash::empty` deletes it and counts its bytes
   pub trashed: Vec<PathBuf>,
+  /// What it deletes in place once the slot is free: the stale objects of rustc in the kept units of a cargo rule, and
+  /// the trash of a cargo rule in its profile dir (`.brd-trash/`). `Trash::empty` deletes it after `trashed` and counts
+  /// its bytes; a delete that stops leaves the rest in place for the next clean
+  pub deferred: Vec<PathBuf>,
 }
 
 /// How `apply_clean_rules` applies the rules
@@ -352,7 +377,8 @@ pub enum CleanMode<'a> {
   Measure,
   /// Delete in place
   Delete,
-  /// Move what a rule removes into the trash, a rename (in place on another volume); `Trash::empty` deletes it. A link
+  /// Move what a rule removes into the trash, a rename; `Trash::empty` deletes it. On another volume than the trash the
+  /// paths of a `delete` go in place, the stale units of a cargo rule into `.brd-trash/` of their profile dir. A link
   /// is deleted in place
   Trash(&'a Trash),
 }
@@ -363,10 +389,23 @@ impl CleanMode<'_> {
   }
 }
 
+/// How a clean meets the locks of cargo (`apply_clean_rules_with`)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CleanOptions {
+  /// How long a cargo rule waits for a held lock of cargo of a profile dir before it skips that dir; zero skips at once
+  pub cargo_lock_wait: Duration,
+}
+
 /// Apply `rules` to `checkout`, or only measure them. One `ls-files` for the paths of all rules; a rule whose path is
-/// unsafe is reported and skipped. A failed rule never stops the others
+/// unsafe is reported and skipped. A failed rule never stops the others. A held lock of cargo skips its profile dir at
+/// once
 pub fn apply_clean_rules(git_executor: &GitCommandExecutor, checkout: &str, rules: &[ParsedRule], mode: CleanMode<'_>) -> Vec<Cleaned> {
-  apply_tracked_rules(checkout, rules, &tracked_by_rules(git_executor, checkout, rules), mode)
+  apply_clean_rules_with(git_executor, checkout, rules, mode, CleanOptions::default())
+}
+
+/// `apply_clean_rules` with `options`
+pub fn apply_clean_rules_with(git_executor: &GitCommandExecutor, checkout: &str, rules: &[ParsedRule], mode: CleanMode<'_>, options: CleanOptions) -> Vec<Cleaned> {
+  apply_rules(checkout, rules, &tracked_by_rules(git_executor, checkout, rules), mode, options)
 }
 
 /// What git tracks under the paths of the rules of a checkout: the git of `apply_clean_rules`, or why it failed
@@ -381,6 +420,10 @@ pub fn tracked_by_rules(git_executor: &GitCommandExecutor, checkout: &str, rules
 
 /// `apply_clean_rules` with what git tracks (`tracked_by_rules`): no git, only the walk
 pub fn apply_tracked_rules(checkout: &str, rules: &[ParsedRule], tracked: &TrackedPaths, mode: CleanMode<'_>) -> Vec<Cleaned> {
+  apply_rules(checkout, rules, tracked, mode, CleanOptions::default())
+}
+
+fn apply_rules(checkout: &str, rules: &[ParsedRule], tracked: &TrackedPaths, mode: CleanMode<'_>, options: CleanOptions) -> Vec<Cleaned> {
   let tracked = &tracked.0;
   rules
     .iter()
@@ -393,12 +436,14 @@ pub fn apply_tracked_rules(checkout: &str, rules: &[ParsedRule], tracked: &Track
           elapsed: Duration::ZERO,
           error: Some(reason.clone()),
           trashed: Vec::new(),
+          deferred: Vec::new(),
         },
         Ok(rule) => {
-          let mut trashed = Vec::new();
+          let mut moved = Moved::default();
           let result = match &tracked {
             Err(error) => Err(anyhow!("cannot tell what git tracks: {error}")),
-            Ok(tracked) => check_path(Path::new(checkout), rule, tracked).and_then(|target| run_rule(rule, cargo_scope(rules, rule).as_deref(), &target, mode, &mut trashed)),
+            Ok(tracked) => check_path(Path::new(checkout), rule, tracked)
+              .and_then(|target| run_rule(rule, cargo_scope(rules, rule).as_deref(), &target, (mode, options), &mut moved)),
           };
           let (freed_bytes, error) = match result {
             Ok(removals) => (removals.freed, removals.error()),
@@ -409,11 +454,12 @@ pub fn apply_tracked_rules(checkout: &str, rules: &[ParsedRule], tracked: &Track
             freed_bytes,
             elapsed: started.elapsed(),
             error,
-            trashed,
+            trashed: moved.trashed,
+            deferred: moved.deferred,
           }
         }
       };
-      debug!(checkout = %checkout, rule = %outcome.rule, freed = outcome.freed_bytes, trashed = outcome.trashed.len(), error = ?outcome.error, apply = mode.applies(), "clean rule");
+      debug!(checkout = %checkout, rule = %outcome.rule, freed = outcome.freed_bytes, trashed = outcome.trashed.len(), deferred = outcome.deferred.len(), error = ?outcome.error, apply = mode.applies(), "clean rule");
       outcome
     })
     .collect()
@@ -471,28 +517,34 @@ fn cargo_scope<'a>(rules: &'a [ParsedRule], rule: &CleanRule) -> Option<Vec<&'a 
   })
 }
 
+/// What a rule moved into the trash, and what it deletes in place once the slot is free (`Cleaned`)
+#[derive(Default)]
+struct Moved {
+  trashed: Vec<PathBuf>,
+  deferred: Vec<PathBuf>,
+}
+
 /// Apply `rule` at `target`; `scope` names the entries of a cargo rule's dir it prunes (`cargo_scope`)
-fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<Removals> {
+fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, (mode, options): (CleanMode<'_>, CleanOptions), moved: &mut Moved) -> Result<Removals> {
   let mut removals = Removals::default();
   let Ok(metadata) = target.symlink_metadata() else { return Ok(removals) };
   match rule {
     CleanRule::Delete { except, .. } => {
       if except.is_empty() || !metadata.is_dir() {
-        removals.add(remove_together(&[target.to_path_buf()], mode, trashed));
+        removals.add(remove_together(&[target.to_path_buf()], mode, &mut moved.trashed));
         return Ok(removals);
       }
       let entries = std::fs::read_dir(target).map_err(|error| anyhow!("cannot read {}: {error}", target.display()))?;
       for entry in entries.flatten() {
         if !except.iter().any(|kept| entry.file_name() == kept.as_str()) {
-          removals.add(remove_together(&[entry.path()], mode, trashed));
+          removals.add(remove_together(&[entry.path()], mode, &mut moved.trashed));
         }
       }
     }
-    CleanRule::Cargo { keep, age, .. } => {
+    CleanRule::Cargo { dir, keep, age } => {
       if !metadata.is_dir() {
         return Ok(removals);
       }
-      let cutoff = SystemTime::now().checked_sub(*age).unwrap_or(SystemTime::UNIX_EPOCH);
       // each profile dir, with the dirs of it whose units the walk reads (`None` for all)
       let profiles: Vec<(PathBuf, Option<Vec<PathBuf>>)> = match scope {
         None => profile_dirs(target, PROFILE_DEPTH).into_iter().map(|profile| (profile, None)).collect(),
@@ -506,21 +558,191 @@ fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, mode: Clean
           .collect(),
       };
       for (profile, walked) in profiles {
-        let walks = |name: &str| walked.as_ref().is_none_or(|dirs| dirs.contains(&profile.join(name)));
-        let mut groups = classic_units(&profile, &walks);
-        if walks("build") {
-          add_build_dir_units(&mut groups, &profile.join("build"));
-        }
-        if walks("incremental") {
-          add_incremental_units(&mut groups, &profile.join("incremental"));
-        }
-        for unit in stale_units(groups, *keep, cutoff) {
-          removals.add(remove_together(&unit.paths, mode, trashed));
-        }
+        // the profile dir as the messages name it, relative to the checkout: `target/debug`
+        let named = Path::new(dir).join(profile.strip_prefix(target).unwrap_or(&profile));
+        let pruned = ProfilePrune {
+          profile: &profile,
+          named: &named,
+          walked: walked.as_deref(),
+          keep: *keep,
+          age: *age,
+        };
+        pruned.run(mode, options, &mut removals, moved);
       }
     }
   }
   Ok(removals)
+}
+
+/// One profile dir of a cargo rule
+struct ProfilePrune<'a> {
+  profile: &'a Path,
+  /// The profile dir relative to the checkout, for the messages
+  named: &'a Path,
+  /// The dirs of it whose units the walk reads, `None` for all
+  walked: Option<&'a [PathBuf]>,
+  keep: usize,
+  age: Duration,
+}
+
+impl ProfilePrune<'_> {
+  /// Read the units, keep the `keep` newest of each group and the ones built within `age`; then, under the locks of cargo
+  /// when the rule deletes, move the others, each one only while no build wrote it since the read. Then the stale
+  /// objects of the kept units, after the release when `age` is at least `UNLOCKED_OBJECT_AGE`. A held lock skips the
+  /// dir, its error in the error of the rule
+  fn run(&self, mode: CleanMode<'_>, options: CleanOptions, removals: &mut Removals, moved: &mut Moved) {
+    let started = Instant::now();
+    let cutoff = SystemTime::now().checked_sub(self.age).unwrap_or(SystemTime::UNIX_EPOCH);
+    // the walk before the locks, which a build of a large profile dir would wait for: a build meanwhile only writes new
+    // units or rewrites the fingerprint of one, which the check under the locks sees
+    let walks = |name: &str| self.walked.is_none_or(|dirs| dirs.contains(&self.profile.join(name)));
+    let mut units = classic_units(self.profile, &walks);
+    if walks("build") {
+      add_build_dir_units(&mut units, &self.profile.join("build"));
+    }
+    if walks("incremental") {
+      add_incremental_units(&mut units, &self.profile.join("incremental"));
+    }
+    let (stale, kept) = split_units(units, self.keep, cutoff);
+    let walk = started.elapsed();
+    let lock = if mode.applies() {
+      match CargoLock::take(self.profile, options.cargo_lock_wait) {
+        Ok(lock) => Some(lock),
+        Err(error) => {
+          removals.failed.push(format!("{error}: {}", self.named.display()));
+          return;
+        }
+      }
+    } else {
+      None
+    };
+    let locked_at = Instant::now();
+    let mut own_trash = None;
+    let mut built_again = 0;
+    for unit in &stale {
+      if mode.applies() && unit.built_again() {
+        built_again += 1;
+        continue;
+      }
+      removals.add(self.remove_unit(&unit.paths, mode, &mut own_trash, &mut moved.trashed));
+    }
+    let held = locked_at.elapsed();
+    // a build that waits starts now, while the objects are read: it writes new files only (`UNLOCKED_OBJECT_AGE`)
+    let lock = if self.age >= UNLOCKED_OBJECT_AGE {
+      drop(lock);
+      None
+    } else {
+      lock
+    };
+    let objects_started = Instant::now();
+    let objects = stale_objects(&kept, cutoff);
+    let object_count = objects.len();
+    match mode {
+      CleanMode::Measure => removals.freed += measure_objects(&objects),
+      CleanMode::Delete => {
+        for object in &objects {
+          removals.add(remove_measured(&object.path).map_err(|error| anyhow!("cannot remove {}: {error}", object.path.display())));
+        }
+      }
+      CleanMode::Trash(_) => moved.deferred.extend(objects.into_iter().map(|object| object.path)),
+    }
+    moved.deferred.extend(own_trash.map(|trash| trash.dir().to_path_buf()));
+    drop(lock);
+    if mode.applies() {
+      sweep_profile_trash(self.profile);
+    }
+    debug!(
+      profile = %self.profile.display(),
+      walk_ms = walk.as_millis(),
+      held_ms = held.as_millis(),
+      built_again,
+      objects_ms = objects_started.elapsed().as_millis(),
+      stale_units = stale.len(),
+      kept_units = kept.len(),
+      stale_objects = object_count,
+      apply = mode.applies(),
+      "pruned a profile dir under the locks of cargo"
+    );
+  }
+
+  /// Remove the paths of one stale unit as `mode` says. Into the trash of the run while it is on the volume of the
+  /// profile dir; else into `own_trash`, made in the profile dir on the first unit that crosses (`.brd-trash/`), so no
+  /// delete runs under the locks. Its dir goes after the release (`Moved::deferred`)
+  fn remove_unit(&self, paths: &[PathBuf], mode: CleanMode<'_>, own_trash: &mut Option<Trash>, trashed: &mut Vec<PathBuf>) -> Result<u64> {
+    let CleanMode::Trash(trash) = mode else { return remove_together(paths, mode, trashed) };
+    if let Some(own) = own_trash {
+      return trash_together(paths, own, &mut Vec::new()).map_err(Together::into_error);
+    }
+    match trash_together(paths, trash, trashed) {
+      Err(Together::CrossesDevices(error)) => {
+        debug!(profile = %self.profile.display(), error = %error, "the trash is on another volume, moving the stale units into the profile dir");
+        let own = own_trash.insert(Trash::new(&self.profile.join(PROFILE_TRASH)));
+        trash_together(paths, own, &mut Vec::new()).map_err(Together::into_error)
+      }
+      other => other.map_err(Together::into_error),
+    }
+  }
+}
+
+/// Delete the trash dirs of runs that are gone in `.brd-trash/` of `profile`, where a cargo rule moves its stale units
+/// when the trash of its run is on another volume; one look at a missing dir costs no more
+fn sweep_profile_trash(profile: &Path) {
+  let root = profile.join(PROFILE_TRASH);
+  if root.symlink_metadata().is_ok() {
+    Trash::new(&root).sweep();
+  }
+}
+
+/// Why `CargoLock::take` did not take the locks of a profile dir
+#[derive(Debug, thiserror::Error)]
+enum NotLocked {
+  #[error("the lock of cargo is held (a build or another clean)")]
+  Held,
+  #[error("cannot lock {path} of cargo: {error}")]
+  Failed { path: String, error: std::io::Error },
+}
+
+/// The locks of cargo of one profile dir (`CARGO_LOCKS`), held exclusive: no cargo command builds there meanwhile, and
+/// no other clean prunes it. The files are opened to read only, never created, written or deleted; the drop closes them,
+/// which releases the locks
+struct CargoLock {
+  _files: Vec<std::fs::File>,
+}
+
+impl CargoLock {
+  /// Take each lock of `profile` in the order of cargo, trying a held one again every `POLL_INTERVAL` for up to `wait`.
+  /// A profile dir of a cargo before 1.91 has no `.cargo-build-lock`
+  fn take(profile: &Path, wait: Duration) -> Result<Self, NotLocked> {
+    let deadline = Instant::now() + wait;
+    let mut files = Vec::with_capacity(CARGO_LOCKS.len());
+    for name in CARGO_LOCKS {
+      let path = profile.join(name);
+      let failed = |error| NotLocked::Failed {
+        path: path.display().to_string(),
+        error,
+      };
+      let file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && name != ".cargo-lock" => continue,
+        Err(error) => return Err(failed(error)),
+      };
+      loop {
+        match file.try_lock() {
+          Ok(()) => break,
+          Err(std::fs::TryLockError::WouldBlock) => {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+              return Err(NotLocked::Held);
+            }
+            std::thread::sleep(POLL_INTERVAL.min(left));
+          }
+          Err(std::fs::TryLockError::Error(error)) => return Err(failed(error)),
+        }
+      }
+      files.push(file);
+    }
+    Ok(Self { _files: files })
+  }
 }
 
 /// Remove `paths` (files, symlinks, directories with what is in them) together, as `mode` says: measure them, delete
@@ -531,16 +753,46 @@ fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, mode: Clean
 /// other path is moved it is deleted in place as the link (`fs_retry::remove_entry`), its target kept, and its bytes
 /// are counted at once; a failed move leaves it too, since a deleted link can't be put back
 pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<u64> {
-  let delete = || {
-    paths.iter().try_fold(0, |freed, path| {
-      Ok(freed + remove_measured(path).map_err(|error| anyhow!("cannot remove {}: {error}", path.display()))?)
-    })
-  };
   let trash = match mode {
     CleanMode::Measure => return Ok(paths.iter().map(|path| fs_walk::tree_size(path)).sum()),
-    CleanMode::Delete => return delete(),
+    CleanMode::Delete => return delete_together(paths),
     CleanMode::Trash(trash) => trash,
   };
+  match trash_together(paths, trash, trashed) {
+    Err(Together::CrossesDevices(error)) => {
+      debug!(path = %paths.first().map_or_default(|path| path.display().to_string()), error = %error, "the trash is on another volume, deleting in place");
+      delete_together(paths)
+    }
+    other => other.map_err(Together::into_error),
+  }
+}
+
+/// Delete `paths` in place, counting the bytes they freed
+fn delete_together(paths: &[PathBuf]) -> Result<u64> {
+  paths.iter().try_fold(0, |freed, path| {
+    Ok(freed + remove_measured(path).map_err(|error| anyhow!("cannot remove {}: {error}", path.display()))?)
+  })
+}
+
+/// Why `trash_together` moved nothing
+enum Together {
+  /// The first path is on another volume than the trash: nothing moved
+  CrossesDevices(std::io::Error),
+  /// A move or the delete of a link failed; what moved before is back in place
+  Failed(anyhow::Error),
+}
+
+impl Together {
+  fn into_error(self) -> anyhow::Error {
+    match self {
+      Self::CrossesDevices(error) => anyhow!("cannot move into the trash on another volume: {error}"),
+      Self::Failed(error) => error,
+    }
+  }
+}
+
+/// `remove_together` into `trash`: what moved goes into `trashed`, the links are deleted in place and counted
+fn trash_together(paths: &[PathBuf], trash: &Trash, trashed: &mut Vec<PathBuf>) -> Result<u64, Together> {
   let mut links: Vec<(&PathBuf, std::fs::Metadata)> = Vec::new();
   let mut moved: Vec<(&PathBuf, PathBuf)> = Vec::new();
   for path in paths {
@@ -553,10 +805,7 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
     match trash.move_in(path) {
       Ok(target) => moved.push((path, target)),
       Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-      Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices && moved.is_empty() => {
-        debug!(path = %path.display(), error = %error, "the trash is on another volume, deleting in place");
-        return delete();
-      }
+      Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices && moved.is_empty() => return Err(Together::CrossesDevices(error)),
       Err(error) => {
         let error = removal_error(path, error);
         for (path, target) in moved.into_iter().rev() {
@@ -564,7 +813,7 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
             warn!(path = %path.display(), trash = %target.display(), error = %back, "cannot move a path back from the trash");
           }
         }
-        return Err(anyhow!("cannot move {} into the trash: {error}{}", path.display(), held_note(&error)));
+        return Err(Together::Failed(anyhow!("cannot move {} into the trash: {error}{}", path.display(), held_note(&error))));
       }
     }
   }
@@ -576,7 +825,7 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
       Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(freed),
       Err(error) => {
         let error = removal_error(path, error);
-        Err(anyhow!("cannot remove the link {}: {error}{}", path.display(), held_note(&error)))
+        Err(Together::Failed(anyhow!("cannot remove the link {}: {error}{}", path.display(), held_note(&error))))
       }
     })
 }
@@ -776,6 +1025,9 @@ pub struct Trash {
   next: AtomicUsize,
   /// What was moved in for no rule (`adopt`)
   adopted: Mutex<Vec<PathBuf>>,
+  /// A test seam: every move fails as one onto another volume
+  #[cfg(test)]
+  crosses_devices: bool,
 }
 
 impl Trash {
@@ -788,6 +1040,17 @@ impl Trash {
       dir: root.join(format!("{pid}-{started}-{}", uuid::Uuid::new_v4())),
       next: AtomicUsize::new(0),
       adopted: Mutex::default(),
+      #[cfg(test)]
+      crosses_devices: false,
+    }
+  }
+
+  /// A trash under `root` whose every move fails as one onto another volume (`CrossesDevices`)
+  #[cfg(all(test, unix))]
+  pub(crate) fn on_another_volume(root: &Path) -> Self {
+    Self {
+      crosses_devices: true,
+      ..Self::new(root)
     }
   }
 
@@ -804,23 +1067,31 @@ impl Trash {
   /// Move `path` into the trash, under a number of its own (`fs_retry::rename`: a holder that lets go soon is waited
   /// for)
   pub(crate) fn move_in(&self, path: &Path) -> std::io::Result<PathBuf> {
+    #[cfg(test)]
+    if self.crosses_devices {
+      return Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices));
+    }
     std::fs::create_dir_all(&self.dir)?;
     let target = self.dir.join(self.next.fetch_add(1, Ordering::Relaxed).to_string());
     fs_retry::rename(path, &target)?;
     Ok(target)
   }
 
-  /// Delete what `cleaned` moved into the trash, counting the bytes of each rule, then what it adopted (`adopt`), then
-  /// the directories of runs whose process is gone. A path that can't be deleted stays in the
-  /// trash and is named in the error of its rule, and in the paths returned
+  /// Delete what `cleaned` moved into the trash, counting the bytes of each rule, then what it defers
+  /// (`Cleaned::deferred`), then what it adopted (`adopt`), then the directories of runs whose process is gone. A path
+  /// that can't be deleted stays in the trash and is named in the error of its rule, and in the paths returned; a
+  /// deferred one stays in place for the next clean, named in the error of its rule
   pub fn empty(&self, cleaned: &mut [Cleaned]) -> Vec<String> {
     self.empty_until(cleaned, &|| false).0
   }
 
   /// `empty`, which stops once `stop` holds (`remove_measured_until`): the rest of the trash of this run is left to the
-  /// sweep of a later run (`abandon`), and so are the directories of the runs that are gone. Whether it deleted all
+  /// sweep of a later run (`abandon`), and so are the directories of the runs that are gone; the rest of the deferred
+  /// paths stays in place for the next clean. One count of entries serves all deferred paths, so `stop` is asked once
+  /// every `STOP_EVERY` of them, not once per stale object. Whether it deleted all
   pub fn empty_until(&self, cleaned: &mut [Cleaned], stop: &dyn Fn() -> bool) -> (Vec<String>, bool) {
     let mut left = Vec::new();
+    let mut seen = 0;
     for rule in cleaned.iter_mut() {
       for path in std::mem::take(&mut rule.trashed) {
         match remove_measured_until(&path, stop) {
@@ -833,6 +1104,20 @@ impl Trash {
           Err(error) => {
             rule.error.get_or_insert_with(|| format!("cannot delete {} in the trash: {error}", path.display()));
             left.push(trash_left_path(&path, &error));
+          }
+        }
+      }
+      for path in std::mem::take(&mut rule.deferred) {
+        match remove_counted(&path, stop, &mut seen) {
+          Ok(Removed { freed, complete }) => {
+            rule.freed_bytes += freed;
+            if !complete {
+              self.abandon();
+              return (left, false);
+            }
+          }
+          Err(error) => {
+            rule.error.get_or_insert_with(|| format!("cannot delete {}: {error}", path.display()));
           }
         }
       }
@@ -954,41 +1239,104 @@ fn subdirs(dir: &Path) -> Vec<PathBuf> {
 /// The files of one unit, removed together, and when the unit was last built (the newest of `last_built` of its files)
 #[derive(Debug, Default)]
 struct Unit {
+  /// The package or the crate (`-` as `_`) of the unit
+  package: String,
+  /// The kind and the name of its target as its fingerprint names them (`lib-bd_cli`, `test-bin-brd`,
+  /// `run-build-script-build-script-build`), when it has one
+  target: Option<String>,
   built: Option<SystemTime>,
   paths: Vec<PathBuf>,
+  /// Where the files that rustc wrote for the unit are: the files of `deps/` of the classic layout, and the dirs that
+  /// hold them (`build/<package>/<hash>/out/`, a classic `build/<package>-<hash>/`)
+  outputs: Vec<Output>,
+  /// A dir of `incremental/`, whose sessions hold the objects that the next build of its crate reads
+  incremental: bool,
 }
 
 impl Unit {
+  fn new(package: String) -> Self {
+    Self { package, ..Self::default() }
+  }
+
   fn add(&mut self, path: PathBuf) {
-    let built = last_built(&path);
+    let (built, target) = last_built(&path);
     self.built = Some(self.built.map_or(built, |known| known.max(built)));
+    if self.target.is_none() {
+      self.target = target;
+    }
     self.paths.push(path);
+  }
+
+  /// Whether a build wrote the unit since it was read: the newest `last_built` of its paths moved
+  fn built_again(&self) -> bool {
+    let built = self.paths.iter().map(|path| last_built(path).0).max();
+    built != self.built
+  }
+
+  /// The group whose `keep` newest units stay: the package and the target, so each target of a package keeps its own
+  /// newest units, as one package builds a dozen targets that are all current (its library, its check, its test
+  /// harness, its binaries, its build script and the run of it)
+  fn group(&self) -> String {
+    match &self.target {
+      Some(target) => format!("{} {target}", self.package),
+      None => self.package.clone(),
+    }
   }
 }
 
-/// The units of each group (a package or a crate, `-` and `_` the same), by an id unique in the profile dir
-type Groups = HashMap<String, HashMap<String, Unit>>;
+/// Where the files of a unit that rustc wrote are (`Unit::outputs`)
+#[derive(Debug)]
+#[cfg_attr(not(unix), expect(dead_code, reason = "only Unix has the object pass, which needs the inode of a file"))]
+enum Output {
+  /// One file, with its inode as the read of its directory told it
+  File(PathBuf, u64),
+  /// Each file right in the dir
+  Dir(PathBuf),
+}
+
+/// The units of a profile dir, by an id unique in it
+type Units = HashMap<String, Unit>;
+
+/// The inode of `entry` as the read of its directory tells it, no `stat`; 0 off Unix, where the object pass finds
+/// nothing
+#[cfg(unix)]
+fn entry_inode(entry: &std::fs::DirEntry) -> u64 {
+  use std::os::unix::fs::DirEntryExt;
+  entry.ino()
+}
+
+#[cfg(not(unix))]
+const fn entry_inode(_entry: &std::fs::DirEntry) -> u64 {
+  0
+}
 
 /// The units of the classic layout of a profile dir: `<name>-<16 hex>` in `deps/` (`lib<name>-<hash>.rlib`,
 /// `.rmeta`, `<name>-<hash>.d`, the executable, its `.dSYM`, `.pdb` or `.exe`, the object files), `.fingerprint/` and
 /// `build/` (a build script and its run, `out/`). One name and hash is one unit, whose files go together. The uplifted
 /// artifacts at the top of the profile dir and `.cargo-lock` are never part of one. Only the dirs `walks` names are read
-fn classic_units(profile: &Path, walks: &impl Fn(&str) -> bool) -> Groups {
-  let mut groups = Groups::new();
+fn classic_units(profile: &Path, walks: &impl Fn(&str) -> bool) -> Units {
+  let mut units = Units::new();
   for dir in ["deps", ".fingerprint", "build"].into_iter().filter(|dir| walks(dir)) {
     let Ok(entries) = std::fs::read_dir(profile.join(dir)) else { continue };
     for entry in entries.flatten() {
       // a symlink is never part of a unit: its target may be out of the slot
-      if entry.file_type().is_ok_and(|file_type| file_type.is_symlink()) {
+      let Ok(file_type) = entry.file_type() else { continue };
+      if file_type.is_symlink() {
         continue;
       }
       let name = entry.file_name().to_string_lossy().into_owned();
-      if let Some((group, hash)) = classic_unit_name(&name) {
-        groups.entry(group).or_default().entry(hash).or_default().add(entry.path());
+      if let Some((package, hash)) = classic_unit_name(&name) {
+        let unit = units.entry(format!("{package} {hash}")).or_insert_with(|| Unit::new(package));
+        match dir {
+          "deps" if !file_type.is_dir() => unit.outputs.push(Output::File(entry.path(), entry_inode(&entry))),
+          "build" if file_type.is_dir() => unit.outputs.push(Output::Dir(entry.path())),
+          _ => {}
+        }
+        unit.add(entry.path());
       }
     }
   }
-  groups
+  units
 }
 
 /// The group and the hash of a file or a dir of the classic layout: the name before `-<16 hex digits>`, which the end
@@ -1009,53 +1357,249 @@ pub fn classic_unit_name(file_name: &str) -> Option<(String, String)> {
 
 /// The units of the build-dir layout: `build/<package>/<hash>/`; a classic `build/<pkg>-<hash>/` belongs to
 /// `classic_units`
-fn add_build_dir_units(groups: &mut Groups, build: &Path) {
+fn add_build_dir_units(units: &mut Units, build: &Path) {
   for package in subdirs(build) {
     let name = package.file_name().map_or_default(|name| name.to_string_lossy().into_owned());
     if classic_unit_name(&name).is_some() {
       continue;
     }
-    for unit in subdirs(&package) {
-      let id = format!("build/{name}/{}", unit.file_name().map_or_default(|hash| hash.to_string_lossy().into_owned()));
-      groups.entry(name.replace('-', "_")).or_default().entry(id).or_default().add(unit);
+    for dir in subdirs(&package) {
+      let id = format!("build/{name}/{}", dir.file_name().map_or_default(|hash| hash.to_string_lossy().into_owned()));
+      let mut unit = Unit::new(name.replace('-', "_"));
+      unit.outputs.push(Output::Dir(dir.join("out")));
+      unit.add(dir);
+      units.insert(id, unit);
     }
   }
 }
 
 /// The units of `incremental/<crate>-<hash>/`, grouped by crate (a crate name may hold `-`); their hash is not the one
 /// of the other files, so each is a unit of its own
-fn add_incremental_units(groups: &mut Groups, incremental: &Path) {
-  for unit in subdirs(incremental) {
-    let name = unit.file_name().map_or_default(|name| name.to_string_lossy().into_owned());
+fn add_incremental_units(units: &mut Units, incremental: &Path) {
+  for dir in subdirs(incremental) {
+    let name = dir.file_name().map_or_default(|name| name.to_string_lossy().into_owned());
     let crate_name = name.rfind('-').map_or(name.as_str(), |dash| &name[..dash]).replace('-', "_");
-    groups.entry(format!("incremental {crate_name}")).or_default().entry(name).or_default().add(unit);
+    let mut unit = Unit::new(format!("incremental {crate_name}"));
+    unit.incremental = true;
+    unit.add(dir);
+    units.insert(format!("incremental/{name}"), unit);
   }
 }
 
-/// The stale units of `groups`: a unit stays when it is among the `keep` last built of its group or was built after
-/// `cutoff`, since a slot builds a dozen variants an hour and age alone keeps all. The files of a unit go together
-fn stale_units(groups: Groups, keep: usize, cutoff: SystemTime) -> Vec<Unit> {
-  let mut stale = Vec::new();
-  for units in groups.into_values() {
-    let mut units: Vec<Unit> = units.into_values().collect();
+/// The stale and the kept units of `units`: a unit stays when it is among the `keep` last built of its group
+/// (`Unit::group`) or was built after `cutoff`, since a slot builds a dozen variants an hour and age alone keeps all.
+/// The files of a unit go together
+fn split_units(units: Units, keep: usize, cutoff: SystemTime) -> (Vec<Unit>, Vec<Unit>) {
+  let mut groups: HashMap<String, Vec<Unit>> = HashMap::new();
+  for unit in units.into_values() {
+    groups.entry(unit.group()).or_default().push(unit);
+  }
+  let (mut stale, mut kept) = (Vec::new(), Vec::new());
+  for mut units in groups.into_values() {
     units.sort_by_key(|unit| std::cmp::Reverse(unit.built));
-    stale.extend(units.into_iter().skip(keep).filter(|unit| unit.built.is_some_and(|built| built < cutoff)));
+    for (index, unit) in units.into_iter().enumerate() {
+      if index >= keep && unit.built.is_some_and(|built| built < cutoff) {
+        stale.push(unit);
+      } else {
+        kept.push(unit);
+      }
+    }
+  }
+  (stale, kept)
+}
+
+/// When a file or a dir of a unit was last built, and the target its fingerprint names (`fingerprint_target`): a
+/// rebuild rewrites its fingerprint files (`build/`) or adds a session (`incremental/`), not always the directory
+/// itself, so the newest mtime of the directory and of the direct children of its `fingerprint` dir (else of itself)
+/// counts; of a file its own mtime
+fn last_built(unit: &Path) -> (SystemTime, Option<String>) {
+  let modified = |path: &Path| path.symlink_metadata().and_then(|metadata| metadata.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+  let fingerprint = unit.join("fingerprint");
+  // the fingerprint of the unit: `fingerprint/` of the build-dir layout, a dir of `.fingerprint/` of the classic one
+  let (children, names_target) = if fingerprint.is_dir() {
+    (fingerprint, true)
+  } else {
+    (unit.to_path_buf(), unit.parent().and_then(Path::file_name).is_some_and(|parent| parent == ".fingerprint"))
+  };
+  let mut newest = modified(unit);
+  let mut target: Option<String> = None;
+  if let Ok(entries) = std::fs::read_dir(&children) {
+    for entry in entries.flatten() {
+      newest = newest.max(modified(&entry.path()));
+      let name = entry.file_name().to_string_lossy().into_owned();
+      if names_target && fingerprint_target(&name) && target.as_ref().is_none_or(|known| name < *known) {
+        target = Some(name);
+      }
+    }
+  }
+  (newest, target)
+}
+
+/// Whether a file of a fingerprint dir names the kind and the name of the target of its unit: `lib-bd_cli`,
+/// `test-bin-brd`, `build-script-build-script-build`; not its `.json`, `dep-` and `output-` files or
+/// `invoked.timestamp`
+fn fingerprint_target(name: &str) -> bool {
+  name.contains('-') && !name.contains('.') && !name.starts_with("dep-") && !name.starts_with("output-")
+}
+
+/// An object of rustc in a kept unit that no build reads (`stale_objects`)
+#[derive(Debug)]
+struct StaleObject {
+  path: PathBuf,
+  inode: u64,
+  links: u64,
+  bytes: u64,
+}
+
+/// The name of an object of an incremental compile, `<crate>-<hash>.<cgu>.<invocation>.rcgu.o`, gives the rustc
+/// invocation that wrote it; `None` for another file, and for an object of a compile without incremental
+/// (`<crate>-<hash>.<crate>.<hex>-cgu.<n>.rcgu.o`), whose name tells no invocation
+#[cfg(unix)]
+fn incremental_invocation(name: &str) -> Option<&str> {
+  let stem = name.strip_suffix(".rcgu.o")?;
+  if stem.contains("-cgu.") {
+    return None;
+  }
+  let (rest, invocation) = stem.rsplit_once('.')?;
+  (rest.contains('.') && !invocation.is_empty()).then_some(invocation)
+}
+
+/// The stale objects of rustc in the `kept` units, older than `cutoff`. Only the objects of an incremental compile go:
+///
+/// - first the sessions of the kept dirs of `incremental/`, the inode of each file. A session links the objects that
+///   the next build of its crate reuses, under new names, so an object whose inode a session holds stays;
+/// - a unit that links only an rlib (`.rlib`, `.rmeta`, `.d` and objects): no reader opens its objects after the compile,
+///   as the debug map of an executable names the members of the rlib. Each other object goes;
+/// - another unit (an executable, a test harness, a build script, a dylib) names its own objects in its debug map: the
+///   objects of each invocation that names an inode of the newest mtime of the unit stay, the others go.
+///
+/// An object of a compile without incremental stays, as its name tells no invocation
+#[cfg(unix)]
+fn stale_objects(kept: &[Unit], cutoff: SystemTime) -> Vec<StaleObject> {
+  use std::os::unix::fs::MetadataExt;
+  let held: HashSet<u64> = kept
+    .iter()
+    .filter(|unit| unit.incremental)
+    .flat_map(|unit| &unit.paths)
+    .flat_map(|dir| session_inodes(dir))
+    .collect();
+  let mut stale = Vec::new();
+  for unit in kept.iter().filter(|unit| !unit.incremental) {
+    let files = output_files(unit);
+    let objects: Vec<(&OutputFile, &str)> = files
+      .iter()
+      .filter_map(|file| incremental_invocation(&file.name).map(|invocation| (file, invocation)))
+      .collect();
+    if objects.is_empty() {
+      continue;
+    }
+    let links_only_an_rlib = {
+      let mut others = files.iter().filter(|file| !file.name.ends_with(".rcgu.o")).map(|file| file.name.as_str()).peekable();
+      others.peek().is_some()
+        && files.iter().any(|file| Path::new(&file.name).extension().is_some_and(|extension| extension == "rlib"))
+        && others.all(|name| [".rlib", ".rmeta", ".d"].iter().any(|extension| name.ends_with(extension)))
+    };
+    let mut metadata: HashMap<u64, std::fs::Metadata> = HashMap::new();
+    let mut stat = |file: &OutputFile| -> Option<std::fs::Metadata> {
+      if let Some(known) = metadata.get(&file.inode) {
+        return Some(known.clone());
+      }
+      let read = file.path.symlink_metadata().ok()?;
+      metadata.insert(file.inode, read.clone());
+      Some(read)
+    };
+    // the inodes that the names of the newest invocations hold
+    let mut kept_inodes = HashSet::new();
+    if !links_only_an_rlib {
+      let modified: Vec<(&OutputFile, &str, SystemTime)> = objects
+        .iter()
+        .filter_map(|(file, invocation)| stat(file).and_then(|read| read.modified().ok()).map(|modified| (*file, *invocation, modified)))
+        .collect();
+      let Some(newest) = modified.iter().map(|(_, _, modified)| *modified).max() else {
+        continue;
+      };
+      let newest_invocations: HashSet<&str> = modified
+        .iter()
+        .filter(|(_, _, modified)| *modified == newest)
+        .map(|(_, invocation, _)| *invocation)
+        .collect();
+      kept_inodes.extend(objects.iter().filter(|(_, invocation)| newest_invocations.contains(invocation)).map(|(file, _)| file.inode));
+    }
+    for (file, _) in objects {
+      if held.contains(&file.inode) || kept_inodes.contains(&file.inode) {
+        continue;
+      }
+      let Some(read) = stat(file) else { continue };
+      if read.modified().is_ok_and(|modified| modified < cutoff) {
+        stale.push(StaleObject {
+          path: file.path.clone(),
+          inode: file.inode,
+          links: read.nlink(),
+          bytes: allocated(&read),
+        });
+      }
+    }
   }
   stale
 }
 
-/// When a file or a dir of a unit was last built: a rebuild rewrites its fingerprint files (`build/`) or adds a
-/// session (`incremental/`), not always the directory itself, so the newest mtime of the directory and of the direct
-/// children of its `fingerprint` dir (else of itself) counts; of a file its own mtime
-fn last_built(unit: &Path) -> SystemTime {
-  let modified = |path: &Path| path.symlink_metadata().and_then(|metadata| metadata.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
-  let fingerprint = unit.join("fingerprint");
-  let children = if fingerprint.is_dir() { fingerprint } else { unit.to_path_buf() };
-  std::fs::read_dir(&children)
-    .map_or(SystemTime::UNIX_EPOCH, |entries| {
-      entries.flatten().map(|entry| modified(&entry.path())).max().unwrap_or(SystemTime::UNIX_EPOCH)
-    })
-    .max(modified(unit))
+/// No inode off Unix: no object is known to be stale
+#[cfg(not(unix))]
+const fn stale_objects(_kept: &[Unit], _cutoff: SystemTime) -> Vec<StaleObject> {
+  Vec::new()
+}
+
+/// The inodes of the files of the sessions (`s-*`, the working ones too) of the incremental dir `dir`
+#[cfg(unix)]
+fn session_inodes(dir: &Path) -> Vec<u64> {
+  subdirs(dir)
+    .into_iter()
+    .filter(|session| session.file_name().is_some_and(|name| name.to_string_lossy().starts_with("s-")))
+    .flat_map(|session| std::fs::read_dir(session).map_or_default(|entries| entries.flatten().map(|entry| entry_inode(&entry)).collect::<Vec<_>>()))
+    .collect()
+}
+
+/// A file that rustc wrote for a unit
+#[cfg(unix)]
+struct OutputFile {
+  name: String,
+  path: PathBuf,
+  inode: u64,
+}
+
+/// The files of `Unit::outputs`
+#[cfg(unix)]
+fn output_files(unit: &Unit) -> Vec<OutputFile> {
+  let mut files = Vec::new();
+  for output in &unit.outputs {
+    match output {
+      Output::File(path, inode) => files.push(OutputFile {
+        name: path.file_name().map_or_default(|name| name.to_string_lossy().into_owned()),
+        path: path.clone(),
+        inode: *inode,
+      }),
+      Output::Dir(dir) => {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        files.extend(entries.flatten().map(|entry| OutputFile {
+          name: entry.file_name().to_string_lossy().into_owned(),
+          path: entry.path(),
+          inode: entry_inode(&entry),
+        }));
+      }
+    }
+  }
+  files
+}
+
+/// What the deletes of `objects` free: the blocks of each inode whose every link is one of them, once; an inode that
+/// another link keeps frees nothing (`unlink_frees`)
+fn measure_objects(objects: &[StaleObject]) -> u64 {
+  let mut names: HashMap<u64, (u64, u64, u64)> = HashMap::new();
+  for object in objects {
+    let entry = names.entry(object.inode).or_insert((0, object.links, object.bytes));
+    entry.0 += 1;
+  }
+  names.values().filter(|(count, links, _)| count >= links).map(|(_, _, bytes)| bytes).sum()
 }
 
 /// The bytes on disk of `path` and of everything below it, symlinks counted as themselves

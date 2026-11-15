@@ -29,7 +29,8 @@ use crate::lease::{
   get_host_slot, move_reused_slot, relieve_core, return_host_slot, slot_servers, stop_servers,
 };
 use crate::lease_clean::{
-  CleanMode, CleanOverrides, Cleaned, ParsedRule, TrackedPaths, Trash, apply_clean_rules, apply_tracked_rules, parse_age, read_clean_rules, tracked_by_rules,
+  CleanMode, CleanOverrides, Cleaned, ParsedRule, RETURN_CARGO_LOCK_WAIT, TrackedPaths, Trash, apply_clean_rules, apply_tracked_rules, parse_age, read_clean_rules,
+  tracked_by_rules,
 };
 use crate::output_bases::OutputBase;
 use crate::shrink::DEEP;
@@ -2095,6 +2096,7 @@ fn return_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, 
       bazel: None,
       clean: Some(CleanOverrides::default()),
       lock_timeout: params.lock_timeout,
+      cargo_lock_wait: RETURN_CARGO_LOCK_WAIT,
     },
     &config,
     trash,

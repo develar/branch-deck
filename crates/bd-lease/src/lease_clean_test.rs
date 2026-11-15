@@ -81,6 +81,49 @@ fn the_return_applies_the_clean_rules_of_the_source() {
   assert_eq!(fixture.status()["slots"][0]["state"], json!("free"));
 }
 
+/// Another clean holds the locks of cargo of the slot for the whole return: the return waits for them, then frees the
+/// slot with that profile dir as it is, and `cleaned` names the held lock
+#[cfg(unix)]
+#[test_log::test]
+fn a_return_that_meets_a_held_cargo_lock_frees_the_slot_and_names_it() {
+  let fixture = Fixture::new();
+  commit_rules(&fixture, RULES);
+  let got = fixture.get(&[]);
+  let path = path_of(&got);
+  let slot = Path::new(&path);
+  cargo_units(slot);
+  file(slot, "target/debug/.cargo-build-lock", 0);
+  let held = std::fs::File::open(slot.join("target/debug/.cargo-build-lock")).unwrap();
+  held.try_lock().unwrap();
+  let context = crate::lease_command::LeaseContext::resolve(&fixture.environment(slot), None).unwrap();
+  let returned = lease_pool::lease::lease_return_core(
+    &context.git,
+    &lease_pool::lease::LeaseReturnParams {
+      workspace: &context.dirs,
+      lease_id: got["lease_id"].as_str(),
+      find_by_lease_id: false,
+      confirm_preserved: false,
+      server_timeout: context.server_stop_timeout,
+      bazel: None,
+      clean: Some(lease_pool::lease_clean::CleanOverrides::default()),
+      lock_timeout: context.lock_timeout,
+      cargo_lock_wait: std::time::Duration::from_millis(100),
+    },
+  )
+  .unwrap();
+  drop(held);
+  let errors: Vec<(&str, Option<&str>)> = returned.cleaned.iter().map(|cleaned| (cleaned.rule.as_str(), cleaned.error.as_deref())).collect();
+  assert_eq!(
+    errors,
+    [
+      ("cargo target", Some("the lock of cargo is held (a build or another clean): target/debug")),
+      ("delete tests/results", None)
+    ]
+  );
+  assert!(slot.join("target/debug/build/git-ops/old").exists() && slot.join("target/debug/build/git-ops/new").exists());
+  assert_eq!(fixture.status()["slots"][0]["state"], json!("free"));
+}
+
 /// `--no-clean` applies no rule on the return; `--keep` and `--age` change every cargo rule for one call, on the return
 /// and on `brd lease clean`; a bad `--age` is invalid
 #[cfg(unix)]

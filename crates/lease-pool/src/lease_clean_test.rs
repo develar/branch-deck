@@ -197,6 +197,7 @@ fn a_trash_whose_delete_stopped_is_left_to_the_next_sweep() {
     elapsed: Duration::ZERO,
     error: None,
     trashed: vec![moved],
+    deferred: Vec::new(),
   }];
   assert!(!holds_gone_runs(&root));
   let (left, complete) = trash.empty_until(&mut cleaned, &|| true);
@@ -895,4 +896,378 @@ fn a_hard_link_frees_nothing_while_another_link_keeps_the_file() {
 
   assert!(profile_freed < SIZE / 4, "the link in deps keeps the file: {profile_freed}");
   assert!((SIZE..2 * SIZE).contains(&deps_freed), "the last link frees the file: {deps_freed}");
+}
+
+/// A profile dir at `target/debug` of `root` with the lock files of cargo
+#[cfg(unix)]
+fn profile_dir(root: &Path) -> PathBuf {
+  let profile = root.join("target/debug");
+  std::fs::create_dir_all(&profile).unwrap();
+  for lock in [".cargo-lock", ".cargo-build-lock"] {
+    std::fs::write(profile.join(lock), "").unwrap();
+  }
+  profile
+}
+
+/// A file of 8 KiB at `path`, written `old` ago
+#[cfg(unix)]
+fn output(path: &Path, old: Duration) {
+  std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+  std::fs::write(path, vec![7u8; 8192]).unwrap();
+  age(path, old);
+}
+
+/// The cargo rule of the object tests: the 8 newest units of a group and the ones of the last hour stay
+#[cfg(unix)]
+const OBJECT_RULES: &str = "[lease]\nclean = [{ cargo = \"target\", keep = 8, age = \"1h\" }]\n";
+
+/// Apply `OBJECT_RULES` to `root`: the delete frees one object of 8 KiB, without an error
+#[cfg(unix)]
+fn prune_one_object(git: &GitCommandExecutor, root: &Path) {
+  let cleaned = apply_clean_rules(git, root.to_str().unwrap(), &parse_clean_rules(OBJECT_RULES).unwrap(), CleanMode::Delete);
+  assert_eq!((cleaned[0].freed_bytes, &cleaned[0].error), (8192, &None), "{cleaned:?}");
+}
+
+/// A kept unit that links only an rlib: each old object of an incremental compile that no session holds goes, also two
+/// names of one inode; a session-held, a young and a non-incremental object stay. A dry run counts what the delete frees,
+/// the shared inode once
+#[cfg(unix)]
+#[test]
+fn the_cargo_rule_deletes_the_objects_of_a_unit_that_links_only_an_rlib() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  let out = profile.join("build/app/h1/out");
+  let hours = |hours: u64| Duration::from_hours(hours);
+  for file in ["libapp-h1.rlib", "libapp-h1.rmeta", "app-h1.d"] {
+    output(&out.join(file), hours(2));
+  }
+  let object = |name: &str| out.join(format!("app-h1.{name}.rcgu.o"));
+  output(&object("held.0aaaaaa"), hours(3));
+  let session = profile.join("incremental/app-x/s-1-abc");
+  std::fs::create_dir_all(&session).unwrap();
+  std::fs::hard_link(object("held.0aaaaaa"), session.join("held.o")).unwrap();
+  output(&object("shared.0aaaaaa"), hours(3));
+  std::fs::hard_link(object("shared.0aaaaaa"), object("shared.0bbbbbb")).unwrap();
+  output(&object("single.0aaaaaa"), hours(3));
+  output(&object("young.0bbbbbb"), Duration::from_mins(5));
+  output(&out.join("app-h1.app.4f50d93f3af7ef9a-cgu.0.rcgu.o"), hours(3));
+  unit(&profile.join("build/app/h1"), hours(2));
+
+  let rules = parse_clean_rules(OBJECT_RULES).unwrap();
+  let checkout = root.to_str().unwrap();
+  let dry_run = apply_clean_rules(&git, checkout, &rules, CleanMode::Measure);
+  assert_eq!((dry_run[0].freed_bytes > 0, &dry_run[0].error), (true, &None), "{dry_run:?}");
+  assert!(object("single.0aaaaaa").exists(), "a dry run deletes nothing");
+  let cleaned = apply_clean_rules(&git, checkout, &rules, CleanMode::Delete);
+  assert_eq!((cleaned[0].freed_bytes, &cleaned[0].error), (dry_run[0].freed_bytes, &None));
+  assert_eq!(
+    entry_names(&out),
+    [
+      "app-h1.app.4f50d93f3af7ef9a-cgu.0.rcgu.o",
+      "app-h1.d",
+      "app-h1.held.0aaaaaa.rcgu.o",
+      "app-h1.young.0bbbbbb.rcgu.o",
+      "libapp-h1.rlib",
+      "libapp-h1.rmeta",
+    ]
+  );
+  assert!(session.join("held.o").exists());
+}
+
+/// A kept executable names its own objects: the objects of the invocation that wrote the newest object stay, and so does
+/// an old object whose inode that invocation names; the other old ones go
+#[cfg(unix)]
+#[test]
+fn the_cargo_rule_keeps_the_objects_of_the_newest_invocation_of_an_executable() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  let out = profile.join("build/app/h2/out");
+  let hours = |hours: u64| Duration::from_hours(hours);
+  output(&out.join("app-h2"), hours(2));
+  output(&out.join("app-h2.d"), hours(2));
+  let object = |name: &str| out.join(format!("app-h2.{name}.rcgu.o"));
+  output(&object("cgu0.0aaaaaa"), hours(4));
+  output(&object("cgu1.0aaaaaa"), hours(4));
+  output(&object("cgu0.0bbbbbb"), hours(2));
+  std::fs::hard_link(object("cgu1.0aaaaaa"), object("cgu1.0bbbbbb")).unwrap();
+  unit(&profile.join("build/app/h2"), hours(2));
+
+  prune_one_object(&git, root);
+  assert_eq!(
+    entry_names(&out),
+    [
+      "app-h2",
+      "app-h2.cgu0.0bbbbbb.rcgu.o",
+      "app-h2.cgu1.0aaaaaa.rcgu.o",
+      "app-h2.cgu1.0bbbbbb.rcgu.o",
+      "app-h2.d",
+    ]
+  );
+}
+
+/// Two units of one crate share one incremental dir, whose session holds a few objects of the first and every object of
+/// the second: the newest invocation of each keeps all its objects, also the ones no session holds
+#[cfg(unix)]
+#[test]
+fn sibling_units_of_one_incremental_dir_keep_their_newest_objects() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  let session = profile.join("incremental/app-x/s-2-def");
+  std::fs::create_dir_all(&session).unwrap();
+  let hours = |hours: u64| Duration::from_hours(hours);
+  for (unit_hash, invocation, held) in [("u1", "0cccccc", 2), ("u2", "0eeeeee", 3)] {
+    let out = profile.join("build/app").join(unit_hash).join("out");
+    output(&out.join(format!("app-{unit_hash}")), hours(2));
+    for index in 0..3 {
+      let object = out.join(format!("app-{unit_hash}.cgu{index}.{invocation}.rcgu.o"));
+      output(&object, hours(2));
+      if index < held {
+        std::fs::hard_link(&object, session.join(format!("{unit_hash}-{index}.o"))).unwrap();
+      }
+    }
+    unit(&profile.join("build/app").join(unit_hash), hours(2));
+  }
+  // the newest object of u1 is the one no session holds; an older invocation of u1 goes
+  let u1 = profile.join("build/app/u1/out");
+  age(&u1.join("app-u1.cgu2.0cccccc.rcgu.o"), Duration::from_mins(90));
+  output(&u1.join("app-u1.cgu0.0dddddd.rcgu.o"), hours(4));
+
+  prune_one_object(&git, root);
+  assert_eq!(
+    entry_names(&u1),
+    ["app-u1", "app-u1.cgu0.0cccccc.rcgu.o", "app-u1.cgu1.0cccccc.rcgu.o", "app-u1.cgu2.0cccccc.rcgu.o"]
+  );
+  assert_eq!(entry_names(&profile.join("build/app/u2/out")).len(), 4);
+}
+
+/// The classic layout: the objects of a unit are in `deps/`, beside its executable; the old invocation goes, the newest
+/// stays
+#[cfg(unix)]
+#[test]
+fn the_cargo_rule_deletes_the_stale_objects_of_a_classic_unit() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  let hash = "4444444444444444";
+  let hours = |hours: u64| Duration::from_hours(hours);
+  let deps = profile.join("deps");
+  output(&deps.join(format!("app-{hash}")), hours(2));
+  output(&deps.join(format!("app-{hash}.d")), hours(2));
+  output(&deps.join(format!("app-{hash}.cgu0.0aaaaaa.rcgu.o")), hours(4));
+  output(&deps.join(format!("app-{hash}.cgu0.0bbbbbb.rcgu.o")), hours(2));
+  output(&profile.join(format!(".fingerprint/app-{hash}/test-bin-app")), hours(2));
+
+  prune_one_object(&git, root);
+  assert_eq!(
+    entry_names(&deps),
+    [format!("app-{hash}"), format!("app-{hash}.cgu0.0bbbbbb.rcgu.o"), format!("app-{hash}.d")]
+  );
+}
+
+/// A registry build script named `build_script_build`, as the build scripts of the workspace in `incremental/`, a
+/// registry library and a release executable: their objects are of a compile without incremental, and every one stays
+#[cfg(unix)]
+#[test]
+fn the_cargo_rule_keeps_the_objects_of_units_with_other_names() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  let hours = |hours: u64| Duration::from_hours(hours);
+  std::fs::create_dir_all(profile.join("incremental/build_script_build-y/s-1-abc")).unwrap();
+  let units = [
+    ("serde/h3", "build_script_build", "build_script_build-h3"),
+    ("serde/h4", "libserde-h4.rlib", "serde-h4"),
+    ("tool/h5", "tool-h5", "tool-h5"),
+  ];
+  for (unit_dir, artifact, stem) in units {
+    let out = profile.join("build").join(unit_dir).join("out");
+    output(&out.join(artifact), hours(3));
+    output(&out.join(format!("{stem}.{}.0123456789abcdef-cgu.0.rcgu.o", stem.split('-').next().unwrap())), hours(3));
+    unit(&profile.join("build").join(unit_dir), hours(3));
+  }
+  let cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &parse_clean_rules(OBJECT_RULES).unwrap(), CleanMode::Delete);
+  assert_eq!((cleaned[0].freed_bytes, &cleaned[0].error), (0, &None), "{cleaned:?}");
+  for (unit_dir, ..) in units {
+    assert_eq!(entry_names(&profile.join("build").join(unit_dir).join("out")).len(), 2, "{unit_dir}");
+  }
+}
+
+/// A process holds `.cargo-build-lock` of one profile dir, then `.cargo-lock`: that dir stays whole and the error names
+/// it, the other dir is pruned, and the lock files stay, free once the rule ends
+#[cfg(unix)]
+#[test]
+fn a_profile_dir_whose_cargo_lock_is_held_stays_whole() {
+  for held in [".cargo-build-lock", ".cargo-lock"] {
+    let (checkout, git) = git_checkout();
+    let root = checkout.path();
+    for profile in ["target/debug", "target/release"] {
+      let profile = root.join(profile);
+      std::fs::create_dir_all(&profile).unwrap();
+      for lock in [".cargo-lock", ".cargo-build-lock"] {
+        std::fs::write(profile.join(lock), "").unwrap();
+      }
+      unit(&profile.join("build/app/old"), Duration::from_hours(3));
+      unit(&profile.join("build/app/new"), Duration::from_hours(2));
+    }
+    let lock = std::fs::File::open(root.join("target/debug").join(held)).unwrap();
+    lock.try_lock().unwrap();
+    let rules = parse_clean_rules("[lease]\nclean = [{ cargo = \"target\", keep = 1, age = \"1h\" }]\n").unwrap();
+    let cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Delete);
+    assert_eq!(
+      cleaned[0].error.as_deref(),
+      Some("the lock of cargo is held (a build or another clean): target/debug"),
+      "{held}"
+    );
+    assert_eq!(entry_names(&root.join("target/debug/build/app")), ["new", "old"], "{held}");
+    assert_eq!(entry_names(&root.join("target/release/build/app")), ["new"], "{held}");
+    drop(lock);
+    for lock in [".cargo-lock", ".cargo-build-lock"] {
+      let file = std::fs::File::open(root.join("target/release").join(lock)).unwrap();
+      file.try_lock().unwrap_or_else(|error| panic!("{lock} stays held after the rule: {error}"));
+    }
+  }
+}
+
+/// A lock that another holder releases during the wait is taken; without a wait a held one is refused at once, and a
+/// profile dir of a cargo before 1.91, which has only `.cargo-lock`, is locked by it alone
+#[test]
+fn a_cargo_lock_that_is_released_during_the_wait_is_taken() {
+  let dir = tempfile::tempdir().unwrap();
+  let profile = dir.path();
+  std::fs::write(profile.join(".cargo-lock"), "").unwrap();
+  crate::lease_clean::CargoLock::take(profile, Duration::ZERO).unwrap();
+  std::fs::write(profile.join(".cargo-build-lock"), "").unwrap();
+  let held = std::fs::File::open(profile.join(".cargo-build-lock")).unwrap();
+  held.try_lock().unwrap();
+  let (release, released) = std::sync::mpsc::channel::<()>();
+  let holder = std::thread::spawn(move || {
+    released.recv().unwrap();
+    drop(held);
+  });
+  let refused = crate::lease_clean::CargoLock::take(profile, Duration::ZERO).err().map(|error| error.to_string());
+  assert_eq!(refused.as_deref(), Some("the lock of cargo is held (a build or another clean)"));
+  release.send(()).unwrap();
+  let taken = crate::lease_clean::CargoLock::take(profile, Duration::from_secs(10));
+  holder.join().unwrap();
+  assert!(taken.is_ok(), "{:?}", taken.err());
+}
+
+/// The trash of the run is on another volume: the stale units go into `.brd-trash/` of their profile dir under the
+/// locks, and its delete comes with the trash, after the release; a `.brd-trash/` dir of a gone run is swept
+#[cfg(unix)]
+#[test]
+fn a_cargo_rule_on_another_volume_moves_its_units_beside_them() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  unit(&profile.join("build/app/old"), Duration::from_hours(3));
+  unit(&profile.join("build/app/new"), Duration::from_hours(2));
+  let gone = profile.join(".brd-trash/999999999-1-gone");
+  output(&gone.join("0/fingerprint/dep"), Duration::from_hours(5));
+  let trash_root = root.join("trash");
+  let trash = Trash::on_another_volume(&trash_root);
+  let rules = parse_clean_rules("[lease]\nclean = [{ cargo = \"target\", keep = 1, age = \"1h\" }]\n").unwrap();
+  let mut cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Trash(&trash));
+  assert_eq!((cleaned[0].trashed.len(), &cleaned[0].error), (0, &None), "{cleaned:?}");
+  assert_eq!(entry_names(&profile.join("build/app")), ["new"]);
+  let [own] = cleaned[0].deferred.as_slice() else { panic!("{cleaned:?}") };
+  assert!(own.starts_with(profile.join(".brd-trash")) && own.join("0/fingerprint/dep").exists(), "{own:?}");
+  assert!(!gone.exists(), "the sweep deletes the dir of a gone run");
+  let own = own.clone();
+  assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
+  assert!(cleaned[0].freed_bytes > 0 && !own.exists(), "{cleaned:?}");
+  assert!(!trash_root.exists());
+}
+
+/// A kept unit with 300 stale objects, cleaned with the trash
+#[cfg(unix)]
+fn stale_objects_fixture() -> (tempfile::TempDir, GitCommandExecutor, PathBuf) {
+  let (checkout, git) = git_checkout();
+  let profile = profile_dir(checkout.path());
+  let out = profile.join("build/app/h1/out");
+  output(&out.join("libapp-h1.rlib"), Duration::from_hours(2));
+  for index in 0..300 {
+    output(&out.join(format!("app-h1.cgu{index}.0aaaaaa.rcgu.o")), Duration::from_hours(3));
+  }
+  unit(&profile.join("build/app/h1"), Duration::from_hours(2));
+  (checkout, git, out)
+}
+
+/// The stale objects of a clean with the trash stay in place, never in the trash, until it is deleted; then they go in
+/// place with their bytes counted, one count of entries for all of them, so the stop is asked twice for 300 objects. A
+/// delete that stops leaves the rest for the next clean
+#[cfg(unix)]
+#[test]
+fn a_clean_with_the_trash_deletes_the_stale_objects_in_place_once_it_empties() {
+  let rules = parse_clean_rules(OBJECT_RULES).unwrap();
+  let objects = |out: &Path| entry_names(out).iter().filter(|name| name.ends_with(".rcgu.o")).count();
+  let (checkout, git, out) = stale_objects_fixture();
+  let trash_root = checkout.path().join("trash");
+  let trash = Trash::new(&trash_root);
+  let mut cleaned = apply_clean_rules(&git, checkout.path().to_str().unwrap(), &rules, CleanMode::Trash(&trash));
+  assert_eq!((objects(&out), cleaned[0].deferred.len(), cleaned[0].freed_bytes), (300, 300, 0), "{:?}", cleaned[0].error);
+  assert!(!trash_root.exists(), "no object goes into the trash");
+  let asks = std::sync::atomic::AtomicUsize::new(0);
+  let (left, complete) = trash.empty_until(&mut cleaned, &|| {
+    asks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    false
+  });
+  assert_eq!((left.len(), complete, objects(&out)), (0, true, 0));
+  assert_eq!((asks.into_inner(), cleaned[0].freed_bytes), (2, 300 * 8192));
+
+  let (checkout, git, out) = stale_objects_fixture();
+  let trash = Trash::new(&checkout.path().join("trash"));
+  let mut cleaned = apply_clean_rules(&git, checkout.path().to_str().unwrap(), &rules, CleanMode::Trash(&trash));
+  let asks = std::sync::atomic::AtomicUsize::new(0);
+  let (_, complete) = trash.empty_until(&mut cleaned, &|| asks.fetch_add(1, std::sync::atomic::Ordering::Relaxed) > 0);
+  assert_eq!((complete, objects(&out)), (false, 300 - 256));
+  let mut again = apply_clean_rules(&git, checkout.path().to_str().unwrap(), &rules, CleanMode::Trash(&trash));
+  assert_eq!(Trash::new(&checkout.path().join("trash")).empty(&mut again), Vec::<String>::new());
+  assert_eq!(objects(&out), 0, "the next clean deletes the rest");
+}
+
+/// A package with more current targets than `keep`: each target its fingerprint names keeps its own `keep` newest
+/// units, so the old test harness stays beside the newer libraries
+#[cfg(unix)]
+#[test]
+fn each_target_of_a_package_keeps_its_own_newest_units() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let profile = profile_dir(root);
+  let hours = |hours: u64| Duration::from_hours(hours);
+  for (hash, target, built) in [
+    ("l1", "lib-app", hours(2)),
+    ("l2", "lib-app", hours(3)),
+    ("l3", "lib-app", hours(4)),
+    ("t1", "test-lib-app", hours(5)),
+  ] {
+    let dir = profile.join("build/app").join(hash);
+    unit(&dir, built);
+    output(&dir.join("fingerprint").join(target), built);
+    output(&dir.join("fingerprint").join(format!("{target}.json")), built);
+    age(&dir.join("fingerprint"), built);
+    age(&dir, built);
+  }
+  let rules = parse_clean_rules("[lease]\nclean = [{ cargo = \"target\", keep = 2, age = \"1h\" }]\n").unwrap();
+  let cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Delete);
+  assert_eq!(cleaned[0].error, None);
+  assert_eq!(entry_names(&profile.join("build/app")), ["l1", "l2", "t1"]);
+}
+
+/// The walk reads the units before the locks of cargo; under them a stale unit goes only while no build wrote it since:
+/// a fingerprint rewritten after the read tells it
+#[cfg(unix)]
+#[test]
+fn a_unit_that_a_build_wrote_after_the_walk_is_built_again() {
+  let dir = tempfile::tempdir().unwrap();
+  let path = dir.path().join("build/app/h1");
+  unit(&path, Duration::from_hours(3));
+  let mut read = crate::lease_clean::Unit::new("app".to_string());
+  read.add(path.clone());
+  assert!(!read.built_again());
+  output(&path.join("fingerprint/lib-app"), Duration::ZERO);
+  assert!(read.built_again());
 }

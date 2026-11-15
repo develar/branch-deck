@@ -14,7 +14,7 @@ use axum::http::StatusCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use lease_pool::lease::{LeaseGetParams, LeaseReturnParams, lease_get_core, lease_return_core};
-use lease_pool::lease_clean::CleanOverrides;
+use lease_pool::lease_clean::{CleanOverrides, RETURN_CARGO_LOCK_WAIT};
 use pool_disk::report::DiskReport;
 use serde::Deserialize;
 use std::sync::{Arc, PoisonError};
@@ -173,6 +173,7 @@ fn return_slot(git: &GitCommandExecutor, slot: &str, lease_id: Option<&str>) -> 
       bazel: None,
       clean: Some(CleanOverrides::default()),
       lock_timeout: Duration::from_secs(10),
+      cargo_lock_wait: RETURN_CARGO_LOCK_WAIT,
     },
   )?;
   Ok(())

@@ -17,7 +17,10 @@ use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::{SpaceOf, Volume, VolumeSpace, volume_space};
 use crate::host_slots::{HOST_HOLDER_PREFIX, RelievedHostSlot, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
-use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, holds_gone_runs, read_clean_rules, remove_together};
+use crate::lease_clean::{
+  CleanMode, CleanOptions, CleanOverrides, Cleaned, Trash, apply_clean_rules, apply_clean_rules_with, clone_skips, describe_size, holds_gone_runs, read_clean_rules,
+  remove_together,
+};
 use crate::lease_notes::{LeaseNotes, close_notes, notes_root, open_notes};
 use crate::shrink::{ShrinkParams, Shrunk, lock_pressure, shrink_core};
 use crate::state_file::StateFile;
@@ -1376,8 +1379,17 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
         report(GetStep::CleanTakenOver { slot: path.clone() });
         // the trash stays: the next return or clean deletes it as the trash of a gone run, and the get goes on
         let trash = Trash::new(&pool.trash_dir());
-        finish_return(git_executor, &path, &old, None, Some(CleanOverrides::default()), (&trash, &pool.notes_root()))
-          .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
+        // no wait for a lock of cargo, which only another clean holds: the get goes on, and a later clean prunes what stays.
+        // The stale objects it defers stay in place for that clean too
+        finish_return(
+          git_executor,
+          &path,
+          &old,
+          None,
+          (Some(CleanOverrides::default()), Duration::ZERO),
+          (&trash, &pool.notes_root()),
+        )
+        .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         move_leased_slot(git_executor, &pool, params, &path, &lease.id, &source_head, config.workers)?;
         took_over = Some(TookOver { lease: *old, landed });
         (path, true)
@@ -2858,6 +2870,9 @@ pub struct LeaseReturnParams<'a> {
   /// Apply the clean rules of `.branchdeck.toml`, with these overrides; `None` (`--no-clean`) applies none
   pub clean: Option<CleanOverrides>,
   pub lock_timeout: Duration,
+  /// How long a cargo rule waits for the locks of cargo of a profile dir that another clean holds
+  /// (`lease_clean::RETURN_CARGO_LOCK_WAIT`); after it the profile dir stays as it is and the slot is free all the same
+  pub cargo_lock_wait: Duration,
 }
 
 /// What a return did
@@ -3146,7 +3161,7 @@ fn return_once(
     &path,
     &lease,
     (!changes.is_empty()).then_some(config.untracked),
-    params.clean,
+    (params.clean, params.cargo_lock_wait),
     (trash, &pool.notes_root()),
   );
   let FinishedReturn {
@@ -3271,13 +3286,14 @@ struct FinishedReturn {
 
 /// What a reserved return does to the slot: discard the changes it may give up (`discard`: the untracked mode of the
 /// repository, when it found any), remove the seeded paths, detach HEAD, take the notes of the lease out of the slot
-/// into `notes_root` (`lease_notes::close_notes`) and apply the clean rules, moving what a `delete` removes into `trash`
+/// into `notes_root` (`lease_notes::close_notes`) and apply the clean rules, moving what a `delete` removes into `trash`.
+/// A cargo rule waits up to `cargo_lock_wait` for a held lock of cargo, then leaves that profile dir as it is
 fn finish_return(
   git_executor: &GitCommandExecutor,
   path: &str,
   lease: &Lease,
   discard: Option<UntrackedFiles>,
-  clean: Option<CleanOverrides>,
+  (clean, cargo_lock_wait): (Option<CleanOverrides>, Duration),
   (trash, notes_root): (&Trash, &Path),
 ) -> Result<FinishedReturn> {
   // the next lease of the slot is a worktree no sync built anything for (`lease_state`: the mark of a sync, the landed
@@ -3304,7 +3320,10 @@ fn finish_return(
     .unwrap_or_else(|| Path::new(path));
   let (cleaned, clean_error) = match clean.map(|overrides| read_clean_rules(rules_from).map(|rules| overrides.apply(rules))) {
     None => (Vec::new(), None),
-    Some(Ok(rules)) => (apply_clean_rules(git_executor, path, &rules, CleanMode::Trash(trash)), None),
+    Some(Ok(rules)) => (
+      apply_clean_rules_with(git_executor, path, &rules, CleanMode::Trash(trash), CleanOptions { cargo_lock_wait }),
+      None,
+    ),
     Some(Err(error)) => (Vec::new(), Some(format!("{error:#}"))),
   };
   Ok(FinishedReturn {
@@ -3891,7 +3910,8 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       answer.skipped.push(skip(IdleSkip::Busy { processes: running }));
       continue;
     }
-    match finish_return(git_executor, &path, &lease, None, Some(params.clean), (&trash, &pool.notes_root())) {
+    // no wait for a lock of cargo, which only another clean holds: the slot is free all the same
+    match finish_return(git_executor, &path, &lease, None, (Some(params.clean), Duration::ZERO), (&trash, &pool.notes_root())) {
       Ok(finished) => reclaimed.cleaned = finished.cleaned,
       Err(error) => {
         restore_ready(&pool, params.lock_timeout, &path, &lease.id);

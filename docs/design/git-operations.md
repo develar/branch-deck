@@ -2755,6 +2755,34 @@ lock meanwhile, so no get leases it (`a_slot_that_clean_cleans_is_reserved_again
 user's decision): `--dry-run` only reports, `brd lease return --no-clean` applies none, and `--keep` and `--age` set the
 parameters of every cargo rule for one call.
 
+The locks of cargo and the stale objects (`lease_clean::ProfilePrune`). A cargo rule that deletes takes
+`.cargo-build-lock` and `.cargo-lock` of each profile dir exclusive (`CargoLock`): a build of cargo holds the first
+exclusive and the second shared, a cargo before 1.91 the second exclusive, so no build, check, clippy or test build of
+that profile dir runs while the rule moves its stale units. A build that starts meanwhile waits ("Blocking waiting for
+file lock on build directory"). The rule reads the units before the locks: on a clone of a slot with 3,870 kept units
+the read under the locks held a build for 68.7 s. Under the locks it reads each stale unit again and moves it only
+when no build wrote it since (`Unit::built_again`). The files are opened to read only, never created or deleted. A
+held lock skips the profile dir, and its error names it. The return waits up to `RETURN_CARGO_LOCK_WAIT` (30 s): it
+found no process in the slot, so only another clean holds the lock. A takeover and a reclaim do not wait. A dry run
+takes no lock. When the trash of the run is on another volume, the stale units go into `.brd-trash/` of their profile
+dir, so no delete runs under the locks; that dir goes after the release, and the rule deletes the dirs of gone runs
+there. The `keep` newest units count per package and target, as the fingerprint of a unit names its target
+(`lib-bd_cli`, `test-bin-brd`): one package builds more current targets than 8, and a unit that a build reads but does
+not rebuild keeps its old mtime.
+
+On macOS the dev default `split-debuginfo=unpacked` keeps the objects of rustc (`*.rcgu.o`) in `out/` of a unit, one
+set per invocation. rustc deletes the old incremental sessions, but not their objects: on 2026-11-15 a manual pass
+deleted 140,254 of them in the branch-deck slots and gave back about 110 GB. A session of `incremental/` links the
+objects that the next build of its crate reuses, under new names in `out/`. So in a kept unit the rule deletes an old
+object of an incremental compile only when no session holds its inode (`stale_objects`). The debug map of an
+executable names the members of each rlib, not their objects in `out/`, so a unit that links only an rlib loses every
+other old object. Another unit (an executable, a test harness, a build script) keeps the objects of each invocation
+that names an inode of its newest mtime. An object of a compile without incremental (`<crate>.<hex>-cgu.<n>`) stays,
+as its name tells no invocation. The objects are read after the release when `age` is at least 10 minutes: a build
+writes each object as a new file, which a session holds once rustc ends the compile of its crate. They are deleted in
+place once the slot is free (`Cleaned::deferred`), one count of entries for all, never renamed into the trash: a rename
+cost 2.0 ms against 0.87 ms for an unlink. A dry run counts an inode once, when every link of it is a stale object.
+
 Status reads the state file only: one `rev-parse` and one `config` (`branchdeck.leasePool`), no git in any slot.
 Adopt registers existing linked worktrees (old Treehouse slots) where they are, after one `status` of each. With
 `--move` each goes to the next slot path by `git worktree move`, which fixes both links of the worktree (a rename on

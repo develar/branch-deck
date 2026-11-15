@@ -3,7 +3,8 @@
 # use, so a reused slot piles up dozens of copies of every workspace crate within hours.
 [lease]
 clean = [
-  # the stale units of every profile dir of target/: the 8 newest of each package and the ones built in the last hour stay
+  # the stale units of every profile dir of target/, under the locks of cargo: the 8 newest of each package and target and
+  # the ones built in the last hour stay; in a kept unit the old objects of rustc that no build reads go
   { cargo = "target", keep = 8, age = "1h" },
   # the artifacts of the e2e tests (`outputDir` of playwright.config.ts) and of the HTML report
   { delete = "tests/results" },

@@ -555,6 +555,38 @@ fn a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs() {
   assert_error(&refused, exit_code, (2, "invalid_arguments"));
 }
 
+/// An idle host slot whose kept units hold stale objects of rustc past `branchdeck.hostSlotMaxSize`, and no stale unit:
+/// what its rules would free counts the objects, so the give-back cleans it and they go
+#[cfg(unix)]
+#[test_log::test]
+fn a_host_slot_is_due_by_the_stale_objects_of_its_kept_units() {
+  let fixture = Fixture::new();
+  let rules = "[lease]\nclean = [{ cargo = \"out/target\", keep = 8, age = \"1h\" }]\n";
+  fixture
+    .repo
+    .create_commit_with_files("Add the clean rules", &[(".gitignore", "out/\n"), (".branchdeck.toml", rules)]);
+  git(&fixture.repo, &["config", "branchdeck.hostSlots", "1"]);
+  git(&fixture.repo, &["config", "branchdeck.hostSlotMaxSize", "1M"]);
+  let context = context(&fixture);
+  let params = params(&fixture, &context);
+  fill(&context.git, &params, None).unwrap();
+  let slot = lent(lend_to(&params, "objects", None));
+  let profile = Path::new(&slot.path).join("out/target/debug");
+  let out = profile.join("build/app/h1/out");
+  std::fs::create_dir_all(&out).unwrap();
+  std::fs::write(profile.join(".cargo-lock"), "").unwrap();
+  std::fs::write(out.join("libapp-h1.rlib"), "rlib").unwrap();
+  let old = std::time::SystemTime::now() - Duration::from_hours(3);
+  let objects: Vec<PathBuf> = (0..4).map(|index| out.join(format!("app-h1.cgu{index}.0aaaaaa.rcgu.o"))).collect();
+  for object in &objects {
+    std::fs::write(object, vec![b'o'; 1 << 20]).unwrap();
+    std::fs::File::open(object).unwrap().set_modified(old).unwrap();
+  }
+  let gave_back = give_back(&context.git, &params, 1, "objects").unwrap();
+  assert!(gave_back.cleaned.is_some(), "the stale objects pass the size");
+  assert!(objects.iter().all(|object| !object.exists()) && out.join("libapp-h1.rlib").exists());
+}
+
 /// The keeper applies the clean rules of a host slot that waited idle `branchdeck.hostSlotIdleClean` since its last run
 /// (6 hours without it): not sooner, never with `0`, and once: a slot cleaned after its last run waits for the next one
 #[test_log::test]
