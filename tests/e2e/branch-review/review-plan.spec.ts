@@ -13,10 +13,10 @@ import { openCommitPreview } from "../helpers/preview-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
 import { openPlanWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
-import { openReviewWindow } from "../helpers/review-window-helpers"
+import { openReviewWindow, pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
@@ -1214,9 +1214,7 @@ test.describe("The review plan in the branch review", () => {
     await repo.commit("scale the helper again", { "src/Store.kt": storeText("fun helper(value: Int, scale: Int, offset: Int) = value * scale + offset") }, 1704124800)
     await syncAndWaitForBranches()
     await openCommitPreview(page, getUnassignedCommitRow(page, "scale the helper again"))
-    await page.keyboard.press("d")
-    await expect.poll(async () => (await getOpenedSubWindows(page)).map(opened => opened.windowId)).toEqual(["review"])
-    const window = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[0]!)
+    const window = await openLinkedSubWindow(page, await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1))
     const store = window.locator('[data-testid="diff-view-file"][data-section="file:src/Store.kt"]')
     await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — parameters changed")
     await expect(window.getByTestId("review-overview").getByTestId("review-plan-outside")).toHaveText("3 uses left outside")

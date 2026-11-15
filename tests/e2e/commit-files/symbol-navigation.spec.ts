@@ -3,13 +3,13 @@ import { writeFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import type { FindDeclarationParams } from "../../../src/lib/bindings"
-import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 import { changedParts, deletedParts, diffLineNumbers, diffRows, diffSides, expectOverviewLaidOut } from "../helpers/diff-helpers"
 import { chooseWhitespace, openCommitPreview } from "../helpers/preview-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
-import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { openSubWindowPage } from "../helpers/sub-window-helpers"
 import { holdCommandCalls, holdNextAnswer, recordCommand, expectClosed } from "../helpers/wait-helpers"
 
 // the `symbol_navigation` template: Uses.kt calls `store.add` of an untyped receiver (an `add` in Store.kt and in
@@ -28,10 +28,7 @@ const BACK = "Control+Alt+ArrowLeft"
 async function openNavigationReview(page: Page, subject = "use the store and the queue", shows = "store.add(1)"): Promise<Locator> {
   await expandBranch(page, findBranchRow(page, "nav"))
   await openCommitPreview(page, getBranchCommitRow(page, "nav", subject))
-  await page.keyboard.press("d")
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-  const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
-  await openSubWindowPage(page, opened!)
+  await openSubWindowPage(page, await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1))
   const code = page.getByTestId("commit-review-code")
   await expect(code).toContainText(shows)
   // the heading of the commit comes above the files after them: the places of the names are read once they stay

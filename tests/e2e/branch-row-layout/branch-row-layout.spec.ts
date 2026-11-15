@@ -20,8 +20,8 @@ import {
 import { pressCopyKey, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
 import { boxOf } from "../helpers/header-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
-import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, pushedRemote, runAndWaitForSync, syncFromMenu, waitForBranchSyncComplete, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, openTooltip } from "../helpers/wait-helpers"
@@ -264,8 +264,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(page.getByRole("menuitem", { name: "Rename…" })).toBeEnabled()
     await expect(page.getByRole("menuitem", { name: "Move to…" })).toBeEnabled()
     // a review rewrites nothing: it opens during the sync
-    await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.url)).toEqual([expect.stringMatching(/\/review$/)])
+    await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 1)
     await repo.holdRemoteAnswers({ release: ["sync"] })
     await expect(syncButton).not.toHaveAttribute("aria-busy", "true")
   })

@@ -33,7 +33,7 @@ import {
 } from "../helpers/pull-request-helpers"
 import { expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, remotePushes, STACKED_BRANCHES, stackBranchOf } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow } from "../helpers/review-status-helpers"
-import { openReviewWindow } from "../helpers/review-window-helpers"
+import { openReviewWindow, pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
@@ -95,10 +95,7 @@ async function openWholeStackRequestReview(page: Page, root: string): Promise<Lo
 /** "Review Whole Stack" of the island's "⋯": the review window of the whole air stack, linked to the main window */
 async function openWholeStackReview(page: Page): Promise<Page> {
   await openIslandMenu(page, "air")
-  await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-  const opened = (await getOpenedSubWindows<BranchReviewWindowData>(page))[0]!
-  return openLinkedSubWindow(page, opened)
+  return openLinkedSubWindow(page, await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Whole Stack" }).click(), 1))
 }
 
 /** No pull request yet, the code owner Ilya Korennoy a collaborator; the next pull request created is #12 */
@@ -845,16 +842,14 @@ test.describe("Whole stack", () => {
     await setupRepo("stack_island")
     await syncAndWaitForBranches()
 
+    const reviewWholeStack = () => page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
     await openIslandMenu(page, "air")
-    await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(1)
+    await pressAndExpectReviewOpened(page, reviewWholeStack, 1)
     await openWholeStackSubmenu(page, "air")
-    await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(2)
+    await pressAndExpectReviewOpened(page, reviewWholeStack, 2)
     // a branch of the stack has the same submenu, its root's
     await openWholeStackSubmenu(page, "bazel")
-    await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(3)
+    await pressAndExpectReviewOpened(page, reviewWholeStack, 3)
     for (const opened of await getOpenedSubWindows<BranchReviewWindowData>(page)) {
       expect(opened).toMatchObject({ windowId: "review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
     }

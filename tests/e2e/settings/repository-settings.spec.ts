@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { settledIpc } from "../helpers/ipc-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { closeAsTheAnswerLands, pressAndExpectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, nextAnswer, pressSyncHeld, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
@@ -538,9 +539,7 @@ test.describe("Settings → Branches, a switch of every repository", () => {
     // Review Changes of a branch: its window, opened after Settings, shows the review plan
     const opened = (await getOpenedSubWindows(page)).length
     await findBranchRow(page, "test-branch").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(opened + 1)
-    const review = await openLinkedSubWindow(page, (await getOpenedSubWindows(page)).at(-1)!)
+    const review = await openLinkedSubWindow(page, await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), opened + 1))
     await expect(review.getByTestId("branch-review-mark-reviewed")).toBeVisible()
     await review.close()
 

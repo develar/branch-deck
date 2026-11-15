@@ -1,13 +1,13 @@
 // @spec openspec/specs/branch/branch-row/spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard, testCopyButtonOnHover } from "../helpers/clipboard-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
-import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { finishedSyncCount, runAndWaitForUpdate, syncBranches } from "../helpers/sync-helpers"
 import { holdCommand, recordCommand, recordRewrites, waitForCollapsibleCardExpanded, expectClosed } from "../helpers/wait-helpers"
 
@@ -190,13 +190,8 @@ test.describe("Archived Branches Table", () => {
   test("should review an archived branch from its menu, its focused row and its commits", async ({ page }) => {
     const branchRow = await expandToPartialRow(page)
     const kept = { kind: "archived", name: "user-name/archived/2025-01-11/feature-partial" }
-    const opened = async (count: number) => {
-      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
-      return (await getOpenedSubWindows<BranchReviewWindowData>(page))[count - 1]!
-    }
     await branchRow.click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    const fromMenu = await opened(1)
+    const fromMenu = await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 1)
     expect(fromMenu).toMatchObject({ windowId: "review", title: "Review feature-partial", data: { chain: ["feature-partial"], kept } })
     // nothing to reapply or push: the title bar of the window has no action, its "⋯" its delete, which opens its form
     // at the row of the main window
@@ -210,15 +205,16 @@ test.describe("Archived Branches Table", () => {
     await page.keyboard.press("Escape")
 
     await branchRow.focus()
-    await page.keyboard.press("d")
-    expect((await opened(2)).data).toMatchObject({ kept, focus: { commitId: null } })
+    expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 2)).data).toMatchObject({ kept, focus: { commitId: null } })
 
     await expandBranch(page, branchRow)
     // a commit row, not the row of a branch
     const commit = page.getByTestId("archived-branches-card").locator("tr[data-row-id]:not([data-branch-name])").first()
     await commit.hover()
-    await page.keyboard.press("d")
-    expect((await opened(3)).data).toMatchObject({ kept, focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
+    expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 3)).data).toMatchObject({
+      kept,
+      focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) },
+    })
   })
 
   test("should copy the full name of an archived branch with ⌘C on its focused row", async ({ page }) => {

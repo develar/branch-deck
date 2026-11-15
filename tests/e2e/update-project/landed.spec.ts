@@ -4,7 +4,7 @@ import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import { expect, test } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getPushButton } from "../helpers/branch-helpers"
 import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
-import { openedReview } from "../helpers/review-window-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { runAndWaitForUpdate } from "../helpers/sync-helpers"
 
 // The `landed_upstream` template: a robot pushed `feature-auth` (one commit) and the first of the two `search` commits to
@@ -137,23 +137,26 @@ test.describe("Landed commits", () => {
     const branch = await updateToLandedFeatureAuth(page, setupRepo, syncAndWaitForBranches)
     // D on the row of the branch: its landed commits as a list named by the branch, as the baseline has them
     await branch.getByRole("button", { expanded: false }).focus()
-    await page.keyboard.press("d")
-    const byKey = await openedReview<CommitsReviewWindowData>(page, 1)
+    const byKey = await pressAndExpectReviewOpened<CommitsReviewWindowData>(page, () => page.keyboard.press("d"), 1)
     expect(byKey).toMatchObject({ title: expect.stringMatching(/^Review [0-9a-f]{8} Add login$/), data: { kind: "commits", listLabel: "feature-auth", index: 0 } })
     expect(byKey.data.commits.map(commit => commit.subject)).toEqual(["Add login"])
 
     // the button of the branch, then D and the button of an expanded commit: the review at that commit
-    await branch.getByTestId("landed-branch-review").click()
-    expect((await openedReview<CommitsReviewWindowData>(page, 2)).data).toMatchObject({ kind: "commits", listLabel: "feature-auth" })
+    expect((await pressAndExpectReviewOpened<CommitsReviewWindowData>(page, () => branch.getByTestId("landed-branch-review").click(), 2)).data).toMatchObject({
+      kind: "commits",
+      listLabel: "feature-auth",
+    })
     await branch.getByRole("button", { expanded: false }).click()
     const commit = branch.getByTestId("landed-commit").filter({ hasText: "Add login" })
     await commit.focus()
-    await page.keyboard.press("d")
-    const atCommit = await openedReview<CommitsReviewWindowData>(page, 3)
+    const atCommit = await pressAndExpectReviewOpened<CommitsReviewWindowData>(page, () => page.keyboard.press("d"), 3)
     // the baseline commit that carries it
     expect(atCommit.data.commits[atCommit.data.index]!.id.slice(0, 8)).toBe(await commit.getByTestId("landed-upstream-hash").textContent())
-    await commit.getByTestId("landed-commit-review").click()
-    expect((await openedReview<CommitsReviewWindowData>(page, 4)).data).toMatchObject({ kind: "commits", listLabel: "feature-auth", index: 0 })
+    expect((await pressAndExpectReviewOpened<CommitsReviewWindowData>(page, () => commit.getByTestId("landed-commit-review").click(), 4)).data).toMatchObject({
+      kind: "commits",
+      listLabel: "feature-auth",
+      index: 0,
+    })
   })
 
   test("should show the copy button of a baseline commit on hover", async ({ page, setupRepo, syncAndWaitForBranches }) => {

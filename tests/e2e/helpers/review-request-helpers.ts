@@ -2,7 +2,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { PullRequestAvailability, ReviewEntry, ReviewRequest } from "../../../src/lib/bindings"
 import type { PullRequestReviewWindowData } from "../../../src/types/sub-window"
 import { expect } from "../fixtures/base-test"
-import { openedReview } from "./review-window-helpers"
+import { pressAndExpectReviewOpened } from "./review-window-helpers"
 import { openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 import { moveClockUntil } from "./sync-helpers"
@@ -100,8 +100,7 @@ export async function openRequestReview(
   number: number,
   { count = 1, beforeLoad }: { count?: number; beforeLoad?: (window: Page) => Promise<unknown> } = {},
 ): Promise<{ window: Page; review: Locator; opened: OpenedSubWindow<PullRequestReviewWindowData>; fetched: Promise<unknown> }> {
-  await getReviewRow(page, number).getByTestId("review-request-title").click()
-  const opened = await openedReview<PullRequestReviewWindowData>(page, count)
+  const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => getReviewRow(page, number).getByTestId("review-request-title").click(), count)
   expect(opened.data).toMatchObject({ kind: "pullRequest", number })
   let fetched!: Promise<unknown>
   const window = await openLinkedSubWindow(page, opened, {

@@ -5,7 +5,8 @@ import { test as simpleTest, testWithConflicts, expect } from "../fixtures/test-
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, collapseBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { diffRows, diffSides } from "../helpers/diff-helpers"
-import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
+import { openSubWindowPage, pressAndExpectOpened } from "../helpers/sub-window-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
 import { routeCommandError, waitForConflictViewer, waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -74,10 +75,12 @@ test.describe("Conflict Viewer Feature", () => {
       await waitForConflictViewer(page, bugFixDetails)
 
       // the window of the missing commits names the repository: its diffs and the reviews read it
-      await bugFixDetails.getByTestId("missing-commits").getByRole("button", { name: "Open in Window" }).click()
-      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-      const [missingCommits] = await getOpenedSubWindows<MissingCommitsWindowData>(page)
-      expect(missingCommits).toMatchObject({ windowId: "missing-commits" })
+      const missingCommits = await pressAndExpectOpened<MissingCommitsWindowData>(
+        page,
+        () => bugFixDetails.getByTestId("missing-commits").getByRole("button", { name: "Open in Window" }).click(),
+        "missing-commits",
+        1,
+      )
       const repositoryPath = missingCommits!.data.repositoryPath
       expect(repositoryPath).toMatch(/\S/)
 
@@ -85,10 +88,7 @@ test.describe("Conflict Viewer Feature", () => {
       await openSubWindowPage(page, missingCommits!)
       const row = page.getByTestId("missing-commits-window").locator("tr[data-row-id]", { hasText: "Add authentication to UserService" })
       await row.hover()
-      await page.keyboard.press("d")
-      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-      const [review] = await getOpenedSubWindows<CommitsReviewWindowData>(page)
-      expect(review).toMatchObject({ windowId: "review", url: "/review" })
+      const review = await pressAndExpectReviewOpened<CommitsReviewWindowData>(page, () => page.keyboard.press("d"), 1)
       expect(review!.data).toMatchObject({ repositoryPath, path: null })
       expect(review!.data.commits[review!.data.index]!.subject).toContain("Add authentication to UserService")
     })
@@ -171,10 +171,18 @@ test.describe("Conflict Viewer Feature", () => {
       const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
       await waitForConflictViewer(page, bugFixDetails)
 
-      await bugFixDetails.getByTestId("conflicting-files").getByRole("button", { name: "Open in Window" }).click()
-      await bugFixDetails.getByTestId("missing-commits").getByRole("button", { name: "Open in Window" }).click()
-      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(2)
-      const [files, missing] = await getOpenedSubWindows<ConflictingFilesWindowData | MissingCommitsWindowData>(page)
+      const files = await pressAndExpectOpened<ConflictingFilesWindowData>(
+        page,
+        () => bugFixDetails.getByTestId("conflicting-files").getByRole("button", { name: "Open in Window" }).click(),
+        "conflicting-files",
+        1,
+      )
+      const missing = await pressAndExpectOpened<MissingCommitsWindowData>(
+        page,
+        () => bugFixDetails.getByTestId("missing-commits").getByRole("button", { name: "Open in Window" }).click(),
+        "missing-commits",
+        2,
+      )
       // the windows get the conflict without its contents, and the repository to read them from
       for (const window of [files!, missing!]) {
         expect(window.data.repositoryPath).toMatch(/\S/)

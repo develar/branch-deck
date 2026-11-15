@@ -14,7 +14,7 @@ import { remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
-import { openReviewWindow, openedReview } from "../helpers/review-window-helpers"
+import { openReviewWindow, pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -192,28 +192,24 @@ test.describe("Opening the review", () => {
 
     // D on the focused row: the window, no preview
     await findBranchRow(page, "login").focus()
-    await page.keyboard.press("d")
-    const byKey = await openedReview(page, 1)
+    const byKey = await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1)
     expect(byKey).toMatchObject({ title: "Review login", data: { chain: ["auth", "login"], focus: plain } })
     await expectClosed(preview)
 
     // Review Changes of the menu, the only review item
     await findBranchRow(page, "auth").click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Open in Window" })).toHaveCount(0)
-    await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    expect((await openedReview(page, 2)).title).toBe("Review auth")
+    expect((await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 2)).title).toBe("Review auth")
 
     // D in the preview, and the button of its footer: the window, the preview closes
     await findBranchRow(page, "login").focus()
     await page.keyboard.press(" ")
     await expect(preview.getByTestId("branch-preview-body")).toBeFocused()
-    await page.keyboard.press("d")
-    expect((await openedReview(page, 3)).data.focus).toEqual(plain)
+    expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 3)).data.focus).toEqual(plain)
     await expectClosed(preview)
     await findBranchRow(page, "login").focus()
     await page.keyboard.press(" ")
-    await preview.getByTestId("branch-preview-review").click()
-    expect((await openedReview(page, 4)).title).toBe("Review login")
+    expect((await pressAndExpectReviewOpened(page, () => preview.getByTestId("branch-preview-review").click(), 4)).title).toBe("Review login")
     await expectClosed(preview)
 
     // in the window P is the previous change, not a push: J moves to the next file, P back to the change of the first
@@ -238,8 +234,7 @@ test.describe("A commit of the branch preview", () => {
     await syncAndWaitForBranches()
     const preview = await openBranchPreview(page, "login")
     const commit = preview.getByTestId("branch-preview-commit").filter({ hasText: "Add the login form" })
-    await commit.getByTestId("branch-preview-commit-review").click()
-    const opened = await openedReview(page, 1)
+    const opened = await pressAndExpectReviewOpened(page, () => commit.getByTestId("branch-preview-commit-review").click(), 1)
     expect(opened.data).toMatchObject({ chain: ["auth", "login"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
     expect(opened.title).toMatch(/^Review login · [0-9a-f]{8}$/)
     // the preview closes once the window opened
@@ -267,8 +262,7 @@ test.describe("Reading the review ahead", () => {
       expect(prefetches).toEqual([])
 
       // D opens the window and reads its own part on its parent, the stack from the root
-      await page.keyboard.press("d")
-      expect((await openedReview(page, 1)).title).toBe("Review login")
+      expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1)).title).toBe("Review login")
       await settledInvokes(page)
       expect(prefetches).toMatchObject([{ review: { target: { kind: "branch", chain: ["auth", "login"] } }, part: "own" }])
 
@@ -328,8 +322,7 @@ test.describe("The scopes of the stack", () => {
 
     // up: the stack branch, the chain the window showed as the way back
     // the window opens it itself, as the menus of the rows would
-    await whole.click()
-    const stack = await openedReview(window, 1)
+    const stack = await pressAndExpectReviewOpened(window, () => whole.click(), 1)
     expect(stack).toMatchObject({
       title: "Review the whole air stack",
       data: {
@@ -350,15 +343,13 @@ test.describe("The scopes of the stack", () => {
     const fix = window.getByTestId("range-review-commit").filter({ hasText: "Fix the jar manifest, part 2" })
     await expect(fix.getByTestId("review-commit-branch")).toHaveText("side-fix")
     await fix.click()
-    await window.getByTestId("range-review-commit-header").getByRole("button", { name: "Review side-fix" }).click()
-    const atCommit = await openedReview(window, 2)
+    const atCommit = await pressAndExpectReviewOpened(window, () => window.getByTestId("range-review-commit-header").getByRole("button", { name: "Review side-fix" }).click(), 2)
     expect(atCommit.data).toMatchObject({ chain: ["air", "bazel", "side-fix"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
     expect(atCommit.data.wholeStack).toBeUndefined()
     expect(atCommit.title).toMatch(/^Review side-fix · [0-9a-f]{8}$/)
 
     // down: a segment of the way back reviews its branch
-    await segments.first().click()
-    const back = await openedReview(window, 3)
+    const back = await pressAndExpectReviewOpened(window, () => segments.first().click(), 3)
     expect(back.data).toMatchObject({ chain: ["air"] })
     expect(back.data.wholeStack).toBeUndefined()
   })
@@ -382,8 +373,7 @@ test.describe("The scopes of the stack", () => {
     await expect(column).toHaveCount(1)
 
     // the whole stack: each commit row names the branch it came from; Enter shows it alone, whose heading reviews its branch
-    await window.getByTestId("branch-review-whole-stack").click()
-    await reopenLinkedSubWindow(window, await openedReview(window, 1))
+    await reopenLinkedSubWindow(window, await pressAndExpectReviewOpened(window, () => window.getByTestId("branch-review-whole-stack").click(), 1))
     const fix = commitRow("Fix the jar manifest, part 2")
     await expect(fix.getByTestId("review-commit-branch")).toHaveText("side-fix")
     await expect(column).toHaveCount(1)
@@ -391,8 +381,7 @@ test.describe("The scopes of the stack", () => {
     await fix.press("Enter")
     const header = window.getByTestId("range-review-commit-header")
     await expect(header).toContainText("Fix the jar manifest, part 2")
-    await header.getByRole("button", { name: "Review side-fix" }).click()
-    const atCommit = await openedReview(window, 2)
+    const atCommit = await pressAndExpectReviewOpened(window, () => header.getByRole("button", { name: "Review side-fix" }).click(), 2)
     expect(atCommit.data).toMatchObject({ chain: ["air", "bazel", "side-fix"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
   })
 
@@ -400,8 +389,7 @@ test.describe("The scopes of the stack", () => {
     await setupRepo("stack_island")
     await syncAndWaitForBranches()
     await page.getByTestId("stack-island").getByRole("button", { name: "More actions for the air stack" }).click()
-    await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
-    const opened = await openedReview(page, 1)
+    const opened = await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Whole Stack" }).click(), 1)
     expect(opened.data.from?.map(branch => branch.name)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
     // a segment pressed before the window holds the view of its session goes down once it does: the branch is in it
     let view: Awaited<ReturnType<typeof holdCommandCalls>> | undefined
@@ -411,9 +399,15 @@ test.describe("The scopes of the stack", () => {
       },
     })
     await expect.poll(() => view?.calls.length).toBe(1)
-    await window.getByTestId("branch-review-segment").filter({ hasText: "runtime" }).click()
-    view?.release()
-    expect((await openedReview(window, 1)).data).toMatchObject({ chain: ["air", "bazel", "bridge", "runtime"] })
+    const segment = await pressAndExpectReviewOpened(
+      window,
+      async () => {
+        await window.getByTestId("branch-review-segment").filter({ hasText: "runtime" }).click()
+        view?.release()
+      },
+      1,
+    )
+    expect(segment.data).toMatchObject({ chain: ["air", "bazel", "bridge", "runtime"] })
   })
 
   test("should offer the whole stack of a straight chain on a branch with branches built on it, as the last one from the root", async ({
@@ -428,8 +422,7 @@ test.describe("The scopes of the stack", () => {
     const whole = window.getByTestId("branch-review-whole-stack")
     await whole.hover()
     await expect(openTooltip(window)).toHaveText("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3 commits, what the Safe Push of perf-part-2 lands")
-    await whole.click()
-    expect((await openedReview(window, 1)).data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], focus: { range: "all" } })
+    expect((await pressAndExpectReviewOpened(window, () => whole.click(), 1)).data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], focus: { range: "all" } })
 
     // the last branch: From Root is the whole stack already
     await reopenLinkedSubWindow(window, await openReviewWindow(page, "perf-part-2"))
@@ -1027,8 +1020,7 @@ test.describe("Branch review window", () => {
     // D on a commit of the chain on screen: a move, which waits for the dialog
     await expandBranch(page, findBranchRow(page, "login"))
     await getBranchCommitRow(page, "login", "Add the login form").hover()
-    await page.keyboard.press("d")
-    const moved = await openedReview(page, 2)
+    const moved = await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 2)
     expect(moved.data).toMatchObject({ branchName: "login", chain: ["auth", "login"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
     await reopenLinkedSubWindow(reviewPage, moved)
     await expect(title).toHaveValue(typed)
@@ -1036,8 +1028,7 @@ test.describe("Branch review window", () => {
 
     // the review of another chain would start the window over: the window refuses it, the dialog keeps what was typed
     await findBranchRow(page, "auth").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await reopenLinkedSubWindow(reviewPage, await openedReview(page, 3))
+    await reopenLinkedSubWindow(reviewPage, await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 3))
     await expect(reviewPage.locator("[data-slot=toast]", { hasText: "Cannot review auth" })).toBeVisible()
     await expect(title).toHaveValue(typed)
 

@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { getUnassignedCommitRow } from "../helpers/branch-helpers"
-import { openedReview, openReviewWindow } from "../helpers/review-window-helpers"
+import { pressAndExpectReviewOpened, openReviewWindow } from "../helpers/review-window-helpers"
 import { openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 
 /** The review the window shows: the files of its diffs, in their order */
@@ -29,8 +29,7 @@ test.describe("One review window", () => {
     // D on the unassigned commit in the main window: the same window starts over on the list, the branch in its history
     const reviewCommit = async (count: number) => {
       await getUnassignedCommitRow(page, "Fix critical bug").hover()
-      await page.keyboard.press("d")
-      const opened = await openedReview<CommitsReviewWindowData>(page, count)
+      const opened = await pressAndExpectReviewOpened<CommitsReviewWindowData>(page, () => page.keyboard.press("d"), count)
       expect(opened.data).toMatchObject({ kind: "commits", listLabel: "Unassigned" })
       await reopenLinkedSubWindow(window, opened)
       await expect(window.getByTestId("window-title")).toContainText("Unassigned")

@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { SettingsTarget } from "../../../src/lib/settings-window"
 import { expect } from "../fixtures/base-test"
-import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
+import { getOpenedSubWindows, openLinkedSubWindow, pressAndExpectOpened } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 import { emitTauriEvent, nextAnswer, runAndWaitForAnswer, waitForTauriListener } from "./sync-helpers"
 
@@ -12,11 +12,8 @@ import { emitTauriEvent, nextAnswer, runAndWaitForAnswer, waitForTauriListener }
  * as it handles it and which takes seconds under load), never by a poll of the recorded opens, which gave up after 5 s
  */
 export async function pressAndExpectSettingsOpened(page: Page, press: () => Promise<unknown>, target: SettingsTarget, count = 1): Promise<OpenedSubWindow<SettingsTarget>> {
-  await runAndWaitForAnswer(page, "open_sub_window", press)
-  const opens = await getOpenedSubWindows<SettingsTarget>(page)
-  expect(opens).toHaveLength(count)
-  const opened = opens.at(-1)!
-  expect(opened).toMatchObject({ windowId: "settings", url: "/settings", title: "Settings" })
+  const opened = await pressAndExpectOpened<SettingsTarget>(page, press, "settings", count)
+  expect(opened).toMatchObject({ url: "/settings", title: "Settings" })
   expect(opened.data).toEqual(target)
   return opened
 }

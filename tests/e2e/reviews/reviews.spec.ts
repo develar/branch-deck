@@ -8,7 +8,7 @@ import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
 import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { NOW, availableReviewRequests, pressDecisionKey, reviewRequest } from "../helpers/review-request-helpers"
 import type { ReviewRequestsFixture } from "../helpers/review-request-helpers"
-import { openedReview } from "../helpers/review-window-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer, waitForTauriListener } from "../helpers/sync-helpers"
@@ -143,8 +143,7 @@ test.describe("Reviews view", () => {
   test("should review a pull request of a team in the window of Reviews and approve it there", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupReviews(page, setupRepo, syncAndWaitForBranches)
     await showReviews(page)
-    await entryRow(page, "team", 201).getByTestId("review-request-title").click()
-    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => entryRow(page, "team", 201).getByTestId("review-request-title").click(), 1)
     expect([opened.data.number, opened.data.source]).toEqual([201, "reviews"])
     const window = await openLinkedSubWindow(page, opened)
     const review = window.getByTestId("review-window")
@@ -187,16 +186,14 @@ test.describe("Reviews view", () => {
 
     // the link the author forgot to ask the user for: the review opens, the section keeps it
     await field.fill("https://github.com/acme/monorepo/pull/305/files")
-    await field.press("Enter")
-    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => field.press("Enter"), 1)
     expect([opened.data.number, opened.data.source]).toEqual([305, "reviews"])
     await expect(field).toHaveValue("")
     await expect(entryRow(page, "linked", 305).getByTestId("review-request-meta")).toContainText("#305 · carol")
     await expect(entryRow(page, "linked", 305).getByRole("img", { name: "Your move: not reviewed yet" })).toBeVisible()
     // a merged one opens, but is not kept
     await field.fill("#306")
-    await field.press("Enter")
-    await openedReview<PullRequestReviewWindowData>(page, 2)
+    await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => field.press("Enter"), 2)
     await expect(section(page, "linked").getByTestId("review-request-row")).toHaveCount(1)
 
     // the link outlives the window
@@ -242,8 +239,7 @@ test.describe("Reviews view", () => {
     await expect(section(page, "reviewed")).toHaveCount(0)
     await expect(section(page, "authored")).toHaveCount(0)
     // Enter opens the one match
-    await field.press("Enter")
-    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => field.press("Enter"), 1)
     expect([opened.data.number, opened.data.source]).toEqual([201, "reviews"])
 
     // Escape clears the filter: every section again, the collapsed one collapsed
@@ -283,15 +279,13 @@ test.describe("Reviews view", () => {
     // a number Reviews lacks: Add Pull Request, and Enter adds it by its link
     await field.fill("#305")
     await expect(empty.getByRole("button", { name: /Add Pull Request/ })).toBeVisible()
-    await field.press("Enter")
-    expect((await openedReview<PullRequestReviewWindowData>(page, 2)).data.number).toBe(305)
+    expect((await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => field.press("Enter"), 2)).data.number).toBe(305)
     await expect(field).toHaveValue("")
     await expect(entryRow(page, "linked", 305)).toBeVisible()
     expect(linkCalls).toHaveLength(1)
     // a shown one opens without a link
     await field.fill("#202")
-    await field.press("Enter")
-    expect((await openedReview<PullRequestReviewWindowData>(page, 3)).data.number).toBe(202)
+    expect((await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => field.press("Enter"), 3)).data.number).toBe(202)
     expect(linkCalls).toHaveLength(1)
   })
 

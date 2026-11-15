@@ -6,8 +6,9 @@ import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_R
 import { settledIpc } from "../helpers/ipc-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
 import { availableReviewRequests, getYourTurnCard, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { pressAndExpectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
-import { getEmittedEvents, getOpenedSubWindows, getWindowMenus, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { getEmittedEvents, getWindowMenus, openSubWindowPage, pressAndExpectOpened } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
 import { checkForUpdatesFromMenu, TITLE_BARS, toastWith, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
@@ -63,10 +64,7 @@ async function expectToolbarOnOneLineAtEveryWidth(page: Page, half: keyof typeof
 /** The review window of `login`, opened by Review Changes of its menu, shown in the page */
 async function showBranchReviewWindow(page: Page) {
   await findBranchRow(page, "login").click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Review Changes" }).click()
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-  const [opened] = await getOpenedSubWindows(page)
-  await openSubWindowPage(page, opened!)
+  await openSubWindowPage(page, await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 1))
   const window = page.getByTestId("review-window")
   await expect(window.getByTestId("review-file-header").first()).toBeVisible()
   return window
@@ -321,10 +319,8 @@ test.describe("Title bar of a sub-window", () => {
     await expandBranch(page, findBranchRow(page, "bug-fix"))
     const details = getBranchDetailsRow(page, "bug-fix")
     await waitForConflictViewer(page, details)
-    await details.getByTestId("conflicting-files").getByRole("button", { name: "Open in Window" }).click()
     // the window opens as the page asks the desktop of the test server, after the click
-    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-    const [opened] = await getOpenedSubWindows(page)
+    const opened = await pressAndExpectOpened(page, () => details.getByTestId("conflicting-files").getByRole("button", { name: "Open in Window" }).click(), "conflicting-files", 1)
     await useTitleBar(page, TITLE_BARS.macos)
     await page.setViewportSize({ width: 960, height: 400 })
     await openSubWindowPage(page, opened!)

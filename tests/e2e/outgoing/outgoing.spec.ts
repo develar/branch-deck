@@ -17,7 +17,7 @@ import {
 } from "../helpers/push-helpers"
 import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
-import { openedReview } from "../helpers/review-window-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
@@ -123,8 +123,7 @@ test.describe("Force push", () => {
     const forcePush = findBranchRow(page, "ABC-123").getByRole("button", { name: "Force Push Branch (1)" })
     await forcePush.hover()
     // the remote-tracking branch has them: Review Changes reviews them as a list of their own
-    await page.getByTestId("dropped-commits").getByTestId("dropped-commits-review").click()
-    const opened = await openedReview<CommitsReviewWindowData>(page, 1)
+    const opened = await pressAndExpectReviewOpened<CommitsReviewWindowData>(page, () => page.getByTestId("dropped-commits").getByTestId("dropped-commits-review").click(), 1)
     expect(opened.data).toMatchObject({ kind: "commits", listLabel: "ABC-123 on the remote", index: 0 })
     expect(opened.data.commits.map(commit => [commit.id, commit.subject, commit.author])).toEqual([[theirs, "Fix login", "Ann"]])
     expect(await remotePushes(issueLinksRepo)).toEqual([])

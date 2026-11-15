@@ -5,8 +5,9 @@ import { test, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { pressAndExpectSettingsOpened, openSettingsWindow, settingsTab } from "../helpers/settings-helpers"
-import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { getEmittedEvents, getSubWindowReadyOpen, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, nextAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls, windowTheme } from "../helpers/title-bar-helpers"
@@ -470,10 +471,8 @@ testWithIssueLinks.describe("Settings of a window whose page loads", () => {
     await expect.poll(() => webviewZoom(page)).toBe(1.1)
     await expandBranch(page, findBranchRow(page, "JIRA-456"))
     await openCommitPreview(page, getBranchCommitRow(page, "JIRA-456", "perf db: increase pool size to 50"))
-    await page.keyboard.press("d")
-    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-    const [opened] = await getOpenedSubWindows(page)
-    expect(opened!.store).toMatchObject({ appSettings: { zoom: 1.1 } })
+    const opened = await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1)
+    expect(opened.store).toMatchObject({ appSettings: { zoom: 1.1 } })
 
     // Actual Size while the window's page still loads: no listener of it hears the change
     await emitTauriEvent(page, "zoom", "reset")

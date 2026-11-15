@@ -1,11 +1,12 @@
 // @spec openspec/specs/repository/command-palette/spec.md
 import type { Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
-import { activityPanel, expectActivityOpened } from "../helpers/activity-helpers"
+import { activityPanel, pressAndExpectActivityOpened } from "../helpers/activity-helpers"
 import { branchTree, collapseBranch, findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { openPalette, palette, runByKeyboard, search } from "../helpers/command-palette-helpers"
 import { header } from "../helpers/header-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
@@ -63,9 +64,9 @@ testWithIssueLinks.describe("Command palette", () => {
     await openPalette(page)
     const count = (await getOpenedSubWindows(page)).length
     // the palette runs the command it was given once its exit ended
-    await palette(page).getByRole("option", { name: "Activity Window" }).click()
+    const opened = await pressAndExpectActivityOpened(page, () => palette(page).getByRole("option", { name: "Activity Window" }).click(), count)
     await expectClosed(palette(page))
-    expect((await expectActivityOpened(page, count)).data.kind).toBeNull()
+    expect(opened.data.kind).toBeNull()
     // the log shows in one place
     await expect(activityPanel(page)).toHaveCount(0)
   })
@@ -83,8 +84,7 @@ testWithIssueLinks.describe("Command palette", () => {
     await expect(actions.getByRole("option", { name: /^Copy › Copy Branch Name/ })).toBeVisible()
     await expect(actions.getByRole("option", { name: /^Move to…/ })).not.toHaveAttribute("aria-disabled", "true")
     const count = (await getOpenedSubWindows(page)).length
-    await runByKeyboard(page, "review changes", "Review Changes")
-    await expect.poll(async () => (await getOpenedSubWindows(page)).slice(count).map(window => window.windowId)).toEqual(["review"])
+    await pressAndExpectReviewOpened(page, () => runByKeyboard(page, "review changes", "Review Changes"), count + 1)
   })
 
   testWithIssueLinks("should show the views, Activity and every command of the app without a scroll in the window of the start", async ({ page }) => {

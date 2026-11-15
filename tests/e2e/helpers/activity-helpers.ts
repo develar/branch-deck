@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { ActivityWindowData } from "../../../src/lib/activity-window"
 import { expect } from "../fixtures/base-test"
-import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
+import { getOpenedSubWindows, openLinkedSubWindow, pressAndExpectOpened } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 
 /** The Activity button of the header */
@@ -9,11 +9,13 @@ export function activityButton(page: Page): Locator {
   return page.getByTestId("activity-button")
 }
 
-/** The Activity window the main window opened last, after `count` sub-windows were opened before it */
-export async function expectActivityOpened(page: Page, count: number): Promise<OpenedSubWindow<ActivityWindowData>> {
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count + 1)
-  const opened = (await getOpenedSubWindows<ActivityWindowData>(page)).at(-1)!
-  expect(opened).toMatchObject({ windowId: "activity", url: "/activity" })
+/**
+ * Runs `press`, which makes the main window open Activity, and returns that open, after `count` sub-windows were opened
+ * before it (`pressAndExpectOpened`: read once the open answered, never by a poll after the press)
+ */
+export async function pressAndExpectActivityOpened(page: Page, press: () => Promise<unknown>, count: number): Promise<OpenedSubWindow<ActivityWindowData>> {
+  const opened = await pressAndExpectOpened<ActivityWindowData>(page, press, "activity", count + 1)
+  expect(opened.url).toBe("/activity")
   return opened
 }
 
@@ -36,8 +38,7 @@ export async function openWindowFromPanel(page: Page): Promise<void> {
  */
 export async function openActivityWindow(page: Page, open: () => Promise<unknown> = () => openWindowFromPanel(page)): Promise<Page> {
   const count = (await getOpenedSubWindows(page)).length
-  await open()
-  const window = await openLinkedSubWindow(page, await expectActivityOpened(page, count))
+  const window = await openLinkedSubWindow(page, await pressAndExpectActivityOpened(page, open, count))
   await expect(window.getByTestId("activity-window")).toBeVisible()
   return window
 }

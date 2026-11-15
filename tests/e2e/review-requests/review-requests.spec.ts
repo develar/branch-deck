@@ -24,7 +24,7 @@ import {
   reviewRequest,
   routeReviewFetch,
 } from "../helpers/review-request-helpers"
-import { openedReview } from "../helpers/review-window-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { pressAndExpectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -214,8 +214,7 @@ test.describe("Your Turn card", () => {
     await expectClosed(menu)
     await expect(getReviewRow(page, 102)).toBeFocused()
     // Enter: the review window of the row; the main window keeps the focus on the row
-    await page.keyboard.press("Enter")
-    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => page.keyboard.press("Enter"), 1)
     expect(opened).toMatchObject({ title: "Review #102 Add OAuth login", data: { number: 102, index: 1, intent: null } })
     await expect(getReviewRow(page, 102)).toBeFocused()
   })
@@ -270,8 +269,7 @@ test.describe("Your Turn card", () => {
     await page.keyboard.press("ArrowDown")
     await expect(getReviewRow(page, 201)).toBeFocused()
     // a layer is a request: Enter reviews it
-    await page.keyboard.press("Enter")
-    expect((await openedReview<PullRequestReviewWindowData>(page, 1)).data.number).toBe(201)
+    expect((await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => page.keyboard.press("Enter"), 1)).data.number).toBe(201)
   })
 
   test("should list the own pull requests a reviewer handed back after the requests, show the branch and review it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -304,11 +302,9 @@ test.describe("Your Turn card", () => {
     expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/760"])
     // D, and Review Changes of its menu: the review of its branch, where the changes requested are read
     await row.focus()
-    await page.keyboard.press("d")
-    await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => [window.windowId, window.title])).toEqual([["review", "Review JIRA-456"]])
+    expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1)).title).toBe("Review JIRA-456")
     await row.click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(2)
+    await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 2)
   })
 
   test("should show the island for a returned pull request alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -363,8 +359,10 @@ test.describe("New review requests", () => {
     await expect(getYourTurnCard(page).getByTestId("review-request-row")).toHaveCount(3)
 
     // Review: the review window of the request, read now
-    await toast.getByRole("button", { name: "Review" }).click()
-    expect((await openedReview<PullRequestReviewWindowData>(page, 1)).data).toMatchObject({ number: 104, intent: null })
+    expect((await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => toast.getByRole("button", { name: "Review" }).click(), 1)).data).toMatchObject({
+      number: 104,
+      intent: null,
+    })
     await expect(row.getByTestId("review-request-unread")).toHaveCount(0)
 
     // the Activity keeps it
@@ -534,8 +532,7 @@ test.describe("Review window", () => {
 
       // the review of a branch of the main window: the same window, the pull request in its history
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
-      await page.getByRole("menuitem", { name: "Review Changes" }).click()
-      await reopenLinkedSubWindow(reviewPage, await openedReview(page, 2))
+      await reopenLinkedSubWindow(reviewPage, await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 2))
       await expect(reviewPage.getByTestId("branch-review-segment")).toHaveCount(1)
 
       // Back: the pull request again, fetched again
@@ -553,8 +550,7 @@ test.describe("Review window", () => {
   test("should review the changes of a row with D", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     await getReviewRow(page, 101).focus()
-    await page.keyboard.press("d")
-    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => page.keyboard.press("d"), 1)
     expect(opened.data).toMatchObject({ number: 101, intent: "review" })
     // once the pull request is fetched: its changes
     const reviewPage = await openLinkedSubWindow(page, opened)
@@ -608,8 +604,7 @@ test.describe("Review window", () => {
       await syncAndWaitForBranches()
       // D on the row reviews the changes: one commit, no column, its heading above the tasks of its tree
       await getReviewRow(page, 103).focus()
-      await page.keyboard.press("d")
-      const reviewPage = await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))
+      const reviewPage = await openLinkedSubWindow(page, await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => page.keyboard.press("d"), 1))
       const review = reviewPage.getByTestId("review-window")
       await expect(review.getByTestId("range-review-commits")).toHaveCount(0)
       const header = review.getByTestId("range-review-commit-header")
@@ -792,9 +787,8 @@ test.describe("Review window", () => {
     await focusPastReviewRequestsAge(page, repo, () => getReviewRow(page, 101).isVisible())
     await expect(getReviewRow(page, 101)).toBeVisible()
     await getReviewRow(page, 101).focus()
-    await page.keyboard.press("d")
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => page.keyboard.press("d"), 1)
     let fetched!: Promise<unknown>
-    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
     const review = (
       await openLinkedSubWindow(page, opened, {
         beforeLoad: async window => {
@@ -911,8 +905,7 @@ test.describe("Review window", () => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     // the row's menu opens the window with the form, once the pull request is fetched
     await getReviewRow(page, 101).click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Request Changes…" }).click()
-    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => page.getByRole("menuitem", { name: "Request Changes…" }).click(), 1)
     expect(opened.data).toMatchObject({ number: 101, intent: "requestChanges" })
     let fetched!: Promise<unknown>
     const reviewPage = await openLinkedSubWindow(page, opened, {
@@ -1080,8 +1073,7 @@ test.describe("Review window", () => {
 
       // the item opens the review of #101 (`open_sub_window`, seconds under load), which shows the confirmation once it
       // fetched the pull request, however long that takes
-      await runAndWaitForAnswer(page, "open_sub_window", () => safePush.click())
-      const review = await openedReview<PullRequestReviewWindowData>(page, 1)
+      const review = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => safePush.click(), 1)
       expect(review.data).toMatchObject({ number: 101, intent: "safePush" })
       let fetched!: Promise<unknown>
       const reviewPage = await openLinkedSubWindow(page, review, {
@@ -1164,8 +1156,7 @@ test.describe("Review window", () => {
     const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD], "f".repeat(40))
     // from the row's menu: the window opens with the confirmation once the pull request is fetched
     await getReviewRow(page, 101).click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Approve and Safe Push…" }).click()
-    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => page.getByRole("menuitem", { name: "Approve and Safe Push…" }).click(), 1)
     expect(opened.data).toMatchObject({ number: 101, intent: "safePush" })
     const reviewPage = await openLinkedSubWindow(page, opened)
     const form = reviewPage.getByTestId("review-safe-push-form")
@@ -1477,16 +1468,17 @@ test.describe("Owner chips", () => {
 
     // the review of the branch login, in the same window, chooses UI Team: remembered
     await findBranchRow(page, "login").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await reopenLinkedSubWindow(window, await openedReview(page, 2))
+    await reopenLinkedSubWindow(window, await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 2))
     await ownerChip(window, "UI Team").click()
     await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { name: "UI Team" } }])
     // the writer's answer reached the window: its copy of the settings has the chip
     await expect.poll(async () => JSON.stringify(await getEmittedEvents(window, "settings_changed"))).toContain("UI Team")
 
     // the main window opens #7 again: the window opens on the remembered chip
-    await getReviewRow(page, 7).getByTestId("review-request-title").click()
-    await reopenLinkedSubWindow(window, await openedReview<PullRequestReviewWindowData>(page, 3))
+    await reopenLinkedSubWindow(
+      window,
+      await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => getReviewRow(page, 7).getByTestId("review-request-title").click(), 3),
+    )
     await showChanges(window, review)
     await expect(ownerChip(window, "UI Team")).toHaveAttribute("aria-pressed", "true")
     await expect(diffHeader(window, "ui/login.js")).toBeVisible()
@@ -1780,8 +1772,7 @@ async function openPlanChanges(page: Page, setupRepo: SetupRepo, syncAndWaitForB
   // the flag of the repository, which the global config of the test machine turns off (`TEST_IDENTITY` of the server)
   appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
   await getReviewRow(page, 101).focus()
-  await page.keyboard.press("d")
-  const reviewPage = await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))
+  const reviewPage = await openLinkedSubWindow(page, await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => page.keyboard.press("d"), 1))
   return { reviewPage, review: reviewPage.getByTestId("review-window") }
 }
 
@@ -1824,8 +1815,7 @@ async function setupStack(setupRepo: SetupRepo, syncAndWaitForBranches: () => Pr
 async function openStackReview(page: Page): Promise<{ reviewPage: Page; review: Locator }> {
   const stack = getYourTurnCard(page).getByTestId("review-stack-row")
   await stack.hover()
-  await stack.getByTestId("review-stack-review").click()
-  const opened = await openedReview<PullRequestStackReviewWindowData>(page, 1)
+  const opened = await pressAndExpectReviewOpened<PullRequestStackReviewWindowData>(page, () => stack.getByTestId("review-stack-review").click(), 1)
   let fetched!: Promise<unknown>
   const reviewPage = await openLinkedSubWindow(page, opened, {
     beforeLoad: async window => {
@@ -1845,8 +1835,7 @@ test.describe("Review Stack", () => {
 
     // the button on hover: the stack, not its layers
     await stack.hover()
-    await stack.getByTestId("review-stack-review").click()
-    const byButton = await openedReview<PullRequestStackReviewWindowData>(page, 1)
+    const byButton = await pressAndExpectReviewOpened<PullRequestStackReviewWindowData>(page, () => stack.getByTestId("review-stack-review").click(), 1)
     expect(byButton).toMatchObject({ title: "Review Stack #301–#303", data: { kind: "pullRequestStack", top: 303, bottom: 301, intent: null } })
     expect(byButton.data.layers.map(layer => layer.number)).toEqual([301, 302, 303])
     await expect(stack).toHaveAttribute("aria-expanded", "false")
@@ -1854,16 +1843,22 @@ test.describe("Review Stack", () => {
     // the menu by Shift+F10 on the focused header, then by a right click
     await stack.focus()
     await page.keyboard.press("Shift+F10")
-    await page.getByRole("menuitem", { name: "Review Stack" }).click()
-    expect((await openedReview<PullRequestStackReviewWindowData>(page, 2)).data).toMatchObject({ kind: "pullRequestStack", top: 303, intent: null })
+    expect((await pressAndExpectReviewOpened<PullRequestStackReviewWindowData>(page, () => page.getByRole("menuitem", { name: "Review Stack" }).click(), 2)).data).toMatchObject({
+      kind: "pullRequestStack",
+      top: 303,
+      intent: null,
+    })
     await stack.click({ button: "right" })
     await page.getByRole("menuitem", { name: "Show Pull Requests" }).click()
     await expect(stack).toHaveAttribute("aria-expanded", "true")
 
     // D: its changes; Enter still shows or hides the layers
     await stack.focus()
-    await page.keyboard.press("d")
-    expect((await openedReview<PullRequestStackReviewWindowData>(page, 3)).data).toMatchObject({ kind: "pullRequestStack", top: 303, intent: "review" })
+    expect((await pressAndExpectReviewOpened<PullRequestStackReviewWindowData>(page, () => page.keyboard.press("d"), 3)).data).toMatchObject({
+      kind: "pullRequestStack",
+      top: 303,
+      intent: "review",
+    })
     await expect(stack).toBeFocused()
     await page.keyboard.press("Enter")
     await expect(stack).toHaveAttribute("aria-expanded", "false")
@@ -2004,8 +1999,7 @@ test.describe("Review Stack", () => {
 
     // Approve 3 Pull Requests… of the menu of the header of the stack: the window, its button focused once fetched
     await getYourTurnCard(page).getByTestId("review-stack-row").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Approve 3 Pull Requests…" }).click()
-    const opened = await openedReview<PullRequestStackReviewWindowData>(page, 1)
+    const opened = await pressAndExpectReviewOpened<PullRequestStackReviewWindowData>(page, () => page.getByRole("menuitem", { name: "Approve 3 Pull Requests…" }).click(), 1)
     expect(opened.data).toMatchObject({ kind: "pullRequestStack", top: 303, bottom: 301, intent: "approveStack" })
     const reviewPage = await openLinkedSubWindow(page, opened)
     const review = reviewPage.getByTestId("review-window")

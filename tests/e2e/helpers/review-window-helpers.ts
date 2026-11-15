@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test"
 import type { BranchReviewWindowData, ReviewWindowData } from "../../../src/types/sub-window"
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
-import { getOpenedSubWindows } from "./sub-window-helpers"
+import { getOpenedSubWindows, pressAndExpectOpened } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 
 /*
@@ -10,11 +10,17 @@ import type { OpenedSubWindow } from "./sub-window-helpers"
  * list of commits, each an open of the window `review` on `/review`
  */
 
-/** The `count`-th window the page opened (`open_sub_window`), once it is recorded: the review window */
-export async function openedReview<T extends ReviewWindowData = BranchReviewWindowData>(page: Page, count: number): Promise<OpenedSubWindow<T>> {
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
-  const opened = (await getOpenedSubWindows<T>(page))[count - 1]!
-  expect(opened).toMatchObject({ windowId: "review", url: "/review" })
+/**
+ * Runs `press`, which makes `page` open the review window, and returns that open, the `count`-th window `page` opened
+ * (`pressAndExpectOpened`: read once the open answered, never by a poll after the press)
+ */
+export async function pressAndExpectReviewOpened<T extends ReviewWindowData = BranchReviewWindowData>(
+  page: Page,
+  press: () => Promise<unknown>,
+  count: number,
+): Promise<OpenedSubWindow<T>> {
+  const opened = await pressAndExpectOpened<T>(page, press, "review", count)
+  expect(opened.url).toBe("/review")
   return opened
 }
 
@@ -22,8 +28,7 @@ export async function openedReview<T extends ReviewWindowData = BranchReviewWind
 export async function openReviewWindow(page: Page, branch: string): Promise<OpenedSubWindow<BranchReviewWindowData>> {
   const count = (await getOpenedSubWindows(page)).length
   await findBranchRow(page, branch).click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Review Changes" }).click()
-  const opened = await openedReview(page, count + 1)
+  const opened = await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), count + 1)
   expect(opened.title).toBe(`Review ${branch}`)
   return opened
 }

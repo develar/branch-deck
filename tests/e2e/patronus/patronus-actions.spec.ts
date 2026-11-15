@@ -45,11 +45,12 @@ import {
 import { confirmForcePush, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { getEmittedEvents, getOpenedSubWindows } from "../helpers/sub-window-helpers"
+import { getEmittedEvents } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, expectClosed, holdIntent, recordCommand, recordRewrites, openTooltip, resizeReportsDelivered, waitForStepFacts } from "../helpers/wait-helpers"
@@ -1112,8 +1113,7 @@ test.describe("Patronus actions", () => {
         focus: "githubRepository",
       })
       // Review Changes opens the branch in its review window, the groups as its filters
-      await popover.getByTestId("safe-push-review-changes").click()
-      await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.windowId)).toEqual(["settings", "review"])
+      await pressAndExpectReviewOpened(page, () => popover.getByTestId("safe-push-review-changes").click(), 2)
     })
 
     test("should not check the review of a dry run", async ({ page, setupRepo, syncAndWaitForBranches }) => {

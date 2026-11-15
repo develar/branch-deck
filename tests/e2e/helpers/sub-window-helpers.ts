@@ -1,5 +1,7 @@
 import type { Page } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
+import { runAndWaitForAnswer } from "./sync-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
 
 /** A sub-window the page opened (`open_sub_window`, recorded by the desktop of the test server, `TestDesktop`) */
@@ -54,6 +56,21 @@ export async function getOpenedSubWindows<T = unknown>(page: Page): Promise<Open
   const label = await windowLabelOf(page)
   const { opens, pages } = await recordedDesktop(page)
   return opens.filter(open => open.opener === label && open.page === pages[label]).map(({ opener: _opener, page: _page, ...open }) => open as OpenedSubWindow<T>)
+}
+
+/**
+ * Runs `press` (a click, a key, an event of the native menu), which makes `page` open the sub-window `windowId`, and
+ * returns the `count`-th window `page` opened, which is that one. The opens are read once the open answered
+ * (`open_sub_window`, which the backend records as it handles it and which takes seconds under load), never by a poll
+ * of the recorded opens after the press, which gave up after the 5 s of an assertion
+ */
+export async function pressAndExpectOpened<T = unknown>(page: Page, press: () => Promise<unknown>, windowId: string, count: number): Promise<OpenedSubWindow<T>> {
+  await runAndWaitForAnswer(page, "open_sub_window", press)
+  const opens = await getOpenedSubWindows<T>(page)
+  expect(opens.map(open => open.windowId)).toHaveLength(count)
+  const opened = opens[count - 1]!
+  expect(opened.windowId).toBe(windowId)
+  return opened
 }
 
 /** How often the window of `page` asked for the window manager's menu (`show_window_menu`) */

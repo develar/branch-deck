@@ -1,7 +1,7 @@
 // @spec openspec/specs/repository/activity/spec.md
 import type { Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
-import { activityButton, activityEntry, activityPanel, expectActivityOpened, openActivityWindow, openWindowFromPanel } from "../helpers/activity-helpers"
+import { activityButton, activityEntry, activityPanel, pressAndExpectActivityOpened, openActivityWindow, openWindowFromPanel } from "../helpers/activity-helpers"
 import {
   collapseBranch,
   expandBranch,
@@ -99,8 +99,7 @@ testWithIssueLinks.describe("Activity", () => {
     // the next open, of the open window, starts over: its chip, an empty search
     await window.getByRole("textbox", { name: "Filter by branch or text" }).fill("abc")
     const count = (await getOpenedSubWindows(page)).length
-    await openWindowFromPanel(page)
-    await reopenLinkedSubWindow(window, await expectActivityOpened(page, count))
+    await reopenLinkedSubWindow(window, await pressAndExpectActivityOpened(page, () => openWindowFromPanel(page), count))
     await expect(window.getByRole("textbox", { name: "Filter by branch or text" })).toHaveValue("")
     await expect(window.getByTestId("activity-title")).toHaveCount(2)
   })

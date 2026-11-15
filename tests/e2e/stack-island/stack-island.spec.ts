@@ -1,6 +1,5 @@
 // @spec openspec/specs/branch/stack-island/spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect, allowErrorLog } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCells, getBranchCommitRows, getBranchDetailsRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
@@ -18,9 +17,9 @@ import {
   stackBranchOf,
   virtualBranch,
 } from "../helpers/push-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
-import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommandError, waitForStorePersistence, expectClosed, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
@@ -488,9 +487,7 @@ test.describe("Stack island", () => {
 
     // Review Whole Stack: the review window of its stack branch, every branch of the stack
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
-    await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(1)
-    const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
+    const opened = await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Whole Stack" }).click(), 1)
     expect(opened).toMatchObject({ windowId: "review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
   })
 

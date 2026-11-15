@@ -1939,9 +1939,10 @@ page's schema keeps none.
   (`openLinkedSubWindow`), whose settings changes reach every linked page; it starts from the settings the open
   recorded (`store` and `storeVersion` of the open the test server's desktop recorded, `getOpenedSubWindows`: the
   writer's copy at the open, as the app builds the window), its window built for it on the server before the page
-  loads (`registerWindowBuild`), so its load takes the changes after that snapshot. `expectSettingsOpened`
-  checks the last open and that it is the only new one; `reopenLinkedSubWindow` hands a later open to the shown
-  window, as the backend does.
+  loads (`registerWindowBuild`), so its load takes the changes after that snapshot. `pressAndExpectSettingsOpened`
+  runs the press of an entry point and checks the open it made and that it is the only new one, once `open_sub_window`
+  answered (`pressAndExpectOpened` of `sub-window-helpers.ts`, never a poll after the press); `reopenLinkedSubWindow`
+  hands a later open to the shown window, as the backend does.
 - The settings of a test live in the test server's writer of the repository (`TestRepository::store`, the app's
   `SettingsService`): `set_setting` of app-api changes them there and sends the change to every page of the repository
   whose window gets its key (`settings_changed`, on the event stream of each page, `TestEvents` of

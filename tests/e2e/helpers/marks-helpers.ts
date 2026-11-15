@@ -6,7 +6,7 @@ import { expect } from "../fixtures/base-test"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "./branch-helpers"
 import { expectOverviewLaidOut } from "./diff-helpers"
 import { openCommitFilesSection, openCommitPreview } from "./preview-helpers"
-import { openedReview } from "./review-window-helpers"
+import { pressAndExpectReviewOpened } from "./review-window-helpers"
 import { openSubWindowPage } from "./sub-window-helpers"
 
 /*
@@ -33,8 +33,7 @@ export async function openLedgerPreview(page: Page): Promise<{ preview: Locator;
 export async function openMarksReview(page: Page, branch: string, subject: string): Promise<{ window: Locator; code: Locator; position: Locator }> {
   await expandBranch(page, findBranchRow(page, branch))
   await openCommitPreview(page, getBranchCommitRow(page, branch, subject))
-  await page.keyboard.press("d")
-  await openSubWindowPage(page, await openedReview(page, 1))
+  await openSubWindowPage(page, await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1))
   const window = page.getByTestId("review-window")
   const code = window.getByTestId("commit-review-code")
   await expectOverviewLaidOut(code)

@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { confirmForcePush, expectPushedToast, expectPushedToRemote, remotePushes, virtualBranch } from "../helpers/push-helpers"
-import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { enableAutoSyncOnFocus, runAndWaitForAnswer, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
 import { expectClosed, waitForConflictFixSearch } from "../helpers/wait-helpers"
 
@@ -60,16 +60,14 @@ test.describe("Branch preview", () => {
     await expectClosed(preview)
     await expect(findBranchRow(page, NEXT_BRANCH)).toBeFocused()
     // the focused row is what D reviews, though the pointer is still over the first one
-    await page.keyboard.press("d")
-    await expect.poll(async () => (await getOpenedSubWindows(page)).map(it => it.title)).toEqual([`Review ${NEXT_BRANCH}`])
+    expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1)).title).toBe(`Review ${NEXT_BRANCH}`)
 
     // D in the preview after ↑: the window of the branch shown, the focus on its row
     await page.keyboard.press("Space")
     await expectPreviewFocused(preview)
     await page.keyboard.press("ArrowUp")
     await expect(preview.getByRole("heading")).toHaveText(BRANCH)
-    await page.keyboard.press("d")
-    await expect.poll(async () => (await getOpenedSubWindows(page)).map(it => it.title)).toEqual([`Review ${NEXT_BRANCH}`, `Review ${BRANCH}`])
+    expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 2)).title).toBe(`Review ${BRANCH}`)
     await expectClosed(preview)
     await expect(findBranchRow(page, BRANCH)).toBeFocused()
   })

@@ -47,6 +47,7 @@ import {
   virtualBranch,
 } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
+import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import {
   closeRefusal,
   expectDisabledItems,
@@ -1454,9 +1455,7 @@ test.describe("Stacked branches", () => {
       // the review window of oauth asks the main window, which opens the popover of the row
       const count = (await getOpenedSubWindows(page)).length
       await openContextMenu(page, oauthRow)
-      await clickContextMenuItem(page, "Review Changes")
-      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count + 1)
-      const reviewPage = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[count]!)
+      const reviewPage = await openLinkedSubWindow(page, await pressAndExpectReviewOpened(page, () => clickContextMenuItem(page, "Review Changes"), count + 1))
       await reviewPage
         .getByTestId("branch-review-actions")
         .getByRole("button", { name: /Safe Push · 3/ })
@@ -1956,9 +1955,7 @@ test.describe("Stacked branches", () => {
       // the title bar of its review window
       const count = (await getOpenedSubWindows(page)).length
       await openContextMenu(page, authRow)
-      await clickContextMenuItem(page, "Review Changes")
-      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count + 1)
-      const reviewPage = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[count]!)
+      const reviewPage = await openLinkedSubWindow(page, await pressAndExpectReviewOpened(page, () => clickContextMenuItem(page, "Review Changes"), count + 1))
       const reviewCreate = reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" })
       await expect(reviewCreate).toHaveAttribute("aria-disabled", "true")
       await reviewCreate.hover()
