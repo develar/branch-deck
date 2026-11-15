@@ -323,6 +323,9 @@ where
   disk_usage_core_inner(git_executor, params, Some(&mut on_progress), None)
 }
 
+/// The same report with `changes` as the history of the file system since a measurement (`changed_since`), the seam of
+/// the tests: the check runs as without it (on macOS deferred until the cached report is out), and waits for no
+/// `FSEvents`, which logs a write late on a loaded machine and answers `All` when its replay outlasts the wait
 #[cfg(test)]
 fn disk_usage_core_with_changes<F, G>(git_executor: &GitCommandExecutor, params: &DiskParams<'_>, mut on_progress: F, mut changes: G) -> Result<DiskUsage>
 where
@@ -435,7 +438,7 @@ fn disk_usage_core_inner(
               !leased || now.saturating_sub(measured.at) < LEASED_STALE.as_secs()
             }
         });
-      let defer_check = cache_candidate && cfg!(target_os = "macos") && changes_override.is_none();
+      let defer_check = cache_candidate && cfg!(target_os = "macos");
       let changes = if params.cached || defer_check {
         Changes::Paths(Vec::new())
       } else if !cache_candidate {

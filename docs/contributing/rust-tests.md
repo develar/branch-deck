@@ -98,13 +98,14 @@ machine.
   starts with the real clock, drives its request until it reached the gate of the fake (`FakeGate::reached_by`),
   and only then calls `tokio::time::pause()` and `advance`s past the timeout:
   `a_get_that_timed_out_is_not_asked_again` (`crates/github/src/client_test.rs`), the same of YouTrack and Patronus.
-- **The event log of the file system runs behind the writes**: `FSEvents` logs a write some time after it
-  happened, later on a loaded machine, so a mark of the log taken right after a write (`fs_walk::changes::mark`) may
-  stand before that write, which is then a change since the mark. A test that asks what changed since a
-  measurement of files it has just written waits first until the log holds its last write
-  (`wait_for_the_event_of` of `crates/pool-disk/src/disk_test.rs`: the changes since a mark taken before the
-  fixture name its last file); without it the check after the measurement found the fixture itself and measured
-  again (1 of 4 runs at a load of 42).
+- **No test waits for `FSEvents`**: the event log of the file system and a watch of it run behind the writes, far
+  behind on a loaded machine (fseventsd at 100 % CPU: a watch of the operations registry told no change in 28 s, and
+  the replay of a history that `changed_since` waits 0.5 s for answered `All` every time). A wait for either hung
+  until nextest killed the test at 300 s. A test gives the history instead of asking it (`disk_usage_core_with_changes`
+  of `crates/pool-disk`: the history since a measurement names nothing, then the changed file), and a wait for what
+  another process wrote into a watched file reads it again as a focus of the window does (`Registry::reread`, every
+  50 ms in `operations_once` of `crates/bd-cli/src/cross_process_test.rs`). Only the tests of the watch itself
+  (`registry_watch_test.rs`) wait for its events.
 - **Commit times are the fixture's**: commits that must fall into different seconds, or a rewrite that must have a
   later committer time, get their dates (`create_commit_with_timestamp`, `GIT_COMMITTER_DATE` of the rewrite's git)
   instead of a wait for the clock. Two commits of one author with one subject share a `CommitKey` only within one

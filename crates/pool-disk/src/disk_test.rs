@@ -28,19 +28,6 @@ clean = [
   assert_eq!(build_dirs(&dir.path().join("none")), Vec::<String>::new());
 }
 
-/// Waits until the event log of the volume holds the write of `last`, the last file written below `root` since
-/// the mark `since`. `FSEvents` logs a write some time after it happened, later on a loaded machine, so a mark taken
-/// right after the write may stand before it in the log: the write is then a change since that mark, and a check of
-/// what changed since a measurement finds the files the test wrote before it
-#[cfg(target_os = "macos")]
-fn wait_for_the_event_of(root: &Path, last: &Path, since: Option<fs_walk::changes::Mark>) {
-  let since = since.expect("FSEvents has a mark for a directory");
-  let last = std::fs::canonicalize(last).unwrap();
-  while !matches!(fs_walk::changes::changed_since(&[root], &since), Changes::Paths(paths) if paths.contains(&last)) {
-    std::thread::yield_now();
-  }
-}
-
 /// A repository with one commit, the executor and its dirs: the pool that a test registers its slots in
 fn repository() -> (TestRepo, GitCommandExecutor, RepositoryDirs) {
   let repo = TestRepo::new();
@@ -55,8 +42,6 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   let (repo, git, dirs) = repository();
   std::fs::write(repo.path().join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
   let slot_root = tempfile::tempdir().unwrap();
-  #[cfg(target_os = "macos")]
-  let before_the_files = fs_walk::changes::mark(slot_root.path());
   let slot_path = slot_root.path().join("1/repo");
   std::fs::create_dir_all(slot_path.join("target")).unwrap();
   std::fs::write(slot_path.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
@@ -66,9 +51,6 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   std::fs::write(slot_path.join("target/output"), vec![2u8; 8192]).unwrap();
   std::fs::write(slot_path.join("target/changed/deep/branch/output"), vec![3u8; 8192]).unwrap();
   std::fs::write(slot_path.join("target/unchanged/deep/branch/output"), vec![4u8; 8192]).unwrap();
-  // the measurement below marks the event log, and the check after it asks what changed since: not these files
-  #[cfg(target_os = "macos")]
-  wait_for_the_event_of(slot_root.path(), &slot_path.join("target/unchanged/deep/branch/output"), before_the_files);
   let lease: Lease = serde_json::from_value(serde_json::json!({
     "id": "lease",
     "holder": "disk-test",
@@ -148,7 +130,9 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
     .unwrap();
   let cached_params = DiskParams { fresh: false, ..params };
   let mut cached_events = Vec::new();
-  let cached = disk_usage_core_with_progress(&git, &cached_params, |event| cached_events.push(event)).unwrap();
+  // the history of the file system names no change since the measurement: the files of the fixture came before its
+  // mark, which `FSEvents` may log only later on a loaded machine, so the test gives the history instead of asking it
+  let cached = disk_usage_core_with_changes(&git, &cached_params, |event| cached_events.push(event), |_| Changes::Paths(Vec::new())).unwrap();
   let expected_measuring = u32::from(cfg!(target_os = "macos"));
   assert!(matches!(
     &cached_events[0],
@@ -195,7 +179,14 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   )
   .unwrap();
   assert!(matches!(&partial_events[0], DiskUsageProgress::Cached { measuring: 1, .. }));
-  assert!(matches!(&partial_events[1], DiskUsageProgress::Slot { measured: 1, measuring: 1, .. }));
+  // on macOS the check of the history follows the cached report and plans the walk of the changed directory
+  let measured_events = if cfg!(target_os = "macos") {
+    assert!(matches!(&partial_events[1], DiskUsageProgress::Planning { measuring: 1 }), "{partial_events:?}");
+    &partial_events[2..]
+  } else {
+    &partial_events[1..]
+  };
+  assert!(matches!(measured_events, [DiskUsageProgress::Slot { measured: 1, measuring: 1, .. }]), "{partial_events:?}");
   let updated_file = disk_file(Path::new(&dirs.git_common_dir)).read::<crate::DiskFile>().unwrap();
   let after_nodes = &updated_file.slots[&slot_key].nodes;
   assert!(after_nodes.iter().find(|node| node.path == "changed/deep/branch").unwrap().bytes > changed_bytes);
@@ -303,23 +294,19 @@ fn a_changed_file_selects_its_nearest_saved_node_and_uncached_paths_select_a_roo
 }
 
 /// Two free slots measured with their marks, then a file written into the second: on macOS the default run checks both
-/// with `FSEvents`, `Planning` leaves the changed slot alone, and its `Slot` event counts 1 of that 1, not of the 2 that
-/// `Cached` named. Off macOS no check runs, and a free slot stays cached
+/// with the history of `FSEvents`, `Planning` leaves the changed slot alone, and its `Slot` event counts 1 of that 1, not
+/// of the 2 that `Cached` named. Off macOS no check runs, and a free slot stays cached. The test gives the history (the
+/// changed file on macOS, none elsewhere, as the core reads there) instead of waiting for `FSEvents` to log it
 #[test]
 fn a_slot_event_counts_the_slots_that_the_fsevents_check_left() {
   let (_repo, git, dirs) = repository();
   let slot_root = tempfile::tempdir().unwrap();
-  #[cfg(target_os = "macos")]
-  let before_the_files = fs_walk::changes::mark(slot_root.path());
   let slots: Vec<std::path::PathBuf> = (1..=2).map(|n| slot_root.path().join(format!("{n}/repo"))).collect();
   for slot in &slots {
     std::fs::create_dir_all(slot.join("target")).unwrap();
     std::fs::write(slot.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
     std::fs::write(slot.join("target/output"), vec![2u8; 8192]).unwrap();
   }
-  // the measurement below marks the event log, and the check after it asks what changed since: not these files
-  #[cfg(target_os = "macos")]
-  wait_for_the_event_of(slot_root.path(), &slots[1].join("target/output"), before_the_files);
   Pool::new(Path::new(&dirs.git_common_dir))
     .update(Duration::from_secs(1), |store| {
       for (index, slot) in slots.iter().enumerate() {
@@ -346,8 +333,6 @@ fn a_slot_event_counts_the_slots_that_the_fsevents_check_left() {
     lock_timeout: Duration::from_secs(1),
   };
   disk_usage_core(&git, &params).unwrap();
-  #[cfg(target_os = "macos")]
-  let before_the_change = fs_walk::changes::mark(slot_root.path());
   let changed = slots[1].join("target/changed");
   {
     use std::io::Write;
@@ -355,10 +340,19 @@ fn a_slot_event_counts_the_slots_that_the_fsevents_check_left() {
     file.write_all(&vec![3u8; 16 * 1024]).unwrap();
     file.sync_all().unwrap();
   }
-  #[cfg(target_os = "macos")]
-  wait_for_the_event_of(slot_root.path(), &changed, before_the_change);
+  let history = if cfg!(target_os = "macos") {
+    vec![std::fs::canonicalize(&changed).unwrap()]
+  } else {
+    Vec::new()
+  };
   let mut events = Vec::new();
-  disk_usage_core_with_progress(&git, &DiskParams { fresh: false, ..params }, |event| events.push(event)).unwrap();
+  disk_usage_core_with_changes(
+    &git,
+    &DiskParams { fresh: false, ..params },
+    |event| events.push(event),
+    |_| Changes::Paths(history.clone()),
+  )
+  .unwrap();
   if cfg!(target_os = "macos") {
     assert!(
       matches!(

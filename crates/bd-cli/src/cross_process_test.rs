@@ -182,6 +182,9 @@ fn services(space: &Space, context: &RepoContext) -> BdServices {
 
 /// The app with the repository of a `Space` open in a window: its session synced, its robots and profiles read, its
 /// operations recorded in the operations registry of the repository as the app's
+/// How often a wait of the view of `App` reads the registry again, as a focus of its window does
+const REREAD: std::time::Duration = std::time::Duration::from_millis(50);
+
 struct App {
   registry: Registry,
   services: Arc<BdServices>,
@@ -250,7 +253,10 @@ impl App {
     }
   }
 
-  /// The operations of the view once `done` holds of them, read again after each patch
+  /// The operations of the view once `done` holds of them, read again after each patch and after each read of the
+  /// registry, which the wait asks every `REREAD` as a focus of the window does (`Registry::reread`): what the other
+  /// process wrote into the file shows without the watch, which tells a change late on a loaded machine (`FSEvents`
+  /// told none in 28 s at a load of 100, and the wait for it hung until the timeout of the runner)
   async fn operations_once(&mut self, done: impl Fn(&[RunningOperation]) -> bool) -> Vec<RunningOperation> {
     loop {
       let view = self.registry.sessions().get_snapshot(&self.key).await.unwrap();
@@ -258,7 +264,10 @@ impl App {
       if done(&operations) {
         return operations;
       }
-      self.patched.recv().await.unwrap();
+      self.registry.reread(&self.key).await;
+      if let Ok(patched) = tokio::time::timeout(REREAD, self.patched.recv()).await {
+        patched.unwrap();
+      }
     }
   }
 
