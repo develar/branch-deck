@@ -8,7 +8,7 @@ import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { askUntilSettled } from "@/lib/ask-until-settled"
 import type { ApiError, Land, LandingAllowances, LandProfiles, OperationEvent, OperationId, Outcome, PatronusProfile, PatronusRobot, Plan, ReviewReadiness } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { commandFailure, notifyError } from "@/lib/errors"
+import { commandFailure, logError, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { FROM_MENU } from "@/lib/menu"
 import { formatMergeLabel, mergeOf } from "@/lib/merge-pull-request"
@@ -647,13 +647,28 @@ async function runPlanned(plan: Plan, intent: Land, allow: LandingAllowances | u
     }
   }
   const params = { repositoryPath, intent: planned.intent, fingerprint: planned.fingerprint, accepted: planned.confirmations }
-  const result = await executeIntent(params, events).finally(() => {
-    if (op !== null) {
-      setLandProgress(op, null)
-    }
-  })
+  const result = await executeIntent(params, events)
+    .catch((error: unknown) => {
+      // the call failed (IPC): an update the push began ends with it in the toast of the push; else it fails as before
+      if (push?.failed(error instanceof Error ? error : new Error(String(error))) !== true) {
+        throw error
+      }
+      logError("Cannot update the project", error)
+      return null
+    })
+    .finally(() => {
+      if (op !== null) {
+        setLandProgress(op, null)
+      }
+    })
+  if (result === null) {
+    return false
+  }
   if (result.status === "error") {
-    tellStartRefusal(result.error, planned, repositoryPath)
+    // after the end of the push the error is of the update that follows it, which its toast tells; before, a refusal
+    if (push?.failed(result.error) !== true) {
+      tellStartRefusal(result.error, planned, repositoryPath)
+    }
     return false
   }
   setLandProgress(result.data.op, null)
@@ -675,6 +690,12 @@ interface PushFollow {
   done(outcome: Outcome): void
   /** The answer of `execute`, after the update: what the channel missed; resolves to whether it landed */
   answered(outcome: Outcome): boolean
+  /**
+   * `execute` failed (an error answered after the end of the push, or the call itself): an update that runs ends with it
+   * in the toast of the push, which keeps no "Rebuilding on the new master…" to close by hand; false where no update
+   * runs (no push told yet: a refusal of the start), which the caller says
+   */
+  failed(error: ApiError | Error): boolean
 }
 
 /**
@@ -753,6 +774,14 @@ function followPush(plan: Plan, land: Land, repositoryPath: string): PushFollow 
         show()
       }
       return pushed?.kind === "pushed"
+    },
+    failed(error) {
+      if (update?.kind !== "running") {
+        return false
+      }
+      update = { kind: "failed", error }
+      show()
+      return true
     },
   }
 }

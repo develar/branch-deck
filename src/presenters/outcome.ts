@@ -166,8 +166,11 @@ export type FollowingUpdate =
   | { readonly kind: "running" }
   /** It ended (`UpdateProjectResult`): applied, up to date, or refused by a conflict or local changes */
   | { readonly kind: "ended"; readonly result: UpdateProjectResult }
-  /** It failed, or was refused before its first effect (`error`), or did not run (null) */
-  | { readonly kind: "failed"; readonly error: ApiError | null }
+  /**
+   * It failed, or was refused before its first effect (`error`: its `ApiError`, or the `Error` of a call that failed),
+   * or did not run (null)
+   */
+  | { readonly kind: "failed"; readonly error: ApiError | Error | null }
 
 /**
  * The words of the update that follows a push into the target, below the title of the push: its state, and whether

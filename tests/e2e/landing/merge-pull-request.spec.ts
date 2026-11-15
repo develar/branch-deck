@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { ChecksSummary, PullRequest } from "../../../src/lib/bindings"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
 import { availablePullRequests, createPullRequestDialog, gitHubMutations, gitHubWrites, pullRequest } from "../helpers/pull-request-helpers"
@@ -12,7 +12,7 @@ import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { emitTauriEvent, nextAnswer, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { expectClosed, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
+import { expectClosed, routeAnswerAfter, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches off Space, none pushed; JIRA-456 has 3 commits. The repository lands by a merge
 // of the pull request on GitHub (`branchdeck.landing=pull-request`, `origin` pushing to acme/monorepo), which allows
@@ -120,6 +120,25 @@ async function expectMerged(page: Page, repo: TestRepositoryBuilder, copy: strin
   await expect(findBranchRow(page, BRANCH)).toHaveCount(0)
 }
 
+/**
+ * Merge #7, whose `execute` fails after the page heard the end of the merge, before the update told its end: by its
+ * `answer` (an error of the backend), or by the call (null: a failed IPC, the page mock throws). The update ends with
+ * `failure` in the toast of the merge, with Update Project, and the toast goes in its time
+ */
+async function failAfterTheMerge(page: Page, repo: TestRepositoryBuilder, answer: { code: "internal"; message: string } | null, failure: string): Promise<void> {
+  await expect(mergeStep(page)).toHaveText("Merge #7")
+  const toasts = page.locator("[data-slot=toast]", { hasText: `Merged #7 of ${BRANCH} into master · 3 commits` })
+  await routeAnswerAfter(page, "execute", message => message.kind === "done", answer)
+  await runAndWaitForAnswer(page, "execute", () => mergeStep(page).click())
+  expect(gitHubMutations(await repo.getGitHubLog())).toEqual([["mergePullRequest", expect.objectContaining({ id: "PR_7" })]])
+  await expect(toasts).toContainText(`Cannot update the project: ${failure}`)
+  await expect(toasts).not.toContainText("Rebuilding on the new master…")
+  await expect(toasts.getByRole("button", { name: "Update Project" })).toBeVisible()
+  await expect(toasts).toHaveCount(1)
+  await page.clock.fastForward(11_000)
+  await expectClosed(toasts)
+}
+
 test.describe("Merge #7", () => {
   test("should merge the approved green pull request from the slot of the row by rebase, and update after it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
@@ -155,6 +174,21 @@ test.describe("Merge #7", () => {
     await answered
     await expect(toasts).toContainText(`${BRANCH} landed in origin/master · Updated master`)
     await expect(toasts).toHaveCount(1)
+  })
+
+  test("should end the toast of the merge with the error its start answered after the merge, never keep it rebuilding", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await failAfterTheMerge(page, await setup(page, setupRepo, syncAndWaitForBranches), { code: "internal", message: "The journal is not writable" }, "The journal is not writable")
+  })
+
+  test("should end the toast of the merge with the failure of the call of its start after the merge, never keep it rebuilding", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the mock says why the call failed (as a failed IPC does), and the page logs the failure it tells in the toast
+    expectErrorLog(page, /^console\.error: \[Test Mock\] Cannot run execute: Error: The mock server answered execute without a result$/)
+    expectErrorLog(page, /^Cannot update the project: The mock server answered execute without a result$/)
+    await failAfterTheMerge(page, await setup(page, setupRepo, syncAndWaitForBranches), null, "The mock server answered execute without a result")
   })
 
   test("should open the popover of Merge #7 with S on the row, naming the method", async ({ page, setupRepo, syncAndWaitForBranches }) => {

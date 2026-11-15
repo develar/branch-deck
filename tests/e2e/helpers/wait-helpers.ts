@@ -280,6 +280,38 @@ export async function routeCommandError(
   await page.route(`**/invoke/${command}`, route => route.fulfill({ json: { status: "error", error: answer } }), { times: options?.times })
 }
 
+/**
+ * The next call of `command` (a command with a channel) runs on the server, but the page hears only the messages of its
+ * channel up to the first that `until` matches, then `answer`: the `ApiError` it answers, or none at all, which fails
+ * the call as a failed IPC does (the page mock throws). An error after some of the effects of a command: `execute` that
+ * fails after the end of the push it ran, before the update after it told its end. The page logs nothing of it here;
+ * the test declares what it logs
+ */
+export async function routeAnswerAfter(
+  page: Page,
+  command: string,
+  until: (message: { readonly kind?: string }) => boolean,
+  answer: Pick<ApiError, "code" | "message"> | null,
+): Promise<void> {
+  await page.route(
+    `**/invoke/${command}`,
+    async route => {
+      const response = await route.fetch()
+      const events = (await response.text())
+        .split("\n")
+        .filter(line => line.startsWith("data: "))
+        .map(line => JSON.parse(line.slice(6)) as { progress?: { kind?: string } })
+      const end = events.findIndex(event => event.progress !== undefined && until(event.progress))
+      const kept: unknown[] = events.slice(0, end + 1)
+      if (answer !== null) {
+        kept.push({ result: { status: "error", error: { details: null, retry: "no", operation_id: null, ...answer } } })
+      }
+      await route.fulfill({ response, body: kept.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") })
+    },
+    { times: 1 },
+  )
+}
+
 /** The commands of `page` whose answer has not come yet (`__ipcStats` of the page mock): 0 once a streamed one ended */
 export function pendingCommands(page: Page): Promise<number> {
   return page.evaluate(() => (window as unknown as { __ipcStats: { pending: number } }).__ipcStats.pending)
