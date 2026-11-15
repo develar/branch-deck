@@ -2448,8 +2448,11 @@ came first
 `a_refused_run_and_a_stamp_at_once_open_the_session_anew_once`), as the return took the files of the lease before
 and this run synced no worktree of the new one. A session that opened while the epoch of its slot could not be told acts
 under no lease it knows, and its runs and operations write no file of a lease, nor a field of one in the settings
-(`session::lease_writes`, `SettingsService::set_repository_fields`): the slot may hold another lease by then
-(`a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease`); a session of a known lease whose slot reads no
+(`session::lease_writes`, `SettingsService::set_repository_fields`): the slot may hold another lease by then. Once its
+slot reads a lease it is of another lease (`session::holds_another_lease`, the one rule of a run and of a stamp), and
+the first run or stamp that finds it opens it anew under that lease, whose next sync writes
+(`a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease_and_opens_anew_once_the_slot_reads_one`): before,
+it wrote nothing of its lease while it lived, so its slot never showed "Last synced"; a session of a known lease whose slot reads no
 epoch for a while writes nothing meanwhile and opens nothing anew
 (`an_epoch_that_cannot_be_read_writes_nothing_and_opens_nothing_anew`). So do the intents of a window and `brd`: Update Project, the undo of a
 rewrite and a dismiss name the epoch of the view they were asked on, are refused (`plan_changed`) on another epoch or

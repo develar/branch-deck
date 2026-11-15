@@ -952,24 +952,41 @@ async fn a_refused_run_and_a_stamp_at_once_open_the_session_anew_once() {
   }
 }
 
-/// A session opened while the epoch of its slot could not be told acts under no lease it knows: once the slot reads
-/// lease-b its runs sync, write no file of the lease and record nothing the writer takes (the lease of the record is
-/// unknown), as the slot may hold another lease than the one it opened under
+/// A session opened while the epoch of its slot could not be told acts under no lease it knows: its runs sync, write no
+/// file of the lease and record nothing the writer takes (the lease of the record is unknown). Once the slot reads a
+/// lease, the session is of another lease than it opened under (`holds_another_lease`), whether a run or a stamp finds it
+/// first: it opens anew under that lease, once, and its next sync marks the worktree and records under it. Without it
+/// that session wrote nothing of its lease while it lived (the probe of the review: opened once, never marked), so the
+/// slot never showed "Last synced" and was Ready to Sync again after a restart
 #[tokio::test]
-async fn a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease() {
-  let (repo, key, leases, sessions) = opened_under(WorktreeEpoch::Unknown).await;
-  let landed_state = sync_core::lease_state::LeasePaths::of_worktree(repo.path()).unwrap().landed();
-  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
-  assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "no mark while the epoch is unknown");
-  *leases.epoch.lock().unwrap() = lease("lease-b");
-  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
-  assert!(!sync_core::synced_mark::synced_before(&key.worktree, &key.prefix), "no mark of lease-b");
-  assert!(!landed_state.exists(), "no landed state of lease-b");
-  assert_eq!(
-    *leases.recorded.lock().unwrap(),
-    [(WorktreeEpoch::Unknown, 1), (WorktreeEpoch::Unknown, 1)],
-    "records of no lease the writer takes"
-  );
+async fn a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease_and_opens_anew_once_the_slot_reads_one() {
+  for found_by in [SyncReason::Manual, SyncReason::Stamp] {
+    let (repo, key, leases, sessions) = opened_under(WorktreeEpoch::Unknown).await;
+    let landed_state = sync_core::lease_state::LeasePaths::of_worktree(repo.path()).unwrap().landed();
+    let marked = || sync_core::synced_mark::synced_before(&key.worktree, &key.prefix);
+    let opens = || leases.opens.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+    assert!(!marked(), "{found_by:?}: no mark while the epoch is unknown");
+    assert!(!landed_state.exists(), "{found_by:?}: no landed state while the epoch is unknown");
+    assert_eq!(
+      *leases.recorded.lock().unwrap(),
+      [(WorktreeEpoch::Unknown, 1)],
+      "{found_by:?}: a record of no lease the writer takes"
+    );
+
+    *leases.epoch.lock().unwrap() = lease("lease-a");
+    let found = outcome(sessions.sync(&key, found_by)).await;
+    assert!(found.is_ok(), "{found_by:?}: nothing failed: {found:?}");
+    assert!(!marked(), "{found_by:?}: the session of no lease marks nothing of lease-a");
+    assert_eq!(opens(), 2, "{found_by:?}: the open and one reopen under lease-a");
+    for _ in 0..2 {
+      assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced), "{found_by:?}");
+    }
+    assert!(marked(), "{found_by:?}: the session of lease-a marks it");
+    assert!(landed_state.exists(), "{found_by:?}: and records where the branch is");
+    assert_eq!(leases.recorded.lock().unwrap().last(), Some(&(lease("lease-a"), 1)), "{found_by:?}: a record of lease-a");
+    assert_eq!(opens(), 2, "{found_by:?}: no further reopen");
+  }
 }
 
 /// A session opened under lease-a whose slot then reads no epoch (the state of the pool cannot be read) syncs and

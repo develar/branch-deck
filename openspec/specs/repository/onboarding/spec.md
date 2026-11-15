@@ -1526,7 +1526,10 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
 - **WHEN** its runs sync
 - **THEN** they write no file of a lease and no field of one, as the slot may hold another lease by then; a session of a
   known lease writes again once its slot reads that lease, and opens nothing anew meanwhile
-  [@test] crates/repository-model/src/session_test.rs (`a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease`, `an_epoch_that_cannot_be_read_writes_nothing_and_opens_nothing_anew`)
+- **AND** a session that opened while the epoch could not be told is of no lease: once its slot reads one, the first
+  run or stamp that finds it opens the session anew under that lease, once, and its next sync marks the worktree and
+  records the time of the sync, so the slot shows "Last synced" and no Ready to Sync card after a restart
+  [@test] crates/repository-model/src/session_test.rs (`a_session_opened_under_an_unknown_epoch_writes_nothing_of_a_lease_and_opens_anew_once_the_slot_reads_one`, `an_epoch_that_cannot_be_read_writes_nothing_and_opens_nothing_anew`)
   [@test] crates/app-settings/src/projects_test.rs (`a_record_of_a_sync_is_of_the_lease_its_session_opened_under`)
 
 #### Scenario: A late record of a sync of the lease before

@@ -53,7 +53,8 @@ use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead
 use crate::readiness_facts::ReadinessDigest;
 use crate::review_readings::ReadAheadAnswer;
 use crate::session::{
-  Busy, EventSink, Ran, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter, lease_began, lease_writes,
+  Busy, EventSink, Ran, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter, holds_another_lease,
+  lease_began, lease_writes,
 };
 use crate::state::{Joined, View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
@@ -958,9 +959,10 @@ impl Actor {
     self.decide_sync(reason, waiter);
   }
 
-  /// Whether the slot of the worktree holds another lease than the session is of (`epoch`, two known epochs that differ)
+  /// Whether the slot of the worktree holds another lease than the session is of (`epoch`, `holds_another_lease`: two
+  /// known epochs that differ, or a known one where the session opened while the epoch could not be told)
   fn leased_anew(&self, epoch: &WorktreeEpoch) -> bool {
-    matches!((self.life.opened_epoch().recorded(), epoch.recorded()), (Some(then), Some(now)) if then != now)
+    holds_another_lease(&self.life.opened_epoch(), epoch)
   }
 
   /// A stamp of `waiter` found the slot under another lease: the session opens anew for it once this message is handled

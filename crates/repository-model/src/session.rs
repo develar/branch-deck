@@ -359,16 +359,30 @@ impl SessionLife {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnotherLease;
 
+/// Whether the worktree holds another lease now (`now`) than a session that opened under `opened` is of: two known epochs
+/// that differ, or a known one where the session opened while the epoch could not be told (`WorktreeEpoch::Unknown`),
+/// whose lease it never knew, so it opens anew under the one it can tell now; an epoch that cannot be told now is no
+/// other lease (the run, `lease_began`, and a stamp, `Actor::leased_anew`)
+#[must_use]
+pub fn holds_another_lease(opened: &WorktreeEpoch, now: &WorktreeEpoch) -> bool {
+  match (opened.recorded(), now.recorded()) {
+    (Some(then), Some(now)) => then != now,
+    (None, Some(_)) => true,
+    (_, None) => false,
+  }
+}
+
 /// The lease an operation of a session that opened under `opened` acts under, the worktree holding `now`: the one the
-/// session opened under, the lease of its view. A session that opened while the epoch could not be told
-/// (`WorktreeEpoch::Unknown`) acts under none it knows: its operations write nothing of a lease (`lease_writes`), as the
-/// slot may hold another lease by now. `AnotherLease` when the worktree holds another known lease than the session
-/// opened under (`Sessions::lease_guard`, `SessionHost::run`)
+/// session opened under, the lease of its view. A session of a known lease whose slot reads no epoch now acts under
+/// its own, and its operations write nothing of a lease meanwhile (`lease_writes`), as the slot may hold another lease by
+/// then. `AnotherLease` when the worktree holds another lease than the session is of (`holds_another_lease`: a session
+/// that opened while the epoch could not be told is of none, and opens anew once the slot reads one;
+/// `Sessions::lease_guard`, `SessionHost::run`)
 ///
 /// # Errors
 /// `AnotherLease`, as above
 pub fn lease_began(opened: WorktreeEpoch, now: &WorktreeEpoch) -> Result<WorktreeEpoch, AnotherLease> {
-  if opened.recorded().is_some() && now.recorded().is_some() && *now != opened {
+  if holds_another_lease(&opened, now) {
     return Err(AnotherLease);
   }
   Ok(opened)
