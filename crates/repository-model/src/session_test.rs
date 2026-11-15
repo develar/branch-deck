@@ -709,6 +709,55 @@ struct TestLeases {
   leased_again_in_run: Mutex<Option<WorktreeEpoch>>,
   /// The lease and the count of branches each record of a sync named (`SessionEnvironment::record_synced`), in order
   recorded: Mutex<Vec<(WorktreeEpoch, usize)>>,
+  /// Where the next run waits in its setup until the test lets it go (`Gate`)
+  run_gate: Mutex<Option<GateSide>>,
+  /// Where the next read of whether the worktree was synced before (the read of a stamp) waits until the test lets it go
+  read_gate: Mutex<Option<GateSide>>,
+}
+
+/// The side of a gate a blocking call of the environment takes: it says it arrived, then waits for the go
+struct GateSide {
+  arrived: std::sync::mpsc::Sender<()>,
+  go: std::sync::mpsc::Receiver<()>,
+}
+
+impl GateSide {
+  fn pass(self) {
+    let _ = self.arrived.send(());
+    let _ = self.go.recv();
+  }
+}
+
+/// The side of a gate the test holds: it waits until the call arrived, then lets it go
+struct Gate {
+  arrived: Option<std::sync::mpsc::Receiver<()>>,
+  go: std::sync::mpsc::Sender<()>,
+}
+
+impl Gate {
+  /// A gate the next call that takes `slot` waits at
+  fn arm(slot: &Mutex<Option<GateSide>>) -> Self {
+    let (arrived_sender, arrived) = std::sync::mpsc::channel();
+    let (go, go_receiver) = std::sync::mpsc::channel();
+    *slot.lock().unwrap() = Some(GateSide {
+      arrived: arrived_sender,
+      go: go_receiver,
+    });
+    Self { arrived: Some(arrived), go }
+  }
+
+  async fn arrived(&mut self) {
+    let arrived = self.arrived.take().expect("once");
+    tokio::time::timeout(UNHURRIED, tokio::task::spawn_blocking(move || arrived.recv()))
+      .await
+      .expect("the call arrives at the gate")
+      .unwrap()
+      .unwrap();
+  }
+
+  fn go(&self) {
+    self.go.send(()).unwrap();
+  }
 }
 
 /// What the landing needs answer (nothing, by default) with the landed commits of each computation, and whether the view
@@ -722,6 +771,10 @@ struct HostFacts {
 
 impl SessionEnvironment for TestEnvironment {
   fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup> {
+    let gate = self.leases.run_gate.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(gate) = gate {
+      gate.pass();
+    }
     let leased_again = self.leases.leased_again_in_run.lock().unwrap_or_else(PoisonError::into_inner).take();
     if let Some(epoch) = leased_again {
       *self.leases.epoch.lock().unwrap_or_else(PoisonError::into_inner) = epoch;
@@ -757,6 +810,14 @@ impl SessionEnvironment for TestEnvironment {
 
   fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
     self.leases.epoch.lock().unwrap_or_else(PoisonError::into_inner).clone()
+  }
+
+  fn synced_before(&self, _key: &SessionKey) -> bool {
+    let gate = self.leases.read_gate.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(gate) = gate {
+      gate.pass();
+    }
+    false
   }
 
   fn landing_needs(&self, _key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs> {
@@ -928,27 +989,83 @@ async fn a_run_records_the_time_of_its_sync_under_the_lease_its_session_opened_u
   assert_eq!(leases.recorded.lock().unwrap().len(), 2, "the run of a slot under another lease synced nothing");
 }
 
-/// A run refused for another lease and a stamp that finds that lease at the same time (the probe of the review): the
-/// session opens anew once, each request is answered with nothing failed, and the session of the new lease syncs. The
-/// stamp that came first keeps its waiter for the reopen; a refusal that took its place lost it, and its request failed
-/// as the session closed before its sync ended
+/// When a stamp that finds another lease comes, against a run refused for that lease
+#[derive(Clone, Copy, Debug)]
+enum StampComes {
+  /// The stamp is handled while the run is in flight, the session waiting for it to end
+  DuringTheRun,
+  /// The read of the stamp is in flight as the refusal opens the session anew
+  ReadDuringTheRefusal,
+  /// The stamp comes once the refusal opened the session anew
+  AfterTheRefusal,
+  /// The stamp comes before the run, which then begins in the session it opened
+  BeforeTheRun,
+}
+
+/// A run refused for another lease and a stamp that finds that lease at the same time (the probe of the review), in each
+/// order they can come in, each made by gates in the setup of the run and in the read of the stamp: the session opens
+/// anew once, each request is answered with nothing failed, and the session of the new lease syncs. The stamp that came
+/// first keeps its waiter for the reopen; a refusal that took its place lost it, and its request failed as the session
+/// closed before its sync ended. The orders were 20 rounds of the two requests at once before, which took 13 s on a
+/// quiet machine and over 100 s under load, and hit the stamp during the run only
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_refused_run_and_a_stamp_at_once_open_the_session_anew_once() {
-  for round in 0..20 {
+  for order in [
+    StampComes::DuringTheRun,
+    StampComes::ReadDuringTheRefusal,
+    StampComes::AfterTheRefusal,
+    StampComes::BeforeTheRun,
+  ] {
     let (_repo, key, leases, sessions) = opened_under_lease_a().await;
+    let mut events = sessions.events().unwrap();
     *leases.epoch.lock().unwrap() = lease("lease-b");
-    let (manual, stamp) = tokio::join!(outcome(sessions.sync(&key, SyncReason::Manual)), outcome(sessions.sync(&key, SyncReason::Stamp)));
+    let (manual, stamp) = match order {
+      StampComes::DuringTheRun => {
+        let mut run = Gate::arm(&leases.run_gate);
+        let manual = sessions.sync(&key, SyncReason::Manual);
+        run.arrived().await;
+        let stamp = sessions.sync(&key, SyncReason::Stamp);
+        // the stamp found lease-b while the run is in flight: the scheduler of the facts hears the session close
+        tokio::time::timeout(UNHURRIED, async {
+          while !matches!(
+            events.recv().await,
+            Some(SessionEvent {
+              kind: SessionEventKind::Closed,
+              ..
+            })
+          ) {}
+        })
+        .await
+        .expect("the stamp is heard during the run");
+        run.go();
+        (outcome(manual).await, outcome(stamp).await)
+      }
+      StampComes::ReadDuringTheRefusal => {
+        let mut read = Gate::arm(&leases.read_gate);
+        let stamp = sessions.sync(&key, SyncReason::Stamp);
+        read.arrived().await;
+        let manual = outcome(sessions.sync(&key, SyncReason::Manual)).await;
+        read.go();
+        (manual, outcome(stamp).await)
+      }
+      StampComes::AfterTheRefusal => {
+        let manual = outcome(sessions.sync(&key, SyncReason::Manual)).await;
+        (manual, outcome(sessions.sync(&key, SyncReason::Stamp)).await)
+      }
+      StampComes::BeforeTheRun => {
+        let stamp = outcome(sessions.sync(&key, SyncReason::Stamp)).await;
+        (outcome(sessions.sync(&key, SyncReason::Manual)).await, stamp)
+      }
+    };
+    assert!(manual.is_ok() && stamp.is_ok(), "{order:?}: no failure: {manual:?} {stamp:?}");
     let after = sessions.view_version(&key).await.unwrap().epoch;
-    for _ in 0..3 {
-      assert_eq!(
-        outcome(sessions.sync(&key, SyncReason::Manual)).await,
-        Ok(SyncOutcome::Synced),
-        "round {round}: a session of lease-b syncs"
-      );
-    }
-    assert!(manual.is_ok() && stamp.is_ok(), "round {round}: no failure: {manual:?} {stamp:?}");
-    assert_eq!(leases.opens.load(std::sync::atomic::Ordering::SeqCst), 2, "round {round}: the open and one reopen");
-    assert_eq!(sessions.view_version(&key).await.unwrap().epoch, after, "round {round}: no further reopen");
+    assert_eq!(
+      outcome(sessions.sync(&key, SyncReason::Manual)).await,
+      Ok(SyncOutcome::Synced),
+      "{order:?}: a session of lease-b syncs"
+    );
+    assert_eq!(leases.opens.load(std::sync::atomic::Ordering::SeqCst), 2, "{order:?}: the open and one reopen");
+    assert_eq!(sessions.view_version(&key).await.unwrap().epoch, after, "{order:?}: no further reopen");
   }
 }
 
