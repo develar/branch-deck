@@ -72,9 +72,11 @@ interface ShownRow {
 
 /**
  * The row N or P shows: a stop goes four rows below the header of its file, which sticks at the top of the diffs, so
- * the rows before it stay in view. The fifth row under that header, with the kind of the fourth
+ * the rows before it stay in view. The fifth row under that header, with the kind of the fourth; null while the code of
+ * that row is still read (the painter draws a row before the text of its side came: `DiffPainter.code` gives its cell
+ * no `data-side`), so a stop is read with its text
  */
-async function shownStop(code: Locator): Promise<ShownRow> {
+async function shownStop(code: Locator): Promise<ShownRow | null> {
   return code.getByTestId("diff-view").evaluate(view => {
     const top = view.getBoundingClientRect().top
     // the header at the top: the last one that starts in the space above the first card
@@ -91,7 +93,11 @@ async function shownStop(code: Locator): Promise<ShownRow> {
     if (above === undefined || stop === undefined) {
       throw new Error(`${rows.length} rows under the header of ${file.dataset.path}`)
     }
-    const code = [...stop.querySelectorAll("[data-testid=diff-code]")].map(cell => cell.textContent ?? "").join("")
+    const cells = [...stop.querySelectorAll<HTMLElement>("[data-testid=diff-code]")]
+    if (!cells.some(cell => cell.dataset.side !== undefined)) {
+      return null
+    }
+    const code = cells.map(cell => cell.textContent ?? "").join("")
     return {
       path: file.dataset.path ?? "",
       row: Number(stop.dataset.row),
@@ -111,10 +117,15 @@ async function pressToStop(page: Page, code: Locator, key: "n" | "p", from: Show
   try {
     await expect
       .poll(async () => {
-        shown = await shownStop(code).catch((error: unknown) => {
+        problem = ""
+        const read = await shownStop(code).catch((error: unknown) => {
           problem = String(error)
           return undefined
         })
+        if (read === null) {
+          problem = "the code of the row is still read"
+        }
+        shown = read ?? undefined
         return shown !== undefined && (from === null || shown.path !== from.path || shown.row !== from.row)
       })
       .toBe(true)
