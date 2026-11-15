@@ -24,7 +24,7 @@ use crate::trim::{EvictParams, TrimParams, Trimmed, evict_core, trim_core};
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
-  AgentLanding, CheckoutWorkers, LeaseConfig, SlotMove, UnlandedCommit, UntrackedFiles, attach_new_branch, checkout_slot, clean_cloned_slot, detach_slot_head,
+  AgentLanding, CheckoutWorkers, LeaseConfig, LfsFiles, SlotMove, UnlandedCommit, UntrackedFiles, attach_new_branch, checkout_slot, clean_cloned_slot, detach_slot_head,
   discard_slot_changes, ignored_paths, is_valid_branch_name, lease_config, linked_worktree, move_clean_slot, move_slot, refresh_cloned_index, register_slot, slot_changes,
   start_deferred_maintenance, unlock_slot,
 };
@@ -41,6 +41,7 @@ use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::lease_state::forget_lease_state;
+use sync_core::lfs::pull_lfs_files;
 use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
@@ -948,6 +949,9 @@ pub enum GetStep {
   /// git refused the move of a reused slot by the diff, for `reason` (the first line of its words): every file is
   /// checked out instead
   CheckoutEveryFile { slot: String, reason: String },
+  /// The download of the files of Git LFS of a new slot and their content in place of the pointers that its checkout
+  /// wrote, after the release of the clones lock (`sync_core::lfs::pull_lfs_files`)
+  LfsPull { slot: String },
   /// The copy of the paths that `.worktreeinclude` names
   Seed { slot: String, paths: usize },
   /// The check of the work of an idle lease, whose holder is gone: landed in its home branch, a clean tree
@@ -991,6 +995,7 @@ impl fmt::Display for GetStep {
       Self::Refresh { slot } => write!(f, "refreshing the index of {slot}"),
       Self::Checkout { slot, commit } => write!(f, "checking out {} in {slot}", short_id(commit)),
       Self::CheckoutEveryFile { slot, reason } => write!(f, "checking out every file of {slot}, because git refused the diff: {reason}"),
+      Self::LfsPull { slot } => write!(f, "downloading the files of Git LFS into {slot}"),
       Self::Seed { slot, paths } => write!(f, "copying {paths} path(s) that {WORKTREE_INCLUDE} names into {slot}"),
       Self::TakeOver { slot, holder } => write!(f, "checking whether the work of the idle lease of {holder} in {slot} landed"),
       Self::CleanTakenOver { slot } => write!(f, "returning the idle lease of {slot}: its seeded paths, its branch and the clean rules"),
@@ -1361,6 +1366,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
           commit: &source_head,
           branch: params.branch.as_deref(),
           workers: config.workers,
+          lfs: if config.lfs.smudge { LfsFiles::Pointers } else { LfsFiles::Content },
           untracked: config.untracked,
           skips: &skips,
           progress: &report,
@@ -1392,8 +1398,16 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       }
     };
     // a new slot is registered, checked out and clean: the seed, a copy of ignored files that can take minutes, holds
-    // no get that adds a slot (`clones.lock`)
+    // no get that adds a slot (`clones.lock`), and neither does the download of the files of Git LFS, which its checkout
+    // left as pointers
     drop(clones_lock.take());
+    if !reused && config.lfs.smudge && config.lfs.objects(&git_common_dir).is_dir() {
+      report(GetStep::LfsPull { slot: path.clone() });
+      pull_lfs_files(git_executor, &path).map_err(|error| {
+        forget_slot_index(&path);
+        give_back(&pool, params.lock_timeout, &path, &lease.id, false, error)
+      })?;
+    }
     if !seeds.is_empty() {
       report(GetStep::Seed {
         slot: path.clone(),
@@ -2269,11 +2283,24 @@ struct NewSlot<'a> {
   commit: &'a str,
   branch: Option<&'a str>,
   workers: CheckoutWorkers,
+  /// The pointers when the smudge filter of Git LFS downloads (`LfsConfig::smudge`): the checkout runs under the
+  /// clones lock, and the get pulls the content after its release where the repository keeps objects of LFS
+  lfs: LfsFiles,
   untracked: UntrackedFiles,
   /// What the clone leaves out: the `delete` rules of the source
   skips: &'a CloneSkips,
   /// Hears each step as it starts
   progress: &'a dyn Fn(GetStep),
+}
+
+/// The index of the new slot at `path`, whose `git lfs pull` failed, deleted: its files of Git LFS are pointers still,
+/// which a later move by the diff would keep as the content. Without an index the next get finds the slot dirty, as
+/// after a checkout that failed, and never reuses it
+fn forget_slot_index(path: &str) {
+  let Some(worktree) = linked_worktree(Path::new(path)) else { return };
+  if let Err(error) = fs_retry::remove_file(worktree.git_dir.join("index")) {
+    warn!(slot = path, "cannot delete the index of a slot whose files of Git LFS are pointers: {error}");
+  }
 }
 
 /// Why a new slot failed
@@ -2306,7 +2333,7 @@ pub(crate) fn move_reused_slot(
         slot: slot.to_string(),
         reason: reason.lines().next().unwrap_or_default().to_string(),
       });
-      checkout_slot(git_executor, slot, commit, branch, workers)
+      checkout_slot(git_executor, slot, commit, branch, workers, LfsFiles::Content)
     }
   }
 }
@@ -2332,7 +2359,7 @@ fn add_new_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, releas
     .pool
     .worktree_command(request.lock_timeout, || register_slot(git_executor, repository, request.path, request.commit, false))
     .map_err(Added::NotRegistered)?;
-  checkout_slot(git_executor, &slot, request.commit, request.branch, request.workers).map_err(Added::Registered)?;
+  checkout_slot(git_executor, &slot, request.commit, request.branch, request.workers, request.lfs).map_err(Added::Registered)?;
   Ok(CreatedBy::Checkout)
 }
 
@@ -2406,7 +2433,7 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
     slot: slot.clone(),
     commit: request.commit.to_string(),
   });
-  checkout_slot(git_executor, &slot, request.commit, request.branch, request.workers).map_err(registered)?;
+  checkout_slot(git_executor, &slot, request.commit, request.branch, request.workers, request.lfs).map_err(registered)?;
   clean_cloned_slot(git_executor, &slot, request.untracked).map_err(registered)?;
   (request.progress)(GetStep::Status { slot: slot.clone() });
   let changes = slot_changes(git_executor, &slot, request.untracked).map_err(registered)?;

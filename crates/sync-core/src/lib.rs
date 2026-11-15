@@ -13,7 +13,8 @@
 //! `brd move-hunk` and everything that reads the diffs and the symbols of the commits are the crate `trial-check`; it
 //! builds with `branch_processor` and `cache_memo` of this crate.
 //! The lease pool of agent worktrees (`brd lease`), its clean rules and the agent workspace (`brd workspace`) are the crate
-//! `lease-pool`; it reads `repository_config`, `uncommitted_changes` and `baseline` of this crate.
+//! `lease-pool`; it reads `repository_config`, `uncommitted_changes` and `baseline` of this crate and pulls the files of
+//! Git LFS of a new slot through `lfs`.
 //! The rules of the domain (`domain-policy`) are read above this crate, by the model, the facts and the engine: no
 //! crate of git reaches them (`crates/bd-cli/src/architecture_test.rs`), so what the sync needs of what a push does is
 //! a method of the status it computes (`domain_types::remote_status`: `push_action`, `pushes_again`).
@@ -64,6 +65,8 @@
 //!
 //! Remotes:
 //! - `remote_command`: the policy of every git that talks to a remote (push, fetch)
+//! - `lfs`: the content of the files of Git LFS of a new lease slot, which its checkout under the clones lock of the
+//!   pool left as pointers
 //! - `transfer_progress`: the progress of a fetch or a push, from its stderr lines
 //! - `moved_remote`: the fetch of the remote branches whose pull request shows a head their remote-tracking ref lacks
 //!   (someone else pushed to them), with their remote statuses against what it fetched
@@ -116,6 +119,7 @@ pub mod grouping;
 pub mod issue_navigation;
 pub mod landed;
 pub mod lease_state;
+pub mod lfs;
 pub mod moved_remote;
 pub mod parked;
 pub mod patronus;

@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-28  
+**Updated:** 2026-11-15  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import, lease]
 
 ## Problem
@@ -2120,6 +2120,26 @@ time, and nothing is taken under the pool lock or under `worktrees.lock` (the mo
 latter); a return and a clean take only the pool lock, so neither waits for a clone. The shrink and the eviction of a
 get take `~/.branch-deck/pressure.lock`, one for the machine (`shrink::lock_pressure`), never under the clones lock,
 and the pool locks of the slots they mark under it.
+
+No lock of the pool is held across the network. The checkout of a new slot is the one git under the clones lock that
+could reach it: in a repository of Git LFS it runs the smudge filter, which downloads every object the store lacks, and
+every get that adds a slot waited for that download (`a_new_slot_gets_the_content_of_its_lfs_files_after_the_clones_lock`
+logged `smudge clones` before the change: under the clones lock, never under `worktrees.lock`, whose commands check
+nothing out). Where the smudge of LFS downloads (`LfsConfig::smudge`: `filter.lfs.process`, else
+`filter.lfs.smudge`, names a command without `--skip`, as git picks the process even when it is empty, and git's
+environment has no `GIT_LFS_SKIP_SMUDGE` that is true; read with the other keys of the pool, no process more), that
+checkout writes the pointers (`LfsFiles::Pointers`: `-c filter.lfs.process= -c filter.lfs.smudge= -c
+filter.lfs.required=false`, so no filter of LFS starts and a `required` one does not fail on its empty command), and
+the get runs `git lfs pull` in the slot after the release, before the seed (`sync_core::lfs::pull_lfs_files`, the
+policy of a remote command; `GetStep::LfsPull`): it downloads what the store lacks and replaces the pointers, the index
+refreshed. Only where the repository keeps objects of LFS (`lfs/objects` of the common directory, or of `lfs.storage`,
+no process): Git for Windows configures the filter in its system config for every repository, and a pull in a
+repository without files of LFS would scan its tree for nothing. A pull that fails fails the get, and the slot goes back
+without its index: its files of LFS are pointers still, which the next move by the diff would keep as their content, so
+the next get finds it dirty, as after a checkout that failed, and adds another. A reused slot moves without a lock of
+the pool (`reset --merge`, or the full checkout), so its smudge filter downloads as git runs it there, and no pull
+follows. Another smudge filter that reaches the network still runs under the clones lock: git has no switch for it, and
+nothing but LFS puts the content back after a checkout of the blobs.
 
 0. Free space: with `branchdeck.leaseMinFree` (or `--min-free`), a get whose pool volume has less free space
    (`f_bavail` of one `statfs`, no git) refuses as `low_disk_space` before it reserves anything, and a get that adds a

@@ -44,7 +44,8 @@ use lease_pool::lease::{GetStep, Pool, canonical_path};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_core::sync::{SyncOptions, sync_branches};
-use test_utils::git_test_utils::{TestRepo, TestWorktree};
+use test_utils::fake_executable::fake_executable;
+use test_utils::git_test_utils::{TestRepo, TestWorktree, append_config};
 use test_utils::process_budget::{FIRST_SYNC, assert_signed_commits, with_added_processes, with_process_deltas};
 
 /// The context `brd --prefix test-user` resolves in `repo`; its executor counts every process of the command
@@ -1801,6 +1802,39 @@ fn a_lease_get_that_waited_for_the_clones_lock() {
     );
   } else {
     assert_git_processes(&context.git, &[("checkout", 1), ("config", 2), ("rev-parse", 2), ("worktree", 1)]);
+  }
+}
+
+/// `brd lease get` of a new slot in a repository that keeps objects of Git LFS, whose smudge filter downloads: the
+/// processes of a new slot (on macOS a clone, elsewhere the registration and the full checkout), its checkout with the
+/// pointers (`-c` options, no process), and one `git lfs pull` after the clones lock; a fake `git lfs` answers it
+#[test]
+fn a_lease_get_of_a_new_slot_with_files_of_git_lfs() {
+  let repo = repo_with_branches();
+  append_config(repo.path(), &[("filter.lfs.smudge", "cat"), ("filter.lfs.clean", "cat")]);
+  std::fs::create_dir_all(repo.path().join(".git").join("lfs").join("objects")).unwrap();
+  let (_home, mut environment) = lease_environment(&repo);
+  let directory = tempfile::tempdir().unwrap();
+  let git = fake_executable(directory.path(), "git", "case \" $* \" in\n*\" lfs pull \"*) ;;\n*) exec git \"$@\";;\nesac");
+  environment.git = Some(git.to_str().unwrap().to_string());
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  assert!(!got.reused, "{got:?}");
+  if cfg!(target_os = "macos") {
+    assert_git_processes(
+      &context.git,
+      &[
+        ("checkout", 1),
+        ("config", 1),
+        ("lfs", 1),
+        ("rev-parse", 2),
+        ("status", 2),
+        ("update-index", 1),
+        ("worktree", 2),
+      ],
+    );
+  } else {
+    assert_git_processes(&context.git, &[("checkout", 1), ("config", 1), ("lfs", 1), ("rev-parse", 2), ("worktree", 1)]);
   }
 }
 

@@ -138,17 +138,39 @@ impl CheckoutWorkers {
   }
 }
 
+/// What a checkout of the pool writes for a file that the filter of Git LFS (`filter=lfs`) converts (`checkout_slot`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LfsFiles {
+  /// Its content, as git checks it out: the smudge filter of LFS downloads what the store of the repository lacks
+  Content,
+  /// Its pointer, the blob itself: no filter of LFS runs, so the checkout never waits for the network. The checkout of a
+  /// new slot under the clones lock of the pool writes these, and `git lfs pull` writes the content after its release
+  /// where the repository keeps objects of LFS (`sync_core::lfs::pull_lfs_files`); a filter that is `required` would
+  /// fail without its command, so it is not then
+  Pointers,
+}
+
+impl LfsFiles {
+  /// The `-c` options before the subcommand
+  const fn config(self) -> &'static [&'static str] {
+    match self {
+      Self::Content => &[],
+      Self::Pointers => &["-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false"],
+    }
+  }
+}
+
 /// Write every file of `slot` at `commit`, detached, or on the new `branch` created there: the checkout of a new slot,
 /// which `register_slot` left without an index or a clone brought with the files and the changes of its template, and
 /// the fallback of a move that git refused (`move_clean_slot`). It writes only the paths that differ, but it stats every
 /// file that `core.fsmonitor` does not vouch for: all of them in a slot without the daemon, 11-25 s in the IntelliJ
 /// monorepo (1.4M files). `--force` discards the local changes, which is what a clone needs, and is safe after
 /// `slot_changes` found nothing: a case-insensitive file system hides a case-only rename from `status`, and a checkout
-/// without it then refuses. A `branch` that exists fails
-pub fn checkout_slot(git_executor: &GitCommandExecutor, slot: &str, commit: &str, branch: Option<&str>, workers: CheckoutWorkers) -> Result<()> {
+/// without it then refuses. `lfs` says what a file of Git LFS gets. A `branch` that exists fails
+pub fn checkout_slot(git_executor: &GitCommandExecutor, slot: &str, commit: &str, branch: Option<&str>, workers: CheckoutWorkers, lfs: LfsFiles) -> Result<()> {
   let args = match branch {
-    Some(branch) => [workers.config(), &["checkout", "--quiet", "--force", "-b", branch, commit]].concat(),
-    None => [workers.config(), &["checkout", "--quiet", "--force", "--detach", commit]].concat(),
+    Some(branch) => [workers.config(), lfs.config(), &["checkout", "--quiet", "--force", "-b", branch, commit]].concat(),
+    None => [workers.config(), lfs.config(), &["checkout", "--quiet", "--force", "--detach", commit]].concat(),
   };
   IndexLock::of(git_executor, slot).retry(INDEX_LOCK_WAIT, || git_executor.execute_command(&args, slot).map(drop))
 }
@@ -485,6 +507,34 @@ pub struct LeaseConfig {
   /// `branchdeck.agentPullRequest` under the route of `branchdeck.landing`: how far the landing of an agent's commit
   /// goes, which the `next` of a get names
   pub agent_landing: AgentLanding,
+  /// Git LFS: whether its smudge filter downloads, and where it keeps its objects
+  pub lfs: LfsConfig,
+}
+
+/// Git LFS as the config of the pool tells it (`LeaseConfig::lfs`)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LfsConfig {
+  /// The smudge filter downloads: `filter.lfs.process`, else `filter.lfs.smudge`, names a command without `--skip`
+  /// (`git lfs install --skip-smudge`), and the environment that git inherits has no `GIT_LFS_SKIP_SMUDGE` that is true.
+  /// A new slot is checked out with the pointers then (`LfsFiles::Pointers`), and `git lfs pull` follows the release of
+  /// the clones lock where the repository keeps objects of LFS (`objects`)
+  pub smudge: bool,
+  /// `lfs.storage`, `~` expanded: where Git LFS keeps its objects instead of `$GIT_COMMON_DIR/lfs`
+  pub storage: Option<String>,
+}
+
+impl LfsConfig {
+  /// The objects of Git LFS of the repository whose `$GIT_COMMON_DIR` is `git_common_dir`: `objects` of `lfs.storage`
+  /// (relative to `git_common_dir`), else of `$GIT_COMMON_DIR/lfs`. Git LFS creates it with the first object it stores,
+  /// so a repository without files of LFS has none, also where the filter is configured for every repository (the
+  /// system config of Git for Windows)
+  pub fn objects(&self, git_common_dir: &Path) -> PathBuf {
+    self
+      .storage
+      .as_deref()
+      .map_or_else(|| git_common_dir.join("lfs"), |storage| git_common_dir.join(storage))
+      .join("objects")
+  }
 }
 
 /// How far the landing of a coding agent's commit goes (`branchdeck.agentPullRequest`, a git boolean, off when unset or
@@ -502,7 +552,8 @@ pub enum AgentLanding {
 /// `branchdeck.leasePool`, whether `checkout.workers` is set, `status.showUntrackedFiles`, `branchdeck.leaseMinFree`,
 /// `branchdeck.leaseMaxSlots`, `branchdeck.leaseMaintenance`, `branchdeck.hostSlots`, `branchdeck.hostSlotMaxSize`,
 /// `branchdeck.hostSlotIdleClean`,
-/// `branchdeck.agentPullRequest`, `branchdeck.landing`, `core.fileMode` and `core.symlinks`: one
+/// `branchdeck.agentPullRequest`, `branchdeck.landing`, `core.fileMode`, `core.symlinks`, the smudge commands of Git LFS
+/// (`filter.lfs.process`, `filter.lfs.smudge`) and `lfs.storage`: one
 /// `config --type=path --show-scope --get-regexp`, which exits with 1 when no key is set
 pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<LeaseConfig> {
   let output = git_executor
@@ -512,7 +563,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
         "--type=path",
         "--show-scope",
         "--get-regexp",
-        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|branchdeck\.hostslotidleclean|branchdeck\.agentpullrequest|branchdeck\.landing|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks)$",
+        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|branchdeck\.hostslotidleclean|branchdeck\.agentpullrequest|branchdeck\.landing|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks|filter\.lfs\.process|filter\.lfs\.smudge|lfs\.storage)$",
       ],
       repository,
     )
@@ -521,6 +572,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
   let mut config = LeaseConfig::default();
   let mut pull_request = false;
   let mut route = None;
+  let (mut lfs_process, mut lfs_smudge) = (None, String::new());
   for line in output.into_text().lines() {
     // `<scope>\t<key> <value>`, `<scope>\t<key>` for a key without a value
     let (scope, line) = line.split_once('\t').unwrap_or(("", line));
@@ -542,9 +594,17 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
       "status.showuntrackedfiles" => config.untracked = if value == "all" { UntrackedFiles::All } else { UntrackedFiles::Normal },
       "core.filemode" => config.no_file_mode = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(false),
       "core.symlinks" => config.no_symlinks = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(false),
+      // the last value wins
+      "filter.lfs.process" => lfs_process = Some(value.to_string()),
+      "filter.lfs.smudge" => value.clone_into(&mut lfs_smudge),
+      "lfs.storage" if !value.is_empty() => config.lfs.storage = Some(value.to_string()),
       _ => {}
     }
   }
+  // a `process`, even an empty one, is what git runs instead of the command of each file (`apply_filter` of convert.c)
+  let lfs_command = lfs_process.unwrap_or(lfs_smudge);
+  let skipped = std::env::var("GIT_LFS_SKIP_SMUDGE").is_ok_and(|value| parse_git_bool(Some(&value)) == Some(true));
+  config.lfs.smudge = !lfs_command.is_empty() && !lfs_command.split_whitespace().any(|word| word == "--skip") && !skipped;
   config.agent_landing = if pull_request && route.and_then(LandingSetting::agent_pull_request_off).is_none() {
     AgentLanding::PullRequest
   } else {

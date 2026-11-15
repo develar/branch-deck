@@ -37,7 +37,9 @@ use crate::state_file::StateFile;
 use crate::trim::{Machine, RemovedBase, TrimParams, Trimmed, remove_all, trash_bases, trim_core};
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::{LeaseConfig, SlotMove, checkout_slot, discard_slot_changes, lease_config, linked_worktree, move_clean_slot, slot_changes, start_deferred_maintenance};
+use git_ops::lease_slot::{
+  LeaseConfig, LfsFiles, SlotMove, checkout_slot, discard_slot_changes, lease_config, linked_worktree, move_clean_slot, slot_changes, start_deferred_maintenance,
+};
 use git_ops::revs::RepositoryDirs;
 use git_ops::worktree_snapshot::{CommitText, read_head_commit, worktree_commit, write_tree_patch};
 use serde::{Deserialize, Serialize};
@@ -1078,7 +1080,7 @@ pub fn checkout(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>,
         _ => bail!(HostSlotRefusal::NotLent { n, run: run.to_string() }),
       })?;
       debug!(slot = %path, %reason, "git refused the move by the diff: checking out every file");
-      checkout_slot(git_executor, &path, commit, None, config.workers)?;
+      checkout_slot(git_executor, &path, commit, None, config.workers, LfsFiles::Content)?;
       SlotCheckout::Forced(reason)
     }
   };

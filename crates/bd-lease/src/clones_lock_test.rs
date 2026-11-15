@@ -64,6 +64,7 @@ pub(crate) fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::Refresh { .. } => "refresh",
       GetStep::Checkout { .. } => "checkout",
       GetStep::CheckoutEveryFile { .. } => "checkout every file",
+      GetStep::LfsPull { .. } => "lfs pull",
       GetStep::Seed { .. } => "seed",
       GetStep::TakeOver { .. } => "take over",
       GetStep::CleanTakenOver { .. } => "clean taken over",
