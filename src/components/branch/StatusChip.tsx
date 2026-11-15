@@ -87,7 +87,8 @@ type HeldAnchor = Exclude<ComponentProps<typeof PopoverContent>["anchor"], undef
  * Actions widen: Stop Waiting comes in the slot of a start pressed in the card, and the card followed its chip 97 px
  * away from the pointer). Once the pointer left the card and no press lasts, the card follows its chip again: the
  * trigger is its anchor once more, which places it anew (docs/contributing/frontend.md, "What comes late beside a hovered
- * control")
+ * control"). The anchor changes, not `disableAnchorTracking` of the positioner: Base UI 1.9 arms the tracking of an
+ * anchor again only for a new anchor (floating-ui keeps `whileElementsMounted` in a ref), never for a change of that prop
  */
 function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
   anchor: HeldAnchor | undefined
