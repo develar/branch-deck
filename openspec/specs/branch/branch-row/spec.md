@@ -254,6 +254,18 @@ A subject with less than 6rem of free width MUST drop out instead of truncating 
 - **THEN** it drops out instead of truncating to a letter or two
   [@test] tests/e2e/branch-row-layout/column-widths.spec.ts (`drops a subject that has no room to be read`)
 
+### Requirement: Columns: An item that comes or goes moves only what stands before it
+
+The items of Status and Actions MUST stand at the end of their cell, also where they are narrower than the head of the
+column, as the row stands at its end: an item that comes or goes in a row moves only what stands before it, and "⋯"
+stays at the end of the row whatever the rows of the view show.
+
+#### Scenario: The last push of the view ends
+- **GIVEN** one row of the view shows a push, no row a step, and the pointer rests on "⋯" of that row
+- **WHEN** its push ends and the push track takes no room
+- **THEN** "⋯" stays where it was, under the pointer
+  [@test] tests/e2e/branch-row-layout/column-widths.spec.ts (`keeps ⋯ at the end of the row under the pointer as the last push of the view ends`)
+
 ### Requirement: Name cell: The cell shows its parts in a fixed order
 
 The name cell MUST show, in this order: the stack graph (in a table with stacks, [Tree](#tree)), the folder button

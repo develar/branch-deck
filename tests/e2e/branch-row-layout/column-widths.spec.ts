@@ -1,9 +1,10 @@
 // @spec openspec/specs/branch/branch-row/spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getBranchCells } from "../helpers/branch-helpers"
+import { findBranchRow, getBranchCells, getMoreButton, getPushButton } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { expectPushedToast, holdRemotePushes } from "../helpers/push-helpers"
 import { finishedSyncCount, moveClockUntil, pressSyncHeld, releaseHeldSync, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { resizeReportsDelivered, waitForStepFacts, waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -69,6 +70,29 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
     await expect.poll(async () => (await actions.boundingBox())!.width).toBeLessThan(12.75 * 16)
     await expectColumnAligned(page.getByTestId("next-step-slot"))
     await expectColumnAligned(page.getByTestId("branch-row").getByRole("button", { name: /^More actions for / }))
+  })
+
+  // the row stands at its end, and so do the items of its Actions, also narrower than the head "Actions": at its start
+  // "⋯" stood 19 px before its place while only one row showed a push, and moved there as that push ended
+  test("keeps ⋯ at the end of the row under the pointer as the last push of the view ends", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // feature-auth alone, on no service: its push and "⋯" are the Actions of the view
+    const repo = await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    const row = findBranchRow(page, "feature-auth")
+    const more = getMoreButton(row)
+    const before = await more.boundingBox()
+    const held = await holdRemotePushes(repo)
+    await getPushButton(row).click()
+    await held.arrived()
+    // the pointer rests on "⋯" while the push runs
+    await more.hover()
+    await held.release()
+    await expectPushedToast(page, "feature-auth")
+    await expect(getPushButton(row)).toHaveCount(0)
+    // the column follows its rows: the push takes no room in it
+    await expect.poll(() => trackWidth(page, "push")).toBe(0)
+    await resizeReportsDelivered(page)
+    expect(await more.boundingBox()).toEqual(before)
   })
 
   test("fits every label of a step in its column, so none truncates", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -47,10 +47,14 @@ export const TRACK_CONTENT_CLASS: Readonly<Record<BranchTrack, string>> = {
   more: "",
 }
 
-/** The container of a group's items in a row or a header: at least as wide as the label of its column */
+/**
+ * The container of a group's items in a row or a header: at least as wide as the label of its column, its items at its
+ * end, as the row stands at its end. Narrower than the label, they stood at its start: "⋯" stood 19 px from its place
+ * while no row of the view showed a push or a step, and moved there under the pointer that pressed the last push
+ */
 export const TRACK_GROUP_CLASS: Readonly<Record<BranchTrackGroup, string>> = {
-  status: "min-w-(--bd-group-status)",
-  actions: "min-w-(--bd-group-actions)",
+  status: "min-w-(--bd-group-status) justify-end",
+  actions: "min-w-(--bd-group-actions) justify-end",
 }
 
 /**

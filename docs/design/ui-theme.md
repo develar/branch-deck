@@ -631,7 +631,10 @@ shows.
   a column minimum costs its width where nothing shows (the 328px Actions column of October 2026 was two of them).
 - **Labels**: the label of a group's column (Status, Actions) is the minimum of the group's items in every row
   (`ColumnLabel`, `--bd-group-<group>`), so a narrow group doesn't widen the table's column alone; Commits labels its
-  track itself.
+  track itself. The items stand at the end of the group, as the row does, so an item that comes or goes moves only what
+  stands before it: at its start, "⋯" stood 19.4 px before the end of the row while no row of the view showed a push
+  or a step (the head "Actions" wider than "⋯"), and moved there as the last push of the view ended, under the pointer
+  that pressed it.
 - **Per card**: the lane column of the stack graph stays the card's own (`--bd-lane-count`); the archived table keeps
   its own columns (Status and Integrated mean other things) and only its "⋯" lines up, 16px from the edge.
 - **Room, not a container query**: what a row shows only where the view has the room (the words "with children" of
