@@ -216,15 +216,44 @@ fn every_command_of_a_route_test_names_its_repository() {
   assert_eq!(built_by_hand, [] as [String; 0], "a command request built outside test_support::command");
 }
 
-/// The deletion of a repository closes its sessions: the stream of a window still subscribed ends, after a patch the
-/// session sent before (the sign-ins it reads at its open), so the deletion does not wait for it, and the session is gone
-#[tokio::test]
-async fn deleting_a_repository_closes_its_sessions() {
+/// A server with a repository whose window subscribed to its session, which the subscription opened
+struct Subscribed {
+  addr: std::net::SocketAddr,
+  state: std::sync::Arc<crate::state::AppState>,
+  client: reqwest::Client,
+  id: String,
+  path: String,
+  messages: crate::test_support::Messages,
+}
+
+async fn subscribed() -> Subscribed {
   let (addr, state) = start_test_server_with_state().await;
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
   let mut messages = crate::session_routes_test::subscribe(&client, addr, &id, &path, 9).await;
   crate::session_routes_test::subscription(&mut messages).await;
+  Subscribed {
+    addr,
+    state,
+    client,
+    id,
+    path,
+    messages,
+  }
+}
+
+/// The deletion of a repository closes its sessions: the stream of a window still subscribed ends, after a patch the
+/// session sent before (the sign-ins it reads at its open), so the deletion does not wait for it, and the session is gone
+#[tokio::test]
+async fn deleting_a_repository_closes_its_sessions() {
+  let Subscribed {
+    addr,
+    state,
+    client,
+    id,
+    path,
+    mut messages,
+  } = subscribed().await;
   let key = SessionKey {
     worktree: path.clone(),
     prefix: "user-name".to_string(),
@@ -243,4 +272,67 @@ async fn deleting_a_repository_closes_its_sessions() {
     after.push(message);
   }
   assert!(!state.sessions.is_open(&key));
+}
+
+/// `/debug/counts` of the server, read until `done` holds, within a minute: what the server holds settles a moment after
+/// the command or the deletion that changed it (the first look of a watch, the end of a subscription)
+async fn counts_when(client: &reqwest::Client, addr: std::net::SocketAddr, done: impl Fn(&Value) -> bool) -> Value {
+  let deadline = Instant::now() + Duration::from_mins(1);
+  loop {
+    let counts: Value = client.get(format!("http://{addr}/debug/counts")).send().await.unwrap().json().await.unwrap();
+    if done(&counts) {
+      return counts;
+    }
+    assert!(Instant::now() < deadline, "the counts did not settle: {counts}");
+    tokio::time::sleep(Duration::from_millis(20)).await;
+  }
+}
+
+/// `/debug/counts` tells what the server holds: a repository whose window subscribed is one repository, one session and
+/// one watch that looked, with no orphan; a session whose worktree no live test repository has is an orphan, named; once
+/// the repository is deleted the server holds nothing of it, and no session is left an orphan
+#[tokio::test]
+async fn the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the_watches() {
+  let Subscribed {
+    addr,
+    state,
+    client,
+    id,
+    path,
+    mut messages,
+  } = subscribed().await;
+
+  let counts = counts_when(&client, addr, |counts| counts["watches"]["looks"].as_u64() >= Some(1)).await;
+  assert_eq!(
+    (
+      &counts["repositories"],
+      &counts["sessions"],
+      &counts["orphanSessions"],
+      &counts["watches"]["repositories"],
+      &counts["watches"]["sessions"]
+    ),
+    (&json!(1), &json!(1), &json!([]), &json!(1), &json!(1)),
+    "{counts}"
+  );
+
+  // the server forgets the worktree of the session, as a deletion that left the session open would
+  let (worktree, of) = state.path_to_id.remove(&path).unwrap();
+  let counts = counts_when(&client, addr, |_| true).await;
+  assert_eq!(counts["orphanSessions"], json!([{ "worktree": path, "prefix": "user-name" }]), "{counts}");
+  state.path_to_id.insert(worktree, of);
+
+  delete_repository(&client, addr, &id, &path).await;
+  while messages.next_or_end().await.is_some() {}
+  let counts = counts_when(&client, addr, |counts| counts["watches"]["repositories"] == json!(0)).await;
+  assert_eq!(
+    (
+      &counts["repositories"],
+      &counts["sessions"],
+      &counts["orphanSessions"],
+      &counts["watches"]["sessions"],
+      &counts["watches"]["looks"]
+    ),
+    (&json!(0), &json!(0), &json!([]), &json!(0), &json!(0)),
+    "{counts}"
+  );
 }

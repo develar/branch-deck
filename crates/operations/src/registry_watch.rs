@@ -106,6 +106,15 @@ pub fn touch_stamp(git_common_dir: &Path) {
   }
 }
 
+/// What the watches of a registry hold now: the repositories watched, the sessions that watch them and the looks the
+/// tasks of these watches finished (the counts of the E2E server, `/debug/counts`)
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct WatchCounts {
+  pub repositories: usize,
+  pub sessions: usize,
+  pub looks: u64,
+}
+
 /// What woke the task of a watch: a look at the three files was asked
 #[derive(Default)]
 pub(crate) struct Wake {
@@ -139,7 +148,6 @@ impl Wake {
   }
 
   /// How many looks the task finished
-  #[cfg(test)]
   pub(crate) fn looks_taken(&self) -> u64 {
     self.looks.load(Ordering::SeqCst)
   }
@@ -183,6 +191,16 @@ impl Watches {
 
   fn lock(&self) -> MutexGuard<'_, HashMap<ProcessRegistry, RepositoryWatch>> {
     self.by_registry.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  /// The repositories watched now, the sessions that watch them and the looks their tasks finished (`WatchCounts`)
+  pub(crate) fn counts(&self) -> WatchCounts {
+    let watches = self.lock();
+    WatchCounts {
+      repositories: watches.len(),
+      sessions: watches.values().map(|watch| watch.keys.len()).sum(),
+      looks: watches.values().map(|watch| watch.wake.looks_taken()).sum(),
+    }
   }
 
   /// The journal of `registry` changed: its listener hears it, with the sessions that watch it

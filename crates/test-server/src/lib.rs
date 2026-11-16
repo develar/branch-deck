@@ -331,6 +331,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/companion-link", post(companion_fixtures::set_companion_link))
     // Health check
     .route("/health", get(health_check))
+    .route("/debug/counts", get(debug_counts))
     // Serve static files from dist with SPA fallback
     .fallback_service(serve_static_files())
     .layer(axum::middleware::from_fn_with_state(Arc::clone(&state), hold_repository))
@@ -396,6 +397,24 @@ async fn hold_repository(State(state): State<Arc<AppState>>, request: Request, n
     tracing::error!(%uri, "The command task failed: {e}");
     StatusCode::INTERNAL_SERVER_ERROR.into_response()
   })
+}
+
+/// What the server holds now: its test repositories, the sessions open, the watches of the registries with their looks,
+/// which tell what a test left behind once it ended (a session, a watch that looks every 2 s)
+async fn debug_counts(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+  let sessions = state.sessions.open_keys();
+  // the sessions of no repository of a test that lives (nor a slot of its pool): what a deleted test left open
+  let orphans: Vec<serde_json::Value> = sessions
+    .iter()
+    .filter(|key| !state.path_to_id.contains_key(&key.worktree))
+    .map(|key| serde_json::json!({ "worktree": key.worktree, "prefix": key.prefix }))
+    .collect();
+  Json(serde_json::json!({
+    "repositories": state.repositories.len(),
+    "sessions": sessions.len(),
+    "orphanSessions": orphans,
+    "watches": state.registry.watch_counts(),
+  }))
 }
 
 /// The checkout this server serves, so the E2E global setup can refuse a server of another worktree on its port

@@ -277,6 +277,12 @@ enum Decision {
 }
 
 impl Registry {
+  /// What the watches of the registries hold now (`registry_watch::WatchCounts`): the counts of the E2E server
+  #[must_use]
+  pub fn watch_counts(&self) -> crate::registry_watch::WatchCounts {
+    self.watches.counts()
+  }
+
   /// The registry of the operations of `sessions`, recorded for the other processes in `files`
   #[must_use]
   pub fn new(sessions: Arc<Sessions>, files: RegistryFiles) -> Self {

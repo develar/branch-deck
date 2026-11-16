@@ -633,6 +633,13 @@ impl Sessions {
     }
   }
 
+  /// The sessions open now: the counts of the E2E server (`/debug/counts`), which tell a session that outlived the windows
+  /// and the repository of its test
+  #[must_use]
+  pub fn open_keys(&self) -> Vec<SessionKey> {
+    self.lock().keys().cloned().collect()
+  }
+
   #[must_use]
   pub fn is_open(&self, key: &SessionKey) -> bool {
     self.lock().contains_key(key)
