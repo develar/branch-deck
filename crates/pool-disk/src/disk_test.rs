@@ -403,10 +403,11 @@ fn a_reclaim_leaves_the_measures_of_the_other_free_slots_valid() {
   repo.create_commit("clean rules", ".branchdeck.toml", "[lease]\nclean = [{ delete = \"target\" }]\n");
   let branch = repo.git(&["symbolic-ref", "--short", "HEAD"]).trim().to_owned();
   let slot_root = tempfile::tempdir().unwrap();
-  let slot_root = std::fs::canonicalize(slot_root.path()).unwrap();
-  let idle = slot_root.join("1/repo");
+  // the form the pool writes (`canonical_path`): on Windows without the `\\?\` of `canonicalize`, which git refuses
+  let slot_root = PathBuf::from(lease_pool::lease::canonical_path(slot_root.path()));
+  let idle = slot_root.join("1").join("repo");
   repo.git(&["worktree", "add", "--detach", idle.to_str().unwrap(), "HEAD"]);
-  let free: Vec<PathBuf> = (2..=3).map(|n| slot_root.join(format!("{n}/repo"))).collect();
+  let free: Vec<PathBuf> = (2..=3).map(|n| slot_root.join(n.to_string()).join("repo")).collect();
   for slot in &free {
     std::fs::create_dir_all(slot).unwrap();
     std::fs::write(slot.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();

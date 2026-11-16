@@ -263,6 +263,15 @@ fn a_command_of_another_session_in_a_taken_over_slot_is_refused_as_lease_reclaim
     lease["holder_pid"] = json!(other.0.id());
     lease["holder_started"] = json!(started.unwrap_or(1));
   });
+  // the chain of brd is this process and its ancestors: where this one is cut below the init process (on Windows a
+  // parent that started after its child, a pid given again or a clock that stepped back on the runner), the two sessions
+  // can't be told apart and nothing is refused (`reclaimed_refusal`)
+  let ancestors = sync_utils::process_scan::ProcessScan::scan().ancestors();
+  if ancestors.as_ref().and_then(|ancestors| ancestors.contains(other.0.id(), started)).is_none() {
+    let (exit_code, output) = fixture.run_in(slot, &["lease", "return"]);
+    assert_eq!(exit_code, 0, "a cut chain refuses nothing, the chain of this process: {ancestors:?}\n{output}");
+    return;
+  }
   let (exit_code, output) = fixture.run_in(slot, &["lease", "return"]);
   assert_error(&output, exit_code, (4, "lease_reclaimed"));
   let message = output["error"]["message"].as_str().unwrap();
