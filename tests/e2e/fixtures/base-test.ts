@@ -2,6 +2,7 @@ import type { BrowserContext, Locator, Page, Request } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
 import { answeredTogether, longTaskOf, NEAR_TIMEOUT_MS, PAGE_HEALTH, pageAnswers, PROBE_MS, watchLongTasks } from "../helpers/page-health"
 import type { PageHealth } from "../helpers/page-health"
+import { ANY_NETWORK_FAILURE, isLeftBehind } from "../setup/network-failure"
 import { resizeObservers } from "../setup/resize-observers"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
 
@@ -144,13 +145,9 @@ export function hoverSubmenuTrigger(trigger: Locator, options?: HoverOptions): P
 const LOG_ERROR_MARK = "[e2e-log-error] "
 /**
  * The same of a page that leaves for the page of another window (`openSubWindowPage`), which the app never does: the
- * requests it still had fail in WebKit, which is no error of the app (`NETWORK_FAILURE`); any other error of it counts
+ * requests it still had fail in WebKit, which is no error of the app (`isLeftBehind`); any other error of it counts
  */
 const LEAVING_LOG_ERROR_MARK = "[e2e-log-error-leaving] "
-/** What WebKit says of a request that failed as its page left, its whole message (`toldText`): no error of the app */
-const NETWORK_FAILURE = /(?:^|: )(?:TypeError: )?Load failed$|Fetch API cannot load .+ due to access control checks\.?$/
-/** A failure of the network in the words of WebKit or Chromium, wherever in the message: what `networkDiagnostics` says */
-const ANY_NETWORK_FAILURE = /Load failed|due to access control checks|Failed to fetch|net::ERR_/
 
 /**
  * An uncaught error of a page as the page told it: Playwright makes an error line of the console of WebKit an uncaught
@@ -358,14 +355,14 @@ export const test = base.extend({
       } else if (message.type() === "info" && message.text().startsWith(LEAVING_LOG_ERROR_MARK)) {
         const line = message.text().slice(LEAVING_LOG_ERROR_MARK.length)
         // a request that failed as the page left is no error of the app; any other error of the leaving page counts
-        ;(NETWORK_FAILURE.test(line) ? leaving : logged).push(line)
+        ;(isLeftBehind(line) ? leaving : logged).push(line)
       } else if (process.env.DEBUG_E2E) {
         console.log("[Browser]", message.type(), message.text())
       } else if (message.type() === "error") {
         pageErrors.push(message.text())
       }
       const from = message.page()
-      if (message.type() === "error" && !(from !== null && leavingPages.has(from) && NETWORK_FAILURE.test(message.text()))) {
+      if (message.type() === "error" && !(from !== null && leavingPages.has(from) && isLeftBehind(message.text()))) {
         consoleErrors.push(message.text())
         countNetworkFailure(message.text(), from)
       }
@@ -376,7 +373,7 @@ export const test = base.extend({
       // notifications come in the next frame; a cycle is an error line, on which the test fails
       const loop = error.error().message.includes("ResizeObserver loop completed with undelivered notifications")
       const told = toldText(error.error())
-      const leftBehind = from !== null && leavingPages.has(from) && NETWORK_FAILURE.test(told)
+      const leftBehind = from !== null && leavingPages.has(from) && isLeftBehind(told)
       if (!loop && !leftBehind) {
         uncaught.push(error.error())
         countNetworkFailure(told, from)

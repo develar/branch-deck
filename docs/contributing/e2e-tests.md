@@ -138,7 +138,10 @@ rules in one line each and links here.
   (WebKit's "Load failed" and "Fetch API cannot load … due to access control checks") counts no error. Base-test reads
   an uncaught error of WebKit by its whole line (`toldText`): Playwright splits an error line of WebKit's console at its
   first colon, so the "access control checks" of a leaving page was the message "/localhost:…" alone and counted
-  (quiet-changes.spec.ts and moved-lines.spec.ts in loaded runs, 2026-11-15). A network
+  (quiet-changes.spec.ts and moved-lines.spec.ts in loaded runs, 2026-11-15). It tells a request left behind by the
+  first line of the error (`isLeftBehind` of tests/e2e/setup/network-failure.ts): the log of the page puts the stack of
+  the error on the lines after it, and an unhandled "Load failed" with its stack counted (moved-lines.spec.ts in WebKit,
+  2026-11-16). A network
   failure that counts fails the test with the network of its pages (`networkDiagnostics` of base-test, also attached
   as "network failures"): each failure and each failed request with its method and URL, when in the test, its page,
   whether that page was closed and had left then, when each page closed, and how long the first view of each session
