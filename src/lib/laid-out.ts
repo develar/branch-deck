@@ -111,11 +111,14 @@ const LAYOUT_UNITS = 64
 
 /**
  * The content box of `element`, one without a transform, as its `ResizeObserver` reports it, by the same arithmetic: its
- * border box in the coordinates of the page (`getBoundingClientRect`, whole layout units at the zoom of the element)
- * over its zoom (`currentCSSZoom`, the float of the engine), less its borders, its padding and its bars (`layoutOf`),
- * floored to a layout unit. At a zoom of 110% the computed style says the size before that floor (WebKit 680.894897,
- * Chromium 680.895, for a report of 680.890625), which a read as an element mounts must not take for the report's.
- * Exact where the borders, the padding and the bars are none (the scroller of the diffs); null without a box
+ * border box in the coordinates of the page (`getBoundingClientRect`) over its zoom (`currentCSSZoom`), less its
+ * borders, its padding and its bars (`layoutOf`), floored to a layout unit. Under a CSS zoom (`html { zoom }`, which the
+ * E2E and unit tests use) the zoom is the float of the engine and the border box whole layout units at that zoom; under
+ * the page zoom of the webview (WKWebView `pageZoom`, the zoom of the real app) the zoom is 1 and the border box already
+ * carries the fraction, in CSS pixels unzoomed: the division is by 1, the floor does it all. Either way at 110% the
+ * computed style says the size before that floor (WebKit 680.894897, Chromium 680.895, for a report of 680.890625), which
+ * a read as an element mounts must not take for the report's. Exact where the borders, the padding and the bars are none
+ * (the scroller of the diffs); null without a box
  */
 export function observedContentBox(element: Element): Box | null {
   const layout = layoutOf(element)

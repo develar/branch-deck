@@ -544,8 +544,10 @@ test.describe("The marks of a diff in the review window", () => {
     },
   )
 
-  // the zoom of the app is the page zoom of the webview, which WebKit lays out as a zoom of the root: there the computed
-  // style says a size before the floor of the report
+  // the zoom of the app is the page zoom of the webview, which WebKit lays out as a zoom of the root, `html { zoom }`
+  // here: there the computed style says a size before the floor of the report. Only the layout is alike: under the page
+  // zoom `currentCSSZoom` is 1 and the rect carries the fraction, under `html { zoom }` they are 1.1 and whole layout
+  // units (`observedContentBox`, its unit test of both)
   test(
     "the diffs read as they mount the size their observer reports, at a zoom of 110% too: its first report changes no size of theirs, a later one does",
     { tag: "@webkit" },

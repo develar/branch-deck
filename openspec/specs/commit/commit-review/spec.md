@@ -531,6 +531,7 @@ at their end.
 - **WHEN** the diffs mount at a zoom of the app (110%, where the computed style says a size before the floor of the report)
 - **THEN** they read the content box as their `ResizeObserver` reports it, by its arithmetic (`observedContentBox`): its first report changes no size of theirs, and a later resize does
   [@test] src/lib/laid-out.test.ts (`reads the box by the arithmetic of the report at a zoom, where the computed style says the size before its floor`)
+  [@test] src/lib/laid-out.test.ts (`reads the box at the page zoom of the webview, where the zoom of the element is 1 and its border box carries the fraction`)
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`the diffs read as they mount the size their observer reports, at a zoom of 110% too: its first report changes no size of theirs, a later one does`)
 
 #### Scenario: A view that ends at its end

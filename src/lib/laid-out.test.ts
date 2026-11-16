@@ -76,7 +76,10 @@ describe("the content box of an element as its observer reports it", () => {
     vi.unstubAllGlobals()
   })
 
-  /** The scroller of the diffs, no padding, border or bar, laid out as WebKit did at `zoom` (`html { zoom }`) */
+  /**
+   * The scroller of the diffs, no padding, border or bar, laid out as WebKit did at `zoom` (`html { zoom }`; 1 under the
+   * page zoom of the webview, whose element has no zoom of its own)
+   */
   function zoomed(zoom: number, rect: { width: number; height: number }, computed: { width: string; height: string }): Element {
     vi.stubGlobal("getComputedStyle", () => ({
       display: "block",
@@ -103,5 +106,17 @@ describe("the content box of an element as its observer reports it", () => {
     const at90 = zoomed(0.9, { width: 831.015625, height: 561.625 }, { width: "923.350708px", height: "624.027771px" })
     expect(observedContentBox(at90)).toEqual({ inline: 923.34375, block: 624.015625 })
     expect(observedContentBox(zoomed(1, { width: 790, height: 624 }, { width: "790px", height: "624px" }))).toEqual({ inline: 790, block: 624 })
+  })
+
+  it("reads the box at the page zoom of the webview, where the zoom of the element is 1 and its border box carries the fraction", () => {
+    // what WKWebView reported at a `pageZoom` of 1.1, the zoom of the app: `currentCSSZoom` 1, the rect in CSS pixels
+    // unzoomed, the floor alone makes the report
+    const at110 = zoomed(1, { width: 618.5510864, height: 629.0625 }, { width: "618.551147px", height: "629.0625px" })
+    expect(observedContentBox(at110)).toEqual({ inline: 618.546875, block: 629.0625 })
+    expect(laidOutBoxes(at110)?.content).toEqual({ inline: 618.551147, block: 629.0625 })
+    expect(observedContentBox(zoomed(1, { width: 368.6363525, height: 629.0625 }, { width: "368.636353px", height: "629.0625px" }))).toEqual({
+      inline: 368.625,
+      block: 629.0625,
+    })
   })
 })
