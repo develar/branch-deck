@@ -58,7 +58,7 @@ describe("robot stats", () => {
 
   it("ends a read whose IPC failed with its error, never a rejection of the page: the entry stops loading and says it", async () => {
     // a request WebKit failed as its page left: the bindings answer its Error as the error of the command
-    getRobotStats.mockResolvedValueOnce({ status: "error", error: commandError(new TypeError("Load failed")) })
+    getRobotStats.mockResolvedValueOnce({ status: "error", error: commandError(new TypeError("Load failed"), null) })
     readRobotStats({ repositoryPath: "/repo", baselineBranch: "master", period: "30d" }, false)
     await vi.waitFor(() => expect(entry()?.loading).toBe(false))
     expect(entry()?.error).toBe("Load failed")

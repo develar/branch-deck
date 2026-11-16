@@ -333,7 +333,7 @@ describe("the commands", () => {
 
   it("a stop whose call fails (the IPC, a refusal of Tauri) is a line of the log, never a rejection of the page", async () => {
     // the bindings answer a failed call as the error of the command
-    const failure = commandError(new TypeError("Load failed"))
+    const failure = commandError(new TypeError("Load failed"), null)
     stopAirWatchCommand.mockResolvedValue({ status: "error", error: failure })
     stopAirWatch("s-1")
     await vi.waitFor(() => expect(logWarning).toHaveBeenCalledWith("Cannot stop the watch of an Air session", failure))

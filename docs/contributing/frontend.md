@@ -58,7 +58,8 @@ imports and naming, the patched dependencies, and the React and WebKit behaviour
   `{ status: "error", error }` with an `ApiError` (`commandError` of `src/lib/api-error.ts`, which the export of
   `src-tauri/src/bindings_test.rs` writes into the catch of `typedError`): the error the command answered as is, a
   refusal of Tauri itself ("Command not found", an ACL refusal, invalid arguments: a string) and an `Error` of the IPC
-  (a fetch of the E2E bridge, the Air shim) as an `internal` error of its words. So the `status === "error"` branch is
+  (a fetch of the E2E bridge, the Air shim) as an `internal` error of its words and a warning of the log, "Cannot run
+  <command>", as the backend logged nothing of it. So the `status === "error"` branch is
   the one failure path: no `try`/`catch` around `await commands.…`, no `.catch` of one, and a `void` of one is safe
   where its `.then` handles the error; Oxlint refuses a promise neither awaited, caught nor `void`
   (`typescript/no-floating-promises`). A failure of the e2e mock server (no route, a panic) is an error line of the log

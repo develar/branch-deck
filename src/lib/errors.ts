@@ -1,6 +1,6 @@
-import { error as logErrorToBackend, warn as logWarningToBackend } from "@tauri-apps/plugin-log"
+import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
-import { getErrorDetails, isApiError } from "@/lib/api-error"
+import { getErrorDetails, isApiError, writeWarning } from "@/lib/api-error"
 import type { ApiError, ErrorCode } from "@/lib/bindings"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { presentLockHolder, presentOperationHolder } from "@/presenters/lock-wait"
@@ -113,10 +113,7 @@ export function notifyError(title: string, error: unknown, action?: ToastActionP
  * search, a read of a status the next read tells again)
  */
 export function logWarning(title: string, detail: unknown): void {
-  console.warn(title, detail)
-  logWarningToBackend(title, { keyValues: { detail: getErrorDetails(detail) } }).catch((logFailure: unknown) => {
-    console.error("Failed to forward the warning to backend log", logFailure)
-  })
+  writeWarning(title, detail)
 }
 
 export function logError(title: string, error: unknown): void {

@@ -1,4 +1,5 @@
-// no import but of types: the bindings import this module (`commandError`), and every module imports the bindings
+// no import of the page: the bindings import this module (`commandError`), and every module imports the bindings
+import { warn as logWarningToBackend } from "@tauri-apps/plugin-log"
 import type { ApiError } from "@/lib/bindings"
 
 /**
@@ -30,15 +31,30 @@ export function getErrorDetails(error: unknown): string {
 const NO_WORDS = "The command failed without saying why"
 
 /**
- * The error of a failed call of a command, as its result holds it (the catch of `typedError` in the bindings, which
+ * Writes a warning to the console and to the log of the app (`logWarning` of src/lib/errors.ts, which the bindings
+ * cannot import); a log that cannot be written is an error line of the console
+ */
+export function writeWarning(title: string, detail: unknown): void {
+  console.warn(title, detail)
+  logWarningToBackend(title, { keyValues: { detail: getErrorDetails(detail) } }).catch((logFailure: unknown) => {
+    console.error("Failed to forward the warning to backend log", logFailure)
+  })
+}
+
+/**
+ * The error of a failed call of `command`, as its result holds it (the catch of `typedError` in the bindings, which
  * `src-tauri/src/bindings_test.rs` writes): the `ApiError` the command answered as is; any other failure, a refusal of
  * Tauri itself ("Command not found", an ACL refusal, invalid arguments: a string) or an `Error` of the page's IPC (a
- * fetch of the E2E bridge, the Air shim), an `internal` error of its words (`NO_WORDS` for none). So a command never
+ * fetch of the E2E bridge, the Air shim), an `internal` error of its words (`NO_WORDS` for none), and a warning of the
+ * log, "Cannot run <command>", as the backend logged nothing of it (null: the caller logs it). So a command never
  * rejects
  */
-export function commandError(error: unknown): ApiError {
+export function commandError(error: unknown, command: string | null): ApiError {
   if (isApiError(error)) {
     return error
+  }
+  if (command !== null) {
+    writeWarning(`Cannot run ${command}`, error)
   }
   // an empty message only: the page decides nothing by the words (`message-control` of scripts/lint-arch.mjs)
   return internalError(getErrorDetails(error) || NO_WORDS)

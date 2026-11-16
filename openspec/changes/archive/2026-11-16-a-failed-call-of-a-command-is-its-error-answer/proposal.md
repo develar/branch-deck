@@ -12,8 +12,11 @@ hand (`invokeCommand`, nine try/catch around an await, a few `.catch` and second
 ## What Changes
 
 - The export of the bindings (`src-tauri/src/bindings_test.rs`) writes `commandError(e)` of `src/lib/api-error.ts` into
-  the catch of `typedError`: the `ApiError` as is, anything else its `internal` error; a runtime of tauri-specta that
-  writes another catch fails the export.
+  `typedError`, which takes the name of its command: the `ApiError` as is, anything else its `internal` error with a
+  warning of the log ("Cannot run <command>", the backend logged nothing of it); a runtime of tauri-specta that writes
+  another `typedError` fails the export.
+- `useSafePush`: the `.catch` of the `execute` of a start is gone; the e2e test of a merge whose call fails declares no
+  "Cannot update the project" line, the toast tells the error and the log has the warning.
 - `invokeCommand` is gone; the catches of the rejection take the error answer.
 - The ten commands that answered their value as it is (`plain` and `now`: cancelConflictFix, validateBranchName,
   commitBody, unsubscribeView, setDemand, cancelOperation, stopAirWatch, agentCliStatus, cliToolsRunning,

@@ -11,7 +11,7 @@ export const commands = {
 	 *  Validates that a repository path exists and is a git repository
 	 *  Returns empty string if valid, error message if invalid
 	 */
-	validateRepositoryPath: (params: ValidateRepositoryPathParams) => typedError<string, ApiError>(__TAURI_INVOKE("validate_repository_path", { params })),
+	validateRepositoryPath: (params: ValidateRepositoryPathParams) => typedError<string, ApiError>("validate_repository_path", __TAURI_INVOKE("validate_repository_path", { params })),
 	/**
 	 *  The prefix the branches of the repository are named with, with where it came from: its git config read now (the
 	 *  global config alone for an empty path), which every later command of the repository resolves with
@@ -19,50 +19,50 @@ export const commands = {
 	 *  repository's own prefix and the global one by their source); the main window takes the prefix of the view of its
 	 *  session (`TableHeader.prefix`). An inaccessible repository is an error
 	 */
-	resolveBranchPrefix: (params: GetBranchPrefixParams) => typedError<ResolvedBranchPrefix, ApiError>(__TAURI_INVOKE("resolve_branch_prefix", { params })),
+	resolveBranchPrefix: (params: GetBranchPrefixParams) => typedError<ResolvedBranchPrefix, ApiError>("resolve_branch_prefix", __TAURI_INVOKE("resolve_branch_prefix", { params })),
 	/**
 	 *  What the lease pools of this Mac and of the hosts of `bd-host` hold on disk (the Disk window): per slot the bytes
 	 *  its builds wrote, which slots a trim deletes next, the free space and the minimum of each machine. This Mac is
 	 *  walked in process (the bytes of `disk.json` while they hold), the hosts answer through `bd-host disk`, side by
 	 *  side; a host that does not answer names why
 	 */
-	diskUsage: (params: DiskUsageParams, events: Channel<DiskUsageEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("disk_usage", { params, events })),
+	diskUsage: (params: DiskUsageParams, events: Channel<DiskUsageEvent>) => typedError<null, ApiError>("disk_usage", __TAURI_INVOKE("disk_usage", { params, events })),
 	/**  The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository */
-	getRepositoryConfig: (params: GetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("get_repository_config", { params })),
+	getRepositoryConfig: (params: GetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>("get_repository_config", __TAURI_INVOKE("get_repository_config", { params })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
-	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, ApiError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
+	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, ApiError>("get_uncommitted_changes", __TAURI_INVOKE("get_uncommitted_changes", { params })),
 	/**  The changed files of a commit with their line counts, from the object cache or one `diff-tree` */
-	getCommitFiles: (params: GetCommitFilesParams) => typedError<CommitFiles, ApiError>(__TAURI_INVOKE("get_commit_files", { params })),
+	getCommitFiles: (params: GetCommitFilesParams) => typedError<CommitFiles, ApiError>("get_commit_files", __TAURI_INVOKE("get_commit_files", { params })),
 	/**
 	 *  The changed files of many commits (in the order of the ids), with one `diff-tree` for the ids the cache misses; the
 	 *  meta line of every list. The first view of a commit then needs no `diff-tree` (`get_file_diffs` reads the list here)
 	 */
-	getCommitsFiles: (params: GetCommitsFilesParams) => typedError<CommitFiles[], ApiError>(__TAURI_INVOKE("get_commits_files", { params })),
+	getCommitsFiles: (params: GetCommitsFilesParams) => typedError<CommitFiles[], ApiError>("get_commits_files", __TAURI_INVOKE("get_commits_files", { params })),
 	/**  The `fixup!`, `squash!` and `amend!` commits ahead of the baseline, grouped by the commit each one is squashed into */
-	getAutosquashPlan: (params: GetAutosquashPlanParams) => typedError<AutosquashPlan, ApiError>(__TAURI_INVOKE("get_autosquash_plan", { params })),
+	getAutosquashPlan: (params: GetAutosquashPlanParams) => typedError<AutosquashPlan, ApiError>("get_autosquash_plan", __TAURI_INVOKE("get_autosquash_plan", { params })),
 	/**
 	 *  What a move of commits would do, as the "Move to…" form previews it while the user types: the issues that go by
 	 *  their key and the commits that get a prefix, nothing written, no lock (`preview_move_core`). The move itself is the
 	 *  rewrite `Move` of `execute`
 	 */
-	previewMove: (params: MovePreviewParams) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("preview_move", { params })),
+	previewMove: (params: MovePreviewParams) => typedError<MoveCommitsResult, ApiError>("preview_move", __TAURI_INVOKE("preview_move", { params })),
 	/**
 	 *  Whether a stacked branch builds on the baseline without its parent: a trial build of it as a root, objects only,
 	 *  through the object cache of the repository.
 	 */
-	getStackIndependence: (params: StackIndependenceParams) => typedError<StackIndependence, ApiError>(__TAURI_INVOKE("get_stack_independence", { params })),
-	getArchivedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName })),
-	getUnappliedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchName })),
+	getStackIndependence: (params: StackIndependenceParams) => typedError<StackIndependence, ApiError>("get_stack_independence", __TAURI_INVOKE("get_stack_independence", { params })),
+	getArchivedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>("get_archived_branch_commits", __TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName })),
+	getUnappliedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>("get_unapplied_branch_commits", __TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchName })),
 	/**
 	 *  The code owners of paths by the `OWNERSHIP` files of the baseline, from one `cat-file --batch`; a path without an
 	 *  owner is left out
 	 */
-	getFileOwners: (params: GetFileOwnersParams) => typedError<FileOwner[], ApiError>(__TAURI_INVOKE("get_file_owners", { params })),
+	getFileOwners: (params: GetFileOwnersParams) => typedError<FileOwner[], ApiError>("get_file_owners", __TAURI_INVOKE("get_file_owners", { params })),
 	/**
 	 *  The texts of blobs by id, for the diff views: mostly from the blobs that `get_file_diffs` read, else one
 	 *  `cat-file --batch`; a file of the working tree by its path, when its bytes still have the id
 	 */
-	getBlobTexts: (params: GetBlobTextsParams) => typedError<BlobText[], ApiError>(__TAURI_INVOKE("get_blob_texts", { params })),
+	getBlobTexts: (params: GetBlobTextsParams) => typedError<BlobText[], ApiError>("get_blob_texts", __TAURI_INVOKE("get_blob_texts", { params })),
 	/**
 	 *  The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
 	 *  the files, then the content of each file as it is known, the files in view (`priority_paths`) first, then the
@@ -70,7 +70,7 @@ export const commands = {
 	 *  another file declares). Through the memory cache of the app and the `file_diff` and `file_leftovers` stores,
 	 *  else one list and one `cat-file --batch`
 	 */
-	getFileDiffs: (params: GetFileDiffsParams, events: Channel<FileDiffEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_file_diffs", { params, events })),
+	getFileDiffs: (params: GetFileDiffsParams, events: Channel<FileDiffEvent>) => typedError<null, ApiError>("get_file_diffs", __TAURI_INVOKE("get_file_diffs", { params, events })),
 	/**
 	 *  What the index of the repository (`accio`) answers of the names a subject renamed and of the declarations it
 	 *  moved, asked by the window that shows the subject, after its diffs, through `events` in stages: the renames,
@@ -80,33 +80,33 @@ export const commands = {
 	 *  again: `false` then, and what was not answered stays asked. An answer is kept in memory by the two trees of
 	 *  the subject
 	 */
-	getIndexMarks: (params: GetIndexMarksParams, events: Channel<IndexMarks>) => typedError<boolean, ApiError>(__TAURI_INVOKE("get_index_marks", { params, events })),
+	getIndexMarks: (params: GetIndexMarksParams, events: Channel<IndexMarks>) => typedError<boolean, ApiError>("get_index_marks", __TAURI_INVOKE("get_index_marks", { params, events })),
 	/**
 	 *  The merge of each conflicting file of a cherry-pick, for the conflict view, through `events`: the files with the
 	 *  stage blob ids that `merge-tree` gives, then the content of each file as it is known, the files in view first
 	 */
-	getFileMerges: (params: GetFileMergesParams, events: Channel<FileMergeEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_file_merges", { params, events })),
+	getFileMerges: (params: GetFileMergesParams, events: Channel<FileMergeEvent>) => typedError<null, ApiError>("get_file_merges", __TAURI_INVOKE("get_file_merges", { params, events })),
 	/**
 	 *  The changed files of `base..head` with their line counts, from one `diff-tree` of the two commits
 	 *  (`RangeFilesCache::read`), kept in memory
 	 */
-	getRangeFiles: (params: GetRangeParams) => typedError<CommitFiles, ApiError>(__TAURI_INVOKE("get_range_files", { params })),
+	getRangeFiles: (params: GetRangeParams) => typedError<CommitFiles, ApiError>("get_range_files", __TAURI_INVOKE("get_range_files", { params })),
 	/**
 	 *  The declarations a name in a diff of a review may mean, the most likely first (`file_diffs::declarations`): by the
 	 *  scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store,
 	 *  else in the index of the repository (`accio`), waited for as long as it runs
 	 */
-	findDeclaration: (params: FindDeclarationParams) => typedError<FoundDeclarations, ApiError>(__TAURI_INVOKE("find_declaration", { params })),
+	findDeclaration: (params: FindDeclarationParams) => typedError<FoundDeclarations, ApiError>("find_declaration", __TAURI_INVOKE("find_declaration", { params })),
 	/**
 	 *  The usages of a name in a diff of a review (`file_diffs::usages`): in its file, in the files of the review from the
 	 *  blobs the diffs read, then outside the review in the index of the repository (`accio`), waited for as long as it runs
 	 */
-	findUsages: (params: FindDeclarationParams) => typedError<FoundUsages, ApiError>(__TAURI_INVOKE("find_usages", { params })),
+	findUsages: (params: FindDeclarationParams) => typedError<FoundUsages, ApiError>("find_usages", __TAURI_INVOKE("find_usages", { params })),
 	/**
 	 *  A place outside the review at a revision (`file_diffs::outside_place`), a use the review plan left outside: its
 	 *  file as the view of a declaration outside the review opens it, at the line, the name selected
 	 */
-	getOutsidePlace: (params: OutsidePlaceParams) => typedError<DeclarationTarget | null, ApiError>(__TAURI_INVOKE("get_outside_place", { params })),
+	getOutsidePlace: (params: OutsidePlaceParams) => typedError<DeclarationTarget | null, ApiError>("get_outside_place", __TAURI_INVOKE("get_outside_place", { params })),
 	/**
 	 *  The plan of a review (openspec/specs/branch/review-plan/spec.md, Status: Experimental): what changed in a branch since it was
 	 *  marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
@@ -117,7 +117,7 @@ export const commands = {
 	 *  plan without the usages while the index is asked, then with them; a plan whose every query answered is kept
 	 *  (`ReviewPlans`). A newer plan of the window or its close supersedes it: `canceled`
 	 */
-	getReviewPlan: (params: ReviewPlanParams, events: Channel<ReviewPlanEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_review_plan", { params, events })),
+	getReviewPlan: (params: ReviewPlanParams, events: Channel<ReviewPlanEvent>) => typedError<null, ApiError>("get_review_plan", __TAURI_INVOKE("get_review_plan", { params, events })),
 	/**
 	 *  What the ranges a review window shows leave to read (openspec/specs/review/range-reading/spec.md): the pull request
 	 *  of its header, every layer of a stack, proven from the full marks of their diffs, each with its verdict and the
@@ -126,38 +126,38 @@ export const commands = {
 	 *  read for every range, a phase one process; a final reading is kept by its two commits. A newer read of the
 	 *  window, its close or reload supersedes it
 	 */
-	getRangeReadings: (params: GetRangeReadingsParams, events: Channel<RangeReadingsEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_range_readings", { params, events })),
+	getRangeReadings: (params: GetRangeReadingsParams, events: Channel<RangeReadingsEvent>) => typedError<null, ApiError>("get_range_readings", __TAURI_INVOKE("get_range_readings", { params, events })),
 	/**
 	 *  Keeps the base and the tip a branch has now as its reviewed pair, which a later plan compares the branch with, and
 	 *  deletes the pairs of the branches that are gone, in one transaction with CAS (`mark_reviewed_core`, as `bd
 	 *  mark-reviewed`)
 	 */
-	markBranchReviewed: (params: MarkReviewedParams) => typedError<ReviewedTip, ApiError>(__TAURI_INVOKE("mark_branch_reviewed", { params })),
+	markBranchReviewed: (params: MarkReviewedParams) => typedError<ReviewedTip, ApiError>("mark_branch_reviewed", __TAURI_INVOKE("mark_branch_reviewed", { params })),
 	/**  Kills the symbol search of the calling window in flight, if any (Escape or Cancel while it searches) */
-	cancelSymbolSearch: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_symbol_search")),
+	cancelSymbolSearch: () => typedError<null, ApiError>("cancel_symbol_search", __TAURI_INVOKE("cancel_symbol_search")),
 	/**
 	 *  The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
 	 *  cache only, no repository lock), of the branches named with the prefix Rust resolves for the repository
 	 *  (`PrefixInputs`). One search at a time: a new one cancels the one before.
 	 */
-	findConflictFix: (params: FindConflictFixParams) => typedError<ConflictFix, ApiError>(__TAURI_INVOKE("find_conflict_fix", { params })),
+	findConflictFix: (params: FindConflictFixParams) => typedError<ConflictFix, ApiError>("find_conflict_fix", __TAURI_INVOKE("find_conflict_fix", { params })),
 	/**  Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts. */
-	cancelConflictFix: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_conflict_fix")),
+	cancelConflictFix: () => typedError<null, ApiError>("cancel_conflict_fix", __TAURI_INVOKE("cancel_conflict_fix")),
 	/**
 	 *  What a typed branch name is and the name the branch gets (`domain_types::branch_names::check_branch_name`); the page
 	 *  words the state
 	 */
-	validateBranchName: (params: ValidateBranchNameParams) => typedError<BranchNameCheck, ApiError>(__TAURI_INVOKE("validate_branch_name", { params })),
+	validateBranchName: (params: ValidateBranchNameParams) => typedError<BranchNameCheck, ApiError>("validate_branch_name", __TAURI_INVOKE("validate_branch_name", { params })),
 	/**
 	 *  The body of `message`, the lines after its subject line: its blocks, its trailers, its lead and its fold
 	 *  (`sync_utils::commit_body::commit_body`)
 	 */
-	commitBody: (params: CommitBodyParams) => typedError<CommitBody, ApiError>(__TAURI_INVOKE("commit_body", { params })),
+	commitBody: (params: CommitBodyParams) => typedError<CommitBody, ApiError>("commit_body", __TAURI_INVOKE("commit_body", { params })),
 	/**
 	 *  The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
 	 *  null when the session is not open, so the window subscribes again
 	 */
-	getSnapshot: (params: SessionParams) => typedError<RepositoryView | null, ApiError>(__TAURI_INVOKE("get_snapshot", { params })),
+	getSnapshot: (params: SessionParams) => typedError<RepositoryView | null, ApiError>("get_snapshot", __TAURI_INVOKE("get_snapshot", { params })),
 	/**
 	 *  Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer brings
 	 *  the window from the view it holds (`have`: the seed of the start, `window.__BD_MODEL__`; null for none) to the view at
@@ -167,39 +167,39 @@ export const commands = {
 	 *  syncs the session. The session is the one of the prefix the git config names now (`AppContext::session_key_now`),
 	 *  which the view names (`TableHeader.prefix`): the page reads no prefix of its own
 	 */
-	subscribeView: (params: SubscribeViewParams, patches: Channel<ViewPatch>) => typedError<ViewSubscription, ApiError>(__TAURI_INVOKE("subscribe_view", { params, patches })),
+	subscribeView: (params: SubscribeViewParams, patches: Channel<ViewPatch>) => typedError<ViewSubscription, ApiError>("subscribe_view", __TAURI_INVOKE("subscribe_view", { params, patches })),
 	/**  Ends a subscription of the calling window; the last one of a session makes it idle */
-	unsubscribeView: (params: UnsubscribeViewParams) => typedError<null, ApiError>(__TAURI_INVOKE("unsubscribe_view", { params })),
+	unsubscribeView: (params: UnsubscribeViewParams) => typedError<null, ApiError>("unsubscribe_view", __TAURI_INVOKE("unsubscribe_view", { params })),
 	/**
 	 *  A window of the repository gained or lost focus; a gained one reads the operations registry of the repository again
 	 *  and syncs when what a sync reads changed and Settings sync on focus, and answers when that ends. Null when nothing
 	 *  was asked (focus lost, the setting off, the session not open)
 	 */
-	setWindowFocus: (params: WindowFocusParams) => typedError<SyncAnswer | null, ApiError>(__TAURI_INVOKE("set_window_focus", { params })),
+	setWindowFocus: (params: WindowFocusParams) => typedError<SyncAnswer | null, ApiError>("set_window_focus", __TAURI_INVOKE("set_window_focus", { params })),
 	/**
 	 *  What the window of a subscription shows and needs of its session (`Demand`), in place of what it said before; the
 	 *  page sends it when it changes, at most four times a second, and again for a new subscription
 	 */
-	setDemand: (params: SetDemandParams) => typedError<null, ApiError>(__TAURI_INVOKE("set_demand", { params })),
+	setDemand: (params: SetDemandParams) => typedError<null, ApiError>("set_demand", __TAURI_INVOKE("set_demand", { params })),
 	/**
 	 *  Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
 	 *  the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
 	 *  `ApiError` (`operation_in_progress`, `detached_head`, `managed_branch`)
 	 */
-	sync: (params: SyncParams) => typedError<SyncAnswer, ApiError>(__TAURI_INVOKE("sync", { params })),
+	sync: (params: SyncParams) => typedError<SyncAnswer, ApiError>("sync", __TAURI_INVOKE("sync", { params })),
 	/**
 	 *  Asks the repository's session to read a fact again: the refresh button, or an action that needs it now (the robot a
 	 *  `/patronus` comment started). Answers once that read applied, with the version of the view after its patch; null when
 	 *  nothing was asked (the rules held it back, no session is open)
 	 */
-	refreshFacts: (params: RefreshFactsParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("refresh_facts", { params })),
+	refreshFacts: (params: RefreshFactsParams) => typedError<Version | null, ApiError>("refresh_facts", __TAURI_INVOKE("refresh_facts", { params })),
 	/**
 	 *  The group `message` would put its commit into, with the stacked branches, the issue groups and the stack parents
 	 *  the table of the repository's session was grouped with (`Sessions::preview_group`): the "Move to…" form previews a
 	 *  typed name as `(<name>)`, the message editor a typed subject. Null for an unassigned commit and before the session
 	 *  is open
 	 */
-	previewGroup: (params: PreviewGroupParams) => typedError<CommitGroup | null, ApiError>(__TAURI_INVOKE("preview_group", { params })),
+	previewGroup: (params: PreviewGroupParams) => typedError<CommitGroup | null, ApiError>("preview_group", __TAURI_INVOKE("preview_group", { params })),
 	/**
 	 *  The plan of an intent over the facts the session of the repository holds: what a start of a Safe Push or a Dry Run
 	 *  does now (`operations::land::prepare`, the rule `brd safe-push` decides by), what the user accepts first, what refuses
@@ -207,125 +207,125 @@ export const commands = {
 	 *  request (`operations::engine::prepare`). A read: no lock, no effect. Null while the session is not open, before its
 	 *  Patronus view, for a subject its table lacks, a robot it offers no restart of, a pull request it doesn't list
 	 */
-	prepare: (params: PrepareParams) => typedError<Plan | null, ApiError>(__TAURI_INVOKE("prepare", { params })),
+	prepare: (params: PrepareParams) => typedError<Plan | null, ApiError>("prepare", __TAURI_INVOKE("prepare", { params })),
 	/**
 	 *  Runs an intent on the plan the page showed (`fingerprint`, with the confirmations the user `accepted`): the plan is
 	 *  prepared again and runs only on that fingerprint; its steps, the progress of its push and its outcome go to
 	 *  `events` (`operations::engine::execute`). The review fetch of a window is stopped when the window closes
 	 *  (`WindowFetches`)
 	 */
-	execute: (params: ExecuteParams, events: Channel<OperationEvent>) => typedError<Outcome, ApiError>(__TAURI_INVOKE("execute", { params, events })),
+	execute: (params: ExecuteParams, events: Channel<OperationEvent>) => typedError<Outcome, ApiError>("execute", __TAURI_INVOKE("execute", { params, events })),
 	/**
 	 *  Stops the operation `op` of this app: a wait for the repository lock ends as `canceled`, and no effect starts after
 	 *  it; a push that sends goes to its end. False for an operation that ended
 	 */
-	cancelOperation: (params: CancelOperationParams) => typedError<boolean, ApiError>(__TAURI_INVOKE("cancel_operation", { params })),
+	cancelOperation: (params: CancelOperationParams) => typedError<boolean, ApiError>("cancel_operation", __TAURI_INVOKE("cancel_operation", { params })),
 	/**
 	 *  Adds a pull request to Reviews by its link, `#number` or number (`remote_facts::reviews::link_pull_request`): GitHub
 	 *  is asked for it, an open one is kept for the repository, and the session reads Reviews again with it. Answers the
 	 *  pull request, which the page opens in the review window
 	 */
-	linkPullRequest: (params: LinkPullRequestParams) => typedError<LinkedPullRequestAnswer, ApiError>(__TAURI_INVOKE("link_pull_request", { params })),
+	linkPullRequest: (params: LinkPullRequestParams) => typedError<LinkedPullRequestAnswer, ApiError>("link_pull_request", __TAURI_INVOKE("link_pull_request", { params })),
 	/**  Removes a pull request the user added by its link from Reviews, and the session reads Reviews again */
-	unlinkPullRequest: (params: UnlinkPullRequestParams) => typedError<null, ApiError>(__TAURI_INVOKE("unlink_pull_request", { params })),
+	unlinkPullRequest: (params: UnlinkPullRequestParams) => typedError<null, ApiError>("unlink_pull_request", __TAURI_INVOKE("unlink_pull_request", { params })),
 	/**
 	 *  The Landed island hides what landed up to a time, which the user saw before a sync: kept for the repository under
 	 *  the lease of the view it was asked on (`landedHiddenUntil`, a field of the lease the windows never write)
 	 */
-	hideLanded: (params: HideLandedParams) => typedError<null, ApiError>(__TAURI_INVOKE("hide_landed", { params })),
+	hideLanded: (params: HideLandedParams) => typedError<null, ApiError>("hide_landed", __TAURI_INVOKE("hide_landed", { params })),
 	/**
 	 *  The text a new pull request of a virtual branch starts with (`brd describe`, else the commits it will show, with the
 	 *  summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 	 */
-	getNewPullRequest: (params: GetNewPullRequestParams) => typedError<NewPullRequest, ApiError>(__TAURI_INVOKE("get_new_pull_request", { params })),
+	getNewPullRequest: (params: GetNewPullRequestParams) => typedError<NewPullRequest, ApiError>("get_new_pull_request", __TAURI_INVOKE("get_new_pull_request", { params })),
 	/**
 	 *  The text the "Create pull request" dialog of the whole stack starts with (`read_new_stack_pull_request`): the
 	 *  descriptions of the stack branch and its members, else the subjects of their commits; and the user of the token,
 	 *  who is the assignee
 	 */
-	getNewStackPullRequest: (params: GetNewStackPullRequestParams) => typedError<NewPullRequest, ApiError>(__TAURI_INVOKE("get_new_stack_pull_request", { params })),
+	getNewStackPullRequest: (params: GetNewStackPullRequestParams) => typedError<NewPullRequest, ApiError>("get_new_stack_pull_request", __TAURI_INVOKE("get_new_stack_pull_request", { params })),
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
-	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], ApiError>(__TAURI_INVOKE("search_github_users", { params })),
+	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], ApiError>("search_github_users", __TAURI_INVOKE("search_github_users", { params })),
 	/**
 	 *  The Safe Push statistics of the repository (`openspec/specs/repository/safe-push-statistics/spec.md`): everyone's robots into
 	 *  the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
 	 *  before the runs are read
 	 */
-	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, ApiError>(__TAURI_INVOKE("get_robot_stats", { params, events })),
+	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, ApiError>("get_robot_stats", __TAURI_INVOKE("get_robot_stats", { params, events })),
 	/**
 	 *  Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
 	 *  with the failed builds, their tests and the log tails of the `teamcity` CLI
 	 */
-	getRobotFailure: (params: GetRobotFailureParams) => typedError<RobotFailureReport, ApiError>(__TAURI_INVOKE("get_robot_failure", { params })),
+	getRobotFailure: (params: GetRobotFailureParams) => typedError<RobotFailureReport, ApiError>("get_robot_failure", __TAURI_INVOKE("get_robot_failure", { params })),
 	/**
 	 *  Which commits of the branches a running robot covers, by the hashes of the checked-out branch: the commit rows mark
 	 *  the commits added or changed since it started (`robot_subject_commit_map`). No commits for a stack without members.
 	 */
-	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
+	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>("get_robot_commit_map", __TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
 	 *  What a review shows of a target (a branch with its stack, a whole stack, a kept branch, a list of commits): its
 	 *  parts with their base, head and commits, from one `for-each-ref` and one `git log`; the `log` only for tips and a
 	 *  baseline the memo hasn't seen, nothing again for a list of commits
 	 */
-	getReview: (params: GetReviewParams) => typedError<TargetReview, ApiError>(__TAURI_INVOKE("get_review", { params })),
+	getReview: (params: GetReviewParams) => typedError<TargetReview, ApiError>("get_review", __TAURI_INVOKE("get_review", { params })),
 	/**
 	 *  Reads in the background what the review window asks for first: the parts of its target (`get_review`) and the
 	 *  files of `part` (one `diff-tree`, `RangeFilesCache::read`), so the window finds them in the caches. Answers at once;
 	 *  a failure is the window's to tell
 	 */
-	prefetchReview: (params: PrefetchReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("prefetch_review", { params })),
+	prefetchReview: (params: PrefetchReviewParams) => typedError<null, ApiError>("prefetch_review", __TAURI_INVOKE("prefetch_review", { params })),
 	/**
 	 *  Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
 	 *  logged-out `claude` and its failures are outcomes
 	 */
-	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, ApiError>(__TAURI_INVOKE("suggest_branch_names", { params })),
+	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, ApiError>("suggest_branch_names", __TAURI_INVOKE("suggest_branch_names", { params })),
 	/**
 	 *  The sign-ins of both accounts and where their tokens come from: for a window without a session (Settings); a window
 	 *  of a repository has them as the fact `auth` of its session
 	 */
-	getAuthStatus: () => typedError<AuthStatus, ApiError>(__TAURI_INVOKE("get_auth_status")),
+	getAuthStatus: () => typedError<AuthStatus, ApiError>("get_auth_status", __TAURI_INVOKE("get_auth_status")),
 	/**  The issue of `key` for the popover, from the YouTrack the token is for */
-	getYoutrackIssue: (key: string) => typedError<YouTrackIssueAnswer, ApiError>(__TAURI_INVOKE("get_youtrack_issue", { key })),
+	getYoutrackIssue: (key: string) => typedError<YouTrackIssueAnswer, ApiError>("get_youtrack_issue", __TAURI_INVOKE("get_youtrack_issue", { key })),
 	/**
 	 *  Signs in by `request`, or joins the sign-in of its provider that runs: its events on `events`, `done` last; a cancel
 	 *  ends it with the code `canceled`
 	 */
-	signIn: (request: SignIn, events: Channel<SignInEvent>) => typedError<SignInDone, ApiError>(__TAURI_INVOKE("sign_in", { request, events })),
+	signIn: (request: SignIn, events: Channel<SignInEvent>) => typedError<SignInDone, ApiError>("sign_in", __TAURI_INVOKE("sign_in", { request, events })),
 	/**  Ends the sign-in of `provider` that runs, if any: its calls answer `canceled` */
-	cancelSignIn: (provider: SignInProvider) => typedError<null, ApiError>(__TAURI_INVOKE("cancel_sign_in", { provider })),
+	cancelSignIn: (provider: SignInProvider) => typedError<null, ApiError>("cancel_sign_in", __TAURI_INVOKE("cancel_sign_in", { provider })),
 	/**
 	 *  Removes the token of the app's own sign-in to `account`, after a sign-in of it that runs ended as canceled. GitHub
 	 *  and the Hub keep the authorization until it is revoked there
 	 */
-	signOut: (account: Account) => typedError<null, ApiError>(__TAURI_INVOKE("sign_out", { account })),
+	signOut: (account: Account) => typedError<null, ApiError>("sign_out", __TAURI_INVOKE("sign_out", { account })),
 	/**
 	 *  The log of Activity: the journals of the repositories of the recent projects, each once and each waited for within
 	 *  `ACTIVITY_READ_TIMEOUT` (one that is not read by then shows what it answered last, and tells every window
 	 *  `activity-changed` once it answered other entries), and the journal of the page; no git process
 	 */
-	readActivity: () => typedError<ActivityLog, ApiError>(__TAURI_INVOKE("read_activity")),
+	readActivity: () => typedError<ActivityLog, ApiError>("read_activity", __TAURI_INVOKE("read_activity")),
 	/**  Records what the page told of a repository in the journal of the page, and answers its entry */
-	recordActivity: (params: PageActivity) => typedError<PageEntry, ApiError>(__TAURI_INVOKE("record_activity", { params })),
+	recordActivity: (params: PageActivity) => typedError<PageEntry, ApiError>("record_activity", __TAURI_INVOKE("record_activity", { params })),
 	/**  Clear Log: the journal of the repository of the recent project and the entries of the page of it are forgotten */
-	clearActivity: (params: ClearActivityParams) => typedError<null, ApiError>(__TAURI_INVOKE("clear_activity", { params })),
+	clearActivity: (params: ClearActivityParams) => typedError<null, ApiError>("clear_activity", __TAURI_INVOKE("clear_activity", { params })),
 	/**
 	 *  Applies the change of the calling window to the settings and sends it to every window (`settings_changed`, with the
 	 *  window's label as its origin); answers the change, whose version the window has applied then, or null for a write
 	 *  older than one of the same key of the page that the writer applied (its `seq`), which changes nothing. The file
 	 *  follows within the debounce of the writer. A value of a field Rust reads that is invalid is refused and changes nothing
 	 */
-	setSetting: (params: SetSettingParams) => typedError<SettingsChange | null, ApiError>(__TAURI_INVOKE("set_setting", { params })),
+	setSetting: (params: SetSettingParams) => typedError<SettingsChange | null, ApiError>("set_setting", __TAURI_INVOKE("set_setting", { params })),
 	/**
 	 *  The changes the calling window gets that came after `since`, the version of the snapshot its page started from: a
 	 *  change made while the page loaded reached no listener. The main window's page asks once it listens (its init script
 	 *  has the snapshot of the app's start, a reload too); a sub-window's gets them with its load (`sub_window_loaded`)
 	 */
-	getSettingsChanges: (since: number) => typedError<SettingsChange[], ApiError>(__TAURI_INVOKE("get_settings_changes", { since })),
+	getSettingsChanges: (since: number) => typedError<SettingsChange[], ApiError>("get_settings_changes", __TAURI_INVOKE("get_settings_changes", { since })),
 	/**
 	 *  Deletes the free slots past `branchdeck.leaseMaxSlots` of every lease pool of this Mac with their Bazel output
 	 *  bases, and the output bases of gone slots, as `brd lease trim` does (the Disk window)
 	 */
-	trimPools: (params: TrimPoolsParams) => typedError<TrimSummary, ApiError>(__TAURI_INVOKE("trim_pools", { params })),
+	trimPools: (params: TrimPoolsParams) => typedError<TrimSummary, ApiError>("trim_pools", __TAURI_INVOKE("trim_pools", { params })),
 	/**
 	 *  Writes one key to the local config of the repository, or to the global config of the user, through the one writer
 	 *  of the file, and answers the settings read again; null for a write older than one of the same key of the page that
@@ -333,119 +333,119 @@ export const commands = {
 	 *  found for the repository's later commands (`BranchPrefixes`); a global one forgets the prefix of every other
 	 *  repository, which may take it
 	 */
-	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig | null, ApiError>(__TAURI_INVOKE("set_repository_config", { params })),
+	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig | null, ApiError>("set_repository_config", __TAURI_INVOKE("set_repository_config", { params })),
 	/**
 	 *  Adds a companion repository of the repository, or removes it: `branchdeck.companion.<name>.path` there and
 	 *  `branchdeck.primary` in the companion, as `brd companion` writes them; answers the settings read again
 	 */
-	setCompanion: (params: SetCompanionParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("set_companion", { params })),
+	setCompanion: (params: SetCompanionParams) => typedError<RepositoryConfig, ApiError>("set_companion", __TAURI_INVOKE("set_companion", { params })),
 	/**
 	 *  Settings → Landing → Add Companion…: the folder dialog picks the companion, named by its directory, then the write
 	 *  of `set_companion`; `null` when the user canceled the dialog
 	 */
-	addCompanion: (params: AddCompanionParams) => typedError<RepositoryConfig | null, ApiError>(__TAURI_INVOKE("add_companion", { params })),
+	addCompanion: (params: AddCompanionParams) => typedError<RepositoryConfig | null, ApiError>("add_companion", __TAURI_INVOKE("add_companion", { params })),
 	/**
 	 *  Settings → Landing of a companion: Unlink takes back its side of a half link (its `branchdeck.primary`), as
 	 *  `brd companion unlink`; answers the settings read again
 	 */
-	unlinkPrimary: (params: UnlinkPrimaryParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("unlink_primary", { params })),
+	unlinkPrimary: (params: UnlinkPrimaryParams) => typedError<RepositoryConfig, ApiError>("unlink_primary", __TAURI_INVOKE("unlink_primary", { params })),
 	/**
 	 *  Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
 	 *  on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
 	 *  settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.
 	 */
-	openSubWindow: (params: OpenSubWindowParams) => typedError<null, ApiError>(__TAURI_INVOKE("open_sub_window", { params })),
+	openSubWindow: (params: OpenSubWindowParams) => typedError<null, ApiError>("open_sub_window", __TAURI_INVOKE("open_sub_window", { params })),
 	/**
 	 *  The page of the calling window loaded and listens to the settings: a sub-window gets the data of an open that came
 	 *  while it loaded and the changes of the settings after the snapshot its window was built with. The window shows once
 	 *  the page settled its content, at most `DRAW_FALLBACK` from now when the page draws no shell (`sub_window_drawn`)
 	 */
-	subWindowLoaded: () => typedError<SubWindowLoaded, ApiError>(__TAURI_INVOKE("sub_window_loaded")),
+	subWindowLoaded: () => typedError<SubWindowLoaded, ApiError>("sub_window_loaded", __TAURI_INVOKE("sub_window_loaded")),
 	/**
 	 *  The loaded page of the calling window committed its shell, the title row (the main window's with its loading table):
 	 *  the window shows once the page settled its content, at most the content budget of the page from now
 	 *  (`CONTENT_BUDGET`, the main window's `MAIN_CONTENT_BUDGET`), so a slow page shows its shell, never a bare canvas
 	 */
-	subWindowDrawn: () => typedError<null, ApiError>(__TAURI_INVOKE("sub_window_drawn")),
+	subWindowDrawn: () => typedError<null, ApiError>("sub_window_drawn", __TAURI_INVOKE("sub_window_drawn")),
 	/**
 	 *  The page of the calling window settled the content of the open `open_id` (the main window: drew its first rows or
 	 *  the state without rows): the window shows if that is the latest open and the window is still hidden, once its
 	 *  webview presented that content (`show_window`)
 	 */
-	subWindowReady: (openId: number) => typedError<null, ApiError>(__TAURI_INVOKE("sub_window_ready", { openId })),
+	subWindowReady: (openId: number) => typedError<null, ApiError>("sub_window_ready", __TAURI_INVOKE("sub_window_ready", { openId })),
 	/**
 	 *  The window manager's menu of the window (Move, Resize, Always on Top, Close…), as a right click on a native title bar
 	 *  opens it: the page calls it for a right click on the empty parts of its title bar (`WindowTitleBar`). A sync command,
 	 *  so it runs on the main thread, where GDK and Win32 menus live.
 	 */
-	showWindowMenu: () => typedError<null, ApiError>(__TAURI_INVOKE("show_window_menu")),
+	showWindowMenu: () => typedError<null, ApiError>("show_window_menu", __TAURI_INVOKE("show_window_menu")),
 	/**  Opens a native file dialog to browse for a git repository */
-	browseRepository: () => typedError<BrowseResult, ApiError>(__TAURI_INVOKE("browse_repository")),
+	browseRepository: () => typedError<BrowseResult, ApiError>("browse_repository", __TAURI_INVOKE("browse_repository")),
 	/**
 	 *  Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
 	 *  for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
 	 *  Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
 	 */
-	setAutoSyncMenuChecked: (checked: boolean) => typedError<null, ApiError>(__TAURI_INVOKE("set_auto_sync_menu_checked", { checked })),
+	setAutoSyncMenuChecked: (checked: boolean) => typedError<null, ApiError>("set_auto_sync_menu_checked", __TAURI_INVOKE("set_auto_sync_menu_checked", { checked })),
 	/**
 	 *  Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
 	 *  (`init_title_bar`). The value goes through the writer of the settings, which saves it now, before the restart: the
 	 *  new process reads the file.
 	 */
-	restartApp: (systemTitleBar: boolean) => typedError<null, ApiError>(__TAURI_INVOKE("restart_app", { systemTitleBar })),
-	checkForUpdates: () => typedError<UpdateInfo, ApiError>(__TAURI_INVOKE("check_for_updates")),
-	getUpdateStatus: () => typedError<UpdateInfo, ApiError>(__TAURI_INVOKE("get_update_status")),
-	installUpdate: () => typedError<null, ApiError>(__TAURI_INVOKE("install_update")),
-	installAgentCli: () => typedError<AgentCliInstall, ApiError>(__TAURI_INVOKE("install_agent_cli")),
+	restartApp: (systemTitleBar: boolean) => typedError<null, ApiError>("restart_app", __TAURI_INVOKE("restart_app", { systemTitleBar })),
+	checkForUpdates: () => typedError<UpdateInfo, ApiError>("check_for_updates", __TAURI_INVOKE("check_for_updates")),
+	getUpdateStatus: () => typedError<UpdateInfo, ApiError>("get_update_status", __TAURI_INVOKE("get_update_status")),
+	installUpdate: () => typedError<null, ApiError>("install_update", __TAURI_INVOKE("install_update")),
+	installAgentCli: () => typedError<AgentCliInstall, ApiError>("install_agent_cli", __TAURI_INVOKE("install_agent_cli")),
 	/**  Settings → Tools → IntelliJ IDEA: writes `~/.air/apps/branch-deck.yaml`, with which an IDE with Air runs this app */
-	installIdeApp: () => typedError<IdeApp, ApiError>(__TAURI_INVOKE("install_ide_app")),
+	installIdeApp: () => typedError<IdeApp, ApiError>("install_ide_app", __TAURI_INVOKE("install_ide_app")),
 	/**  Settings → Tools → IntelliJ IDEA, Remove: deletes the app file of the IDE */
-	removeIdeApp: () => typedError<null, ApiError>(__TAURI_INVOKE("remove_ide_app")),
+	removeIdeApp: () => typedError<null, ApiError>("remove_ide_app", __TAURI_INVOKE("remove_ide_app")),
 	/**
 	 *  The brd command of the prompts the app copies. Writes nothing and needs no install, so the brd of a prompt is always
 	 *  the version of the app that wrote it; an error when the app can't tell its binary (no `brd.exe` next to it)
 	 */
-	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, ApiError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
+	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, ApiError>("agent_cli_command", __TAURI_INVOKE("agent_cli_command", { repositoryPath })),
 	/**
 	 *  The agents of the IDE with Air that has `params.project` open, with their models and efforts (Start in Air); no IDE
 	 *  and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
 	 */
-	airLaunchTargets: (params: AirTargetsParams) => typedError<AirTargetsAnswer, ApiError>(__TAURI_INVOKE("air_launch_targets", { params })),
+	airLaunchTargets: (params: AirTargetsParams) => typedError<AirTargetsAnswer, ApiError>("air_launch_targets", __TAURI_INVOKE("air_launch_targets", { params })),
 	/**
 	 *  Starts an agent session in the IDE with Air that has `params.project` open, or opens a draft of it (Start in Air);
 	 *  no IDE and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
 	 */
-	airLaunch: (params: AirLaunchRequest) => typedError<AirLaunchAnswer, ApiError>(__TAURI_INVOKE("air_launch", { params })),
+	airLaunch: (params: AirLaunchRequest) => typedError<AirLaunchAnswer, ApiError>("air_launch", __TAURI_INVOKE("air_launch", { params })),
 	/**
 	 *  Watches the session that a launch of Start in Air started in the IDE with Air that has `params.project` open: its
 	 *  status to `statuses` now and after each change, until the IDE ends the watch, `stop_air_watch`, or the page of the
 	 *  window goes away. No IDE and a refusal of the IDE are answers
 	 */
-	airWatchSession: (params: AirWatchParams, statuses: Channel<AirSessionStatus>) => typedError<AirWatchEnd, ApiError>(__TAURI_INVOKE("air_watch_session", { params, statuses })),
+	airWatchSession: (params: AirWatchParams, statuses: Channel<AirSessionStatus>) => typedError<AirWatchEnd, ApiError>("air_watch_session", __TAURI_INVOKE("air_watch_session", { params, statuses })),
 	/**  Stops the watch of the session `session_id` that the calling window runs, if any */
-	stopAirWatch: (sessionId: string) => typedError<null, ApiError>(__TAURI_INVOKE("stop_air_watch", { sessionId })),
+	stopAirWatch: (sessionId: string) => typedError<null, ApiError>("stop_air_watch", __TAURI_INVOKE("stop_air_watch", { sessionId })),
 	/**  The skill files of `brd install` that exist, without writing anything */
-	agentCliStatus: () => typedError<AgentCliStatus, ApiError>(__TAURI_INVOKE("agent_cli_status")),
+	agentCliStatus: () => typedError<AgentCliStatus, ApiError>("agent_cli_status", __TAURI_INVOKE("agent_cli_status")),
 	/**
 	 *  The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window
 	 *  reads the Setup dot again
 	 */
-	cliToolsStatus: () => typedError<CliToolStatus[], ApiError>(__TAURI_INVOKE("cli_tools_status")),
+	cliToolsStatus: () => typedError<CliToolStatus[], ApiError>("cli_tools_status", __TAURI_INVOKE("cli_tools_status")),
 	/**
 	 *  Runs the action of a row (install, with the agent skill when `with_skill`; update; the skill; the sign-in of
 	 *  `teamcity` to `server`), which every window shows running with its last line (`cli-tools-running`); a second
 	 *  action of the same tool while one runs is refused (`cli_tool_busy`)
 	 */
-	runCliToolAction: (params: RunCliToolActionParams) => typedError<CliToolActionDone, ApiError>(__TAURI_INVOKE("run_cli_tool_action", { params })),
+	runCliToolAction: (params: RunCliToolActionParams) => typedError<CliToolActionDone, ApiError>("run_cli_tool_action", __TAURI_INVOKE("run_cli_tool_action", { params })),
 	/**  The actions of the tools that run now, for a window that opens or loads again while one runs */
-	cliToolsRunning: () => typedError<CliToolsRunning, ApiError>(__TAURI_INVOKE("cli_tools_running")),
+	cliToolsRunning: () => typedError<CliToolsRunning, ApiError>("cli_tools_running", __TAURI_INVOKE("cli_tools_running")),
 	/**  Ends the action of `tool` that runs, with its whole process group */
-	cancelCliToolAction: (tool: CliTool) => typedError<null, ApiError>(__TAURI_INVOKE("cancel_cli_tool_action", { tool })),
+	cancelCliToolAction: (tool: CliTool) => typedError<null, ApiError>("cancel_cli_tool_action", __TAURI_INVOKE("cancel_cli_tool_action", { tool })),
 	/**
 	 *  What waits for the user (the Setup dot): the downloaded update of the app, the tools' updates and expiring sign-ins
 	 *  from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides
 	 */
-	getSetupItems: (skips: SetupSkip[]) => typedError<SetupEntry[], ApiError>(__TAURI_INVOKE("get_setup_items", { skips })),
+	getSetupItems: (skips: SetupSkip[]) => typedError<SetupEntry[], ApiError>("get_setup_items", __TAURI_INVOKE("get_setup_items", { skips })),
 };
 
 /* Constants */
@@ -11109,11 +11109,11 @@ export type YouTrackUser = {
 };
 
 /* Tauri Specta runtime */
-async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
+async function typedError<T, E>(command: string, result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
     try {
         return { status: "ok", data: await result };
     } catch (e) {
-        return { status: "error", error: commandError(e) as E };
+        return { status: "error", error: commandError(e, command) as E };
     }
 }
 

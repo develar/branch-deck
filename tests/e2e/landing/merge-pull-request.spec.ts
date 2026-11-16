@@ -173,9 +173,9 @@ test.describe("Merge #7", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    // the mock says why the call failed (as a failed IPC does), and the page logs the failure it tells in the toast
+    // the mock says why the call failed (as a failed IPC does); the bindings answer it as the error of the start
+    // (`commandError` of src/lib/api-error.ts, a warning of the log), which the toast tells
     expectErrorLog(page, /^console\.error: \[Test Mock\] Cannot run execute: Error: The mock server answered execute without a result$/)
-    expectErrorLog(page, /^Cannot update the project: The mock server answered execute without a result$/)
     await failAfterTheMerge(page, await setup(page, setupRepo, syncAndWaitForBranches), null, "The mock server answered execute without a result")
   })
 

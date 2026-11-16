@@ -16,7 +16,7 @@ export async function readAhead(what: string, run: () => Promise<CommandResult<u
   try {
     result = await run()
   } catch (error) {
-    result = { status: "error", error: commandError(error) }
+    result = { status: "error", error: commandError(error, null) }
   }
   if (result.status === "error") {
     logWarning(`Cannot read ${what} ahead`, result.error)
