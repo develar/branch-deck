@@ -267,6 +267,7 @@ export default defineConfig({
       "typescript/no-extraneous-class": "error",
       "typescript/no-import-type-side-effects": "error",
       "typescript/no-invalid-void-type": "error",
+      "typescript/no-floating-promises": "error",
       "typescript/no-misused-promises": "error",
       "typescript/no-namespace": "error",
       "typescript/no-non-null-asserted-nullish-coalescing": "error",

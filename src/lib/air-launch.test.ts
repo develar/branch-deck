@@ -27,13 +27,15 @@ import {
 } from "@/lib/air-launch"
 import type { AirTarget } from "@/lib/bindings"
 
-const { airLaunch, airLaunchTargets, airWatchSession, stopAirWatchCommand } = vi.hoisted(() => ({
+const { airLaunch, airLaunchTargets, airWatchSession, stopAirWatchCommand, logWarning } = vi.hoisted(() => ({
   airLaunch: vi.fn(),
   airLaunchTargets: vi.fn(),
   airWatchSession: vi.fn(),
   stopAirWatchCommand: vi.fn(),
+  logWarning: vi.fn(),
 }))
 vi.mock("@/lib/bindings", () => ({ commands: { airLaunch, airLaunchTargets, airWatchSession, stopAirWatch: stopAirWatchCommand } }))
+vi.mock("@/lib/errors", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/errors")>()), logWarning }))
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: class {
     onmessage: (message: unknown) => void = () => {}
@@ -324,7 +326,15 @@ describe("the commands", () => {
     airLaunch.mockReset()
     airLaunchTargets.mockReset()
     airWatchSession.mockReset()
-    stopAirWatchCommand.mockReset()
+    stopAirWatchCommand.mockReset().mockResolvedValue(undefined)
+    logWarning.mockReset()
+  })
+
+  it("a stop whose call fails (the IPC, a refusal of Tauri) is a line of the log, never a rejection of the page", async () => {
+    const failure = new TypeError("Load failed")
+    stopAirWatchCommand.mockRejectedValue(failure)
+    stopAirWatch("s-1")
+    await vi.waitFor(() => expect(logWarning).toHaveBeenCalledWith("Cannot stop the watch of an Air session", failure))
   })
 
   it("watches a session: each status to the callback, then the end; the stop names the session", async () => {
@@ -342,6 +352,7 @@ describe("the commands", () => {
     ])
     stopAirWatch("s-1")
     expect(stopAirWatchCommand).toHaveBeenCalledWith("s-1")
+    expect(logWarning).not.toHaveBeenCalled()
 
     airWatchSession.mockResolvedValue({ status: "error", error: { code: "internal", message: "Cannot connect to the IDE" } })
     await expect(watchAirSession("/work/idea", "s-1", () => {})).rejects.toMatchObject({ code: "internal" })

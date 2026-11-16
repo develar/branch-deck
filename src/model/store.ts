@@ -58,8 +58,7 @@ import type {
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
-import { invokeCommand } from "@/lib/command"
-import { isApiError, logError } from "@/lib/errors"
+import { logError, logWarning } from "@/lib/errors"
 import { sameFields, withoutKeys } from "@/lib/record"
 import { toRemoteStatus } from "@/lib/remote-status"
 import type { SyncDeferral } from "@/lib/sync-deferred"
@@ -283,11 +282,16 @@ export function closeSession(): void {
   notifyViewListeners()
 }
 
+/** Ends the subscription `id` in Rust; a call that failed (the IPC as its window leaves) is a warning: its late patches reach nothing */
+function unsubscribe(id: number): void {
+  commands.unsubscribeView({ id }).catch((error: unknown) => logWarning("Cannot end the subscription of a view", error))
+}
+
 /** The end of the subscription of `left`: its late patches reach nothing */
 function leave(left: Session): void {
   left.closed = true
   if (left.id !== null) {
-    void commands.unsubscribeView({ id: left.id })
+    unsubscribe(left.id)
   }
 }
 
@@ -350,45 +354,37 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
     install(opened, held)
   }
   const have = opened.view?.version
-  opened.ready = commands.subscribeView({ repositoryPath, ...(have !== undefined && { have }) }, channel).then(
-    result => {
-      if (replaces !== null) {
-        leave(replaces)
+  opened.ready = commands.subscribeView({ repositoryPath, ...(have !== undefined && { have }) }, channel).then(result => {
+    if (replaces !== null) {
+      leave(replaces)
+    }
+    if (result.status === "error") {
+      fail(opened, result.error)
+      return
+    }
+    if (opened.closed) {
+      unsubscribe(result.data.id)
+      return
+    }
+    const { id, view, catchUp } = result.data
+    opened.id = id
+    // what the window shows goes to its new subscription
+    setDemandSubscription(id)
+    if (view !== null) {
+      if (replaces !== null && view.version.epoch !== replaces.view?.version.epoch) {
+        // the session of another prefix
+        installAnother(opened, view)
+      } else {
+        install(opened, view)
       }
-      if (result.status === "error") {
-        fail(opened, result.error)
-        return
+    } else if (opened.view !== null) {
+      // the seed it holds: the patch from it, or nothing when the session sent none since
+      if (catchUp !== null) {
+        applyOrRefresh(opened, opened.view, catchUp)
       }
-      if (opened.closed) {
-        void commands.unsubscribeView({ id: result.data.id })
-        return
-      }
-      const { id, view, catchUp } = result.data
-      opened.id = id
-      // what the window shows goes to its new subscription
-      setDemandSubscription(id)
-      if (view !== null) {
-        if (replaces !== null && view.version.epoch !== replaces.view?.version.epoch) {
-          // the session of another prefix
-          installAnother(opened, view)
-        } else {
-          install(opened, view)
-        }
-      } else if (opened.view !== null) {
-        // the seed it holds: the patch from it, or nothing when the session sent none since
-        if (catchUp !== null) {
-          applyOrRefresh(opened, opened.view, catchUp)
-        }
-        applyEarly(opened)
-      }
-    },
-    (error: unknown) => {
-      if (replaces !== null) {
-        leave(replaces)
-      }
-      fail(opened, error)
-    },
-  )
+      applyEarly(opened)
+    }
+  })
 }
 
 /**
@@ -405,8 +401,8 @@ function resubscribe(gone: Session): void {
  * (`sessionFailure` of the repository store: the welcome card without a prefix, the git alert without git, the error
  * alert otherwise). A seed of the start it held is a frame of no session the window holds: its rows go
  */
-function fail(failed: Session, error: unknown): void {
-  failed.failure = isApiError(error) ? error : subscriptionError(error)
+function fail(failed: Session, error: ApiError): void {
+  failed.failure = error
   if (failed === session) {
     // a repository without a prefix is the welcome card's state, not a failure
     if (failed.failure.code !== "no_branch_prefix") {
@@ -419,12 +415,6 @@ function fail(failed: Session, error: unknown): void {
     setSessionAnswer("", failed.failure)
     notifyViewListeners()
   }
-}
-
-/** A failure of the subscription that is no answer of Rust (the IPC failed), as an `internal` error of its words */
-function subscriptionError(error: unknown): ApiError {
-  const message = typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error)
-  return { code: "internal", message: message || "Cannot subscribe to the branches of the repository", details: null, retry: "no", operation_id: null }
 }
 
 function receive(target: Session, patch: ViewPatch): void {
@@ -1376,7 +1366,7 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
     return
   }
   branchSyncStore.setState({ autosquashPlanFailed: false })
-  const result = await invokeCommand(() => commands.getAutosquashPlan({ repositoryPath }))
+  const result = await commands.getAutosquashPlan({ repositoryPath })
   // a later sync started its own request
   if (request !== autosquashPlanRequest) {
     return

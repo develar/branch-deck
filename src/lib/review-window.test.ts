@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test"
+import { commandError } from "@/lib/api-error"
 
 const { prefetches, warnings, answers } = vi.hoisted(() => ({
   prefetches: [] as unknown[],
@@ -41,8 +42,8 @@ const { openBranchReviewWindow } = await import("@/lib/review-window")
 
 describe("the read ahead of a review", () => {
   it("is a warning where the IPC fails, no rejection of the page, and the next open reads ahead again; one that read is not read again", async () => {
-    // the IPC fails as WebKit fails a request its page no longer waits for: the bindings rethrow the Error
-    answers.push(() => Promise.reject(new TypeError("Load failed")))
+    // the IPC fails as WebKit fails a request its page no longer waits for: the bindings answer its Error as an error
+    answers.push(() => Promise.resolve({ status: "error", error: commandError(new TypeError("Load failed")) }))
     await expect(openBranchReviewWindow("auth")).resolves.toBe(true)
     await vi.waitFor(() => expect(warnings).toEqual(["Cannot read the review of a branch ahead"]))
 

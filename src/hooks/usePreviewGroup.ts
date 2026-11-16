@@ -2,7 +2,6 @@ import { useDebouncedRead } from "@/hooks/useDebouncedRead"
 import type { DebouncedRead } from "@/hooks/useDebouncedRead"
 import type { CommitGroup } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useSelectedProjectPath } from "@/stores/repository"
 
@@ -16,7 +15,7 @@ export function usePreviewGroup(message: string | null): DebouncedRead<CommitGro
   const repositoryPath = useSelectedProjectPath() ?? ""
   const syncCount = useBranchSync(state => state.syncCount)
   const ask = async (value: string) => {
-    const result = await invokeCommand(() => commands.previewGroup({ repositoryPath, message: value }))
+    const result = await commands.previewGroup({ repositoryPath, message: value })
     return result.status === "ok" ? result.data : null
   }
   return useDebouncedRead(message, ask, `${repositoryPath}\n${syncCount}`)

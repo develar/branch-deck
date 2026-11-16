@@ -8,7 +8,7 @@ import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { askUntilSettled } from "@/lib/ask-until-settled"
 import type { ApiError, Land, LandingAllowances, LandProfiles, OperationEvent, OperationId, Outcome, PatronusProfile, PatronusRobot, Plan, ReviewReadiness } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { commandFailure, logError, notifyError } from "@/lib/errors"
+import { commandFailure, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { FROM_MENU } from "@/lib/menu"
 import { formatMergeLabel, mergeOf } from "@/lib/merge-pull-request"
@@ -647,25 +647,14 @@ async function runPlanned(plan: Plan, intent: Land, allow: LandingAllowances | u
     }
   }
   const params = { repositoryPath, intent: planned.intent, fingerprint: planned.fingerprint, accepted: planned.confirmations }
-  const result = await executeIntent(params, events)
-    .catch((error: unknown) => {
-      // the call failed (IPC): an update the push began ends with it in the toast of the push; else it fails as before
-      if (push?.failed(error instanceof Error ? error : new Error(String(error))) !== true) {
-        throw error
-      }
-      logError("Cannot update the project", error)
-      return null
-    })
-    .finally(() => {
-      if (op !== null) {
-        setLandProgress(op, null)
-      }
-    })
-  if (result === null) {
-    return false
-  }
+  const result = await executeIntent(params, events).finally(() => {
+    if (op !== null) {
+      setLandProgress(op, null)
+    }
+  })
   if (result.status === "error") {
-    // after the end of the push the error is of the update that follows it, which its toast tells; before, a refusal
+    // after the end of the push the error is of the update that follows it (or of the call itself, the IPC), which its
+    // toast tells; before, a refusal
     if (push?.failed(result.error) !== true) {
       tellStartRefusal(result.error, planned, repositoryPath)
     }
@@ -695,7 +684,7 @@ interface PushFollow {
    * in the toast of the push, which keeps no "Rebuilding on the new master…" to close by hand; false where no update
    * runs (no push told yet: a refusal of the start), which the caller says
    */
-  failed(error: ApiError | Error): boolean
+  failed(error: ApiError): boolean
 }
 
 /**

@@ -1,9 +1,9 @@
 import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { describe, expect, it, vi } from "vite-plus/test"
 import { toast } from "@/components/ui/toast"
-import { internalError } from "@/lib/api-error"
+import { getErrorDetails, internalError, isApiError } from "@/lib/api-error"
 import type { ApiError, LockHolderInfo, OperationHolder } from "@/lib/bindings"
-import { commandFailure, describeError, getErrorCode, getErrorDetails, getErrorOperationId, isApiError, logError, notifyError } from "@/lib/errors"
+import { commandFailure, describeError, getErrorCode, getErrorOperationId, logError, notifyError } from "@/lib/errors"
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: vi.fn(async () => {}) }))
 vi.mock("@/components/ui/toast", () => ({ toast: { add: vi.fn(), close: vi.fn() } }))

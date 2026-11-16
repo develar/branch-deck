@@ -2,7 +2,6 @@ import { useEffect, useState } from "react"
 import type { DeclarationPlace, DiffViewFile } from "@/components/diff/DiffView"
 import { commands } from "@/lib/bindings"
 import type { DeclarationSite, DeclarationTarget, DiffRevisions, FindDeclarationParams, UsageTarget } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import type { CommandResult } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
 import { NavigationGate } from "@/lib/navigation-gate"
@@ -110,7 +109,7 @@ export function useSymbolNavigation(files: readonly DiffViewFile[], revisions: D
         return
       }
       setSearching({ kind, at, ticket, subject })
-      void invokeCommand(() => call(prepared.params)).then(result => {
+      void call(prepared.params).then(result => {
         setSearching(current => (current?.ticket === ticket ? null : current))
         // a search a newer one of the window or the user canceled answers nothing
         if (!gate.finish(ticket) || (result.status === "error" && result.error.code === "canceled")) {
@@ -162,5 +161,5 @@ export function useSymbolNavigation(files: readonly DiffViewFile[], revisions: D
 
 /** Kills the symbol search of this window in the backend, its accio; the answer it then gives is `canceled` */
 function stopBackendSearch(): void {
-  void invokeCommand(() => commands.cancelSymbolSearch())
+  void commands.cancelSymbolSearch()
 }

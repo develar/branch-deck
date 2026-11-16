@@ -2,7 +2,6 @@ import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { Intent, OperationEvent, OperationId, ReviewRange, ReviewRequest, ReviewStackLayer } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import { diffSubjectId } from "@/lib/commit-files"
 import { logError } from "@/lib/errors"
 import { cancelIntent, executeIntent, failedEffect } from "@/model/intents"
@@ -129,7 +128,7 @@ function start(key: string, repositoryPath: string, intent: Extract<Intent, { ki
     }
   }
   const params = { repositoryPath, intent, fingerprint: "" }
-  void invokeCommand(() => executeIntent(params, events)).then(result => {
+  void executeIntent(params, events).then(result => {
     // stopped by a newer fetch or by the close: nothing to show
     if (latestKey !== key) {
       return

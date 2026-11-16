@@ -16,15 +16,11 @@ export function useMenuSync(): void {
 
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   useEffect(() => {
-    commands
-      .setAutoSyncMenuChecked(autoSyncOnFocus)
-      .then(result => {
-        if (result.status === "error") {
-          logError("Cannot check Auto-sync on Focus in the menu", result.error)
-        }
-      })
-      .catch((error: unknown) => {
-        logError("Cannot check Auto-sync on Focus in the menu", error)
-      })
+    // a command of a Result never rejects
+    void commands.setAutoSyncMenuChecked(autoSyncOnFocus).then(result => {
+      if (result.status === "error") {
+        logError("Cannot check Auto-sync on Focus in the menu", result.error)
+      }
+    })
   }, [autoSyncOnFocus])
 }

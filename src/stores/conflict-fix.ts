@@ -2,13 +2,13 @@ import { useEffect, useMemo } from "react"
 import { createStore, useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { undoRegroup } from "@/hooks/useStackActions"
+import { getErrorDetails } from "@/lib/api-error"
 import type { Commit, ConflictFix, FixComponent, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import { getShownSubject } from "@/lib/commit"
 import { componentFixing, describeFixStep, fixTitle } from "@/lib/conflict-fix"
 import type { SubjectOf } from "@/lib/conflict-fix"
-import { getErrorDetails } from "@/lib/errors"
+import { logWarning } from "@/lib/errors"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { showUndoToast } from "@/lib/undo-toast"
 import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
@@ -44,7 +44,7 @@ function fixKey(): string | null {
 // a sync changes what the fix is for: the running search stops, the next conflict view looks again
 branchSyncStore.subscribe((state, previous) => {
   if (state.isSyncing && !previous.isSyncing && conflictFixStore.getState().status === "searching") {
-    void commands.cancelConflictFix()
+    commands.cancelConflictFix().catch((error: unknown) => logWarning("Cannot stop the search of a conflict fix", error))
     conflictFixStore.setState({ key: null, status: "idle", fix: null, error: null })
   }
 })
@@ -58,7 +58,7 @@ export async function requestConflictFix(force = false): Promise<void> {
   }
   const repositoryPath = branchSyncStore.getState().syncedRepositoryPath!
   conflictFixStore.setState({ key, status: "searching", fix: null, error: null })
-  const result = await invokeCommand(() => commands.findConflictFix({ repositoryPath }))
+  const result = await commands.findConflictFix({ repositoryPath })
   if (conflictFixStore.getState().key !== key) {
     return
   }

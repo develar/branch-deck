@@ -1,6 +1,6 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import { getErrorDetails } from "@/lib/errors"
+import { getErrorDetails } from "@/lib/api-error"
 import { aiSettingsStore } from "@/stores/settings/aiSettings"
 
 export interface AIError {

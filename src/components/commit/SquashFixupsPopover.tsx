@@ -10,7 +10,6 @@ import { describeSquashFixups, formatFixupCount, getAutosquashScope, getFixupMar
 import type { ListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
 import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
@@ -37,7 +36,7 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
   const isSquashing = useSurfaceBusy(surface) !== null
   useEffect(() => {
     let cancelled = false
-    void invokeCommand(() => commands.getAutosquashPlan({ repositoryPath: getSelectedProject()?.path ?? "" })).then(result => {
+    void commands.getAutosquashPlan({ repositoryPath: getSelectedProject()?.path ?? "" }).then(result => {
       if (cancelled) {
         return
       }

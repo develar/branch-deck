@@ -2,7 +2,6 @@
 // session, which writes the report under its lock for every window and `bd`; this window hides it at once.
 import { Channel } from "@tauri-apps/api/core"
 import type { OperationEvent } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
 import { executeIntent } from "@/model/intents"
 import { getViewEpoch } from "@/model/store"
@@ -15,7 +14,7 @@ export async function dismissLanded(repositoryPath: string): Promise<void> {
   clearLandedReport(repositoryPath)
   // an operation of the session (`Intent::DismissLanded`), which writes the report under its lock for every window and `bd`
   const intent = { kind: "dismissLanded", epoch: getViewEpoch(repositoryPath) } as const
-  const result = await invokeCommand(() => executeIntent({ repositoryPath, intent, fingerprint: "", accepted: [] }, new Channel<OperationEvent>()))
+  const result = await executeIntent({ repositoryPath, intent, fingerprint: "", accepted: [] }, new Channel<OperationEvent>())
   if (result.status !== "ok") {
     notifyError("Cannot dismiss the landed commits", result.error)
   }

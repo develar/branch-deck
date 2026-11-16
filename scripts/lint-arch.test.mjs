@@ -12,6 +12,7 @@ import {
   findProblems,
   lintArchitecture,
   readRegistry,
+  readRejectingCommands,
 } from "./lint-arch.mjs"
 
 /** The rules each line of `source` breaks, by line */
@@ -425,6 +426,42 @@ test("an entry of the callers of the app commands names a command of the app tha
       "APP_COMMAND_CALLERS: sync is no app(…) command of crates/app-api/commands.json: remove it",
     ],
   )
+})
+
+test("a void of a command without a Result is refused unless its chain handles the rejection; of a command with one, a test or a comment not", () => {
+  const rejecting = new Set(["unsubscribeView", "cliToolsRunning", "cancelConflictFix"])
+  const source = [
+    "void commands.unsubscribeView({ id })",
+    "void commands.cliToolsRunning().then(acceptRunning)",
+    "void commands",
+    "  .cliToolsRunning()",
+    "  .finally(() => done())",
+    // caught: at the end of the chain, after a then, across lines
+    "void commands.unsubscribeView({ id }).catch((error: unknown) => logError(title, error))",
+    "void commands.cliToolsRunning().then(running => accept(running, { at: f(1) })).catch(logFailure)",
+    "void commands",
+    "  .cancelConflictFix()",
+    "  .catch(logFailure)",
+    "void commands.cliToolsRunning().then(acceptRunning, (error: unknown) => logFailure(error))",
+    // one argument of `.then`, whose arrow holds a comma: no handler of the rejection
+    "void commands.cliToolsRunning().then(running => accept(running, 1))",
+    // no void: awaited or chained, which no-floating-promises sees; a command with a Result; a comment; a string
+    "await commands.unsubscribeView({ id })",
+    "void commands.getSnapshot({ repositoryPath })",
+    "// void commands.unsubscribeView({ id })",
+    'const words = "void commands.unsubscribeView()"',
+  ].join("\n")
+  const rules = file => findProblems(file, source, { registry: new Map(), rejecting }).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("src/model/store.ts"), ["1 void-command", "2 void-command", "3 void-command", "12 void-command"])
+  // a test mocks what it calls
+  assert.deepEqual(rules("src/model/store.test.ts"), [])
+})
+
+test("the commands without a Result are read from the bindings: their call is the invoke itself", () => {
+  const rejecting = readRejectingCommands(join(import.meta.dirname, ".."))
+  assert.ok(rejecting.has("unsubscribeView"))
+  assert.ok(rejecting.has("cancelOperation"))
+  assert.ok(!rejecting.has("getSnapshot"))
 })
 
 test("every command of the app of this repository has its one module, every entry its command", () => {

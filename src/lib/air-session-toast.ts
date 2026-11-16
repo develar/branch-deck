@@ -1,6 +1,6 @@
 import { toast } from "@/components/ui/toast"
 import { formatSessionStatus, formatWatchEnd, stopAirWatch, watchAirSession } from "@/lib/air-launch"
-import { getErrorDetails } from "@/lib/errors"
+import { getErrorDetails } from "@/lib/api-error"
 import { TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 
 /**

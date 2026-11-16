@@ -234,22 +234,18 @@ async function announceFailing(key: string, robot: PatronusRobot, label: string 
 
 /** What failed, which decides the step of the toast; null when Patronus can't tell */
 async function readFailureKind(repositoryPath: string, robot: PatronusRobot): Promise<RobotFailureKind | null> {
-  try {
-    const baselineBranch = branchSyncStore.getState().baselineBranch ?? ""
-    const result = await commands.getRobotFailure({
-      repositoryPath,
-      robotId: robot.id,
-      branchName: robot.branchName,
-      // the members of the whole stack for its robot
-      ancestors: robotAncestors(robot),
-      baselineBranch,
-      full: false,
-    })
-    return result.status === "ok" ? result.data.failure.kind : null
-  } catch {
-    // the toast offers the prompt
-    return null
-  }
+  const baselineBranch = branchSyncStore.getState().baselineBranch ?? ""
+  const result = await commands.getRobotFailure({
+    repositoryPath,
+    robotId: robot.id,
+    branchName: robot.branchName,
+    // the members of the whole stack for its robot
+    ancestors: robotAncestors(robot),
+    baselineBranch,
+    full: false,
+  })
+  // a failure of the read: the toast offers the prompt
+  return result.status === "ok" ? result.data.failure.kind : null
 }
 
 /** The checks of a robot that failed ("Fast Tests"), from its details as the session reads them; null without them */

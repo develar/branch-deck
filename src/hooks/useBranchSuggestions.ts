@@ -144,15 +144,7 @@ function createSuggestionSession() {
     const isObsolete = () => thisGenerationId !== generationId
     store.setState({ isGenerating: true })
 
-    let result: Awaited<ReturnType<typeof commands.suggestBranchNames>>
-    try {
-      result = await commands.suggestBranchNames(params)
-    } catch (error) {
-      if (!isObsolete()) {
-        fail(error)
-      }
-      return
-    }
+    const result = await commands.suggestBranchNames(params)
     if (isObsolete()) {
       return
     }

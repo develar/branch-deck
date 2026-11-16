@@ -50,8 +50,17 @@ imports and naming, the patched dependencies, and the React and WebKit behaviour
   goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity),
   which words it by its code (`describeError`: a held lock names its holder); a store decides by `error.code`
   (`canceled` toasts nothing), never by `error.message`. A read ahead of what the user asks for next (`prefetch_review`
-  as a review opens) runs through `readAhead` of `src/lib/command.ts`: its failure, of the command or of the IPC, is a
-  warning of the log, never an error and never a rejection of the page, as the read asked for tells its own.
+  as a review opens) runs through `readAhead` of `src/lib/command.ts`: its failure, of the command or of a step before
+  it, is a warning of the log, never an error and never a rejection of the page, as the read asked for tells its own.
+- **Errors of commands**: a command that answers a `Result` never rejects. The bindings answer every failure of its
+  call as `{ status: "error", error }` with an `ApiError` (`commandError` of `src/lib/api-error.ts`, which the export
+  of `src-tauri/src/bindings_test.rs` writes into the catch of `typedError`): the error the command answered as is, a
+  refusal of Tauri itself ("Command not found", an ACL refusal, invalid arguments: a string) and an `Error` of the IPC
+  (a fetch of the E2E bridge, the Air shim) as an `internal` error of its words. So the `status === "error"` branch is
+  the one failure path: no `try`/`catch` around `await commands.…`. A command without a `Result` (`unsubscribeView`,
+  `setDemand`, `cancelOperation`, …: `__TAURI_INVOKE` in the bindings) rejects as its call fails, so its call is awaited
+  or takes a `.catch` that logs (`logError`); `pnpm lint:arch` refuses a `void commands.<command>(…)` of one without it
+  (`void-command`), and Oxlint a promise neither awaited, caught nor `void` (`typescript/no-floating-promises`).
 - **Wording** ([UX Writing](ux-writing.md)): a toast title says what happened ("Pushed feature-ui"),
   never "Success"/"Error"; errors are "Cannot <verb> <object>" with the reason; a toast about an object opens it
   ("Open in Patronus"); Title Case for buttons, menu items and toast actions, sentence case for the rest; "…", "·",

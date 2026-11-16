@@ -18,9 +18,9 @@ import {
   UserPlusIcon,
   LayersIcon,
 } from "lucide-react"
+import { getErrorDetails } from "@/lib/api-error"
 import type { LandingFix, MissingReviewGroup, NextStep, Person, StepBlocker, StepFact, StepFailure, StepKind } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
-import { getErrorDetails } from "@/lib/errors"
 import type { MenuItem } from "@/lib/menu"
 import { describeMerge, formatMergeLabel, formatMergeMethod } from "@/lib/merge-pull-request"
 import { describeStart, formatPatronusAvailabilityHint, formatStartLabel } from "@/lib/patronus"

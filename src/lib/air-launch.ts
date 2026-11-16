@@ -12,7 +12,7 @@ import type {
   AirWatchEnd,
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { commandFailure } from "@/lib/errors"
+import { commandFailure, logWarning } from "@/lib/errors"
 
 /*
  * Start in Air (openspec/specs/branch/start-in-air/spec.md): the state of the dialog over the agents of the IDE (`targets`), the
@@ -356,5 +356,5 @@ export async function watchAirSession(project: string, sessionId: string, onStat
 
 /** Stops the watch of the session `sessionId` of this window; the watch answers `stopped` */
 export function stopAirWatch(sessionId: string): void {
-  void commands.stopAirWatch(sessionId)
+  commands.stopAirWatch(sessionId).catch((error: unknown) => logWarning("Cannot stop the watch of an Air session", error))
 }

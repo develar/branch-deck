@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
+import { getErrorDetails } from "@/lib/api-error"
 import type {
   Fact,
   FactState,
@@ -19,7 +20,6 @@ import type {
   RobotsView,
   TableChanges,
 } from "@/lib/bindings"
-import { getErrorDetails } from "@/lib/errors"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { closeLanded } from "@/lib/landed-closes"
 import { showMergeToast } from "@/lib/landing-toast"

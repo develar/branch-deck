@@ -1,5 +1,5 @@
+import { getErrorDetails } from "@/lib/api-error"
 import type { BranchRules, Fact } from "@/lib/bindings"
-import { getErrorDetails } from "@/lib/errors"
 
 /**
  * What the GitHub rules of a branch do to the approvals of a pull request into it when new commits are pushed: `keep`,

@@ -94,14 +94,11 @@ export function hideAfterSync(repositoryPath: string, viewEpoch: number | null):
   }
   landedStore.setState({ seenAt: null })
   // another failure leaves the island as it is: the next sync hides it once the island is seen again
-  void commands.hideLanded({ repositoryPath, landedAt: seenAt.landedAt, epoch: viewEpoch }).then(
-    result => {
-      if (result.status === "error" && result.error.code === "lease_read_again") {
-        landedStore.setState(state => (state.repositoryPath === repositoryPath && state.seenAt === null ? { seenAt } : state))
-      }
-    },
-    () => {},
-  )
+  void commands.hideLanded({ repositoryPath, landedAt: seenAt.landedAt, epoch: viewEpoch }).then(result => {
+    if (result.status === "error" && result.error.code === "lease_read_again") {
+      landedStore.setState(state => (state.repositoryPath === repositoryPath && state.seenAt === null ? { seenAt } : state))
+    }
+  })
 }
 
 function useOwnState<T>(select: (state: LandedState) => T, fallback: T): T {

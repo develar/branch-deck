@@ -2,7 +2,6 @@ import { useEffect, useState } from "react"
 import { Channel } from "@tauri-apps/api/core"
 import type { DiskOverview, DiskUsageEvent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { getErrorDetails } from "@/lib/errors"
 
 export type DiskUsageState =
   | { status: "loading" }
@@ -39,21 +38,14 @@ export function useDiskUsage(repositoryPath: string, generation: number): DiskUs
         })
       }
     }
-    void commands.diskUsage({ repositoryPath, fresh: request.fresh }, events).then(
-      result => {
-        if (!current || (result.status === "error" && result.error.code === "canceled")) {
-          return
-        }
-        if (result.status === "error") {
-          setRead({ key, state: { status: "error", message: result.error.message }, seq: request.seq })
-        }
-      },
-      (error: unknown) => {
-        if (current) {
-          setRead({ key, state: { status: "error", message: getErrorDetails(error) }, seq: request.seq })
-        }
-      },
-    )
+    void commands.diskUsage({ repositoryPath, fresh: request.fresh }, events).then(result => {
+      if (!current || (result.status === "error" && result.error.code === "canceled")) {
+        return
+      }
+      if (result.status === "error") {
+        setRead({ key, state: { status: "error", message: result.error.message }, seq: request.seq })
+      }
+    })
     return () => {
       current = false
     }

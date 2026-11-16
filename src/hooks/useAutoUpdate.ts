@@ -18,35 +18,34 @@ const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
  * Without `showNoUpdateToast` (silent checks), an available update goes to the Setup dot; failures refresh Setup and are logged.
  */
 export async function checkForUpdates(showNoUpdateToast = false): Promise<void> {
-  let failure: unknown
-  try {
-    const result = await commands.checkForUpdates()
-    if (result.status === "ok") {
-      if (result.data.is_update_available) {
-        // asked: a toast; at startup the Setup dot keeps it, as nobody asked (openspec/specs/repository/setup-attention/spec.md)
-        if (showNoUpdateToast) {
-          showUpdateAvailableToast(result.data)
-        }
-      } else if (showNoUpdateToast) {
-        toast.add({
-          type: "success",
-          title: `${await getName()} is up to date`,
-          description: `${result.data.current_version} is the newest version.`,
-        })
-      }
-      void refreshSetup()
-      return
+  const result = await commands.checkForUpdates()
+  if (result.status === "error") {
+    if (showNoUpdateToast) {
+      notifyError("Cannot check for updates", result.error)
+    } else {
+      logError("Cannot check for updates", result.error)
     }
-    failure = result.error
-  } catch (error) {
-    failure = error
-  }
-  if (showNoUpdateToast) {
-    notifyError("Cannot check for updates", failure)
-  } else {
-    logError("Cannot check for updates", failure)
+  } else if (result.data.is_update_available) {
+    // asked: a toast; at startup the Setup dot keeps it, as nobody asked (openspec/specs/repository/setup-attention/spec.md)
+    if (showNoUpdateToast) {
+      showUpdateAvailableToast(result.data)
+    }
+  } else if (showNoUpdateToast) {
+    toast.add({
+      type: "success",
+      title: `${await appName()} is up to date`,
+      description: `${result.data.current_version} is the newest version.`,
+    })
   }
   void refreshSetup()
+}
+
+/** The name of the app for the words of a toast; a failed read (an IPC of Tauri, no command) is a line of the log, never a failure of the check */
+function appName(): Promise<string> {
+  return getName().catch((error: unknown) => {
+    logError("Cannot read the name of the app", error)
+    return "Branch Deck"
+  })
 }
 
 function showUpdateAvailableToast(updateInfo: UpdateInfo): void {
@@ -71,19 +70,10 @@ function showUpdateAvailableToast(updateInfo: UpdateInfo): void {
 
 /** Installs the downloaded update; the app restarts on success, a failure is a toast */
 export async function installUpdateNow(): Promise<void> {
-  let failure: unknown = null
-  try {
-    // the app restarts on success
-    const result = await commands.installUpdate()
-    if (result.status === "error") {
-      failure = result.error
-    }
-  } catch (error) {
-    failure = error
-  }
-
-  if (failure !== null) {
-    notifyError("Cannot install the update", failure)
+  // the app restarts on success
+  const result = await commands.installUpdate()
+  if (result.status === "error") {
+    notifyError("Cannot install the update", result.error)
   }
 }
 

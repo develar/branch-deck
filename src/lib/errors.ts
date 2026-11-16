@@ -1,13 +1,9 @@
 import { error as logErrorToBackend, warn as logWarningToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
+import { getErrorDetails, isApiError } from "@/lib/api-error"
 import type { ApiError, ErrorCode } from "@/lib/bindings"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { presentLockHolder, presentOperationHolder } from "@/presenters/lock-wait"
-
-/** Whether `error` is the `ApiError` a command answers (`code`, `message`, …), not an `Error` of the page */
-export function isApiError(error: unknown): error is ApiError {
-  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" && "message" in error && typeof error.message === "string"
-}
 
 /**
  * The code of the `ApiError` a command answered; undefined for any other error. The page acts on the code, never on the
@@ -15,18 +11,6 @@ export function isApiError(error: unknown): error is ApiError {
  */
 export function getErrorCode(error: unknown): ErrorCode | undefined {
   return isApiError(error) ? error.code : undefined
-}
-
-/** The message of an error for the user: the `message` of an `Error` (no "Error:" prefix) or of an `ApiError` */
-export function getErrorDetails(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message
-  }
-  // the ApiError a Tauri command returns
-  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
-    return error.message
-  }
-  return String(error)
 }
 
 /**
@@ -124,7 +108,9 @@ export function notifyError(title: string, error: unknown, action?: ToastActionP
 
 /**
  * Logs a warning: no failure of the app, a thing of the user's own the app cannot use (a pattern of theirs that is no
- * regex), or a read ahead that failed (`readAhead` of src/lib/command.ts), which the read asked for tells again
+ * regex), a read ahead that failed (`readAhead` of src/lib/command.ts), which the read asked for tells again, or a
+ * failed call of a command without a Result the page made in passing (the end of a subscription as its window leaves,
+ * the stop of a search, a read of a status the next read tells again)
  */
 export function logWarning(title: string, detail: unknown): void {
   console.warn(title, detail)

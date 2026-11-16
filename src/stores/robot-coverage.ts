@@ -169,16 +169,14 @@ async function askRobotCoverage(): Promise<void> {
       .map(async ([coverage, { robot }]) => {
         inFlight.add(coverage)
         try {
-          const result = await commands
-            .getRobotCommitMap({
-              repositoryPath,
-              branchName: robot.branchName,
-              stackRoot: robot.stackRoot ?? null,
-              sourceRevision: robot.sourceRevision ?? "",
-              ancestors: robotAncestors(robot),
-              baselineBranch,
-            })
-            .catch((error: unknown) => ({ status: "error" as const, error }))
+          const result = await commands.getRobotCommitMap({
+            repositoryPath,
+            branchName: robot.branchName,
+            stackRoot: robot.stackRoot ?? null,
+            sourceRevision: robot.sourceRevision ?? "",
+            ancestors: robotAncestors(robot),
+            baselineBranch,
+          })
           if (result.status === "error") {
             logError("Cannot read which commits the robot covers", result.error)
           }

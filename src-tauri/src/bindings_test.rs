@@ -4,9 +4,34 @@ use std::path::Path;
 /// The command that writes `src/lib/bindings.ts`, headless: the app is never started for it
 const UPDATE_COMMAND: &str = "UPDATE_BINDINGS=1 PATH=$HOME/.cargo/bin:$PATH cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'";
 
-/// Write the TypeScript bindings of the app's commands to `path`
+/// The catch of `typedError`, the runtime tauri-specta writes into the bindings: it rethrows an `Error` and answers any
+/// other rejection as the error of the command, so a failure of the IPC (an `Error` of the page: a fetch of the E2E
+/// bridge, the Air shim) rejects, and a refusal of Tauri itself ("Command not found", an ACL refusal, invalid arguments:
+/// a string) is an error without a code
+const TYPED_ERROR_CATCH: &str = "    } catch (e) {
+        if (e instanceof Error) throw e;
+        return { status: \"error\", error: e as any };
+    }";
+
+/// Its replacement: every failure is the `ApiError` of an error result (`commandError` of `src/lib/api-error.ts`), so a
+/// command that answers a `Result` never rejects and the page reads one shape of a failure
+const TYPED_ERROR_CATCH_NORMALIZED: &str = "    } catch (e) {
+        return { status: \"error\", error: commandError(e) as E };
+    }";
+
+const HEADER: &str = "// @ts-nocheck\nimport { commandError } from \"@/lib/api-error\";\n";
+
+/// Write the TypeScript bindings of the app's commands to `path`, with the catch of `typedError` normalized: a new
+/// runtime of tauri-specta that writes another catch fails the export, so the bindings never rethrow unnoticed
 fn export_bindings(path: &Path) {
-  specta_builder().export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), path).unwrap();
+  specta_builder().export(specta_typescript::Typescript::default().header(HEADER), path).unwrap();
+  let exported = std::fs::read_to_string(path).unwrap();
+  assert_eq!(
+    exported.matches(TYPED_ERROR_CATCH).count(),
+    1,
+    "the runtime of tauri-specta no longer writes the catch of `typedError` this export normalizes: update `TYPED_ERROR_CATCH`"
+  );
+  std::fs::write(path, exported.replace(TYPED_ERROR_CATCH, TYPED_ERROR_CATCH_NORMALIZED)).unwrap();
 }
 
 /// The committed `src/lib/bindings.ts` must be what the export writes, and the export must accept every type (a

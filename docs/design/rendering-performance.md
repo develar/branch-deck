@@ -686,7 +686,7 @@ used to download and compile the main window's tree before its own page: 61 modu
   Without react-router (s15-7) they start at 31 ms and the review paints 2–4 ms sooner (`77–78 ms: loaded 20, shell
   58, diffs 61` against `79–82 ms: loaded 21, shell 62, diffs 63` of the tree before it, the branch review 97–98 ms
   against 100–103, at the same load). The Undo toast of a rewrite (`src/lib/undo-toast.ts`) is a module apart from
-  `invokeCommand` (`src/lib/command.ts`), so the reads never load the Activity store and its presenters (74 KB of
+  `src/lib/command.ts`, so the reads never load the Activity store and its presenters (74 KB of
   chunks before).
 - A loading line ("Loading changes…", "Loading diff…", "Loading files…", `LoadingLine`) shows only after 300 ms: a
   read from a cache answers before, and a spinner that flashes for a frame reads as a delay where there was none. The

@@ -155,15 +155,13 @@ function SystemTitleBarSwitch() {
             size="xs"
             variant="outline"
             onClick={() => {
-              // the backend's writer saves the setting before the restart, whose new process reads the file
-              commands
-                .restartApp(setting)
-                .then(result => {
-                  if (result.status === "error") {
-                    notifyError("Cannot restart Branch Deck", result.error)
-                  }
-                })
-                .catch((error: unknown) => notifyError("Cannot restart Branch Deck", error))
+              // the backend's writer saves the setting before the restart, whose new process reads the file; a command
+              // of a Result never rejects
+              void commands.restartApp(setting).then(result => {
+                if (result.status === "error") {
+                  notifyError("Cannot restart Branch Deck", result.error)
+                }
+              })
             }}
           >
             <RotateCwIcon data-icon="inline-start" />

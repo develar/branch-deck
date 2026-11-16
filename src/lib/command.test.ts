@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vite-plus/test"
 const { warnings, errors } = vi.hoisted(() => ({ warnings: [] as [string, unknown][], errors: [] as [string, unknown][] }))
 
 vi.mock("@/lib/errors", () => ({
-  getErrorDetails: (error: unknown) => (error instanceof Error ? error.message : String(error)),
   logWarning: (title: string, detail: unknown) => warnings.push([title, detail]),
   logError: (title: string, error: unknown) => errors.push([title, error]),
 }))
@@ -15,7 +14,7 @@ describe("readAhead", () => {
     await expect(readAhead("the review of a branch", () => Promise.resolve({ status: "ok", data: null }))).resolves.toBe(true)
     expect(warnings).toEqual([])
 
-    // the IPC failed (WebKit: a request its page no longer waited for), as the bindings rethrow an Error
+    // a step of the page before the command failed (the bindings answer a failure of the IPC as an error result)
     await expect(readAhead("the review of a branch", () => Promise.reject(new TypeError("Load failed")))).resolves.toBe(false)
     // the command answered its failure
     const gone = { code: "internal", message: "the branch is gone", details: null, retry: "no", operation_id: null } as const

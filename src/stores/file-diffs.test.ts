@@ -31,7 +31,6 @@ vi.mock("@tauri-apps/api/core", () => import("@/test-support/channel-mock"))
 vi.mock("@/lib/bindings", () => ({ commands: { getFileDiffs, getFileMerges, getIndexMarks } }))
 vi.mock("@/lib/errors", () => ({ logError }))
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
-vi.mock("@/lib/command", () => import("@/test-support/invoke-command-mock"))
 
 type Events = { onmessage: (event: FileDiffEvent) => void }
 

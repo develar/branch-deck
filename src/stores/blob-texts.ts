@@ -1,7 +1,6 @@
 import { createStore } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
 import type { BlobRequest, BlobText } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import { logError } from "@/lib/errors"
 import { getDiffRepositoryPath } from "@/stores/repository"
 
@@ -161,7 +160,7 @@ function readNext(): void {
 
 async function read(batch: Batch): Promise<void> {
   const ids = batch.blobs.map(blob => blob.id)
-  const result = await invokeCommand(() => commands.getBlobTexts(batch))
+  const result = await commands.getBlobTexts(batch)
   if (result.status === "error") {
     logError("Cannot read the texts of a diff", result.error)
   }

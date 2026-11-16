@@ -3,7 +3,6 @@ import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { commands } from "@/lib/bindings"
 import type { DiffContent, DiffFileHeader, DiffMarks, DiffReading, FileDiffEvent, FileMarks, GetIndexMarksParams, IndexMarks } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import { withoutIds } from "@/lib/commit-files"
 import { diffSourceOf, fileDiffSubjectId } from "@/lib/diff/file-diff-model"
 import type { FileDiff, FileDiffSubject, WhitespacePolicy } from "@/lib/diff/file-diff-model"
@@ -226,7 +225,7 @@ function askIndex(): void {
       return told === undefined ? null : withMarks(file, told.marks, told.reading)
     })
   }
-  void invokeCommand(() => commands.getIndexMarks(params, stages)).then(result => {
+  void commands.getIndexMarks(params, stages).then(result => {
     if (result.status === "error") {
       logError("Cannot ask the index of the renames and moves of the files", result.error)
     }

@@ -1,7 +1,6 @@
 import { Channel } from "@tauri-apps/api/core"
 import { createStore } from "zustand/vanilla"
 import type { StoreApi } from "zustand/vanilla"
-import { invokeCommand } from "@/lib/command"
 import type { CommandResult } from "@/lib/command"
 import { logError } from "@/lib/errors"
 
@@ -158,7 +157,7 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
         }
       }
     }
-    void invokeCommand(() => open(channel)).then(result => {
+    void open(channel).then(result => {
       reading.delete(key)
       if (result.status === "error") {
         logError(failure, result.error)

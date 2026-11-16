@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react"
 import type { Commit, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useSelectedProjectPath } from "@/stores/repository"
 
@@ -37,7 +36,7 @@ export function useMovePreview(commits: readonly Commit[], targetBranch: string,
     let isCurrent = true
     const timer = setTimeout(() => {
       // a dry run of the move: nothing written, no lock
-      void invokeCommand(() => commands.previewMove({ repositoryPath, commitIds: commitKey.split(","), targetBranch })).then(result => {
+      void commands.previewMove({ repositoryPath, commitIds: commitKey.split(","), targetBranch }).then(result => {
         if (isCurrent) {
           setPreview({ key: requestKey, preview: result.status === "ok" ? { result: result.data, error: null } : { result: null, error: result.error.message } })
         }

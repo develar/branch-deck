@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
+import { getErrorDetails } from "@/lib/api-error"
 import type { RepositoryConfig } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { getErrorDetails } from "@/lib/errors"
 import { newer } from "@/lib/repository-config"
 
 export type RepositoryConfigState = { status: "loading" } | { status: "loaded"; config: RepositoryConfig } | { status: "error"; message: string }

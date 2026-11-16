@@ -4,7 +4,7 @@ import { createStore } from "zustand/vanilla"
 import { useTauriCustomListen } from "@/hooks/useTauriListen"
 import type { CliTool, CliToolAction, CliToolsRunning, CliToolStatus, SignInEvent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { getErrorCode, notifyError } from "@/lib/errors"
+import { getErrorCode, logWarning, notifyError } from "@/lib/errors"
 import { cancelSignIn, invokeSignIn, openSignInPage, signedInTitle } from "@/lib/sign-in-run"
 import { showToast } from "@/lib/toast-message"
 
@@ -90,7 +90,10 @@ function acceptRunning(running: CliToolsRunning): void {
 export function useCliToolsRunning(): void {
   useTauriCustomListen("cli-tools-running", async () => {
     const unlisten = await listen<CliToolsRunning>("cli-tools-running", event => acceptRunning(event.payload))
-    void commands.cliToolsRunning().then(acceptRunning)
+    commands
+      .cliToolsRunning()
+      .then(acceptRunning)
+      .catch((error: unknown) => logWarning("Cannot read the actions of the tools that run", error))
     return unlisten
   })
 }
@@ -122,21 +125,17 @@ export async function runCliToolAction(tool: CliTool, action: CliToolAction, lat
   if (runningOf(cliToolsStore.getState(), tool) !== undefined) {
     return
   }
-  try {
-    const withSkill = action === "install" && cliToolsStore.getState().installWithSkill[tool]
-    const result = await commands.runCliToolAction({ tool, action, latest, server, withSkill })
-    if (result.status === "ok") {
-      // Undo of a removed skill installs it again
-      const undo = action === "removeSkill" ? { children: "Undo", onClick: () => void runCliToolAction(tool, "installSkill", null) } : undefined
-      showToast({ title: result.data.title, action: undo })
-      if (result.data.skill_problem !== null) {
-        notifyError(`Cannot install the ${tool} agent skill`, result.data.skill_problem)
-      }
-    } else if (result.error.code !== "canceled" && result.error.code !== "cli_tool_busy") {
-      notifyError(failedTitle(action, tool), result.error)
+  const withSkill = action === "install" && cliToolsStore.getState().installWithSkill[tool]
+  const result = await commands.runCliToolAction({ tool, action, latest, server, withSkill })
+  if (result.status === "ok") {
+    // Undo of a removed skill installs it again
+    const undo = action === "removeSkill" ? { children: "Undo", onClick: () => void runCliToolAction(tool, "installSkill", null) } : undefined
+    showToast({ title: result.data.title, action: undo })
+    if (result.data.skill_problem !== null) {
+      notifyError(`Cannot install the ${tool} agent skill`, result.data.skill_problem)
     }
-  } catch (error) {
-    notifyError(failedTitle(action, tool), error)
+  } else if (result.error.code !== "canceled" && result.error.code !== "cli_tool_busy") {
+    notifyError(failedTitle(action, tool), result.error)
   }
   await refreshCliTools()
 }
@@ -185,7 +184,8 @@ export function cancelCliToolAction(tool: CliTool): void {
     void cancelSignIn("youTrackCli")
     return
   }
-  void commands.cancelCliToolAction(tool)
+  // the user asked: a toast
+  commands.cancelCliToolAction(tool).catch((error: unknown) => notifyError(`Cannot stop the action of ${tool}`, error))
 }
 
 /** "Cannot install youtrack", "Cannot sign teamcity in" */

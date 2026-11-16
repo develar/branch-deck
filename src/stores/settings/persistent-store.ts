@@ -223,16 +223,13 @@ function send(sync: KeySync, patch: SettingsPatch): void {
     }
     refresh(sync)
   }
-  void commands.setSetting({ patch, order }).then(
-    result => {
-      if (result.status === "error") {
-        answered({ failed: result.error }, null)
-      } else {
-        answered(result.data === null ? "superseded" : "taken", result.data)
-      }
-    },
-    (error: unknown) => answered({ failed: error }, null),
-  )
+  void commands.setSetting({ patch, order }).then(result => {
+    if (result.status === "error") {
+      answered({ failed: result.error }, null)
+    } else {
+      answered(result.data === null ? "superseded" : "taken", result.data)
+    }
+  })
 }
 
 /** A change made in this window: its patch to the writer, now or after the answer of the one in flight */

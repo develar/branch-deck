@@ -1,8 +1,9 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
+import { getErrorDetails } from "@/lib/api-error"
 import { commands } from "@/lib/bindings"
 import type { ApiError } from "@/lib/bindings"
-import { getErrorDetails, notifyError } from "@/lib/errors"
+import { notifyError } from "@/lib/errors"
 import { repositoryName } from "@/lib/repository-config"
 import { REVIEW_WINDOW, windowLabel } from "@/lib/window-label"
 import { getRecentProjects, setRecentProjects, useRecentProjects } from "@/stores/settings/repositorySettings"
@@ -236,25 +237,20 @@ export function selectProject(project: ProjectMetadata, preValidated: PathValida
 const BROWSE_FAILURE = "Cannot browse for a repository"
 
 export async function browseRepository(): Promise<void> {
-  try {
-    const result = await commands.browseRepository()
-    if (result.status === "ok") {
-      const { path, valid, error } = result.data
-      if (path) {
-        const project: ProjectMetadata = getRecentProjects().find(it => it.path === path) ?? { path }
-        if (error) {
-          selectProject(project, { valid, path, error: `Invalid path: ${path}`, errorDetails: getErrorDetails(error) })
-        } else {
-          selectProject(project, { valid })
-        }
-      }
+  const result = await commands.browseRepository()
+  if (result.status === "error") {
+    // a failure of Rust or of the call of the command
+    notifyError(BROWSE_FAILURE, result.error)
+    setPathValidation({ valid: false, error: BROWSE_FAILURE, errorDetails: result.error.message })
+    return
+  }
+  const { path, valid, error } = result.data
+  if (path) {
+    const project: ProjectMetadata = getRecentProjects().find(it => it.path === path) ?? { path }
+    if (error) {
+      selectProject(project, { valid, path, error: `Invalid path: ${path}`, errorDetails: getErrorDetails(error) })
     } else {
-      // internal error (Result::Err from Rust)
-      notifyError(BROWSE_FAILURE, result.error)
-      setPathValidation({ valid: false, error: BROWSE_FAILURE, errorDetails: result.error.message })
+      selectProject(project, { valid })
     }
-  } catch (error) {
-    notifyError(BROWSE_FAILURE, error)
-    setPathValidation({ valid: false, error: BROWSE_FAILURE, errorDetails: getErrorDetails(error) })
   }
 }

@@ -1,5 +1,6 @@
 // @spec openspec/specs/repository/safe-push-statistics/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { commandError } from "@/lib/api-error"
 import type { GetRobotStatsParams, RobotStats, RobotStatsEvent, StatsPeriod } from "@/lib/bindings"
 import { readRobotStats, robotStatsStore } from "@/stores/robot-stats"
 
@@ -53,5 +54,13 @@ describe("robot stats", () => {
     await vi.waitFor(() => expect(entry()?.loading).toBe(false))
     expect(entry()?.partial).toBeNull()
     expect(entry()?.result?.stats?.window.period).toBe("14d")
+  })
+
+  it("ends a read whose IPC failed with its error, never a rejection of the page: the entry stops loading and says it", async () => {
+    // a request WebKit failed as its page left: the bindings answer its Error as the error of the command
+    getRobotStats.mockResolvedValueOnce({ status: "error", error: commandError(new TypeError("Load failed")) })
+    readRobotStats({ repositoryPath: "/repo", baselineBranch: "master", period: "30d" }, false)
+    await vi.waitFor(() => expect(entry()?.loading).toBe(false))
+    expect(entry()?.error).toBe("Load failed")
   })
 })

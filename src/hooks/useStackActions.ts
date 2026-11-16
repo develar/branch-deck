@@ -1,7 +1,6 @@
 import { toast } from "@/components/ui/toast"
 import type { LandingFix, RewriteIntent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { logError } from "@/lib/errors"
 import { countMoved } from "@/lib/move-summary"
@@ -168,7 +167,7 @@ export async function undoRegroup(repositoryPath: string, token: string | null |
 export async function offerUnstackAfterMove(toastId: string, branches: readonly string[], moveTarget: string | null): Promise<void> {
   const repositoryPath = getSelectedProject()?.path ?? ""
   for (const branchName of branches) {
-    const result = await invokeCommand(() => commands.getStackIndependence({ repositoryPath, branchName }))
+    const result = await commands.getStackIndependence({ repositoryPath, branchName })
     if (result.status === "error") {
       // no offer of the unstack, and the log says why the check could not answer; an answer that the unstack is no valid
       // plan (`invalid_plan`: no stacked branch any more, fixups it would strand, a plan refused as asked) is no failure

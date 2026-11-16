@@ -6,7 +6,6 @@ import { BLOB_TEXT_BATCH, blobTextsStore, MAX_BLOB_TEXT_LENGTH, requestBlobTexts
 const getBlobTexts = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/errors", () => ({ logError: () => {} }))
-vi.mock("@/lib/command", () => import("@/test-support/invoke-command-mock"))
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 vi.mock("@/lib/bindings", () => ({ commands: { getBlobTexts } }))
 

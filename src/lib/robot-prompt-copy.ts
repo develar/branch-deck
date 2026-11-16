@@ -36,13 +36,9 @@ export function robotAncestors(robot: PatronusRobot): string[] {
 }
 
 async function readAgentCliCommand(repositoryPath: string): Promise<AgentCliCommand | null> {
-  try {
-    const result = await commands.agentCliCommand(repositoryPath)
-    return result.status === "ok" ? result.data : null
-  } catch {
-    // the prompt says it without bd
-    return null
-  }
+  const result = await commands.agentCliCommand(repositoryPath)
+  // a failure of the read: the prompt says it without bd
+  return result.status === "ok" ? result.data : null
 }
 
 /**
