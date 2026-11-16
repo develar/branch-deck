@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.14.1](https://github.com/develar/branch-deck/compare/v1.14.0...v1.14.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **bd-lease:** the import of `Killed` in lease_test is `#[cfg(unix)]` as its every use is, so the tests of bd-lease build on Windows again (unused import under `-D warnings` since 7381d8268, which moved `Killed` to test-utils) ([73fc71e](https://github.com/develar/branch-deck/commit/73fc71e7ce9db016174c56fb2e2b5d9135fac961))
+* **diff:** the diffs read as they mount the content box their observer reports, by its arithmetic, so its first report changes no size of theirs at any zoom of the app (the review of e4acc6530) ([95a82d2](https://github.com/develar/branch-deck/commit/95a82d2335ffc3194fc2247459f1b4ec80337f3b))
+* **e2e:** `holdSizeReports` lets every report through once released, as the other holds do, and the test of the zoom resizes the diffs after the release (the review of e4acc6530) ([5a8e4d8](https://github.com/develar/branch-deck/commit/5a8e4d836b7d50f4110ce6fb1acb3fdf14a4433b))
+* **e2e:** a press that opens no sub-window waits for its open by what is left of its test, so it fails with its own words before the timeout of the test also late in it (the review of f58794bd5) ([cca7fbe](https://github.com/develar/branch-deck/commit/cca7fbe02112c82786725f3e2026320ba2c6aadc))
+* **e2e:** the deletion of a test repository removes its files only once the sessions it closed ended, so no git of a sync a Fetch let go runs in a removed directory, and the fetch of moved remotes holds the repository as the other reads of its facts do ([ef1b08d](https://github.com/develar/branch-deck/commit/ef1b08d9fa92508544d0375636f692ee7471cc15))
+* **host:** $0 in a script that heavy reads names what the shell names, so a polyglot wrapper that runs itself again under bash is no heavy run by itself ([7d06228](https://github.com/develar/branch-deck/commit/7d062287b9638f5dd2ccacd6bc08f3157e079c6f))
+* **host:** a fetch writes through notes.local of a lease while it links to the notes of a lease of the same repository, and through no other link, so `--fetch notes.local` brings the logs of a run into the notes of the lease; the layout of the notes moves to git_ops::lease_slot, whose paths lease-pool builds on ([3fe665f](https://github.com/develar/branch-deck/commit/3fe665f3f8514ecafce781343b774a98c91b22f3))
+* **host:** the eight options that pnpm 12.18.0 reads with a value and pnpm 10 as a flag before a script count both ways, so `pnpm --no-proxy e2e` on a host with pnpm 10 is heavy; the test that keeps the tables apart covers the three ([799acb6](https://github.com/develar/branch-deck/commit/799acb6e648fe6fcd12ee1f8143d8d61b254930c))
+* **patronus:** a repository is gone once the looks that find its git directory missing span a RECHECK, not at two looks, so the burst of events of a volume that unmounts closes no session, and the children of the tests are killed as they drop (the lows of e1a580253) ([e0af225](https://github.com/develar/branch-deck/commit/e0af225e38bcf2f8a6b0b262754235cebbe3ce5f))
+* **patronus:** a restart is admitted with what its plan holds also while the session refuses it, and its plan once admitted runs only on what it holds, so a Safe Push of its branch waits for it and Patronus never runs two robots of the branch (the review of 46c8ecc2) ([1a8c613](https://github.com/develar/branch-deck/commit/1a8c613fafda44d43936c0a9c4ff294ab8fcd64d))
+
 ## [1.14.0](https://github.com/develar/branch-deck/compare/v1.13.0...v1.14.0) (2026-11-16)
 
 
