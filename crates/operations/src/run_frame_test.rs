@@ -17,7 +17,8 @@ use std::sync::Arc;
 use sync_core::sync_inputs::SyncInputs;
 use tokio::sync::{oneshot, watch};
 
-struct HeldSyncHost {
+/// A host of the sessions whose syncs wait while `released` is false, each telling `started` as it begins
+pub(crate) struct HeldSyncHost {
   host: Arc<dyn SessionHost>,
   released: watch::Receiver<bool>,
   started: watch::Sender<bool>,
@@ -58,16 +59,20 @@ struct RunningSync {
   task: tokio::task::JoinHandle<()>,
 }
 
+/// `test_host` with its syncs held while `released` is false (`HeldSyncHost`)
+pub(crate) fn held_sync_host(released: watch::Receiver<bool>, started: watch::Sender<bool>) -> Arc<dyn SessionHost> {
+  Arc::new(HeldSyncHost {
+    host: test_host(),
+    released,
+    started,
+  })
+}
+
 async fn fixture_with_running_sync() -> (Fixture, RunningSync) {
   let Fixture { repo, .. } = fixture(false).await;
   let (release, released) = watch::channel(false);
   let (started, mut did_start) = watch::channel(false);
-  let host = Arc::new(HeldSyncHost {
-    host: test_host(),
-    released,
-    started,
-  });
-  let (registry, key) = registry_on(&repo, host, false).await;
+  let (registry, key) = registry_on(&repo, held_sync_host(released, started), false).await;
   let fixture = Fixture { repo, registry, key };
   let registry = fixture.registry.clone();
   let key = fixture.key.clone();

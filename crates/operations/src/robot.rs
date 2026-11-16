@@ -237,8 +237,19 @@ pub fn cancel_plan(robots: &[PatronusRobot], robot_id: &str) -> Option<Plan> {
 /// # Errors
 /// The refusal of `restart_refusal_of`, before any push or restart
 pub async fn prepare_restart(sessions: &Sessions, key: &SessionKey, robot_id: &str) -> Result<Option<Planned>, ApiError> {
+  match read_restart(sessions, key, robot_id).await {
+    Some((_, Some(refusal))) => Err(refusal),
+    Some((planned, None)) => Ok(planned),
+    None => Ok(None),
+  }
+}
+
+/// The plan of the restart of `robot_id` in the open session of `key` (`restart_planned`) and what refuses it now
+/// (`prepare_restart`), apart: the plan is there where the session refuses the restart, so an admission holds what the
+/// plan holds while an operation it waits for may lift the refusal; `None` for a session that is not open
+async fn read_restart(sessions: &Sessions, key: &SessionKey, robot_id: &str) -> Option<(Option<Planned>, Option<ApiError>)> {
   let (prefix, robot_id) = (key.prefix.clone(), robot_id.to_string());
-  let read = sessions
+  sessions
     .read(key, move |state, facts| {
       let planned = with_land_sources(state, facts, &prefix, |sources| restart_planned(sources, &robot_id)).flatten();
       let refusal = planned
@@ -246,12 +257,25 @@ pub async fn prepare_restart(sessions: &Sessions, key: &SessionKey, robot_id: &s
         .and_then(|_| restart_refusal_of(&robot_id, actions_now(state, facts).get(&format!("robot:{robot_id}")).map(Vec::as_slice)));
       (planned, refusal)
     })
-    .await;
-  match read {
-    Some((_, Some(refusal))) => Err(refusal),
-    Some((planned, None)) => Ok(planned),
-    None => Ok(None),
+    .await
+}
+
+/// What the plan of a restart decided once admitted (`planned`) holds that its admission (`held`) holds not: a robot the
+/// session listed no plan of before, a branch its stack took meanwhile, a push it needs now. An effect on it would run
+/// beside the operations that hold it (a Safe Push of its branch: two robots of the branch), so the restart is refused
+/// before its first effect
+///
+/// # Errors
+/// `plan_changed`, nothing pushed or restarted
+pub(crate) fn refuse_unheld(robot_id: &str, held: &[Resource], planned: &Planned) -> Result<(), ApiError> {
+  let needed = restart_request(robot_id, Some(planned)).resources;
+  if needed.iter().all(|resource| held.contains(resource)) {
+    return Ok(());
   }
+  Err(ApiError::new(
+    ErrorCode::PlanChanged,
+    format!("What the restart of robot {robot_id} pushes or lands changed while it waited: nothing was pushed or restarted"),
+  ))
 }
 
 /// What refuses the restart of `robot_id` by the actions of the robot as the menus have them (`actions`: none for a robot
@@ -338,7 +362,8 @@ fn unknown_robot(robot_id: &str, done: &str, action: &str) -> ApiError {
 
 /// Runs the restart of `robot_id` in the session of `key` on the plan its caller accepted: admitted over the operations
 /// of the session with what its plan as the session has it now holds (the robot, what it lands, the ref of its push;
-/// a second restart of the robot joins it), then planned again and run as a start runs (`land_execute::run_planned`),
+/// also while the session refuses it; a second restart of the robot joins it), then planned again, refused where that
+/// plan holds more (`refuse_unheld`), and run as a start runs (`land_execute::run_planned`),
 /// over the services of `services` (`session_start`), its steps in the view and its outcome to `events`
 ///
 /// # Errors
@@ -346,16 +371,20 @@ fn unknown_robot(robot_id: &str, done: &str, action: &str) -> ApiError {
 #[instrument(skip_all, fields(robot_id))]
 pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &str, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   let sessions = registry.sessions();
-  // a refusal now refuses it once admitted too, unless an operation it waits for changes it
-  let planned = prepare_restart(sessions, key, robot_id).await.ok().flatten();
+  // admitted with what its plan holds also where the session refuses the restart now: a refusal refuses it once admitted
+  // too, unless an operation it waits for lifts it (a sync it waits for, the reason of a failure Patronus tells
+  // meanwhile), and then it runs on what it was admitted with
+  let planned = read_restart(sessions, key, robot_id).await.and_then(|(planned, _)| planned);
   let request = restart_request(robot_id, planned.as_ref());
+  let held = request.resources.clone();
   run(registry, key, request, events, async |guard| {
     let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await;
     // decided again once admitted: an operation it waited for changed what it decides on; refused before its push and
-    // its restart where the session offers the restart not
+    // its restart where the session offers the restart not, or where the plan holds what its admission holds not
     let planned = prepare_restart(sessions, key, robot_id)
       .await?
       .ok_or_else(|| unknown_robot(robot_id, "restarted", "restart"))?;
+    refuse_unheld(robot_id, &held, &planned)?;
     run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, waited.waited).await
   })
   .await

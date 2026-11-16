@@ -2,7 +2,7 @@ use crate::http_budget_test::{TIP, table};
 use crate::land_execute::land_execute_test::{ALPHA, Fixture, fixture, statuses};
 use crate::land_execute::{Accepted, Planned, Steps, run_planned};
 use crate::pull_request::{retarget_plan, retarget_request};
-use crate::robot::{cancel, cancel_plan, cancel_request, restart_planned, restart_refusal_of, restart_request};
+use crate::robot::{cancel, cancel_plan, cancel_request, refuse_unheld, restart_planned, restart_refusal_of, restart_request};
 use crate::witness::Witness;
 use domain_policy::admission::admit;
 use domain_types::fixtures::{pull_request, robot};
@@ -20,7 +20,7 @@ use pretty_assertions::assert_eq;
 use repository_model::branch_table::{BranchTable, RemoteFact};
 use repository_model::derive::LandSources;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// A robot of `auth` on `source`
 fn robot_on(id: &str, status: PatronusRobotStatus, source: &str) -> PatronusRobot {
@@ -501,4 +501,194 @@ fn a_restart_runs_only_where_the_session_offers_it_and_each_blocker_refuses_it_b
   );
   assert_eq!(restart_refusal_of("r1", Some(&restart(ActionId::PushAndRestartRobot, None))), None);
   assert_eq!(restart_refusal_of("r1", None), None, "a robot the session lists not has no plan");
+}
+
+/// The plan a restart decides once admitted runs only on what its admission holds: one that lands or pushes more (a robot
+/// the session had no plan of as it was asked, a branch its stack took meanwhile, a push it needs now) is refused before
+/// its first effect, and one that holds as much or less runs
+#[test]
+fn a_restart_whose_plan_holds_more_than_its_admission_is_refused_before_its_first_effect() {
+  use domain_types::error::ErrorCode;
+  let sources = Sources::new(Some("older"), false, vec![robot_on("f", PatronusRobotStatus::Failure, TIP)], RestartAction::PushAndRestart);
+  let planned = sources.planned("f").expect("a plan that pushes first");
+  let all = restart_request("f", Some(&planned)).resources;
+  assert_eq!(
+    all,
+    [
+      Resource::Robot { id: "f".to_owned() },
+      Resource::Lands { branch: "auth".to_owned() },
+      Resource::Ref {
+        name: "user/virtual/auth".to_owned()
+      }
+    ]
+  );
+  refuse_unheld("f", &all, &planned).unwrap();
+  for held in [&all[..1], &all[..2]] {
+    let refused = refuse_unheld("f", held, &planned).unwrap_err();
+    assert_eq!(
+      (refused.code, refused.message.as_str()),
+      (
+        ErrorCode::PlanChanged,
+        "What the restart of robot f pushes or lands changed while it waited: nothing was pushed or restarted"
+      ),
+      "{held:?}"
+    );
+  }
+}
+
+/// The session of `stack_ahead_of_bare_origin`, synced, whose next syncs wait until the test releases them, with a failed
+/// Safe Push `r1` of alpha on the commit its tip had before, which Patronus has not told why it failed: the session
+/// refuses its restart until it tells it
+struct HeldRestart {
+  fixture: crate::push::push_test::Fixture,
+  release: tokio::sync::watch::Sender<bool>,
+  started: tokio::sync::watch::Receiver<bool>,
+}
+
+async fn held_restart() -> HeldRestart {
+  use crate::push::push_test::{Fixture, fixture, registry_on};
+  use domain_types::patronus::{PatronusAvailability, PatronusRobotsResult};
+  use repository_model::facts::{FactResult, RobotsRead};
+  let Fixture { repo, .. } = fixture(false).await;
+  let (release, released) = tokio::sync::watch::channel(true);
+  let (started_tx, started) = tokio::sync::watch::channel(false);
+  let host = crate::run_frame::run_frame_test::held_sync_host(released, started_tx);
+  let (registry, key) = registry_on(&repo, host, true).await;
+  let fixture = Fixture { repo, registry, key };
+  let sessions = fixture.registry.sessions();
+  let ticket = sessions.begin(&fixture.key).await.unwrap();
+  let failed = PatronusRobot {
+    source_revision: Some(fixture.repo.rev_parse("HEAD~1").unwrap()),
+    ..robot("r1", Some("alpha"), PatronusRobotStatus::Failure, 1)
+  };
+  let listed = PatronusRobotsResult {
+    availability: PatronusAvailability::Available,
+    robots: vec![failed],
+    github_repository: None,
+  };
+  sessions
+    .apply_facts(
+      &fixture.key,
+      ticket,
+      FactResult::Robots {
+        read: RobotsRead::List { full: true },
+        result: listed,
+      },
+    )
+    .await
+    .unwrap();
+  HeldRestart { fixture, release, started }
+}
+
+/// A restart the session refuses as it is asked (Patronus has not told why the Safe Push failed) is admitted with what its
+/// plan holds, the robot, what it lands and the ref of its push. The reason comes while it waits for a sync, so it runs
+/// once the sync ends, and a Safe Push of its branch asked while it pushes and restarts waits for it: Patronus never runs
+/// two robots of the branch
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_admitted_while_the_session_refuses_it_holds_what_it_lands_so_a_safe_push_of_its_branch_waits_for_it() {
+  use crate::events::NoEvents;
+  use crate::push::push_test::on_space;
+  use crate::registry::registry_test::operations_until;
+  use domain_types::error::{ApiError, ErrorCode};
+  use domain_types::operation::Plan;
+  use domain_types::session::SyncReason;
+  use repository_model::facts::FactResult;
+  use std::sync::atomic::{AtomicBool, Ordering};
+  let mut held = held_restart().await;
+  let (fake, services) = on_space().await;
+  let services = Arc::new(services);
+  let (registry, key) = (held.fixture.registry.clone(), held.fixture.key.clone());
+  let sessions = Arc::clone(registry.sessions());
+  let refused = crate::robot::prepare_restart(&sessions, &key, "r1").await.unwrap_err();
+  assert_eq!(refused.message, "Waits for Patronus to tell why the Safe Push failed: nothing was pushed or restarted");
+
+  // a sync runs, held; the restart is asked: refused now, admitted, it waits for the sync
+  held.release.send_replace(false);
+  held.started.borrow_and_update();
+  let syncing = tokio::spawn({
+    let (sessions, key) = (Arc::clone(&sessions), key.clone());
+    async move { sessions.sync(&key, SyncReason::Manual).wait().await }
+  });
+  held.started.changed().await.unwrap();
+  let restarting = fake.hold("POST", "/app/rest/v1/robots/*/restart");
+  let restart = tokio::spawn({
+    let (registry, key, services) = (registry.clone(), key.clone(), Arc::clone(&services));
+    let accepted = Accepted {
+      fingerprint: Fingerprint(String::new()),
+      confirmations: Vec::new(),
+    };
+    async move { crate::robot::execute_restart(&registry, &key, "r1", accepted, services.as_ref(), Arc::new(NoEvents)).await }
+  });
+  let admitted = operations_until(&sessions, &key, |operations| {
+    operations.iter().any(|operation| matches!(operation.intent, Intent::RestartRobot { .. }))
+  })
+  .await;
+  let lands = Resource::Lands { branch: "alpha".to_owned() };
+  assert!(admitted[0].resources.contains(&lands), "admitted with what it lands: {:?}", admitted[0].resources);
+
+  // Patronus tells why the Safe Push failed and the sync ends: the restart pushes alpha and asks Patronus, held there
+  let ticket = sessions.begin(&key).await.unwrap();
+  let told = FactResult::Problems {
+    id: "r1".to_owned(),
+    result: Ok(Vec::new()),
+  };
+  sessions.apply_facts(&key, ticket, told).await.unwrap();
+  held.release.send_replace(true);
+  syncing.await.unwrap().unwrap();
+  let mut restart = restart;
+  tokio::select! {
+    () = restarting.arrived() => {}
+    answer = &mut restart => panic!("the restart ended before it asked Patronus: {answer:?}"),
+  }
+
+  // a Safe Push of alpha asked now waits for the restart
+  let Intent::Land(land) = domain_types::fixtures::land_intent("alpha", PatronusPushMode::RebaseAutosquash) else {
+    unreachable!()
+  };
+  let plan = Plan {
+    intent: Intent::Land(land.clone()),
+    fingerprint: Fingerprint(String::new()),
+    lands: vec!["alpha".to_owned()],
+    effects: Vec::new(),
+    confirmations: Vec::new(),
+    blockers: Vec::new(),
+    waits: Vec::new(),
+    alternatives: None,
+    pull_request: None,
+    approvals_skipped_by: None,
+  };
+  let request = crate::engine::land_request(&key.prefix, &land, Some(&plan));
+  let ran = Arc::new(AtomicBool::new(false));
+  let safe_push = tokio::spawn({
+    let (registry, key, ran) = (registry.clone(), key.clone(), Arc::clone(&ran));
+    async move {
+      crate::engine::run(&registry, &key, request, Arc::new(NoEvents), async |_| {
+        ran.store(true, Ordering::SeqCst);
+        Err(ApiError::new(ErrorCode::Canceled, "the Safe Push of the test starts its robot"))
+      })
+      .await
+    }
+  });
+  let queued = operations_until(&sessions, &key, |operations| {
+    ran.load(Ordering::SeqCst) || operations.iter().any(|operation| matches!(operation.step, OperationStep::Queued { .. }))
+  })
+  .await;
+  assert!(!ran.load(Ordering::SeqCst), "the Safe Push ran beside the restart: two robots of alpha");
+  assert!(
+    queued
+      .iter()
+      .any(|operation| matches!(operation.intent, Intent::Land(_)) && matches!(operation.step, OperationStep::Queued { .. }))
+  );
+
+  restarting.open();
+  let restarted = restart.await.unwrap().unwrap();
+  let effects: Vec<_> = restarted.effects.iter().map(|record| (&record.effect, &record.status)).collect();
+  assert!(effects.iter().all(|(_, status)| **status == EffectStatus::Done), "{effects:?}");
+  assert!(
+    effects.iter().any(|(effect, _)| matches!(effect, PlannedEffect::Push { .. })),
+    "it pushed alpha first: {effects:?}"
+  );
+  assert_eq!(fake.restarts.lock().unwrap().clone(), ["r1"]);
+  assert_eq!(safe_push.await.unwrap().unwrap_err().code, ErrorCode::Canceled);
+  assert!(ran.load(Ordering::SeqCst), "the Safe Push ran after the restart");
 }

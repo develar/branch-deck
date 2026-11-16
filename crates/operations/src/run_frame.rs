@@ -106,4 +106,4 @@ async fn wait_for_running_sync(sessions: &Sessions, key: &SessionKey, stepper: &
 
 #[cfg(test)]
 #[path = "run_frame_test.rs"]
-mod run_frame_test;
+pub(crate) mod run_frame_test;

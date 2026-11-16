@@ -316,7 +316,7 @@ pub fn pushes_into_target(plan: &Plan) -> bool {
 
 /// What the start `land` of a session of `prefix` asks the registry for: what its plan (as the session has it now)
 /// reserves, the move of its row from the click on
-fn land_request(prefix: &str, land: &Land, plan: Option<&Plan>) -> OperationRequest {
+pub(crate) fn land_request(prefix: &str, land: &Land, plan: Option<&Plan>) -> OperationRequest {
   OperationRequest {
     intent: Intent::Land(land.clone()),
     resources: plan.map_or_default(|plan| reserved(prefix, &land.subject, plan)),

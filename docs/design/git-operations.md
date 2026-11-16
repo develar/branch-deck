@@ -5076,7 +5076,10 @@ never the page's (`operations::robot`):
 The robots each decides on are the session's, asked no list of its own; every robot it restarted or canceled goes into
 the session, so every window shows it at once. A restart and a cancel hold their robot (`Resource::Robot`): a second
 click of the same joins it, a cancel during a restart waits for it; a restart holds what its robot lands and the ref
-of its push too. The push of a branch alone that restarts its Safe Push (`Push::restart_running`, the toast of a
+of its push too, from its admission, also while the session refuses it then (a reason of the failure still to come
+from Patronus), as an operation it waits for may lift that, and its plan once admitted runs only on what it holds
+(`robot::refuse_unheld`, else `plan_changed`): a Safe Push of its branch waits for it, so Patronus never runs two robots
+of the branch. The push of a branch alone that restarts its Safe Push (`Push::restart_running`, the toast of a
 remote that moved under a restart) is a plan of the same effects: the cancel, the push, the restart.
 
 Code: `crates/operations/src/robot.rs`, `crates/operations/src/land_execute.rs`, `src/lib/robot-run.ts`,
