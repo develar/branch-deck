@@ -1302,7 +1302,10 @@ and the opening of each step (below). Each item but those has a known height:
   its end. The space is sized from the height of the view: the content box of the scroller as the view mounts, then
   each report of a `ResizeObserver` on it (a resize lays the document out again, a scroll never). The first report
   comes in a rendering update, a frame or two after the mount, and a key in between found no space past the end: the
-  first N scrolled only as far as the end of the cards. A diff that is a block of another scroller (the preview of a commit, the
+  first N scrolled only as far as the end of the cards. The read at the mount is the report's own arithmetic
+  (`observedContentBox` of src/lib/laid-out.ts: the border box over the zoom of the element, floored to 1/64 px), so the
+  first report says the same size at any zoom of the app: the computed style says the size before that floor (WebKit
+  680.894897 for a report of 680.890625 at 110%), which laid the document out again once the report came. A diff that is a block of another scroller (the preview of a commit, the
   conflict viewer: `scroll: "parent"`) and the view of a file outside the review end at their end: their scroller
   holds other content, and a file shown at a declaration needs no stop past its end.
 

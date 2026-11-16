@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import type { Layout } from "@/lib/laid-out"
-import { laidOutBoxes, sameBoxOf } from "@/lib/laid-out"
+import { laidOutBoxes, observedContentBox, sameBoxOf } from "@/lib/laid-out"
 
 /** A scroller of 300 px, padding 4 and border 1 on each side, with a scroll bar `bar` px wide, in a box sizing */
 function scroller(boxSizing: "border-box" | "content-box", bar: number): Element {
@@ -68,5 +68,40 @@ describe("two layouts of an element against each other", () => {
     expect(sameBoxOf(layout(300, 0), layout(300, 12), "border")).toBe(true)
     expect(sameBoxOf(layout(300, 12), layout(300.5, 12), "content")).toBe(false)
     expect(sameBoxOf(layout(300, 12), layout(300.005, 12), "border")).toBe(true)
+  })
+})
+
+describe("the content box of an element as its observer reports it", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** The scroller of the diffs, no padding, border or bar, laid out as WebKit did at `zoom` (`html { zoom }`) */
+  function zoomed(zoom: number, rect: { width: number; height: number }, computed: { width: string; height: string }): Element {
+    vi.stubGlobal("getComputedStyle", () => ({
+      display: "block",
+      boxSizing: "border-box",
+      ...computed,
+      paddingLeft: "0px",
+      paddingRight: "0px",
+      paddingTop: "0px",
+      paddingBottom: "0px",
+      borderLeftWidth: "0px",
+      borderRightWidth: "0px",
+      borderTopWidth: "0px",
+      borderBottomWidth: "0px",
+    }))
+    const client = { offsetWidth: 681, clientWidth: 681, offsetHeight: 624, clientHeight: 624 }
+    return { isConnected: true, ...client, currentCSSZoom: Math.fround(zoom), getBoundingClientRect: () => rect } as unknown as Element
+  }
+
+  it("reads the box by the arithmetic of the report at a zoom, where the computed style says the size before its floor", () => {
+    // what WebKit and Chromium reported at 110%, 90% and 100%: the border box over the zoom, floored to 1/64 px
+    const at110 = zoomed(1.1, { width: 748.984375, height: 686.40625 }, { width: "680.894897px", height: "624.005676px" })
+    expect(observedContentBox(at110)).toEqual({ inline: 680.890625, block: 624 })
+    expect(laidOutBoxes(at110)?.content).toEqual({ inline: 680.894897, block: 624.005676 })
+    const at90 = zoomed(0.9, { width: 831.015625, height: 561.625 }, { width: "923.350708px", height: "624.027771px" })
+    expect(observedContentBox(at90)).toEqual({ inline: 923.34375, block: 624.015625 })
+    expect(observedContentBox(zoomed(1, { width: 790, height: 624 }, { width: "790px", height: "624px" }))).toEqual({ inline: 790, block: 624 })
   })
 })

@@ -18,6 +18,7 @@ import {
 } from "../helpers/diff-helpers"
 import { answerStoreRename, codeOf, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview as openReview } from "../helpers/marks-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
+import { recordRenders, renderCounts, resetRenders } from "../helpers/render-helpers"
 import { openPlanWindow, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
 import { openReviewWindow } from "../helpers/review-window-helpers"
@@ -540,6 +541,34 @@ test.describe("The marks of a diff in the review window", () => {
       await resizeReportsDelivered(page)
       expect(await shownStop(code)).toEqual(stop)
       await expect(position).toHaveText("File 1 / 2")
+    },
+  )
+
+  // the zoom of the app is the page zoom of the webview, which WebKit lays out as a zoom of the root: there the computed
+  // style says a size before the floor of the report
+  test(
+    "the diffs read as they mount the size their observer reports, at a zoom of 110% too: its first report changes no size of theirs",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await page.addInitScript(() =>
+        document.addEventListener("DOMContentLoaded", () => {
+          const style = document.createElement("style")
+          style.textContent = "html { zoom: 1.1; }"
+          document.head.append(style)
+        }),
+      )
+      await recordRenders(page)
+      const sizes = await holdSizeReports(page, "diff-view")
+      await commitSweep(await setupRepo("simple"))
+      await syncAndWaitForBranches()
+      const { code } = await openReview(page, "sweep", "sweep the calls")
+      await expect(remarks(code, "comments")).toHaveText("Comments only · 1 line")
+      await expect.poll(sizes.held).toBeGreaterThan(0)
+      await resizeReportsDelivered(page)
+      await resetRenders(page)
+      await sizes.release()
+      await resizeReportsDelivered(page)
+      expect((await renderCounts(page))["diff-view-size"], "the first report says the size the view read").toBeUndefined()
     },
   )
 

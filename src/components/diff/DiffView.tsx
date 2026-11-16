@@ -56,11 +56,12 @@ import type { FileRows, FoldKey, FoldRow, NoteRow, SectionUnits } from "@/lib/di
 import { blobText, fileNotice, isEmptyNotice, languageOf, mergeNotice, startsCollapsed } from "@/lib/diff/view-files"
 import { visualLineCount } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
-import { laidOutBoxes } from "@/lib/laid-out"
+import { observedContentBox } from "@/lib/laid-out"
 import type { MenuItem } from "@/lib/menu"
 import { isMenuKey, openMenuByKey } from "@/lib/menu-key"
 import { observeSize } from "@/lib/observe-size"
 import { isMac } from "@/lib/platform"
+import { countRender } from "@/lib/render-counts"
 import { formatCollapse } from "@/presenters/collapse"
 import { fileNameAmong } from "@/presenters/diff-marks"
 import type { StoryMark } from "@/presenters/review-story"
@@ -1513,19 +1514,23 @@ export function DiffView({
       setViewHeight(entry?.contentRect.height ?? 0)
     })
     resize.observe(element)
-    // the size now, the content box its observer reports: its first report can come a frame later, or after the first
-    // key, and a view laid out without its height has no space past its end, so N, P, J or K scrolled only as far as
-    // the end of the rows and the stop stayed where that left it
-    const boxes = laidOutBoxes(element)
-    if (boxes !== null) {
-      setWidth(boxes.content.inline)
-      setViewHeight(boxes.content.block)
+    // the size now, the content box its observer reports, by its arithmetic (`observedContentBox`): its first report can
+    // come a frame later, or after the first key, and a view laid out without its height has no space past its end, so
+    // N, P, J or K scrolled only as far as the end of the rows and the stop stayed where that left it; the report then
+    // says the same and lays out nothing again, at any zoom
+    const box = observedContentBox(element)
+    if (box !== null) {
+      setWidth(box.inline)
+      setViewHeight(box.block)
     }
     return () => {
       resolution.removeEventListener("change", measure)
       resize.disconnect()
     }
   }, [zoom])
+
+  // each size the view takes, for the tests: a report of the size that says the size the view read as it mounted is none
+  useLayoutEffect(() => countRender("diff-view-size"), [viewWidth, viewHeight])
 
   // only when the view mounts: a later file is the tree's or the keys'
   const scrollToInitialFile = useEffectEvent(() => {

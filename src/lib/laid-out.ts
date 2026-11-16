@@ -105,3 +105,26 @@ export function sameBoxOf(one: Layout, other: Layout, box: keyof Boxes): boolean
   const bars = { inline: bar(one.bars.inline, other.bars.inline), block: bar(one.bars.block, other.bars.block) }
   return sameBox(boxesOf(one)[box], boxesOf({ ...other, bars })[box])
 }
+
+/** The layout units of a CSS pixel: a size a `ResizeObserver` reports is a whole number of them */
+const LAYOUT_UNITS = 64
+
+/**
+ * The content box of `element`, one without a transform, as its `ResizeObserver` reports it, by the same arithmetic: its
+ * border box in the coordinates of the page (`getBoundingClientRect`, whole layout units at the zoom of the element)
+ * over its zoom (`currentCSSZoom`, the float of the engine), less its borders, its padding and its bars (`layoutOf`),
+ * floored to a layout unit. At a zoom of 110% the computed style says the size before that floor (WebKit 680.894897,
+ * Chromium 680.895, for a report of 680.890625), which a read as an element mounts must not take for the report's.
+ * Exact where the borders, the padding and the bars are none (the scroller of the diffs); null without a box
+ */
+export function observedContentBox(element: Element): Box | null {
+  const layout = layoutOf(element)
+  if (layout === null) {
+    return null
+  }
+  const zoom = (element as Element & { currentCSSZoom?: number }).currentCSSZoom ?? 1
+  const rect = element.getBoundingClientRect()
+  const content = (border: number, side: keyof Box) => border / zoom - layout.borders[side] - layout.padding[side] - layout.bars[side]
+  const floored = (size: number) => Math.floor(size * LAYOUT_UNITS + 1e-6) / LAYOUT_UNITS
+  return { inline: floored(content(rect.width, "inline")), block: floored(content(rect.height, "block")) }
+}

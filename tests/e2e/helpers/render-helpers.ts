@@ -2,8 +2,8 @@ import type { Page } from "@playwright/test"
 
 /**
  * The renders of the page by key (`countRender` of src/lib/render-counts.ts): `row:<name>` a branch row,
- * `status:<name>` the status of a row, `table` the branch table card, `island:<root>` the card of a stack island. A key
- * that did not render since the last reset is absent
+ * `status:<name>` the status of a row, `table` the branch table card, `island:<root>` the card of a stack island,
+ * `diff-view-size` a size a view of diffs (`DiffView`) takes, its mount one. A key that did not render since the last reset is absent
  */
 export type RenderCounts = Record<string, number>
 
