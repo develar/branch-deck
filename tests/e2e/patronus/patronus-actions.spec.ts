@@ -236,6 +236,9 @@ async function expectReasonFirstAndSafePushStaysAsRobotDetailsCome(
   expect(asked, "the session read why the robot failed ahead").toContain(FAILED.id)
   // the details held: the card opens without them
   await repo.holdRemoteAnswers({ hold: ["robotChecks"] })
+  if (placement.side === "clamped-bottom") {
+    await shortenToClampAtTheBottom(page, robot)
+  }
   const card = await hoverStatusChip(page, robot, "patronus-popover")
   await animationsEnded(card)
   await expectCardPlaced(card, placement)
@@ -263,13 +266,33 @@ async function expectReasonFirstAndSafePushStaysAsRobotDetailsCome(
  */
 interface CardPlacement {
   readonly height: number
-  readonly side: "under" | "beside" | "clamped" | "over"
+  readonly side: "under" | "beside" | "clamped" | "clamped-bottom" | "over"
 }
 
 const UNDER: CardPlacement = { height: 700, side: "under" }
 const BESIDE: CardPlacement = { height: 420, side: "beside" }
 const CLAMPED: CardPlacement = { height: 360, side: "clamped" }
 const OVER: CardPlacement = { height: 700, side: "over" }
+/** Opened 700 px high, then the window cut so the card beside its chip is shifted up against its bottom */
+const CLAMPED_BOTTOM: CardPlacement = { height: 700, side: "clamped-bottom" }
+
+/**
+ * Cuts the window so the card of `chip`, as high as it opens now (measured by an open under the chip), stands beside the
+ * chip shifted up against the bottom of the window: neither above nor below the chip has its room, and its start aligned
+ * with the chip's top leaves the window by less than its end aligned with the chip's bottom would, so the positioner keeps
+ * the start and shifts the card up (the window between the chip's top plus bottom and the chip's top plus the card)
+ */
+async function shortenToClampAtTheBottom(page: Page, chip: Locator): Promise<void> {
+  const card = await hoverStatusChip(page, chip, "patronus-popover")
+  await animationsEnded(card)
+  const cardHeight = (await boxOf(card)).height
+  await page.mouse.move(0, 0)
+  await expectClosed(card)
+  const { y: top, height } = await boxOf(chip)
+  const bottom = top + height
+  expect(bottom, "the chip high enough for a card shifted up").toBeLessThan(cardHeight + COLLISION_PADDING)
+  await page.setViewportSize({ width: 960, height: Math.floor((top + bottom + top + cardHeight + COLLISION_PADDING) / 2) })
+}
 
 /** The gap a positioner keeps between a popup and the edge of the window (`collisionPadding` of Base UI) */
 const COLLISION_PADDING = 5
@@ -284,11 +307,14 @@ async function expectCardPlaced(card: Locator, placement: CardPlacement): Promis
   const box = await boxOf(card)
   const height = card.page().viewportSize()?.height ?? 0
   const where = `${placement.side}: data-side ${side}, data-hang ${hang}, the card at ${JSON.stringify(box)} in a window ${height} px high`
-  if (placement.side === "clamped") {
+  if (placement.side === "clamped" || placement.side === "clamped-bottom") {
     const atTop = Math.abs(box.y - COLLISION_PADDING) < 1
     const atBottom = Math.abs(box.y + box.height - (height - COLLISION_PADDING)) < 1
     expect(["left", "right"], where).toContain(side)
     expect(atTop || atBottom, `${where}: against an edge of the window`).toBe(true)
+    if (placement.side === "clamped-bottom") {
+      expect(atBottom, `${where}: against the bottom of the window`).toBe(true)
+    }
     expect(hang, where).toBe(atBottom ? "bottom" : "top")
     return
   }
@@ -641,6 +667,14 @@ test.describe("Patronus actions", () => {
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, CLAMPED)
+    },
+  )
+
+  test(
+    "should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, beside its chip shifted up against the bottom of the window",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, CLAMPED_BOTTOM)
     },
   )
 
