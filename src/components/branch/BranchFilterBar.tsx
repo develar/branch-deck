@@ -6,7 +6,11 @@ import { SearchField } from "@/components/shared/SearchField"
 import { useChipCounts, useHasFilterBar } from "@/hooks/useBranchFilter"
 import type { BranchFilterChip } from "@/lib/branch-filter"
 import { CHIP_LABELS, CHIPS, formatNoMatch } from "@/lib/branch-filter"
+import { formatKbds } from "@/lib/menu"
 import { clearBranchFilter, setFilterText, toggleFilterChip, useBranchFilter } from "@/stores/branch-filter"
+
+/** The key of the previous row of your move, as F2 is the next one */
+const PREVIOUS_KBD = formatKbds(["shift", "f2"])
 
 export interface BranchFilterBarProps {
   /** ↓ in the search: the focus moves to the first branch row */
@@ -44,10 +48,10 @@ export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) 
           return chip === "yourMove" && counts.yourMove > 0 ? (
             <Tooltip key={chip}>
               <TooltipTrigger render={choice} />
-              <TooltipContent>
+              <TooltipContent description={`Go to the next one · Shortcut: F2; the previous one · Shortcut: ${PREVIOUS_KBD}`}>
                 Go to the next one
                 <Kbd>F2</Kbd>, the previous one
-                <Kbd>⇧F2</Kbd>
+                <Kbd>{PREVIOUS_KBD}</Kbd>
               </TooltipContent>
             </Tooltip>
           ) : (

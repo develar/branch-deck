@@ -468,8 +468,12 @@ function itemAt(page: Page, point: { x: number; y: number }): Promise<string | n
 /** `item` of the open menu is disabled, its hover saying `reason` */
 async function expectItemWaits(page: Page, item: Locator, reason: string): Promise<void> {
   await expect(item).toBeDisabled()
+  // the reason is the description of the item for a screen reader, its tooltip closed too
+  await expect(item).toHaveAccessibleDescription(reason)
   await item.hover()
   await expect(openTooltip(page, { name: reason })).toBeVisible()
+  // the open tooltip adds no second description (Base UI links none)
+  await expect(item).toHaveAccessibleDescription(reason)
 }
 
 const LISTING = "Waits for GitHub to list the pull requests"

@@ -3,9 +3,9 @@ import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipDescribedChild, TooltipTrigger } from "@/components/ui/tooltip"
 import type { MenuItem } from "@/lib/menu"
-import { kbdLabel } from "@/lib/menu"
+import { formatKbds } from "@/lib/menu"
 import { cancelIntent } from "@/model/intents"
 import { presentStopWaiting } from "@/presenters/lock-wait"
 import { useIndicatorClaim, useSurfaceBusy, useSurfaceOperation } from "@/stores/indicators"
@@ -65,8 +65,8 @@ export function MenuItemButton({
   const busy = useSurfaceBusy(surface)
   const stopWaiting = presentStopWaiting(useSurfaceOperation(surface), cancelIntent)
   const running = pending || busy !== null
-  // a key with a modifier says both (⇧A); a plain key in capitals
-  const key = item.kbds === undefined || item.kbds.length === 0 ? undefined : item.kbds.length === 1 ? item.kbds[0]!.toUpperCase() : item.kbds.map(kbdLabel).join("")
+  // a key with a modifier says both (⇧A on a Mac, Shift+A elsewhere); a plain key in capitals
+  const key = item.kbds === undefined || item.kbds.length === 0 ? undefined : formatKbds(item.kbds)
   const kbd = key !== undefined && <Kbd className={cn(variant === "default" && PRIMARY_KBD_CLASS_NAME, narrow !== undefined && "hidden @4xl:inline-flex")}>{key}</Kbd>
   const Icon = item.icon
   const label = busy === null ? item.label : `${busy}…`
@@ -102,9 +102,12 @@ export function MenuItemButton({
   // is enabled, disabled or runs (openspec/specs/branch/branch-row/spec.md, Hover and click), the focus a form gives back to it too
   const described = (
     <Tooltip disabled={description === undefined || busy !== null}>
-      {/* a span: a disabled button gets no pointer events */}
-      <TooltipTrigger render={<span className="inline-flex" />}>{button}</TooltipTrigger>
-      <TooltipContent className="flex max-w-xs items-center gap-2">
+      {/* a span: a disabled button gets no pointer events; the button, where the focus is, is described too */}
+      <TooltipTrigger render={<span className="inline-flex" />}>
+        <TooltipDescribedChild>{button}</TooltipDescribedChild>
+      </TooltipTrigger>
+      {/* the label of an icon left alone is its name already: no description that says it again, but its key */}
+      <TooltipContent className="flex max-w-xs items-center gap-2" description={item.description ?? (key === undefined ? false : `Shortcut: ${key}`)}>
         {description}
         {item.description === undefined && key !== undefined && <Kbd>{key}</Kbd>}
       </TooltipContent>

@@ -111,7 +111,9 @@ function RowStatusMark({ mark }: { mark: RowMark }) {
       <TooltipTrigger delay={300} render={<span role="img" aria-label={label} className="flex size-4 shrink-0 items-center justify-center" data-testid="row-status-mark" />}>
         <StatusChipDot color={mark.color} testId="row-status-mark-dot" />
       </TooltipTrigger>
-      <TooltipContent className="max-w-sm break-words whitespace-pre-line">{label}</TooltipContent>
+      <TooltipContent className="max-w-sm break-words whitespace-pre-line" description={false}>
+        {label}
+      </TooltipContent>
     </Tooltip>
   )
 }

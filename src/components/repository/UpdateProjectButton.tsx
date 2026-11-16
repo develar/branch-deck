@@ -11,7 +11,7 @@ import { WidestLabel } from "@/components/shared/WidestLabel"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import { useRunProgress } from "@/hooks/useRunProgress"
 import { describeLanding, shortLanding } from "@/lib/landed"
-import { isMac } from "@/lib/platform"
+import { formatKbds } from "@/lib/menu"
 import { progressPercent } from "@/lib/update-progress"
 import type { UpdateStateDescription, UpdateTone } from "@/lib/update-state"
 import {
@@ -33,6 +33,9 @@ import { useSelectedProjectPath } from "@/stores/repository"
 import { useRepositoryStateField } from "@/stores/settings/repositoryState"
 import type { RunningUpdate } from "@/stores/update-project"
 import { runUpdateProject, useHeadWait, useShownUpdate } from "@/stores/update-project"
+
+/** The key of Update Project */
+const UPDATE_KBD = formatKbds(["mod", "t"])
 
 /**
  * The state of the check as of the last fetch (`fetchTime`). A check that failed (e.g. a rebase in progress) says why:
@@ -215,13 +218,22 @@ function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: Base
             {running === undefined ? "Update" : <RunLabel shown={running} />}
             {running === undefined && <StateIcon tone={description.tone} unknown={status.update === null} landing={landing.length > 0} data-icon="inline-end" />}
           </TooltipTrigger>
-          <TooltipContent data-testid="update-project-tooltip">
+          <TooltipContent
+            data-testid="update-project-tooltip"
+            description={
+              running === undefined
+                ? `${waitsFor ?? summary} · Shortcut: ${UPDATE_KBD}`
+                : runStepLines(running.run, upstream)
+                    .map(line => line.text)
+                    .join(", ")
+            }
+          >
             {running === undefined ? (
               <div className="flex flex-col gap-0.5">
                 <span>{waitsFor ?? summary}</span>
                 <span className="flex items-center gap-1.5 opacity-70">
                   <FetchAndUpdateLine fetchTime={fetchTime} />
-                  <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>
+                  <Kbd>{UPDATE_KBD}</Kbd>
                 </span>
               </div>
             ) : (

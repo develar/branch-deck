@@ -62,8 +62,12 @@ test.describe("Landing needs", () => {
     for (const name of ["lane-run", "stills-codec"]) {
       await expect(step(page, name)).toHaveAttribute("data-step", "pending")
     }
-    await step(page, "lane-run").getByTestId("next-step").hover()
+    // the lazy tooltip of the row describes nothing before it is reached, and adds no node; its words once it is
+    const button = step(page, "lane-run").getByTestId("next-step")
+    await expect(button).not.toHaveAttribute("aria-describedby")
+    await button.hover()
     await expect(page.getByTestId("next-step-hover")).toHaveText("Checking what lane-run needs to land…")
+    await expect(button).toHaveAccessibleDescription("Checking what lane-run needs to land…")
     // S says it, no popover, no start whose gate the page could have told
     await findBranchRow(page, "lane-run").focus()
     await page.keyboard.press("s")

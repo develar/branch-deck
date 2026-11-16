@@ -20,8 +20,7 @@ import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
-import { toPreviewMenu } from "@/lib/menu"
-import { isMac } from "@/lib/platform"
+import { formatKbds, toPreviewMenu } from "@/lib/menu"
 import { handlePreviewItemSwitchKey, handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { toggleCommitFilesSection, useIsCommitFilesSectionOpen } from "@/stores/commit-files"
 import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
@@ -272,7 +271,7 @@ export function CommitPreviewDialog({
                   {/* the spinner in the place of the icon: the button keeps its box under the pointer that pressed it */}
                   {isSaving ? <Spinner data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
                   Save
-                  <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+                  <Kbd className={PRIMARY_KBD_CLASS_NAME}>{formatKbds(["mod", "enter"])}</Kbd>
                 </Button>
               </>
             ) : (

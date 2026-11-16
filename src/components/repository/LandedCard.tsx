@@ -66,7 +66,7 @@ export function LandedCard() {
           <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="Dismiss" data-testid="landed-dismiss" onClick={dismiss} />}>
             <XIcon />
           </TooltipTrigger>
-          <TooltipContent>Dismiss</TooltipContent>
+          <TooltipContent description={false}>Dismiss</TooltipContent>
         </Tooltip>
       </div>
       <ul className="divide-y divide-border">
@@ -165,7 +165,7 @@ function ReviewChangesButton({ label, testId, onClick }: { label: string; testId
       <TooltipTrigger render={<Button size="icon-xs" variant="ghost" className="shrink-0 text-muted-foreground" aria-label={label} data-testid={testId} onClick={onClick} />}>
         <FileDiffIcon />
       </TooltipTrigger>
-      <TooltipContent className="flex items-center gap-1.5">
+      <TooltipContent className="flex items-center gap-1.5" description="Shortcut: D">
         Review Changes
         <Kbd>D</Kbd>
       </TooltipContent>

@@ -10,7 +10,7 @@ import { SafePushButton } from "@/components/branch/SafePushButton"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import type { PullRequest } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
-import { FROM_MENU } from "@/lib/menu"
+import { formatKbds, FROM_MENU } from "@/lib/menu"
 import { isStartItem } from "@/lib/push-to-baseline"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { NextStepTone } from "@/presenters/next-step"
@@ -221,17 +221,20 @@ const toneClass: Readonly<Record<NextStepTone, string>> = {
 export function StepButton({ action, tone, showKeys }: { action: MenuItem; tone: NextStepTone; showKeys: boolean }) {
   const isDisabled = action.disabled === true
   const button = stepButton(action, tone, () => action.onSelect(FROM_MENU))
-  const keys = isDisabled || !showKeys ? [] : (action.kbds ?? [])
+  // the key with its modifiers in one text, as the Kbd of a menu item button says it
+  const key = isDisabled || !showKeys || action.kbds === undefined || action.kbds.length === 0 ? undefined : formatKbds(action.kbds)
   // one root whether there is something to say or not: the button keeps its node, its focus and its hover as its
   // reason comes and goes (openspec/specs/branch/branch-row/spec.md, Hover and click)
   return (
-    <Tooltip lazy disabled={action.description === undefined && keys.length === 0}>
+    <Tooltip lazy disabled={action.description === undefined && key === undefined}>
       <TooltipTrigger render={button} />
-      <TooltipContent className="whitespace-pre-line" data-testid="next-step-hover">
+      <TooltipContent
+        className="whitespace-pre-line"
+        data-testid="next-step-hover"
+        description={[action.description, key === undefined ? undefined : `Shortcut: ${key}`].filter(words => words !== undefined).join(" · ") || false}
+      >
         {action.description}
-        {keys.map(key => (
-          <Kbd key={key}>{key.toUpperCase()}</Kbd>
-        ))}
+        {key !== undefined && <Kbd>{key}</Kbd>}
       </TooltipContent>
     </Tooltip>
   )

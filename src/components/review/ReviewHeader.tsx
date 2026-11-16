@@ -78,7 +78,7 @@ export function ReviewToolbarActions({ request, actions, approveStack = null }: 
           >
             <EllipsisIcon />
           </TooltipTrigger>
-          <TooltipContent>More actions</TooltipContent>
+          <TooltipContent description={false}>More actions</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-auto min-w-36">
           <DropdownMenuItems groups={groups} />
@@ -96,7 +96,7 @@ function NavigationButton({ label, keyHint, icon, onClick, testId }: { label: st
       >
         {icon}
       </TooltipTrigger>
-      <TooltipContent className="flex items-center gap-2">
+      <TooltipContent className="flex items-center gap-2" description={`Shortcut: ${keyHint}`}>
         {label}
         <Kbd>{keyHint}</Kbd>
       </TooltipContent>

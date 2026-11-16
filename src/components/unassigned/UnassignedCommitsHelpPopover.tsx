@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button"
 import { HelpKey, HelpKeys, HelpList, HelpPopover, HelpSection } from "@/components/shared/HelpPopover"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
-import { modifierKey, shiftKey } from "@/lib/platform"
+import { kbdLabel } from "@/lib/menu"
 import { openSettings } from "@/lib/settings-window"
 import { useSelectedProjectPath } from "@/stores/repository"
 
@@ -25,13 +25,13 @@ export function UnassignedCommitsHelpPopover() {
       <HelpSection title="Shortcuts">
         <HelpKeys>
           <HelpKey click>Select a commit</HelpKey>
-          <HelpKey keys={[modifierKey]} click>
+          <HelpKey keys={[kbdLabel("mod")]} click>
             Add or remove one
           </HelpKey>
-          <HelpKey keys={[shiftKey]} click>
+          <HelpKey keys={[kbdLabel("shift")]} click>
             Select a range
           </HelpKey>
-          <HelpKey keys={[modifierKey, "A"]}>Select all or none</HelpKey>
+          <HelpKey keys={[kbdLabel("mod"), "A"]}>Select all or none</HelpKey>
           <HelpKey keys={["M"]}>Move to…</HelpKey>
           <HelpKey keys={["S"]}>Squash the selected commits…</HelpKey>
           <HelpKey keys={["Esc"]}>Clear the selection</HelpKey>

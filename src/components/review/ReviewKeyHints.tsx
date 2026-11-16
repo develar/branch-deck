@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Kbd } from "@/components/ui/kbd"
 import { KeyHint } from "@/components/shared/PreviewDialogFrame"
-import { isMac } from "@/lib/platform"
+import { formatKbds } from "@/lib/menu"
 import { REVIEW_KEYS } from "@/lib/review-keys"
 
 export interface ReviewKeyHintsProps {
@@ -38,7 +38,6 @@ function useTreeRowFocused(): boolean {
  * tree has the focus, `I` for the card of its mark
  */
 export function ReviewKeyHints({ commits, escape }: ReviewKeyHintsProps) {
-  const option = isMac ? "⌥" : "Alt+"
   const treeRowFocused = useTreeRowFocused()
   return (
     <>
@@ -68,8 +67,8 @@ export function ReviewKeyHints({ commits, escape }: ReviewKeyHintsProps) {
         <KeyHint
           keys={
             <>
-              <Kbd>{`${option}↑`}</Kbd>
-              <Kbd>{`${option}↓`}</Kbd>
+              <Kbd>{formatKbds(["alt", "arrowup"])}</Kbd>
+              <Kbd>{formatKbds(["alt", "arrowdown"])}</Kbd>
             </>
           }
         >

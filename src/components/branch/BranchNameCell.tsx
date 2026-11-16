@@ -77,7 +77,7 @@ export function BranchNameCell({
           >
             <FolderIcon />
           </TooltipTrigger>
-          <TooltipContent>{expanded ? "Collapse" : "Expand"}</TooltipContent>
+          <TooltipContent description={false}>{expanded ? "Collapse" : "Expand"}</TooltipContent>
         </Tooltip>
       )}
       {/* an issue key in the name is a link, but the name keeps the foreground colour */}

@@ -5,7 +5,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { AgentsHint } from "@/components/repository/AgentsHint"
 import { InlineCode } from "@/components/shared/InlineCode"
-import { isMac } from "@/lib/platform"
+import { formatKbds } from "@/lib/menu"
 import { syncBranches, useBranchSync } from "@/stores/branch-sync"
 import { useEffectiveBranchPrefix } from "@/stores/repository"
 
@@ -45,7 +45,7 @@ export function ReadyToSyncCard() {
           </Button>
           <span className="flex items-center gap-1.5 text-xs">
             or press
-            <Kbd>{isMac ? "⌘R" : "Ctrl+R"}</Kbd>
+            <Kbd>{formatKbds(["mod", "r"])}</Kbd>
           </span>
         </div>
         <AgentsHint />

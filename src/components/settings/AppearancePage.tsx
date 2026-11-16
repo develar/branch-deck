@@ -8,7 +8,7 @@ import { SettingRow, SettingsSection } from "@/components/settings/SettingRow"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { zoomMenuItems } from "@/lib/main-menu"
-import { FROM_MENU, kbdLabel } from "@/lib/menu"
+import { formatKbds, FROM_MENU, kbdLabel } from "@/lib/menu"
 import type { MenuItem } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import type { Theme } from "@/lib/theme"
@@ -105,7 +105,7 @@ function ZoomButton({ item }: { item: MenuItem }) {
       >
         {Icon === undefined ? item.label : <Icon />}
       </TooltipTrigger>
-      <TooltipContent className="flex items-center gap-1.5">
+      <TooltipContent className="flex items-center gap-1.5" description={item.kbds === undefined ? false : `Shortcut: ${formatKbds(item.kbds)}`}>
         {item.label}
         {item.kbds !== undefined && (
           <KbdGroup>

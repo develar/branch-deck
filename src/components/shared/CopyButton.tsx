@@ -49,7 +49,8 @@ export function CopyButton({ text, tooltip = "Copy to clipboard", label, size = 
         >
           {isCopied ? <CopyCheckIcon /> : <CopyIcon />}
         </TooltipTrigger>
-        <TooltipContent>{tooltipText}</TooltipContent>
+        {/* the name of the button says it */}
+        <TooltipContent description={false}>{tooltipText}</TooltipContent>
       </Tooltip>
     </div>
   )

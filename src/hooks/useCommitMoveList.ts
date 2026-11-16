@@ -10,7 +10,6 @@ import { getFixupTarget } from "@/lib/autosquash"
 import type { Commit } from "@/lib/bindings"
 import { getCommitHash } from "@/lib/commit"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { isMac } from "@/lib/platform"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { pushUpTo } from "@/lib/push-run"
 import { describePushUpTo, pushUpToIn } from "@/presenters/push"
@@ -125,9 +124,6 @@ export interface CommitMenuForms<T extends Commit> {
   readonly removePrefix: (commits: readonly T[]) => void
 }
 
-/** The key of Drop Commit as the menu shows it: ⌫ on a Mac, Del elsewhere; Backspace and Delete both drop */
-const DROP_KBD = isMac ? "⌫" : "Del"
-
 /**
  * The menu of commits of a list (of `sourceBranch`, null for the unassigned ones), every item by a stable id, one
  * builder for the menu of a row, of its preview and of a commit in the review window: "Move to…", "Move to Existing ›",
@@ -174,7 +170,8 @@ export function getCommitMenuGroups<T extends Commit>(sourceBranch: string | nul
       id: "drop",
       label: isMultiple ? `Drop ${menuCommits.length} Commits…` : "Drop Commit…",
       icon: Trash2Icon,
-      kbds: [DROP_KBD],
+      // ⌫ on a Mac, Del elsewhere (`kbdLabel`); Backspace and Delete both drop
+      kbds: ["delete"],
       onSelect: () => forms.openDrop(menuCommits),
     },
   ]

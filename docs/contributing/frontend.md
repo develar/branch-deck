@@ -222,6 +222,19 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   `src/index.css`, whose `:where` leaves the specificity as it was). Tested in
   `repository-lock.spec.ts`, by the pointer and by key, and in `amend-changes.spec.ts` for the progress row of a form,
   which takes the place of the pressed button, in both engines
+- **The words of a tooltip are the description of its trigger**: Base UI links none, and a closed tooltip has no
+  content in the page, so the root renders the words of its `TooltipContent` in a hidden span at the end of the page and
+  `TooltipTrigger` names it in `aria-describedby`: a screen reader hears the reason of a disabled control. The words
+  are a string: the content, or beside content that is not one a `description` the type asks for (a short phrase by
+  [UX Writing](ux-writing.md); `Shortcut: D` beside a name and a key), never a copy of the content. Not beside the
+  trigger, whose parent's text it would join. A lazy root describes its trigger once it mounted and adds no node
+  before. A trigger that wraps the control the focus reaches (the span of `MenuItemButton`) gives it the description
+  too (`TooltipDescribedChild`); `description={false}` for a tooltip that only says the name of its trigger or its
+  start ("Dismiss" of "Dismiss the amend conflict"); a key goes as `Shortcut: <key>`. The `TooltipContent` is a direct
+  child of its `Tooltip` (or in a fragment or a list of its children), where the root finds its words: one that a
+  component of its own renders gives the trigger no description. Tested by
+  `toHaveAccessibleDescription` (`facts-without-answer.spec.ts`, `review-requests.spec.ts`,
+  `foreign-operation.spec.ts`)
 - **A popup that goes took the hover of its trigger** (Base UI 1.9): each popup part shares the timers of its trigger's
   hover (`useHoverInteractionSharedState`) and cleared them as it unmounted at the end of its exit. The pointer back over
   the trigger of a popup closed otherwise than by its hover (its view hid, a press of an item) started a delay that the

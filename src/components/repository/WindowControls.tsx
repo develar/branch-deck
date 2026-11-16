@@ -146,7 +146,9 @@ function WindowControl({ style, label, glyph, onClick }: { style: WindowButtonSt
       >
         {icon}
       </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side="bottom" description={false}>
+        {label}
+      </TooltipContent>
     </Tooltip>
   )
 }

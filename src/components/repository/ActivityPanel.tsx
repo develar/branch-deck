@@ -122,7 +122,7 @@ export function ActivityPanel() {
           <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="Close Activity" data-testid="activity-panel-close" onClick={close} />}>
             <XIcon />
           </TooltipTrigger>
-          <TooltipContent>Close Activity</TooltipContent>
+          <TooltipContent description={false}>Close Activity</TooltipContent>
         </Tooltip>
       </div>
       <ActivityPanelContent

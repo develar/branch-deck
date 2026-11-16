@@ -4,7 +4,7 @@
       <header class="@container flex h-10 shrink-0 items-center gap-4 select-none pl-2 pr-2" data-testid="configuration-header" data-title-bar="native">
         <div class="flex min-w-0 flex-1 items-center gap-3 has-data-[main-menu=expanded]:*:not-data-main-menu:invisible">
           <div class="@container flex min-w-0 flex-1 items-center gap-3">
-            <div class="relative inline-flex items-center *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none *:focus-visible:z-10 min-w-0" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
+            <div aria-describedby="[ID]" class="relative inline-flex items-center *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none *:focus-visible:z-10 min-w-0" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
               <button aria-expanded="false" aria-haspopup="listbox" aria-invalid="true" aria-label="Repository" class="flex items-center justify-between gap-1.5 rounded-2xl border px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow] duration-200 outline-none bd-focus-inset focus-visible:bd-focus disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 aria-invalid:[--bd-focus-color:var(--destructive)] data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 w-3xs min-w-0 border-input bg-background" data-size="sm" data-slot="tooltip-trigger" data-trigger-disabled="" id="base-ui-[ID]" role="combobox" tabindex="0" type="button">
                 <span class="flex flex-1 text-left" data-slot="select-value">
                   <span class="relative min-w-0 flex-1 overflow-hidden">
@@ -23,11 +23,11 @@
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-3">
-          <button aria-disabled="true" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-base-ui-tooltip-trigger="" data-disabled="" data-slot="tooltip-trigger" data-testid="sync-button" id="base-ui-[ID]" tabindex="0" type="button">
+          <button aria-describedby="[ID]" aria-disabled="true" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-base-ui-tooltip-trigger="" data-disabled="" data-slot="tooltip-trigger" data-testid="sync-button" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-refresh-cw" data-icon="inline-start" />
             Sync
           </button>
-          <button aria-label="Settings" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-7" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" data-testid="settings-button" id="base-ui-[ID]" tabindex="0" type="button">
+          <button aria-describedby="[ID]" aria-label="Settings" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-7" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" data-testid="settings-button" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-settings" />
           </button>
         </div>
@@ -55,6 +55,17 @@
         </div>
       </div>
     </div>
+  </div>
+  <div data-slot="tooltip-descriptions" hidden="">
+    <span data-slot="tooltip-description" id="[ID]">
+      Repository not accessible: NO_REPO_[REPO_ID]
+    </span>
+    <span data-slot="tooltip-description" id="[ID]">
+      Shortcut: Ctrl+,
+    </span>
+    <span data-slot="tooltip-description" id="[ID]">
+      Repository not accessible: NO_REPO_[REPO_ID]
+    </span>
   </div>
   <div data-base-ui-portal="" data-slot="toast-portal" id="[ID]" />
 </body>

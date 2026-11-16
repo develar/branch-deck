@@ -218,7 +218,8 @@ test.describe("Your Turn card", () => {
     const menu = page.getByRole("menu")
     // the actions of the header of its review: a write opens the review for it
     // no Patronus in the repository: no Approve and Safe Push…
-    await expect(menu.getByRole("menuitem")).toHaveText(["Review↵", "Approve…", "Request Changes…", "Open Pull RequestO", "Copy Pull Request Link", "Copy Branch Name"])
+    // Chromium of the tests runs as on Windows: Enter by its word
+    await expect(menu.getByRole("menuitem")).toHaveText(["ReviewEnter", "Approve…", "Request Changes…", "Open Pull RequestO", "Copy Pull Request Link", "Copy Branch Name"])
     await page.keyboard.press("Escape")
     // the menu gives the focus back as it unmounts, after its exit
     await expectClosed(menu)
@@ -1686,6 +1687,8 @@ test.describe("Owner part and Approve", () => {
       // the review comes, the pointer still: the description opens after the delay, as for a pointer that came now
       await repo.holdRemoteAnswers({ release: ["readiness"] })
       await expect(openTooltip(window)).toHaveText("Counts for Design · You opened 1 of its 4 files")
+      // the button, inside the trigger that takes its hover, has the words as its description where the focus is
+      await expect(review.getByTestId("review-approve")).toHaveAccessibleDescription("Counts for Design · You opened 1 of its 4 files")
     },
   )
 

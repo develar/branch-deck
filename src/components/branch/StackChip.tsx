@@ -5,14 +5,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { useStackStates } from "@/hooks/useStackStates"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
-import { isMac } from "@/lib/platform"
+import { formatKbds } from "@/lib/menu"
 import { getStackStateChips } from "@/lib/stack-state"
 import { textColorClassName } from "@/lib/ui-types"
 import { structureIn, useBranchSync } from "@/stores/branch-sync"
 
 /** "⌥←" on macOS, "Alt+←" elsewhere */
 function stackKeyLabel(collapse: boolean): string {
-  return `${isMac ? "⌥" : "Alt+"}${collapse ? "←" : "→"}`
+  return formatKbds(["alt", collapse ? "arrowleft" : "arrowright"])
 }
 
 interface StackSummary {
@@ -115,7 +115,7 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
           </span>
         )}
       </TooltipTrigger>
-      <TooltipContent>
+      <TooltipContent description={`${description} · ${collapsed ? "Expand Stack" : "Collapse Stack"} · Shortcut: ${stackKeyLabel(!collapsed)}`}>
         {description}
         {" · "}
         {collapsed ? "Expand Stack" : "Collapse Stack"}

@@ -18,6 +18,7 @@ import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { useReturnedToYou } from "@/hooks/useReturnedToYou"
 import type { PullRequestAvailability, ReviewEntry, ReviewRequest, ReviewSection } from "@/lib/bindings"
 import { describeError } from "@/lib/errors"
+import { formatKbds } from "@/lib/menu"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
 import { handleReviewRowKeys } from "@/lib/review-row-keys"
@@ -384,7 +385,7 @@ function NoMatch({ text, onAdd, searchUrl, onClear }: { text: string; onAdd: (()
       {onAdd !== null && (
         <Button variant="link" size="xs" className="h-auto px-0" onClick={onAdd}>
           Add Pull Request
-          <Kbd>Enter</Kbd>
+          <Kbd>{formatKbds(["enter"])}</Kbd>
         </Button>
       )}
       {searchUrl !== null && (

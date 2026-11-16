@@ -52,7 +52,7 @@ export interface LazyRoot {
  * which no pointer leave closed then, and the first focus took the focus back from where the user had put it.
  *
  * `lazy` false is the plain root, mounted with its trigger, as is every root in the content of a popover
- * (`EagerRootsContext`).
+ * (`EagerRootsContext`); a root whose `lazy` turns false mounts then.
  */
 export function useLazyRoot(lazy: boolean, wanted = false): LazyRoot {
   const eager = use(EagerRootsContext)
@@ -61,10 +61,11 @@ export function useLazyRoot(lazy: boolean, wanted = false): LazyRoot {
   const [pending, setPending] = useState<Intent | null>(null)
   // the intent replayed: the effects that run again for it (the view shows again) replay nothing
   const replayed = useRef<Intent | null>(null)
-  if (wanted && !armedState) {
+  // a root that stops being lazy (a lost start, whose reason its trigger must say at once) mounts as one that is wanted
+  if ((wanted || !lazy) && !armedState) {
     setArmed(true)
   }
-  const armed = armedState || wanted
+  const armed = armedState || wanted || !lazy
 
   // the focus first: the element that had it left with the plain trigger
   useLayoutEffect(() => {

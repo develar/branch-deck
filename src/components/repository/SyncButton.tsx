@@ -5,12 +5,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ShortcutHint } from "@/components/shared/ShortcutHint"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useSyncAvailability } from "@/hooks/useSyncAvailability"
-import { isMac } from "@/lib/platform"
+import { formatKbds } from "@/lib/menu"
 import { describeSyncStep } from "@/lib/sync-step"
 import { viewVersionKey } from "@/model/store"
 import { branchSyncStore, syncBranches, syncIfChanged, useBranchSync } from "@/stores/branch-sync"
 
-const SYNC_KBD = isMac ? "⌘R" : "Ctrl+R"
+const SYNC_KBD = formatKbds(["mod", "r"])
 
 /**
  * Header button of Sync (⌘R), the one indicator of a running sync: its spinner, and its tooltip names the step. A
@@ -62,7 +62,10 @@ export function SyncButton() {
         {isSyncing ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
         Sync
       </TooltipTrigger>
-      <TooltipContent data-testid="sync-tooltip">
+      <TooltipContent
+        data-testid="sync-tooltip"
+        description={reason ?? (isSyncing ? describeSyncStep(syncStep) : `${syncError === null ? "" : `${syncError} · `}Sync branches · Shortcut: ${SYNC_KBD}`)}
+      >
         {reason !== null ? (
           reason
         ) : isSyncing ? (

@@ -668,6 +668,8 @@ test.describe("Next step", () => {
     await expect(wait).toHaveAttribute("data-tone", "quiet")
     await wait.hover()
     await expect(page.getByTestId("step-wait-hover")).toHaveText("Approvals in #7 don't count: its base is release-252. Open Pull Request #7O")
+    // its words, not a copy of the tooltip: the key as every description says one
+    await expect(wait).toHaveAccessibleDescription("Approvals in #7 don't count: its base is release-252. Open Pull Request #7 · Shortcut: O")
     await wait.click()
     expect(await getOpenedUrls(page)).toEqual([pullRequest(BRANCH, 7).url])
     const menu = await openMenu(page)

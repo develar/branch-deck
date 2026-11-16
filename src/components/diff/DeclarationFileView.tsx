@@ -5,6 +5,7 @@ import { DiffView } from "@/components/diff/DiffView"
 import type { DeclarationPlace, DiffViewFile } from "@/components/diff/DiffView"
 import type { DeclarationSite, DeclarationTarget } from "@/lib/bindings"
 import type { FileDiff } from "@/lib/diff/file-diff-model"
+import { formatKbds } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 
@@ -67,7 +68,7 @@ export function DeclarationFileView({ target, onBack, onGoToDeclaration, onFindU
         <Button variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeftIcon data-icon="inline-start" />
           Back
-          <Kbd>{isMac ? "⌘[" : "Ctrl+Alt+←"}</Kbd>
+          <Kbd>{formatKbds(isMac ? ["mod", "["] : ["mod", "alt", "arrowleft"])}</Kbd>
         </Button>
         <span className="min-w-0 truncate font-medium" title={target.path}>
           {target.path}

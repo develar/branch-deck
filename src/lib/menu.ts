@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { modifierKey } from "@/lib/platform"
+import { isMac } from "@/lib/platform"
 
 /** Where an item was chosen: a surface that stays shows the spinner of the action it starts (`useIndicatorClaim`) */
 export interface SelectContext {
@@ -25,7 +25,7 @@ export interface MenuItem {
   compactLabel?: string
   icon?: LucideIcon
   disabled?: boolean
-  /** Keyboard shortcut hints, e.g. `["meta", "c"]` */
+  /** Keyboard shortcut hints, e.g. `["mod", "c"]` */
   kbds?: string[]
   color?: "default" | "destructive"
   /** Shown on hover beside the item: what it does, or why it is disabled */
@@ -121,23 +121,36 @@ export function selectMenuItemById(groups: MenuItemGroups, id: string, context: 
   return item
 }
 
-const kbdSymbols: Record<string, string> = {
-  // the primary modifier of the platform: ⌘ on macOS, Ctrl elsewhere
-  mod: modifierKey,
-  meta: "⌘",
-  ctrl: "⌃",
-  alt: "⌥",
-  shift: "⇧",
-  enter: "↵",
-  escape: "Esc",
-  delete: "⌫",
-  arrowleft: "←",
-  arrowright: "→",
+/** The name of a key on a Mac and elsewhere: the symbols of macOS there, the words of Windows and Linux here */
+const kbdNames: Record<string, readonly [mac: string, other: string]> = {
+  // the primary modifier of the platform
+  mod: ["⌘", "Ctrl"],
+  ctrl: ["⌃", "Ctrl"],
+  alt: ["⌥", "Alt"],
+  shift: ["⇧", "Shift"],
+  enter: ["↵", "Enter"],
+  escape: ["Esc", "Esc"],
+  delete: ["⌫", "Del"],
+  arrowleft: ["←", "←"],
+  arrowright: ["→", "→"],
+  arrowup: ["↑", "↑"],
+  arrowdown: ["↓", "↓"],
 }
 
-/** What a `Kbd` of `MenuItem.kbds` shows: ⌘ or Ctrl for `mod`, the symbol of a modifier, else the key in capitals */
-export function kbdLabel(kbd: string): string {
-  return kbdSymbols[kbd] ?? kbd.toUpperCase()
+/**
+ * What a `Kbd` of one key of `MenuItem.kbds` shows on the platform (`mac`): ⌘ or Ctrl for `mod`, a modifier, Enter
+ * and Delete by their symbol on a Mac and by their word elsewhere, any other key in capitals
+ */
+export function kbdLabel(kbd: string, mac: boolean = isMac): string {
+  return kbdNames[kbd]?.[mac ? 0 : 1] ?? kbd.toUpperCase()
+}
+
+/**
+ * A key with its modifiers in one text, as one `Kbd` shows it and a description says it (`Shortcut: ⌘1`): on a Mac the
+ * keys side by side (⌘1, ⌘↵, ⌥←), elsewhere joined by "+" (Ctrl+1, Ctrl+Enter, Alt+←)
+ */
+export function formatKbds(kbds: readonly string[], mac: boolean = isMac): string {
+  return kbds.map(kbd => kbdLabel(kbd, mac)).join(mac ? "" : "+")
 }
 
 /**

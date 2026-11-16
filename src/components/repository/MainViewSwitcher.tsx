@@ -1,7 +1,7 @@
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { kbdLabel } from "@/lib/menu"
+import { formatKbds, kbdLabel } from "@/lib/menu"
 import type { MainView } from "@/stores/main-view"
 import { MAIN_VIEWS, showMainView, useMainView } from "@/stores/main-view"
 
@@ -35,7 +35,7 @@ export function MainViewSwitcher() {
             <entry.icon data-icon="inline-start" />
             <span className="hidden @md:inline">{entry.label}</span>
           </TooltipTrigger>
-          <TooltipContent>
+          <TooltipContent description={entry.kbds === undefined ? false : `Shortcut: ${formatKbds(entry.kbds)}`}>
             <span className="flex items-center gap-1.5">
               {entry.label}
               {entry.kbds !== undefined && (

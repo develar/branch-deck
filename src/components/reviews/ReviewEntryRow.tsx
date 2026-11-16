@@ -83,7 +83,7 @@ function ReviewMarkGlyph({ mark }: { mark: ReviewMark }) {
       >
         <MarkGlyph kind={mark.kind} />
       </TooltipTrigger>
-      <TooltipContent>{mark.label}</TooltipContent>
+      <TooltipContent description={false}>{mark.label}</TooltipContent>
     </Tooltip>
   )
 }

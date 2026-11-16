@@ -28,7 +28,7 @@ export function ReviewSidebarToggle() {
       >
         <PanelLeftIcon />
       </TooltipTrigger>
-      <TooltipContent className="flex items-center gap-1.5">
+      <TooltipContent className="flex items-center gap-1.5" description={`${shown ? "Hide the sidebar" : "Show the sidebar"} · Shortcut: F`}>
         {shown ? "Hide the sidebar" : "Show the sidebar"}
         <Kbd>F</Kbd>
       </TooltipContent>

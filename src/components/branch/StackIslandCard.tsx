@@ -376,7 +376,7 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
         {chip.ring && <RobotRing className="size-3" />}
         {chip.text}
       </TooltipTrigger>
-      <TooltipContent>{branch === undefined ? chip.text : `Show ${branch}`}</TooltipContent>
+      <TooltipContent description={branch === undefined ? false : undefined}>{branch === undefined ? chip.text : `Show ${branch}`}</TooltipContent>
     </Tooltip>
   )
 }

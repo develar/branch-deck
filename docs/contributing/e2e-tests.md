@@ -174,6 +174,11 @@ rules in one line each and links here.
   a popup whose exit runs, and names the exit in the error of one that timed out on it. The plain removal stays where
   the removal is the effect (a row a sync deletes, an item gone from an open menu) and in a test of a popup reopened
   during its exit, which ends the exit itself.
+- **The words of a tooltip are on the page twice**: its trigger's description is a hidden span with the same string
+  (`data-slot="tooltip-description"`, `src/components/ui/tooltip.tsx`), and `getByText` finds hidden elements too, so a
+  page-wide `getByText` of text a tooltip also says resolves to two elements and fails in strict mode. Scope it to the
+  container that shows the text (`getByTestId(…).getByText(…)`), or assert the description itself with
+  `toHaveAccessibleDescription`.
 - **One `pnpm e2e` per checkout**, even on two ports: a global setup that finds the frontend changed runs `pnpm build`,
   which empties `dist/` under the other run (timeouts in page setup, not test failures).
 - **`CI=1` does not speed up E2E**: it means 1 worker, 2 retries and no reuse of a running server

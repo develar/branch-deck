@@ -325,7 +325,7 @@ export const BranchRow = memo(function BranchRow({
                   <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="Dismiss the amend conflict" onClick={closeInline} />}>
                     <XIcon />
                   </TooltipTrigger>
-                  <TooltipContent>Dismiss</TooltipContent>
+                  <TooltipContent description={false}>Dismiss</TooltipContent>
                 </Tooltip>
               </div>
               <Suspense fallback={null}>

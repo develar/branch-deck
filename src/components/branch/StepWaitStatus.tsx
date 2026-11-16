@@ -1,8 +1,11 @@
 import { cn } from "cn"
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { FROM_MENU } from "@/lib/menu"
+import { formatKbds, FROM_MENU } from "@/lib/menu"
 import type { NextStepTone, StepWait } from "@/presenters/next-step"
+
+/** O of the focused row, which opens the pull request the branch waits in */
+const OPEN_KEY = formatKbds(["o"])
 
 const toneClass: Readonly<Record<NextStepTone, string>> = {
   default: "text-muted-foreground",
@@ -41,9 +44,13 @@ export function StepWaitStatus({ wait, showKeys }: { wait: StepWait; showKeys: b
           {Icon !== undefined && <Icon aria-hidden className="size-3.5 shrink-0" />}
           <span className="truncate">{wait.label}</span>
         </TooltipTrigger>
-        <TooltipContent className="max-w-sm break-words whitespace-pre-line" data-testid="step-wait-hover">
+        <TooltipContent
+          className="max-w-sm break-words whitespace-pre-line"
+          data-testid="step-wait-hover"
+          description={[wait.description, showKeys ? `Shortcut: ${OPEN_KEY}` : ""].filter(words => words !== "").join(" · ") || false}
+        >
           {wait.description}
-          {showKeys && <Kbd>O</Kbd>}
+          {showKeys && <Kbd>{OPEN_KEY}</Kbd>}
         </TooltipContent>
       </Tooltip>
     </div>

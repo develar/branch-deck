@@ -24,8 +24,7 @@ import { commands } from "@/lib/bindings"
 import { isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
 import type { SuggestedReviewer } from "@/lib/create-pull-request"
 import { notifyError } from "@/lib/errors"
-import { FROM_MENU } from "@/lib/menu"
-import { isMac } from "@/lib/platform"
+import { formatKbds, FROM_MENU } from "@/lib/menu"
 import { formatAvailabilityHint, openPullRequest } from "@/lib/pull-request"
 import type { CompareFields } from "@/lib/pull-request"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/pull-request-dialog"
@@ -518,7 +517,7 @@ export function CreatePullRequestForm({
             >
               {isCreating && <Spinner data-icon="inline-start" />}
               {pushLabel ?? "Create Pull Request"}
-              <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+              <Kbd className={PRIMARY_KBD_CLASS_NAME}>{formatKbds(["mod", "enter"])}</Kbd>
             </TooltipTrigger>
             <TooltipContent>{submitBlocker}</TooltipContent>
           </Tooltip>

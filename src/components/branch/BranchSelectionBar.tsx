@@ -116,7 +116,7 @@ export function BranchSelectionBar({ overHead }: { overHead: boolean }) {
             <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="Clear the branch selection" onClick={clearBranchSelection} />}>
               <XIcon />
             </TooltipTrigger>
-            <TooltipContent>Clear the selection (Esc)</TooltipContent>
+            <TooltipContent description="Shortcut: Esc">Clear the selection (Esc)</TooltipContent>
           </Tooltip>
         </>
       )}

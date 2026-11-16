@@ -44,8 +44,8 @@ import { followAirSession } from "@/lib/air-session-toast"
 import { getErrorDetails } from "@/lib/api-error"
 import type { AirIde, AirStartKind, AirTarget, PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { formatKbds } from "@/lib/menu"
 import { formatPushMode, formatRobotSubject } from "@/lib/patronus"
-import { isMac } from "@/lib/platform"
 import { readRobotPrompt } from "@/lib/robot-prompt-copy"
 import { showToast } from "@/lib/toast-message"
 import { closeAirLaunchDialog, useAirLaunchDialog } from "@/stores/air-launch-dialog"
@@ -316,7 +316,7 @@ function StartInAirForm({
           >
             {launching && <Spinner data-icon="inline-start" />}
             {form?.start === "draft" ? "Open Draft" : "Start"}
-            <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+            <Kbd className={PRIMARY_KBD_CLASS_NAME}>{formatKbds(["mod", "enter"])}</Kbd>
           </TooltipTrigger>
           <TooltipContent>{hint}</TooltipContent>
         </Tooltip>

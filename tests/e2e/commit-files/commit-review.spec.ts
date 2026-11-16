@@ -25,7 +25,7 @@ import {
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
+import { holdCommand, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // the `commit_tree` template: one commit of the `session` branch, five files in nested directories
 const SUBJECT = "a prompt that waits for its turn keeps the session row running"
@@ -270,7 +270,12 @@ simpleTest.describe("Commit review", () => {
     await expect.poll(async () => new Set(await headerNameLefts(code)).size).toBe(1)
     // Expand All of the header shows every unchanged line of its file
     await expect(code).not.toContainText("val field10 = 10")
-    await code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" }).click()
+    const expandAll = code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" })
+    // its tooltip only says its name: open, it adds no description that says it again
+    await expandAll.hover()
+    await expect(openTooltip(page, { name: "Expand All", exact: true })).toBeVisible()
+    await expect(expandAll).not.toHaveAttribute("aria-describedby")
+    await expandAll.click()
     await expect(code).toContainText("val field10 = 10")
     await expect(code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" })).toHaveCount(0)
 

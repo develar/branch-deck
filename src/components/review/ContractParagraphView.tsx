@@ -133,7 +133,8 @@ function ParagraphWords({ paragraph, from, to, deleted }: { paragraph: ContractP
             {node}
             <span className="sr-only"> (was {run.substitution.from})</span>
           </TooltipTrigger>
-          <TooltipContent>was {run.substitution.from}</TooltipContent>
+          {/* the trigger says it to a screen reader already */}
+          <TooltipContent description={false}>{`was ${run.substitution.from}`}</TooltipContent>
         </Tooltip>
       )
     }
@@ -229,7 +230,7 @@ export function ContractParagraphView({ paragraph }: { paragraph: ContractParagr
       >
         {paragraph.form.kind === "code" ? `⋯ ${hiddenLines} more lines` : "…"}
       </TooltipTrigger>
-      <TooltipContent>Show the whole paragraph</TooltipContent>
+      <TooltipContent description={false}>Show the whole paragraph</TooltipContent>
     </Tooltip>
   )
   const content = (

@@ -42,7 +42,7 @@ export function ActionButton({ label, icon: Icon, keyHint, disabled = false, des
         <span className={cn(Icon !== undefined && "sr-only @3xl:not-sr-only")}>{label}</span>
         {keyHint !== undefined && <Kbd className={cn(Icon !== undefined && "hidden @3xl:inline-flex")}>{keyHint.toUpperCase()}</Kbd>}
       </TooltipTrigger>
-      <TooltipContent className="flex items-center gap-2">
+      <TooltipContent className="flex items-center gap-2" description={description ?? (keyHint !== undefined && !disabled ? `Shortcut: ${keyHint.toUpperCase()}` : false)}>
         {description ?? label}
         {keyHint !== undefined && !disabled && <Kbd>{keyHint.toUpperCase()}</Kbd>}
       </TooltipContent>

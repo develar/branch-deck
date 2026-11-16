@@ -14,7 +14,7 @@ import { squashCommits } from "@/hooks/useSquashCommits"
 import type { Commit } from "@/lib/bindings"
 import { getCommitHash, getCommitSubject } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
-import { isMac } from "@/lib/platform"
+import { formatKbds } from "@/lib/menu"
 import { buildSquashMessage, countPushedCommits } from "@/lib/squash-message"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
@@ -167,7 +167,7 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
           {/* the spinner in the place of the icon: the button keeps its box under the pointer that pressed it */}
           {isSquashing ? <Spinner data-icon="inline-start" /> : <CombineIcon data-icon="inline-start" />}
           Squash
-          <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+          <Kbd>{formatKbds(["mod", "enter"])}</Kbd>
         </Button>
       </PreviewDialogFooter>
     </PreviewDialogFrame>

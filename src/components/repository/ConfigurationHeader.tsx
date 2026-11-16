@@ -148,7 +148,7 @@ function LastSyncTime({ lastSyncTime }: { lastSyncTime: number }) {
       <TooltipTrigger render={<span />}>
         <RelativeTime time={checkedAt} prefix="Checked " />
       </TooltipTrigger>
-      <TooltipContent>
+      <TooltipContent description="Nothing a sync reads changed since the last sync">
         {"Nothing a sync reads changed since the last sync, "}
         <RelativeTime time={lastSyncTime} />
       </TooltipContent>

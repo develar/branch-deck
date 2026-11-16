@@ -273,7 +273,8 @@ test.describe("Welcome Card", () => {
       await expect(prefix).toBeVisible()
       await expect(prefix).not.toBeFocused()
       await expect(page.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
-      await expect(page.getByText(picked.path!, { exact: true })).toBeVisible()
+      // in the card: the tooltip of the header's path has the same words as its description
+      await expect(page.getByTestId("welcome-card").getByText(picked.path!, { exact: true })).toBeVisible()
       await prefix.fill("invalid prefix")
       await expect(prefix).toHaveAttribute("aria-invalid", "true")
       await expect(welcomeCardAfter.getByRole("button", { name: "Save", exact: true })).toBeDisabled()

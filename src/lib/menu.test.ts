@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { MenuItem } from "@/lib/menu"
-import { frozenMenuGroups } from "@/lib/menu"
+import { formatKbds, frozenMenuGroups, kbdLabel } from "@/lib/menu"
 
 /** An item of a menu by its id and label */
 function item(id: string, label = id, patch: Partial<MenuItem> = {}): MenuItem {
@@ -48,5 +48,21 @@ describe("an open menu", () => {
     const opened = [[item("copy", "Copy"), item("copy", "Copy"), item("restart", "Restart Safe Push", { running: true })]]
     const now = [[item("copy", "Copy", { description: "first" })]]
     expect(frozenMenuGroups(opened, now)[0]).toMatchObject([{ description: "first" }, { disabled: true }, { disabled: true, running: false }])
+  })
+})
+
+describe("the text of a key", () => {
+  it("puts the keys side by side on a Mac and joins them by + elsewhere, with the modifier of the platform", () => {
+    expect([formatKbds(["mod", "1"], true), formatKbds(["mod", "1"], false)]).toEqual(["⌘1", "Ctrl+1"])
+    expect([formatKbds(["mod", "["], true), formatKbds(["mod", "["], false)]).toEqual(["⌘[", "Ctrl+["])
+    expect([formatKbds(["mod", ","], true), formatKbds(["mod", ","], false)]).toEqual(["⌘,", "Ctrl+,"])
+    expect([formatKbds(["s"], true), formatKbds(["s"], false)]).toEqual(["S", "S"])
+  })
+
+  it("names Enter, Alt, Shift and Delete by their symbol on a Mac and by their word elsewhere", () => {
+    expect([formatKbds(["mod", "enter"], true), formatKbds(["mod", "enter"], false)]).toEqual(["⌘↵", "Ctrl+Enter"])
+    expect([formatKbds(["alt", "arrowleft"], true), formatKbds(["alt", "arrowleft"], false)]).toEqual(["⌥←", "Alt+←"])
+    expect([formatKbds(["mod", "alt", "arrowleft"], false), formatKbds(["shift", "f2"], true), formatKbds(["shift", "f2"], false)]).toEqual(["Ctrl+Alt+←", "⇧F2", "Shift+F2"])
+    expect([kbdLabel("enter", true), kbdLabel("enter", false), kbdLabel("delete", true), kbdLabel("delete", false)]).toEqual(["↵", "Enter", "⌫", "Del"])
   })
 })

@@ -509,7 +509,7 @@ function ReviewFileHeader({ file, section, notice, empty, folded, pending = fals
             <TooltipTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`Expand all unchanged lines of ${name}`} onClick={onExpandAll} />}>
               <UnfoldVerticalIcon />
             </TooltipTrigger>
-            <TooltipContent>Expand All</TooltipContent>
+            <TooltipContent description={false}>Expand All</TooltipContent>
           </Tooltip>
         )}
         {folded !== null && (

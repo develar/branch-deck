@@ -14,7 +14,7 @@ import { KeyHint } from "@/components/shared/PreviewDialogFrame"
 import type { ReviewRequest } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
-import { isMac } from "@/lib/platform"
+import { formatKbds } from "@/lib/menu"
 import { readReviewDraft, writeReviewDraft } from "@/lib/review-draft"
 import type { ReviewRequestActions } from "@/lib/review-request-actions"
 import type { ReviewAction } from "@/stores/review-requests"
@@ -238,7 +238,7 @@ function SafePushPopover({
           )}
           <Button ref={startRef} size="xs" autoFocus disabled={pending || commitId === null} data-testid="review-safe-push-start" onClick={() => void start()}>
             {approved ? "Safe Push" : "Approve and Safe Push"}
-            <Kbd className={PRIMARY_KBD_CLASS_NAME}>↵</Kbd>
+            <Kbd className={PRIMARY_KBD_CLASS_NAME}>{formatKbds(["enter"])}</Kbd>
           </Button>
         </div>
       </PopoverContent>
@@ -319,7 +319,7 @@ function RequestChangesPopover({
           <Button size="xs" disabled={!canSend} data-testid="review-request-changes-send" onClick={() => void send()}>
             {isSending && <Spinner data-icon="inline-start" />}
             Request Changes
-            <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
+            <Kbd className={PRIMARY_KBD_CLASS_NAME}>{formatKbds(["mod", "enter"])}</Kbd>
           </Button>
         </div>
       </PopoverContent>

@@ -104,7 +104,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
             >
               <SelectValue>{() => (shownPath === null ? "Select repository…" : <FittedPath path={shownPath} onCut={setPathCut} />)}</SelectValue>
             </TooltipTrigger>
-            <TooltipContent>{shownPath !== null && <WrappedPath path={shownPath} />}</TooltipContent>
+            <TooltipContent description={shownPath ?? false}>{shownPath !== null && <WrappedPath path={shownPath} />}</TooltipContent>
           </Tooltip>
           <SelectContent
             alignItemWithTrigger={false}

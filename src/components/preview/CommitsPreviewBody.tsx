@@ -64,7 +64,7 @@ function PreviewCommitItem({ commit, testId, onReview }: { commit: PreviewCommit
                 >
                   <FileDiffIcon />
                 </TooltipTrigger>
-                <TooltipContent>Review Changes</TooltipContent>
+                <TooltipContent description={false}>Review Changes</TooltipContent>
               </Tooltip>
             )}
           </>

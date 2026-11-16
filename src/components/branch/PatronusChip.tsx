@@ -365,7 +365,7 @@ export function RobotOpenButton({ actions }: { actions: readonly RobotAction[] }
       >
         {open.icon && <open.icon />}
       </TooltipTrigger>
-      <TooltipContent>{open.label}</TooltipContent>
+      <TooltipContent description={false}>{open.label}</TooltipContent>
     </Tooltip>
   )
 }

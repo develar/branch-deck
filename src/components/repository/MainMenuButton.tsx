@@ -9,9 +9,13 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { useSyncAvailability } from "@/hooks/useSyncAvailability"
 import { mainMenus, matchMainMenuOpenKey } from "@/lib/main-menu"
 import type { MainMenu, MainMenuId } from "@/lib/main-menu"
+import { formatKbds } from "@/lib/menu"
 import { isWindows } from "@/lib/platform"
 import { updatesItself } from "@/lib/title-bar"
 import { useAppSettings } from "@/stores/settings/appSettings"
+
+/** The key of the main menu */
+const MAIN_MENU_KBD = formatKbds(["alt", "\\"])
 
 /**
  * The main menu of a custom title bar (Windows and Linux), IntelliJ's ☰ (`MainMenuButton`, `ExpandableMenu`): a click
@@ -118,9 +122,9 @@ export function MainMenuButton() {
         >
           <MenuIcon />
         </TooltipTrigger>
-        <TooltipContent className="flex items-center gap-2">
+        <TooltipContent className="flex items-center gap-2" description={`Shortcut: ${MAIN_MENU_KBD}`}>
           Main Menu
-          <Kbd>Alt+\</Kbd>
+          <Kbd>{MAIN_MENU_KBD}</Kbd>
         </TooltipContent>
       </Tooltip>
       {expanded && (

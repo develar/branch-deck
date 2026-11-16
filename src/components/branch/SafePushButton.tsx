@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef } from "react"
+import { useLayoutEffect, useRef } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { CircleHelpIcon, ShieldCheckIcon } from "lucide-react"
@@ -158,21 +158,21 @@ export function SafePushButton({
   }, [compact, busy, label])
   // it waits for another holder of the repository lock: Stop Waiting beside it, the hover says whom for
   const stopWaiting = waiting !== null && starting?.op != null && elsewhere === null ? stopStartItem(starting.op, waiting) : null
+  // the branches a compact label leaves out: "Pushing 2 branches 45%"; whom the wait is for
+  const hovered = waiting ?? elsewhere?.description ?? (pushing !== null && pushing !== label ? pushing : (blocker ?? description ?? item?.description))
   const tooltip = (
-    <TooltipContent>
-      {/* the branches a compact label leaves out: "Pushing 2 branches 45%"; whom the wait is for */}
-      {waiting ?? elsewhere?.description ?? (pushing !== null && pushing !== label ? pushing : (blocker ?? description ?? item?.description))}
+    <TooltipContent description={hovered == null ? false : blocker === null && shortcut !== undefined ? `${hovered} · Shortcut: ${shortcut}` : hovered}>
+      {hovered}
       {blocker === null && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
     </TooltipContent>
   )
   // a start whose answer was lost is a status of the slot, not an action that is off: its actions stand beside it (Open
   // in Patronus, Forget This Start), so the button is not dimmed (a class of the chain of `Button`, which `cn` merges with
   // its dimming). It stays the one element of the slot, which keeps its focus and the keys of the row as a start that ran
-  // turns lost; its reason, which the tooltip says, is its description for a screen reader too
-  const lostReasonId = useId()
-  const lostReason = lost === null ? null : (elsewhere?.description ?? null)
+  // turns lost; its reason, which the tooltip says, is its description for a screen reader too (`TooltipTrigger`): the
+  // root of a lost start mounts at once, as a lazy root describes its trigger only once reached
   const button = (
-    <Tooltip lazy>
+    <Tooltip lazy={lost === null}>
       <TooltipTrigger
         render={
           <Button
@@ -182,7 +182,6 @@ export function SafePushButton({
             // the hover says why: Base UI keeps the button focusable, dimmed by `Button` unless a start runs (`aria-busy`)
             focusableWhenDisabled
             aria-busy={(starting !== null && lost === null) || undefined}
-            aria-describedby={lostReason === null ? undefined : lostReasonId}
             data-status={lost === null ? undefined : "unknown"}
             // the push a compact label says by its percent only, the wait by whom it is for
             aria-label={waiting ?? (compact && pushing !== null && elsewhere === null ? pushing : undefined)}
@@ -235,11 +234,6 @@ export function SafePushButton({
     <span className="inline-flex max-w-full min-w-0 items-center gap-1" data-beside-slot={beside ? "" : undefined}>
       {fixedEdge === "end" && besideItems}
       {button}
-      {lostReason !== null && (
-        <span id={lostReasonId} className="sr-only">
-          {lostReason}
-        </span>
-      )}
       {fixedEdge === "start" && besideItems}
     </span>
   )

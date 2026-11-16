@@ -6,12 +6,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { CliToolRunningLine } from "@/components/shared/CliToolRunningLine"
 import { ShortcutHint } from "@/components/shared/ShortcutHint"
 import type { SetupEntry } from "@/lib/bindings"
-import { isMac } from "@/lib/platform"
+import { formatKbds } from "@/lib/menu"
 import { openSettings } from "@/lib/settings-window"
 import { describeSetupItem, settingsButtonLabel } from "@/lib/setup"
 import { runSetupItem, skipSetupEntry } from "@/lib/setup-actions"
 import { useRunningCliToolAction } from "@/stores/cli-tools"
 import { useSetupEntries } from "@/stores/setup"
+
+/** The key of Settings */
+const SETTINGS_KBD = formatKbds(["mod", ","])
 
 /**
  * Settings in the header: a click opens it; while something of the setup waits for the user (the Setup dot,
@@ -28,8 +31,8 @@ export function SettingsButton() {
         <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={label} data-testid="settings-button" onClick={() => openSettings()} />}>
           <SettingsIcon />
         </TooltipTrigger>
-        <TooltipContent>
-          <ShortcutHint kbd={isMac ? "⌘," : "Ctrl+,"}>Settings</ShortcutHint>
+        <TooltipContent description={`Shortcut: ${SETTINGS_KBD}`}>
+          <ShortcutHint kbd={SETTINGS_KBD}>Settings</ShortcutHint>
         </TooltipContent>
       </Tooltip>
     )

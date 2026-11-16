@@ -252,7 +252,7 @@ function IconAction({ action, label }: { action: RobotAction; label: string }) {
         {/* a restart or a cancel that runs: the spinner in place of its icon */}
         {action.running === true ? <Spinner /> : action.icon && <action.icon />}
       </TooltipTrigger>
-      <TooltipContent>{action.description === undefined ? action.label : `${action.label}: ${action.description}`}</TooltipContent>
+      <TooltipContent description={action.description ?? false}>{action.description === undefined ? action.label : `${action.label}: ${action.description}`}</TooltipContent>
     </Tooltip>
   )
 }

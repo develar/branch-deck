@@ -229,7 +229,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
             >
               <ExternalLinkIcon />
             </TooltipTrigger>
-            <TooltipContent>Open Pull Request</TooltipContent>
+            <TooltipContent description={false}>Open Pull Request</TooltipContent>
           </Tooltip>
           <RequestReadingChip number={request.number} />
           {age ?? <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} backToYou={request.backToYou} />}
@@ -341,7 +341,7 @@ export const ReviewStackHeader = memo(function ReviewStackHeader({ stackKey, lay
             >
               <FileDiffIcon />
             </TooltipTrigger>
-            <TooltipContent>Review Stack</TooltipContent>
+            <TooltipContent description={false}>Review Stack</TooltipContent>
           </Tooltip>
           <StackReadingChip bottom={bottom.number} />
           <WaitingAge waitingSince={oldest.waitingSince} reRequested={oldest.reRequested} backToYou={oldest.backToYou} />
@@ -657,7 +657,7 @@ export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ ite
             >
               <ExternalLinkIcon />
             </TooltipTrigger>
-            <TooltipContent>Open Pull Request</TooltipContent>
+            <TooltipContent description={false}>Open Pull Request</TooltipContent>
           </Tooltip>
           <span className="text-xs whitespace-nowrap text-muted-foreground" data-testid="returned-pull-request-branch">
             {branchName}

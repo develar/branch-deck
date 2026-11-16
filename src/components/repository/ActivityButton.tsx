@@ -14,7 +14,7 @@ export function ActivityButton() {
       <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Activity" data-testid="activity-button" onClick={() => openActivity()} />}>
         <HistoryIcon />
       </TooltipTrigger>
-      <TooltipContent>Activity</TooltipContent>
+      <TooltipContent description={false}>Activity</TooltipContent>
     </Tooltip>
   )
 }

@@ -267,7 +267,7 @@ function LandedLinks({ name, links }: { name: string; links: LandedBranchLinks |
             <GitPullRequestIcon data-icon="inline-start" />
             {`#${pullRequest.number}`}
           </TooltipTrigger>
-          <TooltipContent>Open Pull Request</TooltipContent>
+          <TooltipContent description={false}>Open Pull Request</TooltipContent>
         </Tooltip>
       )}
       {robot !== undefined && (
@@ -284,7 +284,7 @@ function LandedLinks({ name, links }: { name: string; links: LandedBranchLinks |
           >
             <ShieldCheckIcon />
           </TooltipTrigger>
-          <TooltipContent>Open in Patronus</TooltipContent>
+          <TooltipContent description={false}>Open in Patronus</TooltipContent>
         </Tooltip>
       )}
     </>

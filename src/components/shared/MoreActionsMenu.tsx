@@ -96,7 +96,7 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
     >
       <Tooltip controlKey={controlKey}>
         <TooltipTrigger render={<DropdownMenuTrigger render={<Button {...button} />} />}>{icon}</TooltipTrigger>
-        <TooltipContent>{running ? `${busy}…` : "More actions"}</TooltipContent>
+        <TooltipContent description={running ? undefined : false}>{running ? `${busy}…` : "More actions"}</TooltipContent>
       </Tooltip>
       {/*
         as wide as its items, as the right-click menu; the inline form opened from the menu takes the focus, any other
