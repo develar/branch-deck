@@ -1,7 +1,7 @@
 # UI Theme: Islands Layering, Palette and the Radius Scale
 
 **Status:** Implemented  
-**Updated:** 2026-11-11  
+**Updated:** 2026-11-16  
 **Tags:** [ui, theme, shadcn, tailwind, radius, palette]
 
 ## Problem
@@ -84,7 +84,11 @@ muted numbers and titles, and completed steps keep a neutral number and title wi
 title rule also applies while checking a prefix, in standalone prefix setup, and on hosts without a folder picker.
 
 The empty repository popup keeps the same popover surface and padding as a populated selector, with wrapping text
-that explains how to add a repository; its message is not a selectable repository.
+that explains how to add a repository; its message is not a selectable repository. On hosts with a folder dialog,
+"Add Repository…" stays below both empty and populated lists in a footer separated by a border. Only the repository
+list scrolls. The full-width, left-aligned ghost button uses the compact 24px `xs` size, small text and a plus icon;
+it is a separate Tab stop outside the listbox, activated by Enter or Space. Escape returns focus to the selector.
+The existing adjacent folder button remains another entry point to the same folder dialog and validation flow.
 
 ### Palette
 
