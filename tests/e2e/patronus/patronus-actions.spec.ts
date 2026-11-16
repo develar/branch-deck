@@ -258,8 +258,8 @@ async function expectReasonFirstAndSafePushStaysAsRobotDetailsCome(
 
 /**
  * Where a robot card stands, `height` px high: under its chip, beside it (neither above nor below has the room), beside it
- * shifted up against the bottom of the window (`clamped`: it hangs by its bottom edge, `data-hang`), or over it (`over`:
- * the row of the robot at the bottom of the window)
+ * shifted against an edge of the window (`clamped`: it hangs by that edge, `data-hang`; 360 px high the top one, as its
+ * end aligned with the chip would leave the window), or over it (`over`: the row of the robot at the bottom of the window)
  */
 interface CardPlacement {
   readonly height: number
@@ -271,19 +271,34 @@ const BESIDE: CardPlacement = { height: 420, side: "beside" }
 const CLAMPED: CardPlacement = { height: 360, side: "clamped" }
 const OVER: CardPlacement = { height: 700, side: "over" }
 
-/** The card stands as `placement` says: the side its positioner chose (`data-side`), and the edge it hangs by */
+/** The gap a positioner keeps between a popup and the edge of the window (`collisionPadding` of Base UI) */
+const COLLISION_PADDING = 5
+
+/**
+ * The card stands as `placement` says: the side its positioner chose (`data-side`), and the edge it hangs by; a clamped
+ * card stands against an edge of the window and hangs by it
+ */
 async function expectCardPlaced(card: Locator, placement: CardPlacement): Promise<void> {
   const side = await card.getAttribute("data-side")
   const hang = await card.getAttribute("data-hang")
-  const where = `${placement.side}: data-side ${side}, data-hang ${hang}, the card at ${JSON.stringify(await boxOf(card))}`
-  // beside its chip the card hangs by its top edge, or by its bottom one once shifted up against the bottom of the window
+  const box = await boxOf(card)
+  const height = card.page().viewportSize()?.height ?? 0
+  const where = `${placement.side}: data-side ${side}, data-hang ${hang}, the card at ${JSON.stringify(box)} in a window ${height} px high`
+  if (placement.side === "clamped") {
+    const atTop = Math.abs(box.y - COLLISION_PADDING) < 1
+    const atBottom = Math.abs(box.y + box.height - (height - COLLISION_PADDING)) < 1
+    expect(["left", "right"], where).toContain(side)
+    expect(atTop || atBottom, `${where}: against an edge of the window`).toBe(true)
+    expect(hang, where).toBe(atBottom ? "bottom" : "top")
+    return
+  }
+  // beside its chip the card hangs by its top edge, or by its bottom one once aligned by its end
   const expected = {
     under: [["bottom"], ["top"]],
     beside: [
       ["left", "right"],
       ["top", "bottom"],
     ],
-    clamped: [["left", "right"], ["bottom"]],
     over: [["top"], ["bottom"]],
   } as const
   const [sides, edges] = expected[placement.side]
@@ -622,7 +637,7 @@ test.describe("Patronus actions", () => {
     },
   )
   test(
-    "should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, beside its chip against the bottom of the window",
+    "should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, beside its chip against an edge of the window",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, CLAMPED)

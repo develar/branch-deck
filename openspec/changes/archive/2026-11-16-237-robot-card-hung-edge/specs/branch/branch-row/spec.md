@@ -45,8 +45,9 @@ pointer.
   still to come
 - **WHEN** the checks come
 - **THEN** they stand below the actions of a card hung by its top edge (under its chip, beside it), above them in one
-  hung by its bottom edge (beside its chip against the bottom of the window), and Safe Push keeps its box, in both engines
-  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, 700 px high`, `should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, 420 px high`, `should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, beside its chip against the bottom of the window`)
+  hung by its bottom edge (over its chip, aligned by its end or shifted up against the bottom of the window beside it),
+  and Safe Push keeps its box, also beside its chip shifted against an edge of the window, in both engines
+  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, 700 px high`, `should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, 420 px high`, `should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, beside its chip against an edge of the window`)
 
 #### Scenario: Why a robot failed comes after the card over its chip opened
 - **GIVEN** the card of a failed robot over its chip, hung by its bottom edge, the pointer on its Restart, why it failed
