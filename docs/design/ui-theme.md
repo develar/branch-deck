@@ -68,6 +68,14 @@ The first-run repository step inside the welcome island is a full-width outline 
 and folder icon form one target. The border makes the action visible before hover; the shared button supplies hover,
 pressed and keyboard-focus feedback. Hosts without a folder dialog keep an informational step.
 
+On the first use, the welcome island shows an ordered two-step overview. The prefix step starts as a compact,
+noninteractive hint: "Set a personal prefix for your branches, if needed." Selecting a repository replaces step 1 with
+"Repository selected", a success check mark, accessible completion text and the full wrapping path. Step 2 says
+"Checking branch prefix…" until the session answers, then expands only if the prefix is missing. Its input receives
+focus after an in-app selection, but not when resuming at launch. A usable prefix completes the walkthrough without
+an extra click; Ready to Sync remains a separate card. After completion, a later repository needing a prefix has the
+standalone step 1. See [Onboarding](../../openspec/specs/repository/onboarding/spec.md#welcome-card).
+
 The empty repository popup keeps the same popover surface and padding as a populated selector, with wrapping text
 that explains how to add a repository; its message is not a selectable repository.
 

@@ -278,9 +278,9 @@ export function whenSettingWritten(key: string, now = false): Promise<WriteAnswe
  * no listener (a reload starts from the snapshot of the app's start); a sub-window takes them with its load
  * (`sub_window_loaded` in `@/lib/sub-window`), before its content settles.
  */
-function listenToWriter(): Promise<void> {
+function listenToWriter(): { listening: Promise<void>; caughtUp: Promise<void> } {
   if (!hasBackend) {
-    return Promise.resolve()
+    return { listening: Promise.resolve(), caughtUp: Promise.resolve() }
   }
   if (isMainWindow) {
     listen<string>("settings_save_failed", event => {
@@ -297,24 +297,24 @@ function listenToWriter(): Promise<void> {
       logError("Failed to listen to the settings", error)
     },
   )
-  if (isMainWindow) {
-    void listening
-      .then(() => commands.getSettingsChanges(snapshotVersion))
-      .then(
-        result => {
-          if (result.status === "error") {
-            logError("Cannot read the settings changed while the window loaded", result.error)
-          } else {
-            acceptSettingsChanges(result.data)
-          }
-        },
-        (error: unknown) => {
-          logError("Cannot read the settings changed while the window loaded", error)
-        },
-      )
-      .then(sendHeldChanges)
-  }
-  return listening
+  const caughtUp = isMainWindow
+    ? listening
+        .then(() => commands.getSettingsChanges(snapshotVersion))
+        .then(
+          result => {
+            if (result.status === "error") {
+              logError("Cannot read the settings changed while the window loaded", result.error)
+            } else {
+              acceptSettingsChanges(result.data)
+            }
+          },
+          (error: unknown) => {
+            logError("Cannot read the settings changed while the window loaded", error)
+          },
+        )
+        .then(sendHeldChanges)
+    : listening
+  return { listening, caughtUp }
 }
 
 /**
@@ -341,7 +341,11 @@ function sendHeldChanges(): void {
 }
 
 /** Resolves once the page listens to the changes of the writer (`settings_changed`): any change after it reaches the page */
-export const listeningToSettings: Promise<void> = listenToWriter()
+const writer = listenToWriter()
+export const listeningToSettings: Promise<void> = writer.listening
+
+/** The main window has taken the settings changed since its startup snapshot, before initializing UI progress. */
+export const settingsCaughtUp: Promise<void> = writer.caughtUp
 
 /**
  * Takes the changes the writer made after the snapshot the window started from, each by its version: one the page has

@@ -35,6 +35,7 @@ import { useAirLaunchDialogOpen } from "@/stores/air-launch-dialog"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { useDiskUsageDialogOpen } from "@/stores/disk-usage-dialog"
 import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
+import { useOnboardingTracking } from "@/stores/onboarding"
 import { useSetupTracking } from "@/stores/setup"
 
 /**
@@ -137,6 +138,7 @@ export function IndexPage() {
   // the repository of the window, its sync when the window opens it, and its review status: whichever view shows
   useReviewStatusRefresh()
   useSyncOnOpen()
+  useOnboardingTracking()
   // a failed read of the sign-ins, told once per failure with Retry, which has the session read its fact `auth` again
   useEffect(() => tellReadFailures(), [])
   // "Auto-sync on Focus": the item of the native menu, and the sync when the window gets the focus

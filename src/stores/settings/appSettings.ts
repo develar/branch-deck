@@ -55,6 +55,8 @@ const AppSettingsSchema = z.object({
   statsPeriod: z.enum(STATS_PERIODS).catch("30d"),
   // the items of the Setup dot the user skipped: an update until another version, a reminder until its time (Unix s)
   setupSkips: z.array(z.object({ key: z.string(), until: z.number().nullable() })).catch([]),
+  // first-time welcome progress; absent until the main window has caught up with the saved recent projects
+  onboardingStatus: z.enum(["inProgress", "complete"]).optional().catch(undefined),
 })
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>

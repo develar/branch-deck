@@ -37,6 +37,19 @@ that the backend sets in the init script of every window, with the version it wa
 change to every window (`settings_changed`), and each window applies a change newer than the one it applied. Every value
 read from the snapshot or received from the writer passes through the store's Zod schema.
 
+### First-time welcome progress
+
+The page-only optional `appSettings.onboardingStatus` is `inProgress` or `complete`, saved by the same settings writer.
+The main window waits for `settingsCaughtUp` (the existing changes-since-snapshot read, after it applies) before
+initializing an absent status: recent repositories mean an existing user, so complete; no recent repositories mean
+in progress. This avoids classifying a reload from the app's original startup snapshot. A saved status takes precedence
+over the recent list, so selecting the first repository does not lose unfinished onboarding across a restart.
+
+The selected path is already in `recentProjects`; the prefix draft and pending focus intent are not persisted.
+`src/stores/onboarding.ts` tracks the walkthrough outside keyed welcome rows and completes it only after the current
+repository subscription confirms a usable prefix, checking again that its answer still belongs to the selected
+repository. Rust still resolves prefix readiness, and no new read precedes the subscription.
+
 ## Design
 
 ### Architecture

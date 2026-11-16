@@ -1,11 +1,20 @@
+import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot, captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
 import { openModal } from "../helpers/modal-helpers"
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
-import { runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { TestRepositoryBuilder } from "../helpers/test-repository"
 import { useTitleBar } from "../helpers/title-bar-helpers"
-import { expectClosed, routeCommandError } from "../helpers/wait-helpers"
+import { expectClosed, holdCommand, routeCommandError } from "../helpers/wait-helpers"
+import { tauriMockInitScript } from "../setup/tauri-mock-script"
+
+async function focusRepositoryStep(page: Page) {
+  const step = page.getByRole("button", { name: "Select a Git Repository…" })
+  await step.focus()
+  await expect(step).toBeFocused()
+  return step
+}
 
 test.describe("Welcome Card", () => {
   test("shows the welcome card for new users, which asks for the repository first", async ({ page, setupRepo }) => {
@@ -16,8 +25,12 @@ test.describe("Welcome Card", () => {
     // Verify the welcome card structure using HTML snapshot
     const welcomeCard = page.locator('[data-testid="welcome-card"]')
     await expect(welcomeCard).toBeVisible()
-    // the session of the repository says whether it has a prefix: the prefix step comes with a repository without one
-    await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1"])
+    await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
+    const steps = welcomeCard.getByRole("listitem")
+    await expect(steps).toHaveCount(2)
+    await expect(steps.nth(0)).toHaveAttribute("aria-current", "step")
+    await expect(steps.nth(1)).toContainText("Set a personal prefix for your branches, if needed.")
+    await expect(steps.nth(1).getByRole("button")).toHaveCount(0)
     await expect(welcomeCard.getByRole("button", { name: "Select a Git Repository…" })).toBeVisible()
     await expect(welcomeCard.getByRole("textbox", { name: "Branch prefix to save" })).toHaveCount(0)
 
@@ -77,6 +90,8 @@ test.describe("Welcome Card", () => {
     const card = page.getByTestId("welcome-card")
     await expect(card.getByRole("heading", { name: "Select a Git repository" })).toBeVisible()
     await expect(card.getByText("Choose a repository in the repository selector above.")).toBeVisible()
+    await expect(card.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
+    await expect(card.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
     await expect(card.getByRole("button", { name: "Select a Git Repository…" })).toHaveCount(0)
     await expect(page.getByTestId("browse-repository-button")).toHaveCount(0)
   })
@@ -135,7 +150,7 @@ test.describe("Welcome Card", () => {
     await captureHtmlSnapshot(welcomeCard, "welcome-card-repo-no-prefix")
   })
 
-  test("keeps Step 2 visible after selecting a repository without branch prefix", async ({ page, setupRepo }) => {
+  test("keeps Step 2 visible after selecting a repository without branch prefix", { tag: "@webkit" }, async ({ page, setupRepo, testStore }) => {
     const welcome = await setupRepo("NO_REPO", { prepopulateStore: false })
     // the repository the user picks in the folder dialog: one without a branch prefix
     const picked = new TestRepositoryBuilder().useTemplate("simple_no_prefix").withPrepopulateStore(false)
@@ -155,18 +170,148 @@ test.describe("Welcome Card", () => {
       await expect(welcomeCardAfter).toBeVisible()
       await expect(welcomeCardAfter.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
 
-      // Step 1 should no longer be shown inside the welcome card (avoid matching tooltip text elsewhere)
-      await expect(welcomeCardAfter.getByRole("button", { name: "Select a Git Repository…" })).toHaveCount(0)
+      await expect(welcomeCardAfter.getByTestId("welcome-step-number")).toHaveText(["2"])
+      const completed = welcomeCardAfter.getByRole("listitem").filter({ hasText: "Repository selected" })
+      await expect(completed).toContainText("Step 1 complete")
+      await expect(completed).toContainText(picked.path!)
+      await page.setViewportSize({ width: 540, height: 800 })
+      const path = completed.getByText(picked.path!, { exact: true })
+      await expect.poll(() => path.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      await expect(completed.getByRole("button")).toHaveCount(0)
+      await expect(welcomeCardAfter.getByRole("listitem").filter({ hasText: "Choose your branch prefix" })).toHaveAttribute("aria-current", "step")
+      await expect(welcomeCardAfter.getByRole("textbox", { name: "Branch prefix to save" })).toBeFocused()
 
       // the field shows the suggestion of the selected repository's git identity (test@example.com)
       await expect(welcomeCardAfter.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test")
 
       // Capture HTML snapshot for regression safety
       await captureHtmlSnapshot(welcomeCardAfter, "welcome-card-repo-selected-no-prefix")
+      await expect.poll(async () => ((await testStore.get("appSettings")) as { onboardingStatus?: string })?.onboardingStatus).toBe("inProgress")
+      await page.reload()
+      const prefix = page.getByRole("textbox", { name: "Branch prefix to save" })
+      await expect(prefix).toBeVisible()
+      await expect(prefix).not.toBeFocused()
+      await expect(page.getByTestId("welcome-step-number")).toHaveText(["2"])
+      await expect(page.getByText(picked.path!, { exact: true })).toBeVisible()
+      await prefix.fill("invalid prefix")
+      await expect(prefix).toHaveAttribute("aria-invalid", "true")
+      await expect(welcomeCardAfter.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
+      await prefix.fill("first-user")
+      await prefix.press("Enter")
+      await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+      await expect(welcomeCardAfter).toHaveCount(0)
+      await expect.poll(async () => ((await testStore.get("appSettings")) as { onboardingStatus?: string })?.onboardingStatus).toBe("complete")
+      await expect(page.getByTestId("ready-to-sync-card").getByTestId("agents-hint")).toBeVisible()
+      await page.reload()
+      await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+      await expect(page.getByTestId("welcome-card")).toHaveCount(0)
     } finally {
       // the page first, so it starts no command for the picked repository
       await page.close()
       await picked.cleanup()
+    }
+  })
+
+  for (const activation of ["Enter", "Space"] as const) {
+    test(`focuses prefix step 2 after repository selection by ${activation}`, { tag: "@webkit" }, async ({ page, setupRepo }) => {
+      await setupRepo("simple_no_prefix", { prepopulateStore: false })
+      const select = await focusRepositoryStep(page)
+      await select.press(activation)
+      await expect(page.getByRole("textbox", { name: "Branch prefix to save" })).toBeFocused()
+      await expect(page.getByTestId("welcome-step-number")).toHaveText(["2"])
+    })
+  }
+
+  test("focuses prefix step 2 after the native picker returns focus to the page", { tag: "@webkit" }, async ({ page, setupRepo }) => {
+    await setupRepo("simple_no_prefix", { prepopulateStore: false })
+    const select = await focusRepositoryStep(page)
+    // A native sheet can answer while the webview is still inactive; browser dialog mocks do not model that interval.
+    await page.evaluate(() => Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false }))
+    await select.press("Enter")
+    const field = page.getByRole("textbox", { name: "Branch prefix to save" })
+    await expect(field).toBeVisible()
+    await expect(field).not.toBeFocused()
+    await page.evaluate(() => {
+      Reflect.deleteProperty(document, "hasFocus")
+      window.dispatchEvent(new FocusEvent("focus"))
+    })
+    await expect(field).toBeFocused()
+    // The main window also retries a refused subscription on native focus, replacing the prefix form.
+    await runAndWaitForAnswer(page, "subscribe_view", () => emitTauriEvent(page, "tauri://focus"))
+    await expect(field).toBeFocused()
+    await page.keyboard.press("ControlOrMeta+A")
+    await page.keyboard.type("after-picker")
+    await expect(field).toHaveValue("after-picker")
+  })
+
+  test("keeps the completed repository visible while checking its prefix", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: false })
+    const release = await holdCommand(page, "subscribe_view")
+    try {
+      await page.getByRole("button", { name: "Select a Git Repository…" }).click()
+      const card = page.getByTestId("welcome-card")
+      await expect(card.getByText("Repository selected", { exact: true })).toBeVisible()
+      await expect(card.getByText(repo.path!, { exact: true })).toBeVisible()
+      await expect(card.getByRole("status")).toHaveText("Checking branch prefix…")
+      await expect(card.getByRole("textbox")).toHaveCount(0)
+      await expect(page.getByTestId("ready-to-sync-card")).toHaveCount(0)
+    } finally {
+      release()
+    }
+    await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+  })
+
+  test("resumes first-time progress from saved settings in a fresh window without taking focus", { tag: "@webkit" }, async ({ page, setupRepo, testStore }) => {
+    await setupRepo("simple_no_prefix", { prepopulateStore: false })
+    await page.getByRole("button", { name: "Select a Git Repository…" }).click()
+    await expect(page.getByRole("textbox", { name: "Branch prefix to save" })).toBeFocused()
+    await expect.poll(async () => ((await testStore.get("appSettings")) as { onboardingStatus?: string })?.onboardingStatus).toBe("inProgress")
+    const saved = { appSettings: await testStore.get("appSettings"), recentProjects: await testStore.get("recentProjects") }
+    const url = page.url()
+    await page.close()
+    const restarted = await page.context().newPage()
+    await restarted.addInitScript(tauriMockInitScript())
+    await restarted.addInitScript(store => Object.assign(window, { __TAURI_STORE__: store, __TAURI_STORE_VERSION__: 0 }), saved)
+    await restarted.goto(url)
+    const card = restarted.getByTestId("welcome-card")
+    await expect(card.getByText("Step 1 complete")).toBeVisible()
+    await expect(card.getByTestId("welcome-step-number")).toHaveText(["2"])
+    const field = card.getByRole("textbox", { name: "Branch prefix to save" })
+    await expect(field).toBeVisible()
+    await expect(field).not.toBeFocused()
+    await field.fill("fresh-user")
+    await card.getByRole("button", { name: "Save", exact: true }).click()
+    await expect(restarted.getByTestId("ready-to-sync-card")).toBeVisible()
+  })
+
+  test("retains first-time progress after an invalid folder and a successful retry", async ({ page, setupRepo, otherRepository }) => {
+    const repo = await setupRepo("empty-non-git", { prepopulateStore: false })
+    await page.getByRole("button", { name: "Select a Git Repository…" }).click()
+    await expect(page.getByTestId("error-alert")).toContainText("Not a Git repository")
+    await repo.setDialogPick(otherRepository)
+    await page.getByTestId("browse-repository-button").click()
+    await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+    await expect(page.getByTestId("error-alert")).toHaveCount(0)
+    await expect(page.getByTestId("welcome-card")).toHaveCount(0)
+  })
+
+  test("updates the completed repository row when switching before prefix setup", async ({ page, setupRepo }) => {
+    const first = await setupRepo("simple_no_prefix", { prepopulateStore: false })
+    const second = new TestRepositoryBuilder().useTemplate("simple_no_prefix").withPrepopulateStore(false)
+    await second.init()
+    try {
+      await page.getByRole("button", { name: "Select a Git Repository…" }).click()
+      const card = page.getByTestId("welcome-card")
+      await expect(card.getByText(first.path!, { exact: true })).toBeVisible()
+      await first.setDialogPick(second.path)
+      await page.getByTestId("browse-repository-button").click()
+      await expect(card.getByText(second.path!, { exact: true })).toBeVisible()
+      await expect(card.getByText(first.path!, { exact: true })).toHaveCount(0)
+      await expect(card.getByTestId("welcome-step-number")).toHaveText(["2"])
+      await expect(card.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test")
+    } finally {
+      await page.close()
+      await second.cleanup()
     }
   })
 })
