@@ -300,6 +300,30 @@ async fn details_of_a_finished_robot_are_asked_once() {
   assert_eq!(fake.detail_calls.load(Ordering::SeqCst), 2);
 }
 
+/// The card of a failed robot asks Patronus for its robot and its checks, not again for the problems the session read
+/// ahead of it (`robot_problems`); the details read first fill them for the read ahead, its failure reads them too
+#[tokio::test]
+async fn the_card_of_a_failed_robot_asks_no_problems_again() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let read = service.robot_problems("finished").await.unwrap();
+  let details = service.robot_details("me", "finished", false).await.unwrap();
+  assert_eq!(details.problems, read);
+  assert_eq!(read.iter().map(|problem| problem.title.as_str()).collect::<Vec<_>>(), ["Changes require review approval"]);
+  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished"]);
+  assert_eq!(
+    (fake.detail_calls.load(Ordering::SeqCst), fake.checks_calls.lock().unwrap().clone()),
+    (1, vec!["finished".to_string()])
+  );
+  service.robot_failure("me", "finished").await.unwrap();
+  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished"]);
+
+  // the details first: the read ahead takes their problems
+  service.robot_details("me", "finished-other", false).await.unwrap();
+  assert_eq!(service.robot_problems("finished-other").await.unwrap(), read);
+  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished", "finished-other"]);
+}
+
 #[tokio::test]
 async fn start_options_keep_the_emergency_profiles_apart_and_default_to_the_profile_of_the_last_robot() {
   let (fake, client) = start_fake().await;

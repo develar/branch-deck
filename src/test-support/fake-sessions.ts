@@ -91,7 +91,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
     patronus: { state: { kind: "loading" }, landingNeeds: { kind: "loading" }, view: { branches: {}, stacks: {}, restarts: {} } },
     route: { kind: "pullRequest", merge: { kind: "wait", fact: { kind: "permission" }, failed: null } },
     facts: {
-      robots: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {}, failing: [], needsReview: {}, problemsFailed: {} },
+      robots: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {}, failing: [], needsReview: {}, problems: {}, problemsFailed: {} },
       pullRequests: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, repository: null, viewerPermission: null, pullRequests: {}, stackPullRequests: {} },
       rules: {},
       profiles: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 },

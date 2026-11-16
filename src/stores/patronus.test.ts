@@ -290,7 +290,7 @@ function available(...robots: PatronusRobot[]): RobotsAnswer {
 
 /** The robots of the session of /repo before Patronus answered */
 function emptySessionRobots(): RobotsView {
-  return { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {}, failing: [], needsReview: {}, problemsFailed: {} }
+  return { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {}, failing: [], needsReview: {}, problems: {}, problemsFailed: {} }
 }
 
 /** The robots of the session of /repo, as its view has them */
@@ -330,12 +330,15 @@ function answerRobots(answer: RobotsAnswer, full: boolean, poll = false): void {
   const running = Object.values(robots).filter(robot => robot.status === "running")
   const failing = isAvailable ? running.filter(robot => known.has(robot.id) || patronus.failing.includes(robot.id)).map(robot => robot.id) : previous.failing
   const needsReview = { ...previous.needsReview }
+  const problems = { ...previous.problems }
   const problemsFailed = { ...previous.problemsFailed }
   for (const robot of Object.values(robots).filter(it => it.status === "failure" && !(it.id in needsReview))) {
     if (patronus.problems === "offline") {
       problemsFailed[robot.id] = "offline"
     } else {
-      needsReview[robot.id] = (patronus.problems ?? [{ subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }]).some(it => it.subsystem === "OWNERSHIP_REVIEW_APPROVAL_CHECK")
+      const read = patronus.problems ?? [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }]
+      needsReview[robot.id] = read.some(it => it.subsystem === "OWNERSHIP_REVIEW_APPROVAL_CHECK")
+      problems[robot.id] = read
     }
   }
   const finished = Object.values(robots).filter(robot => {
@@ -348,13 +351,14 @@ function answerRobots(answer: RobotsAnswer, full: boolean, poll = false): void {
     }
     return robot.status === "failure" ? [{ id: ++lastNews, event: { kind: "robotFailed", robotId: robot.id, needsReview: needsReview[robot.id] ?? null } }] : []
   })
-  sessionRobots = { head, robots, failing, needsReview, problemsFailed }
+  sessionRobots = { head, robots, failing, needsReview, problems, problemsFailed }
   applyRobotsFacts("/repo", sessionRobots, {
     head,
     robots: changed,
     removedRobots: Object.keys(previous.robots).filter(id => !(id in robots)),
     failing,
     needsReview,
+    problems,
     problemsFailed,
   })
   // the session derives the view of the robots after their answer, which comes in the same patch as the news
@@ -949,9 +953,11 @@ describe("facts without an answer", () => {
     expect(isRobotProblemsPending(failed)).toBe(true)
     applyRobotsFacts("/repo", { ...listed, problemsFailed: { r1: "offline" } }, { problemsFailed: { r1: "offline" } })
     expect(isRobotProblemsPending(failed)).toBe(false)
-    // asked again after the next answer: they came
-    applyRobotsFacts("/repo", { ...listed, needsReview: { r1: true } }, { needsReview: { r1: true }, problemsFailed: {} })
+    // asked again after the next answer: they came, kept for the card of the robot
+    const review = [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }]
+    applyRobotsFacts("/repo", { ...listed, needsReview: { r1: true }, problems: { r1: review } }, { needsReview: { r1: true }, problems: { r1: review }, problemsFailed: {} })
     expect(patronusStore.getState().repositories["/repo\nuser"]?.needsReview).toEqual({ r1: true })
+    expect(patronusStore.getState().repositories["/repo\nuser"]?.problems).toEqual({ r1: review })
     expect(isRobotProblemsPending(failed)).toBe(false)
     // a robot that didn't fail waits for nothing
     expect(isRobotProblemsPending(robot({ status: "running" }))).toBe(false)

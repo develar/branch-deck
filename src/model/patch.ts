@@ -162,6 +162,7 @@ function patchedRobots(robots: RobotsView, change: RobotsChange): RobotsView {
     robots: { ...withoutKeys(robots.robots, change.removedRobots ?? []), ...change.robots },
     failing: change.failing ?? robots.failing,
     needsReview: change.needsReview ?? robots.needsReview,
+    problems: change.problems ?? robots.problems,
     problemsFailed: change.problemsFailed ?? robots.problemsFailed,
   }
 }

@@ -10,6 +10,7 @@ import type {
   LandedPullRequest,
   PatronusAvailability,
   PatronusPart,
+  PatronusProblem,
   PatronusRobot,
   PatronusStartOptions,
   PatronusView,
@@ -59,6 +60,11 @@ export interface RepositoryPatronus {
   readonly isRefreshing: boolean
   /** By robot id, of the failed robots of the branches: failed for missing code-owner approvals */
   readonly needsReview: Readonly<Record<string, boolean>>
+  /**
+   * By robot id, of the failed robots of the branches whose problems the session read (those of `needsReview`): their
+   * problems of severity error, which the card of the robot shows as it opens, before its details come
+   */
+  readonly problems: Readonly<Record<string, readonly PatronusProblem[]>>
   /**
    * `owner/name` of the GitHub repository the branches are mirrored to (the mirror of the committed Space settings, or
    * `branchdeck.githubRepository`), null without
@@ -117,6 +123,7 @@ const EMPTY: RepositoryPatronus = {
   fetchedAt: 0,
   isRefreshing: false,
   needsReview: {},
+  problems: {},
   githubRepository: null,
   watched: {},
   failing: {},
@@ -561,6 +568,15 @@ export function useRobotNeedsReview(robotId: string | undefined): boolean {
   return useStore(patronusStore, state => robotId !== undefined && state.repositories[key]?.needsReview[robotId] === true)
 }
 
+/**
+ * The problems of the failed robot `robotId` the session read ahead (`problems` of its robots); undefined while it has
+ * none (not read yet, a robot of no branch, a running one): its details bring them then
+ */
+export function useRobotProblems(robotId: string): readonly PatronusProblem[] | undefined {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => state.repositories[key]?.problems[robotId])
+}
+
 /** By robot id, the failed robots of the branches that failed for missing code-owner approvals; re-renders only when they change */
 /** The robots of no branch the app watches (`watchRobot`), by id, with what they test */
 export function useWatchedRobots(): Readonly<Record<string, string>> {
@@ -790,7 +806,7 @@ export function applyRobotsFacts(repositoryPath: string, view: RobotsView, chang
   // a snapshot of a session Patronus has not answered yet (`Loading`) is no answer: the robots of the repository are
   // stored from the first answer on, and their view comes from then
   const answered = head.value !== null && (change === null || change.head != null)
-  const asked = change !== null && (change.failing != null || change.needsReview != null || change.problemsFailed != null)
+  const asked = change !== null && (change.failing != null || change.needsReview != null || change.problems != null || change.problemsFailed != null)
   if (robots === entry.robots && !answered && !asked) {
     return
   }
@@ -803,6 +819,7 @@ export function applyRobotsFacts(repositoryPath: string, view: RobotsView, chang
     listed,
     failing,
     needsReview: change === null ? view.needsReview : (change.needsReview ?? previous.needsReview),
+    problems: change === null ? view.problems : (change.problems ?? previous.problems),
     problemsFailed: change === null ? view.problemsFailed : (change.problemsFailed ?? previous.problemsFailed),
   }))
   if (robots !== entry.robots) {

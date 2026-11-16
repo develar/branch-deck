@@ -60,8 +60,9 @@ pub(crate) struct Caches {
   pub(crate) reviews: Cache<String, (Instant, Duration, domain_types::patronus::PatronusReviewRequirement)>,
   /// By `repository/source/target`: the open merge request, None = none (asked again after a while)
   pub(crate) merge_requests: Cache<String, (Instant, Option<crate::client::MergeRequestDto>)>,
-  /// By robot id, of finished robots: the error problems
-  pub(crate) problems: Cache<String, Vec<domain_types::patronus::PatronusProblem>>,
+  /// By robot id, of finished robots: the problems of every severity as Patronus answered them, which the details of
+  /// the robot and its failure read too
+  pub(crate) problems: Cache<String, std::sync::Arc<[crate::client::ProblemDto]>>,
   /// By build id: its progress, so the details open in two windows ask it once a minute
   pub(crate) build_progress: Cache<String, (Instant, crate::client::BuildProgressDto)>,
   /// By robot id: its progress of the new API (`robots/progress`), kept as a build's is

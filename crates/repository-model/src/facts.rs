@@ -1011,20 +1011,23 @@ impl RobotsFact {
     self.view.failing != before
   }
 
-  /// The problems of the failed robot `id`: whether it failed for missing code-owner approvals, or why they weren't given
+  /// The problems of the failed robot `id`: kept for its card, and whether it failed for missing code-owner approvals,
+  /// or why they weren't given
   pub fn problems_answer(&mut self, id: &str, result: Result<Vec<PatronusProblem>, ApiError>) -> bool {
-    let before = (self.view.needs_review.get(id).copied(), self.view.problems_failed.get(id).cloned());
+    let of = |view: &RobotsView| (view.needs_review.get(id).copied(), view.problems.get(id).cloned(), view.problems_failed.get(id).cloned());
+    let before = of(&self.view);
     match result {
       Ok(problems) => {
         let needs_review = problems.iter().any(|problem| problem.subsystem.as_deref() == Some(REVIEW_APPROVAL_SUBSYSTEM));
         self.view.needs_review.insert(id.to_owned(), needs_review);
+        self.view.problems.insert(id.to_owned(), problems);
         self.view.problems_failed.remove(id);
       }
       Err(reason) => {
         self.view.problems_failed.insert(id.to_owned(), reason.message);
       }
     }
-    before != (self.view.needs_review.get(id).copied(), self.view.problems_failed.get(id).cloned())
+    before != of(&self.view)
   }
 
   /// The details of a robot, which name what a list doesn't: its merge profile, kept on the robot when it has none (the
@@ -1054,6 +1057,7 @@ impl RobotsFact {
       .failing
       .retain(|id| robots.get(id).is_some_and(|robot| robot.status == PatronusRobotStatus::Running));
     self.view.needs_review.retain(|id, _| robots.contains_key(id));
+    self.view.problems.retain(|id, _| robots.contains_key(id));
     self.view.problems_failed.retain(|id, _| robots.contains_key(id));
   }
 

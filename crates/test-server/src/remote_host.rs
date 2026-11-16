@@ -60,6 +60,7 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     HeldAnswer::Readiness => Some(("POST", "/app/rest/v1/pre-merge-approval-required-check")),
     // of every robot
     HeldAnswer::RobotProblems => Some(("GET", "/app/rest/v1/robots/*/problems")),
+    HeldAnswer::RobotChecks => Some(("GET", "/app/rest/v1/robots/*/teamcity-checks")),
     HeldAnswer::PullRequests
     | HeldAnswer::ReviewRequests
     | HeldAnswer::LandingNeeds
@@ -151,6 +152,9 @@ pub enum HeldAnswer {
   LandingNeeds,
   /// Why a robot failed (`GET /app/rest/v1/robots/{id}/problems`, of every robot)
   RobotProblems,
+  /// The checks of a robot (`GET /app/rest/v1/robots/{id}/teamcity-checks`, of every robot): its details, which its
+  /// card asks as it opens, come at the release
+  RobotChecks,
   /// The rules of a base (the session's read, `TestFactSources::branch_rules`): whether a push dismisses the approvals
   BranchRules,
   /// The merge profiles of the target (the session's read, `TestFactSources::profiles`): held there
@@ -210,6 +214,7 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
     | HeldAnswer::Readiness
     | HeldAnswer::LandingNeeds
     | HeldAnswer::RobotProblems
+    | HeldAnswer::RobotChecks
     | HeldAnswer::BranchRules
     | HeldAnswer::Profiles
     | HeldAnswer::RepositoryView
@@ -487,7 +492,7 @@ impl RemoteHost {
           let (method, path) = github_route(*answer).expect("a route of the fake GitHub");
           self.github.hold(method, path)
         }
-        HeldAnswer::Robots | HeldAnswer::Start | HeldAnswer::Restart | HeldAnswer::Cancel | HeldAnswer::Readiness | HeldAnswer::RobotProblems => {
+        HeldAnswer::Robots | HeldAnswer::Start | HeldAnswer::Restart | HeldAnswer::Cancel | HeldAnswer::Readiness | HeldAnswer::RobotProblems | HeldAnswer::RobotChecks => {
           let (method, path) = patronus_route(*answer).expect("a route of the fake Patronus");
           self.patronus.hold(method, path)
         }

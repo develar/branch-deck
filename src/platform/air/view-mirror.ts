@@ -154,7 +154,15 @@ function patronusChange(before: PatronusPart, after: PatronusPart): PatronusChan
 
 function robotsChange(before: RobotsView, after: RobotsView): RobotsChange {
   const { changed, removed } = keyedDiff(before.robots, after.robots)
-  return { head: after.head, robots: changed, removedRobots: removed, failing: after.failing, needsReview: after.needsReview, problemsFailed: after.problemsFailed }
+  return {
+    head: after.head,
+    robots: changed,
+    removedRobots: removed,
+    failing: after.failing,
+    needsReview: after.needsReview,
+    problems: after.problems,
+    problemsFailed: after.problemsFailed,
+  }
 }
 
 function pullRequestsChange(before: PullRequestsView, after: PullRequestsView): PullRequestsChange {

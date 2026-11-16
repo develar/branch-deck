@@ -5770,7 +5770,7 @@ landing of a session](#the-landing-of-a-session)).
 | Family | Part of the view | Read through `FactSources` | Asked by `domain_policy::refresh` | Written by the commands |
 |---|---|---|---|---|
 | robots | `facts.robots`, by id | `robots` (a list, `since` its window), `poll` (the running ones) | `robots_list_due`, `robots_poll_at` | `write_robot` |
-| failing and problems | on each robot | `failing` (one read), `problems` (one per robot) | `robot_failing_due`, `robot_problems_due`, after each list or poll | — |
+| failing and problems | `facts.robots`: `failing`; `needsReview`, `problems` and `problemsFailed` by id | `failing` (one read), `problems` (one per robot) | `robot_failing_due`, `robot_problems_due`, after each list or poll | — |
 | robot details | `facts.robotDetails`, by id | `robot_details` | `robot_details_due`, only while demanded | — |
 | pull requests | `facts.pullRequests`, by branch and stack root | `pull_requests` (one GraphQL search) | `pull_requests_due`, `pull_requests_push_recheck_at` | `write_pull_request` |
 | branch rules | `facts.rules`, by base | `branch_rules` | `branch_rules_due`, once per base | — |
@@ -5832,14 +5832,15 @@ then by the rules of [Load on Patronus](../../openspec/specs/branch/patronus/spe
 robots the session matches to the tips of its table and of the watched robots of the demand (`facts::robots_digest`);
 each robot keeps the number of the read or the write that wrote it, and a failed answer keeps the robots `Stale`. After
 each answer the scheduler asks which running robots of the poll a failed required check dooms and the problems of the
-failed robots of the table not known yet, and a robot known running that an answer shows merged or failed is news: a
+failed robots of the table not known yet (kept by id, `RobotsView::problems`, which the card of the robot shows as it
+opens, above its actions; the service keeps them for the details, which ask no problems of such a robot again), and a robot known running that an answer shows merged or failed is news: a
 merge once the Patronus view of the robots it merged in stands (no derivation runs after it; at once without a table),
 with the open pull requests its landing closes (`domain_policy::landed::pull_requests_to_close`, which the page has the
 session close, `CloseLandedPullRequests`, and `brd robot` lists), a failure once its problems say whether for missing approvals. A landing
 without a robot is news too, by the same rule (`repository_model::landed_closes`, `NewsEvent::Landed`): a push into the
 target as it ends, the fetched baseline once per branch and tip, a merged pull request once per head, each pull request
 told once by any landing; the session keeps what landed them for the comments of their close. The details of a robot (`facts.robotDetails`: its checks,
-the build progress of the running ones, its profile) are read while a surface of a window demands them, again when its
+the build progress of the running ones, its profile, the problems of a robot not read ahead) are read while a surface of a window demands them, again when its
 status changes and every 61 s while it runs, and dropped when no window demands them; a details answer puts on the
 robot what a list doesn't name (`RobotsFact::details_answer`: the profile, failing while it runs). The page stores what
 the patches bring (`applyRobotsFacts`, `src/stores/robot-details.ts`), tells each news once (`tellRobotNews`) and asks

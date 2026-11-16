@@ -8778,6 +8778,7 @@ export type RobotsChange = {
 	removedRobots?: string[],
 	failing?: string[] | null,
 	needsReview?: { [key in string]: boolean } | null,
+	problems?: { [key in string]: PatronusProblem[] } | null,
 	problemsFailed?: { [key in string]: string } | null,
 };
 
@@ -8797,6 +8798,7 @@ export type RobotsHead = {
  *  repository and how the fact stands (`head`: `Loading` until the first answer, `Stale` with the robots of an earlier
  *  answer after a failure, `Unavailable` after a failure without one), the robots by id, and what the session asked of
  *  them after its answers: which running ones a failed required check dooms, why the failed robots of the table failed
+ *  (their problems, and whether for missing approvals)
  */
 export type RobotsView = {
 	head: Fact<RobotsHead>,
@@ -8808,6 +8810,11 @@ export type RobotsView = {
 	 *  approvals
 	 */
 	needsReview: { [key in string]: boolean },
+	/**
+	 *  By id, the failed robots of the table whose problems were read (those of `needs_review`): their problems of
+	 *  severity error, why each failed, which its card shows as it opens, before the details of the robot come
+	 */
+	problems: { [key in string]: PatronusProblem[] },
 	/**  By id, the failed robots of the table whose problems Patronus didn't give, with why */
 	problemsFailed: { [key in string]: string },
 };

@@ -26,7 +26,9 @@ use crate::landing::{LandDecisions, Landed, LandedPullRequest};
 use crate::landing_route::{LandingRemote, LandingRoute};
 use crate::next_step::NextStepView;
 use crate::operation::{OperationId, ReviewedLayer, RunningOperation};
-use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
+use crate::patronus::{
+  PatronusAvailability, PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch,
+};
 use crate::pull_request::{BranchRules, MergeMethods, PullRequest, PullRequestAvailability, PullRequestView, ViewerPermission};
 use crate::range_reading::{RequestReading, StackRowReading};
 use crate::reason::Reason;
@@ -728,6 +730,7 @@ pub struct PullRequestsView {
 /// repository and how the fact stands (`head`: `Loading` until the first answer, `Stale` with the robots of an earlier
 /// answer after a failure, `Unavailable` after a failure without one), the robots by id, and what the session asked of
 /// them after its answers: which running ones a failed required check dooms, why the failed robots of the table failed
+/// (their problems, and whether for missing approvals)
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -739,6 +742,9 @@ pub struct RobotsView {
   /// By id, the failed robots of the table whose problems were read: whether they failed for missing code-owner
   /// approvals
   pub needs_review: BTreeMap<String, bool>,
+  /// By id, the failed robots of the table whose problems were read (those of `needs_review`): their problems of
+  /// severity error, why each failed, which its card shows as it opens, before the details of the robot come
+  pub problems: BTreeMap<String, Vec<PatronusProblem>>,
   /// By id, the failed robots of the table whose problems Patronus didn't give, with why
   pub problems_failed: BTreeMap<String, String>,
 }
@@ -1608,6 +1614,9 @@ pub struct RobotsChange {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub needs_review: Option<BTreeMap<String, bool>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub problems: Option<BTreeMap<String, Vec<PatronusProblem>>>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub problems_failed: Option<BTreeMap<String, String>>,

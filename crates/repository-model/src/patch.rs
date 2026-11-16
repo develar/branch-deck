@@ -223,6 +223,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
       removed_robots,
       failing,
       needs_review,
+      problems,
       problems_failed,
     } = robots;
     let view = &mut view.facts.robots;
@@ -230,6 +231,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     apply_keyed(&mut view.robots, robots, &removed_robots);
     set_if_some(&mut view.failing, failing);
     set_if_some(&mut view.needs_review, needs_review);
+    set_if_some(&mut view.problems, problems);
     set_if_some(&mut view.problems_failed, problems_failed);
   }
   view.news.extend(news);
@@ -657,6 +659,7 @@ pub(crate) fn robots_change(last: &RobotsView, now: &RobotsView) -> Option<Robot
     removed_robots,
     failing: changed(&last.failing, &now.failing),
     needs_review: changed(&last.needs_review, &now.needs_review),
+    problems: changed(&last.problems, &now.problems),
     problems_failed: changed(&last.problems_failed, &now.problems_failed),
   };
   (change != RobotsChange::default()).then_some(change)

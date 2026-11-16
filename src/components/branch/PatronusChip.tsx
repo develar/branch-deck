@@ -17,7 +17,7 @@ import { getRobotItems, robotProblemsReason, useRobotParts } from "@/hooks/useBr
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useEarlierRobot } from "@/hooks/useRowRobot"
-import type { PatronusRobot, PatronusRobotProgress } from "@/lib/bindings"
+import type { PatronusProblem, PatronusRobot, PatronusRobotProgress } from "@/lib/bindings"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
@@ -34,7 +34,7 @@ import type { RobotAction } from "@/presenters/actions"
 import { isRestart } from "@/presenters/actions"
 import { formatPendingFact } from "@/presenters/next-step"
 import { useBranch, useBranchRemoteStatus, useBranchTip, useStackBranch } from "@/stores/branch-sync"
-import { patronusStore, useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotRestart } from "@/stores/patronus"
+import { patronusStore, useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotProblems, useRobotRestart } from "@/stores/patronus"
 
 /**
  * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
@@ -103,7 +103,7 @@ export function RobotStatusChip({ branchName, robot, chip, label, className, sta
         "data-outdated": chip.outdated || undefined,
         "data-stack-path": stackPath ? "landing" : undefined,
       }}
-      details={<PatronusRobotDetails branchName={branchName} robot={robot} loadDetails={open} {...(stackRoot !== undefined && { stackRoot })} />}
+      details={<PatronusRobotDetails key={robot.id} branchName={branchName} robot={robot} loadDetails={open} {...(stackRoot !== undefined && { stackRoot })} />}
       detailsTestId="patronus-popover"
       onActivate={() => openRobot(robot)}
       onOpenChange={setOpen}
@@ -128,10 +128,11 @@ export interface PatronusRobotDetailsProps {
 }
 
 /**
- * The mode and the state with "Open in Patronus" as an icon, the name, the target, the profile, the commit and the
- * times, the checks and the problems, a notice when the branch changed since the robot took its commit (a quiet line
- * when it was only rebuilt on a newer baseline), then the actions of the robot as the branch menu names them
- * (`RobotActionRows`). The chip popover and the branch preview show it.
+ * The mode and the state with "Open in Patronus" as an icon, the name, the target, the commit and the times, a notice
+ * when the branch changed since the robot took its commit (a quiet line when it was only rebuilt on a newer baseline),
+ * why a failed robot failed (its problems, the session read them ahead), then the actions of the robot as the branch
+ * menu names them (`RobotActionRows`), then what its details tell once they come: the profile, the progress, the checks
+ * and the problems not known as it opened. The chip popover and the branch preview show it, one per robot (`key`).
  */
 export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot }: PatronusRobotDetailsProps) {
   const needsReview = useRobotNeedsReview(robot.id)
@@ -146,6 +147,11 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
   const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing, earlier })
   const Icon = patronusChipIcons[chip.kind]
   const details = useRobotDetails(robot.id, loadDetails)
+  // why a failed robot of the table failed, read ahead by the session: the reason stands above the actions when it was
+  // known as the card opened, else it comes with the details, past them
+  const readProblems = useRobotProblems(robot.id)
+  const [reasonFirst] = useState(() => readProblems !== undefined)
+  const problems = readProblems ?? details?.problems ?? []
   // what its restart does, as Rust decides it of the branch and its remote (`restart_action`)
   const restart = useRobotRestart(robot.id)?.action ?? null
   const notice = formatRobotCommitNotice(robot, chip, localTip, restart)
@@ -216,6 +222,8 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
 
       <ReviewCommitNotice text={notice} outdated={chip.outdated} testId="patronus" />
 
+      {reasonFirst && <RobotProblems problems={problems} />}
+
       {needsReview && (
         <p className="text-xs text-warning" data-testid="patronus-needs-review">
           {robot.pullRequest == null ? (
@@ -231,9 +239,10 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
       )}
 
       {/*
-        what the details of the robot tell comes a frame or more after the card opened, when the session read them: on
-        the side of the actions away from the edge the card hangs by, below them in a card under its chip, above them in
-        one over it (`data-side` of the popup), so their coming moves no action under the pointer (Safe Push moved 28 px)
+        what the details of the robot tell comes a frame or more after the card opened, when the session read them (and
+        why a robot failed when the session had not read it ahead): on the side of the actions away from the edge the
+        card hangs by, below them in a card under its chip, above them in one over it (`data-side` of the popup), so their
+        coming moves no action under the pointer (Safe Push moved 28 px)
       */}
       <div className="flex flex-col gap-3 in-data-[side=top]:flex-col-reverse">
         <RobotActionRows
@@ -245,7 +254,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
             ) : null
           }
         />
-        {(profileName !== null || progress !== null || details?.checks != null || (details !== null && details.problems.length > 0) || problemsUnknown !== null) && (
+        {(profileName !== null || progress !== null || details?.checks != null || (!reasonFirst && problems.length > 0) || problemsUnknown !== null) && (
           <div className="flex flex-col gap-3" data-testid="patronus-late-details">
             {(profileName !== null || progress !== null || details?.checks != null) && (
               <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
@@ -276,16 +285,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
                 )}
               </dl>
             )}
-            {details !== null && details.problems.length > 0 && (
-              <ul className="flex flex-col gap-1 text-xs text-destructive" data-testid="patronus-problems">
-                {details.problems.map(problem => (
-                  <li key={problem.title} className="flex items-start gap-1.5">
-                    <CircleXIcon className="mt-px size-3.5 shrink-0" />
-                    {problem.title}
-                  </li>
-                ))}
-              </ul>
-            )}
+            {!reasonFirst && <RobotProblems problems={problems} />}
 
             {/* why it failed is still to come or Patronus didn't give it: the restart and the prompts wait, and say why here */}
             {problemsUnknown !== null && (
@@ -300,6 +300,23 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
         )}
       </div>
     </div>
+  )
+}
+
+/** The problems of severity error of a robot, why it failed or will fail; nothing without one */
+function RobotProblems({ problems }: { problems: readonly PatronusProblem[] }) {
+  if (problems.length === 0) {
+    return null
+  }
+  return (
+    <ul className="flex flex-col gap-1 text-xs text-destructive" data-testid="patronus-problems">
+      {problems.map(problem => (
+        <li key={problem.title} className="flex items-start gap-1.5">
+          <CircleXIcon className="mt-px size-3.5 shrink-0" />
+          {problem.title}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -466,7 +483,7 @@ export function BranchPatronusSection({ branchName }: { branchName: string }) {
   }
   return (
     <section aria-label="Patronus" className="rounded-lg border border-border p-3" data-testid="branch-preview-patronus">
-      <PatronusRobotDetails branchName={branchName} robot={robot} loadDetails />
+      <PatronusRobotDetails key={robot.id} branchName={branchName} robot={robot} loadDetails />
     </section>
   )
 }

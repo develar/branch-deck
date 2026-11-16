@@ -26,7 +26,8 @@ export type PatronusCommandReply = { readonly status: "pending" } | { readonly s
  * An answer of a fake a test holds back (`HeldAnswer` of `remote_host.rs`): GitHub's search of the user's pull
  * requests, the review requests, the list of the robots, the start, the restart and the cancel of a robot, the
  * pre-check of the code-owner review, the answer of the
- * computation of the landing needs, why a robot failed (its problems, of every robot), the rules of a branch, the merge
+ * computation of the landing needs, why a robot failed (its problems, of every robot), the checks of a robot (its
+ * details, which its card asks as it opens, come at the release), the rules of a branch, the merge
  * profiles of the target, the view of the robots, the status of the sign-ins (the read of the sessions and of
  * Settings), the tools of Settings, a push to the remote of the repository (which has its pack then, and moves no ref until the release), the
  * creation of a pull request and a review request on GitHub, a sync run of the session (it runs until the release,
@@ -45,6 +46,7 @@ export type HeldAnswer =
   | "readiness"
   | "landingNeeds"
   | "robotProblems"
+  | "robotChecks"
   | "branchRules"
   | "profiles"
   | "repositoryView"

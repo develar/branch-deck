@@ -128,15 +128,18 @@ impl PatronusService {
     }
     let token = self.action_token()?;
     let client = self.client();
-    let (robot, checks, problems) = tokio::join!(
-      client.get_robot(&token.value, robot_id),
-      client.get_teamcity_checks(&token.value, robot_id),
-      client.get_problems(&token.value, robot_id),
-    );
+    // the problems of a finished robot the session read ahead (`robot_problems`) are not asked again
+    let known = self.caches.problems.get(robot_id);
+    let (robot, checks, problems) = tokio::join!(client.get_robot(&token.value, robot_id), client.get_teamcity_checks(&token.value, robot_id), async {
+      match &known {
+        Some(problems) => Ok(Arc::clone(problems)),
+        None => client.get_problems(&token.value, robot_id).await.map(Arc::from),
+      }
+    },);
     let robot = self.settle(robot, &token.stamp).map_err(availability_message)?;
     let checks = checks.ok();
     // the checks and the problems are extras: the details show without them
-    let raw_problems: Arc<[ProblemDto]> = problems.unwrap_or_default().into();
+    let raw_problems: Arc<[ProblemDto]> = problems.unwrap_or_else(|_| Arc::from([]));
     let (problems, failing) = split_problems(raw_problems.to_vec());
     let details = CachedDetails {
       robot,
@@ -146,8 +149,8 @@ impl PatronusService {
       raw_checks: checks.map(Arc::from),
       raw_problems,
     };
-    if parse_status(&details.robot.status).is_finished() {
-      self.caches.problems.insert(robot_id.to_string(), details.problems.clone());
+    if known.is_none() && parse_status(&details.robot.status).is_finished() {
+      self.caches.problems.insert(robot_id.to_string(), Arc::clone(&details.raw_problems));
     }
     self.caches.details.insert(robot_id.to_string(), (Instant::now(), details.clone()));
     Ok(details)
@@ -361,18 +364,18 @@ impl PatronusService {
     messages
   }
 
-  /// The error problems of a finished robot, asked once per session (the chip names a missing review); the details
-  /// popover fills the same cache
+  /// The error problems of a finished robot, asked once per process (the chip names a missing review, the card shows
+  /// them): the details of the robot take them from the same cache, and fill it
   #[instrument(skip(self))]
   pub async fn robot_problems(&self, robot_id: &str) -> Result<Vec<PatronusProblem>, ActionError> {
     if let Some(problems) = self.caches.problems.get(robot_id) {
-      return Ok(problems);
+      return Ok(split_problems(problems.to_vec()).0);
     }
     let token = self.token(true).map_err(|result| availability_message(result.availability))?;
     let response = self.client().get_problems(&token.value, robot_id).await;
-    let (problems, _) = split_problems(self.settle(response, &token.stamp).map_err(availability_message)?);
-    self.caches.problems.insert(robot_id.to_string(), problems.clone());
-    Ok(problems)
+    let problems: Arc<[ProblemDto]> = self.settle(response, &token.stamp).map_err(availability_message)?.into();
+    self.caches.problems.insert(robot_id.to_string(), Arc::clone(&problems));
+    Ok(split_problems(problems.to_vec()).0)
   }
 
   /// Of the running robots `robot_ids`, the ones that will fail: a required check failed and Patronus registered its

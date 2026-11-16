@@ -382,8 +382,8 @@ fn the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones() {
   assert_eq!(robots_digest(&state, fact.view(), NOTHING_ASKED).unknown_failing, vec!["auth-robot".to_owned()]);
 }
 
-/// The problems of a failed robot of the table are asked until known; a read that failed says why and is asked again
-/// (after an answer, the scheduler's rule); a failed robot of no branch has none asked
+/// The problems of a failed robot of the table are asked until known, and kept for its card; a read that failed says why
+/// and is asked again (after an answer, the scheduler's rule); a failed robot of no branch has none asked
 #[test]
 fn the_problems_of_a_failed_robot_of_the_table_are_asked_until_known() {
   let state = synced_table();
@@ -414,12 +414,17 @@ fn the_problems_of_a_failed_robot_of_the_table_are_asked_until_known() {
     title: "Changes require review approval".into(),
     subsystem: Some(REVIEW_APPROVAL_SUBSYSTEM.into()),
   };
-  fact.problems_answer("auth-failed", Ok(vec![review]));
+  fact.problems_answer("auth-failed", Ok(vec![review.clone()]));
   assert_eq!(
     (fact.view().needs_review.get("auth-failed"), fact.view().problems_failed.get("auth-failed")),
     (Some(&true), None)
   );
+  // why it failed, for the card of the robot as it opens
+  assert_eq!(fact.view().problems.get("auth-failed"), Some(&vec![review]));
   assert_eq!(problems(&fact), Vec::new());
+  // a robot no longer listed goes with its problems
+  fact.answer(at(2, 0, 2), FULL_LIST, listed(Vec::new()), &mut Vec::new());
+  assert_eq!(fact.view().problems.get("auth-failed"), None);
 }
 
 /// A robot known running that an answer shows merged is news at once while no table is there to derive the view of

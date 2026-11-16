@@ -157,15 +157,19 @@ function contains(box: { x: number; y: number; width: number; height: number }, 
   return point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height
 }
 
-/** `height` px high, the issue_links repository whose ABC-123 has `FAILED`, which needs review: its card offers Safe Push */
+/**
+ * `height` px high, the issue_links repository whose ABC-123 has `FAILED`, which needs review: its card offers Safe Push;
+ * Patronus answers `details` of it too
+ */
 async function setupNeedsReview(
   page: Page,
   setupRepo: Parameters<typeof setupRobots>[1],
   syncAndWaitForBranches: Parameters<typeof setupRobots>[2],
   height: number,
+  details: Record<string, unknown> = {},
 ): Promise<{ repo: TestRepositoryBuilder; robot: Locator }> {
   await page.setViewportSize({ width: 960, height })
-  const repo = await setupStarts(page, withMissingApprovals(setupRepo), syncAndWaitForBranches, FAILED)
+  const repo = await setupStarts(page, withMissingApprovals(setupRepo, details), syncAndWaitForBranches, FAILED)
   const robot = chip(page, "ABC-123")
   await expect(robot).toHaveText("Needs review")
   return { repo, robot }
@@ -206,43 +210,48 @@ async function pressSafePushInTheRobotCard(
 }
 
 /**
- * The robot card of `robot` opened by a hover, as it stands: its open zooms it in, and the details of the robot come a
- * frame or more after it opened (here its problems), past its actions: Safe Push keeps its box as they come
+ * The robot card of `robot` opened by a hover, as it stands: its open zooms it in; why its robot failed is in it as it
+ * opens (the session read it ahead), and the details that come a frame or more later stand past its actions
  */
 async function openRobotCard(page: Page, robot: Locator): Promise<Locator> {
   const card = await hoverStatusChip(page, robot, "patronus-popover")
   await animationsEnded(card)
-  const button = card.getByTestId("safe-push-button")
-  const before = await boxOf(button)
   await expect(card.getByTestId("patronus-problems")).toBeVisible()
-  expect(await boxOf(button), "Safe Push as the details of the robot came").toEqual(before)
   return card
 }
 
 /**
- * The card of ABC-123 (a robot that needs review: its card offers Safe Push) opened `height` px high with the problems of
- * its robot held, the pointer on Safe Push: as the problems come, Safe Push keeps its box
+ * The card of ABC-123 (a robot that needs review: its card offers Safe Push) opened `height` px high with the details of
+ * its robot held (its checks): why it failed stands above Safe Push as the card opens, read ahead, and the card asks
+ * Patronus no problems again; the pointer on Safe Push, the checks come past it, and Safe Push keeps its box
  */
-async function expectSafePushStaysAsRobotDetailsCome(
+async function expectReasonFirstAndSafePushStaysAsRobotDetailsCome(
   page: Page,
   setupRepo: Parameters<typeof setupRobots>[1],
   syncAndWaitForBranches: Parameters<typeof setupRobots>[2],
   height: number,
 ): Promise<void> {
-  const { repo, robot } = await setupNeedsReview(page, setupRepo, syncAndWaitForBranches, height)
-  // the problems held: the card opens without them
-  await repo.holdRemoteAnswers({ hold: ["robotProblems"] })
+  const { repo, robot } = await setupNeedsReview(page, setupRepo, syncAndWaitForBranches, height, robotChecks(FAILED.id, [["Fast Tests", "FAILURE"], ...passedChecks(9)]))
+  const asked = (await repo.getPatronusLog()).requests.problems
+  expect(asked, "the session read why the robot failed ahead").toContain(FAILED.id)
+  // the details held: the card opens without them
+  await repo.holdRemoteAnswers({ hold: ["robotChecks"] })
   const card = await hoverStatusChip(page, robot, "patronus-popover")
   await animationsEnded(card)
-  await repo.arrival("robotProblems")
-  await expect(card.getByTestId("patronus-problems")).toHaveCount(0)
+  await repo.arrival("robotChecks")
+  const problems = card.getByTestId("patronus-problems")
+  await expect(problems).toHaveText("Changes require review approval")
+  await expect(card.getByTestId("patronus-checks")).toHaveCount(0)
   const button = card.getByTestId("safe-push-button")
+  // the reason, then what to do about it
+  expect((await boxOf(problems)).y, "the problems stand above Safe Push").toBeLessThan((await boxOf(button)).y)
   await button.hover()
   const before = await boxOf(button)
-  await repo.holdRemoteAnswers({ release: ["robotProblems"] })
-  await expect(card.getByTestId("patronus-problems")).toBeVisible()
+  await repo.holdRemoteAnswers({ release: ["robotChecks"] })
+  await expect(card.getByTestId("patronus-checks")).toHaveText("1 failing (Fast Tests), 9 passed")
   expect(await boxOf(button)).toEqual(before)
   await expect(card).toBeVisible()
+  expect((await repo.getPatronusLog()).requests.problems, "the card asked no problems again").toEqual(asked)
 }
 
 /** The pointer leaves the card for its chip: the card stays open and stands where an open of it puts it */
@@ -280,8 +289,8 @@ async function startedBranches(repo: TestRepositoryBuilder): Promise<string[]> {
 }
 
 /** `setupRepo` with Patronus answering that `FAILED` failed for missing code-owner approvals */
-function withMissingApprovals(setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>) {
-  return (template: string, options: SetupRepoOptions) => setupRepo(template, { ...options, patronusDetails: missingApprovals(FAILED.id) })
+function withMissingApprovals(setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>, details: Record<string, unknown> = {}) {
+  return (template: string, options: SetupRepoOptions) => setupRepo(template, { ...options, patronusDetails: { ...missingApprovals(FAILED.id), ...details } })
 }
 
 /** "Create Pull Request…" of the slot of JIRA-456, whose approvals count only in a pull request it doesn't have: its dialog */
@@ -489,21 +498,22 @@ test.describe("Patronus actions", () => {
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
   })
 
-  // the details of a robot (its checks, problems and profile) are read as its card opens, and come a frame or more after
-  // it: they stand on the side of the actions away from the edge the card hangs by, so they move no action
+  // why a failed robot failed is read ahead, so its card shows it above the actions as it opens; the details of the robot
+  // (its checks and profile) are read as its card opens, and come a frame or more after it: they stand on the side of the
+  // actions away from the edge the card hangs by, so they move no action
   test(
-    "should keep Safe Push of the robot card under the pointer as the details of its robot come, 700 px high",
+    "should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, 700 px high",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await expectSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, 700)
+      await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, 700)
     },
   )
 
   test(
-    "should keep Safe Push of the robot card under the pointer as the details of its robot come, 420 px high",
+    "should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, 420 px high",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await expectSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, 420)
+      await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, 420)
     },
   )
 
