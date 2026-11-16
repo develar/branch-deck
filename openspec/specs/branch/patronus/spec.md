@@ -1549,8 +1549,8 @@ severity error.
 
 The details MUST be `GET /robots/{id}`, `/teamcity-checks` and `/problems` (every severity: the errors are shown, the
 warning `robot_is_failing` marks the robot failing, [below](#failing)) in parallel, cached by the backend: a finished
-robot for the process, a running one for a minute. In one process the problems of a finished robot MUST be asked once,
-by the read ahead and the details together; a failed read is asked again. After a warm start the first open asks them.
+robot for the process, a running one for a minute. Only the read ahead of a failed robot MUST keep its problems, for
+the process, asked again only after a failure; the details take them or join its read, else ask on their own.
 
 #### Scenario: The details of a robot
 - **WHEN** the details of a robot are read
@@ -1578,14 +1578,24 @@ by the read ahead and the details together; a failed read is asked again. After 
   [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, 700 px high`)
 
 #### Scenario: The details and the read ahead ask at once
-- **WHEN** the details and the read ahead of a robot that just failed ask its problems at once
+- **WHEN** the details of a robot that just failed are read while its read ahead asks its problems
 - **THEN** one request answers both
   [@test] crates/patronus/src/actions_test.rs (`the_details_and_the_read_ahead_of_a_failed_robot_ask_its_problems_once`)
 
+#### Scenario: The details of a robot that ran when they asked
+- **GIVEN** the details of a running robot ask its problems, and the robot fails meanwhile
+- **WHEN** the read ahead asks why it failed
+- **THEN** it sends its own request and keeps what Patronus says of the failed robot, not the problems of the running one
+  [@test] crates/patronus/src/actions_test.rs (`the_read_ahead_of_a_robot_that_failed_joins_no_problems_read_of_its_details_while_it_ran`)
+
+#### Scenario: A warm start
+- **WHEN** the app starts again with the robots of the frame, why the failed ones failed among them
+- **THEN** the card shows the reason as it opens, and its first details ask the problems once more (the process kept none)
+
 #### Scenario: The details could not read the problems
 - **WHEN** Patronus fails the problems of the details of a finished robot
-- **THEN** the details are not kept and the problems are no answer: the read ahead asks Patronus and has them, and a
-  reopen of the card asks the details again
+- **THEN** the details are not kept and keep no problems: the read ahead asks Patronus and has them, and a reopen of
+  the card asks the details again
   [@test] crates/patronus/src/actions_test.rs (`problems_the_details_could_not_read_are_asked_again`)
 
 ### Requirement: Details: Why a failed robot failed shows as its card opens
@@ -1611,6 +1621,14 @@ bring ([Branch Row](../branch-row/spec.md)).
 - **WHEN** they come
 - **THEN** the problems and the notice of the missing review stand among the late details, and Restart keeps its box
   [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 700 px high`, `should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 420 px high`)
+
+#### Scenario: Why a robot without a pull request failed comes after its card opened
+- **GIVEN** the card of a failed robot without a pull request open while its problems are still to come, the pointer on
+  its Restart
+- **WHEN** they say it failed for missing approvals
+- **THEN** Safe Push comes in the place of Restart, which a new Safe Push replaces, and the problems and the notice stand
+  among the late details
+  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, 700 px high`, `should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, 420 px high`)
 
 ### Requirement: Details: The session reads the details at once, and every 61 s of a running robot
 

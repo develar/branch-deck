@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use sync_utils::list_cut::kept;
+use sync_utils::single_flight::Begin;
 use sync_utils::timestamp::{parse_rfc3339_timestamp, unix_now};
 use tokio::sync::Semaphore;
 use tracing::Instrument;
@@ -131,22 +132,13 @@ impl PatronusService {
     let (robot, checks, problems) = tokio::join!(
       client.get_robot(&token.value, robot_id),
       client.get_teamcity_checks(&token.value, robot_id),
-      self.problems_of(&token.value, robot_id),
+      self.details_problems(&token.value, robot_id),
     );
     let robot = self.settle(robot, &token.stamp).map_err(availability_message)?;
     let checks = checks.ok();
-    let finished = parse_status(&robot.status).is_finished();
     // the checks and the problems are extras: the details show without them
     let problems_read = problems.is_ok();
-    let raw_problems: Arc<[ProblemDto]> = match problems {
-      Ok(problems) => {
-        if finished {
-          self.keep_problems(robot_id, &problems);
-        }
-        problems
-      }
-      Err(_) => Arc::from([]),
-    };
+    let raw_problems: Arc<[ProblemDto]> = problems.unwrap_or_else(|_| Arc::from([]));
     let (problems, failing) = split_problems(raw_problems.to_vec());
     let details = CachedDetails {
       robot,
@@ -163,24 +155,21 @@ impl PatronusService {
     Ok(details)
   }
 
-  /// The problems of every severity of the robot `robot_id`: of a finished robot those kept in this process (the read
-  /// ahead or its details asked them once), else asked of Patronus in one request for every caller that asks while it
-  /// runs (the details of its card and the read ahead of a robot that just failed)
-  async fn problems_of(&self, token: &str, robot_id: &str) -> Result<Arc<[ProblemDto]>, PatronusError> {
+  /// The problems of every severity of the robot `robot_id` for its details: those the read ahead of the finished robot
+  /// kept in this process, or the answer of its read in the air; else a request of their own, which leads no flight and
+  /// keeps nothing: the details don't know whether the robot had finished when Patronus answered (a running robot's
+  /// details are read every 61 s), so only the read ahead, which asks of a failed robot, keeps them
+  async fn details_problems(&self, token: &str, robot_id: &str) -> Result<Arc<[ProblemDto]>, PatronusError> {
     if let Some(problems) = self.caches.problems.get(robot_id) {
       return Ok(problems);
     }
-    let client = self.client();
-    self
-      .caches
-      .problem_reads
-      .run(robot_id.to_string(), || async { client.get_problems(token, robot_id).await.map(Arc::from) })
-      .await
-  }
-
-  /// Keeps the problems Patronus answered of the finished robot `robot_id` for this process; the first answer stays
-  fn keep_problems(&self, robot_id: &str, problems: &Arc<[ProblemDto]>) {
-    self.caches.problems.get_with(robot_id.to_string(), || Arc::clone(problems));
+    if let Begin::Join(read) = self.caches.problem_reads.begin(robot_id.to_string())
+      && let Some(answer) = read.await
+    {
+      return answer;
+    }
+    // a `Lead` is dropped at once: the flight ends without an answer, and a read ahead that joined it meanwhile leads anew
+    self.client().get_problems(token, robot_id).await.map(Arc::from)
   }
 
   /// The estimate of the CI for the running checks of a running robot: with `new_api` what Patronus folded for the robot
@@ -391,17 +380,33 @@ impl PatronusService {
     messages
   }
 
-  /// The error problems of a finished robot, asked once per process (the chip names a missing review, the card shows
-  /// them), and again only after a failure: the details of the robot share the request and the problems kept
+  /// The error problems of a failed robot, asked once per process (the chip names a missing review, the card shows
+  /// them), and again only after a failure. Its flight is the only one of the problems of the robot: it keeps the answer
+  /// before it answers (`sync_utils::single_flight`), the first answer stays, and the details of its card join it or take
+  /// what it kept
   #[instrument(skip(self))]
   pub async fn robot_problems(&self, robot_id: &str) -> Result<Vec<PatronusProblem>, ActionError> {
     if let Some(problems) = self.caches.problems.get(robot_id) {
       return Ok(split_problems(problems.to_vec()).0);
     }
     let token = self.token(true).map_err(|result| availability_message(result.availability))?;
-    let response = self.problems_of(&token.value, robot_id).await;
+    let client = self.client();
+    let response = self
+      .caches
+      .problem_reads
+      .run(robot_id.to_string(), || async {
+        // a flight that ended just before this one began kept its answer
+        if let Some(problems) = self.caches.problems.get(robot_id) {
+          return Ok(problems);
+        }
+        let answer = client.get_problems(&token.value, robot_id).await.map(Arc::<[ProblemDto]>::from);
+        match answer {
+          Ok(problems) => Ok(self.caches.problems.get_with(robot_id.to_string(), || problems)),
+          Err(error) => Err(error),
+        }
+      })
+      .await;
     let problems = self.settle(response, &token.stamp).map_err(availability_message)?;
-    self.keep_problems(robot_id, &problems);
     Ok(split_problems(problems.to_vec()).0)
   }
 

@@ -301,7 +301,8 @@ async fn details_of_a_finished_robot_are_asked_once() {
 }
 
 /// The card of a failed robot asks Patronus for its robot and its checks, not again for the problems the session read
-/// ahead of it (`robot_problems`), and neither does its failure; the details read first fill them for the read ahead
+/// ahead of it (`robot_problems`), and neither does its failure; the details read first keep no problems for the read
+/// ahead, which asks its own
 #[tokio::test]
 async fn the_card_of_a_failed_robot_asks_no_problems_again() {
   let (fake, client) = start_fake().await;
@@ -325,26 +326,61 @@ async fn the_card_of_a_failed_robot_asks_no_problems_again() {
   );
   assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished", "finished-failure"]);
 
-  // the details first: the read ahead takes their problems
+  // the details first: they don't know whether the robot had finished as Patronus answered
   service.robot_details("me", "finished-other", false).await.unwrap();
   assert_eq!(service.robot_problems("finished-other").await.unwrap(), read);
-  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished", "finished-failure", "finished-other"]);
+  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished", "finished-failure", "finished-other", "finished-other"]);
 }
 
-/// The details and the read ahead of a robot that just failed ask its problems at once: one request for both
+/// The details of a robot that just failed, read while the read ahead asks its problems, join that read: one request
 #[tokio::test]
 async fn the_details_and_the_read_ahead_of_a_failed_robot_ask_its_problems_once() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
   let gate = fake.hold("GET", "/app/rest/v1/robots/*/problems");
+  let mut read = Box::pin(service.robot_problems("finished"));
+  gate.reached_by(&mut read).await;
   let release = async {
-    gate.arrived().await;
     tokio::task::yield_now().await;
     gate.open();
   };
-  let (details, read, ()) = tokio::join!(service.robot_details("me", "finished", false), service.robot_problems("finished"), release);
+  let (read, details, ()) = tokio::join!(read, service.robot_details("me", "finished", false), release);
   assert_eq!(details.unwrap().problems, read.unwrap());
   assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished"]);
+}
+
+/// The details of a robot read while it ran ask its problems on their own: the read ahead once it failed sends its own
+/// request, keeps what Patronus says of the failed robot, and the warning of the running one is not kept for it
+#[tokio::test]
+async fn the_read_ahead_of_a_robot_that_failed_joins_no_problems_read_of_its_details_while_it_ran() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let problem = |unique: Option<&str>, title: &str, severity: &str, subsystem: &str| serde_json::json!({"id": title, "uniqueId": unique, "title": title, "detailsMarkdown": null, "severity": severity, "subsystem": subsystem});
+  let warning = problem(Some("robot_is_failing"), "This Safe Push will fail", "WARNING", "TEAMCITY_CHECKS");
+  fake.problems.lock().unwrap().insert("flip".to_string(), serde_json::json!([warning]));
+  let gate = fake.hold("GET", "/app/rest/v1/robots/*/problems");
+  let mut details = Box::pin(service.robot_details("me", "flip", false));
+  gate.reached_by(&mut details).await;
+  // the robot failed meanwhile: the poll told the session, which reads why
+  let review = problem(None, "Changes require review approval", "ERROR", "OWNERSHIP_REVIEW_APPROVAL_CHECK");
+  fake.problems.lock().unwrap().insert("flip".to_string(), serde_json::json!([review]));
+  let release = async {
+    gate.arrived_times(2).await;
+    gate.open();
+  };
+  let (details, read, ()) = tokio::join!(details, service.robot_problems("flip"), release);
+  details.unwrap();
+  assert_eq!(
+    read.unwrap(),
+    vec![PatronusProblem {
+      title: "Changes require review approval".to_string(),
+      subsystem: Some("OWNERSHIP_REVIEW_APPROVAL_CHECK".to_string()),
+    }]
+  );
+  assert_eq!(*fake.problem_calls.lock().unwrap(), ["flip", "flip"]);
+  // kept: asked no more
+  assert_eq!(service.robot_problems("flip").await.unwrap().len(), 1);
+  assert_eq!(fake.problem_calls.lock().unwrap().len(), 2);
 }
 
 /// Problems Patronus did not give the details are no answer: the details are not kept, and the read ahead asks Patronus

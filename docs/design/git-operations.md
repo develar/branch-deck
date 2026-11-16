@@ -5833,7 +5833,7 @@ robots the session matches to the tips of its table and of the watched robots of
 each robot keeps the number of the read or the write that wrote it, and a failed answer keeps the robots `Stale`. After
 each answer the scheduler asks which running robots of the poll a failed required check dooms and the problems of the
 failed robots of the table not known yet (kept by id, `RobotsView::problems`, which the card of the robot shows as it
-opens, above its actions; the service keeps them for the process and shares the request with the details, which ask no problems of such a robot again), and a robot known running that an answer shows merged or failed is news: a
+opens, above its actions; the service keeps them for the process from the read ahead alone, whose request the details join, so they ask no problems of such a robot again), and a robot known running that an answer shows merged or failed is news: a
 merge once the Patronus view of the robots it merged in stands (no derivation runs after it; at once without a table),
 with the open pull requests its landing closes (`domain_policy::landed::pull_requests_to_close`, which the page has the
 session close, `CloseLandedPullRequests`, and `brd robot` lists), a failure once its problems say whether for missing approvals. A landing

@@ -9,3 +9,6 @@
 - [x] 1.6 Review: only an answer of the problems is kept (never overwritten, the details without them not kept), one
   request for the details and the read ahead (`single_flight`), the notice of a missing review placed with the problems;
   E2E: Restart keeps its box as why the robot failed comes after the card opened, 700 and 420 px high.
+- [x] 1.7 Re-review: only the read ahead leads the problems read and keeps its answer inside its flight; the details join
+  it, take what it kept, or ask on their own and keep nothing; E2E: Safe Push comes in the place of Restart for a robot
+  without a pull request as why it failed comes after the card opened.
