@@ -5,15 +5,22 @@ import { join } from "node:path"
 import { test } from "node:test"
 import { releaseCheckoutLock, retryWhileShared, takeCheckoutLock } from "./checkout-lock.mjs"
 
-/** A lock path in a directory of its own, and the pids that run: 1001 and 1002 (999 ended) */
-function setup() {
+/** A directory of its own, removed after the test `t` */
+function tempDir(t) {
   const dir = mkdtempSync(join(tmpdir(), "checkout-lock-"))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  return dir
+}
+
+/** A lock path in a directory of its own, removed after the test `t`, and the pids that run: 1001 and 1002 (999 ended) */
+function setup(t) {
+  const dir = tempDir(t)
   const running = new Set([1001, 1002])
   return { dir, lock: join(dir, "e2e-run.lock"), isAlive: pid => running.has(pid), running }
 }
 
-test("a free checkout is taken, a run that holds it refuses another, and the release frees it", () => {
-  const { dir, lock, isAlive } = setup()
+test("a free checkout is taken, a run that holds it refuses another, and the release frees it", t => {
+  const { dir, lock, isAlive } = setup(t)
   takeCheckoutLock(lock, 1001, { isAlive })
   assert.equal(readFileSync(lock, "utf8"), "1001")
   assert.throws(() => takeCheckoutLock(lock, 1002, { isAlive }), /Another pnpm e2e runs in this checkout \(pid 1001\)/)
@@ -23,16 +30,16 @@ test("a free checkout is taken, a run that holds it refuses another, and the rel
   assert.deepEqual(readdirSync(dir), [])
 })
 
-test("the lock of a run that ended is taken over, and nothing of either is left beside it", () => {
-  const { dir, lock, isAlive } = setup()
+test("the lock of a run that ended is taken over, and nothing of either is left beside it", t => {
+  const { dir, lock, isAlive } = setup(t)
   writeFileSync(lock, "999")
   takeCheckoutLock(lock, 1001, { isAlive })
   assert.equal(readFileSync(lock, "utf8"), "1001")
   assert.deepEqual(readdirSync(dir), ["e2e-run.lock"])
 })
 
-test("two starts that take over the same dead lock at once: the second keeps it, the first refuses", () => {
-  const { dir, lock, isAlive } = setup()
+test("two starts that take over the same dead lock at once: the second keeps it, the first refuses", t => {
+  const { dir, lock, isAlive } = setup(t)
   writeFileSync(lock, "999")
   // the first read the dead holder; before it moves the lock, the second takes it over whole
   const first = () =>
@@ -45,8 +52,8 @@ test("two starts that take over the same dead lock at once: the second keeps it,
   assert.deepEqual(readdirSync(dir), ["e2e-run.lock"])
 })
 
-test("a start holding the takeover of a dead lock makes the others refuse, and it keeps the lock", () => {
-  const { dir, lock, isAlive } = setup()
+test("a start holding the takeover of a dead lock makes the others refuse, and it keeps the lock", t => {
+  const { dir, lock, isAlive } = setup(t)
   writeFileSync(lock, "999")
   let refused = 0
   takeCheckoutLock(lock, 1001, {
@@ -85,7 +92,7 @@ function runInterleaved(lock, running, [pid, inner], outcomes) {
   }
 }
 
-test("three starts that take over the same dead lock at once, in every order of their steps: one owns it, the others refuse, nothing else is left", () => {
+test("three starts that take over the same dead lock at once, in every order of their steps: one owns it, the others refuse, nothing else is left", t => {
   const running = new Set([1001, 1002, 1003])
   const steps = Array.from({ length: 8 }, (_, step) => step)
   // the second start whole at a step of the first, the third at a later step of the first or at a step of the second
@@ -107,7 +114,7 @@ test("three starts that take over the same dead lock at once, in every order of 
   )
   // a lock whose run ended; also with the takeover of a start that ended within it
   const lefts = [{ "e2e-run.lock": "999" }, { "e2e-run.lock": "999", "e2e-run.lock.takeover": "998" }]
-  const dir = mkdtempSync(join(tmpdir(), "checkout-lock-"))
+  const dir = tempDir(t)
   const lock = join(dir, "e2e-run.lock")
   let ran = 0
   for (const left of lefts) {
@@ -136,8 +143,8 @@ test("three starts that take over the same dead lock at once, in every order of 
   assert.ok(ran > 50, `${ran} orders ran all three starts`)
 })
 
-test("a start removes the files of the starts that ended, the pid in their names, and keeps those of running ones", () => {
-  const { dir, lock, isAlive } = setup()
+test("a start removes the files of the starts that ended, the pid in their names, and keeps those of running ones", t => {
+  const { dir, lock, isAlive } = setup(t)
   for (const name of ["e2e-run.lock.999", "e2e-run.lock.stale.999", "e2e-run.lock.takeover.stale.998", "e2e-run.lock.1002", "notes.txt"]) {
     writeFileSync(join(dir, name), name.match(/\d+/)?.[0] ?? "")
   }
@@ -173,8 +180,8 @@ test("on Windows a call another process holds is tried again for about a second;
   assert.deepEqual(waits, [])
 })
 
-test("a takeover a start took after the read of a dead one goes back in its place, and the start that moved it aside refuses", () => {
-  const { dir, lock } = setup()
+test("a takeover a start took after the read of a dead one goes back in its place, and the start that moved it aside refuses", t => {
+  const { dir, lock } = setup(t)
   const takeover = `${lock}.takeover`
   writeFileSync(lock, "999")
   writeFileSync(takeover, "998")
@@ -192,8 +199,8 @@ test("a takeover a start took after the read of a dead one goes back in its plac
   assert.deepEqual(readdirSync(dir).sort(), ["e2e-run.lock", "e2e-run.lock.takeover"])
 })
 
-test("a start leaves the takeover it finds another's as it ends its own", () => {
-  const { dir, lock, isAlive } = setup()
+test("a start leaves the takeover it finds another's as it ends its own", t => {
+  const { dir, lock, isAlive } = setup(t)
   const takeover = `${lock}.takeover`
   writeFileSync(lock, "999")
   // while 1001 holds the takeover, the takeover becomes 1002's (the window after a start that ended in it)
