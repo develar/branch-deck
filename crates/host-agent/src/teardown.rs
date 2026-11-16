@@ -97,3 +97,7 @@ fn processes_of<'s>(scan: &'s ProcessScan, named: &[String], dirs: &[&Path]) -> 
   left.dedup_by_key(|process| process.pid);
   left
 }
+
+#[cfg(test)]
+#[path = "teardown_test.rs"]
+mod teardown_test;
