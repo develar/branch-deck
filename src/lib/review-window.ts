@@ -3,7 +3,8 @@ import type { ReviewCommit, ReviewPart, ReviewRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { reviewBlockerOf } from "@/lib/branch-review"
 import type { BranchReviewFocus } from "@/lib/branch-review"
-import { logError, notifyError } from "@/lib/errors"
+import { readAhead } from "@/lib/command"
+import { notifyError } from "@/lib/errors"
 import type { ReviewSource } from "@/lib/pull-request-review"
 import { keptBranchName } from "@/lib/review-actions"
 import { reviewGroupsOf } from "@/lib/review-groups"
@@ -55,10 +56,10 @@ function prefetchOnce(key: string, review: Parameters<typeof commands.prefetchRe
     return
   }
   prefetched.add(key)
-  void commands.prefetchReview(review).then(result => {
-    if (result.status === "error") {
+  void readAhead(`the review of ${what}`, () => commands.prefetchReview(review)).then(read => {
+    // the next open reads it ahead again
+    if (!read) {
       prefetched.delete(key)
-      logError(`Cannot read the review of ${what} ahead`, result.error)
     }
   })
 }

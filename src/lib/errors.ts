@@ -122,7 +122,10 @@ export function notifyError(title: string, error: unknown, action?: ToastActionP
   })
 }
 
-/** Logs a warning: no failure of the app, a thing of the user's own the app cannot use (a pattern of theirs that is no regex) */
+/**
+ * Logs a warning: no failure of the app, a thing of the user's own the app cannot use (a pattern of theirs that is no
+ * regex), or a read ahead that failed (`readAhead` of src/lib/command.ts), which the read asked for tells again
+ */
 export function logWarning(title: string, detail: unknown): void {
   console.warn(title, detail)
   logWarningToBackend(title, { keyValues: { detail: getErrorDetails(detail) } }).catch((logFailure: unknown) => {

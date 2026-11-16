@@ -16,6 +16,7 @@ targets:
   - src/components/shared/WindowPage.tsx
   - src/lib/branch-review.ts
   - src/lib/review-window.ts
+  - src/lib/command.ts
   - src/lib/review-groups.ts
   - src/stores/review-readiness.ts
   - src/hooks/usePreviewHotkeys.ts
@@ -345,6 +346,19 @@ memory while the window starts, so its first read finds them read (`prefetch_rev
 - **THEN** the backend reads the segments, the files and the patch of the part the window shows first into its memory while the window starts (`prefetch_review`)
 - **AND** the first read of the window finds them read
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should read the review of a branch ahead as its window opens, once per state, and nothing on a hover or a focus of its row`)
+
+### Requirement: Opening: A read ahead that fails is a warning
+
+The read ahead is best effort (`readAhead` of src/lib/command.ts): its failure, of the command or of the IPC, MUST be a
+warning of the log, never an error line or a rejection of the page, as the read of the window tells its own; the next
+open MUST read it ahead again.
+
+#### Scenario: A read ahead that fails
+- **WHEN** the read ahead fails, the command or the IPC (a request WebKit fails as its page goes)
+- **THEN** the log has a warning "Cannot read the review of a branch ahead", no error line, and the page no unhandled rejection
+- **AND** the next open of the same state reads it ahead again, and one that read is not read again
+  [@test] src/lib/review-window.test.ts (`is a warning where the IPC fails, no rejection of the page, and the next open reads ahead again; one that read is not read again`)
+  [@test] src/lib/command.test.ts (`answers whether it read; a failure of the command or of the IPC is a warning, never an error or a rejection`)
 
 ### Requirement: Opening: The read ahead runs once per state of the branch
 

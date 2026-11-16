@@ -49,7 +49,9 @@ imports and naming, the patched dependencies, and the React and WebKit behaviour
   never a second toast of the same event. Every user-facing error
   goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity),
   which words it by its code (`describeError`: a held lock names its holder); a store decides by `error.code`
-  (`canceled` toasts nothing), never by `error.message`.
+  (`canceled` toasts nothing), never by `error.message`. A read ahead of what the user asks for next (`prefetch_review`
+  as a review opens) runs through `readAhead` of `src/lib/command.ts`: its failure, of the command or of the IPC, is a
+  warning of the log, never an error and never a rejection of the page, as the read asked for tells its own.
 - **Wording** ([UX Writing](ux-writing.md)): a toast title says what happened ("Pushed feature-ui"),
   never "Success"/"Error"; errors are "Cannot <verb> <object>" with the reason; a toast about an object opens it
   ("Open in Patronus"); Title Case for buttons, menu items and toast actions, sentence case for the rest; "…", "·",
