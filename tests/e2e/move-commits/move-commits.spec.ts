@@ -322,16 +322,25 @@ test.describe("Move commits", () => {
     await expect(renameInput).toHaveValue("docs")
     await docsChecked
 
-    // the check of the name typed next fails, as a call whose link dropped does: the field says why, the submit stays open
-    await routeCommandError(page, "validate_branch_name", { code: "internal", message: "The link to the IDE dropped" }, { times: 1 })
+    // the check of the name typed next fails, as a call whose link dropped does, and so does the one of the first submit:
+    // the submit stays open for a check whose call failed
+    await routeCommandError(page, "validate_branch_name", { code: "internal", message: "The link to the IDE dropped" }, { times: 2 })
     const failedCheck = nextAnswer(page, "validate_branch_name")
     await renameInput.fill("documentation")
     await failedCheck
-    await expect(form).toContainText("Cannot check the branch name: The link to the IDE dropped")
     const rename = form.getByRole("button", { name: "Rename", exact: true })
     await expect(rename).toBeEnabled()
 
-    // the submit asks the check again, which answers now, and renames
+    // the submit asks the check again; failed once more, it renames nothing and the field says why (the form words its
+    // check only after a submit it refused)
+    const failedAgain = nextAnswer(page, "validate_branch_name")
+    await rename.click()
+    await failedAgain
+    await expect(form).toContainText("Cannot check the branch name: The link to the IDE dropped")
+    await expect(findBranchRow(page, "docs")).toHaveCount(1)
+    await expect(rename).toBeEnabled()
+
+    // the next submit asks again, the check answers now, and it renames
     await runAndWaitForSync(page, () => rename.click())
     await verifyCommitCount(findBranchRow(page, "documentation"), 1)
     await expect(findBranchRow(page, "docs")).toHaveCount(0)

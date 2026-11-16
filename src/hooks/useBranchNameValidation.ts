@@ -18,8 +18,8 @@ export interface BranchNameValidation extends CheckedBranchName {
   /** Rust has not answered for the name as it is typed now: the answer of an earlier name shows meanwhile */
   pending: boolean
   /**
-   * The call of the check of the name as typed now failed: the field says why, and a submit may ask again
-   * (`settled`), so a form opens its submit for it as for a pending check
+   * The call of the check of the name as typed now failed: a submit may ask again (`settled`), so a form opens its
+   * submit for it as for a pending check; one that fails again is refused, and the field says why
    */
   checkFailed: boolean
   /** The check of the name as typed now, asked at once when Rust has not answered yet: a submit waits for it */
