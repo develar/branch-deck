@@ -229,15 +229,16 @@ async function expectReasonFirstAndSafePushStaysAsRobotDetailsCome(
   page: Page,
   setupRepo: Parameters<typeof setupRobots>[1],
   syncAndWaitForBranches: Parameters<typeof setupRobots>[2],
-  height: number,
+  placement: CardPlacement,
 ): Promise<void> {
-  const { repo, robot } = await setupNeedsReview(page, setupRepo, syncAndWaitForBranches, height, robotChecks(FAILED.id, [["Fast Tests", "FAILURE"], ...passedChecks(9)]))
+  const { repo, robot } = await setupNeedsReview(page, setupRepo, syncAndWaitForBranches, placement.height, robotChecks(FAILED.id, [["Fast Tests", "FAILURE"], ...passedChecks(9)]))
   const asked = (await repo.getPatronusLog()).requests.problems
   expect(asked, "the session read why the robot failed ahead").toContain(FAILED.id)
   // the details held: the card opens without them
   await repo.holdRemoteAnswers({ hold: ["robotChecks"] })
   const card = await hoverStatusChip(page, robot, "patronus-popover")
   await animationsEnded(card)
+  await expectCardPlaced(card, placement)
   await repo.arrival("robotChecks")
   const problems = card.getByTestId("patronus-problems")
   await expect(problems).toHaveText("Changes require review approval")
@@ -256,50 +257,105 @@ async function expectReasonFirstAndSafePushStaysAsRobotDetailsCome(
 }
 
 /**
- * The card of ABC-123 (a robot that failed for missing approvals) opened `height` px high while why it failed is still
- * to come, held at the fake from the start, the pointer on its Restart, disabled until then; as the problems come, they
- * and the notice of the review come past the actions, among the late details. A robot of pull request #7 keeps its
- * Restart, in its box; one without a pull request offers Safe Push instead, in the place of Restart
+ * Where a robot card stands, `height` px high: under its chip, beside it (neither above nor below has the room), beside it
+ * shifted up against the bottom of the window (`clamped`: it hangs by its bottom edge, `data-hang`), or over it (`over`:
+ * the row of the robot at the bottom of the window)
+ */
+interface CardPlacement {
+  readonly height: number
+  readonly side: "under" | "beside" | "clamped" | "over"
+}
+
+const UNDER: CardPlacement = { height: 700, side: "under" }
+const BESIDE: CardPlacement = { height: 420, side: "beside" }
+const CLAMPED: CardPlacement = { height: 360, side: "clamped" }
+const OVER: CardPlacement = { height: 700, side: "over" }
+
+/** The card stands as `placement` says: the side its positioner chose (`data-side`), and the edge it hangs by */
+async function expectCardPlaced(card: Locator, placement: CardPlacement): Promise<void> {
+  const side = await card.getAttribute("data-side")
+  const hang = await card.getAttribute("data-hang")
+  const where = `${placement.side}: data-side ${side}, data-hang ${hang}, the card at ${JSON.stringify(await boxOf(card))}`
+  // beside its chip the card hangs by its top edge, or by its bottom one once shifted up against the bottom of the window
+  const expected = {
+    under: [["bottom"], ["top"]],
+    beside: [
+      ["left", "right"],
+      ["top", "bottom"],
+    ],
+    clamped: [["left", "right"], ["bottom"]],
+    over: [["top"], ["bottom"]],
+  } as const
+  const [sides, edges] = expected[placement.side]
+  expect(sides as readonly string[], where).toContain(side)
+  expect(edges as readonly string[], where).toContain(hang)
+}
+
+/** The middle of `box`, where a hover rests the pointer */
+function middleOf(box: Box): { x: number; y: number } {
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+}
+
+/** The branches of the `issue_links` template */
+const ISSUE_LINKS_BRANCHES = ["feature-auth", "feature-api", "feature-ui", "feature-db", "feature-docs", "ABC-123", "JIRA-456"]
+
+/**
+ * A robot that failed for missing approvals, of pull request #7 or of none (`withPullRequest`), standing as `placement`
+ * says, why it failed held at the fake from the start: its card opened while that is still to come, the pointer on its
+ * Restart, disabled until then. As the problems come, they and the notice of the review come past the actions, among the
+ * late details. A robot of pull request #7 keeps its Restart under the pointer; one without a pull request offers Safe
+ * Push instead, in the place of Restart. Over its chip every branch has such a robot, and the card is of the lowest row,
+ * the window cut below it
  */
 async function expectActionsStayAsTheReasonComesLate(
   page: Page,
   setupRepo: Parameters<typeof setupRobots>[1],
   syncAndWaitForBranches: Parameters<typeof setupRobots>[2],
-  height: number,
+  placement: CardPlacement,
   withPullRequest: boolean,
 ): Promise<void> {
-  await page.setViewportSize({ width: 960, height })
-  const failed = withPullRequest ? { ...FAILED, pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" } } : FAILED
+  await page.setViewportSize({ width: 960, height: placement.height })
+  const pullRequest = withPullRequest ? { pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" } } : {}
+  const branches = placement.side === "over" ? ISSUE_LINKS_BRANCHES : ["ABC-123"]
+  const robots = branches.map(branch => robot(branch, branch === "ABC-123" ? FAILED.id : `failed-${branch}`, { status: "failure", finishTime: 1704142800, ...pullRequest }))
   const repo = await setupRepo("issue_links", {
-    patronus: availableRobots(failed),
+    patronus: availableRobots(...robots),
     patronusProfiles: { profiles: PROFILES },
-    patronusDetails: missingApprovals(FAILED.id),
+    patronusDetails: { problems: Object.assign({}, ...robots.map(failed => missingApprovals(failed.id).problems)) },
     remoteAnswers: { hold: ["robotProblems"] },
   })
   await syncAndWaitForBranches()
-  const robot = chip(page, "ABC-123")
-  await expect(robot).toHaveText("Failed")
+  let branch = "ABC-123"
+  if (placement.side === "over") {
+    const rows = await Promise.all(branches.map(async name => ({ name, box: await boxOf(findBranchRow(page, name)) })))
+    const lowest = rows.reduce((low, row) => (row.box.y > low.box.y ? row : low))
+    branch = lowest.name
+    // the room under the row too small for the card, over it enough
+    await page.setViewportSize({ width: 960, height: Math.ceil(lowest.box.y + lowest.box.height + 24) })
+  }
+  const robotChip = chip(page, branch)
+  await expect(robotChip).toHaveText("Failed")
   await repo.arrival("robotProblems")
-  const card = await hoverStatusChip(page, robot, "patronus-popover")
+  const card = await hoverStatusChip(page, robotChip, "patronus-popover")
   await animationsEnded(card)
+  await expectCardPlaced(card, placement)
   await expect(card.getByTestId("patronus-problems-unknown")).toBeVisible()
   await expect(card.getByTestId("patronus-needs-review")).toHaveCount(0)
   const restart = card.getByRole("button", { name: "Restart Safe Push" })
   await restart.hover()
-  const before = await boxOf(restart)
+  const pointer = middleOf(await boxOf(restart))
   await repo.holdRemoteAnswers({ release: ["robotProblems"] })
   const late = card.getByTestId("patronus-late-details")
   await expect(late.getByTestId("patronus-needs-review")).toHaveText(
     withPullRequest ? /^The code owners did not approve the changes in pull request #7\./ : /^The code owners did not approve the changes\. Get their approvals/,
   )
   await expect(late.getByTestId("patronus-problems")).toHaveText("Changes require review approval")
-  await expect(robot).toHaveText("Needs review")
+  await expect(robotChip).toHaveText("Needs review")
   if (withPullRequest) {
-    expect(await boxOf(restart)).toEqual(before)
+    expect(contains(await boxOf(restart), pointer), "the pointer is on Restart").toBe(true)
   } else {
     await expect(restart).toHaveCount(0)
-    const safePush = await boxOf(card.getByTestId("safe-push-button"))
-    expect({ x: safePush.x, y: safePush.y }, "Safe Push in the place of Restart").toEqual({ x: before.x, y: before.y })
+    expect(contains(await boxOf(card.getByTestId("safe-push-button")), pointer), "the pointer is on Safe Push, in the place of Restart").toBe(true)
   }
   await expect(card).toBeVisible()
 }
@@ -555,46 +611,67 @@ test.describe("Patronus actions", () => {
     "should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, 700 px high",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, 700)
+      await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, UNDER)
     },
   )
-
   test(
     "should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, 420 px high",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, 420)
+      await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, BESIDE)
+    },
+  )
+  test(
+    "should show why the robot failed above Safe Push as its card opens, and keep Safe Push under the pointer as the details of its robot come, beside its chip against the bottom of the window",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, CLAMPED)
     },
   )
 
   // why a robot failed that comes after its card opened (its read held) comes past the actions, with the notice of the
-  // review it brings, so it moves no action either: Restart stays, or Safe Push comes in its place
+  // review it brings, and the actions the robot no longer offers then go on the side away from the edge the card hangs
+  // by, so no action moves under the pointer: Restart stays, or Safe Push comes in its place
   test(
     "should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 700 px high",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, 700, true)
+      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, UNDER, true)
     },
   )
   test(
     "should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 420 px high",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, 420, true)
+      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, BESIDE, true)
+    },
+  )
+  test(
+    "should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, over its chip",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, OVER, true)
     },
   )
   test(
     "should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, 700 px high",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, 700, false)
+      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, UNDER, false)
     },
   )
   test(
     "should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, 420 px high",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, 420, false)
+      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, BESIDE, false)
+    },
+  )
+  test(
+    "should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, over its chip",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await expectActionsStayAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, OVER, false)
     },
   )
 

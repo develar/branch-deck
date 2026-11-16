@@ -186,6 +186,20 @@ impl FakePatronus {
     self.holds.lock().unwrap().remove(&format!("{method} {path}"));
   }
 
+  /// Waits at the gate of `method path` (`hold`), then the failure of the route when it fails (`set_failing`)
+  async fn held_here(&self, method: &axum::http::Method, path: &str) -> Option<Response> {
+    if let Some(gate) = self.gate(method, path) {
+      gate.pass().await;
+    }
+    self.is_failing(method, path).then(|| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": "INTERNAL_ERROR", "description": "the fixture fails this request"})),
+      )
+        .into_response()
+    })
+  }
+
   fn gate(&self, method: &axum::http::Method, path: &str) -> Option<Arc<FakeGate>> {
     let route = format!("{method} {path}");
     let holds = self.holds.lock().unwrap();
@@ -483,18 +497,19 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
   (fake, PatronusClient::new(url, "Branch Deck test"))
 }
 
+/// The routes whose handler waits at the gate itself (`FakePatronus::held_here`), after it read what it answers: a held
+/// request answers what Patronus had when it was asked
+const GATED_IN_HANDLER: &[&str] = &["GET /app/rest/v1/robots/*/problems"];
+
 /// A request waits at its gate (`FakePatronus::hold`) before it is answered, and fails then where its route fails
 /// (`FakePatronus::set_failing`)
 async fn held(State(fake): State<Arc<FakePatronus>>, request: axum::extract::Request, next: axum::middleware::Next) -> Response {
-  if let Some(gate) = fake.gate(request.method(), request.uri().path()) {
-    gate.pass().await;
+  let route = format!("{} {}", request.method(), request.uri().path());
+  if GATED_IN_HANDLER.iter().any(|pattern| route_matches(pattern, &route)) {
+    return next.run(request).await;
   }
-  if fake.is_failing(request.method(), request.uri().path()) {
-    return (
-      StatusCode::INTERNAL_SERVER_ERROR,
-      Json(serde_json::json!({"error": "INTERNAL_ERROR", "description": "the fixture fails this request"})),
-    )
-      .into_response();
+  if let Some(failed) = fake.held_here(request.method(), request.uri().path()).await {
+    return failed;
   }
   next.run(request).await
 }
@@ -698,17 +713,21 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
       "/app/rest/v1/robots/{id}/problems",
       get(|State(fake): State<Arc<FakePatronus>>, Path(id): Path<String>| async move {
         fake.problem_calls.lock().unwrap().push(id.clone());
-        let problems = fake.problems.lock().unwrap().get(&id).cloned();
-        if let Some(problems) = problems {
-          return fake.answer(serde_json::json!({"robotId": id, "problems": problems}));
-        }
-        if fake.is_state_only() {
-          return fake.answer(serde_json::json!({"robotId": id, "problems": []}));
-        }
-        let mut problems = vec![serde_json::json!({"id": "p", "uniqueId": null, "title": "Changes require review approval", "detailsMarkdown": null, "severity": "ERROR", "subsystem": "OWNERSHIP_REVIEW_APPROVAL_CHECK"})];
-        // a required check of the running robot failed: it runs on, but it will fail
-        if id == "running" {
-          problems.push(serde_json::json!({"id": "w", "uniqueId": "robot_is_failing", "title": "This Safe Push will fail because required checks have already failed", "detailsMarkdown": "Cancel it to save resources", "severity": "WARNING", "subsystem": "TEAMCITY_CHECKS"}));
+        // the problems as Patronus had them when it was asked: a held request answers them after its gate
+        let problems = fake.problems.lock().unwrap().get(&id).cloned().unwrap_or_else(|| {
+          if fake.is_state_only() {
+            return serde_json::json!([]);
+          }
+          let mut problems = vec![serde_json::json!({"id": "p", "uniqueId": null, "title": "Changes require review approval", "detailsMarkdown": null, "severity": "ERROR", "subsystem": "OWNERSHIP_REVIEW_APPROVAL_CHECK"})];
+          // a required check of the running robot failed: it runs on, but it will fail
+          if id == "running" {
+            problems.push(serde_json::json!({"id": "w", "uniqueId": "robot_is_failing", "title": "This Safe Push will fail because required checks have already failed", "detailsMarkdown": "Cancel it to save resources", "severity": "WARNING", "subsystem": "TEAMCITY_CHECKS"}));
+          }
+          serde_json::Value::Array(problems)
+        });
+        let path = format!("/app/rest/v1/robots/{id}/problems");
+        if let Some(failed) = fake.held_here(&axum::http::Method::GET, &path).await {
+          return failed;
         }
         fake.answer(serde_json::json!({"robotId": id, "problems": problems}))
       }),

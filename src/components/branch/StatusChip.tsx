@@ -3,6 +3,7 @@ import type { ComponentProps, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { HoverDescription } from "@/components/shared/HoverDescription"
+import { observeSize } from "@/lib/observe-size"
 import type { StatusChipColor } from "@/lib/status-chip"
 import { statusChipTextColors } from "@/lib/status-chip"
 
@@ -71,7 +72,7 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
       >
         {children}
       </PopoverTrigger>
-      <PopoverContent align="start" anchor={held.anchor} className="w-80 gap-3 p-3" data-testid={detailsTestId} {...held.popupProps}>
+      <PopoverContent {...held.placement} className="w-80 gap-3 p-3" data-testid={detailsTestId} data-hang={held.hang} {...held.popupProps}>
         {details}
       </PopoverContent>
     </Root>
@@ -81,37 +82,136 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
 /** The anchor of a popover that holds still: the place its trigger had */
 type HeldAnchor = Exclude<ComponentProps<typeof PopoverContent>["anchor"], undefined>
 
+type PopupSide = "top" | "bottom" | "left" | "right"
+
+/** The gap between a chip and its details (`sideOffset` of their positioner) */
+const SIDE_OFFSET = 4
+
+/** No correction of an overflow while the details hold still: they stay where they stood */
+const PINNED_COLLISIONS = { side: "none", align: "none", fallbackAxisSide: "none" } as const
+
 /**
- * The anchor of the details while the pointer is in them, or a press that began in them lasts: the place the chip had
- * as the pointer came, so the card holds still under it while the chip moves (the Status column of a row moves as its
- * Actions widen: Stop Waiting comes in the slot of a start pressed in the card, and the card followed its chip 97 px
- * away from the pointer). Once the pointer left the card and no press lasts, the card follows its chip again: the
- * trigger is its anchor once more, which places it anew (docs/contributing/frontend.md, "What comes late beside a hovered
- * control"). The anchor changes, not `disableAnchorTracking` of the positioner: Base UI 1.9 arms the tracking of an
+ * Where the details hold still while the pointer is in them: a virtual anchor, side and alignment whose placement,
+ * without collision avoidance, is the place the details had, hung by the edge they hung by (`hang`)
+ */
+interface Pin {
+  anchor: HeldAnchor
+  side: PopupSide
+  align: "start" | "end"
+  hang: "top" | "bottom"
+}
+
+/**
+ * The edge the details of `side` and `align` hang by, of their box `popup` beside their chip `chip`: the chip's edge of
+ * a card under or over its chip; of a card beside it the top edge, the bottom one when aligned by their ends or shifted
+ * up against the bottom of the viewport (`shift` of the positioner), so what they show more or less goes the other way
+ */
+function hangOf(side: PopupSide, align: string | undefined, popup: DOMRect, chip: DOMRect): "top" | "bottom" {
+  if (side === "top" || side === "bottom") {
+    return side === "top" ? "bottom" : "top"
+  }
+  if (align === "end") {
+    return popup.bottom > chip.bottom + 1 ? "top" : "bottom"
+  }
+  return popup.top < chip.top - 1 ? "bottom" : "top"
+}
+
+/** The side of the popup as its positioner placed it; null before it was placed */
+function sideOf(popup: HTMLElement): PopupSide | null {
+  const side = popup.dataset.side
+  return side === "top" || side === "bottom" || side === "left" || side === "right" ? side : null
+}
+
+/** The pin of the details `popup` where they stand now beside their chip `chip` (`Pin`) */
+function pinOf(popup: HTMLElement, chip: DOMRect): Pin | undefined {
+  const side = sideOf(popup)
+  // the positioner has the box of the popup without the scale of its open
+  const box = popup.parentElement?.getBoundingClientRect()
+  if (side === null || box === undefined) {
+    return undefined
+  }
+  const hang = hangOf(side, popup.dataset.align, box, chip)
+  const vertical = side === "top" || side === "bottom"
+  const x = vertical ? box.left : side === "right" ? box.left - SIDE_OFFSET - chip.width : box.right + SIDE_OFFSET
+  const y = !vertical ? (hang === "top" ? box.top : box.bottom - chip.height) : side === "bottom" ? box.top - SIDE_OFFSET - chip.height : box.bottom + SIDE_OFFSET
+  const rect = new DOMRect(x, y, chip.width, chip.height)
+  return { anchor: { getBoundingClientRect: () => rect }, side, align: !vertical && hang === "bottom" ? "end" : "start", hang }
+}
+
+/**
+ * The details hold still while the pointer is in them, or a press that began in them lasts: placed where they stood as
+ * the pointer came, hung by the edge they hung by (`Pin`), without collision avoidance, so the card holds still under
+ * the pointer while its chip moves (the Status column of a row moves as its Actions widen: Stop Waiting comes in the
+ * slot of a start pressed in the card, and the card followed its chip 97 px away from the pointer), and what comes or
+ * goes in it changes its size on its other edge only: no control between moves. `hang` (`data-hang` of the popup) is
+ * the edge the details hang by, which their content keeps its actions next to (docs/contributing/frontend.md, "What
+ * comes late beside a hovered control"). Once the pointer left the card and no press lasts, the card is placed by its
+ * chip again. The anchor changes, not `disableAnchorTracking` of the positioner: Base UI 1.9 arms the tracking of an
  * anchor again only for a new anchor (floating-ui keeps `whileElementsMounted` in a ref), never for a change of that prop
  */
 function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
-  anchor: HeldAnchor | undefined
-  popupProps: Pick<ComponentProps<"div">, "onPointerEnter" | "onPointerLeave" | "onPointerDown">
+  placement: Pick<ComponentProps<typeof PopoverContent>, "anchor" | "side" | "align" | "sideOffset" | "collisionAvoidance">
+  hang: "top" | "bottom"
+  popupProps: Pick<ComponentProps<"div">, "onPointerEnter" | "onPointerLeave" | "onPointerDown" | "ref">
   reset: () => void
 } {
-  const [anchor, setAnchor] = useState<HeldAnchor | undefined>(undefined)
+  const [pin, setPin] = useState<Pin | undefined>(undefined)
+  // the edge the details hang by while no pin holds them, as their positioner placed them last
+  const [placedHang, setPlacedHang] = useState<"top" | "bottom">("top")
   const inside = useRef(false)
   const pressing = useRef(false)
+  const pinned = useRef(false)
   const release = () => {
     if (!inside.current && !pressing.current) {
-      setAnchor(undefined)
+      pinned.current = false
+      setPin(undefined)
+    }
+  }
+  const measure = (popup: HTMLElement) => {
+    const side = sideOf(popup)
+    const chip = trigger.current?.getBoundingClientRect()
+    const box = popup.parentElement?.getBoundingClientRect()
+    if (!pinned.current && side !== null && chip !== undefined && box !== undefined) {
+      setPlacedHang(hangOf(side, popup.dataset.align, box, chip))
     }
   }
   return {
-    anchor,
+    placement: {
+      anchor: pin?.anchor,
+      side: pin?.side ?? "bottom",
+      align: pin?.align ?? "start",
+      sideOffset: SIDE_OFFSET,
+      collisionAvoidance: pin === undefined ? undefined : PINNED_COLLISIONS,
+    },
+    hang: pin?.hang ?? placedHang,
     popupProps: {
-      onPointerEnter: () => {
+      // the edge they hang by, measured as their size changes and once placed
+      ref: (popup: HTMLDivElement | null) => {
+        if (popup === null) {
+          return
+        }
+        let frame = 0
+        const later = () => {
+          cancelAnimationFrame(frame)
+          frame = requestAnimationFrame(() => measure(popup))
+        }
+        const observer = observeSize(later)
+        observer.observe(popup)
+        later()
+        return () => {
+          observer.disconnect()
+          cancelAnimationFrame(frame)
+        }
+      },
+      onPointerEnter: event => {
         inside.current = true
-        const element = trigger.current
-        if (element !== null) {
-          const rect = element.getBoundingClientRect()
-          setAnchor(current => current ?? { getBoundingClientRect: () => rect })
+        const chip = trigger.current?.getBoundingClientRect()
+        if (!pinned.current && chip !== undefined) {
+          const next = pinOf(event.currentTarget, chip)
+          if (next !== undefined) {
+            pinned.current = true
+            setPin(next)
+          }
         }
       },
       onPointerLeave: () => {
@@ -135,7 +235,8 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
     reset: () => {
       inside.current = false
       pressing.current = false
-      setAnchor(undefined)
+      pinned.current = false
+      setPin(undefined)
     },
   }
 }

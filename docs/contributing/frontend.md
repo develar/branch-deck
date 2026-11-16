@@ -190,10 +190,14 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   the side away from the edge of its place that stands (`fixedEdge`): the left in the header and in the step track of a
   row, which stand at their end (Stop Waiting of Update, Stop Waiting and the actions of a lost start of Safe Push), the
   right in the robot card, whose line starts at its left, and the details of its robot, which the session reads as it
-  opens, past its actions, away from the edge the card hangs by (`data-side`; why a failed robot failed, read ahead,
-  stands before them, where it stood as the card opened); a popover over a moving anchor holds still while the pointer
-  is in it (the details of a chip of Status, `useHeldAnchor` of `StatusChip`: their chip moves as the Actions of its row
-  widen), and stands by the anchor again once the pointer left; a control with nothing to show keeps its place (the
+  opens, past its actions, away from the edge the card hangs by (`data-hang` of the popup: its chip's edge, or the bottom
+  of a card beside its chip shifted up against the bottom of the window; why a failed robot failed, read ahead, stands
+  before them, where it stood as the card opened), and its first row of actions next to that edge, so the second row
+  that goes moves none; on the screen a card hung by its bottom edge reads bottom up while the focus follows the DOM,
+  actions first: accepted. A popover over a moving anchor holds still while the pointer is in it (the details of a chip
+  of Status, `useHeldAnchor` of `StatusChip`: their chip moves as the Actions of its row widen), pinned where it stood,
+  hung by the edge it hung by, without collision avoidance, so what comes or goes changes its other edge only, and
+  stands by the anchor again once the pointer left; a control with nothing to show keeps its place (the
   landing indicator, empty and disabled while nothing is on the way; the time of the last sync, empty before the first
   sync); the items of Status and Actions stand at the end
   of their group, also where the head of the column is wider than they are; a lock wait of a form or a popover

@@ -369,7 +369,10 @@ async fn the_read_ahead_of_a_robot_that_failed_joins_no_problems_read_of_its_det
     gate.open();
   };
   let (details, read, ()) = tokio::join!(details, service.robot_problems("flip"), release);
-  details.unwrap();
+  // the details answered what Patronus had of the running robot: the warning that it will fail, no error
+  let details = details.unwrap();
+  assert!(details.failing);
+  assert_eq!(details.problems, Vec::new());
   assert_eq!(
     read.unwrap(),
     vec![PatronusProblem {

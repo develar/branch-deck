@@ -227,10 +227,12 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
       {/*
         what the details of the robot tell comes a frame or more after the card opened, when the session read them (and
         why a robot failed when the session had not read it ahead): on the side of the actions away from the edge the
-        card hangs by, below them in a card under its chip, above them in one over it (`data-side` of the popup), so their
-        coming moves no action under the pointer (Safe Push moved 28 px)
+        card hangs by, below them in a card hung by its top edge, above them in one hung by its bottom edge (over its
+        chip, or beside it against the bottom of the window: `data-side` and `data-hang` of the popup), so their coming
+        moves no action under the pointer (Safe Push moved 28 px). The order of the rows on the screen is not the order
+        of the focus then: accepted, the actions come first for the keyboard
       */}
-      <div className="flex flex-col gap-3 in-data-[side=top]:flex-col-reverse">
+      <div className="flex flex-col gap-3 in-data-[hang=bottom]:flex-col-reverse in-data-[side=top]:flex-col-reverse">
         <RobotActionRows
           actions={actions}
           // the form is below the row: an open branch preview closes first (`SafePushButton`)
@@ -348,7 +350,9 @@ export function RobotOpenButton({ actions }: { actions: readonly RobotAction[] }
  * popover), "Open in Patronus" aside (`RobotOpenButton`): what decides the robot first, its restart as the primary button
  * (it pushes a change not pushed yet first, cancels a running robot first) and its cancel, after `leading`; then
  * "Start in Air" as the primary way to fix (it opens a session in the IDE that has the repository open), the prompt for
- * an agent, its variant with the CI details in the menu of its split button, and the pull request it was started from
+ * an agent, its variant with the CI details in the menu of its split button, and the pull request it was started from.
+ * The first row stands next to the edge the card hangs by (`data-hang`), so the second, which goes when the robot
+ * turns out to need review, moves no first-row action
  */
 export function RobotActionRows({ actions, leading = null }: { actions: readonly RobotAction[]; leading?: ReactNode }) {
   const of = (id: RobotAction["id"]) => actions.find(action => action.id === id)
@@ -364,7 +368,7 @@ export function RobotActionRows({ actions, leading = null }: { actions: readonly
     return null
   }
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 in-data-[hang=bottom]:flex-col-reverse in-data-[side=top]:flex-col-reverse">
       {decides && (
         <div className="flex flex-wrap gap-2">
           {leading}

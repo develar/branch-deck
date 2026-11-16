@@ -1620,7 +1620,7 @@ bring ([Branch Row](../branch-row/spec.md)).
 - **GIVEN** the card of a failed robot of pull request #7 open while its problems are still to come, the pointer on Restart
 - **WHEN** they come
 - **THEN** the problems and the notice of the missing review stand among the late details, and Restart keeps its box
-  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 700 px high`, `should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 420 px high`)
+  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 700 px high`, `should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 420 px high`, `should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, over its chip`)
 
 #### Scenario: Why a robot without a pull request failed comes after its card opened
 - **GIVEN** the card of a failed robot without a pull request open while its problems are still to come, the pointer on
@@ -1628,7 +1628,7 @@ bring ([Branch Row](../branch-row/spec.md)).
 - **WHEN** they say it failed for missing approvals
 - **THEN** Safe Push comes in the place of Restart, which a new Safe Push replaces, and the problems and the notice stand
   among the late details
-  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, 700 px high`, `should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, 420 px high`)
+  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, 700 px high`, `should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, 420 px high`, `should put Safe Push in the place of Restart under the pointer as why the robot without a pull request failed comes after the card opened, over its chip`)
 
 ### Requirement: Details: The session reads the details at once, and every 61 s of a running robot
 
