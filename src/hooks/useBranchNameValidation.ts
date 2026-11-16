@@ -1,7 +1,9 @@
 import { useDebouncedRead } from "@/hooks/useDebouncedRead"
 import type { BranchNameCheck, BranchNameRules } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { presentBranchNameState } from "@/presenters/branch-name"
+import type { CommandResult } from "@/lib/command"
+import { logError } from "@/lib/errors"
+import { presentBranchNameCheckFailure, presentBranchNameState } from "@/presenters/branch-name"
 import type { BranchNameValidationState } from "@/presenters/branch-name"
 
 /** A typed name as Rust checked it, worded */
@@ -21,12 +23,25 @@ export interface BranchNameValidation extends CheckedBranchName {
 
 const NOTHING_TYPED: CheckedBranchName = { sanitizedBranchName: "", validationState: presentBranchNameState("empty"), isValid: false }
 
-function checked(check: BranchNameCheck | undefined): CheckedBranchName {
-  if (check === undefined) {
+function checked(answer: CommandResult<BranchNameCheck> | undefined): CheckedBranchName {
+  if (answer === undefined) {
     return NOTHING_TYPED
   }
-  const validationState = presentBranchNameState(check.state)
-  return { sanitizedBranchName: check.sanitized, validationState, isValid: validationState.isValid }
+  if (answer.status === "error") {
+    // its call failed (the IPC as the window leaves): no name to submit
+    return { sanitizedBranchName: "", validationState: presentBranchNameCheckFailure(answer.error), isValid: false }
+  }
+  const validationState = presentBranchNameState(answer.data.state)
+  return { sanitizedBranchName: answer.data.sanitized, validationState, isValid: validationState.isValid }
+}
+
+/** The check of `name` (`validate_branch_name`); a failed call is logged and answered as its error */
+async function checkBranchName(name: string, leafOnly: boolean): Promise<CommandResult<BranchNameCheck>> {
+  const result = await commands.validateBranchName({ name, rules: { leafOnly } })
+  if (result.status === "error") {
+    logError("Cannot check the branch name", result.error)
+  }
+  return result
 }
 
 /**
@@ -35,7 +50,7 @@ function checked(check: BranchNameCheck | undefined): CheckedBranchName {
  */
 export function useBranchNameValidation(branchName: string, rules: BranchNameRules = {}): BranchNameValidation {
   const leafOnly = rules.leafOnly === true
-  const ask = (name: string) => commands.validateBranchName({ name, rules: { leafOnly } })
+  const ask = (name: string) => checkBranchName(name, leafOnly)
   const read = useDebouncedRead(branchName === "" ? null : branchName, ask, `${leafOnly}`)
   const shown = branchName === "" ? NOTHING_TYPED : checked(read.answer)
   return {

@@ -284,7 +284,11 @@ export function closeSession(): void {
 
 /** Ends the subscription `id` in Rust; a call that failed (the IPC as its window leaves) is a warning: its late patches reach nothing */
 function unsubscribe(id: number): void {
-  commands.unsubscribeView({ id }).catch((error: unknown) => logWarning("Cannot end the subscription of a view", error))
+  void commands.unsubscribeView({ id }).then(result => {
+    if (result.status === "error") {
+      logWarning("Cannot end the subscription of a view", result.error)
+    }
+  })
 }
 
 /** The end of the subscription of `left`: its late patches reach nothing */

@@ -5,8 +5,9 @@
 //!
 //! An entry is the doc comment of the bindings, then
 //! `<class> <kind>[(<span fields>)] <name>(<argument>: <type>, …) [channel <name>: <event>, open] -> <output> = <body>;`,
-//! the output left out for a `now` command that answers nothing (`void` in the bindings, where `-> ()` would be
-//! `null`):
+//! the output left out for a `now` command that answers nothing (`null` in the bindings). Every command answers a `Result`
+//! in the bindings, the value of a body that cannot fail as `Ok` (`src-tauri/src/api.rs`), so the failed call of any
+//! command is its error answer and none rejects:
 //! - the class says what it does to the app and its repositories: `read` writes nothing, `engine` runs or stops an
 //!   operation of a session (`operations::engine`), `app(<reason>)` writes what no session admits, with the reason
 //!   ([`AppReason`]); the e2e tests answer no command but a `read` in the page (`command_registry_test.rs` of the e2e
@@ -86,7 +87,7 @@ pub enum AppReason {
 pub enum CommandKind {
   /// Async, answers `Result<output, ApiError>` as JSON
   Json,
-  /// A synchronous rule that cannot fail, answers its output as JSON; the bindings return it as it is
+  /// A synchronous rule that cannot fail, answers its output as JSON; the bindings answer it as `Ok`
   Plain,
   /// Async, answers raw bytes: the app registers it beside the typed bindings (`generate_handler!`), and the page calls
   /// it with `invoke` of its own
@@ -95,7 +96,7 @@ pub enum CommandKind {
   Window,
   /// Async, a command of the session of a repository: the frame resolves its key, the body runs as one operation
   Session,
-  /// A synchronous command of a window that cannot fail: the bindings return its output as it is
+  /// A synchronous command of a window whose body cannot fail: the bindings answer its output as `Ok`
   Now,
   /// A synchronous command of a window that can fail, on the main thread of the app
   Main,

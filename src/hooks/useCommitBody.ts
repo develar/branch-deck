@@ -32,19 +32,15 @@ export function useCommitBody(message: string | null): CommitBody | undefined {
       return
     }
     let current = true
-    commands.commitBody({ message }).then(
-      body => {
-        keep(message, body)
-        if (current) {
-          setAnswered({ of: message, body })
-        }
-      },
-      () => {
-        if (current) {
-          setAnswered({ of: message, body: NO_BODY })
-        }
-      },
-    )
+    void commands.commitBody({ message }).then(result => {
+      // a failed read is not kept: the next show asks again
+      if (result.status === "ok") {
+        keep(message, result.data)
+      }
+      if (current) {
+        setAnswered({ of: message, body: result.status === "ok" ? result.data : NO_BODY })
+      }
+    })
     return () => {
       current = false
     }

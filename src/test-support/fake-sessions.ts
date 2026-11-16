@@ -298,8 +298,9 @@ export class FakeSessions {
       return { status: "ok", data: answer === undefined ? this.view(params.repositoryPath) : answer }
     },
     sync: (params: SyncParams): Promise<Result<SyncAnswer>> => this.hold(params),
-    setDemand: async (params: SetDemandParams): Promise<void> => {
+    setDemand: async (params: SetDemandParams): Promise<Result<null>> => {
       this.demandCalls.push(params)
+      return { status: "ok", data: null }
     },
     setWindowFocus: (params: WindowFocusParams): Promise<Result<SyncAnswer | null>> => {
       this.focusCalls.push(params)

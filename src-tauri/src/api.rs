@@ -62,8 +62,10 @@ macro_rules! tauri_commands {
 /// `raw` async with the bytes as a `tauri::ipc::Response`, which the typed bindings cannot say (`raw_handler`),
 /// `now` on the main thread with the call of its webview, `main` the same with its `Result`; `session`, `window` and a
 /// `json` command with a channel
-/// async in the frame of app-api (`Command::call`) with the call of its webview and its channel. The arms of the kinds
-/// come before the arms of any kind, which `macro_rules` tries in order
+/// async in the frame of app-api (`Command::call`) with the call of its webview and its channel. Every typed command
+/// answers a `Result`, the value of a body that cannot fail (`plain`, `now`) as `Ok`: so each is a `typedError` of the
+/// bindings, whose failed call is its error answer, and none rejects (`every_command_of_the_bindings_answers_a_result`).
+/// The arms of the kinds come before the arms of any kind, which `macro_rules` tries in order
 macro_rules! tauri_command {
   ($(#[doc = $doc:literal])* json $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
     $(#[doc = $doc])*
@@ -77,8 +79,8 @@ macro_rules! tauri_command {
     $(#[doc = $doc])*
     #[tauri::command]
     #[specta::specta]
-    pub fn $name($($arg: $type),*) -> $output {
-      $body($($arg),*)
+    pub fn $name($($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
+      Ok($body($($arg),*))
     }
   };
   ($(#[doc = $doc:literal])* raw $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
@@ -89,31 +91,24 @@ macro_rules! tauri_command {
     }
   };
   ($(#[doc = $doc:literal])* now $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
-    $(#[doc = $doc])*
-    #[tauri::command]
-    #[specta::specta]
-    pub fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) -> $output {
-      let call = ctx.call(webview.label());
-      $body(&ctx, &call, $($arg),*)
-    }
+    tauri_command!(@main_thread Ok $(#[doc = $doc])* $name($($arg: $type),*) [$output] = $body);
   };
-  // no output: `void` in the bindings, which an explicit `-> ()` would type `null`
+  // no output: `null` in the bindings, as an `Ok(())`
   ($(#[doc = $doc:literal])* now $name:ident($($arg:ident: $type:ty),*) [] [] = $body:path) => {
-    $(#[doc = $doc])*
-    #[tauri::command]
-    #[specta::specta]
-    pub fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) {
-      let call = ctx.call(webview.label());
-      $body(&ctx, &call, $($arg),*);
-    }
+    tauri_command!(@main_thread Ok $(#[doc = $doc])* $name($($arg: $type),*) [()] = $body);
   };
   ($(#[doc = $doc:literal])* main $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
+    tauri_command!(@main_thread (std::convert::identity) $(#[doc = $doc])* $name($($arg: $type),*) [$output] = $body);
+  };
+  // `now` and `main`: on the main thread with the call of its webview; `$answer` makes the `Result` of the body's answer
+  // (`Ok` of a body that cannot fail)
+  (@main_thread $answer:tt $(#[doc = $doc:literal])* $name:ident($($arg:ident: $type:ty),*) [$output:ty] = $body:path) => {
     $(#[doc = $doc])*
     #[tauri::command]
     #[specta::specta]
     pub fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
       let call = ctx.call(webview.label());
-      $body(&ctx, &call, $($arg),*)
+      $answer($body(&ctx, &call, $($arg),*))
     }
   };
   // `session`, `window`: the call of the webview

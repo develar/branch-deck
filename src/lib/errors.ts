@@ -109,8 +109,8 @@ export function notifyError(title: string, error: unknown, action?: ToastActionP
 /**
  * Logs a warning: no failure of the app, a thing of the user's own the app cannot use (a pattern of theirs that is no
  * regex), a read ahead that failed (`readAhead` of src/lib/command.ts), which the read asked for tells again, or a
- * failed call of a command without a Result the page made in passing (the end of a subscription as its window leaves,
- * the stop of a search, a read of a status the next read tells again)
+ * failed call of a command the page made in passing (the end of a subscription as its window leaves, the stop of a
+ * search, a read of a status the next read tells again)
  */
 export function logWarning(title: string, detail: unknown): void {
   console.warn(title, detail)

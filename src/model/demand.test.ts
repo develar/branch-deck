@@ -16,6 +16,7 @@ vi.mock("@/lib/bindings", () => ({
   commands: {
     setDemand: async (params: SetDemandParams) => {
       sent.push(params)
+      return { status: "ok", data: null }
     },
   },
 }))

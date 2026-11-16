@@ -49,7 +49,7 @@ vi.mock("@/stores/stack-collapse", () => ({ forgetCollapsedStack: () => {}, rena
 vi.mock("@/lib/bindings", async importOriginal => {
   const original = await importOriginal<typeof import("@/lib/bindings")>()
   const { fakeActivity } = await import("@/test-support/fake-activity")
-  return { ...original, commands: { ...original.commands, ...fakeActivity.commands, execute: vi.fn(), cancelOperation: vi.fn() } }
+  return { ...original, commands: { ...original.commands, ...fakeActivity.commands, execute: vi.fn(), cancelOperation: vi.fn(async () => ({ status: "ok", data: true })) } }
 })
 
 const OLD_ID = "1111111111111111111111111111111111111111"

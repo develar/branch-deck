@@ -87,7 +87,7 @@ vi.mock("@/lib/bindings", () => ({
       }
       return { status: "ok", data: outcome }
     },
-    cancelOperation: async () => true,
+    cancelOperation: async () => ({ status: "ok", data: true }),
   },
 }))
 vi.mock("@/model/store", async () => (await import("@/test-support/push-mocks")).modelStoreMock(() => stores.pullRequests))

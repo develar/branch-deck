@@ -54,7 +54,7 @@ vi.mock("@/lib/bindings", () => ({
     },
     cancelOperation: async (params: { op: string }) => {
       engine.calls.push(`cancel ${params.op}`)
-      return true
+      return { status: "ok", data: true }
     },
   },
 }))

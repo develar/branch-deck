@@ -356,5 +356,9 @@ export async function watchAirSession(project: string, sessionId: string, onStat
 
 /** Stops the watch of the session `sessionId` of this window; the watch answers `stopped` */
 export function stopAirWatch(sessionId: string): void {
-  commands.stopAirWatch(sessionId).catch((error: unknown) => logWarning("Cannot stop the watch of an Air session", error))
+  void commands.stopAirWatch(sessionId).then(result => {
+    if (result.status === "error") {
+      logWarning("Cannot stop the watch of an Air session", result.error)
+    }
+  })
 }

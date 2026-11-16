@@ -66,3 +66,28 @@ fn the_bindings_are_what_the_export_writes() {
     "src/lib/bindings.ts is stale: run `{UPDATE_COMMAND}` to regenerate it"
   );
 }
+
+/// Every command of the bindings answers a `Result` (`typedError`): its failed call is its error answer, so no call of
+/// the page rejects and none needs a catch; a command that answered its value as it is rejected as its call failed (the
+/// IPC of the E2E bridge or the Air shim, a refusal of Tauri), an unhandled rejection wherever the page voided it
+#[test]
+fn every_command_of_the_bindings_answers_a_result() {
+  let dir = tempfile::tempdir().unwrap();
+  let exported_path = dir.path().join("bindings.ts");
+  export_bindings(&exported_path);
+  let exported = std::fs::read_to_string(&exported_path).unwrap();
+  let start = exported.find("export const commands = {").expect("the bindings export their commands");
+  let end = start + exported[start..].find("\n};").expect("the commands end");
+  // an entry is one line, `\t<name>: (<arguments>) => <call>`, after its doc comment
+  let entries: Vec<&str> = exported[start..end].lines().filter(|line| line.starts_with('\t') && line.contains(") => ")).collect();
+  assert!(entries.len() > 50, "the commands of the bindings: {}", entries.len());
+  let without_result: Vec<&str> = entries
+    .iter()
+    .filter(|line| !line.contains("=> typedError<"))
+    .map(|line| line.trim_start().split(':').next().unwrap())
+    .collect();
+  assert!(
+    without_result.is_empty(),
+    "these commands answer no Result, so their failed call rejects: give them a kind that answers one ({without_result:?})"
+  );
+}

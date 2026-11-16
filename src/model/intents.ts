@@ -86,10 +86,10 @@ export async function executePlan(repositoryPath: string, plan: Plan, onEvent: (
 /**
  * Stops the operation `op` of the session (`cancel_operation`): a wait for another holder of the repository lock ends
  * with nothing changed, and no effect starts after it; an effect that runs (a push that sends) goes to its end. Resolves
- * whether the session still had it; an IPC failure (the window closes) answers false
+ * whether the session still had it; a failed call (the window closes) answers false
  */
 export function cancelIntent(op: OperationId): Promise<boolean> {
-  return commands.cancelOperation({ op }).catch(() => false)
+  return commands.cancelOperation({ op }).then(result => result.status === "ok" && result.data)
 }
 
 /** How a run of a rewrite went (`executeRewrite`) */

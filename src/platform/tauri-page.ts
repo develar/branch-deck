@@ -66,7 +66,7 @@ export function channelArgument(payload: Record<string, unknown> | undefined, na
  * the retry class and the operation that failed. `name` tells the rejection of the host from its own failure; an answer
  * that is no object is an `internal` error with its words
  */
-export function commandError(error: unknown): { name: "ApiError" } & Record<string, unknown> {
+export function hostRejection(error: unknown): { name: "ApiError" } & Record<string, unknown> {
   if (typeof error === "object" && error !== null) {
     return { ...(error as Record<string, unknown>), name: "ApiError" }
   }

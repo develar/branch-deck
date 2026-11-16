@@ -98,12 +98,6 @@
 //   show on the row of the same name and act on what the session before held. A store that only projects the view (its
 //   answers come anew with the view of another session), is keyed by what a commit is (a tip, a robot) or holds no row
 //   is an entry of ALLOWLIST that says so.
-// A command that answers a `Result` never rejects: the bindings answer every failure as its error (`commandError` of
-// src/lib/api-error.ts); a command without one (`__TAURI_INVOKE` of src/lib/bindings.ts: `unsubscribeView`,
-// `setDemand`, …) rejects as its call fails (the IPC of the E2E bridge or the Air shim, a refusal of Tauri), which a
-// `void` drops as an unhandled rejection that `typescript/no-floating-promises` lets pass:
-// - `void-command`: a `void commands.<command>(…)` of a command without a `Result` (read from the bindings) whose chain
-//   handles no rejection (a `.catch(…)`, a second argument of `.then`), in src (its tests aside).
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`), of a write a test polls
 // (`e2e-remote-poll`, with the exact `count` of its findings in the file) and of a store of the view (`row-store`;
@@ -306,61 +300,6 @@ function registryCalls(text, registry) {
     const command = registry.get(call[1])
     return command === undefined ? [] : [{ command, line: text.slice(0, call.index + call[0].length).split("\n").length }]
   })
-}
-
-const BINDINGS = "src/lib/bindings.ts"
-// a command of the bindings that answers no `Result`: its call is the invoke itself, no `typedError`
-const REJECTING_COMMAND = /^\t([\w$]+): \([^\n]*\) => __TAURI_INVOKE\b/gm
-// a `void` of a call of a command of the bindings, its name and the `(` of its arguments
-const VOID_COMMAND = /(?<![\w$.])void\s+commands\s*\.\s*([\w$]+)\s*(?=\()/g
-// a member called on a chain (`.then(`, `?.catch(`), across lines as Oxfmt breaks a chain
-const CHAINED_CALL = /^\??\.\s*([\w$]+)\s*\(/
-
-/** The commands of the bindings at `root` that answer no `Result`, so their call rejects as it fails: by the name the bindings give them */
-export function readRejectingCommands(root) {
-  let bindings
-  try {
-    bindings = readFileSync(join(root, BINDINGS), "utf8")
-  } catch {
-    return new Set()
-  }
-  return new Set([...bindings.matchAll(REJECTING_COMMAND)].map(([, name]) => name))
-}
-
-/** The count of the arguments of a call, by the text between its parentheses: the commas outside every bracket, plus one */
-function argumentCount(args) {
-  let depth = 0
-  let count = args.trim() === "" ? 0 : 1
-  for (let index = 0; index < args.length; index++) {
-    const char = args[index]
-    if (char === "=" && args[index + 1] === ">") {
-      index++
-    } else if ("([{".includes(char)) {
-      depth++
-    } else if (")]}".includes(char)) {
-      depth--
-    } else if (char === "," && depth === 0 && args.slice(index + 1).trim() !== "") {
-      count++
-    }
-  }
-  return count
-}
-
-/** Whether the chain of the call whose arguments open at `open` handles a rejection: a `.catch(…)`, a `.then(…)` of two arguments */
-function chainCatches(code, open) {
-  let end = afterClosing(code, open)
-  while (end !== -1) {
-    const member = CHAINED_CALL.exec(code.slice(skipSpace(code, end)))
-    if (member === null) {
-      return false
-    }
-    const memberOpen = skipSpace(code, end) + member[0].length - 1
-    if (member[1] === "catch" || (member[1] === "then" && argumentCount(argumentsAt(code, memberOpen)) >= 2)) {
-      return true
-    }
-    end = afterClosing(code, memberOpen)
-  }
-  return false
 }
 
 /** The sources whose presenters word what the caller selected: src/presenters, their tests aside */
@@ -678,8 +617,6 @@ function startupRead(file, line) {
 
 /** The registry of this repository: the default of `findProblems` */
 const OWN_REGISTRY = readRegistry(join(import.meta.dirname, ".."))
-/** The commands of this repository that answer no `Result`: the default of `findProblems` */
-const OWN_REJECTING = readRejectingCommands(join(import.meta.dirname, ".."))
 
 /** Whether `file` may call `command` of the registry (`{ name, class }`): the engine from the intents, a command of the app from its module */
 function callAllowed(file, command, callers) {
@@ -695,9 +632,9 @@ function callAllowed(file, command, callers) {
 
 /**
  * The findings of one source: `{ file, line, rule, text }`; `registry` (`readRegistry`) and `callers`
- * (`APP_COMMAND_CALLERS`) say who calls a command, `rejecting` (`readRejectingCommands`) which commands reject
+ * (`APP_COMMAND_CALLERS`) say who calls a command
  */
-export function findProblems(file, source, { registry = OWN_REGISTRY, callers = APP_COMMAND_CALLERS, rejecting = OWN_REJECTING } = {}) {
+export function findProblems(file, source, { registry = OWN_REGISTRY, callers = APP_COMMAND_CALLERS } = {}) {
   const text = withDotMessage(withoutComments(source))
   const lines = text.split("\n")
   const sourceLines = source.split("\n")
@@ -765,16 +702,9 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     }
   }
   if (CALLING.test(file)) {
-    const code = withoutStrings(text)
-    for (const { command, line } of registryCalls(code, registry)) {
+    for (const { command, line } of registryCalls(withoutStrings(text), registry)) {
       if (!callAllowed(file, command, callers)) {
         problems.push({ file, line, rule: "intent-call", text: sourceLines[line - 1].trim() })
-      }
-    }
-    for (const found of code.matchAll(VOID_COMMAND)) {
-      if (rejecting.has(found[1]) && !chainCatches(code, found.index + found[0].length)) {
-        const line = code.slice(0, found.index).split("\n").length
-        problems.push({ file, line, rule: "void-command", text: sourceLines[line - 1].trim() })
       }
     }
   }
@@ -822,7 +752,6 @@ export function lintArchitecture(root, allowlist = ALLOWLIST, callers = APP_COMM
   const held = new Map()
   const problems = []
   const registry = readRegistry(root)
-  const rejecting = readRejectingCommands(root)
   // the modules that call each command of the app, by its name in the registry
   const called = new Map()
   // `/` on every platform, as the allowlist names a file
@@ -835,7 +764,7 @@ export function lintArchitecture(root, allowlist = ALLOWLIST, callers = APP_COMM
         called.set(command.name, (called.get(command.name) ?? new Set()).add(file))
       }
     }
-    for (const problem of findProblems(file, source, { registry, callers, rejecting })) {
+    for (const problem of findProblems(file, source, { registry, callers })) {
       const allowed = allowlist.findIndex(entry => entry.file === problem.file && entry.rule === problem.rule)
       if (allowed === -1) {
         problems.push(`${problem.file}:${problem.line}: ${problem.rule}: ${problem.text}`)
@@ -874,7 +803,7 @@ if (import.meta.main) {
   if (problems.length > 0) {
     console.error(problems.join("\n"))
     console.error(
-      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own, decides no rule of the domain, admits no operation, reads nothing before its subscription, calls the engine only through its intents and a command of the app from one module, catches what a command without a Result rejects, presents what the caller selected, reads the selected project before it waits, draws the focus only with the bd-focus token and forgets the rows of a view of another session (scripts/lint-arch.mjs)`,
+      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own, decides no rule of the domain, admits no operation, reads nothing before its subscription, calls the engine only through its intents and a command of the app from one module, presents what the caller selected, reads the selected project before it waits, draws the focus only with the bd-focus token and forgets the rows of a view of another session (scripts/lint-arch.mjs)`,
     )
     process.exit(1)
   }

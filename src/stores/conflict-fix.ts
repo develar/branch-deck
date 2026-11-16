@@ -44,7 +44,11 @@ function fixKey(): string | null {
 // a sync changes what the fix is for: the running search stops, the next conflict view looks again
 branchSyncStore.subscribe((state, previous) => {
   if (state.isSyncing && !previous.isSyncing && conflictFixStore.getState().status === "searching") {
-    commands.cancelConflictFix().catch((error: unknown) => logWarning("Cannot stop the search of a conflict fix", error))
+    void commands.cancelConflictFix().then(result => {
+      if (result.status === "error") {
+        logWarning("Cannot stop the search of a conflict fix", result.error)
+      }
+    })
     conflictFixStore.setState({ key: null, status: "idle", fix: null, error: null })
   }
 })

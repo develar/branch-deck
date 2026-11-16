@@ -15,7 +15,11 @@ hand (`invokeCommand`, nine try/catch around an await, a few `.catch` and second
   the catch of `typedError`: the `ApiError` as is, anything else its `internal` error; a runtime of tauri-specta that
   writes another catch fails the export.
 - `invokeCommand` is gone; the catches of the rejection take the error answer.
-- `lint:arch` `void-command`: a `void` of one of the ten commands without a Result (read from the bindings) handles its
-  rejection; the seven that did not log it, the cancel of a tool's action is a toast.
+- The ten commands that answered their value as it is (`plain` and `now`: cancelConflictFix, validateBranchName,
+  commitBody, unsubscribeView, setDemand, cancelOperation, stopAirWatch, agentCliStatus, cliToolsRunning,
+  cancelCliToolAction) answer a Result, their value as `Ok` (`src-tauri/src/api.rs`), so no command rejects; the
+  bindings test `every_command_of_the_bindings_answers_a_result` holds it, and their callers read the error answer.
+- A failure of the e2e mock server is an error line of the log too, so a test fails on it whatever the page does.
 - `typescript/no-floating-promises` is on.
-- Capability `repository/title-bar`: a requirement that a failed call of a command is its error answer.
+- Capability `repository/title-bar`: the requirements that a failed call of a command is its error answer and that every
+  command answers a Result.

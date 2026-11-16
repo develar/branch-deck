@@ -1,5 +1,5 @@
 import type { PageCommand } from "@/platform/tauri-page"
-import { channelArgument, commandChannels, commandError, installTauriInternals, PageEvents } from "@/platform/tauri-page"
+import { channelArgument, commandChannels, hostRejection, installTauriInternals, PageEvents } from "@/platform/tauri-page"
 /* eslint-disable */
 import commands from "../../../crates/app-api/commands.json" with { type: "json" }
 
@@ -254,9 +254,21 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
       return data
     }
     if (data.status === "error") {
-      throw commandError(data.error)
+      throw hostRejection(data.error)
     }
     return data.data
+  }
+
+  /**
+   * A failure of the mock server, which no page code may swallow: the bindings answer the rejection of a command as its
+   * `internal` error (`commandError` of src/lib/api-error.ts), which some callers drop on purpose (a best-effort read),
+   * so the failure is told to the test as an error line of the log too (`[e2e-log-error]`, `expectErrorLog` of
+   * tests/e2e/fixtures/base-test.ts), on which it fails whatever the page does with the answer
+   */
+  function mockServerFailure(message: string): Error {
+    const mark = (window as any).__e2eLeaving === true ? "[e2e-log-error-leaving] " : "[e2e-log-error] "
+    console.info(`${mark}${message}`)
+    return new Error(message)
   }
 
   /**
@@ -265,10 +277,10 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
    */
   async function checkServerResponse(cmd: string, response: Response) {
     if (response.status === 405) {
-      throw new Error(`Unimplemented Tauri command: ${cmd}`)
+      throw mockServerFailure(`Unimplemented Tauri command: ${cmd}`)
     }
     if (!response.ok) {
-      throw new Error(`The mock server failed ${cmd}: ${response.status} ${(await response.text()) || response.statusText}`)
+      throw mockServerFailure(`The mock server failed ${cmd}: ${response.status} ${(await response.text()) || response.statusText}`)
     }
   }
 
@@ -294,7 +306,7 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
         result = event.result
         answered(result)
       } else if (event.panicked === true) {
-        throw new Error(`The mock server failed ${cmd}: the command panicked`)
+        throw mockServerFailure(`The mock server failed ${cmd}: the command panicked`)
       }
     })
     if (keepsOpen) {

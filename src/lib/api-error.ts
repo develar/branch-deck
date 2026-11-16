@@ -26,13 +26,20 @@ export function getErrorDetails(error: unknown): string {
   return String(error)
 }
 
+/** The words of a failure that says none (an `Error` of no message) */
+const NO_WORDS = "The command failed without saying why"
+
 /**
  * The error of a failed call of a command, as its result holds it (the catch of `typedError` in the bindings, which
  * `src-tauri/src/bindings_test.rs` writes): the `ApiError` the command answered as is; any other failure, a refusal of
  * Tauri itself ("Command not found", an ACL refusal, invalid arguments: a string) or an `Error` of the page's IPC (a
- * fetch of the E2E bridge, the Air shim), an `internal` error of its words. So a command that answers a `Result` never
+ * fetch of the E2E bridge, the Air shim), an `internal` error of its words (`NO_WORDS` for none). So a command never
  * rejects
  */
 export function commandError(error: unknown): ApiError {
-  return isApiError(error) ? error : internalError(getErrorDetails(error))
+  if (isApiError(error)) {
+    return error
+  }
+  // an empty message only: the page decides nothing by the words (`message-control` of scripts/lint-arch.mjs)
+  return internalError(getErrorDetails(error) || NO_WORDS)
 }

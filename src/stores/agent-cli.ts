@@ -9,10 +9,13 @@ const agentCliStore = createStore<{ status: AgentCliStatus | null }>(() => ({ st
 
 /** Reads the status again: when a surface that shows it mounts, on a focus of its window, and after an install */
 export function refreshAgentCliStatus(): void {
-  commands
-    .agentCliStatus()
-    .then(status => agentCliStore.setState({ status }))
-    .catch((error: unknown) => logWarning("Cannot read whether coding agents find bd", error))
+  void commands.agentCliStatus().then(result => {
+    if (result.status === "ok") {
+      agentCliStore.setState({ status: result.data })
+    } else {
+      logWarning("Cannot read whether coding agents find bd", result.error)
+    }
+  })
 }
 
 export function useAgentCliStatusValue(): AgentCliStatus | null {

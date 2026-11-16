@@ -1,7 +1,8 @@
 // @spec openspec/specs/branch/move-commits/spec.md
 import { describe, expect, it } from "vite-plus/test"
+import { internalError } from "@/lib/api-error"
 import type { BranchNameCheck, BranchNameRules } from "@/lib/bindings"
-import { presentBranchNameState } from "@/presenters/branch-name"
+import { presentBranchNameCheckFailure, presentBranchNameState } from "@/presenters/branch-name"
 
 /** The typed names Rust checked, with the rules and its answer (`branch_name_cases_test.rs` of domain-policy writes it) */
 const CASES = Object.values(
@@ -39,5 +40,16 @@ describe("presentBranchNameState", () => {
       expect(shown.isValid).toBe(state === "valid")
       expect(shown.color === "error").toBe(Boolean(shown.message))
     }
+  })
+})
+
+describe("presentBranchNameCheckFailure", () => {
+  it("says a check whose call failed and marks the name invalid, so no form submits a name nobody checked", () => {
+    expect(presentBranchNameCheckFailure(internalError("Load failed"))).toEqual({
+      color: "error",
+      message: "Cannot check the branch name: Load failed",
+      textClass: "text-destructive",
+      isValid: false,
+    })
   })
 })

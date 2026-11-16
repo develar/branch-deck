@@ -90,10 +90,13 @@ function acceptRunning(running: CliToolsRunning): void {
 export function useCliToolsRunning(): void {
   useTauriCustomListen("cli-tools-running", async () => {
     const unlisten = await listen<CliToolsRunning>("cli-tools-running", event => acceptRunning(event.payload))
-    commands
-      .cliToolsRunning()
-      .then(acceptRunning)
-      .catch((error: unknown) => logWarning("Cannot read the actions of the tools that run", error))
+    void commands.cliToolsRunning().then(result => {
+      if (result.status === "ok") {
+        acceptRunning(result.data)
+      } else {
+        logWarning("Cannot read the actions of the tools that run", result.error)
+      }
+    })
     return unlisten
   })
 }
@@ -185,7 +188,11 @@ export function cancelCliToolAction(tool: CliTool): void {
     return
   }
   // the user asked: a toast
-  commands.cancelCliToolAction(tool).catch((error: unknown) => notifyError(`Cannot stop the action of ${tool}`, error))
+  void commands.cancelCliToolAction(tool).then(result => {
+    if (result.status === "error") {
+      notifyError(`Cannot stop the action of ${tool}`, result.error)
+    }
+  })
 }
 
 /** "Cannot install youtrack", "Cannot sign teamcity in" */

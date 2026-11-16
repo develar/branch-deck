@@ -14,7 +14,7 @@ import { FrameLinkError } from "@/platform/air/frame-link"
 import type { FrameLink } from "@/platform/air/frame-link"
 import { applyOps, patchOf, versionOf, viewOf } from "@/platform/air/view-mirror"
 import type { MirrorState, ViewOp } from "@/platform/air/view-mirror"
-import { channelArgument, commandChannels, commandError, installTauriInternals, PageEvents } from "@/platform/tauri-page"
+import { channelArgument, commandChannels, hostRejection, installTauriInternals, PageEvents } from "@/platform/tauri-page"
 import type { PageChannel, PageCommand, PluginHandler } from "@/platform/tauri-page"
 
 /** What a view of the IDE shows (`hostContext["x-air-app"]`): the IDE gives it, the page never sets it */
@@ -134,9 +134,9 @@ function linkFailure(error: unknown): unknown {
   if (error instanceof FrameLinkError) {
     const answered = refusalOf(error)
     if (answered !== null) {
-      return commandError(answered)
+      return hostRejection(answered)
     }
-    return commandError({ code: "internal", message: error.message, details: { reason: error.reason }, retry: "no", operation_id: null })
+    return hostRejection({ code: "internal", message: error.message, details: { reason: error.reason }, retry: "no", operation_id: null })
   }
   return error
 }
@@ -250,7 +250,7 @@ export class AirPage {
     }
     const content = result.structuredContent ?? {}
     if (result.isError === true) {
-      throw commandError(content.error)
+      throw hostRejection(content.error)
     }
     if (typeof content.bytes === "string") {
       return decodeBase64(content.bytes)

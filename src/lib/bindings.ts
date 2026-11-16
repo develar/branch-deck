@@ -142,17 +142,17 @@ export const commands = {
 	 */
 	findConflictFix: (params: FindConflictFixParams) => typedError<ConflictFix, ApiError>(__TAURI_INVOKE("find_conflict_fix", { params })),
 	/**  Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts. */
-	cancelConflictFix: () => __TAURI_INVOKE<void>("cancel_conflict_fix"),
+	cancelConflictFix: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_conflict_fix")),
 	/**
 	 *  What a typed branch name is and the name the branch gets (`domain_types::branch_names::check_branch_name`); the page
 	 *  words the state
 	 */
-	validateBranchName: (params: ValidateBranchNameParams) => __TAURI_INVOKE<BranchNameCheck>("validate_branch_name", { params }),
+	validateBranchName: (params: ValidateBranchNameParams) => typedError<BranchNameCheck, ApiError>(__TAURI_INVOKE("validate_branch_name", { params })),
 	/**
 	 *  The body of `message`, the lines after its subject line: its blocks, its trailers, its lead and its fold
 	 *  (`sync_utils::commit_body::commit_body`)
 	 */
-	commitBody: (params: CommitBodyParams) => __TAURI_INVOKE<CommitBody>("commit_body", { params }),
+	commitBody: (params: CommitBodyParams) => typedError<CommitBody, ApiError>(__TAURI_INVOKE("commit_body", { params })),
 	/**
 	 *  The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
 	 *  null when the session is not open, so the window subscribes again
@@ -169,7 +169,7 @@ export const commands = {
 	 */
 	subscribeView: (params: SubscribeViewParams, patches: Channel<ViewPatch>) => typedError<ViewSubscription, ApiError>(__TAURI_INVOKE("subscribe_view", { params, patches })),
 	/**  Ends a subscription of the calling window; the last one of a session makes it idle */
-	unsubscribeView: (params: UnsubscribeViewParams) => __TAURI_INVOKE<void>("unsubscribe_view", { params }),
+	unsubscribeView: (params: UnsubscribeViewParams) => typedError<null, ApiError>(__TAURI_INVOKE("unsubscribe_view", { params })),
 	/**
 	 *  A window of the repository gained or lost focus; a gained one reads the operations registry of the repository again
 	 *  and syncs when what a sync reads changed and Settings sync on focus, and answers when that ends. Null when nothing
@@ -180,7 +180,7 @@ export const commands = {
 	 *  What the window of a subscription shows and needs of its session (`Demand`), in place of what it said before; the
 	 *  page sends it when it changes, at most four times a second, and again for a new subscription
 	 */
-	setDemand: (params: SetDemandParams) => __TAURI_INVOKE<void>("set_demand", { params }),
+	setDemand: (params: SetDemandParams) => typedError<null, ApiError>(__TAURI_INVOKE("set_demand", { params })),
 	/**
 	 *  Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
 	 *  the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
@@ -219,7 +219,7 @@ export const commands = {
 	 *  Stops the operation `op` of this app: a wait for the repository lock ends as `canceled`, and no effect starts after
 	 *  it; a push that sends goes to its end. False for an operation that ended
 	 */
-	cancelOperation: (params: CancelOperationParams) => __TAURI_INVOKE<boolean>("cancel_operation", { params }),
+	cancelOperation: (params: CancelOperationParams) => typedError<boolean, ApiError>(__TAURI_INVOKE("cancel_operation", { params })),
 	/**
 	 *  Adds a pull request to Reviews by its link, `#number` or number (`remote_facts::reviews::link_pull_request`): GitHub
 	 *  is asked for it, an open one is kept for the repository, and the session reads Reviews again with it. Answers the
@@ -423,9 +423,9 @@ export const commands = {
 	 */
 	airWatchSession: (params: AirWatchParams, statuses: Channel<AirSessionStatus>) => typedError<AirWatchEnd, ApiError>(__TAURI_INVOKE("air_watch_session", { params, statuses })),
 	/**  Stops the watch of the session `session_id` that the calling window runs, if any */
-	stopAirWatch: (sessionId: string) => __TAURI_INVOKE<void>("stop_air_watch", { sessionId }),
+	stopAirWatch: (sessionId: string) => typedError<null, ApiError>(__TAURI_INVOKE("stop_air_watch", { sessionId })),
 	/**  The skill files of `brd install` that exist, without writing anything */
-	agentCliStatus: () => __TAURI_INVOKE<AgentCliStatus>("agent_cli_status"),
+	agentCliStatus: () => typedError<AgentCliStatus, ApiError>(__TAURI_INVOKE("agent_cli_status")),
 	/**
 	 *  The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window
 	 *  reads the Setup dot again
@@ -438,9 +438,9 @@ export const commands = {
 	 */
 	runCliToolAction: (params: RunCliToolActionParams) => typedError<CliToolActionDone, ApiError>(__TAURI_INVOKE("run_cli_tool_action", { params })),
 	/**  The actions of the tools that run now, for a window that opens or loads again while one runs */
-	cliToolsRunning: () => __TAURI_INVOKE<CliToolsRunning>("cli_tools_running"),
+	cliToolsRunning: () => typedError<CliToolsRunning, ApiError>(__TAURI_INVOKE("cli_tools_running")),
 	/**  Ends the action of `tool` that runs, with its whole process group */
-	cancelCliToolAction: (tool: CliTool) => __TAURI_INVOKE<void>("cancel_cli_tool_action", { tool }),
+	cancelCliToolAction: (tool: CliTool) => typedError<null, ApiError>(__TAURI_INVOKE("cancel_cli_tool_action", { tool })),
 	/**
 	 *  What waits for the user (the Setup dot): the downloaded update of the app, the tools' updates and expiring sign-ins
 	 *  from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides

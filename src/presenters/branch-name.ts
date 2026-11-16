@@ -1,4 +1,5 @@
-import type { BranchNameState } from "@/lib/bindings"
+import { getErrorDetails } from "@/lib/api-error"
+import type { ApiError, BranchNameState } from "@/lib/bindings"
 
 /** How a typed branch name shows under its field */
 export interface BranchNameValidationState {
@@ -35,4 +36,9 @@ export function presentBranchNameState(state: BranchNameState): BranchNameValida
     case "invalidRef":
       return invalid("Not a valid branch name: no -, . or / at the ends, no -- , .. or //")
   }
+}
+
+/** The words of a check of a typed branch name whose call failed: the name is no name to submit */
+export function presentBranchNameCheckFailure(error: ApiError): BranchNameValidationState {
+  return invalid(`Cannot check the branch name: ${getErrorDetails(error)}`)
 }

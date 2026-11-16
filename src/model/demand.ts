@@ -187,7 +187,11 @@ function send(): void {
   }
   lastSent = key
   lastSentAt = Date.now()
-  commands.setDemand({ subscription: target, demand }).catch((error: unknown) => logError("Cannot tell the session what the window shows", error))
+  void commands.setDemand({ subscription: target, demand }).then(result => {
+    if (result.status === "error") {
+      logError("Cannot tell the session what the window shows", result.error)
+    }
+  })
 }
 
 /** Forgets everything the window held (a test between its cases) */

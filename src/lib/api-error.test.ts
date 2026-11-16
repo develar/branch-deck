@@ -22,6 +22,11 @@ describe("commandError", () => {
   it("answers an Error of the page's IPC as an internal error of its message", () => {
     expect(commandError(new TypeError("Load failed"))).toEqual(internalError("Load failed"))
   })
+
+  it("answers a failure of no words with words of its own, never an empty message", () => {
+    expect(commandError(new Error(""))).toEqual(internalError("The command failed without saying why"))
+    expect(commandError("")).toEqual(internalError("The command failed without saying why"))
+  })
 })
 
 // the catch of `typedError`, which `src-tauri/src/bindings_test.rs` writes into the bindings

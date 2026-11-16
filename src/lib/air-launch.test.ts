@@ -25,6 +25,7 @@ import {
   withPlan,
   withTarget,
 } from "@/lib/air-launch"
+import { commandError } from "@/lib/api-error"
 import type { AirTarget } from "@/lib/bindings"
 
 const { airLaunch, airLaunchTargets, airWatchSession, stopAirWatchCommand, logWarning } = vi.hoisted(() => ({
@@ -326,13 +327,14 @@ describe("the commands", () => {
     airLaunch.mockReset()
     airLaunchTargets.mockReset()
     airWatchSession.mockReset()
-    stopAirWatchCommand.mockReset().mockResolvedValue(undefined)
+    stopAirWatchCommand.mockReset().mockResolvedValue({ status: "ok", data: null })
     logWarning.mockReset()
   })
 
   it("a stop whose call fails (the IPC, a refusal of Tauri) is a line of the log, never a rejection of the page", async () => {
-    const failure = new TypeError("Load failed")
-    stopAirWatchCommand.mockRejectedValue(failure)
+    // the bindings answer a failed call as the error of the command
+    const failure = commandError(new TypeError("Load failed"))
+    stopAirWatchCommand.mockResolvedValue({ status: "error", error: failure })
     stopAirWatch("s-1")
     await vi.waitFor(() => expect(logWarning).toHaveBeenCalledWith("Cannot stop the watch of an Air session", failure))
   })
