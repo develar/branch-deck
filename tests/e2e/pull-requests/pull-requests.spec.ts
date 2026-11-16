@@ -448,6 +448,13 @@ test.describe("Pull request chip", () => {
         intent: { kind: "createPullRequest", subject: { kind: "branch", name }, title: "Again", body: "", assignSelf: false, reviewers: [], onGitHub: false },
       })) as { fingerprint: string; blockers: unknown[]; intent: unknown }
 
+    // #763 of feature-db merged at its tip landed it (its next step says so): the menu offers Open Pull Request #763 in
+    // the place of Create, and the plan of a creation is refused by it
+    await expectOpenInPlaceOfCreate(page, "feature-db", 763)
+    await page.keyboard.press("Escape")
+    await expectClosed(page.getByRole("menu"))
+    expect((await prepare("feature-db")).blockers).toEqual([{ code: "pullRequestMerged", number: 763 }])
+
     // #763 of feature-db merged a commit the branch is no longer at, so none of feature-db is in master (its next step
     // says nothing landed it): the menu offers Create Pull Request… beside Open Pull Request #763, the dialog says nothing
     // against it, the plan has no blocker

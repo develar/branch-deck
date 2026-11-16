@@ -289,6 +289,36 @@ fn the_pull_request_of_a_whole_stack_pushes_its_stack_branch_by_the_table_as_it_
   );
 }
 
+/// The creation of the pull request of a whole stack follows the one rule of a new pull request (`creation_blocker`) on
+/// the pull request of the stack: refused beside an open one and beside a merged one that landed the stack, before its
+/// push; a merged one that did not land it and a closed one let a new one repeat it
+#[test]
+fn the_creation_of_the_pull_request_of_a_whole_stack_is_refused_beside_an_open_one_or_a_merged_one_that_landed_it() {
+  let create = CreatePullRequest {
+    subject: Subject::whole_stack("auth"),
+    ..create(false)
+  };
+  for (state, landed, blockers) in [
+    (PullRequestState::Open, false, vec![Reason::PullRequestOpen { number: 9 }]),
+    (PullRequestState::Merged, true, vec![Reason::PullRequestMerged { number: 9 }]),
+    (PullRequestState::Merged, false, Vec::new()),
+    (PullRequestState::Closed, false, Vec::new()),
+  ] {
+    let mut stack = stack_sources(stack_view(false, None), Vec::new(), false, false);
+    let listed = PullRequest {
+      state,
+      head_ref_name: "user/stack/auth".to_owned(),
+      ..pull_request("auth", 9)
+    };
+    stack.pull_requests.stack_pull_requests.insert("auth".to_owned(), listed);
+    assert_eq!(
+      created_landed(&stack, ActionPushView::default(), &create, landed).plan.blockers,
+      blockers,
+      "{state:?}, landed {landed}"
+    );
+  }
+}
+
 /// The readiness of auth: IJPL Code Platform hasn't approved, Patronus suggests `login` (none: no GitHub login)
 fn missing_code_owner(login: Option<&str>) -> Fact<SubjectReadiness> {
   let ReviewReadiness::Missing { mut groups, not_counted, reason } = missing_approvals("IJPL Code Platform", Some(1)) else {

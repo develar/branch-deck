@@ -1490,15 +1490,17 @@ of it landed, as Rust's next step says); any other MUST let a new one repeat it.
 
 #### Scenario: The five cases
 - **WHEN** a subject has an open pull request, one merged that landed it, one merged into the target with commits after it, one merged into a parent's branch, a closed one
-- **THEN** a new one is refused, refused, offered, offered, offered
+- **THEN** a new one is refused, refused, offered, offered, offered, the pull request of a whole stack by the pull request of its stack alike
   [@test] crates/domain-policy/src/pull_request_test.rs (`a_new_pull_request_is_refused_only_beside_an_open_one_or_a_merged_one_that_landed_the_subject`)
   [@test] crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] crates/operations/src/pull_request_test.rs (`a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request`)
+  [@test] crates/operations/src/pull_request_test.rs (`the_creation_of_the_pull_request_of_a_whole_stack_is_refused_beside_an_open_one_or_a_merged_one_that_landed_it`)
 
 #### Scenario: Alike in the menu, the dialog and the backend
-- **GIVEN** #763 of feature-db merged a commit the branch is no longer at, and #760 of JIRA-456 is open
+- **GIVEN** #763 of feature-db merged at its tip, then a commit the branch is no longer at, and #760 of JIRA-456 is open
 - **WHEN** the user opens their menus, and another client asks for a creation of each
-- **THEN** feature-db offers Create Pull Request… beside Open Pull Request #763, its dialog says nothing against it, its plan has no blocker
+- **THEN** while #763 landed feature-db, its menu offers Open Pull Request #763 in the place of Create and its plan is refused `pullRequestMerged`
+- **AND** once #763 is of a commit the branch is no longer at, feature-db offers Create Pull Request… beside Open Pull Request #763, its dialog says nothing against it, its plan has no blocker
 - **AND** JIRA-456 offers Open Pull Request #760 in the place of Create, and its creation is refused before a push: "Nothing was pushed or created: JIRA-456 has the open pull request #760: Open Pull Request shows it" (`plan_changed`), GitHub gets no creation
   [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should offer a new pull request beside a merged one that did not land the branch, and refuse one beside an open one, alike in the menu, the dialog and the backend`)
 
