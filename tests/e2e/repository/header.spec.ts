@@ -9,6 +9,7 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, pushFromRowMenu } from "../helpers/branch-helpers"
 import type { Box } from "../helpers/header-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, headerBoxes, MIN_WINDOW } from "../helpers/header-helpers"
+import { settledIpc } from "../helpers/ipc-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
 import { expectPushedToast } from "../helpers/push-helpers"
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
@@ -128,19 +129,132 @@ test.describe("Repository selector", () => {
       const list = page.getByRole("listbox")
       const title = list.getByText("No recent repositories", { exact: true })
       await expect(title).toBeVisible()
-      await expect(list.getByText("Use the folder button to open a Git repository. Repositories you open appear here.")).toBeInViewport({ ratio: 1 })
-      await expect(selector).toHaveAccessibleDescription("No recent repositories Use the folder button to open a Git repository. Repositories you open appear here.")
+      await expect(list.getByText("Use Add Repository… to open a Git repository. Repositories you open appear here.")).toBeInViewport({ ratio: 1 })
+      await expect(selector).toHaveAccessibleDescription("No recent repositories Use Add Repository… to open a Git repository. Repositories you open appear here.")
       await expect(list.getByRole("option")).toHaveCount(0)
       // Playwright's click checks that the welcome card does not cover the message; it selects no fake repository.
       await title.click()
       await expect(selector).toHaveAttribute("aria-expanded", "true")
       await expect(selector).toContainText("Select repository…")
-      await captureHtmlSnapshot(list, "repository-selector-empty")
+      const popup = page.getByTestId("repository-selector-popup")
+      const add = popup.getByRole("button", { name: "Add Repository…", exact: true })
+      await expect(add).toBeInViewport({ ratio: 1 })
+      await captureHtmlSnapshot(popup, "repository-selector-empty")
+      await add.focus()
+      await expect(add).toBeFocused()
       await page.keyboard.press("Escape")
       await expectClosed(list)
       await expect(selector).toBeFocused()
     })
   }
+
+  for (const activation of ["click", "Enter", "Space"] as const) {
+    test(`should add the first repository from the selector footer by ${activation}`, { tag: "@webkit" }, async ({ page, setupRepo }) => {
+      const repo = await setupRepo("simple", { prepopulateStore: false })
+      const selector = header(page).getByRole("combobox", { name: "Repository", exact: true })
+      await selector.focus()
+      await selector.press("ArrowDown")
+      const popup = page.getByTestId("repository-selector-popup")
+      await expect(popup.getByText("No recent repositories", { exact: true })).toBeVisible()
+      const add = popup.getByRole("button", { name: "Add Repository…", exact: true })
+      if (activation === "click") {
+        await add.click()
+      } else {
+        // With no options, the first Tab stop inside the open popup is its footer button.
+        if (!(await add.evaluate(element => element === document.activeElement))) {
+          await page.keyboard.press("Tab")
+        }
+        await expect(add).toBeFocused()
+        await page.keyboard.press(activation)
+      }
+      await expectClosed(popup)
+      await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+      await expect(selector).toContainText(repo.path.split("/").at(-1)!)
+      await selector.click()
+      const list = page.getByRole("listbox")
+      await expect(list.getByRole("option")).toHaveCount(1)
+      await expect(list.getByRole("option", { selected: true })).toContainText(repo.path.split("/").at(-1)!)
+      await expect(list.getByText("No recent repositories")).toHaveCount(0)
+      await expect(list.getByRole("button")).toHaveCount(0)
+    })
+  }
+
+  test("should add another repository from the selector footer", { tag: "@webkit" }, async ({ page, setupRepo, otherRepository }) => {
+    const repo = await setupRepo("simple")
+    await repo.setDialogPick(otherRepository)
+    const selector = header(page).getByRole("combobox", { name: "Repository", exact: true })
+    await selector.click()
+    await expect(page.getByRole("option")).toHaveCount(1)
+    await page.getByRole("button", { name: "Add Repository…", exact: true }).click()
+    await expectClosed(page.getByTestId("repository-selector-popup"))
+    await expect(selector).toContainText(otherRepository.split("/").at(-1)!)
+    await selector.click()
+    await expect(page.getByRole("option")).toHaveCount(2)
+    await expect(page.getByRole("option", { selected: true })).toContainText(otherRepository.split("/").at(-1)!)
+  })
+
+  for (const activation of ["Enter", "Space"] as const) {
+    test(`should keep the selected repository when adding from the footer by ${activation} is cancelled`, { tag: "@webkit" }, async ({ page, setupRepo }) => {
+      const repo = await setupRepo("simple")
+      await repo.setDialogPick(null)
+      const selector = header(page).getByRole("combobox", { name: "Repository", exact: true })
+      const selectedPath = await selector.textContent()
+      await selector.focus()
+      await selector.press("ArrowDown")
+      await expect(page.getByRole("option", { selected: true })).toBeFocused()
+      await page.keyboard.press("Tab")
+      await expect(page.getByRole("button", { name: "Add Repository…", exact: true })).toBeFocused()
+      await runAndWaitForAnswer(page, "browse_repository", () => page.keyboard.press(activation))
+      await expectClosed(page.getByTestId("repository-selector-popup"))
+      await expect(selector).toHaveText(selectedPath!)
+      await expect(selector).toBeFocused()
+      await selector.press("ArrowDown")
+      await expect(page.getByRole("option")).toHaveCount(1)
+      await expect(page.getByRole("option", { selected: true })).toContainText(repo.path.split("/").at(-1)!)
+    })
+  }
+
+  test("should report an invalid folder chosen from the selector footer", { tag: "@webkit" }, async ({ page, setupRepo }) => {
+    await setupRepo("empty-non-git", { prepopulateStore: false })
+    await header(page).getByRole("combobox", { name: "Repository", exact: true }).click()
+    await page.getByRole("button", { name: "Add Repository…", exact: true }).click()
+    await expectClosed(page.getByTestId("repository-selector-popup"))
+    await expect(page.getByTestId("error-alert")).toContainText("Not a Git repository")
+    await expect(header(page).getByRole("combobox", { name: "Repository", exact: true })).toHaveAttribute("aria-invalid", "true")
+  })
+
+  test("should keep the add footer visible while repository options scroll", { tag: "@webkit" }, async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple")
+    await repo.setDialogPick(null)
+    await page.setViewportSize({ width: MIN_WINDOW.width, height: 400 })
+    await page.addInitScript(() => {
+      const store = (window as unknown as { __TAURI_STORE__: { recentProjects: { path: string }[] } }).__TAURI_STORE__
+      store.recentProjects.push(...Array.from({ length: 30 }, (_, index) => ({ path: `/repositories/project-${index}` })))
+    })
+    await settledIpc(page)
+    await page.reload()
+    const selector = header(page).getByRole("combobox", { name: "Repository", exact: true })
+    await selector.click()
+    const options = page.getByRole("listbox").getByRole("option")
+    await expect(options).toHaveCount(31)
+    const add = page.getByRole("button", { name: "Add Repository…", exact: true })
+    await expect(options.first()).toBeInViewport({ ratio: 1 })
+    await expect(options.last()).not.toBeInViewport()
+    await expect(add).toBeInViewport({ ratio: 1 })
+    const footerBox = await boxOf(add)
+    expect(footerBox.height).toBe(24)
+    // The down arrow of a scrollable list must not cover the footer before scrolling to the end.
+    await add.click({ trial: true })
+    await page.keyboard.press("End")
+    await expect(options.last()).toBeFocused()
+    await expect(options.last()).toBeInViewport({ ratio: 1 })
+    await expect(options.first()).not.toBeInViewport()
+    await expect(add).toBeInViewport({ ratio: 1 })
+    expect(await boxOf(add)).toEqual(footerBox)
+    await runAndWaitForAnswer(page, "browse_repository", () => add.click())
+    await expectClosed(page.getByTestId("repository-selector-popup"))
+    await expect(selector).toContainText(repo.path.split("/").at(-1)!)
+  })
 
   test("should replace the empty selector with the repository opened through the folder button", async ({ page, setupRepo }) => {
     await setupRepo("simple", { prepopulateStore: false })
@@ -168,6 +282,7 @@ test.describe("Repository selector", () => {
     await expect(list.getByText("Open a Git repository in your IDE project.")).toBeVisible()
     await expect(list.getByRole("option")).toHaveCount(0)
     await expect(page.getByTestId("browse-repository-button")).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Add Repository…", exact: true })).toHaveCount(0)
   })
 
   /** The path the trigger shows, which must be a form of `path`: a tail of it from a separator behind "…" */
@@ -185,7 +300,7 @@ test.describe("Repository selector", () => {
     await header(page).getByRole("combobox").click()
     const list = page.getByRole("listbox")
     await expect(list.getByRole("option")).toHaveCount(1)
-    await captureHtmlSnapshot(list, "repository-selector-without-companions")
+    await captureHtmlSnapshot(page.getByTestId("repository-selector-popup"), "repository-selector-without-companions")
   })
 
   test("should cut the path at its separators behind one …, more of it as the room grows", async ({ page, setupRepo }) => {

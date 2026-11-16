@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { cn } from "cn"
-import { FolderSearchIcon } from "lucide-react"
+import { FolderSearchIcon, PlusIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -106,12 +106,33 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
             </TooltipTrigger>
             <TooltipContent>{shownPath !== null && <WrappedPath path={shownPath} />}</TooltipContent>
           </Tooltip>
-          <SelectContent alignItemWithTrigger={false} className="w-auto min-w-(--anchor-width)">
+          <SelectContent
+            alignItemWithTrigger={false}
+            className="w-auto min-w-(--anchor-width)"
+            data-testid="repository-selector-popup"
+            footer={
+              hasFolderDialog ? (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="w-full justify-start"
+                  disabled={disabled}
+                  onClick={() => {
+                    setOpen(false)
+                    void browseRepository()
+                  }}
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  Add Repository…
+                </Button>
+              ) : undefined
+            }
+          >
             {items.length === 0 && (
               <div id={emptyMessageId} className="flex max-w-72 flex-col gap-1 p-3 text-sm">
                 <p className="font-medium">{hasFolderDialog ? "No recent repositories" : "No repositories available"}</p>
                 <p className="text-muted-foreground">
-                  {hasFolderDialog ? "Use the folder button to open a Git repository. Repositories you open appear here." : "Open a Git repository in your IDE project."}
+                  {hasFolderDialog ? "Use Add Repository… to open a Git repository. Repositories you open appear here." : "Open a Git repository in your IDE project."}
                 </p>
               </div>
             )}
