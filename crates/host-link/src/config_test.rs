@@ -1,5 +1,6 @@
 use super::{
-  ConfigError, EnvValue, PNPM_FLAG_OPTIONS, PNPM_OPTIONS_CHECKED_WITH, PNPM_VALUE_OPTIONS, ReadError, RepoConfig, Step, is_inner_path, parse_branchdeck, read_commit_config,
+  ConfigError, EnvValue, PNPM_DIVERGING_OPTIONS, PNPM_FLAG_OPTIONS, PNPM_OPTIONS_CHECKED_WITH, PNPM_VALUE_OPTIONS, ReadError, RepoConfig, Step, is_inner_path, parse_branchdeck,
+  read_commit_config,
 };
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
@@ -382,6 +383,11 @@ fn a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runn
     ("pnpm run --dry-run test:unit e2e", None),
     ("pnpm run --json test:unit e2e", None),
     ("pnpm --registry https://x e2e", Some("pnpm e2e*")),
+    // an option that pnpm 12.18.0 reads with a value and pnpm 10 as a flag counts both ways
+    ("pnpm --no-proxy e2e", Some("pnpm e2e*")),
+    ("pnpm --registry e2e", Some("pnpm e2e*")),
+    ("pnpm --store-dir a e2e", Some("pnpm e2e*")),
+    ("pnpm --registry https://x test:unit", None),
     // the value options of pnpm 12.18.0 take the next word, `--no-proxy` among them, and an unknown long option is read
     // also as a setting with a value
     ("pnpm --no-proxy localhost e2e", Some("pnpm e2e*")),
@@ -413,10 +419,25 @@ fn the_options_of_pnpm_were_checked_against_the_pnpm_of_package_json() {
   );
 }
 
-/// No option of pnpm is both a flag and an option with a value: one that two versions read otherwise stays out of both
+/// No option of pnpm is in two of its tables: a flag, an option with a value, or one that two versions read otherwise
 #[test]
-fn no_option_of_pnpm_is_a_flag_and_takes_a_value() {
-  let both: Vec<&&str> = PNPM_FLAG_OPTIONS.iter().filter(|flag| PNPM_VALUE_OPTIONS.contains(flag)).collect();
-  assert_eq!(both, Vec::<&&str>::new());
-  assert!(PNPM_FLAG_OPTIONS.iter().chain(&PNPM_VALUE_OPTIONS).all(|option| option.starts_with('-')));
+fn no_option_of_pnpm_is_in_two_tables() {
+  let tables: [(&str, &[&str]); 3] = [
+    ("PNPM_VALUE_OPTIONS", &PNPM_VALUE_OPTIONS),
+    ("PNPM_FLAG_OPTIONS", &PNPM_FLAG_OPTIONS),
+    ("PNPM_DIVERGING_OPTIONS", &PNPM_DIVERGING_OPTIONS),
+  ];
+  let mut both = Vec::new();
+  for (i, (name, options)) in tables.iter().enumerate() {
+    for (other, others) in &tables[i + 1..] {
+      both.extend(
+        options
+          .iter()
+          .filter(|option| others.contains(option))
+          .map(|option| format!("{option} in {name} and {other}")),
+      );
+    }
+  }
+  assert_eq!(both, Vec::<String>::new());
+  assert!(tables.iter().flat_map(|(_, options)| options.iter()).all(|option| option.starts_with('-')));
 }

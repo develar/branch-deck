@@ -87,30 +87,21 @@ impl RepoConfig {
   }
 }
 
-/// The version of pnpm whose help `PNPM_VALUE_OPTIONS` and `PNPM_FLAG_OPTIONS` were checked against, by
-/// `pnpm --help`, `pnpm run --help` and `pnpm exec --help`. A test holds it equal to the `packageManager` of
-/// package.json, so an update of pnpm fails it until the two tables are checked again
+/// The version of pnpm whose help `PNPM_VALUE_OPTIONS`, `PNPM_FLAG_OPTIONS` and `PNPM_DIVERGING_OPTIONS` were checked
+/// against, by `pnpm --help`, `pnpm run --help` and `pnpm exec --help`. A test holds it equal to the `packageManager` of
+/// package.json, so an update of pnpm fails it until the three tables are checked again
 #[cfg(test)]
 pub(crate) const PNPM_OPTIONS_CHECKED_WITH: &str = "12.18.0";
 
-/// The options of pnpm that name a value in the next word (`-C web`, `--filter app`), before its script: each option
-/// with a `<VALUE>` in the help of pnpm `PNPM_OPTIONS_CHECKED_WITH`, and the run options of pnpm 10
-/// (<https://pnpm.io/10.x/cli/run>), as a repository of a host may run an older pnpm: `--resume-from <package_name>`.
-/// No option is a flag in one of the two and takes a value in the other; one that did would stay out of both tables,
-/// so `may_be_setting` reads it both ways and the reading that makes the run heavy counts
-pub(crate) const PNPM_VALUE_OPTIONS: [&str; 21] = [
+/// The options of pnpm that name a value in the next word (`-C web`, `--filter app`), before its script, in pnpm
+/// `PNPM_OPTIONS_CHECKED_WITH` (an option with a `<VALUE>` in its help) and in pnpm 10 alike, and `--resume-from
+/// <package_name>`, a run option of pnpm 10 (<https://pnpm.io/10.x/cli/run>), as a repository of a host may run an
+/// older pnpm. `--env-file` is no option of pnpm 10, which then runs neither the next word nor the script
+pub(crate) const PNPM_VALUE_OPTIONS: [&str; 13] = [
   "-C",
   "--dir",
   "--env-file",
-  "--store-dir",
-  "--state-dir",
-  "--npmrc-auth-file",
-  "--userconfig",
   "--workspace-packages",
-  "--registry",
-  "--https-proxy",
-  "--http-proxy",
-  "--no-proxy",
   "--reporter",
   "--loglevel",
   "-F",
@@ -122,10 +113,25 @@ pub(crate) const PNPM_VALUE_OPTIONS: [&str; 21] = [
   "--resume-from",
 ];
 
+/// The options that the two versions read otherwise before a script: pnpm `PNPM_OPTIONS_CHECKED_WITH` takes a value in
+/// the next word for each (`--registry <REGISTRY>`; `--userconfig` is its alias of `--npmrc-auth-file`), pnpm 10.33.0
+/// takes none (`pnpm --no-proxy e2e` runs `e2e` there, `pnpm --store-dir a e2e` runs `a`). Each is read both ways
+/// (`may_be_setting`), and the reading that makes the run heavy counts
+pub(crate) const PNPM_DIVERGING_OPTIONS: [&str; 8] = [
+  "--registry",
+  "--store-dir",
+  "--state-dir",
+  "--npmrc-auth-file",
+  "--userconfig",
+  "--https-proxy",
+  "--http-proxy",
+  "--no-proxy",
+];
+
 /// The long options of pnpm that take no value, before its script, from the same sources: each option of pnpm
 /// `PNPM_OPTIONS_CHECKED_WITH` without a `<VALUE>` (`--color[=<COLOR>]` takes one only after `=`), and `--silent`,
-/// `--report-summary` and `--reporter-hide-prefix` of pnpm 10. Each other `--no-…` is a flag too, as `--no-progress` and `--no-sort` are; the
-/// one with a value, `--no-proxy <NO_PROXY>`, is in `PNPM_VALUE_OPTIONS`
+/// `--report-summary` and `--reporter-hide-prefix` of pnpm 10. Each other `--no-…` is a flag too, as `--no-progress`
+/// and `--no-sort` are, but `--no-proxy` of `PNPM_DIVERGING_OPTIONS`
 pub(crate) const PNPM_FLAG_OPTIONS: [&str; 23] = [
   "--version",
   "--yes",
@@ -152,10 +158,13 @@ pub(crate) const PNPM_FLAG_OPTIONS: [&str; 23] = [
   "--reporter-hide-prefix",
 ];
 
-/// Whether `word` can be a setting of `.npmrc` for pnpm with its value in the next word (`--strict-ssl false` of an older
-/// pnpm): a long option without `=` that neither `PNPM_VALUE_OPTIONS` nor `PNPM_FLAG_OPTIONS` names and that is no
-/// `--no-…`
+/// Whether `word` can be an option of pnpm with its value in the next word that the plain reading takes for a flag: one
+/// of `PNPM_DIVERGING_OPTIONS`, or a setting of `.npmrc` of an older pnpm (`--strict-ssl false`), a long option without
+/// `=` that no table names and that is no `--no-…`
 fn may_be_setting(word: &str) -> bool {
+  if PNPM_DIVERGING_OPTIONS.contains(&word) {
+    return true;
+  }
   word.starts_with("--") && word.len() > 2 && !word.contains('=') && !word.starts_with("--no-") && !PNPM_FLAG_OPTIONS.contains(&word)
 }
 

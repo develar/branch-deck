@@ -46,7 +46,8 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   `npx -y`, `npx -p @playwright/test`, `pnpm playwright`, a runner or the binary by its path), `pnpm e2e*` also
   `pnpm -C web e2e`, `--dir`, `--filter`, `--registry <url>` and pnpm by its path, while a flag of pnpm takes no value
   (`pnpm --silent test:unit e2e` stays light): the value options and the flags are those of pnpm 12.18.0 and pnpm 10
-  (`PNPM_VALUE_OPTIONS`, `PNPM_FLAG_OPTIONS` of `crates/host-link/src/config.rs`). A shell
+  (`PNPM_VALUE_OPTIONS`, `PNPM_FLAG_OPTIONS` of `crates/host-link/src/config.rs`), and an option the two read
+  otherwise counts both ways (`PNPM_DIVERGING_OPTIONS`: `pnpm --no-proxy e2e` is heavy). A shell
   that wraps a command counts by what it runs: `zsh -c 'pnpm install; pnpm e2e > e2e.log 2>&1'`, `bash -lc`,
   `env FOO=1 zsh -c`, a shell in it, a substitution `"$(…)"`, and a script file of the shipped working tree
   (`zsh probe/run.sh`, `./probe/run.sh` whose first line names a shell or that has no first line `#!`, `. ./lib.sh`)
