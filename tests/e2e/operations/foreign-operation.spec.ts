@@ -151,7 +151,7 @@ test.describe("Operations of another process of the repository", () => {
   // the slot keeps its element as the start bd runs turns into one whose answer was lost: the focus stays on it, and the
   // keys of the row with it
   test(
-    "should keep the focus on the slot as the Safe Push bd runs turns into a start whose answer was lost",
+    "should keep the focus and the keys of the row on the slot as the Safe Push bd runs turns into a start whose answer was lost",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const { repo, slot } = await bdRunsSafePushOfJira(page, setupRepo, syncAndWaitForBranches)
@@ -161,6 +161,11 @@ test.describe("Operations of another process of the repository", () => {
       await expect(slot).toHaveText("Start Unknown")
       await expect(slot).toBeFocused()
       await expect(slot).toHaveAccessibleDescription(/^Cannot tell whether the Safe Push of JIRA-456 started/)
+      // S from the slot is the key of the row: it says why it can't start, opens no popover, and the focus stays
+      await page.keyboard.press("s")
+      await expect(toastWith(page, "Safe Push of JIRA-456 can't start")).toContainText("Cannot tell whether the Safe Push of JIRA-456 started")
+      await expectClosed(safePushPopover(page))
+      await expect(slot).toBeFocused()
     },
   )
 

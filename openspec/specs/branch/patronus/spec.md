@@ -5911,7 +5911,8 @@ Start" beside it.
 - **GIVEN** the keyboard on the slot of a Safe Push that `brd` runs
 - **WHEN** its answer is lost
 - **THEN** the slot says "Start Unknown" and keeps the focus, in both engines: it is the same element
-  [@test] tests/e2e/operations/foreign-operation.spec.ts (`should keep the focus on the slot as the Safe Push bd runs turns into a start whose answer was lost`)
+- **AND** S from the slot is the key of its row: it says the Safe Push can't start, opens no popover and leaves the focus on the slot
+  [@test] tests/e2e/operations/foreign-operation.spec.ts (`should keep the focus and the keys of the row on the slot as the Safe Push bd runs turns into a start whose answer was lost`)
 
 #### Scenario: A lost comment start
 - **GIVEN** a comment start whose answer was lost
