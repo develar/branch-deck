@@ -87,7 +87,10 @@ type PopupSide = "top" | "bottom" | "left" | "right"
 /** The gap between a chip and its details (`sideOffset` of their positioner) */
 const SIDE_OFFSET = 4
 
-/** No correction of an overflow while the details hold still: they stay where they stood */
+/**
+ * No correction of an overflow while the details hold still: they stay where they stood, also when what comes in them
+ * takes them past the edge of the window until the pointer leaves (accepted: docs/contributing/frontend.md)
+ */
 const PINNED_COLLISIONS = { side: "none", align: "none", fallbackAxisSide: "none" } as const
 
 /**
@@ -151,13 +154,14 @@ function pinOf(popup: HTMLElement, chip: DOMRect): Pin | undefined {
  */
 function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
   placement: Pick<ComponentProps<typeof PopoverContent>, "anchor" | "side" | "align" | "sideOffset" | "collisionAvoidance">
-  hang: "top" | "bottom"
+  hang: "top" | "bottom" | undefined
   popupProps: Pick<ComponentProps<"div">, "onPointerEnter" | "onPointerLeave" | "onPointerDown" | "ref">
   reset: () => void
 } {
   const [pin, setPin] = useState<Pin | undefined>(undefined)
-  // the edge the details hang by while no pin holds them, as their positioner placed them last
-  const [placedHang, setPlacedHang] = useState<"top" | "bottom">("top")
+  // the edge the details hang by while no pin holds them, as their positioner placed them last; unknown until they are
+  // placed (`data-side` then says it of a card over or under its chip)
+  const [placedHang, setPlacedHang] = useState<"top" | "bottom" | undefined>(undefined)
   const inside = useRef(false)
   const pressing = useRef(false)
   const pinned = useRef(false)
@@ -185,21 +189,25 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
     },
     hang: pin?.hang ?? placedHang,
     popupProps: {
-      // the edge they hang by, measured as their size changes and once placed
+      // the edge they hang by, measured once placed and whenever their positioner places them anew: as their size
+      // changes, as they move without a change of size (a scroll of the table, rows above, a resize of the window: the
+      // style of the positioner) and as their side or alignment changes
       ref: (popup: HTMLDivElement | null) => {
         if (popup === null) {
           return
         }
-        let frame = 0
-        const later = () => {
-          cancelAnimationFrame(frame)
-          frame = requestAnimationFrame(() => measure(popup))
+        const now = () => measure(popup)
+        const frame = requestAnimationFrame(now)
+        const sizes = observeSize(now)
+        sizes.observe(popup)
+        const moves = new MutationObserver(now)
+        moves.observe(popup, { attributes: true, attributeFilter: ["data-side", "data-align"] })
+        if (popup.parentElement !== null) {
+          moves.observe(popup.parentElement, { attributes: true, attributeFilter: ["style"] })
         }
-        const observer = observeSize(later)
-        observer.observe(popup)
-        later()
         return () => {
-          observer.disconnect()
+          sizes.disconnect()
+          moves.disconnect()
           cancelAnimationFrame(frame)
         }
       },
@@ -230,6 +238,8 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
         }
         window.addEventListener("pointerup", end, { signal: ended.signal })
         window.addEventListener("pointercancel", end, { signal: ended.signal })
+        // a pointer up outside the window reaches no listener of it: the press ends as the window loses the focus
+        window.addEventListener("blur", end, { signal: ended.signal })
       },
     },
     reset: () => {
@@ -237,6 +247,8 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
       pressing.current = false
       pinned.current = false
       setPin(undefined)
+      // the next open measures its own edge
+      setPlacedHang(undefined)
     },
   }
 }

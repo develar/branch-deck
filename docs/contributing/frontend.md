@@ -196,8 +196,10 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   that goes moves none; on the screen a card hung by its bottom edge reads bottom up while the focus follows the DOM,
   actions first: accepted. A popover over a moving anchor holds still while the pointer is in it (the details of a chip
   of Status, `useHeldAnchor` of `StatusChip`: their chip moves as the Actions of its row widen), pinned where it stood,
-  hung by the edge it hung by, without collision avoidance, so what comes or goes changes its other edge only, and
-  stands by the anchor again once the pointer left; a control with nothing to show keeps its place (the
+  hung by the edge it hung by, without collision avoidance, so what comes or goes changes its other edge only (what
+  grows may take it past the edge of the window while the pointer is in it: accepted), and stands by the anchor again
+  once the pointer left; what stands above the actions of a robot card says only what the card knew as it opened (the
+  start line of a running robot, a profile known then), what its details tell later stands past them; a control with nothing to show keeps its place (the
   landing indicator, empty and disabled while nothing is on the way; the time of the last sync, empty before the first
   sync); the items of Status and Actions stand at the end
   of their group, also where the head of the column is wider than they are; a lock wait of a form or a popover

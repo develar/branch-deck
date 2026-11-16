@@ -678,6 +678,43 @@ test.describe("Patronus actions", () => {
     },
   )
 
+  // the start line of a running robot says only what the card knew as it opened (its time, the usual time): the time
+  // left, the estimate of the CI and the checks come in the row Progress and past the actions, so Cancel stays
+  test(
+    "should keep Cancel of the card of a running robot under the pointer as the details of its robot come, its start line as it opened",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await page.setViewportSize({ width: 960, height: UNDER.height })
+      // the new API of Settings → Landing: Patronus folds the progress of the robot in one request
+      const repo = await setupRobotsWith(
+        page,
+        setupRepo,
+        syncAndWaitForBranches,
+        { patronusDetails: robotChecks(RUNNING.id, [["Unit Tests", "RUNNING"], ...passedChecks(3)]), initialStoreValues: { appSettings: { patronusNewApi: true } } },
+        RUNNING,
+      )
+      await repo.setPatronusProgress({
+        [RUNNING.id]: { remainingSeconds: 540, checkName: "Unit Tests", checkPercent: 93, overtimeSeconds: null, queued: 1, probablyHanging: false },
+      })
+      await repo.holdRemoteAnswers({ hold: ["robotChecks"] })
+      const card = await hoverStatusChip(page, chip(page, "JIRA-456"), "patronus-popover")
+      await animationsEnded(card)
+      await expectCardPlaced(card, UNDER)
+      await repo.arrival("robotChecks")
+      await expect(card.getByTestId("patronus-checks")).toHaveCount(0)
+      const started = await card.getByTestId("patronus-started").textContent()
+      const cancel = card.getByRole("button", { name: "Cancel Safe Push" })
+      await cancel.hover()
+      const before = await boxOf(cancel)
+      await repo.holdRemoteAnswers({ release: ["robotChecks"] })
+      await expect(card.getByTestId("patronus-progress")).toHaveText("about 9 min left · Unit Tests 93% · 1 check queued")
+      await expect(card.getByTestId("patronus-checks")).toHaveText("1 running, 3 passed")
+      expect(await card.getByTestId("patronus-started").textContent(), "the start line as the card opened").toBe(started)
+      expect(await boxOf(cancel)).toEqual(before)
+      await expect(card).toBeVisible()
+    },
+  )
+
   // why a robot failed that comes after its card opened (its read held) comes past the actions, with the notice of the
   // review it brings, and the actions the robot no longer offers then go on the side away from the edge the card hangs
   // by, so no action moves under the pointer: Restart stays, or Safe Push comes in its place
@@ -1286,13 +1323,16 @@ test.describe("Patronus actions", () => {
     }
 
     test("should restart it from its details: canceled first, then started again on the commit it tested", async ({ page }) => {
+      // the clock of the page held half an hour after the start of the test: the robot started 14 h 30 min before
+      await page.clock.pauseAt(new Date("2024-01-02T10:30:00Z"))
       const popover = await hoverStatusChip(page, chip(page, "JIRA-456"), "patronus-popover")
       const restart = popover.getByRole("button", { name: "Restart Safe Push", exact: true })
       await expect(restart).toHaveAttribute("data-action", "restart-robot")
       await expect(popover.getByRole("button", { name: "Cancel Safe Push" })).toBeVisible()
-      // the details answered (the checks), and the CI tells no progress of it: no empty row
+      // the details answered (the checks), and the CI tells no progress of it: the row Progress says the time from history,
+      // of a Safe Push none finished before to estimate from
       await expect(popover.getByTestId("patronus-checks")).toHaveText("1 failing (Bazel Build), 1 running, 3 passed")
-      await expect(popover.getByTestId("patronus-progress")).toHaveCount(0)
+      await expect(popover.getByTestId("patronus-progress")).toHaveText("running 14 h")
       await runAndWaitForAnswer(page, "execute", () => restart.click())
       await expectCanceledAndRestarted(page)
     })

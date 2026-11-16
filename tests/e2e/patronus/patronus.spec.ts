@@ -148,8 +148,10 @@ test.describe("Patronus chip", () => {
     await expect(popover.getByTestId("patronus-name")).toHaveText("JIRA-456 fix the database connection pool")
     await expect(popover.getByTestId("patronus-state")).toHaveText("Running")
     await expect(popover.getByTestId("patronus-target")).toHaveText("master")
-    // the profile of JIRA-456 is not known (a list doesn't name it): the rough estimate of the push mode
-    await expect(popover.getByTestId("patronus-started")).toHaveText("Yesterday 9:00 PM · usually ~1 h for Safe Push · 14 h, longer than usual")
+    // the profile of JIRA-456 is not known (a list doesn't name it): the rough estimate of the push mode, and the time it
+    // runs past it in the row Progress
+    await expect(popover.getByTestId("patronus-started")).toHaveText("Yesterday 9:00 PM · usually ~1 h for Safe Push")
+    await expect(popover.getByTestId("patronus-progress")).toHaveText("14 h, longer than usual")
 
     await popover.getByRole("button", { name: "Open in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual([RUNNING.url])
@@ -350,9 +352,11 @@ baseTest.describe("Patronus robot timing", () => {
     const calls = await repo.getPatronusLog()
 
     let popover = await hoverChip(page, "JIRA-456")
-    // the estimate is of the profile its row names: the start line doesn't name it again
+    // the estimate is of the profile its row names: the start line doesn't name it again, the time left is in the row
+    // Progress
     await expect(popover.getByTestId("patronus-profile-name")).toHaveText("Large Scale Change")
-    await expect(popover.getByTestId("patronus-started")).toHaveText(/ · usually ~1 h 50 min · about 1 h 32 min left$/)
+    await expect(popover.getByTestId("patronus-started")).toHaveText(/ · usually ~1 h 50 min$/)
+    await expect(popover.getByTestId("patronus-progress")).toHaveText("about 1 h 32 min left")
     await page.keyboard.press("Escape")
     await expectClosed(popover)
     await page.mouse.move(0, 0)

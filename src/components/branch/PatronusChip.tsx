@@ -17,7 +17,7 @@ import { getRobotItems, robotProblemsReason, useRobotParts } from "@/hooks/useBr
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useEarlierRobot } from "@/hooks/useRowRobot"
-import type { PatronusProblem, PatronusRobot, PatronusRobotProgress } from "@/lib/bindings"
+import type { PatronusProblem, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress } from "@/lib/bindings"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
@@ -26,7 +26,7 @@ import type { PatronusChipState } from "@/lib/patronus"
 import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, isFailingChip, openRobot, robotRingColor } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { openPullRequestUrl } from "@/lib/pull-request"
-import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
+import { formatCheckProgress, formatRobotTimeLeft, formatRobotUsualTime } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { stackReadinessKey } from "@/lib/whole-stack"
@@ -34,7 +34,17 @@ import type { RobotAction } from "@/presenters/actions"
 import { isRestart } from "@/presenters/actions"
 import { formatPendingFact } from "@/presenters/next-step"
 import { useBranch, useBranchRemoteStatus, useBranchTip, useStackBranch } from "@/stores/branch-sync"
-import { patronusStore, useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotProblems, useRobotRestart } from "@/stores/patronus"
+import {
+  patronusStore,
+  useBranchRobot,
+  usePatronusAvailable,
+  usePatronusPending,
+  useRobotEstimate,
+  useRobotFailing,
+  useRobotNeedsReview,
+  useRobotProblems,
+  useRobotRestart,
+} from "@/stores/patronus"
 
 /**
  * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
@@ -160,10 +170,17 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
   // a store read beside the stores the details select: it changes with `needsReview` and the failure of the problems
   const problemsUnknown = useStore(patronusStore, () => robotProblemsReason(robot, branch ?? null))
   const robotParts = useRobotParts(robot)
-  // the details name it; a poll or the start may have named it before
-  const profileName = details?.profileName ?? robot.profile?.name ?? null
+  // the profile known as the card opened (a poll or the start named it) stands with the facts above the actions, and the
+  // usual time of its start line is of it for as long as the card is open: the details may name it only later
+  const [openedProfile] = useState<PatronusRobotProfile | null>(() => robot.profile ?? null)
+  const openedProfileName = openedProfile?.name ?? null
+  // so is the estimate from history the usual time is of: a robot that finished meanwhile changes it on the next open
+  const estimate = useRobotEstimate(robot)
+  const [openedEstimate] = useState(() => estimate)
+  // the details name it; one they name late comes past the actions
+  const lateProfileName = openedProfileName === null ? (details?.profileName ?? robot.profile?.name ?? null) : null
   const actions = getRobotItems(robot, robotParts)
-  const progress = robot.status === "running" && details?.progress != null ? formatProgress(details.progress) : null
+  const running = robot.status === "running"
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="patronus-details">
       <div className="flex flex-col gap-1">
@@ -195,12 +212,20 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
             </dd>
           </>
         )}
+        {openedProfileName !== null && (
+          <>
+            <dt className="text-muted-foreground">Profile</dt>
+            <dd className="break-words" data-testid="patronus-profile-name">
+              {openedProfileName}
+            </dd>
+          </>
+        )}
         {robot.startTime > 0 && (
           <>
             <dt className="text-muted-foreground">Started</dt>
             <dd className="text-muted-foreground" data-testid="patronus-started">
               {formatTimestamp(robot.startTime)}
-              {robot.status === "running" && <RobotTimingDetails robot={robot} remaining={details?.progress?.remainingSeconds == null} profileName={profileName} />}
+              {running && ` · ${formatRobotUsualTime(robot, openedEstimate, openedProfileName)}`}
             </dd>
           </>
         )}
@@ -242,24 +267,24 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
             ) : null
           }
         />
-        {(profileName !== null || progress !== null || details?.checks != null || (!reasonFirst && (problems.length > 0 || needsReview)) || problemsUnknown !== null) && (
+        {(lateProfileName !== null || running || details?.checks != null || (!reasonFirst && (problems.length > 0 || needsReview)) || problemsUnknown !== null) && (
           <div className="flex flex-col gap-3" data-testid="patronus-late-details">
-            {(profileName !== null || progress !== null || details?.checks != null) && (
+            {(lateProfileName !== null || running || details?.checks != null) && (
               <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-                {profileName !== null && (
+                {lateProfileName !== null && (
                   <>
                     <dt className="text-muted-foreground">Profile</dt>
                     <dd className="break-words" data-testid="patronus-profile-name">
-                      {profileName}
+                      {lateProfileName}
                     </dd>
                   </>
                 )}
-                {/* the CI may tell nothing of it yet: no empty row */}
-                {progress !== null && (
+                {/* the time left from history until the CI tells it, which the details bring */}
+                {running && (
                   <>
                     <dt className="text-muted-foreground">Progress</dt>
                     <dd className="break-words tabular-nums" data-testid="patronus-progress">
-                      {progress}
+                      <RobotProgressText robot={robot} progress={details?.progress ?? null} />
                     </dd>
                   </>
                 )}
@@ -407,11 +432,17 @@ function PromptSplitButton({ prompt, fullPrompt }: { prompt: RobotAction; fullPr
   )
 }
 
-/** The estimate of the CI with "probably hanging" in `warning`; null when it tells nothing */
-function formatProgress(progress: PatronusRobotProgress): ReactNode {
-  const text = formatCheckProgress(progress)
-  if (!progress.probablyHanging) {
-    return text === "" ? null : text
+/**
+ * The row Progress of a running robot: the estimate of the CI the details read ("about 9 min left · Unit Tests 93%"), its
+ * time left from history while the CI tells none ("about 22 min left · Unit Tests 93%", "running 18 min"), "probably
+ * hanging" in `warning`; it ticks, so it is its own component
+ */
+function RobotProgressText({ robot, progress }: { robot: PatronusRobot; progress: PatronusRobotProgress | null }) {
+  const timing = useRobotTiming(robot)
+  const ciTellsTime = progress !== null && (progress.remainingSeconds !== null || progress.overtimeSeconds !== null)
+  const text = [ciTellsTime ? "" : formatRobotTimeLeft(timing), progress === null ? "" : formatCheckProgress(progress)].filter(part => part !== "").join(" · ")
+  if (progress?.probablyHanging !== true) {
+    return text
   }
   return (
     <>
@@ -467,15 +498,6 @@ export function RobotActionButton({ action, variant = "outline", className }: { 
       <TooltipContent>{action.description}</TooltipContent>
     </Tooltip>
   )
-}
-
-/**
- * " · usually ~40 min · about 22 min left" after the start time of a running robot, without the profile the details name
- * (`profileName`); it ticks, so it is its own component
- */
-function RobotTimingDetails({ robot, remaining, profileName }: { robot: PatronusRobot; remaining: boolean; profileName: string | null }) {
-  const timing = useRobotTiming(robot)
-  return ` · ${formatRobotTimingDetails(robot, timing, { remaining, profileName })}`
 }
 
 /** The robot of the branch in the branch preview, above the commits; nothing without one */

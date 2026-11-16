@@ -6,7 +6,8 @@ import {
   formatCheckProgress,
   formatDuration,
   formatRobotProgress,
-  formatRobotTimingDetails,
+  formatRobotTimeLeft,
+  formatRobotUsualTime,
   formatShortDuration,
   formatSpokenRobotProgress,
   getRobotTiming,
@@ -157,25 +158,22 @@ describe("formatRobotProgress", () => {
     expect(formatSpokenRobotProgress(fourteenHours)).toBe("14 hours, longer than usual")
   })
 
-  it("explains the estimate and what it is of in the details", () => {
+  it("explains the estimate and what it is of in the details, the time left apart", () => {
     const start = { startTime: NOW_SECONDS - 18 * 60 }
     const lsc: RobotEstimate = { seconds: 110 * 60, basis: { kind: "profile", id: "lsc", name: "Large Scale Change" } }
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, lsc, NOW))).toBe("usually ~1 h 50 min for Large Scale Change · about 1 h 32 min left")
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, { seconds: 40 * 60, basis: { kind: "profile", id: null, name: null } }, NOW))).toBe(
-      "usually ~40 min without a merge profile · about 22 min left",
-    )
+    expect(formatRobotUsualTime(running, lsc)).toBe("usually ~1 h 50 min for Large Scale Change")
+    expect(formatRobotTimeLeft(getRobotTiming(start, lsc, NOW))).toBe("about 1 h 32 min left")
+    expect(formatRobotUsualTime(running, { seconds: 40 * 60, basis: { kind: "profile", id: null, name: null } })).toBe("usually ~40 min without a merge profile")
     // the rough one names the push mode
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, rough(40), NOW))).toBe("usually ~40 min for Safe Push · about 22 min left")
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, rough(10), NOW))).toBe("usually ~10 min for Safe Push · 18 min, longer than usual")
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, null, NOW))).toBe("running 18 min · no Safe Push finished in the last 30 days to estimate from")
-    // the estimate of the CI tells the time left
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, lsc, NOW), { remaining: false })).toBe("usually ~1 h 50 min for Large Scale Change")
+    expect(formatRobotUsualTime(running, rough(40))).toBe("usually ~40 min for Safe Push")
+    expect(formatRobotTimeLeft(getRobotTiming(start, rough(40), NOW))).toBe("about 22 min left")
+    expect(formatRobotTimeLeft(getRobotTiming(start, rough(10), NOW))).toBe("18 min, longer than usual")
+    expect(formatRobotUsualTime(running, null)).toBe("no Safe Push finished in the last 30 days to estimate from")
+    expect(formatRobotTimeLeft(getRobotTiming(start, null, NOW))).toBe("running 18 min")
     // the profile the details name beside it is not said again; another profile, or the push mode, is
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, lsc, NOW), { remaining: false, profileName: "Large Scale Change" })).toBe("usually ~1 h 50 min")
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, lsc, NOW), { profileName: "Fast Tests" })).toBe(
-      "usually ~1 h 50 min for Large Scale Change · about 1 h 32 min left",
-    )
-    expect(formatRobotTimingDetails(running, getRobotTiming(start, rough(40), NOW), { profileName: "Safe Push" })).toBe("usually ~40 min for Safe Push · about 22 min left")
+    expect(formatRobotUsualTime(running, lsc, "Large Scale Change")).toBe("usually ~1 h 50 min")
+    expect(formatRobotUsualTime(running, lsc, "Fast Tests")).toBe("usually ~1 h 50 min for Large Scale Change")
+    expect(formatRobotUsualTime(running, rough(40), "Safe Push")).toBe("usually ~40 min for Safe Push")
   })
 })
 

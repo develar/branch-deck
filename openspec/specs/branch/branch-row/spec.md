@@ -1066,8 +1066,8 @@ it has none (Landed), and never toggles the row.
 
 The details of a chip MUST hold still while the pointer is in them or a press that began in them lasts, though the chip
 moves (the Status column of a row moves as its Actions widen: Stop Waiting comes in the slot of a start pressed in the
-details), hung by the edge they hung by, so what comes or goes in them changes their other edge, and MUST stand by the
-chip again once the pointer left them for the chip. A press ends with the pointer up or with its cancel.
+details), hung by the edge they hung by, without collision avoidance (they may pass the window, accepted), and MUST stand
+by the chip again once the pointer left them. A press ends with the pointer up, its cancel or the window's blur.
 
 #### Scenario: Stop Waiting comes in the row of a Safe Push pressed in the robot card
 - **GIVEN** the pointer pressed Safe Push in the details of the robot chip, and rests there
