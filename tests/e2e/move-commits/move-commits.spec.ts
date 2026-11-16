@@ -20,7 +20,7 @@ import { finishedSyncCount, nextAnswer, pressSyncHeld, runAndWaitForSync, syncFr
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
-import { recordRewrites, expectClosed, waitForStepFacts } from "../helpers/wait-helpers"
+import { recordRewrites, expectClosed, routeCommandError, waitForStepFacts } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -311,6 +311,30 @@ test.describe("Move commits", () => {
     await verifyCommitCount(parserRow, 3)
     await expect(parserRow.getByTestId("branch-issue-key")).toHaveText(ISSUE)
     await expect(findBranchRow(page, ISSUE)).toHaveCount(0)
+  })
+
+  test("should ask the check of a typed name again on the submit when its call failed, and rename once it answers", async ({ page }) => {
+    const docsChecked = nextAnswer(page, "validate_branch_name")
+    await openContextMenu(page, findBranchRow(page, "docs"))
+    await clickContextMenuItem(page, "Rename…")
+    const form = page.getByTestId("inline-rename-input")
+    const renameInput = form.locator('input[type="text"]')
+    await expect(renameInput).toHaveValue("docs")
+    await docsChecked
+
+    // the check of the name typed next fails, as a call whose link dropped does: the field says why, the submit stays open
+    await routeCommandError(page, "validate_branch_name", { code: "internal", message: "The link to the IDE dropped" }, { times: 1 })
+    const failedCheck = nextAnswer(page, "validate_branch_name")
+    await renameInput.fill("documentation")
+    await failedCheck
+    await expect(form).toContainText("Cannot check the branch name: The link to the IDE dropped")
+    const rename = form.getByRole("button", { name: "Rename", exact: true })
+    await expect(rename).toBeEnabled()
+
+    // the submit asks the check again, which answers now, and renames
+    await runAndWaitForSync(page, () => rename.click())
+    await verifyCommitCount(findBranchRow(page, "documentation"), 1)
+    await expect(findBranchRow(page, "docs")).toHaveCount(0)
   })
 
   /** The move of "Add parser" to docs, its toast and its entry in the side panel of Activity, both with their Undo */

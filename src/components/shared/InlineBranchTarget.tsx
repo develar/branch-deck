@@ -51,7 +51,7 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
   const isMoving = useSurfaceBusy(MOVE_TARGET_SURFACE) !== null
 
   const [branchName, setBranchName] = useState("")
-  const { sanitizedBranchName, validationState, isValid, pending, settled } = useBranchNameValidation(branchName)
+  const { sanitizedBranchName, validationState, isValid, pending, checkFailed, settled } = useBranchNameValidation(branchName)
   // the name may carry a parent: `auth/login` is the branch `login`; a bare name takes its stack parent, as Rust
   // groups the prefix `(<name>)`
   const target = usePreviewGroup(sanitizedBranchName !== "" ? `(${sanitizedBranchName})` : null).answer ?? null
@@ -153,7 +153,7 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
         value={branchName}
         onValueChange={setBranchName}
         placeholder={`Branch for ${commitCount}: an existing or a new name`}
-        canSubmit={(isValid || pending) && !isRefused && !isMoving}
+        canSubmit={(isValid || pending || checkFailed) && !isRefused && !isMoving}
         validationMessage={validationMessage}
         validationColor={isRefused ? "error" : (validationState.color ?? "primary")}
         validationTextClassName={isRefused ? "text-destructive" : validationState.textClass}

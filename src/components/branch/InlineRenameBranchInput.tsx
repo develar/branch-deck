@@ -17,7 +17,7 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
   const isIssueBranch = branch?.origin === "Issue"
   const isIssueGroup = branch?.origin === "IssueGroup"
   const [name, setName] = useState(isIssueBranch ? "" : branchName)
-  const { sanitizedBranchName, validationState, isValid, pending, settled } = useBranchNameValidation(name, { leafOnly: true })
+  const { sanitizedBranchName, validationState, isValid, pending, checkFailed, settled } = useBranchNameValidation(name, { leafOnly: true })
   const followers = getStackDescendants(branchName)
   // the answer of an earlier name says nothing of the name as typed now
   const isUnchanged = !pending && sanitizedBranchName === branchName
@@ -40,7 +40,8 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
       validationMessage={validationState.message}
       validationColor={validationState.color ?? "primary"}
       validationTextClassName={validationState.textClass}
-      canSubmit={(isValid || pending) && !isUnchanged}
+      // a check whose call failed is asked again by the submit (`settled`)
+      canSubmit={(isValid || pending || checkFailed) && !isUnchanged}
       title={isIssueBranch ? `Name the branch ${branchName}` : `Rename ${branchName}`}
       submitText={existing ? "Move" : isIssueBranch ? "Name" : "Rename"}
       dataTestId="inline-rename-input"

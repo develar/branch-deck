@@ -17,6 +17,11 @@ export interface CheckedBranchName {
 export interface BranchNameValidation extends CheckedBranchName {
   /** Rust has not answered for the name as it is typed now: the answer of an earlier name shows meanwhile */
   pending: boolean
+  /**
+   * The call of the check of the name as typed now failed: the field says why, and a submit may ask again
+   * (`settled`), so a form opens its submit for it as for a pending check
+   */
+  checkFailed: boolean
   /** The check of the name as typed now, asked at once when Rust has not answered yet: a submit waits for it */
   settled: () => Promise<CheckedBranchName>
 }
@@ -51,13 +56,15 @@ async function checkBranchName(name: string, leafOnly: boolean): Promise<Command
 export function useBranchNameValidation(branchName: string, rules: BranchNameRules = {}): BranchNameValidation {
   const leafOnly = rules.leafOnly === true
   const ask = (name: string) => checkBranchName(name, leafOnly)
-  const read = useDebouncedRead(branchName === "" ? null : branchName, ask, `${leafOnly}`)
+  // a failed check shows, and is asked again: by the next pause of the typing and by a submit
+  const read = useDebouncedRead(branchName === "" ? null : branchName, ask, `${leafOnly}`, answer => answer.status === "ok")
   const shown = branchName === "" ? NOTHING_TYPED : checked(read.answer)
   return {
     ...shown,
     // a name the answer is not for yet is no name to submit
     isValid: shown.isValid && !read.pending,
     pending: read.pending,
+    checkFailed: branchName !== "" && !read.pending && read.answer?.status === "error",
     settled: async () => (branchName === "" ? NOTHING_TYPED : checked(await read.settled())),
   }
 }
