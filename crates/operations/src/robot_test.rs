@@ -2,7 +2,7 @@ use crate::http_budget_test::{TIP, table};
 use crate::land_execute::land_execute_test::{ALPHA, Fixture, fixture, statuses};
 use crate::land_execute::{Accepted, Planned, Steps, run_planned};
 use crate::pull_request::{retarget_plan, retarget_request};
-use crate::robot::{cancel, cancel_plan, cancel_request, refuse_unheld, restart_planned, restart_refusal_of, restart_request};
+use crate::robot::{cancel, cancel_plan, cancel_request, restart_planned, restart_refusal_of, restart_request};
 use crate::witness::Witness;
 use domain_policy::admission::admit;
 use domain_types::fixtures::{pull_request, robot};
@@ -503,12 +503,10 @@ fn a_restart_runs_only_where_the_session_offers_it_and_each_blocker_refuses_it_b
   assert_eq!(restart_refusal_of("r1", None), None, "a robot the session lists not has no plan");
 }
 
-/// The plan a restart decides once admitted runs only on what its admission holds: one that lands or pushes more (a robot
-/// the session had no plan of as it was asked, a branch its stack took meanwhile, a push it needs now) is refused before
-/// its first effect, and one that holds as much or less runs
+/// What a restart holds by its plan (`restart_request`): its robot, what it lands, the ref of its push, and the base of
+/// the pull request it retargets before its push (D3a)
 #[test]
-fn a_restart_whose_plan_holds_more_than_its_admission_is_refused_before_its_first_effect() {
-  use domain_types::error::ErrorCode;
+fn a_restart_holds_its_robot_what_it_lands_its_push_and_the_base_it_retargets() {
   let sources = Sources::new(Some("older"), false, vec![robot_on("f", PatronusRobotStatus::Failure, TIP)], RestartAction::PushAndRestart);
   let planned = sources.planned("f").expect("a plan that pushes first");
   let all = restart_request("f", Some(&planned)).resources;
@@ -522,18 +520,20 @@ fn a_restart_whose_plan_holds_more_than_its_admission_is_refused_before_its_firs
       }
     ]
   );
-  refuse_unheld("f", &all, &planned).unwrap();
-  for held in [&all[..1], &all[..2]] {
-    let refused = refuse_unheld("f", held, &planned).unwrap_err();
-    assert_eq!(
-      (refused.code, refused.message.as_str()),
-      (
-        ErrorCode::PlanChanged,
-        "What the restart of robot f pushes or lands changed while it waited: nothing was pushed or restarted"
-      ),
-      "{held:?}"
-    );
-  }
+  let mut retargeting = Sources::new(Some("older"), false, vec![robot_on("f", PatronusRobotStatus::Failure, TIP)], RestartAction::PushAndRestart);
+  retargeting.pull_requests.pull_requests.insert(
+    "auth".to_owned(),
+    domain_types::pull_request::PullRequest {
+      base_ref_name: "user/virtual/core".to_owned(),
+      ..pull_request("auth", 12)
+    },
+  );
+  let planned = retargeting.planned("f").unwrap();
+  assert!(planned.plan.effects.iter().any(|effect| matches!(effect, PlannedEffect::Retarget { number: 12, .. })));
+  assert!(restart_request("f", Some(&planned)).resources.contains(&Resource::PullRequest {
+    number: 12,
+    field: PullRequestField::Base
+  }));
 }
 
 /// The session of `stack_ahead_of_bare_origin`, synced, whose next syncs wait until the test releases them, with a failed
@@ -624,7 +624,8 @@ async fn a_restart_admitted_while_the_session_refuses_it_holds_what_it_lands_so_
   })
   .await;
   let lands = Resource::Lands { branch: "alpha".to_owned() };
-  assert!(admitted[0].resources.contains(&lands), "admitted with what it lands: {:?}", admitted[0].resources);
+  let restarting_op = admitted.iter().find(|operation| matches!(operation.intent, Intent::RestartRobot { .. })).unwrap();
+  assert!(restarting_op.resources.contains(&lands), "admitted with what it lands: {:?}", restarting_op.resources);
 
   // Patronus tells why the Safe Push failed and the sync ends: the restart pushes alpha and asks Patronus, held there
   let ticket = sessions.begin(&key).await.unwrap();
@@ -657,7 +658,18 @@ async fn a_restart_admitted_while_the_session_refuses_it_holds_what_it_lands_so_
     pull_request: None,
     approvals_skipped_by: None,
   };
-  let request = crate::engine::land_request(&key.prefix, &land, Some(&plan));
+  let planned = Planned {
+    plan,
+    witness: Witness::default(),
+    pushes: Vec::new(),
+    source_ref: String::new(),
+    merge_request: None,
+    notes: Vec::new(),
+    subject: land.subject.clone(),
+    mode: land.mode,
+    stack_pull_requests: BTreeMap::new(),
+  };
+  let request = crate::engine::land_request(&key.prefix, &land, Some(&planned));
   let ran = Arc::new(AtomicBool::new(false));
   let safe_push = tokio::spawn({
     let (registry, key, ran) = (registry.clone(), key.clone(), Arc::clone(&ran));

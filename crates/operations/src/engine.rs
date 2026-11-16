@@ -28,7 +28,7 @@ use crate::land_session::{SessionStart, pull_request_start, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
 use crate::run_frame::{self, SyncWait, wait_for_facts};
-use crate::witness::{Witness, check};
+use crate::witness::{Witness, check, plan_changed};
 use crate::{auto_merge, close, forget, issue, land, pull_request, push, review, review_fetch, robot, update};
 use domain_policy::land_direct::update_after;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
@@ -45,7 +45,7 @@ use repository_model::session::{SessionKey, Sessions};
 use repository_model::table::TableState;
 use std::sync::Arc;
 use sync_core::transfer_progress::TransferProgress;
-use tracing::Instrument;
+use tracing::{Instrument, debug};
 
 /// What the operations of a host run with: the services of its reads and of its effects on the remote, and what its
 /// rewrites run with besides (the app's and the E2E server's services are both)
@@ -222,7 +222,16 @@ pub(crate) fn frame_refusal(state: &TableState) -> ApiError {
 /// # Errors
 /// `plan_changed` of its intent
 pub(crate) fn check_admitted(guard: &RunningGuard, accepted: &Accepted, plan: &Plan) -> Result<(), ApiError> {
-  check(&accepted.decided_again(plan, guard.queued()).fingerprint, &plan.fingerprint, &plan.intent)
+  check_waited(accepted, plan, guard.queued())
+}
+
+/// `check_admitted` of a plan decided after a wait `waited` names: in the queue at its admission, or for what it held
+/// more once admitted (`Holding::cover`)
+///
+/// # Errors
+/// `plan_changed` of its intent
+pub(crate) fn check_waited(accepted: &Accepted, plan: &Plan, waited: bool) -> Result<(), ApiError> {
+  check(&accepted.decided_again(plan, waited).fingerprint, &plan.fingerprint, &plan.intent)
 }
 
 /// Where the steps of the operation of `guard` go: the view and its caller, the progress of its push to the caller, and
@@ -251,42 +260,119 @@ pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, S
   Ok(started.outcome)
 }
 
+/// What an operation holds once admitted, and whether it held more once already (`cover`)
+pub(crate) struct Holding {
+  held: Vec<Resource>,
+  spent: bool,
+}
+
+/// What `Holding::cover` found of a plan decided once admitted
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Cover {
+  /// It holds all the plan needs: the plan runs
+  Held,
+  /// It held what the plan needs more, after the operations of this process that held it (`waited`: it waited for
+  /// them): the plan is decided again
+  Again { waited: bool },
+}
+
+impl Holding {
+  /// What the admission of an operation held (`OperationRequest::resources`)
+  pub(crate) const fn new(held: Vec<Resource>) -> Self {
+    Self { held, spent: false }
+  }
+
+  /// Whether the operation of `guard` holds what `needed` names, the resources its plan decided once admitted holds by
+  /// the builder of its admission (`land_request`, `push_request`, …): HEAD, which a rewrite of this process holds and
+  /// the wait for facts waited for, aside. Held: the plan runs. The first time it lacks some, it holds them
+  /// (`RunningGuard::hold`: after the operations of this process that hold one, `busy` while another process does) and
+  /// the plan is decided again on what they left; once more, the operation of `intent` is refused before its first
+  /// effect: its plan moved under it twice. One hold per run of an operation, every plan of it decided again shares it
+  /// (a start planned again after `BaselineMoved`)
+  ///
+  /// # Errors
+  /// `plan_changed` of `intent` at the second time, nothing done; what `RunningGuard::hold` fails with
+  pub(crate) async fn cover(&mut self, guard: &RunningGuard, needed: &[Resource], intent: &Intent) -> Result<Cover, ApiError> {
+    let missing: Vec<Resource> = needed
+      .iter()
+      .filter(|resource| !matches!(resource, Resource::Head) && !self.held.contains(resource))
+      .cloned()
+      .collect();
+    if missing.is_empty() {
+      return Ok(Cover::Held);
+    }
+    if self.spent {
+      return Err(plan_changed(intent, Some("it needs what it held not, after it held more once")));
+    }
+    self.spent = true;
+    debug!(missing = ?missing, "the plan decided once admitted needs more than the admission held: it holds it and is decided again");
+    let waited = guard.hold(missing.clone(), OperationStep::Checking).await?;
+    self.held = with_all(std::mem::take(&mut self.held), missing);
+    Ok(Cover::Again { waited })
+  }
+
+  /// `cover`, whether its hold waited added to `waited`: `true` where the plan runs, `false` where it is decided again
+  ///
+  /// # Errors
+  /// As `cover`
+  pub(crate) async fn covers(&mut self, guard: &RunningGuard, needed: &[Resource], intent: &Intent, waited: &mut bool) -> Result<bool, ApiError> {
+    match self.cover(guard, needed, intent).await? {
+      Cover::Held => Ok(true),
+      Cover::Again { waited: queued } => {
+        *waited |= queued;
+        Ok(false)
+      }
+    }
+  }
+}
+
 /// Runs the start `land` of the app in the session of `key` on the plan its caller accepted (`accepted`):
-/// admitted over the operations of the session with what the plan as the session has it now reserves, then run
-/// (`land_execute::execute`) over the session and the services of `hosts` (`session_start`; a push into the target,
-/// which starts no robot, `pull_request_start`) with its steps in the view and its progress and outcome to `events`, on
+/// admitted over the operations of the session with what the plan as the session has it now reserves, then planned again
+/// over the session and the services of `hosts`, held what that plan reserves more (`Holding::cover`), and run
+/// (`land_execute::run_planned`) over the host of its route (`session_start`; a push into the target, which starts no
+/// robot, `pull_request_start`)
+/// with its steps in the view and its progress and outcome to `events`, on
 /// the table of the last sync and what the operations it queued behind left (the push of its branch pressed just before
 /// it: the start pushes nothing more); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows under the start's
 /// guard (`land_direct::update_after`): its steps and, after the start's `Done`, its outcome go to `events`, while the
 /// target stays held until its sync; the answer is the start's. The journal contains one operation for both phases
 ///
 /// # Errors
-/// What refused the start before its first effect (`land_execute::execute`), a lock another process holds, a session
-/// that closed or has no sync yet
+/// What refused the start before its first effect (`land_execute::run_planned`), a robot of Patronus without its service
+/// (`not_on_space`), a lock another process holds, a session that closed or has no sync yet
 pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, accepted: Accepted, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
   let services = hosts.services;
   let sessions = registry.sessions();
-  let planned = land::prepare(sessions, key, land.clone()).await;
+  let planned = land::prepare_planned(sessions, key, land.clone()).await;
   let request = land_request(&key.prefix, &land, planned.as_ref());
-  let pushes_into_target = planned.as_ref().is_some_and(pushes_into_target);
+  let mut holding = Holding::new(request.resources.clone());
   run(registry, key, request, Arc::clone(&events), async |guard| {
     // A start lands the table of the last sync; it needs nothing a running sync writes.
-    let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Never).await;
-    let (mut host, run) = if pushes_into_target {
-      pull_request_start(services, sessions, key).await?
-    } else {
-      session_start(services, sessions, key).await?
-    };
+    let mut waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Never).await.waited;
+    // planned over the host that needs no Patronus, then run over the host of the route its plan decided: a robot of
+    // Patronus needs its service (`session_start` refuses where there is none), a push into the target does not
+    let (mut host, mut run) = pull_request_start(services, sessions, key).await?;
     host.exclude_operation(guard.id().clone());
     let steps = steps_of(guard);
-    let started = match land_execute::execute(&host, &run, &steps, guard.id().clone(), &land, &accepted, waited.waited).await {
+    steps.step(OperationStep::Checking);
+    let (planned, queued) = covered_plan(&host, &land, guard, &mut holding).await?;
+    waited |= queued;
+    let into_target = pushes_into_target(&planned.plan);
+    if !into_target {
+      (host, run) = session_start(services, sessions, key).await?;
+      host.exclude_operation(guard.id().clone());
+    }
+    let decided = accepted.decided_again(&planned.plan, waited);
+    let started = match land_execute::run_planned(&host, &run, &steps, guard.id().clone(), planned, &decided, waited).await {
       Ok(started) => started,
-      Err(error) if waited.waited && error.code == ErrorCode::BaselineMoved => {
+      Err(error) if waited && error.code == ErrorCode::BaselineMoved => {
         run_frame::refresh_baseline(sessions, key, guard, hosts).await?;
-        let planned = host
-          .plan(&land)
-          .await?
-          .ok_or_else(|| ApiError::new(ErrorCode::UnknownBranch, format!("Nothing was pushed: the session no longer has {}", land.subject.words())))?;
+        // decided again on the updated baseline, over what the admission and the first plan held: one hold of more for
+        // both plans; on the host of the route the first plan decided
+        let (planned, _) = covered_plan(&host, &land, guard, &mut holding).await?;
+        if pushes_into_target(&planned.plan) != into_target {
+          return Err(plan_changed(&planned.plan.intent, Some("it lands by another route after the update of its baseline")));
+        }
         let accepted = accepted.decided_again(&planned.plan, true);
         land_execute::run_planned(&host, &run, &steps, guard.id().clone(), planned, &accepted, false).await?
       }
@@ -302,6 +388,24 @@ pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, acc
   .await
 }
 
+/// The plan of the start `land` decided once admitted over `host`, held by `holding` (`Holding::cover`: what it reserves
+/// more is held once, and the start planned again), with whether the hold waited in the queue
+///
+/// # Errors
+/// A subject the session lacks, what `Holding::cover` refuses it with
+async fn covered_plan(host: &SessionStart, land: &Land, guard: &RunningGuard, holding: &mut Holding) -> Result<(Planned, bool), ApiError> {
+  let mut queued = false;
+  loop {
+    let planned = host.plan(land).await?.ok_or_else(|| land_execute::unknown_subject(&land.subject))?;
+    if holding
+      .covers(guard, &land_request(&host.key.prefix, land, Some(&planned)).resources, &planned.plan.intent, &mut queued)
+      .await?
+    {
+      return Ok((planned, queued));
+    }
+  }
+}
+
 /// The plan pushes the copy of its subject into the target, or GitHub merges its pull request: no robot of Patronus
 /// starts (`brd land` too)
 #[must_use]
@@ -315,11 +419,19 @@ pub fn pushes_into_target(plan: &Plan) -> bool {
 }
 
 /// What the start `land` of a session of `prefix` asks the registry for: what its plan (as the session has it now)
-/// reserves, the move of its row from the click on
-pub(crate) fn land_request(prefix: &str, land: &Land, plan: Option<&Plan>) -> OperationRequest {
+/// reserves, the branch it lands without one (the frame of an earlier run, a subject the table lacks: what its plan
+/// once admitted needs more it holds then, `Holding::cover`), the move of its row from the click on
+pub(crate) fn land_request(prefix: &str, land: &Land, planned: Option<&Planned>) -> OperationRequest {
   OperationRequest {
     intent: Intent::Land(land.clone()),
-    resources: plan.map_or_default(|plan| reserved(prefix, &land.subject, plan)),
+    resources: planned.map_or_else(
+      || {
+        vec![Resource::Lands {
+          branch: land.subject.name().to_string(),
+        }]
+      },
+      |planned| reserved(prefix, &land.subject, planned),
+    ),
     step: OperationStep::Checking,
     moves: vec![RunningMove::Starting {
       subject: land.subject.name().to_string(),
@@ -335,7 +447,7 @@ pub(crate) fn land_request(prefix: &str, land: &Land, plan: Option<&Plan>) -> Op
 pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
   let plan = &planned.plan;
   match &plan.intent {
-    Intent::Land(land) => land_request(prefix, land, Some(plan)),
+    Intent::Land(land) => land_request(prefix, land, Some(planned)),
     Intent::Push(push) => push::push_request(prefix, push, Some(planned)),
     Intent::RestartRobot { robot_id } => robot::restart_request(robot_id, Some(planned)),
     Intent::CancelRobot { robot_id } => robot::cancel_request(robot_id),
@@ -388,8 +500,11 @@ pub(crate) fn runs_only_in_bd(intent: &Intent) -> ApiError {
   ApiError::new(ErrorCode::InvalidArguments, format!("Only brd runs {what}: the app shows its record and runs none"))
 }
 
-/// What a start of `subject` reserves: the branches its plan lands, the refs its push writes, the robot it cancels
-fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
+/// What a start of `subject` reserves: the branches its plan lands, the refs its push writes, what its effects on the
+/// remote hold (`remote_holds`: the robot it cancels, the base of a pull request it retargets), the remote-tracking ref
+/// of the target it pushes into and the fields of the pull requests GitHub merges
+fn reserved(prefix: &str, subject: &Subject, planned: &Planned) -> Vec<Resource> {
+  let plan = &planned.plan;
   let mut resources: Vec<Resource> = plan.lands.iter().map(|branch| Resource::Lands { branch: branch.clone() }).collect();
   for effect in &plan.effects {
     match effect {
@@ -400,7 +515,6 @@ fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
         };
         resources.extend(refs.into_iter().map(|name| Resource::Ref { name }));
       }
-      PlannedEffect::CancelRobot { robot_id } => resources.push(Resource::Robot { id: robot_id.clone() }),
       // the remote-tracking ref of the target: a fetch of it, and another landing into it, wait for the push
       PlannedEffect::PushBaseline { remote, target, .. } => resources.push(Resource::Ref {
         name: format!("refs/remotes/{remote}/{target}"),
@@ -420,6 +534,52 @@ fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
         field: PullRequestField::AutoMerge,
       }),
       _ => {}
+    }
+  }
+  with_all(resources, remote_holds(planned))
+}
+
+/// What the effects of `planned` on the robots and the pull requests hold, of every family alike: the base of the pull
+/// request each retarget moves and of each open pull request of the stack of GitHub a link brings in line (a retarget of
+/// one waits for it), the robot it cancels, and the robot it restarts with what that robot lands (the branches of its
+/// plan, else its subject): a Safe Push of the branch waits for the restart, so Patronus never runs two robots of it
+pub(crate) fn remote_holds(planned: &Planned) -> Vec<Resource> {
+  let base = |number: u32| Resource::PullRequest {
+    number,
+    field: PullRequestField::Base,
+  };
+  let mut resources = Vec::new();
+  for effect in &planned.plan.effects {
+    match effect {
+      PlannedEffect::Retarget { number, .. } => resources.push(base(*number)),
+      PlannedEffect::LinkStack { chain, .. } => resources.extend(
+        chain
+          .iter()
+          .filter_map(|branch| planned.stack_pull_requests.get(branch))
+          .map(|pull_request| base(pull_request.number)),
+      ),
+      PlannedEffect::CancelRobot { robot_id } => resources.push(Resource::Robot { id: robot_id.clone() }),
+      PlannedEffect::RestartRobot { robot_id } => {
+        resources.push(Resource::Robot { id: robot_id.clone() });
+        if planned.plan.lands.is_empty() {
+          resources.push(Resource::Lands {
+            branch: planned.subject.name().to_string(),
+          });
+        } else {
+          resources.extend(planned.plan.lands.iter().map(|branch| Resource::Lands { branch: branch.clone() }));
+        }
+      }
+      _ => {}
+    }
+  }
+  resources
+}
+
+/// `resources` with each of `more` it lacks, in their order: each resource once
+pub(crate) fn with_all(mut resources: Vec<Resource>, more: impl IntoIterator<Item = Resource>) -> Vec<Resource> {
+  for resource in more {
+    if !resources.contains(&resource) {
+      resources.push(resource);
     }
   }
   resources
@@ -460,3 +620,7 @@ pub(crate) fn outcome_of(op: OperationId, effects: Vec<EffectRecord>, news_key: 
 #[cfg(test)]
 #[path = "engine_log_test.rs"]
 mod engine_log_test;
+
+#[cfg(test)]
+#[path = "cover_test.rs"]
+mod cover_test;

@@ -18,7 +18,7 @@
 //! branch of a whole stack alone (`whole_stack_planned`). `brd push` plans one intent per branch it names over its
 //! one-shot session, the same plans, and sends them as one atomic push (`push_together`) through the same run.
 
-use crate::engine::{frame_refusal, run, run_planned_in};
+use crate::engine::{Holding, frame_refusal, remote_holds, run, run_planned_in, with_all};
 use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef, refusal_of};
 use crate::land_session::push_start;
@@ -801,7 +801,8 @@ impl PushPlan<'_> {
 
 /// What the push `push` asks the registry for: the refs its plan pushes now (of `planned`, its plan as the session has
 /// it now), in its order, so the view tells which branches it sends; the ref of its subject while it pushes none (a sync
-/// it waits for may give it work); the robot it cancels and restarts and the base of each pull request it retargets
+/// it waits for may give it work); what its effects on the remote hold (`engine::remote_holds`: the robot it cancels,
+/// the robot it restarts and its branch, the base of each pull request it retargets or its link brings in line)
 pub(crate) fn push_request(prefix: &str, push: &Push, planned: Option<&Planned>) -> OperationRequest {
   let pushes = planned.map_or(&[][..], |planned| planned.pushes.as_slice());
   let mut resources: Vec<Resource> = pushes.iter().map(|pushed| Resource::Ref { name: pushed.full_name.clone() }).collect();
@@ -814,24 +815,9 @@ pub(crate) fn push_request(prefix: &str, push: &Push, planned: Option<&Planned>)
     };
     resources.extend(full_name.ok().map(|name| Resource::Ref { name }));
   }
-  for effect in planned.map_or(&[][..], |planned| planned.plan.effects.as_slice()) {
-    match effect {
-      PlannedEffect::Retarget { number, .. } => resources.push(Resource::PullRequest {
-        number: *number,
-        field: PullRequestField::Base,
-      }),
-      PlannedEffect::CancelRobot { robot_id } | PlannedEffect::RestartRobot { robot_id } => {
-        let robot = Resource::Robot { id: robot_id.clone() };
-        if !resources.contains(&robot) {
-          resources.push(robot);
-        }
-      }
-      _ => {}
-    }
-  }
   OperationRequest {
     intent: Intent::Push(push.clone()),
-    resources,
+    resources: with_all(resources, planned.map_or_default(remote_holds)),
     step: OperationStep::Checking,
     moves: Vec::new(),
   }
@@ -875,11 +861,22 @@ fn no_push_plan(push: &Push) -> ApiError {
 #[instrument(skip_all, fields(subject = %push.subject.name()))]
 pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   let sessions = registry.sessions();
-  let planned = prepare_push(sessions, key, &push).await;
-  let request = push_request(&key.prefix, &push, planned.as_ref());
+  let (prefix, asked) = (key.prefix.clone(), push.clone());
+  let (planned, more) = sessions
+    .read(key, move |state, facts| {
+      let planned = push_planned(state, facts, &prefix, &asked, None, ExpectRemote::OfIntent);
+      let more = with_pull_request_sources(state, facts, &prefix, |sources| admission_holds(sources, &asked)).unwrap_or_default();
+      (planned, more)
+    })
+    .await
+    .unwrap_or_default();
+  let mut request = push_request(&key.prefix, &push, planned.as_ref());
+  request.resources = with_all(request.resources, more);
+  let mut holding = Holding::new(request.resources.clone());
   run(registry, key, request, events, async |guard| {
     // the rewrites admitted before it (a move out of the branch): it sends what they leave, after the sync they ask; the
-    // robots are asked meanwhile, as no wait changes what Patronus has
+    // robots are asked meanwhile, as no wait for a rewrite or a sync changes what Patronus has (a wait behind the
+    // operations that hold what it needs more asks them again)
     let waits = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running);
     let (robots, waited) = tokio::join!(robots_to_check(services, key, &push), waits);
     // the rows are still the frame of an earlier run: no tip of this process to push. Its first sync failed (the one it
@@ -888,25 +885,108 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
     if let Some(refusal) = frame {
       return Err(waited.failed.unwrap_or(refusal));
     }
-    let waited = waited.waited;
-    let checked = match robots {
-      Some(robots) => checked_holds(services, sessions, key, robots).await.map(Arc::new),
-      None => None,
+    let mut waited = waited.waited;
+    let mut checked = checked_of(services, sessions, key, robots).await;
+    let planned = loop {
+      let (prefix, intent, holds) = (key.prefix.clone(), push.clone(), checked.clone());
+      let expect = if waited { ExpectRemote::OfSession } else { ExpectRemote::OfIntent };
+      let planned = sessions
+        .read(key, move |state, facts| push_planned(state, facts, &prefix, &intent, holds.as_deref(), expect))
+        .await
+        .flatten()
+        .ok_or_else(|| no_push_plan(&push))?;
+      // what refuses it, in the words of the robots it was checked on
+      if let Some(refusal) = refusal_of(&planned, checked.as_ref().map_or(&[][..], |checked| checked.robots.as_slice())) {
+        return Err(refusal);
+      }
+      // the robots asked now may give it a retarget, a restart or a branch the session held: held before its first effect
+      let mut queued = false;
+      if holding
+        .covers(guard, &push_request(&key.prefix, &push, Some(&planned)).resources, &planned.plan.intent, &mut queued)
+        .await?
+      {
+        break planned;
+      }
+      if queued {
+        // the operations it waited for start and restart robots: decided again on the robots as Patronus has them now
+        waited = true;
+        checked = checked_of(services, sessions, key, robots_to_check(services, key, &push).await).await;
+      }
     };
-    let (prefix, intent, holds) = (key.prefix.clone(), push.clone(), checked.clone());
-    let expect = if waited { ExpectRemote::OfSession } else { ExpectRemote::OfIntent };
-    let planned = sessions
-      .read(key, move |state, facts| push_planned(state, facts, &prefix, &intent, holds.as_deref(), expect))
-      .await
-      .flatten()
-      .ok_or_else(|| no_push_plan(&push))?;
-    // what refuses it, in the words of the robots it was checked on
-    if let Some(refusal) = refusal_of(&planned, checked.as_ref().map_or(&[][..], |checked| checked.robots.as_slice())) {
-      return Err(refusal);
-    }
     run_planned_in(guard, push_start(services, sessions, key).await?, planned, &accepted, waited).await
   })
   .await
+}
+
+/// What the admission of the push `push` holds besides what its plan as the session has it now holds (`push_request`),
+/// over `sources`: what its plan decided once admitted may add over the robots it asks then (`checked_holds`, a hold
+/// that lifted lets a branch go), which the run holds then or is refused for: the base of the open pull request of each
+/// branch of the stack of its subject, which a push retargets first (D3a), and of a push that restarts the Safe Push of
+/// its branch every robot listed of the branch, with the branch it lands. None for an unapplied branch (C3)
+fn admission_holds(sources: &LandSources<'_>, push: &Push) -> Vec<Resource> {
+  if push.scope == PushScope::Unapplied {
+    return Vec::new();
+  }
+  let name = push.subject.name();
+  let mut resources: Vec<Resource> = stack_of(sources, name)
+    .into_iter()
+    .filter_map(|branch| sources.pull_requests.pull_requests.get(branch.as_str()))
+    .filter(|pull_request| pull_request.state == PullRequestState::Open)
+    .map(|pull_request| Resource::PullRequest {
+      number: pull_request.number,
+      field: PullRequestField::Base,
+    })
+    .collect();
+  if push.restart_running
+    && let Subject::Branch { name } = &push.subject
+  {
+    let own = Some(Subject::branch(name));
+    let row = sources.view.branches.get(name.as_str()).and_then(|facts| facts.robot_id.as_deref());
+    resources.extend(
+      sources
+        .robots
+        .iter()
+        .filter(|robot| Some(robot.id.as_str()) == row || Subject::of_robot(robot) == own)
+        .map(|robot| Resource::Robot { id: robot.id.clone() }),
+    );
+    resources.push(Resource::Lands { branch: name.clone() });
+  }
+  resources
+}
+
+/// The branches of the stack of `name` in the table of `sources`: the ones it is built on, it, and the ones built on it
+fn stack_of(sources: &LandSources<'_>, name: &str) -> Vec<String> {
+  let base = |branch: &str| {
+    sources
+      .table
+      .branch(branch)
+      .and_then(|info| info.stack.as_ref())
+      .and_then(|stack| stack.effective_base.clone())
+  };
+  let mut stack = vec![name.to_string()];
+  let mut below = base(name);
+  while let Some(branch) = below.filter(|branch| !stack.contains(branch)) {
+    below = base(&branch);
+    stack.push(branch);
+  }
+  loop {
+    let above: Vec<String> = sources
+      .table
+      .branches
+      .iter()
+      .filter(|info| !stack.contains(&info.name) && base(&info.name).is_some_and(|parent| stack.contains(&parent)))
+      .map(|info| info.name.clone())
+      .collect();
+    if above.is_empty() {
+      return stack;
+    }
+    stack.extend(above);
+  }
+}
+
+/// The holds the run of a push checks of `robots` (`checked_holds`); none without robots to check
+async fn checked_of(services: &dyn ServiceHost, sessions: &Sessions, key: &SessionKey, robots: Option<Vec<PatronusRobot>>) -> Option<Arc<CheckedHolds>> {
+  checked_holds(services, sessions, key, robots?).await.map(Arc::new)
 }
 
 /// The user's robots the run of `push` checks, asked as it starts, one full list (`PatronusService::robots_for_checks`,

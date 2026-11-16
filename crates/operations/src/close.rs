@@ -12,7 +12,7 @@
 //! comment, a merged one can't be closed), goes into the session at once (`PullRequestWrite::Closed`), and one GitHub
 //! refuses stops none of the others. `bd` closes none: `brd robot` lists them (`closes`).
 
-use crate::engine::{check_admitted, outcome_of, run};
+use crate::engine::{Holding, check_waited, outcome_of, run};
 use crate::events::EventSink;
 use crate::land_execute::Accepted;
 use crate::pull_request::{find, github_of, write_plan};
@@ -180,21 +180,26 @@ pub async fn prepare_close(sessions: &Sessions, key: &SessionKey, intent: &Inten
 }
 
 /// What closes ask the registry for: the state of each pull request they close (a second close of the same joins, a
-/// retarget or a review request of it runs beside)
+/// retarget or a review request of it runs beside), without a plan the one a close names
 pub(crate) fn close_request(intent: &Intent, plan: Option<&Plan>) -> OperationRequest {
-  let resources = plan
-    .map(|plan| {
-      plan.effects.iter().filter_map(|effect| match effect {
-        PlannedEffect::ClosePullRequest { number, .. } => Some(Resource::PullRequest {
-          number: *number,
-          field: PullRequestField::State,
-        }),
+  let state = |number: u32| Resource::PullRequest {
+    number,
+    field: PullRequestField::State,
+  };
+  let resources = match (plan, intent) {
+    (Some(plan), _) => plan
+      .effects
+      .iter()
+      .filter_map(|effect| match effect {
+        PlannedEffect::ClosePullRequest { number, .. } => Some(state(*number)),
         _ => None,
       })
-    })
-    .into_iter()
-    .flatten()
-    .collect();
+      .collect(),
+    // no plan as the session has it (a pull request it lists not yet): the one the intent names; the closes of a
+    // landing name none
+    (None, Intent::ClosePullRequest { number, .. }) => vec![state(*number)],
+    (None, _) => Vec::new(),
+  };
   OperationRequest {
     intent: intent.clone(),
     resources,
@@ -204,7 +209,8 @@ pub(crate) fn close_request(intent: &Intent, plan: Option<&Plan>) -> OperationRe
 }
 
 /// Runs the close or the closes of a merged robot (`intent`) in the session of `key` on the plan its caller accepted:
-/// admitted over the operations of the session (it holds the state of each pull request it closes), planned again, then
+/// admitted over the operations of the session (it holds the state of each pull request it closes), planned again (what
+/// that plan closes more is held first, `engine::Holding::cover`), then
 /// each close with the GitHub service and repository `services` resolves, into the session at once; a close GitHub
 /// refuses is the status of its effect, and the others go on
 ///
@@ -214,12 +220,21 @@ pub(crate) fn close_request(intent: &Intent, plan: Option<&Plan>) -> OperationRe
 pub async fn execute_close(registry: &Registry, key: &SessionKey, intent: Intent, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   let sessions = registry.sessions();
   let request = close_request(&intent, prepare_close(sessions, key, &intent).await.as_ref());
+  let mut holding = Holding::new(request.resources.clone());
   run(registry, key, request, events, async |guard| {
-    let plan = prepare_close(sessions, key, &intent).await.ok_or_else(|| no_plan(&intent))?;
-    if let Some(Reason::PullRequestMerged { number }) = plan.blockers.first() {
-      return Err(ApiError::new(ErrorCode::Landed, format!("Nothing was closed: pull request #{number} is merged")));
-    }
-    check_admitted(guard, &accepted, &plan)?;
+    // decided again once admitted; the state of a pull request it closes that its admission held not (the session
+    // listed it not, a merged robot closes more now) is held first, then it is decided again
+    let mut waited = guard.queued();
+    let plan = loop {
+      let plan = prepare_close(sessions, key, &intent).await.ok_or_else(|| no_plan(&intent))?;
+      if let Some(Reason::PullRequestMerged { number }) = plan.blockers.first() {
+        return Err(ApiError::new(ErrorCode::Landed, format!("Nothing was closed: pull request #{number} is merged")));
+      }
+      if holding.covers(guard, &close_request(&intent, Some(&plan)).resources, &intent, &mut waited).await? {
+        break plan;
+      }
+    };
+    check_waited(&accepted, &plan, waited)?;
     let mut version = None;
     let mut records = Vec::with_capacity(plan.effects.len());
     for effect in plan.effects {

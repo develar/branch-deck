@@ -118,6 +118,30 @@ operations over the actions the surfaces offer.
 4. **A rewrite and a remote action run side by side**, but a push: it waits behind the rewrites of the process admitted
    before it (`RunningGuard::wait_behind`, its step `Queued`, holding no HEAD, so a rewrite after it runs at once) and
    for the sync they end with, then is decided again on what they left: it sends the branches as they leave them.
+5. **A plan decided once admitted runs on what its operation holds** (`engine::Holding::cover`): a start (each of its
+   plans, the one after an update of its baseline too), a push, a pull request intent (creation, review request, link
+   of a stack), a restart and a close are admitted at once with what their plan as the session has it needs, by one
+   builder per family (`land_request`, `push_request`, `pull_request_request`, `restart_request`, `close_request`; the
+   remote effects alike, `engine::remote_holds`: the base a retarget moves or a link brings in line, the robot a cancel
+   cancels, the robot a restart restarts with what it lands), without a plan (the frame of an earlier run, a subject the
+   table lacks) what the intent names of its subject (the branch a start lands, the head a pull request intent pushes,
+   the pull request a close closes), so the operation is in the view at once with its steps (a push, a pull request
+   intent and a restart wait there for the first sync, `WaitingForSync`, which Stop Waiting stops; a start waits for no
+   sync, and with no table it is refused `unknown_subject`). A
+   push is admitted also with the base of the open pull request of each branch of its stack and the robots of the
+   branch whose Safe Push it restarts (`push::admission_holds`: the robots it asks once admitted may let a branch go).
+   Before its first effect the plan decided again is checked against what the operation holds (HEAD aside, which the
+   wait for facts waited for): what it needs more the operation holds once (`RunningGuard::hold`) and is decided again
+   on what the operations it waited for left (`decided_again` after that wait; a push asks the robots again, as those
+   operations start and restart robots); a second time it is refused `plan_changed`. A start is planned over the host
+   that needs no Patronus and runs over the host of the route its plan decided (`session_start` for a robot, which
+   refuses `not_on_space` before any effect off Space). `RunningGuard::hold` writes the record of the operation in the
+   registry of its repository first (`RecordHandle::extend`: `busy` while another process holds one of them, so `brd`
+   is busy against the wider record), then admits the operation again over the ones of this process but those that
+   wait in the queue for it, directly or behind one that does; those follow it at the end of the line in their order
+   (`requeue`, then the admission again of the waiting ones, `readmit`), so no wait goes round and none of them runs
+   while it holds what they need. A hold that waits gives the place of the operation up: one that waited behind
+   another for what it held may run first, so it comes before the first effect, and the operation decides again.
 
 A sync is no operation and disables no rewrite (C14): a rewrite started during one goes to the session at once (an Undo
 in a toast during the auto-sync on focus, a drag during a held sync), named on the table the window shows; the app's

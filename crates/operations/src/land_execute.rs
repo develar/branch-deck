@@ -413,7 +413,7 @@ impl Steps {
     self
   }
 
-  fn step(&self, step: OperationStep) {
+  pub(crate) fn step(&self, step: OperationStep) {
     (self.step)(step);
   }
 
@@ -688,7 +688,7 @@ fn git_failure(error: anyhow::Error) -> ApiError {
   ApiError::new(ErrorCode::GitError, format!("{error:#}"))
 }
 
-fn unknown_subject(subject: &Subject) -> ApiError {
+pub(crate) fn unknown_subject(subject: &Subject) -> ApiError {
   ApiError::new(ErrorCode::UnknownBranch, format!("The last sync has no {}: nothing was pushed or started", subject.words()))
 }
 

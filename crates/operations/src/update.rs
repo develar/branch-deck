@@ -410,4 +410,4 @@ pub async fn execute_dismiss(registry: &Registry, key: &SessionKey, epoch: Optio
 
 #[cfg(test)]
 #[path = "update_test.rs"]
-mod update_test;
+pub(crate) mod update_test;

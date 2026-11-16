@@ -20,7 +20,7 @@
 //! a restart and a cancel of one robot run one after the other, a second click of the same joins it; a restart holds
 //! what its robot lands too (`Resource::Lands`) and the ref it pushes (`Resource::Ref`).
 
-use crate::engine::{check_admitted, outcome_of, run, run_planned_in};
+use crate::engine::{Holding, check_admitted, outcome_of, remote_holds, run, run_planned_in, with_all};
 use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::session_start;
@@ -260,24 +260,6 @@ async fn read_restart(sessions: &Sessions, key: &SessionKey, robot_id: &str) -> 
     .await
 }
 
-/// What the plan of a restart decided once admitted (`planned`) holds that its admission (`held`) holds not: a robot the
-/// session listed no plan of before, a branch its stack took meanwhile, a push it needs now. An effect on it would run
-/// beside the operations that hold it (a Safe Push of its branch: two robots of the branch), so the restart is refused
-/// before its first effect
-///
-/// # Errors
-/// `plan_changed`, nothing pushed or restarted
-pub(crate) fn refuse_unheld(robot_id: &str, held: &[Resource], planned: &Planned) -> Result<(), ApiError> {
-  let needed = restart_request(robot_id, Some(planned)).resources;
-  if needed.iter().all(|resource| held.contains(resource)) {
-    return Ok(());
-  }
-  Err(ApiError::new(
-    ErrorCode::PlanChanged,
-    format!("What the restart of robot {robot_id} pushes or lands changed while it waited: nothing was pushed or restarted"),
-  ))
-}
-
 /// What refuses the restart of `robot_id` by the actions of the robot as the menus have them (`actions`: none for a robot
 /// the session lists not), with the code `bd` would fail with and the words of the menu: no restart offered (a robot of
 /// no row of the table is pushed by nobody), the reason of its failure still to come from Patronus or not told, the
@@ -327,6 +309,8 @@ pub(crate) fn restart_request(robot_id: &str, planned: Option<&Planned>) -> Oper
   if let Some(planned) = planned {
     resources.extend(planned.plan.lands.iter().map(|branch| Resource::Lands { branch: branch.clone() }));
     resources.extend(planned.pushes.iter().map(|pushed| Resource::Ref { name: pushed.full_name.clone() }));
+    // the base of the pull request it retargets before its push
+    resources = with_all(resources, remote_holds(planned));
   }
   OperationRequest {
     intent: Intent::RestartRobot { robot_id: robot_id.to_string() },
@@ -362,8 +346,9 @@ fn unknown_robot(robot_id: &str, done: &str, action: &str) -> ApiError {
 
 /// Runs the restart of `robot_id` in the session of `key` on the plan its caller accepted: admitted over the operations
 /// of the session with what its plan as the session has it now holds (the robot, what it lands, the ref of its push;
-/// also while the session refuses it; a second restart of the robot joins it), then planned again, refused where that
-/// plan holds more (`refuse_unheld`), and run as a start runs (`land_execute::run_planned`),
+/// also while the session refuses it; a second restart of the robot joins it), then planned again, held what that plan
+/// holds more (`engine::Holding::cover`: once, then planned again; refused `plan_changed` before its first effect at a
+/// second time), and run as a start runs (`land_execute::run_planned`),
 /// over the services of `services` (`session_start`), its steps in the view and its outcome to `events`
 ///
 /// # Errors
@@ -376,16 +361,25 @@ pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &s
   // meanwhile), and then it runs on what it was admitted with
   let planned = read_restart(sessions, key, robot_id).await.and_then(|(planned, _)| planned);
   let request = restart_request(robot_id, planned.as_ref());
-  let held = request.resources.clone();
+  let mut holding = Holding::new(request.resources.clone());
   run(registry, key, request, events, async |guard| {
-    let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await;
+    let mut waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await.waited;
     // decided again once admitted: an operation it waited for changed what it decides on; refused before its push and
-    // its restart where the session offers the restart not, or where the plan holds what its admission holds not
-    let planned = prepare_restart(sessions, key, robot_id)
-      .await?
-      .ok_or_else(|| unknown_robot(robot_id, "restarted", "restart"))?;
-    refuse_unheld(robot_id, &held, &planned)?;
-    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, waited.waited).await
+    // its restart where the session offers the restart not; what the plan holds more than its admission (a robot the
+    // session listed no plan of before, a branch its stack took meanwhile, a push it needs now) is held first, as an
+    // effect on it would run beside the operations that hold it (a Safe Push of its branch: two robots of the branch)
+    let planned = loop {
+      let planned = prepare_restart(sessions, key, robot_id)
+        .await?
+        .ok_or_else(|| unknown_robot(robot_id, "restarted", "restart"))?;
+      if holding
+        .covers(guard, &restart_request(robot_id, Some(&planned)).resources, &planned.plan.intent, &mut waited)
+        .await?
+      {
+        break planned;
+      }
+    };
+    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, waited).await
   })
   .await
 }

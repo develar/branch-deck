@@ -1283,6 +1283,15 @@ async fn the_push_of_an_unapplied_branch_reads_no_robots() {
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1);
 }
 
+/// `auth` of `sources` built on `root`
+fn on_root(sources: &mut crate::robot::robot_test::Sources) {
+  sources.table.branches[0].stack = Some(domain_types::stack::BranchStack {
+    declared_parent: Some("root".to_owned()),
+    effective_base: Some("root".to_owned()),
+    ..domain_types::stack::BranchStack::default()
+  });
+}
+
 /// A push of a layer of a stack of GitHub links the stack while it is out of line with its chain (`LinkStack`, after the
 /// push, over the open pull requests of the chain), nothing while it is in line; a layer GitHub moved onto the target
 /// after the layers below it merged waits for Update Project (`LayerRebased`) while the branch is still built on them
@@ -1293,13 +1302,8 @@ fn a_push_of_a_layer_links_its_stack_and_one_github_moved_waits_for_the_update()
   use domain_types::reason::Reason;
   use domain_types::repository_view::RestartAction;
   use domain_types::session::GitHubLayer;
-  use domain_types::stack::BranchStack;
   let mut sources = Sources::new(Some("older"), false, Vec::new(), RestartAction::Restart);
-  sources.table.branches[0].stack = Some(BranchStack {
-    declared_parent: Some("root".to_owned()),
-    effective_base: Some("root".to_owned()),
-    ..BranchStack::default()
-  });
+  on_root(&mut sources);
   let chain = vec!["root".to_owned(), "auth".to_owned()];
   sources.github_layers.insert(
     "auth".to_owned(),
@@ -1358,4 +1362,54 @@ fn a_push_of_a_layer_links_its_stack_and_one_github_moved_waits_for_the_update()
       target: "master".to_owned(),
     }]
   );
+}
+
+/// A push is admitted with what its plan as the session has it holds and what its plan decided once admitted may add
+/// over the robots it asks then (`admission_holds`): the base of the open pull request of each branch of the stack of its
+/// subject, below and above it, and, where it restarts the Safe Push of its branch, every robot listed of the branch (its
+/// own, the robot of its row) with the branch; nothing of a branch outside the stack, nothing more for an unapplied branch
+#[test]
+fn a_push_is_admitted_with_the_bases_of_its_stack_and_the_robots_of_the_branch_it_restarts() {
+  use crate::robot::robot_test::Sources;
+  use domain_types::fixtures::{pull_request, robot};
+  use domain_types::operation::{PullRequestField, Resource};
+  use domain_types::repository_view::{BranchPatronus, RestartAction};
+  let robots = vec![
+    robot("f", Some("auth"), PatronusRobotStatus::Running, 1),
+    robot("g", None, PatronusRobotStatus::Running, 2),
+    robot("h", Some("login"), PatronusRobotStatus::Running, 3),
+  ];
+  let mut sources = Sources::new(Some("older"), false, robots, RestartAction::Restart);
+  on_root(&mut sources);
+  sources.view.branches.insert(
+    "auth".to_owned(),
+    BranchPatronus {
+      robot_id: Some("g".to_owned()),
+      ..BranchPatronus::default()
+    },
+  );
+  for (branch, number) in [("root", 5), ("auth", 7), ("other", 9)] {
+    sources.pull_requests.pull_requests.insert(branch.to_owned(), pull_request(branch, number));
+  }
+  let base = |number| Resource::PullRequest {
+    number,
+    field: PullRequestField::Base,
+  };
+  let push = |restart_running, scope| Push {
+    restart_running,
+    scope,
+    ..alone("auth", None)
+  };
+  assert_eq!(sources.with(|sources| super::admission_holds(sources, &push(false, PushScope::Alone))), [base(7), base(5)]);
+  assert_eq!(
+    sources.with(|sources| super::admission_holds(sources, &push(true, PushScope::Alone))),
+    [
+      base(7),
+      base(5),
+      Resource::Robot { id: "f".to_owned() },
+      Resource::Robot { id: "g".to_owned() },
+      Resource::Lands { branch: "auth".to_owned() }
+    ]
+  );
+  assert_eq!(sources.with(|sources| super::admission_holds(sources, &push(true, PushScope::Unapplied))), []);
 }

@@ -61,10 +61,15 @@ pub struct LandHost<'a> {
 /// before its Patronus view, or for a subject its table lacks
 #[instrument(skip_all, fields(subject = %land.subject.name()))]
 pub async fn prepare(sessions: &Sessions, key: &SessionKey, land: Land) -> Option<Plan> {
+  prepare_planned(sessions, key, land).await.map(|planned| planned.plan)
+}
+
+/// `prepare` with what its run needs (`planned_of`): what the admission of the start holds (`engine::land_request`)
+pub(crate) async fn prepare_planned(sessions: &Sessions, key: &SessionKey, land: Land) -> Option<Planned> {
   let prefix = key.prefix.clone();
   sessions
     .read(key, move |state, facts| {
-      with_land_sources(state, facts, &prefix, |sources| plan_of(sources, &land)).flatten()
+      with_land_sources(state, facts, &prefix, |sources| planned_of(sources, &land)).flatten()
     })
     .await
     .flatten()

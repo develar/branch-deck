@@ -20,7 +20,7 @@
 //! request the reviewers of its pull request (`PullRequestField::Reviewers`), so a retarget of it runs beside, unless its
 //! push retargets the pull request too, which holds its base.
 
-use crate::engine::{check_admitted, outcome_of, run, run_planned_in};
+use crate::engine::{Holding, check_admitted, outcome_of, remote_holds, run, run_planned_in, with_all};
 use crate::events::EventSink;
 use crate::land::{LandHost, with_one_shot_sources};
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
@@ -33,7 +33,7 @@ use domain_policy::github_stack::stack_writes;
 use domain_policy::pull_request::{creation_blocker, layer_base_of};
 use domain_policy::reasons::stack_not_built;
 use domain_policy::review::{Candidates, candidates};
-use domain_types::branch_names::{baseline_on_remote, to_final_branch_name};
+use domain_types::branch_names::{baseline_on_remote, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, Subject};
 use domain_types::operation::{
@@ -682,14 +682,8 @@ pub(crate) fn pull_request_request(intent: &Intent, planned: Option<&Planned>) -
         resources.push(name);
       }
     }
-    for effect in &planned.plan.effects {
-      if let PlannedEffect::Retarget { number, .. } = effect {
-        resources.push(Resource::PullRequest {
-          number: *number,
-          field: PullRequestField::Base,
-        });
-      }
-    }
+    // the bases it retargets, and of the layers its link brings in line
+    resources = with_all(resources, remote_holds(planned));
   }
   OperationRequest {
     intent: intent.clone(),
@@ -697,6 +691,22 @@ pub(crate) fn pull_request_request(intent: &Intent, planned: Option<&Planned>) -
     step: OperationStep::Checking,
     moves,
   }
+}
+
+/// What a pull request intent of a session of `prefix` holds with no plan as the session has it (the frame of an earlier
+/// run, a subject the table lacks): the head of the subject it opens or asks a review of; what its plan once admitted
+/// needs more it holds then (`engine::Holding::cover`)
+fn unplanned_holds(prefix: &str, intent: &Intent) -> Vec<Resource> {
+  let subject = match intent {
+    Intent::CreatePullRequest(create) => &create.subject,
+    Intent::RequestReview { subject, .. } => subject,
+    _ => return Vec::new(),
+  };
+  let name = match subject {
+    Subject::WholeStack { root } => to_stack_branch_name(prefix, root),
+    Subject::Branch { name } => to_final_branch_name(prefix, name),
+  };
+  name.ok().map(|name| Resource::Ref { name }).into_iter().collect()
 }
 
 /// The intent has no plan in the session: "Nothing was pushed or created: the last sync has no auth"
@@ -729,12 +739,25 @@ fn no_plan(intent: &Intent) -> ApiError {
 pub async fn execute_pull_request(registry: &Registry, key: &SessionKey, intent: Intent, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   let sessions = registry.sessions();
   let planned = prepare_planned(sessions, key, &intent).await;
-  let request = pull_request_request(&intent, planned.as_ref());
+  let mut request = pull_request_request(&intent, planned.as_ref());
+  if planned.is_none() {
+    request.resources = unplanned_holds(&key.prefix, &intent);
+  }
+  let mut holding = Holding::new(request.resources.clone());
   run(registry, key, request, events, async |guard| {
-    let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await;
-    // decided again once admitted: an operation it waited for changed what it decides on
-    let planned = prepare_planned(sessions, key, &intent).await.ok_or_else(|| no_plan(&intent))?;
-    run_planned_in(guard, pull_request_start(services, sessions, key).await?, planned, &accepted, waited.waited).await
+    let mut waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await.waited;
+    // decided again once admitted: an operation it waited for changed what it decides on; what it holds more is held
+    // before its first effect
+    let planned = loop {
+      let planned = prepare_planned(sessions, key, &intent).await.ok_or_else(|| no_plan(&intent))?;
+      if holding
+        .covers(guard, &pull_request_request(&intent, Some(&planned)).resources, &intent, &mut waited)
+        .await?
+      {
+        break planned;
+      }
+    };
+    run_planned_in(guard, pull_request_start(services, sessions, key).await?, planned, &accepted, waited).await
   })
   .await
 }

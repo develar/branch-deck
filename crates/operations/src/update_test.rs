@@ -122,7 +122,7 @@ async fn locked() -> (Fixture, RepositoryLock, Arc<Heard>, Intent) {
 }
 
 /// A push-route session with no Patronus or GitHub gate
-async fn push_landing_fixture() -> (TestRepo, Registry, SessionKey) {
+pub(crate) async fn push_landing_fixture() -> (TestRepo, Registry, SessionKey) {
   let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
   repo.set_config("branchdeck.landing", "push").unwrap();
   let (registry, key) = registry_of(&repo, true).await;
