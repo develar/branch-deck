@@ -112,6 +112,64 @@ test.describe("Header", () => {
 })
 
 test.describe("Repository selector", () => {
+  for (const activation of ["click", "ArrowDown"] as const) {
+    test(`should explain the empty repository selector opened by ${activation} and return focus on Escape`, { tag: "@webkit" }, async ({ page, setupRepo }) => {
+      await page.setViewportSize(MIN_WINDOW)
+      await setupRepo("NO_REPO", { prepopulateStore: false })
+      await expect(page.getByTestId("welcome-card")).toBeVisible()
+      const selector = header(page).getByRole("combobox", { name: "Repository", exact: true })
+      if (activation === "click") {
+        await selector.click()
+      } else {
+        await selector.focus()
+        await expect(selector).toBeFocused()
+        await selector.press(activation)
+      }
+      const list = page.getByRole("listbox")
+      const title = list.getByText("No recent repositories", { exact: true })
+      await expect(title).toBeVisible()
+      await expect(list.getByText("Use the folder button to open a Git repository. Repositories you open appear here.")).toBeInViewport({ ratio: 1 })
+      await expect(selector).toHaveAccessibleDescription("No recent repositories Use the folder button to open a Git repository. Repositories you open appear here.")
+      await expect(list.getByRole("option")).toHaveCount(0)
+      // Playwright's click checks that the welcome card does not cover the message; it selects no fake repository.
+      await title.click()
+      await expect(selector).toHaveAttribute("aria-expanded", "true")
+      await expect(selector).toContainText("Select repository…")
+      await captureHtmlSnapshot(list, "repository-selector-empty")
+      await page.keyboard.press("Escape")
+      await expectClosed(list)
+      await expect(selector).toBeFocused()
+    })
+  }
+
+  test("should replace the empty selector with the repository opened through the folder button", async ({ page, setupRepo }) => {
+    await setupRepo("simple", { prepopulateStore: false })
+    const selector = header(page).getByRole("combobox", { name: "Repository", exact: true })
+    await selector.click()
+    await expect(page.getByRole("listbox").getByText("No recent repositories")).toBeVisible()
+    await expect(selector).toHaveAccessibleDescription(/No recent repositories/)
+    await page.keyboard.press("Escape")
+    await expectClosed(page.getByRole("listbox"))
+    await page.getByTestId("browse-repository-button").click()
+    await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+    await selector.click()
+    const list = page.getByRole("listbox")
+    await expect(list.getByRole("option")).toHaveCount(1)
+    await expect(list.getByText("No recent repositories")).toHaveCount(0)
+    await expect(selector).not.toHaveAccessibleDescription(/No recent repositories/)
+  })
+
+  test("should explain an empty repository selector without offering a folder dialog on an IDE host", async ({ page, setupRepo }) => {
+    await useTitleBar(page, { kind: "native", checkForUpdates: false, folderDialog: false })
+    await setupRepo("NO_REPO", { prepopulateStore: false })
+    await header(page).getByRole("combobox", { name: "Repository", exact: true }).click()
+    const list = page.getByRole("listbox")
+    await expect(list.getByText("No repositories available")).toBeVisible()
+    await expect(list.getByText("Open a Git repository in your IDE project.")).toBeVisible()
+    await expect(list.getByRole("option")).toHaveCount(0)
+    await expect(page.getByTestId("browse-repository-button")).toHaveCount(0)
+  })
+
   /** The path the trigger shows, which must be a form of `path`: a tail of it from a separator behind "…" */
   async function expectFormOf(page: Page, path: string): Promise<string> {
     const shown = header(page).getByTestId("repository-path")

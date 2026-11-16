@@ -68,6 +68,9 @@ The first-run repository step inside the welcome island is a full-width outline 
 and folder icon form one target. The border makes the action visible before hover; the shared button supplies hover,
 pressed and keyboard-focus feedback. Hosts without a folder dialog keep an informational step.
 
+The empty repository popup keeps the same popover surface and padding as a populated selector, with wrapping text
+that explains how to add a repository; its message is not a selectable repository.
+
 ### Palette
 
 `src/index.css` holds the IntelliJ Islands values (`ManyIslandsLight.theme.json`, `ManyIslandsDark.theme.json`), each

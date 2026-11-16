@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { cn } from "cn"
 import { FolderSearchIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,8 @@ interface ProjectOptionSection extends ProjectSection {
 }
 
 export function RepositorySelector({ disabled }: RepositorySelectorProps) {
+  const [open, setOpen] = useState(false)
+  const emptyMessageId = useId()
   const pathValidation = useRepository(state => state.pathValidation)
   const recentProjects = useRecentProjects(projects => projects)
   const companions = useBranchSyncField("companions", links => links)
@@ -87,14 +89,32 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
     <Tooltip disabled={value !== null && !hasError}>
       {/* gives way first on a narrow window */}
       <TooltipTrigger render={<FieldGroup className="min-w-0" />}>
-        <Select items={items} value={value} onValueChange={onValueChange} disabled={disabled}>
+        <Select items={items} value={value} onValueChange={onValueChange} disabled={disabled} open={open} onOpenChange={setOpen}>
           <Tooltip disabled={shownPath === null || hasError || !isPathCut}>
-            <TooltipTrigger render={<SelectTrigger size="sm" className="w-3xs min-w-0 border-input bg-background" aria-invalid={hasError || undefined} />}>
+            <TooltipTrigger
+              render={
+                <SelectTrigger
+                  size="sm"
+                  className="w-3xs min-w-0 border-input bg-background"
+                  aria-label="Repository"
+                  aria-describedby={open && items.length === 0 ? emptyMessageId : undefined}
+                  aria-invalid={hasError || undefined}
+                />
+              }
+            >
               <SelectValue>{() => (shownPath === null ? "Select repository…" : <FittedPath path={shownPath} onCut={setPathCut} />)}</SelectValue>
             </TooltipTrigger>
             <TooltipContent>{shownPath !== null && <WrappedPath path={shownPath} />}</TooltipContent>
           </Tooltip>
           <SelectContent alignItemWithTrigger={false} className="w-auto min-w-(--anchor-width)">
+            {items.length === 0 && (
+              <div id={emptyMessageId} className="flex max-w-72 flex-col gap-1 p-3 text-sm">
+                <p className="font-medium">{hasFolderDialog ? "No recent repositories" : "No repositories available"}</p>
+                <p className="text-muted-foreground">
+                  {hasFolderDialog ? "Use the folder button to open a Git repository. Repositories you open appear here." : "Open a Git repository in your IDE project."}
+                </p>
+              </div>
+            )}
             {sections.map((section, index) => (
               <Fragment key={section.label ?? "recent"}>
                 {index > 0 && <SelectSeparator />}
