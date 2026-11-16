@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { expect, test } from "../fixtures/base-test"
+import { expect, testRemainingMs } from "../fixtures/base-test"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
 import { nextAnswer } from "./sync-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
@@ -69,9 +69,9 @@ const OPEN_FAILS_BEFORE_THE_TEST = 5_000
  */
 export async function pressAndExpectOpened<T = unknown>(page: Page, press: () => Promise<unknown>, windowId: string, count: number): Promise<OpenedSubWindow<T>> {
   // however long the open takes, but a press that opens nothing says so before the timeout of the test, which would
-  // name no cause
-  const timeout = test.info().timeout
-  const answered = nextAnswer(page, "open_sub_window", 1, timeout === 0 ? 0 : Math.max(timeout - OPEN_FAILS_BEFORE_THE_TEST, 1_000))
+  // name no cause: by what is left of the test, a press late in it too (half of it where less than twice the margin is)
+  const left = testRemainingMs()
+  const answered = nextAnswer(page, "open_sub_window", 1, left === Infinity ? 0 : Math.max(left - OPEN_FAILS_BEFORE_THE_TEST, left / 2, 1))
   await press()
   await answered.catch((error: unknown) => {
     throw new Error(`No open_sub_window answered after the press that opens ${windowId}: ${error instanceof Error ? error.message : String(error)}`)

@@ -277,10 +277,31 @@ function pageOfRequest(request: Request): Page | null {
   }
 }
 
+/** When the running test of this worker began, by the clock of the worker: its fixtures count in its timeout too */
+let testBegan = Date.now()
+
+/**
+ * What is left of the timeout of the running test, in ms (`Infinity` without one): what a wait inside it can take and
+ * still fail with its own words before the timeout of the test, which names no cause
+ */
+export function testRemainingMs(): number {
+  const timeout = test.info().timeout
+  return timeout === 0 ? Infinity : timeout - (Date.now() - testBegan)
+}
+
 /**
  * Custom test fixture that automatically sets up Tauri mocks
  */
-export const test = base.extend({
+export const test = base.extend<{ began: number }>({
+  // the start of each test, its first fixture (`testRemainingMs`)
+  began: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      testBegan = Date.now()
+      await use(testBegan)
+    },
+    { auto: true },
+  ],
   page: async ({ page, context }, use, testInfo) => {
     refuseSubmenuHovers(page)
     // the console of the pages: every line live with DEBUG_E2E=1; otherwise their errors and uncaught exceptions, attached
