@@ -41,6 +41,7 @@
 //! at once. A press after the end of the run closes the connection of the base sync
 
 use crate::base::BaseSync;
+use crate::fetch::Local;
 use crate::git::{Checkout, Snapshot};
 use crate::host::{AgentInfo, Host, Latest, another_build_hint};
 use crate::pack::{PackOf, plan_pack};
@@ -326,13 +327,16 @@ impl Client<'_> {
       target: PackTarget::Run(run.clone()),
     };
     let watch = Watch::new();
-    let root = checkout.root().to_path_buf();
+    let (root, git_common_dir) = (checkout.root().to_path_buf(), checkout.git_common_dir().to_path_buf());
     let ended = thread::scope(|scope| {
       let mut followed = host.clone();
       let (run, watch, record) = (&run, &watch, &record);
       let patch = files.patch(run);
-      let root = &root;
-      let following = scope.spawn(in_current_span(move || self.follow_and_fetch(&mut followed, run, root, record, &patch, watch)));
+      let local = Local {
+        root: &root,
+        git_common_dir: &git_common_dir,
+      };
+      let following = scope.spawn(in_current_span(move || self.follow_and_fetch(&mut followed, run, local, record, &patch, watch)));
       if let Some(plan) = &plan {
         match self.send_pack(&mut host, &pack, plan, self.say) {
           Ok(steps) => {
@@ -552,7 +556,7 @@ impl Client<'_> {
   /// removes the run on the host. A run that the agent refused is removed too, and its failure carries how far it came
   /// and the steps of the host. A run that vanished on the host after it started (`unknown_run`) may have run its
   /// command, so its exit is 255, and a caller never runs the command a second time
-  fn follow_and_fetch(&self, host: &mut Host, run: &str, root: &Path, record: &RunRecord, patch: &Path, watch: &Watch) -> Result<Finished, (Refusal, Reached, Vec<Phase>)> {
+  fn follow_and_fetch(&self, host: &mut Host, run: &str, local: Local<'_>, record: &RunRecord, patch: &Path, watch: &Watch) -> Result<Finished, (Refusal, Reached, Vec<Phase>)> {
     let alias = host.alias().to_owned();
     let followed = match self.follow(host, run, true, watch) {
       Ended::Exit(followed) => followed,
@@ -577,7 +581,7 @@ impl Client<'_> {
       });
     }
     let fetching = Instant::now();
-    let fetched = self.fetch_run(host, run, root, record, patch);
+    let fetched = self.fetch_run(host, run, local, record, patch);
     let fetch = Some(phase("fetch", fetching.elapsed()));
     let fetched = match fetched {
       Ok(fetched) => {

@@ -15,7 +15,7 @@ use crate::revs::{is_object_id, read_head};
 use anyhow::{Result, anyhow, bail};
 use domain_types::landing_route::LandingSetting;
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use sync_utils::fs_retry;
 use sync_utils::git_bool::parse_git_bool;
 
@@ -96,6 +96,37 @@ impl UntrackedFiles {
 /// The notes of a lease in its slot (`lease_pool::lease_notes`): a link to a directory outside the worktree, which no
 /// status of the pool counts as a change, also where `info/exclude` lost the line that ignores it
 pub const NOTES_LINK: &str = "notes.local";
+
+/// The directory of the state of Branch Deck in `$GIT_COMMON_DIR`: the pool, its locks, the notes of the leases
+pub const STATE_DIR: &str = "branch-deck";
+
+/// The directory of the notes of the leases in `STATE_DIR`, one directory per lease named by its id
+pub const LEASE_NOTES_DIR: &str = "notes";
+
+/// The notes of the leases of the repository of `git_common_dir`: `$GIT_COMMON_DIR/branch-deck/notes`
+pub fn lease_notes_root(git_common_dir: &Path) -> PathBuf {
+  git_common_dir.join(STATE_DIR).join(LEASE_NOTES_DIR)
+}
+
+/// Whether `link` is a link to the notes of a lease of the repository of `git_common_dir`, as `NOTES_LINK` of a slot is:
+/// its target is absolute, has no `.` or `..`, and names a directory, no link itself, right in `lease_notes_root`. A
+/// fetch of brd-host writes through such a link, and through no other one
+pub fn links_to_lease_notes(link: &Path, git_common_dir: &Path) -> bool {
+  let Ok(target) = std::fs::read_link(link) else {
+    return false;
+  };
+  let plain = target.is_absolute()
+    && target
+      .components()
+      .all(|part| matches!(part, Component::RootDir | Component::Prefix(_) | Component::Normal(_)));
+  let in_root = target
+    .parent()
+    .is_some_and(|parent| match (std::fs::canonicalize(parent), std::fs::canonicalize(lease_notes_root(git_common_dir))) {
+      (Ok(parent), Ok(root)) => parent == root,
+      _ => false,
+    });
+  plain && in_root && std::fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.is_dir())
+}
 
 /// Whether `path` of a `status` is the notes of a lease: the link, or the directory where the system makes no link, a
 /// file in it with `--untracked-files=all`

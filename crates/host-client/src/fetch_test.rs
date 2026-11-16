@@ -182,6 +182,112 @@ fn a_planted_part_link_is_removed_and_its_target_stays() {
   assert_eq!(part.map_err(|error| error.kind()).err(), Some(io::ErrorKind::NotFound));
 }
 
+/// Fetches `notes.local/run.log` of the run `1-1` into the checkout of a fresh setup, whose `notes.local` and lease
+/// notes `local` makes first: it gets the root and the notes of the leases of the repository. Answers the outcome and the
+/// setup
+fn fetch_into_notes(local: impl FnOnce(&Path, &Path)) -> (Result<Vec<String>, Refusal>, Setup) {
+  let setup = agent_sending(vec![("notes.local/run.log", FileKind::Staged, 3, b"log".to_vec())]);
+  let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
+  std::fs::create_dir_all(notes.join("lease-1")).unwrap();
+  let fetched = fetch_with(&setup, None, &["notes.local".to_owned()], |root| local(root, &notes));
+  (fetched, setup)
+}
+
+/// `notes.local` of a lease links to its notes beside the state of the pool, and the logs of a run go there by
+/// `--fetch notes.local`: the write goes through that link, as through no other
+#[test]
+fn a_fetch_writes_through_notes_local_into_the_notes_of_a_lease_of_its_repository() {
+  let mut notes_dir = PathBuf::new();
+  let (fetched, _setup) = fetch_into_notes(|root, notes| {
+    notes_dir = notes.join("lease-1");
+    std::os::unix::fs::symlink(&notes_dir, root.join("notes.local")).unwrap();
+  });
+  assert_eq!(fetched.unwrap(), ["notes.local/run.log"]);
+  assert_eq!(std::fs::read_to_string(notes_dir.join("run.log")).unwrap(), "log");
+}
+
+/// What makes `notes.local` of a case: it gets the root of the checkout and the notes of the leases of its repository
+type MakeLink<'a> = dyn FnOnce(&Path, &Path) + 'a;
+
+/// Any other link takes no write: one to a directory outside the notes of the repository, one to a link in them, one
+/// whose target has `..`, one to the notes root itself, and one to the notes under another name than `notes.local` at
+/// the root
+#[test]
+fn a_link_that_is_no_notes_of_a_lease_of_the_repository_takes_no_write() {
+  let outside = tempfile::tempdir().unwrap();
+  let outside_dir = outside.path().to_path_buf();
+  let cases: Vec<(&str, Box<MakeLink<'_>>)> = vec![
+    (
+      "another directory",
+      Box::new(|root: &Path, _: &Path| std::os::unix::fs::symlink(&outside_dir, root.join("notes.local")).unwrap()),
+    ),
+    (
+      "a link in the notes",
+      Box::new(|root: &Path, notes: &Path| {
+        std::os::unix::fs::symlink(notes.join("lease-1"), notes.join("lease-2")).unwrap();
+        std::os::unix::fs::symlink(notes.join("lease-2"), root.join("notes.local")).unwrap();
+      }),
+    ),
+    (
+      "a target with ..",
+      Box::new(|root: &Path, notes: &Path| std::os::unix::fs::symlink(notes.join("lease-1/../lease-1"), root.join("notes.local")).unwrap()),
+    ),
+    (
+      "the notes root itself",
+      Box::new(|root: &Path, notes: &Path| std::os::unix::fs::symlink(notes, root.join("notes.local")).unwrap()),
+    ),
+  ];
+  for (case, local) in cases {
+    let (fetched, setup) = fetch_into_notes(local);
+    let refusal = fetched.unwrap_err();
+    assert!(refusal.message.contains("1 of 1 files"), "{case}: {}", refusal.message);
+    let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
+    assert!(!notes.join("lease-1/run.log").exists() && !notes.join("run.log").exists(), "{case}");
+    assert!(!outside_dir.join("run.log").exists(), "{case}");
+  }
+  // the notes under another name: `logs` at the root, fetched as `logs`
+  let setup = agent_sending(vec![("logs/run.log", FileKind::Staged, 3, b"log".to_vec())]);
+  let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
+  std::fs::create_dir_all(notes.join("lease-1")).unwrap();
+  let refusal = fetch_with(&setup, None, &["logs".to_owned()], |root| {
+    std::os::unix::fs::symlink(notes.join("lease-1"), root.join("logs")).unwrap();
+  })
+  .unwrap_err();
+  assert!(refusal.message.contains("1 of 1 files"), "{}", refusal.message);
+  assert!(!notes.join("lease-1/run.log").exists());
+}
+
+/// A link inside the notes of the lease, which an agent may make there, takes no write either: each directory below
+/// `notes.local` is checked as below the root, so `notes.local/sub/run.log` with `sub` a link out of the notes is refused
+#[test]
+fn a_link_inside_the_notes_of_a_lease_takes_no_write() {
+  let outside = tempfile::tempdir().unwrap();
+  let setup = agent_sending(vec![("notes.local/sub/run.log", FileKind::Staged, 3, b"log".to_vec())]);
+  let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
+  std::fs::create_dir_all(notes.join("lease-1")).unwrap();
+  let refusal = fetch_with(&setup, None, &["notes.local".to_owned()], |root| {
+    std::os::unix::fs::symlink(notes.join("lease-1"), root.join("notes.local")).unwrap();
+    std::os::unix::fs::symlink(outside.path(), notes.join("lease-1/sub")).unwrap();
+  })
+  .unwrap_err();
+  assert!(refusal.message.contains("1 of 1 files"), "{}", refusal.message);
+  assert!(!outside.path().join("run.log").exists());
+}
+
+/// A relative target takes no write, though from the root of the checkout it names the notes of the lease: the link
+/// that the pool makes is absolute, and a relative one is read by the directory of the link, not by the working
+/// directory of the process. Here the working directory is the root, so the target resolves to the real notes
+#[test]
+fn a_relative_link_to_the_notes_of_a_lease_takes_no_write() {
+  let (fetched, setup) = fetch_into_notes(|root, _| {
+    std::env::set_current_dir(root).unwrap();
+    std::os::unix::fs::symlink(".git/branch-deck/notes/lease-1", root.join("notes.local")).unwrap();
+  });
+  let refusal = fetched.unwrap_err();
+  assert!(refusal.message.contains("1 of 1 files"), "{}", refusal.message);
+  assert!(!git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git")).join("lease-1/run.log").exists());
+}
+
 /// A stream over its size writes no more than its size, and the next file of the fetch still comes
 #[test]
 fn a_stream_over_its_size_writes_no_more_and_the_next_file_comes() {

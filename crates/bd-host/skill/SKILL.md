@@ -36,7 +36,8 @@ brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--heav
   one commit. Your index, files and refs stay as they are. Ignored files stay local, and the host has its own.
 - `--head` runs the committed HEAD only, and refuses a checkout with local changes (`local_changes`).
 - `--fetch <dir>` copies the new entries of `<dir>` back into this checkout. The path is relative to the root of the
-  slot, such as `out/test-results`. Repeatable.
+  slot, such as `out/test-results`. Repeatable. In a lease of Branch Deck, `--fetch notes.local` brings the files into
+  the notes of the lease: `notes.local` is the one link a fetch writes through.
 - `--apply` brings back the changes that the command made to tracked files, such as `cargo fmt` or new snapshots, and
   applies them to the working tree, not to the index. A patch that does not apply refuses with `apply_failed` and keeps
   the patch in `<git dir>/branch-deck/host/runs/<run>.patch`.

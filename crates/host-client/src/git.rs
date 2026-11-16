@@ -74,6 +74,11 @@ impl Checkout {
     Path::new(&self.top_level)
   }
 
+  /// `$GIT_COMMON_DIR` of the repository, as `rev-parse` names it
+  pub(crate) fn git_common_dir(&self) -> &Path {
+    &self.git_common_dir
+  }
+
   /// `branch-deck/host/runs` of the git directory: the run records and the patches
   pub(crate) fn runs_dir(&self) -> PathBuf {
     self.git_dir.join(RUNS_DIR)

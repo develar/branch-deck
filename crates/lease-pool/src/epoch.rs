@@ -14,8 +14,8 @@
 //! unchanged pool reads two small files and parses nothing.
 
 use crate::lease::POOL_FILE;
-use crate::state_file::STATE_DIR;
 use domain_types::worktree_epoch::WorktreeEpoch;
+use git_ops::lease_slot::STATE_DIR;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::ErrorKind;

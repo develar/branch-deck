@@ -8,7 +8,8 @@
 //!
 //! No write follows a local link: a target with a link in a parent directory below the checkout is refused, and the
 //! part is a new file that the open makes itself (`create_new`, and `O_NOFOLLOW` on Unix). A part that a cut fetch left
-//! goes first.
+//! goes first. The one link a write goes through is `notes.local` at the root of a lease, while it links to the notes of
+//! a lease of the same repository (`git_ops::lease_slot::links_to_lease_notes`): the logs of a run go there.
 //!
 //! The host chooses the paths, so the client takes only what the local record of the run asked for (`record`): a
 //! staged path below a `fetch` directory of the record, a file of an output that the record names, and the changes when
@@ -24,6 +25,7 @@ use crate::git::Checkout;
 use crate::host::Host;
 use crate::record::{RunFiles, RunRecord};
 use crate::run::{Fetched, done};
+use git_ops::lease_slot::{NOTES_LINK, links_to_lease_notes};
 use host_link::channel::{Channel, LinkError};
 use host_link::proto::{FileKind, Reply, Request, is_run_id};
 use host_link::refusal::{Code, Refusal};
@@ -64,7 +66,11 @@ impl Client<'_> {
       },
     };
     let mut host = self.host(alias)?;
-    let fetched = self.fetch_run(&mut host, run, checkout.root(), &record, &files.patch(run))?;
+    let local = Local {
+      root: checkout.root(),
+      git_common_dir: checkout.git_common_dir(),
+    };
+    let fetched = self.fetch_run(&mut host, run, local, &record, &files.patch(run))?;
     if let Some(changes) = &fetched.changes {
       (self.say)(&format!("brd-host: the changes of the run {run} are in {}: `git apply` applies them", changes.display()));
     }
@@ -81,9 +87,10 @@ impl Client<'_> {
     done(host, &Request::Forget { run: run.to_owned() }, self.timing.read)
   }
 
-  /// Copies the files of a run that `record` asks for: the staged files below `root`, the outputs in place of their
-  /// local copies, and the patch of the changes to `patch`. Each other file is skipped, and fails the fetch
-  pub(crate) fn fetch_run(&self, host: &mut Host, run: &str, root: &Path, record: &RunRecord, patch: &Path) -> Result<Fetched, Refusal> {
+  /// Copies the files of a run that `record` asks for: the staged files below the root of `local`, the outputs in place
+  /// of their local copies, and the patch of the changes to `patch`. Each other file is skipped, and fails the fetch
+  pub(crate) fn fetch_run(&self, host: &mut Host, run: &str, local: Local<'_>, record: &RunRecord, patch: &Path) -> Result<Fetched, Refusal> {
+    let root = local.root;
     let (mut channel, mut reply) = host.request(&Request::Fetch { run: run.to_owned() }, self.timing.read)?;
     let mut fetched = Fetched::default();
     let mut missed = Vec::new();
@@ -96,7 +103,7 @@ impl Client<'_> {
             FileKind::Output { root: output } if !record.outputs.contains(output) => Err(format!("the run did not ask for the output {output}")),
             FileKind::Output { root: output } => output_target(root, output, &path).inspect(|_| {
               if replaced.insert(output.clone())
-                && let Err(error) = remove_output(root, output)
+                && let Err(error) = remove_output(local, output)
               {
                 (self.say)(&format!("brd-host: cannot remove the local output {output}: {error}"));
               }
@@ -105,7 +112,11 @@ impl Client<'_> {
             FileKind::Changes => Err("the run did not ask for its changes".to_owned()),
           };
           // The client chose the file of the patch, so only the paths of the host have parents to check
-          let base = if kind == FileKind::Changes { patch.parent().unwrap_or(patch) } else { root };
+          let base = if kind == FileKind::Changes {
+            Base::plain(patch.parent().unwrap_or(patch))
+          } else {
+            Base::of(local)
+          };
           match target {
             Ok(target) => match receive_file(&mut channel, base, &target, size, executable) {
               Ok(()) if kind == FileKind::Changes => fetched.changes = Some(target),
@@ -156,25 +167,63 @@ pub(crate) fn output_target(root: &Path, output: &str, path: &str) -> Result<Pat
   plain_target(root, path)
 }
 
+/// The local side of a fetch: the root of the checkout, and the common dir of its repository, whose lease notes are the
+/// one place a link below the root may lead (`NOTES_LINK`)
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Local<'a> {
+  pub(crate) root: &'a Path,
+  pub(crate) git_common_dir: &'a Path,
+}
+
+/// The directory a write stays below, and the common dir whose lease notes its `NOTES_LINK` may link to; a base without
+/// one takes no link at all
+#[derive(Clone, Copy)]
+struct Base<'a> {
+  dir: &'a Path,
+  notes_of: Option<&'a Path>,
+}
+
+impl<'a> Base<'a> {
+  const fn of(local: Local<'a>) -> Self {
+    Self {
+      dir: local.root,
+      notes_of: Some(local.git_common_dir),
+    }
+  }
+
+  const fn plain(dir: &'a Path) -> Self {
+    Self { dir, notes_of: None }
+  }
+
+  /// Whether the link `dir` may take a write: `NOTES_LINK` right below the root, to the notes of a lease of its repository
+  fn takes_link(&self, dir: &Path) -> bool {
+    self
+      .notes_of
+      .is_some_and(|git_common_dir| dir == self.dir.join(NOTES_LINK) && links_to_lease_notes(dir, git_common_dir))
+  }
+}
+
 /// Removes the local copy of the output `output`. A link in a parent directory refuses, so the removal stays below the
 /// checkout
-fn remove_output(root: &Path, output: &str) -> io::Result<()> {
-  let path = root.join(output);
-  check_parents(root, &path, false)?;
+fn remove_output(local: Local<'_>, output: &str) -> io::Result<()> {
+  let path = local.root.join(output);
+  check_parents(Base::of(local), &path, false)?;
   remove_local(&path)
 }
 
-/// Checks each directory between `base` and `target`: no one may be a link, so that a write or a removal at `target`
-/// stays below `base`. With `create`, a missing directory is made. Without it, a missing directory ends the check
-fn check_parents(base: &Path, target: &Path, create: bool) -> io::Result<()> {
-  let Ok(below) = target.strip_prefix(base) else {
-    return Err(io::Error::other(format!("{} is not below {}", target.display(), base.display())));
+/// Checks each directory between the directory of `base` and `target`: no one may be a link but the notes of a lease
+/// (`Base::takes_link`), so that a write or a removal at `target` stays below the base or in those notes. With
+/// `create`, a missing directory is made. Without it, a missing directory ends the check
+fn check_parents(base: Base<'_>, target: &Path, create: bool) -> io::Result<()> {
+  let Ok(below) = target.strip_prefix(base.dir) else {
+    return Err(io::Error::other(format!("{} is not below {}", target.display(), base.dir.display())));
   };
   let parts: Vec<_> = below.components().collect();
-  let mut dir = base.to_path_buf();
+  let mut dir = base.dir.to_path_buf();
   for part in &parts[..parts.len().saturating_sub(1)] {
     dir.push(part);
     match std::fs::symlink_metadata(&dir) {
+      Ok(metadata) if metadata.file_type().is_symlink() && base.takes_link(&dir) => {}
       Ok(metadata) if metadata.file_type().is_symlink() => return Err(io::Error::other(format!("{} is a link", dir.display()))),
       Ok(metadata) if metadata.is_dir() => {}
       Ok(_) => return Err(io::Error::other(format!("{} is not a directory", dir.display()))),
@@ -217,7 +266,7 @@ enum Received {
 /// The parent directories of `target` below `base` are made, and a link among them refuses. Only `size` bytes go into
 /// the part. A local failure still reads the stream to its end, so the channel stays in step. A cut stream removes the
 /// part
-fn receive_file(channel: &mut Channel, base: &Path, target: &Path, size: u64, executable: bool) -> Result<(), Received> {
+fn receive_file(channel: &mut Channel, base: Base<'_>, target: &Path, size: u64, executable: bool) -> Result<(), Received> {
   let part = part_path(target);
   let opened = check_parents(base, target, true).and_then(|()| open_part(&part));
   let file = match opened {

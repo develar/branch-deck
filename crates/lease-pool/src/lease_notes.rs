@@ -26,7 +26,7 @@
 use crate::lease::{Lease, LeaseStore, Pool, canonical_path};
 use crate::lease_clean::parse_age;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::{LeaseConfig, NOTES_LINK, lease_config};
+use git_ops::lease_slot::{LEASE_NOTES_DIR, LeaseConfig, NOTES_LINK, lease_config};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -35,9 +35,6 @@ use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use tracing::warn;
-
-/// The directory of the notes in `branch-deck/` of the common dir
-const NOTES_DIR: &str = "notes";
 
 /// How long the notes of a returned lease stay without `branchdeck.leaseNotesKeep`
 pub const DEFAULT_NOTES_KEEP: Duration = Duration::from_hours(14 * 24);
@@ -77,9 +74,10 @@ impl LeaseNotes {
   }
 }
 
-/// The directory of every note of the pool whose state is in `state_dir` (`Pool::state_dir`)
+/// The directory of every note of the pool whose state is in `state_dir` (`Pool::state_dir`): `lease_notes_root` of
+/// git-ops, which a fetch of brd-host writes through
 pub fn notes_root(state_dir: &Path) -> PathBuf {
-  state_dir.join(NOTES_DIR)
+  state_dir.join(LEASE_NOTES_DIR)
 }
 
 /// The directory of the notes of `lease_id`

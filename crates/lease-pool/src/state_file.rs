@@ -5,6 +5,7 @@
 //! it changed
 
 use anyhow::{Context, Result, anyhow};
+use git_ops::lease_slot::STATE_DIR;
 use history_rewrite::repository_lock::{RepositoryLock, lock_file};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -12,9 +13,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use tracing::debug;
-
-/// The directory of the state files in `$GIT_COMMON_DIR`
-pub(crate) const STATE_DIR: &str = "branch-deck";
 
 pub struct StateFile {
   dir: PathBuf,

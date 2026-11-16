@@ -1,7 +1,7 @@
 # Runs on the Mac Studio (`brd-host run studio`)
 
 **Status:** Active  
-**Updated:** 2026-11-14  
+**Updated:** 2026-11-16  
 **Tags:** [tests, e2e, nextest, studio, brd-host]
 
 ## Summary
@@ -23,12 +23,16 @@ brd-host run studio -- pnpm lint:backend                      # cargo fmt --chec
 brd-host run studio --apply -- pnpm fix:backend               # the edits of cargo fmt and clippy --fix come back here
 brd-host run studio --apply -- pnpm e2e-up                    # the rewritten snapshots come back here
 brd-host run studio --heavy -- sh -c 'cargo build --release'   # a heavy command that `heavy` of [host] does not name
+brd-host run studio --fetch notes.local -- zsh -c 'mkdir -p notes.local; cargo nextest run -p host-link > notes.local/nt-1.log 2>&1'
 ```
 
 yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host took them over and yonderd was retired.
 
 ## Use
 
+- **Logs**: a run writes its logs into `notes.local/` of the slot, a name of its own per run (`nt-<sha>-<n>.log`), and
+  `--fetch notes.local` brings them into the notes of the lease, which `notes.local` here links to: the one link a
+  fetch writes through, and only to the notes of a lease of this repository.
 - **Where**: in a lease (`brd lease get`), as every edit and build here. The Studio keeps four warm host slots of the
   repository ("Host slots" of [brd lease](../../openspec/specs/cli/lease/spec.md)) and lends one to each run for that run only:
   the slot this checkout used last, else the one used longest ago; with all four lent, a run waits and says so once a
