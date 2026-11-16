@@ -9,16 +9,34 @@
   </div>
   <div class="px-(--card-spacing) flex flex-col gap-4" data-slot="card-content">
     <p class="text-muted-foreground">
-      You're almost ready: choose your branch prefix to start managing your branches.
+      Work on one branch, get a real Git branch per feature. Two steps to get started:
     </p>
-    <div class="flex flex-col gap-3">
-      <div class="flex gap-3" data-testid="welcome-step">
+    <ol aria-label="Getting started" class="flex list-none flex-col gap-3" role="list">
+      <li class="flex gap-3" data-testid="welcome-step">
         <div class="mt-0.5 shrink-0">
-          <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
-            1
+          <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
+            <svg aria-hidden="true" class="lucide lucide-check size-3.5" />
+            <span class="sr-only">
+              Step 1 complete
+            </span>
           </span>
         </div>
-        <div class="flex flex-1 flex-col gap-2">
+        <div class="flex min-w-0 flex-1 flex-col gap-2">
+          <h4 class="font-medium">
+            Repository selected
+          </h4>
+          <p class="text-sm wrap-anywhere text-muted-foreground">
+            [TEMP_PATH]
+          </p>
+        </div>
+      </li>
+      <li aria-current="step" class="flex gap-3" data-testid="welcome-step">
+        <div class="mt-0.5 shrink-0">
+          <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
+            2
+          </span>
+        </div>
+        <div class="flex min-w-0 flex-1 flex-col gap-2">
           <h4 class="font-medium">
             Choose your branch prefix
           </h4>
@@ -64,8 +82,8 @@
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </li>
+    </ol>
     <p class="text-sm text-muted-foreground">
       Once it is set, you can sync your branches and start organizing your commits.
     </p>

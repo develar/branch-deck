@@ -15,7 +15,9 @@ import { UnassignedCommitListCard } from "@/components/unassigned/UnassignedComm
 import { markWindowContentReady } from "@/lib/sub-window"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
+import { useOnboardingReady } from "@/stores/onboarding"
 import { useEffectiveBranchPrefix, useRepository, useSelectedProjectPath, useSessionFailure } from "@/stores/repository"
+import { useAppSettings } from "@/stores/settings/appSettings"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 import { useRowsGeneration } from "@/stores/view-rows"
 
@@ -43,6 +45,8 @@ export function BranchCreator() {
   // why the session of the repository serves no window: no prefix (the welcome card), no git (the git alert), a
   // repository git cannot read (the error alert of the path)
   const sessionFailure = useSessionFailure()
+  const onboardingReady = useOnboardingReady()
+  const firstRun = useAppSettings(state => state.onboardingStatus === "inProgress")
   const hasRecentProjects = useRecentProjects(projects => projects.length > 0)
   const selectedPath = useSelectedProjectPath()
   // the session decides whether the repository was synced before, by the app or by `brd` (`RepositoryView.synced`)
@@ -62,14 +66,15 @@ export function BranchCreator() {
   // a repository git cannot read is the error of the path (`pathValidation`, which the failed subscription sets)
   const error = hasGitError ? null : syncFailure || pathValidation.error
   const hasError = hasGitError || !!error
-  // on the first run (no repository, no recent project), and while the selected repository has no prefix
-  const showWelcomeCard = !hasError && (hasRepository ? noBranchPrefix : !hasRecentProjects)
+  // The saved first-time walkthrough also stays while the chosen repository session checks its prefix.
+  const showWelcomeCard = onboardingReady && !hasError && (hasRepository ? noBranchPrefix || firstRun : !hasRecentProjects)
   // a repository synced before syncs when its session opens (the session's own sync): only the first sync needs the card
-  const showReadyToSync = hasRepository && neverSynced && hasBranchPrefix && pathValidation.valid && !hasSynced && !hasError
+  const showReadyToSync = !showWelcomeCard && hasRepository && neverSynced && hasBranchPrefix && pathValidation.valid && !hasSynced && !hasError
 
   // the window shows on its first frame with content: the first rows of a sync, or a state without rows (no repository,
   // Welcome, Ready to Sync, an error, a sync that ended without rows)
-  const hasContent = !hasRepository || showWelcomeCard || showReadyToSync || hasError || hasSynced || hasSyncEnded || branchCount > 0 || unassignedCommitCount > 0
+  const hasContent =
+    (!hasRepository && onboardingReady) || showWelcomeCard || showReadyToSync || hasError || hasSynced || hasSyncEnded || branchCount > 0 || unassignedCommitCount > 0
   useEffect(() => {
     if (hasContent) {
       markWindowContentReady()
@@ -93,7 +98,7 @@ export function BranchCreator() {
     <div key={rowsGeneration} className="flex flex-col gap-2" data-testid="branch-creator-root">
       <GitSetupAlert />
 
-      {showWelcomeCard && <WelcomeCard hasRepository={hasRepository} />}
+      {showWelcomeCard && <WelcomeCard repositoryPath={selectedPath} firstRun={firstRun} needsPrefix={noBranchPrefix} />}
 
       {showReadyToSync && <ReadyToSyncCard />}
 

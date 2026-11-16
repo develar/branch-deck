@@ -1,6 +1,6 @@
-import { useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import type { FormEvent, ReactNode } from "react"
-import { CircleHelpIcon, FolderSearchIcon, GitBranchIcon } from "lucide-react"
+import { CheckIcon, CircleHelpIcon, FolderSearchIcon, GitBranchIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -9,18 +9,18 @@ import { CommandLine } from "@/components/shared/CommandLine"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { hasFolderDialog } from "@/lib/title-bar"
+import { consumeOnboardingPrefixFocus, useOnboardingPrefixFocus } from "@/stores/onboarding"
 import { browseRepository, useSessionFailure } from "@/stores/repository"
 import { setGlobalUserBranchPrefix } from "@/stores/settings/appSettings"
 
 interface WelcomeCardProps {
-  /**
-   * A repository is selected, whose session has no prefix (`no_branch_prefix`): the card asks for the prefix. Without
-   * one, it asks for the repository, whose session says whether it has a prefix
-   */
-  hasRepository: boolean
+  repositoryPath: string | undefined
+  firstRun: boolean
+  needsPrefix: boolean
 }
 
-export function WelcomeCard({ hasRepository }: WelcomeCardProps) {
+export function WelcomeCard({ repositoryPath, firstRun, needsPrefix }: WelcomeCardProps) {
+  const hasRepository = repositoryPath !== undefined
   const [helpOpen, setHelpOpen] = useState(false)
   const repositoryHelpId = useId()
   return (
@@ -36,45 +36,63 @@ export function WelcomeCard({ hasRepository }: WelcomeCardProps) {
 
         <CardContent className="flex flex-col gap-4">
           <p className="text-muted-foreground">
-            {hasRepository
-              ? "You're almost ready: choose your branch prefix to start managing your branches."
-              : "Work on one branch, get a real Git branch per feature. Select a repository to start:"}
+            {firstRun
+              ? "Work on one branch, get a real Git branch per feature. Two steps to get started:"
+              : hasRepository
+                ? "You're almost ready: choose your branch prefix to start managing your branches."
+                : "Work on one branch, get a real Git branch per feature. Select a repository to start:"}
           </p>
 
-          <div className="flex flex-col gap-3">
+          {/* Safari drops list semantics with list-style: none unless the list has an explicit role. */}
+          <ol role="list" aria-label="Getting started" className="flex list-none flex-col gap-3">
             {!hasRepository && hasFolderDialog && (
-              <Button
-                variant="outline"
-                className="h-auto w-full cursor-pointer justify-start gap-3 p-3 text-left whitespace-normal"
-                aria-label="Select a Git Repository…"
-                aria-describedby={repositoryHelpId}
-                data-testid="welcome-step"
-                onClick={() => void browseRepository()}
-              >
-                <StepNumber number={1} />
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="font-medium">Select a Git Repository…</span>
-                  <span id={repositoryHelpId} className="text-sm text-muted-foreground">
-                    Browse to a local Git repository.
+              <li aria-current="step" data-testid="welcome-step">
+                <Button
+                  variant="outline"
+                  className="h-auto w-full cursor-pointer justify-start gap-3 p-3 text-left whitespace-normal"
+                  aria-label="Select a Git Repository…"
+                  aria-describedby={repositoryHelpId}
+                  onClick={() => void browseRepository()}
+                >
+                  <StepNumber number={1} />
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="font-medium">Select a Git Repository…</span>
+                    <span id={repositoryHelpId} className="text-sm text-muted-foreground">
+                      Browse to a local Git repository.
+                    </span>
                   </span>
-                </span>
-                <FolderSearchIcon data-icon="inline-end" />
-              </Button>
+                  <FolderSearchIcon data-icon="inline-end" />
+                </Button>
+              </li>
             )}
 
             {!hasRepository && !hasFolderDialog && (
-              <Step number={1} title="Select a Git repository">
+              <Step number={1} title="Select a Git repository" active>
                 <p className="text-sm text-muted-foreground">Choose a repository in the repository selector above.</p>
               </Step>
             )}
 
-            {hasRepository && (
-              <Step number={1} title="Choose your branch prefix">
+            {firstRun && hasRepository && (
+              <Step number={1} title="Repository selected" complete>
+                <p className="text-sm wrap-anywhere text-muted-foreground">{repositoryPath}</p>
+              </Step>
+            )}
+
+            {firstRun && !needsPrefix && (
+              <Step number={2} title="Choose your branch prefix" active={hasRepository}>
+                <p className="text-sm text-muted-foreground" role={hasRepository ? "status" : undefined}>
+                  {hasRepository ? "Checking branch prefix…" : "Set a personal prefix for your branches, if needed."}
+                </p>
+              </Step>
+            )}
+
+            {hasRepository && needsPrefix && (
+              <Step number={firstRun ? 2 : 1} title="Choose your branch prefix" active>
                 <p className="text-sm text-muted-foreground">
                   {"Your branches are named "}
                   <InlineCode>{"<prefix>/virtual/<name>"}</InlineCode>: a personal prefix, like your username, keeps them apart from the branches of others.
                 </p>
-                <BranchPrefixForm />
+                <BranchPrefixForm repositoryPath={repositoryPath} />
                 <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
                   <p className="flex flex-wrap items-center gap-x-1">
                     Or set it in Git for all repositories:
@@ -87,7 +105,7 @@ export function WelcomeCard({ hasRepository }: WelcomeCardProps) {
                 </div>
               </Step>
             )}
-          </div>
+          </ol>
 
           <p className="text-sm text-muted-foreground">
             {hasRepository
@@ -105,7 +123,35 @@ export function WelcomeCard({ hasRepository }: WelcomeCardProps) {
  * The prefix, pre-filled with the one git suggests (the local part of the user's email, which the refusal of the
  * session without a prefix carries), saved only on Save
  */
-function BranchPrefixForm() {
+function BranchPrefixForm({ repositoryPath }: { repositoryPath: string | undefined }) {
+  const field = useRef<HTMLInputElement>(null)
+  const focusPrefix = useOnboardingPrefixFocus(repositoryPath)
+  useEffect(() => {
+    if (!focusPrefix) {
+      return
+    }
+    let frame = 0
+    const focus = () => {
+      cancelAnimationFrame(frame)
+      // The native picker may answer before WebKit has regained focus. Wait for its focus and next paint.
+      frame = requestAnimationFrame(() => {
+        if (document.hasFocus()) {
+          field.current?.focus()
+        }
+      })
+    }
+    window.addEventListener("focus", focus)
+    // Native focus also retries a refused subscription and remounts this form. Keep the request until the user acts.
+    window.addEventListener("pointerdown", consumeOnboardingPrefixFocus, true)
+    window.addEventListener("keydown", consumeOnboardingPrefixFocus, true)
+    focus()
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener("focus", focus)
+      window.removeEventListener("pointerdown", consumeOnboardingPrefixFocus, true)
+      window.removeEventListener("keydown", consumeOnboardingPrefixFocus, true)
+    }
+  }, [focusPrefix])
   const failure = useSessionFailure()
   const suggestion = failure?.details?.type === "prefixSuggestion" ? failure.details.prefix : ""
   // null until the user types: the suggestion of another refusal (a focus asks again) may come after the card
@@ -125,6 +171,7 @@ function BranchPrefixForm() {
     <form className="flex flex-col gap-1" onSubmit={save} data-testid="welcome-prefix-form">
       <div className="flex items-center gap-2">
         <Input
+          ref={field}
           value={value}
           onChange={event => setDraft(event.target.value)}
           placeholder="your-name"
@@ -148,22 +195,27 @@ function BranchPrefixForm() {
   )
 }
 
-function Step({ number, title, children }: { number: number; title: string; children: ReactNode }) {
+function Step({ number, title, children, active, complete }: { number: number; title: string; children: ReactNode; active?: boolean; complete?: boolean }) {
   return (
-    <div className="flex gap-3" data-testid="welcome-step">
+    <li className="flex gap-3" data-testid="welcome-step" aria-current={active ? "step" : undefined}>
       <div className="mt-0.5 shrink-0">
-        <StepNumber number={number} />
+        <StepNumber number={number} complete={complete} />
       </div>
-      <div className="flex flex-1 flex-col gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
         <h4 className="font-medium">{title}</h4>
         {children}
       </div>
-    </div>
+    </li>
   )
 }
 
-function StepNumber({ number }: { number: number }) {
-  return (
+function StepNumber({ number, complete }: { number: number; complete?: boolean }) {
+  return complete ? (
+    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
+      <CheckIcon className="size-3.5" aria-hidden="true" />
+      <span className="sr-only">Step {number} complete</span>
+    </span>
+  ) : (
     <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
       {number}
     </span>

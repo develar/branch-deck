@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import { z } from "zod"
 import type { SettingsChange, SettingsPatch } from "@/lib/bindings"
-import { createPersistentStore } from "@/stores/settings/persistent-store"
+import { createPersistentStore, settingsCaughtUp } from "@/stores/settings/persistent-store"
 import type { EventHandler } from "@/test-support/settings-writer-mock"
 
 const { sets, listeners, notified, logged, catchUp } = vi.hoisted(() => {
@@ -62,6 +62,10 @@ describe("persistent store of the main window", () => {
   })
 
   it("holds its changes until it caught up with the writer, and drops a whole array the writer has a newer one of", async () => {
+    let caughtUp = false
+    void settingsCaughtUp.then(() => {
+      caughtUp = true
+    })
     const recent = createPersistentStore("recentProjects", { schema: z.array(z.string()).default([]), isArray: true, isMainOnly: true })
     const unchanged = createPersistentStore("unchanged", { schema: z.array(z.string()).default([]), isArray: true, isMainOnly: true })
     const panel = createPersistentStore("panel", {
@@ -75,6 +79,7 @@ describe("persistent store of the main window", () => {
     unchanged.setState({ items: ["/y", "/x"] })
     panel.setState({ b: true })
     expect(sets).toEqual([])
+    expect(caughtUp).toBe(false)
 
     // since the app started, another project was opened, and another window changed a field of the panel
     catchUp.answer([
@@ -85,6 +90,7 @@ describe("persistent store of the main window", () => {
 
     // the array built on the stale snapshot would overwrite /c: the writer's value stays
     expect(recent.getState().items).toEqual(["/c", "/a"])
+    expect(caughtUp).toBe(true)
     expect(logged).toContain("Dropped a change of recentProjects made before the window caught up with the settings")
     // a key the writer did not change since the snapshot goes whole, a field on top of the writer's value
     expect(sets).toEqual([
