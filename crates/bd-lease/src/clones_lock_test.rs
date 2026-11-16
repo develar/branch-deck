@@ -3,7 +3,7 @@
 //! arrive in order, and a killed holder frees the lock with its process
 
 use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseGetOutput, lease_get_reporting};
-use crate::lease_test::{Fixture, Killed, path_of};
+use crate::lease_test::{Fixture, path_of};
 #[cfg(unix)]
 use crate::lease_test::{held_environment, states, trash_of_a_run, wait_until_held};
 use bd_cli::fixture_test::assert_covered;
@@ -22,6 +22,7 @@ use std::sync::Mutex;
 use std::thread::ScopedJoinHandle;
 use std::time::{Duration, Instant};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::killed::Killed;
 
 /// `brd lease get --holder <holder>` in the repository of the fixture, each step recorded in `steps`
 pub(crate) fn get_with_steps(fixture: &Fixture, holder: &str, steps: &Mutex<Vec<GetStep>>) -> Result<LeaseGetOutput, CliError> {

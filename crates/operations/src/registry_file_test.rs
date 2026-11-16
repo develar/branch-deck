@@ -284,7 +284,7 @@ fn a_session_shows_the_records_of_other_processes_that_hold_what_they_hold() {
 }
 
 /// A child that runs until it is killed: another process of this host
-pub(crate) fn sleeping_child() -> std::process::Child {
+pub(crate) fn sleeping_child() -> test_utils::killed::Killed {
   let mut command = if cfg!(windows) {
     let mut ping = sync_utils::child_process::windowless_command("ping");
     ping.args(["-n", "120", "127.0.0.1"]);
@@ -294,7 +294,7 @@ pub(crate) fn sleeping_child() -> std::process::Child {
     sleep.arg("120");
     sleep
   };
-  command.stdout(std::process::Stdio::null()).spawn().unwrap()
+  test_utils::killed::Killed(command.stdout(std::process::Stdio::null()).spawn().unwrap())
 }
 
 /// The file says busy while another process of this host that runs the same subject lives, naming it; once that process

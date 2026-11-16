@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::history::HistoryCommit;
+use test_utils::killed::Killed;
 
 /// A repository with a commit on master, the home directory its pool lives in and the global git config of bd
 pub(crate) struct Fixture {
@@ -36,16 +37,6 @@ pub(crate) fn pool_environment(cwd: &Path, home: &Path, global_config: &Path) ->
   environment.git_config_global = Some(global_config.to_path_buf());
   environment.lock_timeout = Duration::from_secs(10);
   environment
-}
-
-/// A child process killed when dropped, also when an assertion fails
-pub(crate) struct Killed(pub(crate) std::process::Child);
-
-impl Drop for Killed {
-  fn drop(&mut self) {
-    let _ = self.0.kill();
-    let _ = self.0.wait();
-  }
 }
 
 impl Fixture {
@@ -127,9 +118,9 @@ pub(crate) fn states(status: &Value) -> Vec<(String, String)> {
 /// A `sleep` with its working directory in `dir`, in a process group of its own: a process of another session, which
 /// keeps a slot busy (a child in the test's group is of the session that runs bd, as the `jq` of its pipeline)
 #[cfg(unix)]
-pub(crate) fn busy_in(dir: &str) -> std::process::Child {
+pub(crate) fn busy_in(dir: &str) -> Killed {
   use std::os::unix::process::CommandExt;
-  std::process::Command::new("sleep").arg("30").current_dir(dir).process_group(0).spawn().unwrap()
+  Killed(std::process::Command::new("sleep").arg("30").current_dir(dir).process_group(0).spawn().unwrap())
 }
 
 /// The bug of the Treehouse pool: a free slot parked at a commit that a rewrite of master made unreachable was never
@@ -1844,7 +1835,7 @@ fn a_get_below_the_minimum_free_space_deletes_the_build_output_of_the_free_slots
 fn a_shrink_passes_over_a_free_slot_with_a_process_in_it_and_one_without_rules() {
   let shrink = ShrinkFixture::new();
   let [first, second, third] = &shrink.slots;
-  let _busy = Killed(busy_in(first));
+  let _busy = busy_in(first);
   std::fs::remove_file(Path::new(second).join(".branchdeck.toml")).unwrap();
   let steps = std::sync::Mutex::new(Vec::new());
   let got = shrink.get(ONE_SLOT_LIFTS, &steps).unwrap();

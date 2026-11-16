@@ -12,6 +12,7 @@ pub mod git_test_utils;
 pub mod held_upload_pack;
 pub mod hermetic_git;
 pub mod history;
+pub mod killed;
 pub mod links;
 #[cfg(unix)]
 pub mod lock_span;

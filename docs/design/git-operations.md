@@ -4445,15 +4445,17 @@ names of its files anywhere else):
   or a lost event woke the task, and a window under an overloaded fseventsd showed another process's operations and
   synced for a stamp only at a focus. A window of the session that gains the focus looks at once (`set_window_focus`:
   the registry, the stamp and the journal), as does each admission of the app, which wrote the file; a watch the system
-  refused leaves the looks. When two looks in a row find the git directory of the repository missing (`NotFound`: the
-  repository was deleted, while an external disk or a share away for a moment is back at the next look), the watch
-  closes the sessions that watch it (`Sessions::close_worktree`) instead of syncing; another error of the stat
-  (`EACCES`, `EIO`) leaves them, told once, and the next look asks again; and a stamp that went away asks no
-  sync (`brd` never removes it; a deletion takes the files before the directory): a sync would run git in a directory
-  that is gone, and on macOS such a git scans the parent for its directory before it fails, seconds in a temporary
-  directory of 100 000 entries. The first look is taken before the watcher starts: `FSEvents` registers a stream after
-  `FSEventStreamStart` returned and from "now", so it drops a change of its first moments without telling it, which
-  the first look of the task then finds (`a_change_between_the_start_of_the_watcher_and_the_first_look_is_seen`).
+  refused leaves the looks. When the looks in a row that find the git directory of the repository missing (`NotFound`)
+  span 2 s from the first of them (`GONE_SPAN`, a `RECHECK`: the repository was deleted, while an external disk or a
+  share away for a moment is back at the next look, and the burst of events of a volume that unmounts brings two looks
+  within milliseconds), the watch closes the sessions that watch it (`Sessions::close_worktree`) instead of syncing, a
+  deleted repository within about 4 s of its deletion; another error of the stat (`EACCES`, `EIO`) leaves them, told
+  once, and the next look asks again; and a stamp that went away asks no sync (`brd` never removes it; a deletion takes
+  the files before the directory): a sync would run git in a directory that is gone, and on macOS such a git scans the
+  parent for its directory before it fails, seconds in a temporary directory of 100 000 entries. The first look is
+  taken before the watcher starts: `FSEvents` registers a stream after `FSEventStreamStart` returned and from "now", so
+  it drops a change of its first moments without telling it, which the first look of the task then finds
+  (`a_change_between_the_start_of_the_watcher_and_the_first_look_is_seen`).
 - **The stamp**: `brd` touches `$GIT_COMMON_DIR/branch-deck/stamp` (its Unix time and pid, written by a rename) after
   every command that succeeded and is no read (`bd-cli::execute`, the commands `READ_ONLY` of `brd --help` leaves out:
   a rewrite, a push, a start, a sync, an update, a pick, a park, a description), once, in one place. The watch asks each

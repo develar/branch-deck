@@ -15,19 +15,21 @@ fn make_idle(fixture: &Fixture, path: &str) {
 
 /// A live process of another session, no ancestor of brd: on Unix a `sleep` in a process group of its own in `dir`
 #[cfg(unix)]
-fn another_session(dir: &str) -> std::process::Child {
+fn another_session(dir: &str) -> test_utils::killed::Killed {
   crate::lease_test::busy_in(dir)
 }
 
 /// A live process of another session, no ancestor of brd: on Windows a `ping` that waits half a minute
 #[cfg(windows)]
-fn another_session(dir: &str) -> std::process::Child {
-  std::process::Command::new("ping")
-    .args(["-n", "30", "127.0.0.1"])
-    .current_dir(dir)
-    .stdout(std::process::Stdio::null())
-    .spawn()
-    .unwrap()
+fn another_session(dir: &str) -> test_utils::killed::Killed {
+  test_utils::killed::Killed(
+    std::process::Command::new("ping")
+      .args(["-n", "30", "127.0.0.1"])
+      .current_dir(dir)
+      .stdout(std::process::Stdio::null())
+      .spawn()
+      .unwrap(),
+  )
 }
 
 /// Change the lease of the slot at `path` in the state file
@@ -257,7 +259,7 @@ fn a_command_of_another_session_in_a_taken_over_slot_is_refused_as_lease_reclaim
   let (exit_code, output) = fixture.run_in(slot, &["--prefix", PREFIX, "lease", "pick", "--dry-run"]);
   assert_eq!(exit_code, 0, "the holder's own session: {output}");
 
-  let other = crate::lease_test::Killed(another_session(fixture.repo.path().to_str().unwrap()));
+  let other = another_session(fixture.repo.path().to_str().unwrap());
   let started = sync_utils::process_scan::process_started(other.0.id());
   update_lease(&fixture, &path, |lease| {
     lease["holder_pid"] = json!(other.0.id());

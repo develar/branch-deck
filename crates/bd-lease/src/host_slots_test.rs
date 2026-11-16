@@ -906,7 +906,7 @@ fn the_steps_of_reclaim_run_side_by_side() {
     ),
     format!("trap 'touch \"{}\"; exit 0' TERM; touch \"$0\"; while :; do sleep 0.05; done", second_signalled.display()),
   ];
-  let runs: Vec<crate::lease_test::Killed> = scripts
+  let runs: Vec<test_utils::killed::Killed> = scripts
     .iter()
     .enumerate()
     .map(|(index, script)| {
@@ -921,7 +921,7 @@ fn the_steps_of_reclaim_run_side_by_side() {
       while !ready.exists() {
         std::thread::sleep(Duration::from_millis(10));
       }
-      crate::lease_test::Killed(child)
+      test_utils::killed::Killed(child)
     })
     .collect();
   // the lends a moment earlier: on Linux the start of a process is known to the second
@@ -1167,7 +1167,7 @@ fn a_lend_that_waits_gets_the_slot_once_it_is_given_back() {
   });
   assert_eq!(lent(waited).n, 1);
 
-  let mut child = crate::lease_test::Killed(sleeping());
+  let mut child = test_utils::killed::Killed(sleeping());
   let child_pid = child.0.id();
   let gone = LendRequest {
     run: "run-4",

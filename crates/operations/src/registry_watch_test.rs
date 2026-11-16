@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_utils::clock::TestClock;
-use sync_utils::dir_watch::{WatchConfig, WatchedDir};
+use sync_utils::dir_watch::{self, WatchConfig, WatchedDir};
 use sync_utils::process_scan::{host_name, process_started};
 use sync_utils::timestamp::unix_now;
 use tokio::sync::mpsc;
@@ -109,16 +109,12 @@ fn agent(child: &std::process::Child) -> ProcessIdentity {
   }
 }
 
-/// The Safe Push of auth that `bd` (a child that sleeps) runs, recorded in `file`; the child goes with `end`
-fn bd_runs_auth(file: &ProcessRegistry) -> std::process::Child {
+/// The Safe Push of auth that `bd` (a child that sleeps) runs, recorded in `file`; the child is killed as it drops, also
+/// when the test fails
+fn bd_runs_auth(file: &ProcessRegistry) -> test_utils::killed::Killed {
   let child = sleeping_child();
   file.insert_of_another_process(record("bd", &agent(&child), &safe_push("auth"), unix_now())).unwrap();
   child
-}
-
-fn end(mut child: std::process::Child) {
-  child.kill().unwrap();
-  child.wait().unwrap();
 }
 
 /// A host whose runs of a sync the test hears
@@ -133,14 +129,15 @@ fn heard_host() -> (Arc<IdleHost>, mpsc::UnboundedReceiver<()>) {
 
 /// A window that watches a repository where `bd` runs the Safe Push of auth, with a host whose syncs the test hears
 struct WhileBdRuns {
-  directory: tempfile::TempDir,
   file: ProcessRegistry,
-  child: std::process::Child,
+  child: test_utils::killed::Killed,
   host: Arc<IdleHost>,
   syncs: mpsc::UnboundedReceiver<()>,
   registry: Registry,
   key: SessionKey,
   patched: mpsc::UnboundedReceiver<()>,
+  /// Last: the watch, the sessions and the child go before the directory
+  directory: tempfile::TempDir,
 }
 
 /// `WhileBdRuns`, its watch learning of a change as `config` says, once the first look of the subscription showed the
@@ -153,7 +150,6 @@ async fn watched_while_bd_runs(config: WatchConfig) -> WhileBdRuns {
   let (registry, key, mut patched) = watched(Arc::clone(&host) as Arc<dyn SessionHost>, directory.path(), config).await;
   after_patches(&registry, &key, &mut patched, "the subscription read no registry", |operations| operations.len() == 1).await;
   WhileBdRuns {
-    directory,
     file,
     child,
     host,
@@ -161,6 +157,7 @@ async fn watched_while_bd_runs(config: WatchConfig) -> WhileBdRuns {
     registry,
     key,
     patched,
+    directory,
   }
 }
 
@@ -248,7 +245,7 @@ async fn a_stamp_of_bd_syncs_the_session_a_window_shows_at_the_next_look_with_no
     .unwrap_or_else(|_elapsed| panic!("no look synced for the stamp within {DEADLINE:?}"))
     .unwrap();
   assert_eq!(wake.stamps(), 1, "one look asked the syncs of the stamp");
-  end(child);
+  drop(child);
 }
 
 /// The event path, with the events the test gives: an event of any name of the directory (the temporary file of a
@@ -285,7 +282,7 @@ async fn an_event_of_any_name_of_the_directory_reads_the_registry_and_syncs_for_
     .await
     .unwrap_or_else(|_elapsed| panic!("the lost event synced nothing for the stamp within {DEADLINE:?}"))
     .unwrap();
-  end(child);
+  drop(child);
 }
 
 /// The event path of the system: the watch tells that a record left the registry, with no look of the task. It fails
@@ -309,7 +306,7 @@ async fn the_watch_of_the_system_tells_that_a_record_left_the_registry_with_no_l
     <[RunningOperation]>::is_empty,
   )
   .await;
-  end(child);
+  drop(child);
 }
 
 /// Every event that may be a change of the registry, the stamp or the journal asks the task for a look: an event of one
@@ -363,7 +360,7 @@ async fn a_focus_looks_at_the_journal_and_the_stamp_too() {
     .unwrap_or_else(|_elapsed| panic!("the focus told no change of the journal within {DEADLINE:?}"))
     .unwrap();
   assert_eq!(wake.stamps(), 1, "the focus asked the syncs of the stamp");
-  end(child);
+  drop(child);
 }
 
 /// A change made after the watcher started and before the task of the watch took its first look is told at a look, with
@@ -390,9 +387,9 @@ async fn a_change_between_the_start_of_the_watcher_and_the_first_look_is_seen() 
 }
 
 /// A repository that goes away while a window watches it (its git directory is deleted, as a test deletes its
-/// repository): the next look closes its sessions, so the window's subscription ends, and asks no sync, though the stamp
-/// is gone too; a sync of it would run git in a directory that is gone (on macOS a git whose directory went away under it
-/// scans the parent for it: 7 s in a temporary directory of 122 000 entries, 18 s under load)
+/// repository): the looks of a `RECHECK` close its sessions, so the window's subscription ends, and ask no sync, though
+/// the stamp is gone too; a sync of it would run git in a directory that is gone (on macOS a git whose directory went
+/// away under it scans the parent for it: 7 s in a temporary directory of 122 000 entries, 18 s under load)
 #[tokio::test(flavor = "multi_thread")]
 async fn a_look_that_finds_the_repository_gone_closes_its_sessions_and_syncs_nothing() {
   let directory = tempfile::tempdir().unwrap();
@@ -402,7 +399,13 @@ async fn a_look_that_finds_the_repository_gone_closes_its_sessions_and_syncs_not
   let (registry, key, mut patched) = watched(Arc::new(IdleHost::default()), &common_dir, LOOKS_ONLY).await;
   let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
 
+  let taken = wake.looks_taken();
   std::fs::remove_dir_all(directory.path().join("repo")).unwrap();
+  // the second look that ended since began once the first ended, 50 ms on, after the removal, and found the directory
+  // missing; a `RECHECK` on, so does the next and closes the sessions. Had it begun before the removal ended, the span
+  // counts from a later look and a real `RECHECK` closes them, within `DEADLINE` still
+  looks_past(&wake, taken + 1).await;
+  seam::advance(dir_watch::RECHECK);
   let ended = tokio::time::timeout(DEADLINE, async { while patched.recv().await.is_some() {} }).await;
   ended.unwrap_or_else(|_elapsed| panic!("no look closed the session of the repository that went away within {DEADLINE:?}"));
   assert_eq!(wake.stamps(), 0, "no look asked a sync of the repository that went away");
@@ -427,9 +430,13 @@ async fn look_once(registry: &Registry, key: &SessionKey, wake: &Wake) {
 }
 
 /// The git directory missing at one look and back at the next (an external disk, a network share away for a moment)
-/// keeps the sessions; missing at two looks in a row (the repository was deleted) closes them, and the window ends
+/// keeps the sessions, and so do two looks in a row that find it missing within milliseconds (the burst of events of a
+/// volume that unmounts, a focus right after an event); missing still at a look a `RECHECK` after the first that missed
+/// it (the repository was deleted) closes them, and the window ends
 #[tokio::test(flavor = "multi_thread")]
-async fn the_sessions_close_once_the_repository_is_missing_at_two_looks_in_a_row_not_at_one() {
+async fn the_sessions_close_once_the_repository_is_missing_for_a_recheck_not_at_one_look_or_a_burst() {
+  // the looks are as far apart as the test moves the clock, also on a runner so loaded that they are seconds apart
+  seam::freeze();
   let directory = tempfile::tempdir().unwrap();
   let (registry, key, mut patched) = watched(Arc::new(IdleHost::default()), directory.path(), GIVEN_EVENTS).await;
   let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
@@ -442,11 +449,13 @@ async fn the_sessions_close_once_the_repository_is_missing_at_two_looks_in_a_row
   look_once(&registry, &key, &wake).await;
   assert!(registry.sessions().is_open(&key), "back at the next");
 
-  seam::script_stats(&[std::io::ErrorKind::NotFound, std::io::ErrorKind::NotFound]);
+  seam::script_stats(&[std::io::ErrorKind::NotFound, std::io::ErrorKind::NotFound, std::io::ErrorKind::NotFound]);
   look_once(&registry, &key, &wake).await;
-  assert!(registry.sessions().is_open(&key), "missing at one look of the two");
   look_once(&registry, &key, &wake).await;
-  assert!(!registry.sessions().is_open(&key), "missing at two looks in a row");
+  assert!(registry.sessions().is_open(&key), "missing at two looks with no time between them");
+  seam::advance(dir_watch::RECHECK);
+  look_once(&registry, &key, &wake).await;
+  assert!(!registry.sessions().is_open(&key), "missing still a RECHECK after the first look that missed it");
   let ended = tokio::time::timeout(DEADLINE, async { while patched.recv().await.is_some() {} }).await;
   ended.unwrap_or_else(|_elapsed| panic!("the window of the closed session did not end within {DEADLINE:?}"));
 }
@@ -473,5 +482,5 @@ async fn a_stat_error_other_than_not_found_keeps_the_sessions_and_the_next_look_
     operations.len() == 1
   })
   .await;
-  end(child);
+  drop(child);
 }

@@ -5,9 +5,9 @@
 
 use crate::disk_command::{LeaseDiskArgs, lease_disk_reporting};
 use crate::lease_command::LeaseContext;
-use crate::lease_test::{Fixture, path_of, slot_path, states};
 #[cfg(unix)]
-use crate::lease_test::{Killed, busy_in};
+use crate::lease_test::busy_in;
+use crate::lease_test::{Fixture, path_of, slot_path, states};
 use bd_cli::fixture_test::{assert_error, canonical, git, repo_on_baseline, run_json};
 use lease_pool::lease_clean::describe_size;
 use pool_disk::step::DiskStep;
@@ -166,7 +166,7 @@ fn a_pool_within_its_limit_is_not_trimmed_but_the_output_bases_of_gone_workspace
 fn a_free_slot_with_a_process_in_it_stays_and_the_next_one_goes() {
   let trim = TrimFixture::new();
   let [first, second, third] = &trim.slots;
-  let _busy = Killed(busy_in(first));
+  let _busy = busy_in(first);
   let output = trim.trim(&["--max", "1"]);
   assert_eq!(TrimFixture::named(&output, "busy"), std::slice::from_ref(first), "{output}");
   assert_eq!(TrimFixture::named(&output, "removed"), [second.clone(), third.clone()], "{output}");

@@ -38,7 +38,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::dir_watch::{self, Fingerprints, WatchConfig, WatchedDir};
 use sync_utils::span::in_current_span;
@@ -56,10 +56,12 @@ const NAMES: [&str; 3] = [crate::registry_file::FILE, STAMP, crate::journal::FIL
 const STAMP_CHANGED: u64 = 0b01;
 const JOURNAL_CHANGED: u64 = 0b10;
 
-/// The looks in a row that must find the git directory of the repository missing before its sessions close: a volume
-/// that was away for a moment (an external disk, a network share) is missing at one look and back at the next, while a
-/// deleted repository is missing at both, within `RECHECK` (2 s) of each other
-const GONE_LOOKS: u32 = 2;
+/// The time the looks in a row that find the git directory of the repository missing must span before its sessions
+/// close, from the first of them, so two looks at least: a volume that was away for a moment (an external disk, a
+/// network share) is missing at one look and back at the next, and a look follows an event, a focus or an admission at
+/// once, so the burst of events of a volume that unmounts brings two looks within milliseconds; a deleted repository is
+/// missing still a `RECHECK` later
+const GONE_SPAN: Duration = dir_watch::RECHECK;
 
 /// What a look found of the git directory of the repository
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +83,14 @@ fn common_dir_state(common_dir: &Path) -> CommonDir {
     Err(error) if error.kind() == std::io::ErrorKind::NotFound => CommonDir::Missing,
     Err(error) => CommonDir::Unreadable(error.to_string()),
   }
+}
+
+/// The clock of the looks that find the git directory missing (`GONE_SPAN`); a test stops it and moves it on (`seam`)
+fn now() -> Instant {
+  let now = Instant::now();
+  #[cfg(test)]
+  let now = seam::clock(now);
+  now
 }
 
 /// Touches the stamp of the repository of `git_common_dir` (`$GIT_COMMON_DIR/branch-deck/stamp`): `bd` did a mutation,
@@ -327,15 +337,16 @@ fn watched_paths(dir: &Path) -> Vec<PathBuf> {
 
 /// The task of the watch of `registry`: each look asked, and one every `recheck` without one, reads the registry, asks
 /// the syncs of a stamp and tells of the journal when their stat changed since the last look (`fingerprints`, the first
-/// taken before the watcher started). A look that finds the git directory of the repository missing at `GONE_LOOKS`
-/// looks in a row closes the sessions that watch it instead (`Sessions::close_worktree`); another error of its stat
+/// taken before the watcher started). Once the looks in a row that find the git directory of the repository missing span
+/// `GONE_SPAN`, a look closes the sessions that watch it instead (`Sessions::close_worktree`); another error of its stat
 /// leaves them, told once
 async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watches, wake: Arc<Wake>, fingerprints: Fingerprints, recheck: Option<Duration>) {
   let dir = registry.dir().to_path_buf();
   // shared with the look of each round on the blocking pool, so a look that fails keeps the last one
   let fingerprints = Arc::new(Mutex::new(fingerprints));
-  // the looks in a row that found the git directory missing, and whether the last look could not tell (told once)
-  let (mut missing, mut unreadable) = (0, false);
+  // when the first of the looks in a row that found the git directory missing looked, and whether the last look could
+  // not tell (told once)
+  let (mut missing, mut unreadable): (Option<Instant>, bool) = (None, false);
   loop {
     let ticked = if let Some(every) = recheck {
       tokio::time::timeout(every, wake.notify.notified()).await.is_err()
@@ -367,13 +378,14 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
     .await;
     let (changed, state) = looked.unwrap_or((0, CommonDir::There));
     match state {
-      CommonDir::There => (missing, unreadable) = (0, false),
+      CommonDir::There => (missing, unreadable) = (None, false),
       CommonDir::Missing => {
-        missing += 1;
+        let at = now();
+        let since = *missing.get_or_insert(at);
         unreadable = false;
-        if missing >= GONE_LOOKS {
-          // the repository went away (its git directory is missing at two looks in a row): its sessions sync no more
-          // and close, their windows end as at the deletion of a test repository; a sync of it would run git in a
+        if at.duration_since(since) >= GONE_SPAN {
+          // the repository went away (its git directory is missing at the looks of a `RECHECK`): its sessions sync no
+          // more and close, their windows end as at the deletion of a test repository; a sync of it would run git in a
           // directory that is gone
           for key in watches.keys(&registry) {
             sessions.close_worktree(&key.worktree);
@@ -383,7 +395,7 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
         continue;
       }
       CommonDir::Unreadable(error) => {
-        missing = 0;
+        missing = None;
         if !unreadable {
           warn!(registry = %dir.display(), %error, "the git directory of the repository can't be read: its sessions stay, the next look asks again");
           unreadable = true;
@@ -433,12 +445,15 @@ fn of_prefix(records: &[Record], prefix: &str) -> Vec<RunningOperation> {
   records.iter().filter(|record| record.session.prefix == prefix).map(Record::running).collect()
 }
 
-/// The seam of the tests: the stats of the git directory a test scripts, one per look, before the real ones
+/// The seam of the tests: the stats of the git directory a test scripts, one per look, before the real ones, and the
+/// clock of the missing looks, which a test stops and moves on
 #[cfg(test)]
 pub(crate) mod seam {
   use std::collections::VecDeque;
   use std::io::ErrorKind;
-  use std::sync::{Mutex, PoisonError};
+  use std::sync::atomic::{AtomicU64, Ordering};
+  use std::sync::{Mutex, OnceLock, PoisonError};
+  use std::time::{Duration, Instant};
 
   static STATS: Mutex<VecDeque<ErrorKind>> = Mutex::new(VecDeque::new());
 
@@ -449,6 +464,27 @@ pub(crate) mod seam {
 
   pub(super) fn next_stat() -> Option<ErrorKind> {
     STATS.lock().unwrap_or_else(PoisonError::into_inner).pop_front()
+  }
+
+  /// The instant the clock stopped at (`freeze`)
+  static FROZEN: OnceLock<Instant> = OnceLock::new();
+  /// The nanoseconds the clock runs ahead (`advance`)
+  static SKEW: AtomicU64 = AtomicU64::new(0);
+
+  /// The clock of the missing looks (`super::now`) stands still from now on and moves only by `advance`, so the time
+  /// between two looks is what the test says, however slow the runner is
+  pub(crate) fn freeze() {
+    FROZEN.get_or_init(Instant::now);
+  }
+
+  /// The clock of the missing looks (`super::now`) runs `by` ahead from now on
+  pub(crate) fn advance(by: Duration) {
+    SKEW.fetch_add(u64::try_from(by.as_nanos()).expect("a skew of a test fits in u64 nanoseconds"), Ordering::SeqCst);
+  }
+
+  /// `real`, or the instant the clock stopped at, run ahead by what the test advanced
+  pub(super) fn clock(real: Instant) -> Instant {
+    FROZEN.get().copied().unwrap_or(real) + Duration::from_nanos(SKEW.load(Ordering::SeqCst))
   }
 }
 
