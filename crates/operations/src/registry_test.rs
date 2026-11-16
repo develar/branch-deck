@@ -1,7 +1,7 @@
 use crate::engine::run;
 use crate::events::EventSink;
 use crate::registry::{Admitted, Answer, Joined, OperationRequest, Registry, RegistryFiles, RunningGuard};
-use domain_types::error::{ApiError, ErrorCode};
+use domain_types::error::{ApiError, ErrorCode, HolderTool};
 use domain_types::fixtures::{land_intent, push_intent};
 use domain_types::operation::{OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Resource, RunningMove, RunningOperation};
 use domain_types::patronus::PatronusPushMode;
@@ -123,6 +123,29 @@ impl Fixture {
   fn spawn_admit(&self, request: OperationRequest) -> tokio::task::JoinHandle<RunningGuard> {
     let (registry, key) = (Arc::clone(&self.registry), self.key.clone());
     tokio::spawn(async move { running(registry.admit(&key, new_id(), request, Arc::new(Heard::default())).await.unwrap()) })
+  }
+}
+
+impl Fixture {
+  /// The operations `names`, each running and holding its own ref: r1, r2, … in their order
+  async fn each_holding<const N: usize>(&self, names: [&str; N]) -> [RunningGuard; N] {
+    let heard = Arc::new(Heard::default());
+    let mut guards = Vec::with_capacity(N);
+    for (index, name) in names.iter().enumerate() {
+      guards.push(running(self.admit(holding(name, &[&format!("r{}", index + 1)]), &heard).await));
+    }
+    guards.try_into().unwrap_or_else(|_| unreachable!())
+  }
+
+  /// x that holds r1 and another operation that holds r9, both running, and w1 that waits behind x for `w1_needs`, with
+  /// its id
+  async fn x_another_and_w1(&self, w1_needs: &[&str]) -> (RunningGuard, RunningGuard, tokio::task::JoinHandle<RunningGuard>, OperationId) {
+    let heard = Arc::new(Heard::default());
+    let x = running(self.admit(holding("x", &["r1"]), &heard).await);
+    let other = running(self.admit(holding("other", &["r9"]), &heard).await);
+    let w1 = self.spawn_admit(holding("w1", w1_needs));
+    let w1_id = new_one(&self.until(|operations| operations.len() == 3).await, &[x.id(), other.id()]);
+    (x, other, w1, w1_id)
   }
 }
 
@@ -386,4 +409,200 @@ async fn a_request_that_stops_waiting_gives_its_place_up_and_a_dropped_operation
   let answer = joined.answer().await.unwrap_err();
   assert_eq!(answer.code, ErrorCode::Internal);
   assert_eq!(fixture.operations().await, Vec::new());
+}
+
+/// A request of `branch` that pushes the refs `refs` (`user/virtual/…` by name), each its own intent
+fn holding(branch: &str, refs: &[&str]) -> OperationRequest {
+  OperationRequest {
+    resources: refs.iter().map(|name| reference(name)).collect(),
+    ..push(branch)
+  }
+}
+
+fn reference(name: &str) -> Resource {
+  Resource::Ref {
+    name: format!("user/virtual/{name}"),
+  }
+}
+
+/// The id of the operation of `operations` that is none of `known`
+fn new_one(operations: &[RunningOperation], known: &[&OperationId]) -> OperationId {
+  operations.iter().find(|operation| !known.contains(&&operation.id)).unwrap().id.clone()
+}
+
+/// An operation that needs more once it runs (`RunningGuard::hold`) is admitted again over the operations but the ones
+/// that wait for it, directly or behind one that does: x holds r1, w1 waits behind it for r1 and r3, w2 behind w1 for r3
+/// and r2; x needs r2, which w2 asks for, and goes on (it waited behind w2 before, which waits for it: none ran again).
+/// The ones that wait for it wait on, also when another operation ends meanwhile, and run after it in their order
+#[tokio::test]
+async fn an_operation_that_needs_more_never_waits_for_the_ones_that_wait_for_it_and_they_run_after_it() {
+  let fixture = fixture();
+  let (x, other, w1, w1_id) = fixture.x_another_and_w1(&["r1", "r3"]).await;
+  let w2 = fixture.spawn_admit(holding("w2", &["r3", "r2"]));
+  let waiting = fixture.until(|operations| operations.len() == 4).await;
+  let w2_id = new_one(&waiting, &[x.id(), other.id(), &w1_id]);
+  assert_eq!(step_of(&waiting, &w1_id), Some(OperationStep::Queued { behind: x.id().clone() }));
+  assert_eq!(step_of(&waiting, &w2_id), Some(OperationStep::Queued { behind: w1_id.clone() }));
+
+  // on the old admission again x waited behind w2, which waits for w1, which waits for x: this never answered
+  assert_eq!(x.hold(vec![reference("r2")], OperationStep::Pushing).await, Ok(false));
+  let after_hold = fixture.operations().await;
+  assert_eq!(step_of(&after_hold, x.id()), Some(OperationStep::Pushing));
+  assert_eq!(step_of(&after_hold, &w1_id), Some(OperationStep::Queued { behind: x.id().clone() }));
+  assert_eq!(step_of(&after_hold, &w2_id), Some(OperationStep::Queued { behind: w1_id.clone() }));
+
+  // the end of another operation admits none of them while x holds r1 and r2
+  let other_id = other.id().clone();
+  let _ = other.finish(Ok(outcome(&other_id))).await;
+  let after_other = fixture.until(|operations| operations.len() == 3).await;
+  assert_eq!(step_of(&after_other, &w1_id), Some(OperationStep::Queued { behind: x.id().clone() }));
+  assert_eq!(step_of(&after_other, &w2_id), Some(OperationStep::Queued { behind: w1_id.clone() }));
+  assert!(!w1.is_finished());
+
+  let x_id = x.id().clone();
+  let _ = x.finish(Ok(outcome(&x_id))).await;
+  let w1 = w1.await.unwrap();
+  assert_eq!(step_of(&fixture.operations().await, &w2_id), Some(OperationStep::Queued { behind: w1_id.clone() }));
+  drop(w1);
+  let w2 = w2.await.unwrap();
+  assert_eq!(step_of(&fixture.operations().await, w2.id()), Some(OperationStep::WaitingForSync));
+  drop(w2);
+  assert_eq!(fixture.until(<[RunningOperation]>::is_empty).await, Vec::new());
+}
+
+/// An operation that needs more waits behind the newest operation of this process that holds it, and says it waited;
+/// the ones admitted after it wait for it
+#[tokio::test]
+async fn an_operation_that_needs_what_another_holds_waits_for_it_and_says_so() {
+  let fixture = fixture();
+  let [x, y] = fixture.each_holding(["x", "y"]).await;
+  let (y_id, x_id) = (y.id().clone(), x.id().clone());
+  let hold = tokio::spawn(async move {
+    let held = x.hold(vec![reference("r2")], OperationStep::Pushing).await;
+    (x, held)
+  });
+  fixture
+    .until(|operations| step_of(operations, &x_id) == Some(OperationStep::Queued { behind: y_id.clone() }))
+    .await;
+  let _ = y.finish(Ok(outcome(&y_id))).await;
+  let (x, held) = hold.await.unwrap();
+  assert_eq!(held, Ok(true));
+  assert_eq!(step_of(&fixture.operations().await, &x_id), Some(OperationStep::Pushing));
+  drop(x);
+}
+
+/// What an operation needs once it runs is held between processes too: its record in the registry of its repository
+/// holds it, so `bd` is busy where it needs it, and an operation of another process that holds it makes it `busy`, its
+/// record as it was
+#[tokio::test(flavor = "multi_thread")]
+async fn what_an_operation_needs_once_it_runs_goes_into_its_record_unless_another_process_holds_it() {
+  use crate::registry_file::registry_file_test::{record, session};
+  use crate::registry_file::{ProcessIdentity, ProcessRegistry, RegistryFile, admit_into};
+  let directory = tempfile::tempdir().unwrap();
+  let dir = directory.path().to_path_buf();
+  let sessions = sessions();
+  let registry = Registry::new(Arc::clone(&sessions), RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone())).unflushed());
+  let files = ProcessRegistry::of(directory.path()).unflushed();
+  let bd = ProcessIdentity {
+    pid: 4242,
+    started: Some(1),
+    host: "another-host".to_string(),
+  };
+  let now = sync_utils::timestamp::unix_now();
+  files.insert_of_another_process(record("bd", &bd, &holding("bd", &["r2"]), now)).unwrap();
+  let key = session("user");
+  let x = running(registry.admit(&key, new_id(), holding("x", &["r1"]), Arc::new(Heard::default())).await.unwrap());
+  let resources_of_x = || {
+    let records = files.records().unwrap().unwrap();
+    records.into_iter().find(|record| record.id == *x.id()).unwrap().resources
+  };
+
+  let busy = x.hold(vec![reference("r2")], OperationStep::Pushing).await.unwrap_err();
+  assert_eq!(busy.code, ErrorCode::Busy);
+  assert_eq!(resources_of_x(), vec![reference("r1")]);
+
+  assert_eq!(x.hold(vec![reference("r3")], OperationStep::Pushing).await, Ok(false));
+  assert_eq!(resources_of_x(), vec![reference("r1"), reference("r3")]);
+  // `bd` admitted now needs r3: the record of x holds it
+  let mut file = RegistryFile {
+    operations: files.records().unwrap().unwrap(),
+    ..RegistryFile::default()
+  };
+  let holder = admit_into(&mut file, record("bd-r3", &bd, &holding("bd-r3", &["r3"]), now), &bd, now, &|_pid, _started| true).unwrap_err();
+  assert_eq!(holder.id, *x.id());
+  drop(x);
+}
+
+/// The latent bug of the admission again without a cycle (as after the hold of HEAD by Update Project): x holds r1, w1
+/// waits behind it for r1; x needs r2, which nobody holds, and goes on at once at the end of the line. The end of another
+/// operation then admitted w1 over the ones before it, x no longer among them: w1 ran beside x, both holding r1. Now w1
+/// follows x and waits on until x ended
+#[tokio::test]
+async fn after_a_hold_that_goes_on_at_once_the_end_of_another_operation_runs_none_that_waits_for_it() {
+  let fixture = fixture();
+  let (x, other, w1, w1_id) = fixture.x_another_and_w1(&["r1"]).await;
+  assert_eq!(x.hold(vec![reference("r2")], OperationStep::Pushing).await, Ok(false));
+  let other_id = other.id().clone();
+  let _ = other.finish(Ok(outcome(&other_id))).await;
+  let after_other = fixture.until(|operations| operations.len() == 2).await;
+  assert_eq!(step_of(&after_other, &w1_id), Some(OperationStep::Queued { behind: x.id().clone() }));
+  assert!(!w1.is_finished(), "w1 runs beside x, both holding r1");
+  let x_id = x.id().clone();
+  let _ = x.finish(Ok(outcome(&x_id))).await;
+  drop(w1.await.unwrap());
+  assert_eq!(fixture.until(<[RunningOperation]>::is_empty).await, Vec::new());
+}
+
+/// A hold that waits gives up the place of the operation in the line (`RunningGuard::hold`): x holds r1, y r2, z r3, q
+/// waits behind y for r1 and r2 (not behind x: y came later). x needs r3 and waits, now at the end, behind q, the newest
+/// that asks for r1; once y ended, q runs on r1 before x goes on, so x decides again on what q left
+#[tokio::test]
+async fn a_hold_that_waits_lets_one_that_waited_behind_another_for_what_it_held_run_first() {
+  let fixture = fixture();
+  let [x, y, z] = fixture.each_holding(["x", "y", "z"]).await;
+  let q = fixture.spawn_admit(holding("q", &["r1", "r2"]));
+  let q_id = new_one(&fixture.until(|operations| operations.len() == 4).await, &[x.id(), y.id(), z.id()]);
+  assert_eq!(step_of(&fixture.operations().await, &q_id), Some(OperationStep::Queued { behind: y.id().clone() }));
+  let x_id = x.id().clone();
+  let hold = tokio::spawn(async move {
+    let held = x.hold(vec![reference("r3")], OperationStep::Pushing).await;
+    (x, held)
+  });
+  fixture
+    .until(|operations| step_of(operations, &x_id) == Some(OperationStep::Queued { behind: q_id.clone() }))
+    .await;
+  let y_id = y.id().clone();
+  let _ = y.finish(Ok(outcome(&y_id))).await;
+  let q = q.await.unwrap();
+  assert_eq!(step_of(&fixture.operations().await, &x_id), Some(OperationStep::Queued { behind: q_id.clone() }));
+  drop(q);
+  let z_id = z.id().clone();
+  let after_q = fixture
+    .until(|operations| step_of(operations, &x_id) == Some(OperationStep::Queued { behind: z_id.clone() }))
+    .await;
+  assert_eq!(after_q.len(), 2);
+  let _ = z.finish(Ok(outcome(&z_id))).await;
+  let (x, held) = hold.await.unwrap();
+  assert_eq!(held, Ok(true));
+  drop(x);
+}
+
+/// Only the operations that wait in the queue follow one that is admitted again: one queued behind it inside
+/// `wait_behind` (a push behind a rewrite) runs already and keeps its place
+#[test]
+fn only_the_operations_that_wait_in_the_queue_follow_one_admitted_again() {
+  let operation = |id: &str, behind: Option<&OperationId>| RunningOperation {
+    id: OperationId(id.to_owned()),
+    intent: push_intent(id),
+    resources: Vec::new(),
+    step: behind.map_or(OperationStep::Checking, |behind| OperationStep::Queued { behind: behind.clone() }),
+    origin: domain_types::operation::Origin::ThisProcess,
+    moves: Vec::new(),
+    joined: 0,
+  };
+  let x = OperationId("x".to_owned());
+  let (w1, w2, pushing) = (OperationId("w1".to_owned()), OperationId("w2".to_owned()), OperationId("p".to_owned()));
+  let operations = [operation("x", None), operation("w1", Some(&x)), operation("w2", Some(&w1)), operation("p", Some(&x))];
+  assert_eq!(super::waiting_for(&operations, &[w1.clone(), w2.clone()], &x), [w1, w2]);
+  assert!(!super::waiting_for(&operations, &[], &x).contains(&pushing));
 }

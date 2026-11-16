@@ -619,8 +619,11 @@ fn decide(
 }
 
 /// The admission again of `id`, which needs `resources` besides what it holds (`RunningGuard::hold`), on the actor of
-/// the session: over the other operations but those that wait behind it, at the end of the line; it waits behind the
-/// newest that holds one of them, or goes on at its step, its caller told either way
+/// the session: over the other operations but those that wait for it, directly or behind one that does
+/// (`waiting_for`), at the end of the line; it waits behind the newest that holds one of them, or goes on at its step,
+/// its caller told either way. The ones that wait for it follow it at the end of the line, in their order, so none of
+/// them runs while it holds what they need, and none is one it waits for: no wait goes round. Then the ones that wait are
+/// admitted again as at an end (`readmit`), each over the ones before it now
 fn requeue(
   state: &mut TableState,
   channels: &Mutex<HashMap<OperationId, Channel>>,
@@ -631,29 +634,102 @@ fn requeue(
   let Some(mut operation) = state.operations().iter().find(|operation| operation.id == *id).cloned() else {
     return Decision::Closed;
   };
-  operation.resources.extend(resources);
-  let behind_it = OperationStep::Queued { behind: id.clone() };
-  let others: Vec<RunningOperation> = state.operations().iter().filter(|other| other.id != *id && other.step != behind_it).cloned().collect();
+  for resource in resources {
+    if !operation.resources.contains(&resource) {
+      operation.resources.push(resource);
+    }
+  }
+  // the ones that wait in the queue: one queued behind it inside `wait_behind` runs already, and follows nothing
+  let queued: Vec<OperationId> = lock(channels)
+    .iter()
+    .filter(|(_, channel)| channel.waiting.is_some())
+    .map(|(queued, _)| queued.clone())
+    .collect();
+  let after_it = waiting_for(state.operations(), &queued, id);
+  let others: Vec<RunningOperation> = state
+    .operations()
+    .iter()
+    .filter(|other| other.id != *id && !after_it.contains(&other.id))
+    .cloned()
+    .collect();
   let behind = match admit(&others, &operation.intent, &operation.resources) {
     Admission::Queue { op } => Some(op),
     Admission::Run | Admission::Join { .. } => None,
   };
-  let mut channels = lock(channels);
-  let Some(channel) = channels.get_mut(id) else {
-    return Decision::Closed;
-  };
-  let queued = behind.is_some();
-  operation.step = match behind {
-    Some(op) => {
-      let queued_step = OperationStep::Queued { behind: op };
-      channel.waiting = Some((wake, step));
-      queued_step
-    }
-    None => step,
-  };
-  told(channel, id, &operation.step);
+  // one that waits behind it inside `wait_behind` runs while it waits for it: a wait behind that one would go round.
+  // Unreachable while only a holder of HEAD is waited behind and holds no more than HEAD (`RunningGuard::hold`)
+  debug_assert!(
+    behind.as_ref().is_none_or(|holder| {
+      let waits_behind_it = OperationStep::Queued { behind: id.clone() };
+      !state
+        .operations()
+        .iter()
+        .any(|other| other.id == *holder && other.step == waits_behind_it && !queued.contains(&other.id))
+    }),
+    "{id} would wait behind {behind:?}, which waits behind it in `wait_behind`"
+  );
+  {
+    let mut channels = lock(channels);
+    let Some(channel) = channels.get_mut(id) else {
+      return Decision::Closed;
+    };
+    operation.step = match &behind {
+      Some(op) => {
+        channel.waiting = Some((wake, step));
+        OperationStep::Queued { behind: op.clone() }
+      }
+      None => step,
+    };
+    told(channel, id, &operation.step);
+  }
   state.apply_operation(OperationPatch::Requeued(operation));
-  if queued { Decision::Queued } else { Decision::Run }
+  let followers: Vec<RunningOperation> = state.operations().iter().filter(|other| after_it.contains(&other.id)).cloned().collect();
+  for follower in followers {
+    state.apply_operation(OperationPatch::Requeued(follower));
+  }
+  readmit(state, channels);
+  debug_assert_queued_behind_earlier(state, channels);
+  if behind.is_some() { Decision::Queued } else { Decision::Run }
+}
+
+/// The invariant of the line, checked in a debug build after each admission again: every operation that waits in the
+/// queue (its channel has a wake-up) waits behind one before it, so no wait goes round
+fn debug_assert_queued_behind_earlier(state: &TableState, channels: &Mutex<HashMap<OperationId, Channel>>) {
+  if !cfg!(debug_assertions) {
+    return;
+  }
+  let channels = lock(channels);
+  let operations = state.operations();
+  for (index, operation) in operations.iter().enumerate() {
+    let OperationStep::Queued { behind } = &operation.step else {
+      continue;
+    };
+    if channels.get(&operation.id).is_some_and(|channel| channel.waiting.is_some()) {
+      debug_assert!(
+        operations[..index].iter().any(|before| before.id == *behind),
+        "{} waits behind {behind}, which is not before it in the line",
+        operation.id
+      );
+    }
+  }
+}
+
+/// The operations of this process in `operations` that wait for `id` in the queue (`queued`: the ones with a wake-up):
+/// queued behind it, or behind one that does
+fn waiting_for(operations: &[RunningOperation], queued: &[OperationId], id: &OperationId) -> Vec<OperationId> {
+  let mut waiting: Vec<OperationId> = Vec::new();
+  loop {
+    let more: Vec<OperationId> = operations
+      .iter()
+      .filter(|operation| operation.origin == Origin::ThisProcess && queued.contains(&operation.id) && !waiting.contains(&operation.id))
+      .filter(|operation| matches!(&operation.step, OperationStep::Queued { behind } if behind == id || waiting.contains(behind)))
+      .map(|operation| operation.id.clone())
+      .collect();
+    if more.is_empty() {
+      return waiting;
+    }
+    waiting.extend(more);
+  }
 }
 
 /// The newest operation of this process admitted before `id` that holds one of `needs`, on the actor of the session: `id`
@@ -678,10 +754,20 @@ fn behind_holder(state: &mut TableState, channels: &Mutex<HashMap<OperationId, C
 }
 
 /// The end of `id` with `answer`, on the actor of the session: it leaves the session, the ones that waited are admitted
-/// again in the order they came (each over the ones before it), each caller told its new step, and the requests that
-/// joined it get its answer
+/// again (`readmit`), and the requests that joined it get its answer
 fn end(state: &mut TableState, channels: &Mutex<HashMap<OperationId, Channel>>, id: &OperationId, answer: Answer) {
   state.apply_operation(OperationPatch::Ended(id.clone()));
+  readmit(state, channels);
+  let ended = lock(channels).remove(id);
+  if let Some(channel) = ended {
+    channel.answer.send_replace(Some(answer));
+  }
+}
+
+/// The operations that wait are admitted again in the order they came, each over the ones before it, on the actor of the
+/// session: one that holds nothing they need runs, its caller told its step; one whose newest holder changed waits
+/// behind that one, its caller told; after an end (`end`) and an admission again (`requeue`)
+fn readmit(state: &mut TableState, channels: &Mutex<HashMap<OperationId, Channel>>) {
   let mut channels = lock(channels);
   let operations = state.operations().to_vec();
   for (index, operation) in operations.iter().enumerate() {
@@ -709,9 +795,6 @@ fn end(state: &mut TableState, channels: &Mutex<HashMap<OperationId, Channel>>, 
       // the same newest holder: it waits on
       _ => {}
     }
-  }
-  if let Some(channel) = channels.remove(id) {
-    channel.answer.send_replace(Some(answer));
   }
 }
 
@@ -777,14 +860,28 @@ impl RunningGuard {
   }
 
   /// The operation needs `resources` besides what it holds from now on (the check and the move of Update Project need
-  /// HEAD after its fetch, which held nothing of it): it is admitted again as a new operation is, at the end of the
-  /// line, so it waits behind the newest operation of this process that holds one of them (its step `Queued`, its
-  /// caller told), and the ones admitted after it wait for it; then it goes on at `step`. It never waits for one that
-  /// waits for it
+  /// HEAD after its fetch, which held nothing of it; a plan decided again once admitted that needs more than its
+  /// admission held). Between processes first: its record in the registry of its repository holds them
+  /// too (`RecordHandle::extend`), or the operation of another process that holds one makes it `busy`, as no process
+  /// waits for another. Then in this process it is admitted again as a new operation is, at the end of the line, so it
+  /// waits behind the newest operation of this process that holds one of them (its step `Queued`, its caller told), and
+  /// the ones admitted after it wait for it; then it goes on at `step`. It never waits for one that waits for it, and the
+  /// ones that wait for it wait on (`requeue`). Whether it waited in the queue: what the ones before it did changed the
+  /// facts it decided on. An operation others wait behind in `wait_behind` (a holder of HEAD) holds no more than HEAD:
+  /// it would wait for them while they wait for it. Call it only before the first effect on what it holds: a hold that waits lets the operations
+  /// before it in the line now take what it held (one that waited behind another for it, not behind it, runs first), so
+  /// its caller decides again after it
   ///
   /// # Errors
+  /// `busy` while an operation of another process holds one of `resources`, with the errors of the registry file;
   /// `internal` when the session closed meanwhile
-  pub async fn hold(&self, resources: Vec<Resource>, step: OperationStep) -> Result<(), ApiError> {
+  pub async fn hold(&self, resources: Vec<Resource>, step: OperationStep) -> Result<bool, ApiError> {
+    if let Some(record) = self.record() {
+      let extended = resources.clone();
+      tokio::task::spawn_blocking(in_current_span(move || record.extend(&extended)))
+        .await
+        .map_err(|error| ApiError::internal(format!("The record of the operation could not be extended: {error}")))??;
+    }
     let (wake, woken) = oneshot::channel();
     let (channels, id) = (Arc::clone(&self.channels), self.id.clone());
     let decision = self
@@ -792,8 +889,8 @@ impl RunningGuard {
       .apply_with(&self.key, move |state| requeue(state, &channels, &id, resources, (step, wake)))
       .await;
     match decision.unwrap_or(Decision::Closed) {
-      Decision::Run => Ok(()),
-      Decision::Queued => woken.await.map_err(|_closed| closed()),
+      Decision::Run => Ok(false),
+      Decision::Queued => woken.await.map(|()| true).map_err(|_closed| closed()),
       Decision::Join { .. } | Decision::Closed => Err(closed()),
     }
   }

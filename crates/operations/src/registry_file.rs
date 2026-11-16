@@ -604,6 +604,49 @@ impl ProcessRegistry {
     })
   }
 
+  /// The record `id` of this process holds `resources` besides what it holds (`RunningGuard::hold`): they go into it
+  /// unless an operation of another process holds one of them, as an admission decides it (`admit_into`), the records of
+  /// processes that are gone leaving first
+  ///
+  /// # Errors
+  /// `busy`, naming the holder, while an operation of another process holds one of them; `busy` too when the file lost
+  /// the record or is of another Branch Deck; `locked` and `git_error` as `admit`
+  pub fn extend(&self, id: &OperationId, resources: &[Resource]) -> Result<(), ApiError> {
+    let this = ProcessIdentity::this();
+    let now = unix_now();
+    let extended = self.change(|file| {
+      drop_gone(file, this, now, &is_running);
+      let index = file.operations.iter().position(|record| record.id == *id)?;
+      let record = &file.operations[index];
+      let holder = file
+        .operations
+        .iter()
+        .find(|held| !this.runs(held) && holds_across(&held.running(), &held.session.prefix, &record.session.prefix, &record.intent, resources));
+      if let Some(holder) = holder {
+        return Some(Err(Box::new(holder.clone())));
+      }
+      let record = &mut file.operations[index];
+      for resource in resources {
+        if !record.resources.contains(resource) {
+          record.resources.push(resource.clone());
+        }
+      }
+      Some(Ok(()))
+    })?;
+    match extended {
+      Some(Some(Ok(()))) => Ok(()),
+      Some(Some(Err(holder))) => Err(busy(&holder, now)),
+      Some(None) => Err(ApiError::new(
+        ErrorCode::Busy,
+        format!("The operations registry {} lost the record of operation {id}: nothing more is held", self.path().display()),
+      )),
+      None => Err(ApiError::new(
+        ErrorCode::Busy,
+        "The operations registry is of another version of Branch Deck: nothing more is held",
+      )),
+    }
+  }
+
   /// Changes the record `id` of this process as `change` does: `false` when the file lacks it
   fn change_record(&self, id: &OperationId, change: impl FnOnce(&mut Record)) -> Result<(), ApiError> {
     let changed = self.change(|file| file.operations.iter_mut().find(|record| record.id == *id).map(change).is_some())?;
@@ -799,6 +842,15 @@ impl RecordHandle {
         start.url = Some(url);
       }
     })
+  }
+
+  /// The operation holds `resources` besides what its admission held, for the other processes too
+  /// (`ProcessRegistry::extend`)
+  ///
+  /// # Errors
+  /// `busy` while an operation of another process holds one of them, as `ProcessRegistry::extend`
+  pub fn extend(&self, resources: &[Resource]) -> Result<(), ApiError> {
+    self.registry.extend(&self.id, resources)
   }
 
   /// The start was answered, a robot or a refusal: nothing is pending any more
