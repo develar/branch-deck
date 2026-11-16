@@ -372,6 +372,15 @@ describe("The shim of the page in the IDE", () => {
     expect(host.last()).toMatchObject({ method: "tools/call", params: { name: HOST_TOOLS.copy, arguments: { text: "copied" } } })
     await tauri("plugin:log|log", { level: 5, message: "boom" })
     expect(host.last()).toEqual({ jsonrpc: "2.0", method: "notifications/message", params: { level: "error", logger: "branch-deck", data: "boom" } })
+    // the reason goes with the title: the detail of a warning, the error and the operation of an error line
+    await tauri("plugin:log|log", { level: 4, message: "Cannot run set_demand", keyValues: { detail: "Load failed" } })
+    expect(host.last()).toEqual({
+      jsonrpc: "2.0",
+      method: "notifications/message",
+      params: { level: "warning", logger: "branch-deck", data: "Cannot run set_demand: Load failed" },
+    })
+    await tauri("plugin:log|log", { level: 5, message: "Cannot push auth", keyValues: { error: "rejected", operation_id: "01J" } })
+    expect(host.last()).toMatchObject({ params: { level: "error", data: "Cannot push auth: rejected (operation 01J)" } })
 
     // brd mcp is the one path of the desktop of the IDE: it asks the IDE for the badge, the progress, the notification
     const desktop = (command: string, args: Record<string, unknown>) => ({ method: "tools/call", params: { name: "bd_invoke", arguments: { command, args } } })

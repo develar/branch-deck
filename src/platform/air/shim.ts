@@ -115,6 +115,19 @@ const LOG_LEVELS: Readonly<Record<number, string>> = { 1: "debug", 2: "debug", 3
 
 type Payload = Record<string, unknown> | undefined
 
+/**
+ * The line of the log of the IDE of a line of `plugin:log`: its message with what its key values say, as the log of the
+ * app writes them (`detail` of a warning, `error` of an error line, `operation_id` of the operation that failed):
+ * "Cannot run set_demand: Load failed", never the title alone
+ */
+function logLine(payload: Payload): string {
+  const message = typeof payload?.message === "string" ? payload.message : ""
+  const keyValues = (payload?.keyValues ?? {}) as Record<string, unknown>
+  const words = [keyValues.detail, keyValues.error].find((it): it is string => typeof it === "string" && it !== "")
+  const operation = typeof keyValues.operation_id === "string" ? ` (operation ${keyValues.operation_id})` : ""
+  return words === undefined ? `${message}${operation}` : `${message}: ${words}${operation}`
+}
+
 /** The bytes of base64, as `get_blob_syntax` answers them in the app (`tauri::ipc::Response`) */
 function decodeBase64(text: string): ArrayBuffer {
   const binary = atob(text)
@@ -470,7 +483,7 @@ export class AirPage {
         throw new Error("The IDE names no home directory")
       },
       "plugin:log": (_cmd, payload) => {
-        this.link.notify("notifications/message", { level: LOG_LEVELS[payload?.level as number] ?? "info", logger: this.context.app, data: payload?.message ?? "" })
+        this.link.notify("notifications/message", { level: LOG_LEVELS[payload?.level as number] ?? "info", logger: this.context.app, data: logLine(payload) })
         return null
       },
       "plugin:app": cmd => (action(cmd) === "name" ? "BranchDeck" : ""),
