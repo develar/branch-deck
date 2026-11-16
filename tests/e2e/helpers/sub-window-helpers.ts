@@ -58,8 +58,17 @@ export async function getOpenedSubWindows<T = unknown>(page: Page): Promise<Open
   return opens.filter(open => open.opener === label && open.page === pages[label]).map(({ opener: _opener, page: _page, ...open }) => open as OpenedSubWindow<T>)
 }
 
-/** How long before the timeout of a test a press that opens no sub-window fails, with its own words */
+/**
+ * How long before the timeout of a test a press that opens no sub-window fails, with its own words: 5 s, a quarter of
+ * what is left late in a test, never less than `OPEN_FAILS_LAST_BEFORE_THE_TEST`
+ */
 const OPEN_FAILS_BEFORE_THE_TEST = 5_000
+
+/**
+ * The least of that margin: the rejected wait for the open and the timeout of the test are timers of the same worker,
+ * which a load delays alike, so a few hundred ms tell them apart
+ */
+const OPEN_FAILS_LAST_BEFORE_THE_TEST = 250
 
 /**
  * Runs `press` (a click, a key, an event of the native menu), which makes `page` open the sub-window `windowId`, and
@@ -69,9 +78,11 @@ const OPEN_FAILS_BEFORE_THE_TEST = 5_000
  */
 export async function pressAndExpectOpened<T = unknown>(page: Page, press: () => Promise<unknown>, windowId: string, count: number): Promise<OpenedSubWindow<T>> {
   // however long the open takes, but a press that opens nothing says so before the timeout of the test, which would
-  // name no cause: by what is left of the test, a press late in it too (half of it where less than twice the margin is)
+  // name no cause: by what is left of the test, a press late in it too, which keeps most of what is left (a press at
+  // 22 s of a 30 s test waits 6 s, not the 4 s of half of it, which an open of 4.5 s under load outlasted)
   const left = testRemainingMs()
-  const answered = nextAnswer(page, "open_sub_window", 1, left === Infinity ? 0 : Math.max(left - OPEN_FAILS_BEFORE_THE_TEST, left / 2, 1))
+  const margin = Math.min(OPEN_FAILS_BEFORE_THE_TEST, Math.max(left / 4, OPEN_FAILS_LAST_BEFORE_THE_TEST))
+  const answered = nextAnswer(page, "open_sub_window", 1, left === Infinity ? 0 : Math.max(left - margin, 1))
   await press()
   await answered.catch((error: unknown) => {
     throw new Error(`No open_sub_window answered after the press that opens ${windowId}: ${error instanceof Error ? error.message : String(error)}`)

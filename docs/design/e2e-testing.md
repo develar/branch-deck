@@ -512,7 +512,8 @@ Mock implementation:
     `pressAndExpectActivityOpened`, `pressAndExpectSettingsOpened`): the opens are read once `open_sub_window` answered
     (the server records the open as it handles it, which takes seconds under load), never by a poll after the press; a
     press that opens nothing fails "No open_sub_window answered after the press that opens …" by what is left of its
-    test (`testRemainingMs` of base-test), 5 s before its timeout, or halfway to it late in the test, never after it. A write of Settings → Branches, Landing or Agents (`set_repository_config`) is answered by the test
+    test (`testRemainingMs` of base-test), 5 s before its timeout, or a quarter of what is left before it late in the
+    test (250 ms at least: the wait and the timeout are timers of one worker), never after it. A write of Settings → Branches, Landing or Agents (`set_repository_config`) is answered by the test
     server, which sends the main window `repository_config_changed`, as the command does. A change of the settings
     (`set_setting`) goes to the test server's writer of the repository (`TestRepository::store`, the app's
     `SettingsService` on a file of its app data), which sends the change to every page whose window gets its key
