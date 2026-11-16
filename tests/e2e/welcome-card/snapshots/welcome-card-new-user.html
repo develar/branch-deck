@@ -13,39 +13,37 @@
     </p>
     <ol aria-label="Getting started" class="flex list-none flex-col gap-3" role="list">
       <li aria-current="step" data-testid="welcome-step">
-        <button aria-describedby="[ID]" aria-label="Select a Git Repository…" class="group/button inline-flex shrink-0 items-center rounded-2xl border bg-clip-padding text-sm transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 h-auto w-full cursor-pointer justify-start gap-3 p-3 text-left whitespace-normal" data-slot="button" tabindex="0" type="button">
-          <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
+        <button aria-describedby="[ID]" aria-label="Select a Git Repository…" class="group/button shrink-0 rounded-2xl border-transparent bg-clip-padding text-sm transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 has-data-[icon=inline-start]:pl-2.5 flex items-start gap-3 p-3 h-auto w-full cursor-pointer justify-start border-0 text-left whitespace-normal has-data-[icon=inline-end]:pr-3" data-slot="button" tabindex="0" type="button">
+          <span class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium bg-primary/10 text-primary" data-testid="welcome-step-number">
             1
           </span>
-          <span class="flex min-w-0 flex-1 flex-col gap-1">
-            <span class="font-medium">
+          <span class="flex min-w-0 flex-1 flex-col gap-2">
+            <span class="flex items-center gap-2 font-medium text-primary">
               Select a Git Repository…
+              <svg aria-hidden="true" class="lucide lucide-folder-search" data-icon="inline-end" />
             </span>
             <span class="text-sm text-muted-foreground" id="[ID]">
               Browse to a local Git repository.
             </span>
           </span>
-          <svg aria-hidden="true" class="lucide lucide-folder-search" data-icon="inline-end" />
         </button>
       </li>
-      <li class="flex gap-3" data-testid="welcome-step">
-        <div class="mt-0.5 shrink-0">
-          <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
-            2
-          </span>
-        </div>
+      <li class="flex items-start gap-3 p-3" data-testid="welcome-step">
+        <span class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium bg-muted text-muted-foreground" data-testid="welcome-step-number">
+          2
+        </span>
         <div class="flex min-w-0 flex-1 flex-col gap-2">
-          <h4 class="font-medium">
+          <h4 class="flex items-center gap-2 font-medium text-muted-foreground">
             Choose your branch prefix
           </h4>
           <p class="text-sm text-muted-foreground">
-            Set a personal prefix for your branches, if needed.
+            After selecting a repository, set a personal prefix if needed.
           </p>
         </div>
       </li>
     </ol>
     <p class="text-sm text-muted-foreground">
-      Once you select a repository, you can sync your branches and start organizing your commits.
+      Once your repository and branch prefix are ready, you can sync and start organizing your commits.
     </p>
   </div>
 </div>

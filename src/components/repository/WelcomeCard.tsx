@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react"
 import type { FormEvent, ReactNode } from "react"
+import { cn } from "cn"
 import { CheckIcon, CircleHelpIcon, FolderSearchIcon, GitBranchIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -18,6 +19,8 @@ interface WelcomeCardProps {
   firstRun: boolean
   needsPrefix: boolean
 }
+
+const STEP_LAYOUT = "flex items-start gap-3 p-3"
 
 export function WelcomeCard({ repositoryPath, firstRun, needsPrefix }: WelcomeCardProps) {
   const hasRepository = repositoryPath !== undefined
@@ -48,20 +51,22 @@ export function WelcomeCard({ repositoryPath, firstRun, needsPrefix }: WelcomeCa
             {!hasRepository && hasFolderDialog && (
               <li aria-current="step" data-testid="welcome-step">
                 <Button
-                  variant="outline"
-                  className="h-auto w-full cursor-pointer justify-start gap-3 p-3 text-left whitespace-normal"
+                  variant="ghost"
+                  className={cn(STEP_LAYOUT, "h-auto w-full cursor-pointer justify-start border-0 text-left whitespace-normal has-data-[icon=inline-end]:pr-3")}
                   aria-label="Select a Git Repository…"
                   aria-describedby={repositoryHelpId}
                   onClick={() => void browseRepository()}
                 >
-                  <StepNumber number={1} />
-                  <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="font-medium">Select a Git Repository…</span>
+                  <StepNumber number={1} active />
+                  <span className="flex min-w-0 flex-1 flex-col gap-2">
+                    <span className="flex items-center gap-2 font-medium text-primary">
+                      Select a Git Repository…
+                      <FolderSearchIcon data-icon="inline-end" />
+                    </span>
                     <span id={repositoryHelpId} className="text-sm text-muted-foreground">
                       Browse to a local Git repository.
                     </span>
                   </span>
-                  <FolderSearchIcon data-icon="inline-end" />
                 </Button>
               </li>
             )}
@@ -81,7 +86,7 @@ export function WelcomeCard({ repositoryPath, firstRun, needsPrefix }: WelcomeCa
             {firstRun && !needsPrefix && (
               <Step number={2} title="Choose your branch prefix" active={hasRepository}>
                 <p className="text-sm text-muted-foreground" role={hasRepository ? "status" : undefined}>
-                  {hasRepository ? "Checking branch prefix…" : "Set a personal prefix for your branches, if needed."}
+                  {hasRepository ? "Checking branch prefix…" : "After selecting a repository, set a personal prefix if needed."}
                 </p>
               </Step>
             )}
@@ -107,11 +112,7 @@ export function WelcomeCard({ repositoryPath, firstRun, needsPrefix }: WelcomeCa
             )}
           </ol>
 
-          <p className="text-sm text-muted-foreground">
-            {hasRepository
-              ? "Once it is set, you can sync your branches and start organizing your commits."
-              : "Once you select a repository, you can sync your branches and start organizing your commits."}
-          </p>
+          <p className="text-sm text-muted-foreground">Once your repository and branch prefix are ready, you can sync and start organizing your commits.</p>
         </CardContent>
       </Card>
       <BranchPrefixHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
@@ -195,28 +196,33 @@ function BranchPrefixForm({ repositoryPath }: { repositoryPath: string | undefin
   )
 }
 
+// Progress colors: active numbers and titles use primary, upcoming steps are muted, and completed titles stay
+// neutral beside a success check. The repository action above follows the same rule.
 function Step({ number, title, children, active, complete }: { number: number; title: string; children: ReactNode; active?: boolean; complete?: boolean }) {
   return (
-    <li className="flex gap-3" data-testid="welcome-step" aria-current={active ? "step" : undefined}>
-      <div className="mt-0.5 shrink-0">
-        <StepNumber number={number} complete={complete} />
-      </div>
+    <li className={STEP_LAYOUT} data-testid="welcome-step" aria-current={active ? "step" : undefined}>
+      <StepNumber number={number} active={active} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <h4 className="font-medium">{title}</h4>
+        <h4 className={cn("flex items-center gap-2 font-medium", active ? "text-primary" : !complete && "text-muted-foreground")}>
+          {title}
+          {complete && <CheckIcon className="size-4 text-success" aria-hidden="true" />}
+        </h4>
+        {complete && <span className="sr-only">Step {number} complete</span>}
         {children}
       </div>
     </li>
   )
 }
 
-function StepNumber({ number, complete }: { number: number; complete?: boolean }) {
-  return complete ? (
-    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
-      <CheckIcon className="size-3.5" aria-hidden="true" />
-      <span className="sr-only">Step {number} complete</span>
-    </span>
-  ) : (
-    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
+function StepNumber({ number, active }: { number: number; active?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium",
+        active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+      )}
+      data-testid="welcome-step-number"
+    >
       {number}
     </span>
   )

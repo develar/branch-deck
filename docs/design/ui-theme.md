@@ -64,17 +64,24 @@ flowchart TD
 - **White fields.** `--background` stays white (the island colour in dark), so outline buttons and bordered fields
   (`bg-background border-input`) read as fields on an island and on the canvas.
 
-The first-run repository step inside the welcome island is a full-width outline button: its number, title, description
-and folder icon form one target. The border makes the action visible before hover; the shared button supplies hover,
-pressed and keyboard-focus feedback. Hosts without a folder dialog keep an informational step.
+The first-run repository step inside the welcome island is a full-width borderless button: its number, action-colored
+title, adjacent folder icon and description form one target. The shared button supplies subtle hover, pressed and
+keyboard-focus feedback. Every step uses the same number and content columns, padding and spacing, so selection does
+not shift the row horizontally. Hosts without a folder dialog keep an informational step with that same layout.
 
 On the first use, the welcome island shows an ordered two-step overview. The prefix step starts as a compact,
-noninteractive hint: "Set a personal prefix for your branches, if needed." Selecting a repository replaces step 1 with
-"Repository selected", a success check mark, accessible completion text and the full wrapping path. Step 2 says
-"Checking branch prefix…" until the session answers, then expands only if the prefix is missing. Its input receives
+noninteractive hint: "After selecting a repository, set a personal prefix if needed." Its neutral number badge and
+muted title give the active repository action priority. Selecting a repository retains number 1 and shows
+"Repository selected" with a success check beside the title, accessible completion text and the full wrapping path.
+Step 2 says "Checking branch prefix…" until the session answers, then expands only if the prefix is missing. Its input receives
 focus after an in-app selection, but not when resuming at launch. A usable prefix completes the walkthrough without
 an extra click; Ready to Sync remains a separate card. After completion, a later repository needing a prefix has the
-standalone step 1. See [Onboarding](../../openspec/specs/repository/onboarding/spec.md#welcome-card).
+standalone step 1. Every welcome state ends with "Once your repository and branch prefix are ready, you can sync and
+start organizing your commits." See [Onboarding](../../openspec/specs/repository/onboarding/spec.md#welcome-card).
+
+Welcome step colors consistently describe progress: active numbers and titles use `primary`, upcoming steps use
+muted numbers and titles, and completed steps keep a neutral number and title with a `success` check. The active
+title rule also applies while checking a prefix, in standalone prefix setup, and on hosts without a folder picker.
 
 The empty repository popup keeps the same popover surface and padding as a populated selector, with wrapping text
 that explains how to add a repository; its message is not a selectable repository.
