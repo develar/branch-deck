@@ -273,12 +273,12 @@ The welcome card MUST be hidden while an error alert explains a problem.
 
 ### Requirement: Welcome card: First-time onboarding keeps both steps visible
 
-First-time onboarding MUST show an ordered overview: active repository step 1 and a noninteractive prefix preview numbered 2. After selection it MUST retain a completed repository row with the wrapping path and expand step 2 only for `no_branch_prefix`; while the session opens it MUST say "Checking branch prefix…". Later prefix setup MUST remain standalone step 1.
+First-time onboarding MUST show an ordered overview: active repository step 1 and a noninteractive prefix preview numbered 2. After selection it MUST retain a completed repository row numbered 1 with the wrapping path and expand step 2 only for `no_branch_prefix`; while the session opens it MUST say "Checking branch prefix…". Later prefix setup MUST remain standalone step 1.
 
 #### Scenario: The step of the repository
 - **GIVEN** first-time onboarding without a repository
 - **WHEN** the welcome card shows
-- **THEN** step 1 asks for a repository and step 2 previews the prefix task without a form or action
+- **THEN** step 1 asks for a repository and quieter step 2 says "After selecting a repository, set a personal prefix if needed." without a form or action
   [@test] tests/e2e/welcome-card/welcome-card.spec.ts (`shows the welcome card for new users, which asks for the repository first`, `directs users to the repository selector when the host has no folder dialog`)
 
 #### Scenario: The step of the prefix
@@ -296,6 +296,12 @@ First-time onboarding MUST show an ordered overview: active repository step 1 an
 - **WHEN** the user switches repositories during unfinished first-time onboarding
 - **THEN** the completed row shows the currently selected repository and step 2 uses its session answer
   [@test] tests/e2e/welcome-card/welcome-card.spec.ts (`updates the completed repository row when switching before prefix setup`)
+
+#### Scenario: Consistent columns and guidance
+- **WHEN** the welcome card shows before or after repository selection, in either theme or a narrow window
+- **THEN** all step numbers and content share aligned columns, and selecting a repository does not shift step 1 horizontally
+- **AND** the footer says "Once your repository and branch prefix are ready, you can sync and start organizing your commits."
+  [@test] tests/e2e/welcome-card/welcome-card.spec.ts (`keeps onboarding columns aligned through selection in ${theme} theme`)
 
 ### Requirement: Welcome card: First-time progress survives restarting
 
@@ -346,7 +352,7 @@ First-time onboarding MUST finish automatically when the accepted current reposi
 
 ### Requirement: Welcome card: Step changes identify progress and carry keyboard focus
 
-The welcome steps MUST form an ordered list, identify the active step with `aria-current="step"`, and expose completed step 1 with a check mark and accessible completion text. Upcoming and completed rows MUST be informational. An in-app repository selection revealing prefix setup MUST focus its input; resuming on launch MUST NOT take focus.
+The welcome steps MUST form an ordered list, identify the active step with `aria-current="step"`, and retain completed step 1's number with a success check beside "Repository selected" and accessible completion text. Upcoming and completed rows MUST be informational. An in-app repository selection revealing prefix setup MUST focus its input; resuming on launch MUST NOT take focus.
 
 #### Scenario: Repository selection reveals prefix setup
 - **WHEN** the user selects a repository without a prefix by pointer or keyboard
@@ -363,11 +369,25 @@ The welcome steps MUST form an ordered list, identify the active step with `aria
 - **THEN** the input is available without taking focus
   [@test] tests/e2e/welcome-card/welcome-card.spec.ts (`resumes first-time progress from saved settings in a fresh window without taking focus`)
 
+### Requirement: Welcome card: Step colors consistently show progress
+
+Active step numbers and titles MUST use the primary color, upcoming steps MUST use muted numbers and titles, and completed steps MUST use neutral numbers and titles with a success check. The active-title rule MUST apply during prefix loading, standalone prefix setup and on hosts without a folder picker.
+
+#### Scenario: Repository selection changes the active step
+- **WHEN** repository selection advances onboarding in either theme
+- **THEN** the prefix title and number share the active color, the completed repository title becomes neutral, and the upcoming prefix title was muted before selection
+  [@test] tests/e2e/welcome-card/welcome-card.spec.ts (`keeps onboarding columns aligned through selection in ${theme} theme`)
+
+#### Scenario: Other active welcome states
+- **WHEN** the welcome card checks a prefix, shows standalone prefix setup, or directs a host without a picker to select a repository
+- **THEN** the active title and number share the primary color
+  [@test] tests/e2e/welcome-card/welcome-card.spec.ts (`keeps the completed repository visible while checking its prefix`, `shows the prefix step as step 1 when the repository has no branch prefix configured`, `directs users to the repository selector when the host has no folder dialog`)
+
 ### Requirement: Welcome card: The repository step opens the folder picker
 
 On a host with a folder dialog, the whole numbered repository step MUST be a button named "Select a Git Repository…",
-described by "Browse to a local Git repository.", with a folder icon, border, pointer cursor, hover, pressed and
-keyboard-focus feedback. Click, Enter and Space MUST open the existing folder picker; canceling changes nothing. A host
+described by "Browse to a local Git repository.", with an action-colored title, adjacent folder icon, no visible border,
+pointer cursor, hover, pressed and keyboard-focus feedback. Click, Enter and Space MUST open the existing folder picker; canceling changes nothing. A host
 without a folder dialog MUST instead direct the user to the repository selector.
 
 #### Scenario: The repository step activated
@@ -389,6 +409,11 @@ without a folder dialog MUST instead direct the user to the repository selector.
 - **WHEN** the welcome card shows on a host without a folder dialog
 - **THEN** the repository step is informational and directs the user to the repository selector, without offering a folder action
   [@test] tests/e2e/welcome-card/welcome-card.spec.ts (`directs users to the repository selector when the host has no folder dialog`)
+
+#### Scenario: The repository action gives interaction feedback
+- **WHEN** the user hovers, presses or keyboard-focuses the repository row
+- **THEN** the borderless row provides visible feedback and the upcoming prefix row stays outside the keyboard sequence
+  [@test] tests/e2e/welcome-card/welcome-card.spec.ts (`provides borderless repository action feedback and skips the upcoming step`)
 
 ### Requirement: Welcome card: The field of the prefix step is pre-filled with the suggested prefix
 
@@ -1990,9 +2015,14 @@ Help → Getting Started MUST open the Getting Started section of the README.
   copy button.
 - Wording follows [UX Writing](../../../../docs/contributing/ux-writing.md): "Cannot find Git", "Check Again", "Ready to Sync".
 
-- First use shows "Two steps to get started:", a repository action, and a compact prefix preview. On selection,
-  "Repository selected" keeps a wrapping path and check mark above active step 2. "Checking branch prefix…" is a
-  status while the session answers. Completed and upcoming rows are informational, and only the active step has
+- First use shows "Two steps to get started:", a borderless repository action with an action-colored title and
+  adjacent folder icon, and a compact prefix preview with a neutral badge and muted title. Every row shares number
+  and content columns, padding and spacing. On selection, number 1 stays in place and "Repository selected" has a
+  success check beside the title, accessible completion text and a wrapping path above active step 2. "Checking branch
+  prefix…" is a status while the session answers. Completed and upcoming rows are informational, and only the active step has
   `aria-current="step"`. The prefix input receives focus after in-app selection; restarting restores progress without
   taking focus. Existing users and later repositories keep standalone prefix step 1. A usable prefix continues
   automatically to the existing repository experience.
+
+- The upcoming prefix hint says "After selecting a repository, set a personal prefix if needed." Every welcome state
+  ends with "Once your repository and branch prefix are ready, you can sync and start organizing your commits."

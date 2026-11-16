@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot, captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
+import { boxOf } from "../helpers/header-helpers"
 import { openModal } from "../helpers/modal-helpers"
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -29,12 +30,85 @@ test.describe("Welcome Card", () => {
     const steps = welcomeCard.getByRole("listitem")
     await expect(steps).toHaveCount(2)
     await expect(steps.nth(0)).toHaveAttribute("aria-current", "step")
-    await expect(steps.nth(1)).toContainText("Set a personal prefix for your branches, if needed.")
+    await expect(steps.nth(1)).toContainText("After selecting a repository, set a personal prefix if needed.")
     await expect(steps.nth(1).getByRole("button")).toHaveCount(0)
     await expect(welcomeCard.getByRole("button", { name: "Select a Git Repository…" })).toBeVisible()
     await expect(welcomeCard.getByRole("textbox", { name: "Branch prefix to save" })).toHaveCount(0)
 
     await captureHtmlSnapshot(welcomeCard, "welcome-card-new-user")
+  })
+
+  for (const theme of ["light", "dark"] as const) {
+    test(`keeps onboarding columns aligned through selection in ${theme} theme`, { tag: "@webkit" }, async ({ page, setupRepo }) => {
+      await page.emulateMedia({ colorScheme: theme })
+      await page.setViewportSize({ width: 540, height: 800 })
+      const repo = await setupRepo("simple_no_prefix", { prepopulateStore: false })
+      const card = page.getByTestId("welcome-card")
+      const numbers = card.getByTestId("welcome-step-number")
+      const prefixTitle = card.getByRole("heading", { name: "Choose your branch prefix" })
+      const select = card.getByRole("button", { name: "Select a Git Repository…" })
+      const before = await boxOf(numbers.nth(0))
+      const titleX = (await boxOf(select.getByText("Select a Git Repository…", { exact: true }))).x
+      expect((await boxOf(numbers.nth(1))).x).toBe(before.x)
+      expect((await boxOf(prefixTitle)).x).toBe(titleX)
+      const upcomingColor = await prefixTitle.evaluate(element => getComputedStyle(element).color)
+      await expect.poll(() => numbers.nth(1).evaluate(element => getComputedStyle(element).color)).toBe(upcomingColor)
+      const activeColor = await numbers.nth(0).evaluate(element => getComputedStyle(element).color)
+      await expect.poll(() => select.getByText("Select a Git Repository…", { exact: true }).evaluate(element => getComputedStyle(element).color)).toBe(activeColor)
+      const footer = card.getByText("Once your repository and branch prefix are ready, you can sync and start organizing your commits.")
+      await expect(footer).toBeVisible()
+
+      await select.click()
+      const input = card.getByRole("textbox", { name: "Branch prefix to save" })
+      await expect(input).toBeFocused()
+      await expect(numbers).toHaveText(["1", "2"])
+      const after = await boxOf(numbers.nth(0))
+      expect(after.x).toBe(before.x)
+      expect(after.y).toBe(before.y)
+      expect((await boxOf(numbers.nth(1))).x).toBe(before.x)
+      expect((await boxOf(card.getByRole("heading", { name: "Repository selected" }))).x).toBe(titleX)
+      expect((await boxOf(prefixTitle)).x).toBe(titleX)
+      await expect.poll(() => prefixTitle.evaluate(element => getComputedStyle(element).color)).not.toBe(upcomingColor)
+      await expect.poll(() => prefixTitle.evaluate(element => getComputedStyle(element).color)).toBe(activeColor)
+      await expect.poll(() => numbers.nth(1).evaluate(element => getComputedStyle(element).color)).toBe(activeColor)
+      await expect.poll(() => card.getByRole("heading", { name: "Repository selected" }).evaluate(element => getComputedStyle(element).color)).not.toBe(activeColor)
+      await expect(card.getByText("Step 1 complete", { exact: true })).toBeVisible()
+      const path = card.getByText(repo.path!, { exact: true })
+      expect((await boxOf(path)).x).toBe(titleX)
+      await expect.poll(() => path.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      await expect(footer).toBeVisible()
+      await input.fill("aligned-user")
+      await card.getByRole("button", { name: "Save", exact: true }).click()
+      await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+    })
+  }
+
+  test("provides borderless repository action feedback and skips the upcoming step", { tag: "@webkit" }, async ({ page, setupRepo }) => {
+    const repo = await setupRepo("NO_REPO", { prepopulateStore: false })
+    await repo.setDialogPick(null)
+    const select = page.getByRole("button", { name: "Select a Git Repository…" })
+    const feedback = () =>
+      select.evaluate(element => {
+        const style = getComputedStyle(element)
+        return { background: style.backgroundColor, border: style.borderTopWidth, cursor: style.cursor, translate: style.translate, outline: style.outlineStyle }
+      })
+    await page.mouse.move(0, 0)
+    const resting = await feedback()
+    expect(resting.border).toBe("0px")
+    expect(resting.cursor).toBe("pointer")
+    await select.hover()
+    await expect.poll(async () => (await feedback()).background).not.toBe(resting.background)
+    await page.mouse.down()
+    await expect.poll(async () => (await feedback()).translate).not.toBe(resting.translate)
+    await runAndWaitForAnswer(page, "browse_repository", () => page.mouse.up())
+    await expect(select).toBeVisible()
+    // Enter keyboard modality before focusing the action; do not depend on the host's reverse tab order.
+    await page.keyboard.press("Tab")
+    await select.focus()
+    await expect(select).toBeFocused()
+    await expect.poll(async () => (await feedback()).outline).toBe("solid")
+    await page.keyboard.press("Tab")
+    await expect.poll(() => page.getByTestId("welcome-card").evaluate(element => element.contains(document.activeElement))).toBe(false)
   })
 
   for (const activation of ["click", "Enter", "Space"] as const) {
@@ -94,6 +168,11 @@ test.describe("Welcome Card", () => {
     await expect(card.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
     await expect(card.getByRole("button", { name: "Select a Git Repository…" })).toHaveCount(0)
     await expect(page.getByTestId("browse-repository-button")).toHaveCount(0)
+    const numbers = card.getByTestId("welcome-step-number")
+    expect((await boxOf(numbers.nth(0))).x).toBe((await boxOf(numbers.nth(1))).x)
+    expect((await boxOf(card.getByRole("heading", { name: "Select a Git repository" }))).x).toBe((await boxOf(card.getByRole("heading", { name: "Choose your branch prefix" }))).x)
+    const activeColor = await numbers.nth(0).evaluate(element => getComputedStyle(element).color)
+    await expect.poll(() => card.getByRole("heading", { name: "Select a Git repository" }).evaluate(element => getComputedStyle(element).color)).toBe(activeColor)
   })
 
   test("opens branch prefix help modal from welcome card", async ({ page, setupRepo }) => {
@@ -139,6 +218,8 @@ test.describe("Welcome Card", () => {
     // Should show the prefix step (check for the heading specifically), numbered 1: the steps shown count from 1
     await expect(welcomeCard.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
     await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1"])
+    const activeColor = await welcomeCard.getByTestId("welcome-step-number").evaluate(element => getComputedStyle(element).color)
+    await expect.poll(() => welcomeCard.getByRole("heading", { name: "Choose your branch prefix" }).evaluate(element => getComputedStyle(element).color)).toBe(activeColor)
 
     // Should NOT show Step 1 content
     await expect(welcomeCard.getByRole("button", { name: "Select a Git Repository…" })).toHaveCount(0)
@@ -170,7 +251,7 @@ test.describe("Welcome Card", () => {
       await expect(welcomeCardAfter).toBeVisible()
       await expect(welcomeCardAfter.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
 
-      await expect(welcomeCardAfter.getByTestId("welcome-step-number")).toHaveText(["2"])
+      await expect(welcomeCardAfter.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
       const completed = welcomeCardAfter.getByRole("listitem").filter({ hasText: "Repository selected" })
       await expect(completed).toContainText("Step 1 complete")
       await expect(completed).toContainText(picked.path!)
@@ -191,7 +272,7 @@ test.describe("Welcome Card", () => {
       const prefix = page.getByRole("textbox", { name: "Branch prefix to save" })
       await expect(prefix).toBeVisible()
       await expect(prefix).not.toBeFocused()
-      await expect(page.getByTestId("welcome-step-number")).toHaveText(["2"])
+      await expect(page.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
       await expect(page.getByText(picked.path!, { exact: true })).toBeVisible()
       await prefix.fill("invalid prefix")
       await expect(prefix).toHaveAttribute("aria-invalid", "true")
@@ -218,7 +299,7 @@ test.describe("Welcome Card", () => {
       const select = await focusRepositoryStep(page)
       await select.press(activation)
       await expect(page.getByRole("textbox", { name: "Branch prefix to save" })).toBeFocused()
-      await expect(page.getByTestId("welcome-step-number")).toHaveText(["2"])
+      await expect(page.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
     })
   }
 
@@ -253,6 +334,12 @@ test.describe("Welcome Card", () => {
       await expect(card.getByText("Repository selected", { exact: true })).toBeVisible()
       await expect(card.getByText(repo.path!, { exact: true })).toBeVisible()
       await expect(card.getByRole("status")).toHaveText("Checking branch prefix…")
+      await expect(card.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
+      const activeColor = await card
+        .getByTestId("welcome-step-number")
+        .nth(1)
+        .evaluate(element => getComputedStyle(element).color)
+      await expect.poll(() => card.getByRole("heading", { name: "Choose your branch prefix" }).evaluate(element => getComputedStyle(element).color)).toBe(activeColor)
       await expect(card.getByRole("textbox")).toHaveCount(0)
       await expect(page.getByTestId("ready-to-sync-card")).toHaveCount(0)
     } finally {
@@ -275,7 +362,7 @@ test.describe("Welcome Card", () => {
     await restarted.goto(url)
     const card = restarted.getByTestId("welcome-card")
     await expect(card.getByText("Step 1 complete")).toBeVisible()
-    await expect(card.getByTestId("welcome-step-number")).toHaveText(["2"])
+    await expect(card.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
     const field = card.getByRole("textbox", { name: "Branch prefix to save" })
     await expect(field).toBeVisible()
     await expect(field).not.toBeFocused()
@@ -307,7 +394,7 @@ test.describe("Welcome Card", () => {
       await page.getByTestId("browse-repository-button").click()
       await expect(card.getByText(second.path!, { exact: true })).toBeVisible()
       await expect(card.getByText(first.path!, { exact: true })).toHaveCount(0)
-      await expect(card.getByTestId("welcome-step-number")).toHaveText(["2"])
+      await expect(card.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
       await expect(card.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test")
     } finally {
       await page.close()
