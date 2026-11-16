@@ -16,7 +16,7 @@
     },
     "AppId": {
       "type": "string",
-      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "pattern": "^[a-z0-9](?:-?[a-z0-9])*$",
       "maxLength": 64
     },
     "ViewId": {
@@ -25,7 +25,7 @@
     "Instance": {
       "description": "The id of one instance of a view, which air-ide gives. It is never used twice in one run of air-ide.",
       "type": "string",
-      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[1-9][0-9]*$"
+      "pattern": "^[a-z0-9](?:-?[a-z0-9])*:[1-9][0-9]*$"
     },
     "Mirror": {
       "description": "The key of a mirror of the app, which the app gives, such as the path of a repository. The views that show the same state share one mirror.",

@@ -44,7 +44,7 @@
   "$defs": {
     "Id": {
       "type": "string",
-      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "pattern": "^[a-z0-9](?:-?[a-z0-9])*$",
       "maxLength": 64
     },
     "ByOs": {
@@ -121,7 +121,7 @@
         "resource": {
           "description": "The ui:// resource of the page of the view. Its host part is the id of the app.",
           "type": "string",
-          "pattern": "^ui://[a-z0-9]+(-[a-z0-9]+)*/[A-Za-z0-9._~/-]+$"
+          "pattern": "^ui://[a-z0-9](?:-?[a-z0-9])*/[A-Za-z0-9._~/-]+$"
         },
         "place": { "enum": ["toolWindow", "toolWindowTab", "editor", "window", "dialog"] },
         "instances": {
@@ -182,7 +182,7 @@
         "icon": {
           "description": "The icon of the action, which a title of a tool window shows: an SVG of 16 px as the icon of the app, or an icon of the IDE by its field path, such as AllIcons.Actions.Refresh.",
           "type": "string",
-          "pattern": "(\\.svg$)|(^AllIcons(\\.[A-Za-z0-9_]+)+$)"
+          "pattern": "(\\.svg$)|(^AllIcons\\.[A-Za-z0-9_](?:\\.?[A-Za-z0-9_])*$)"
         },
         "groups": {
           "description": "The ids of the IDE action groups that get the action, such as Vcs.MainMenu.",
