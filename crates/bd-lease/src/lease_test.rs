@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::history::HistoryCommit;
+#[cfg(unix)]
 use test_utils::killed::Killed;
 
 /// A repository with a commit on master, the home directory its pool lives in and the global git config of bd
